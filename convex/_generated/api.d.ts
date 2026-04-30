@@ -9,6 +9,7 @@
  */
 
 import type * as hooks from "../hooks.js";
+import type * as publications from "../publications.js";
 
 import type {
   ApiFromModules,
@@ -18,6 +19,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   hooks: typeof hooks;
+  publications: typeof publications;
 }>;
 
 /**

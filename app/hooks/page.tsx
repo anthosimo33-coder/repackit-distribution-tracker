@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -15,7 +17,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { toast } from "sonner";
 
 const MECANIQUES = [
   "Erreur",
@@ -195,12 +196,12 @@ function HookCard({ hook }: { hook: Doc<"hooks"> }) {
             <Badge variant="outline">{hook.langue}</Badge>
           </div>
         </div>
-        <Button
-          size="sm"
-          onClick={() => toast("Coming soon — form en construction")}
+        <Link
+          href={`/nouveau?hookId=${hook._id}`}
+          className={cn(buttonVariants({ size: "sm" }), "shrink-0")}
         >
           Créer carrousel →
-        </Button>
+        </Link>
       </CardContent>
     </Card>
   );
