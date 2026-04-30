@@ -71,14 +71,21 @@ export const listHooks = query({
         v.literal("Niché"),
       ),
     ),
+    search: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const all = await ctx.db.query("hooks").collect();
-    return all.filter(
-      (h) =>
-        (args.langue ? h.langue === args.langue : true) &&
-        (args.mecanique ? h.mecanique === args.mecanique : true) &&
-        (args.niveau ? h.niveau === args.niveau : true),
-    );
+    let results = await ctx.db.query("hooks").collect();
+
+    if (args.langue) results = results.filter((h) => h.langue === args.langue);
+    if (args.mecanique)
+      results = results.filter((h) => h.mecanique === args.mecanique);
+    if (args.niveau)
+      results = results.filter((h) => h.niveau === args.niveau);
+    if (args.search && args.search.length > 0) {
+      const q = args.search.toLowerCase();
+      results = results.filter((h) => h.text.toLowerCase().includes(q));
+    }
+
+    return results;
   },
 });
