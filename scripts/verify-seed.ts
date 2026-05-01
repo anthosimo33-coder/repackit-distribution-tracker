@@ -2,7 +2,13 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
 
-config({ path: ".env.local" });
+const envFlag = process.argv.find((a) => a === "--env" || a.startsWith("--env="));
+const envValue = envFlag === "--env"
+  ? process.argv[process.argv.indexOf("--env") + 1]
+  : envFlag?.split("=")[1];
+const envFile = envValue === "prod" ? ".env.prod.local" : ".env.local";
+
+config({ path: envFile });
 
 const url = process.env.NEXT_PUBLIC_CONVEX_URL;
 if (!url) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
