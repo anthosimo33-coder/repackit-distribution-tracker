@@ -58,6 +58,7 @@ export function PublicationEditDialog({
     toStr(publication.profileVisits),
   );
   const [notes, setNotes] = useState(publication.notes ?? "");
+  const [postUrl, setPostUrl] = useState(publication.postUrl ?? "");
   const [submitting, setSubmitting] = useState(false);
 
   const updateMetrics = useMutation(api.publications.updateMetrics);
@@ -82,6 +83,7 @@ export function PublicationEditDialog({
         commentsAudit: isTikTok ? null : parseNumOrNull(commentsAudit),
         profileVisits: parseNumOrNull(profileVisits),
         notes,
+        postUrl: postUrl.trim(),
       });
       toast.success("Métriques mises à jour");
       onOpenChange(false);
@@ -103,6 +105,21 @@ export function PublicationEditDialog({
             {publication.hookText}
           </DialogDescription>
         </DialogHeader>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="post-url">Lien de publication</Label>
+          <Input
+            id="post-url"
+            type="url"
+            placeholder="https://www.tiktok.com/@... ou https://www.instagram.com/..."
+            value={postUrl}
+            onChange={(e) => setPostUrl(e.target.value)}
+          />
+          <p className="text-xs text-slate-500">
+            Renseigner le lien fait passer la publication en statut « publié ».
+            Vide = « à venir ».
+          </p>
+        </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div className="space-y-1.5">

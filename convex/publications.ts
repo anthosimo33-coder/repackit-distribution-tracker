@@ -131,6 +131,11 @@ export const updateMetrics = mutation({
     commentsAudit: v.optional(v.union(v.number(), v.null())),
     profileVisits: v.optional(v.union(v.number(), v.null())),
     notes: v.optional(v.string()),
+    // postUrl est volontairement intégré ici plutôt que dans une mutation
+    // dédiée setPublishedUrl : l'utilisateur saisit le lien dans le même
+    // dialog que les métriques (PublicationEditDialog), donc 1 seul appel
+    // mutation au save. Passer "" remet la publication en "à venir".
+    postUrl: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const { id, ...rest } = args;

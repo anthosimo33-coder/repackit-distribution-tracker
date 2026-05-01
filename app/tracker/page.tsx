@@ -44,6 +44,7 @@ import { PublicationEditDialog } from "@/components/PublicationEditDialog";
 import { PublicationDetailDialog } from "@/components/PublicationDetailDialog";
 import { calculateSaveRate, calculateVerdict, type Verdict } from "@/lib/verdict";
 import { formatDate, formatNumber, formatPercent } from "@/lib/format";
+import { isPublished } from "@/lib/publication-status";
 import { cn } from "@/lib/utils";
 import {
   ArrowDownIcon,
@@ -148,6 +149,17 @@ export default function TrackerPage() {
     sortKey,
     sortDir,
   ]);
+
+  // Split filtered list along the published/draft boundary defined by isPublished.
+  // Both sections share the same filter + sort state — the split is purely visual.
+  const drafts = useMemo(
+    () => filtered.filter((p) => !isPublished(p)),
+    [filtered],
+  );
+  const published = useMemo(
+    () => filtered.filter((p) => isPublished(p)),
+    [filtered],
+  );
 
   const stats = useMemo(() => {
     if (!publications) return { total: 0, vuesTotal: 0, avgSaveRate: null as number | null, winners: 0 };
@@ -288,115 +300,33 @@ export default function TrackerPage() {
           </Button>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <SortableHead
-                  active={sortKey === "date"}
-                  dir={sortDir}
-                  onClick={() => toggleSort("date")}
-                >
-                  Date
-                </SortableHead>
-                <TableHead>Carrousel</TableHead>
-                <TableHead>Hook</TableHead>
-                <TableHead>Plateforme</TableHead>
-                <TableHead>Compte</TableHead>
-                <TableHead>Mécanique</TableHead>
-                <TableHead>Format</TableHead>
-                <TableHead>Angle</TableHead>
-                <TableHead className="text-right">Vues J7</TableHead>
-                <TableHead className="text-right">Saves</TableHead>
-                <SortableHead
-                  active={sortKey === "saveRate"}
-                  dir={sortDir}
-                  onClick={() => toggleSort("saveRate")}
-                  className="text-right"
-                >
-                  Save rate
-                </SortableHead>
-                <TableHead>Verdict</TableHead>
-                <TableHead></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.map((p) => {
-                const saveRate = calculateSaveRate(p.saves, p.vuesJ7);
-                const verdict = calculateVerdict(saveRate);
-                return (
-                  <TableRow key={p._id}>
-                    <TableCell className="whitespace-nowrap text-xs text-slate-600">
-                      {formatDate(p.datePubli)}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {p.carouselId}
-                    </TableCell>
-                    <TableCell
-                      className="max-w-[280px] truncate text-sm"
-                      title={p.hookText}
-                    >
-                      {p.hookText.length > 60
-                        ? p.hookText.slice(0, 60) + "…"
-                        : p.hookText}
-                    </TableCell>
-                    <TableCell>
-                      <PlatformBadge plateforme={p.plateforme} />
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {p.compte}
-                    </TableCell>
-                    <TableCell className="text-xs">{p.mecanique}</TableCell>
-                    <TableCell className="font-mono text-xs">{p.format}</TableCell>
-                    <TableCell className="text-xs">{p.angleTonal}</TableCell>
-                    <TableCell className="text-right tabular-nums text-xs">
-                      {formatNumber(p.vuesJ7)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums text-xs">
-                      {formatNumber(p.saves)}
-                    </TableCell>
-                    <TableCell
-                      className={cn(
-                        "text-right tabular-nums text-xs",
-                        saveRate === null && "italic text-slate-400",
-                      )}
-                    >
-                      {formatPercent(saveRate)}
-                    </TableCell>
-                    <TableCell>
-                      <VerdictBadge verdict={verdict} />
-                    </TableCell>
-                    <TableCell className="w-8">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger
-                          render={
-                            <Button variant="ghost" size="icon-sm">
-                              <MoreHorizontalIcon />
-                            </Button>
-                          }
-                        />
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => setViewingPub(p)}>
-                            Voir détail
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => setEditingPub(p)}>
-                            Mettre à jour stats
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-rose-600 focus:text-rose-700"
-                            onClick={() => setDeletingPub(p)}
-                          >
-                            Supprimer
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+        <div className="space-y-6">
+          {drafts.length > 0 && (
+            <PublicationsSection
+              title="À venir"
+              dotClass="bg-amber-500"
+              rows={drafts}
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onToggleSort={toggleSort}
+              onView={setViewingPub}
+              onEdit={setEditingPub}
+              onDelete={setDeletingPub}
+            />
+          )}
+          {published.length > 0 && (
+            <PublicationsSection
+              title="Publié"
+              dotClass="bg-emerald-500"
+              rows={published}
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onToggleSort={toggleSort}
+              onView={setViewingPub}
+              onEdit={setEditingPub}
+              onDelete={setDeletingPub}
+            />
+          )}
         </div>
       )}
 
@@ -454,6 +384,148 @@ export default function TrackerPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function PublicationsSection({
+  title,
+  dotClass,
+  rows,
+  sortKey,
+  sortDir,
+  onToggleSort,
+  onView,
+  onEdit,
+  onDelete,
+}: {
+  title: string;
+  dotClass: string;
+  rows: Doc<"publications">[];
+  sortKey: SortKey;
+  sortDir: SortDir;
+  onToggleSort: (k: SortKey) => void;
+  onView: (p: Doc<"publications">) => void;
+  onEdit: (p: Doc<"publications">) => void;
+  onDelete: (p: Doc<"publications">) => void;
+}) {
+  return (
+    <section className="space-y-2">
+      <h2 className="flex items-center gap-2 text-sm font-medium text-slate-700">
+        <span className={cn("inline-block size-2 rounded-full", dotClass)} />
+        {title}
+        <span className="font-normal text-slate-500">({rows.length})</span>
+      </h2>
+      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <SortableHead
+                active={sortKey === "date"}
+                dir={sortDir}
+                onClick={() => onToggleSort("date")}
+              >
+                Date
+              </SortableHead>
+              <TableHead>Carrousel</TableHead>
+              <TableHead>Hook</TableHead>
+              <TableHead>Plateforme</TableHead>
+              <TableHead>Compte</TableHead>
+              <TableHead>Mécanique</TableHead>
+              <TableHead>Format</TableHead>
+              <TableHead>Angle</TableHead>
+              <TableHead className="text-right">Vues J7</TableHead>
+              <TableHead className="text-right">Saves</TableHead>
+              <SortableHead
+                active={sortKey === "saveRate"}
+                dir={sortDir}
+                onClick={() => onToggleSort("saveRate")}
+                className="text-right"
+              >
+                Save rate
+              </SortableHead>
+              <TableHead>Verdict</TableHead>
+              <TableHead></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((p) => {
+              const saveRate = calculateSaveRate(p.saves, p.vuesJ7);
+              const verdict = calculateVerdict(saveRate);
+              return (
+                <TableRow key={p._id}>
+                  <TableCell className="whitespace-nowrap text-xs text-slate-600">
+                    {formatDate(p.datePubli)}
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {p.carouselId}
+                  </TableCell>
+                  <TableCell
+                    className="max-w-[280px] truncate text-sm"
+                    title={p.hookText}
+                  >
+                    {p.hookText.length > 60
+                      ? p.hookText.slice(0, 60) + "…"
+                      : p.hookText}
+                  </TableCell>
+                  <TableCell>
+                    <PlatformBadge plateforme={p.plateforme} />
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {p.compte}
+                  </TableCell>
+                  <TableCell className="text-xs">{p.mecanique}</TableCell>
+                  <TableCell className="font-mono text-xs">{p.format}</TableCell>
+                  <TableCell className="text-xs">{p.angleTonal}</TableCell>
+                  <TableCell className="text-right tabular-nums text-xs">
+                    {formatNumber(p.vuesJ7)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-xs">
+                    {formatNumber(p.saves)}
+                  </TableCell>
+                  <TableCell
+                    className={cn(
+                      "text-right tabular-nums text-xs",
+                      saveRate === null && "italic text-slate-400",
+                    )}
+                  >
+                    {formatPercent(saveRate)}
+                  </TableCell>
+                  <TableCell>
+                    <VerdictBadge verdict={verdict} />
+                  </TableCell>
+                  <TableCell className="w-8">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button variant="ghost" size="icon-sm">
+                            <MoreHorizontalIcon />
+                          </Button>
+                        }
+                      />
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => onView(p)}>
+                          Voir détail
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onEdit(p)}>
+                          Mettre à jour stats
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="text-rose-600 focus:text-rose-700"
+                          onClick={() => onDelete(p)}
+                        >
+                          Supprimer
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
+    </section>
   );
 }
 

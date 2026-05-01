@@ -76,6 +76,10 @@ export default defineSchema({
     commentsAudit: v.union(v.number(), v.null()),
     profileVisits: v.union(v.number(), v.null()),
     notes: v.string(),
+    // Lien public TikTok ou Instagram du post une fois publié.
+    // Définit l'état "publié" via lib/publication-status.ts → isPublished().
+    // Optional pour permettre les rows existantes de coexister sans migration.
+    postUrl: v.optional(v.string()),
   })
     .index("by_carouselId", ["carouselId"])
     .index("by_plateforme", ["plateforme"])

@@ -18,6 +18,8 @@ import {
   formatNumber,
   formatPercent,
 } from "@/lib/verdict";
+import { isPublished } from "@/lib/publication-status";
+import { ExternalLinkIcon } from "lucide-react";
 
 function Field({
   label,
@@ -69,6 +71,23 @@ export function PublicationDetailDialog({
               {publication.hookText}
             </p>
           </div>
+
+          {isPublished(publication) && (
+            <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3">
+              <div className="text-xs font-medium text-emerald-700">
+                Lien de publication
+              </div>
+              <a
+                href={publication.postUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1 inline-flex items-center gap-1.5 text-sm font-medium text-emerald-800 underline-offset-2 hover:underline"
+              >
+                <span className="break-all">{publication.postUrl}</span>
+                <ExternalLinkIcon className="size-3.5 shrink-0" />
+              </a>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <Field label="Mécanique">
