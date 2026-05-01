@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
@@ -107,6 +108,12 @@ type SortKey = "date" | "saveRate";
 type SortDir = "asc" | "desc";
 
 export default function TrackerPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // Modif 5 — deeplink ?carouselId=C00X depuis le Popover variantes /hooks.
+  // Filtre temporaire intégré au pipeline `filtered` (cf justif inline plus bas).
+  const carouselIdParam = searchParams.get("carouselId");
+
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounced(search, 300);
   const [plateforme, setPlateforme] = useState<string>(ALL);
@@ -245,6 +252,14 @@ export default function TrackerPage() {
   const filtered = useMemo(() => {
     if (!publications) return [];
     let list = publications;
+    // Deeplink filter intégré au pipeline plutôt que séparé : (a) cohérence
+    // avec les autres filtres (intersection naturelle si l'user a aussi des
+    // filtres set), (b) une seule traversée du tableau, (c) les useMemo deps
+    // restent localisées. La bannière au-dessus signale visuellement que ce
+    // filtre est actif et offre l'escape (Effacer = reset URL param).
+    if (carouselIdParam) {
+      list = list.filter((p) => p.carouselId === carouselIdParam);
+    }
     if (debouncedSearch) {
       const q = debouncedSearch.toLowerCase();
       list = list.filter((p) => p.hookText.toLowerCase().includes(q));
@@ -293,6 +308,7 @@ export default function TrackerPage() {
     return sorted;
   }, [
     publications,
+    carouselIdParam,
     debouncedSearch,
     plateforme,
     compteFilter,
@@ -522,6 +538,32 @@ export default function TrackerPage() {
           Reset
         </Button>
       </div>
+
+      {carouselIdParam && (
+        <div className="flex items-center justify-between gap-3 rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900">
+          <div>
+            {filtered.length === 0 ? (
+              <>
+                Aucun carrousel trouvé pour{" "}
+                <span className="font-mono font-semibold">{carouselIdParam}</span>
+              </>
+            ) : (
+              <>
+                Filtré sur le carrousel{" "}
+                <span className="font-mono font-semibold">{carouselIdParam}</span>
+              </>
+            )}
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-violet-700 hover:bg-violet-100 hover:text-violet-900"
+            onClick={() => router.replace("/tracker")}
+          >
+            Effacer
+          </Button>
+        </div>
+      )}
 
       {filtered.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-slate-300 bg-white py-16">

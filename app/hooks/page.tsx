@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import type { FunctionReturnType } from "convex/server";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,10 +13,17 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { VerdictBadge, PlatformBadge } from "@/components/VerdictBadge";
 import { FilterSelect } from "@/components/filters/FilterSelect";
 import { FilterMultiSelect } from "@/components/filters/FilterMultiSelect";
 import { cn } from "@/lib/utils";
-import { formatNumber } from "@/lib/format";
+import { formatNumber, formatPercent } from "@/lib/format";
+import { GitBranchIcon } from "lucide-react";
 
 const MECANIQUES = [
   "Erreur",
@@ -223,6 +232,12 @@ function HookCard({ hook }: { hook: HookWithUsage }) {
             )}
           </div>
           {used && <UsageDetail hook={hook} />}
+          {hook.variantsCount > 0 && (
+            <HookVariantsPopover
+              hookId={hook._id}
+              count={hook.variantsCount}
+            />
+          )}
         </div>
         <Link
           href={`/nouveau?hookId=${hook._id}`}
@@ -233,6 +248,110 @@ function HookCard({ hook }: { hook: HookWithUsage }) {
       </CardContent>
     </Card>
   );
+}
+
+/**
+ * Modif 5 — Popover compact listant les variantes d'un hook.
+ *
+ * Lazy : la query getHookVariants n'est lancée qu'à l'ouverture (skip arg
+ * tant que open === false) → pas de fetch coûteux pour les hooks dont le
+ * popover ne sera jamais ouvert.
+ *
+ * Chaque entrée est un Link client-side vers /tracker?carouselId=… (cf
+ * router.push). Le tracker lit ce param et applique un filtre temporaire
+ * + bannière "Effacer".
+ */
+function HookVariantsPopover({
+  hookId,
+  count,
+}: {
+  hookId: Id<"hooks">;
+  count: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const variants = useQuery(
+    api.hooks.getHookVariants,
+    open ? { hookId } : "skip",
+  );
+  const router = useRouter();
+
+  function go(carouselId: string) {
+    setOpen(false);
+    router.push(`/tracker?carouselId=${carouselId}`);
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1.5 px-2 text-xs text-violet-700 hover:bg-violet-50 hover:text-violet-800"
+          >
+            <GitBranchIcon className="size-3.5" />
+            Voir les {count} variantes
+          </Button>
+        }
+      />
+      <PopoverContent
+        className="max-h-96 w-[420px] overflow-y-auto p-1"
+        align="start"
+      >
+        {variants === undefined ? (
+          <div className="space-y-2 p-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-14 w-full" />
+            ))}
+          </div>
+        ) : variants.length === 0 ? (
+          // Cas théorique : variantsCount > 0 côté listHooksWithUsage mais
+          // getHookVariants vide. Garde-fou si la donnée bouge entre les 2
+          // queries (ex: race avec une suppression).
+          <p className="px-3 py-4 text-center text-xs text-slate-500">
+            Aucune variante.
+          </p>
+        ) : (
+          <ul className="space-y-0.5">
+            {variants.map((v, i) => (
+              <li key={`${v.carouselId}-${v.plateforme}-${i}`}>
+                <button
+                  type="button"
+                  onClick={() => go(v.carouselId)}
+                  className="flex w-full flex-col gap-1 rounded-md px-2 py-1.5 text-left hover:bg-slate-50"
+                >
+                  <div className="flex items-center gap-2 text-sm text-slate-900">
+                    <span className="font-mono">{v.carouselId}</span>
+                    <span className="text-slate-400">·</span>
+                    <span className="font-mono text-xs text-slate-600">
+                      {v.compte}
+                    </span>
+                    <span className="text-slate-400">·</span>
+                    <PlatformBadge plateforme={v.plateforme} />
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-slate-500">
+                    <VerdictBadge verdict={v.verdict} />
+                    <span className="tabular-nums">
+                      {v.saveRate === null ? "—" : formatPercent(v.saveRate)}
+                    </span>
+                    <span className="text-slate-400">·</span>
+                    <span>{formatShortDate(v.datePubli)}</span>
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function formatShortDate(timestamp: number): string {
+  return new Date(timestamp).toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "short",
+  });
 }
 
 function UsageDetail({ hook }: { hook: HookWithUsage }) {

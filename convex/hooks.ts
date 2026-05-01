@@ -258,3 +258,84 @@ export const listHooksWithUsage = query({
     return results;
   },
 });
+
+/**
+ * Modif 5 — Liste les variantes d'un hook (rows des groupes de duplicats).
+ *
+ * "Variante" ici = ROW d'un carrousel appartenant à un groupe de >= 2
+ * carouselIds distincts (parent ancré + descendants). Diffère de
+ * variantsCount qui compte les carouselIds distincts : ici on retourne CHAQUE
+ * row (1 par plateforme/compte) pour permettre la comparaison côte à côte.
+ *
+ * Tri : saveRate desc (null en bas), datePubli desc en tie-break.
+ *
+ * Helpers calculateSaveRate/calculateVerdict ré-implémentés inline (pas
+ * d'import cross-tsconfig depuis lib/verdict.ts). Logique identique.
+ */
+export const getHookVariants = query({
+  args: { hookId: v.id("hooks") },
+  handler: async (ctx, args) => {
+    const pubs = await ctx.db
+      .query("publications")
+      .withIndex("by_hookId", (q) => q.eq("hookId", args.hookId))
+      .collect();
+
+    // 1. Identifie les "groupes variantes" : parent ancré → Set des carouselIds
+    //    distincts. Garde uniquement les groupes de taille >= 2.
+    const carouselsByParentAncre = new Map<string, Set<string>>();
+    for (const p of pubs) {
+      const parentAncre = p.parentCarouselId ?? p.carouselId;
+      let bucket = carouselsByParentAncre.get(parentAncre);
+      if (!bucket) {
+        bucket = new Set<string>();
+        carouselsByParentAncre.set(parentAncre, bucket);
+      }
+      bucket.add(p.carouselId);
+    }
+    const variantParentAncres = new Set<string>();
+    for (const [parentAncre, distinctIds] of carouselsByParentAncre) {
+      if (distinctIds.size >= 2) variantParentAncres.add(parentAncre);
+    }
+
+    // 2. Collecte les ROWS dans ces groupes (1 entrée par plateforme/compte
+    //    pour permettre la comparaison côte à côte).
+    const variants = pubs
+      .filter((p) =>
+        variantParentAncres.has(p.parentCarouselId ?? p.carouselId),
+      )
+      .map((p) => {
+        const isPublished =
+          typeof p.postUrl === "string" && p.postUrl.length > 0;
+        const saveRate =
+          p.saves === null || p.vuesJ7 === null || p.vuesJ7 === 0
+            ? null
+            : p.saves / p.vuesJ7;
+        let verdict: "WINNER" | "MOYEN" | "FOLD" | null = null;
+        if (isPublished && saveRate !== null) {
+          if (saveRate >= 0.03) verdict = "WINNER";
+          else if (saveRate >= 0.01) verdict = "MOYEN";
+          else verdict = "FOLD";
+        }
+        return {
+          carouselId: p.carouselId,
+          compte: p.compte,
+          plateforme: p.plateforme,
+          isPublished,
+          verdict,
+          saveRate,
+          datePubli: p.datePubli,
+        };
+      });
+
+    // 3. Tri saveRate desc (null = -Infinity → en bas), datePubli desc
+    //    en tie-break. Aligné avec la convention "null < tout nombre".
+    variants.sort((a, b) => {
+      const ra = a.saveRate ?? -Infinity;
+      const rb = b.saveRate ?? -Infinity;
+      if (ra !== rb) return rb - ra;
+      return b.datePubli - a.datePubli;
+    });
+
+    return variants;
+  },
+});
