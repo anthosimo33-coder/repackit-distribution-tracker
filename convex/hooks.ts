@@ -156,6 +156,11 @@ export const listHooksWithUsage = query({
       draftCount: number;
       accountsUsed: Set<string>;
       lastPublishedAt: number | null;
+      // Modif 3 : groupement par parent ancré (parentCarouselId ?? carouselId).
+      // Pour chaque groupe, on stocke le Set des carouselIds distincts pour
+      // que 1 carrousel multi-plateforme (= 2 rows même carouselId) ne compte
+      // que 1. variantsCount = somme des tailles des groupes >= 2.
+      carouselsByParentAncre: Map<string, Set<string>>;
     };
     const usageByHookId = new Map<string, Usage>();
 
@@ -169,6 +174,7 @@ export const listHooksWithUsage = query({
           draftCount: 0,
           accountsUsed: new Set<string>(),
           lastPublishedAt: null,
+          carouselsByParentAncre: new Map<string, Set<string>>(),
         } satisfies Usage);
 
       const isPub =
@@ -185,17 +191,38 @@ export const listHooksWithUsage = query({
       } else {
         u.draftCount += 1;
       }
+
+      // Agrégation variantsCount : key = parent ancré. Tous les duplicats
+      // d'une même lignée pointent vers le carouselId original (cf
+      // duplicateCarousel) → ils tombent dans le même bucket que l'original.
+      const parentAncre = pub.parentCarouselId ?? pub.carouselId;
+      let bucket = u.carouselsByParentAncre.get(parentAncre);
+      if (!bucket) {
+        bucket = new Set<string>();
+        u.carouselsByParentAncre.set(parentAncre, bucket);
+      }
+      bucket.add(pub.carouselId);
+
       usageByHookId.set(key, u);
     }
 
     let results = hooks.map((h) => {
       const u = usageByHookId.get(h._id as unknown as string);
+      let variantsCount = 0;
+      if (u) {
+        for (const distinctCarouselIds of u.carouselsByParentAncre.values()) {
+          if (distinctCarouselIds.size >= 2) {
+            variantsCount += distinctCarouselIds.size;
+          }
+        }
+      }
       return {
         ...h,
         publishedCount: u?.publishedCount ?? 0,
         draftCount: u?.draftCount ?? 0,
         accountsUsed: u ? Array.from(u.accountsUsed).sort() : [],
         lastPublishedAt: u?.lastPublishedAt ?? null,
+        variantsCount,
       };
     });
 

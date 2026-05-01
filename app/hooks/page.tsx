@@ -216,6 +216,11 @@ function HookCard({ hook }: { hook: HookWithUsage }) {
                 +{hook.draftCount} à venir
               </Badge>
             )}
+            {hook.variantsCount > 0 && (
+              <Badge className="border-violet-200 bg-violet-50 text-violet-700">
+                {hook.variantsCount} variante{hook.variantsCount > 1 ? "s" : ""}
+              </Badge>
+            )}
           </div>
           {used && <UsageDetail hook={hook} />}
         </div>
