@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
@@ -173,6 +173,43 @@ function NouveauForm() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedHook?._id]);
 
+  // Pre-fill slide 1 avec le texte du hook sélectionné. Politique d'écrasement :
+  // n'écrire que si slide 1 est vide (préserve les éditions manuelles). Pour
+  // une sélection au clic, géré dans handleHookSelect / handleCustomTextChange
+  // ci-dessous (handler-based, pas d'effect). Pour le cas d'arrivée via URL
+  // ?hookId= où la sélection est déjà active au mount mais le hook n'est
+  // chargé qu'après résolution de Convex, on a besoin d'un useEffect — ce
+  // n'est pas évitable sans refactor majeur (allHooks est async). Concession
+  // : 1 useEffect avec un useRef pour ne run qu'une seule fois après le
+  // premier load. Idempotent grâce au check prev[0] === "".
+  const initialSeedDone = useRef(false);
+  useEffect(() => {
+    if (initialSeedDone.current) return;
+    if (!selectedHook) return;
+    initialSeedDone.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSlides((prev) =>
+      prev[0] === "" ? [selectedHook.text, ...prev.slice(1)] : prev,
+    );
+  }, [selectedHook]);
+
+  function handleHookSelect(id: Id<"hooks">) {
+    setSelectedHookId(id);
+    const hook = allHooks?.find((h) => h._id === id);
+    if (hook) {
+      setSlides((prev) =>
+        prev[0] === "" ? [hook.text, ...prev.slice(1)] : prev,
+      );
+    }
+  }
+
+  function handleCustomTextChange(value: string) {
+    setCustomText(value);
+    setSlides((prev) =>
+      prev[0] === "" ? [value, ...prev.slice(1)] : prev,
+    );
+  }
+
   useEffect(() => {
     setSlides((prev) => {
       if (prev.length === nbSlides) return prev;
@@ -306,7 +343,7 @@ function NouveauForm() {
               <HookCombobox
                 hooks={biblioFilteredHooks}
                 value={selectedHookId}
-                onChange={setSelectedHookId}
+                onChange={handleHookSelect}
               />
               {selectedHook && (
                 <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
@@ -347,7 +384,7 @@ function NouveauForm() {
                   id="custom-text"
                   rows={2}
                   value={customText}
-                  onChange={(e) => setCustomText(e.target.value)}
+                  onChange={(e) => handleCustomTextChange(e.target.value)}
                   placeholder="Tape ton hook custom..."
                 />
               </div>
