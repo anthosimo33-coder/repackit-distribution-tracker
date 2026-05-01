@@ -161,6 +161,104 @@ export const deletePublication = mutation({
 });
 
 /**
+ * Modif 2 — Duplique un carrousel existant en draft.
+ *
+ * Crée une nouvelle row (1 mutation = 1 carouselId = 1 row pour la plateforme
+ * cible). Pour dupliquer sur 2 plateformes, le user appelle 2 fois.
+ *
+ * Logique parentCarouselId : pointe TOUJOURS vers le parent ORIGINAL pour que
+ * tous les duplicats d'une même lignée partagent un seul point d'ancrage.
+ *   - source originale (parentCarouselId === undefined) → parentAncre = source.carouselId
+ *   - source déjà duplicat (parentCarouselId défini)    → parentAncre = source.parentCarouselId
+ *
+ * Pas de garde isPublished : dupliquer une publication qui a marché pour la
+ * rejouer ailleurs est un cas d'usage attendu (décision tranchée 3-bis).
+ *
+ * Race condition sur nextCarouselId : héritée de getNextCarouselId (TD-004),
+ * pas adressée ici.
+ */
+export const duplicateCarousel = mutation({
+  args: {
+    sourceCarouselId: v.string(),
+    targetCompte: v.string(),
+    targetPlateforme: plateformeValidator,
+  },
+  handler: async (ctx, args) => {
+    const sourceRows = await ctx.db
+      .query("publications")
+      .withIndex("by_carouselId", (q) =>
+        q.eq("carouselId", args.sourceCarouselId),
+      )
+      .collect();
+
+    if (sourceRows.length === 0) {
+      throw new ConvexError("Carrousel source introuvable.");
+    }
+    // N'importe quelle row : tous les champs hors plateforme/compte sont
+    // identiques entre les rows d'un même carouselId (cf updateDraft).
+    const source = sourceRows[0];
+
+    // Validation cross-table compte/plateforme : refuse un compte qui n'existe
+    // pas sur la plateforme cible. Évite des rows incohérentes côté DB.
+    const allComptes = await ctx.db.query("comptes").collect();
+    const matchingCompte = allComptes.find(
+      (c) =>
+        c.handle === args.targetCompte &&
+        c.plateforme === args.targetPlateforme,
+    );
+    if (!matchingCompte) {
+      throw new ConvexError(
+        "Le compte sélectionné n'est pas sur cette plateforme.",
+      );
+    }
+
+    const parentAncre =
+      source.parentCarouselId === undefined
+        ? source.carouselId
+        : source.parentCarouselId;
+
+    // Génération inline du prochain carouselId. Logique alignée avec
+    // getNextCarouselId — duplication assumée (mutation transactionnelle ne
+    // peut pas appeler une query). TD-004 (race condition) inchangé.
+    const all = await ctx.db.query("publications").collect();
+    const numbers = all
+      .map((p) => p.carouselId)
+      .map((id) => parseInt(id.replace(/^C/, ""), 10))
+      .filter((n) => !isNaN(n));
+    const maxNumber = numbers.length > 0 ? Math.max(...numbers) : 0;
+    const nextCarouselId = `C${String(maxNumber + 1).padStart(3, "0")}`;
+
+    await ctx.db.insert("publications", {
+      carouselId: nextCarouselId,
+      hookId: source.hookId,
+      hookText: source.hookText,
+      mecanique: source.mecanique,
+      niveau: source.niveau,
+      format: source.format,
+      nbSlides: source.nbSlides,
+      slides: source.slides,
+      angleTonal: source.angleTonal,
+      langue: source.langue,
+      plateforme: args.targetPlateforme,
+      compte: args.targetCompte,
+      datePubli: Date.now(),
+      vuesJ1: null,
+      vuesJ3: null,
+      vuesJ7: null,
+      saves: null,
+      commentsTotal: null,
+      commentsAudit: null,
+      profileVisits: null,
+      notes: "",
+      // postUrl undefined → draft (cf isPublished). Volontairement omis.
+      parentCarouselId: parentAncre,
+    });
+
+    return { carouselId: nextCarouselId };
+  },
+});
+
+/**
  * Édition d'un brouillon au niveau CARROUSEL : patch toutes les rows
  * partageant le même carouselId. Refuse l'opération si AU MOINS UNE row a
  * postUrl renseigné (= déjà publiée) — on n'autorise pas la réécriture

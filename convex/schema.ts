@@ -80,6 +80,11 @@ export default defineSchema({
     // Définit l'état "publié" via lib/publication-status.ts → isPublished().
     // Optional pour permettre les rows existantes de coexister sans migration.
     postUrl: v.optional(v.string()),
+    // Modif 2 : ancre du groupe de variantes. Pointe TOUJOURS vers le carrousel
+    // ORIGINAL (pas vers un duplicat intermédiaire). Permet à un groupe de
+    // duplicats de partager un seul point d'ancrage. undefined = carrousel
+    // original (pas de parent). Optional pour les rows pré-Modif 2.
+    parentCarouselId: v.optional(v.string()),
   })
     .index("by_carouselId", ["carouselId"])
     .index("by_plateforme", ["plateforme"])
@@ -87,7 +92,11 @@ export default defineSchema({
     // by_hookId : prévu pour des lookups directs « toutes les publications
     // d'un hook donné » (ex: depuis la fiche hook). listHooksWithUsage utilise
     // un seul collect+groupBy en mémoire — l'index est là pour le futur.
-    .index("by_hookId", ["hookId"]),
+    .index("by_hookId", ["hookId"])
+    // by_parentCarouselId : utilisé par Modif 3 (variantsCount par hook) et
+    // Modif 5 (liste des variantes d'un carrousel). Lookup direct des
+    // descendants d'un parent ancré.
+    .index("by_parentCarouselId", ["parentCarouselId"]),
 
   comptes: defineTable({
     handle: v.string(),

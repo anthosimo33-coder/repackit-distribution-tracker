@@ -12,6 +12,13 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { FilterSelect } from "@/components/filters/FilterSelect";
 import { FilterMultiSelect } from "@/components/filters/FilterMultiSelect";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -125,6 +132,8 @@ export default function TrackerPage() {
   const [markingPub, setMarkingPub] = useState<Doc<"publications"> | null>(
     null,
   );
+  const [duplicatingPub, setDuplicatingPub] =
+    useState<Doc<"publications"> | null>(null);
 
   const publications = useQuery(api.publications.listPublications);
   const comptes = useQuery(api.comptes.listComptes, { actifOnly: true });
@@ -537,6 +546,7 @@ export default function TrackerPage() {
               onEdit={setEditingPub}
               onDelete={setDeletingPub}
               onMarkAsPosted={setMarkingPub}
+              onDuplicate={setDuplicatingPub}
             />
           )}
           {published.length > 0 && (
@@ -551,6 +561,7 @@ export default function TrackerPage() {
               onEdit={setEditingPub}
               onDelete={setDeletingPub}
               onMarkAsPosted={setMarkingPub}
+              onDuplicate={setDuplicatingPub}
             />
           )}
         </div>
@@ -666,6 +677,15 @@ export default function TrackerPage() {
           onOpenChange={(o) => !o && setMarkingPub(null)}
         />
       )}
+
+      {duplicatingPub && (
+        <DuplicateCarouselDialog
+          key={duplicatingPub._id}
+          publication={duplicatingPub}
+          open={true}
+          onOpenChange={(o) => !o && setDuplicatingPub(null)}
+        />
+      )}
     </div>
   );
 }
@@ -681,6 +701,7 @@ function PublicationsSection({
   onEdit,
   onDelete,
   onMarkAsPosted,
+  onDuplicate,
 }: {
   title: string;
   dotClass: string;
@@ -692,6 +713,7 @@ function PublicationsSection({
   onEdit: (p: Doc<"publications">) => void;
   onDelete: (p: Doc<"publications">) => void;
   onMarkAsPosted: (p: Doc<"publications">) => void;
+  onDuplicate: (p: Doc<"publications">) => void;
 }) {
   return (
     <section className="space-y-2">
@@ -818,6 +840,9 @@ function PublicationsSection({
                         >
                           Mettre à jour stats
                         </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onDuplicate(p)}>
+                          Dupliquer
+                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                           className="text-rose-600 focus:text-rose-700"
@@ -903,6 +928,158 @@ function MarkAsPostedDialog({
             }}
             autoFocus
           />
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={submitting}
+          >
+            Annuler
+          </Button>
+          <Button onClick={handleSubmit} disabled={!canSubmit}>
+            {submitting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+            Confirmer
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Modif 2 — Dupliquer un carrousel sur une plateforme/compte cible.
+ *
+ * Pas de pré-sélection : la plateforme cible est un choix conscient (TikTok
+ * vs IG = stratégies distinctes), le compte dépend de la plateforme. Les 2
+ * dropdowns sont required ; Confirmer disabled tant que les deux sont vides.
+ *
+ * Filtrage compte par plateforme cible : évite d'arriver à la garde côté
+ * serveur (qui throw si compte ∉ plateforme). Reset compte quand plateforme
+ * change (le compte précédent n'a aucune chance d'être valide).
+ */
+function DuplicateCarouselDialog({
+  publication,
+  open,
+  onOpenChange,
+}: {
+  publication: Doc<"publications">;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [plateforme, setPlateforme] = useState<"" | "TikTok" | "Instagram">("");
+  const [compte, setCompte] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const comptesData = useQuery(api.comptes.listComptes, { actifOnly: true });
+  const filteredComptes = useMemo(
+    () =>
+      plateforme === ""
+        ? []
+        : (comptesData ?? []).filter((c) => c.plateforme === plateforme),
+    [comptesData, plateforme],
+  );
+
+  const duplicate = useMutation(api.publications.duplicateCarousel);
+
+  function handlePlateformeChange(next: "TikTok" | "Instagram") {
+    setPlateforme(next);
+    // Reset synchrone du compte si l'ancien n'est pas valide sur la nouvelle
+    // plateforme — pattern aligné avec PublicationDetailDialog/DraftEditView.
+    if (!comptesData) {
+      setCompte("");
+      return;
+    }
+    const stillValid = comptesData.some(
+      (c) => c.handle === compte && c.plateforme === next,
+    );
+    if (!stillValid) setCompte("");
+  }
+
+  const canSubmit = plateforme !== "" && compte !== "" && !submitting;
+
+  async function handleSubmit() {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    try {
+      await duplicate({
+        sourceCarouselId: publication.carouselId,
+        targetCompte: compte,
+        targetPlateforme: plateforme as "TikTok" | "Instagram",
+      });
+      toast.success("Carrousel dupliqué");
+      onOpenChange(false);
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : "Impossible de dupliquer",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !submitting && onOpenChange(o)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Dupliquer {publication.carouselId}</DialogTitle>
+          <DialogDescription>
+            Crée un nouveau brouillon avec les mêmes slides et hook. Choisis la
+            plateforme et le compte cibles.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="dup-plateforme">Plateforme cible</Label>
+            <Select
+              value={plateforme}
+              onValueChange={(v) =>
+                v !== null && handlePlateformeChange(v as "TikTok" | "Instagram")
+              }
+            >
+              <SelectTrigger id="dup-plateforme">
+                <SelectValue placeholder="Sélectionner...">
+                  {plateforme || "Sélectionner..."}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="TikTok">TikTok</SelectItem>
+                <SelectItem value="Instagram">Instagram</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="dup-compte">Compte cible</Label>
+            {plateforme === "" ? (
+              <p className="rounded-md border border-slate-200 bg-slate-50 p-2 text-xs text-slate-500">
+                Sélectionne d&apos;abord une plateforme.
+              </p>
+            ) : comptesData === undefined ? (
+              <div className="h-9 animate-pulse rounded-md bg-slate-100" />
+            ) : filteredComptes.length === 0 ? (
+              <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+                Aucun compte actif sur {plateforme}.
+              </p>
+            ) : (
+              <Select
+                value={compte}
+                onValueChange={(v) => v !== null && setCompte(v)}
+              >
+                <SelectTrigger id="dup-compte">
+                  <SelectValue placeholder="Sélectionner...">
+                    {compte || "Sélectionner..."}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {filteredComptes.map((c) => (
+                    <SelectItem key={c._id} value={c.handle}>
+                      <span className="font-mono">{c.handle}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
         </div>
         <DialogFooter>
           <Button
