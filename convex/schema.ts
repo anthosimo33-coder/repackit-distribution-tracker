@@ -80,4 +80,13 @@ export default defineSchema({
     .index("by_carouselId", ["carouselId"])
     .index("by_plateforme", ["plateforme"])
     .index("by_datePubli", ["datePubli"]),
+
+  comptes: defineTable({
+    handle: v.string(),
+    plateforme: v.union(v.literal("TikTok"), v.literal("Instagram")),
+    notes: v.string(),
+    actif: v.boolean(),
+  })
+    .index("by_plateforme", ["plateforme"])
+    .index("by_actif", ["actif"]),
 });

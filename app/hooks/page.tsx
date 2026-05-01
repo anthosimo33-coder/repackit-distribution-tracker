@@ -11,6 +11,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { formatNumber } from "@/lib/format";
 import {
   Select,
   SelectContent,
@@ -58,6 +59,7 @@ export default function HooksPage() {
     niveau: niveau === ALL ? undefined : (niveau as Niveau),
     langue: langue === ALL ? undefined : (langue as Langue),
   });
+  const totalCount = useQuery(api.hooks.countHooks);
 
   const reset = () => {
     setSearch("");
@@ -76,13 +78,15 @@ export default function HooksPage() {
   return (
     <div className="space-y-6">
       <header className="space-y-1">
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+        <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
           Bibliothèque hooks
         </h1>
         <p className="text-sm text-slate-500">
-          {hooks === undefined
+          {hooks === undefined || totalCount === undefined
             ? "Chargement..."
-            : `${hooks.length} hook${hooks.length > 1 ? "s" : ""} affiché${hooks.length > 1 ? "s" : ""}`}
+            : hooks.length === totalCount
+              ? `${formatNumber(totalCount)} hooks`
+              : `${formatNumber(hooks.length)} sur ${formatNumber(totalCount)} hooks`}
         </p>
       </header>
 

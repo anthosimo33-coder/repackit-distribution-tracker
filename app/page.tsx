@@ -35,7 +35,7 @@ import {
   getTopHooks,
   type AggregateRow,
 } from "@/lib/dashboard-stats";
-import { formatNumber, formatPercent } from "@/lib/verdict";
+import { formatNumber, formatPercent } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { FileTextIcon, PlusIcon } from "lucide-react";
 
@@ -65,7 +65,7 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       <header className="space-y-1">
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+        <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
           Dashboard
         </h1>
         <p className="text-sm text-slate-500">
@@ -218,7 +218,7 @@ function DimensionChart({
                 tickLine={false}
               />
               <YAxis
-                tickFormatter={(v: number) => `${(v * 100).toFixed(1)}%`}
+                tickFormatter={(v: number) => formatPercent(v, 1)}
                 tick={{ fontSize: 11, fill: "#475569" }}
                 axisLine={{ stroke: "#cbd5e1" }}
                 tickLine={false}

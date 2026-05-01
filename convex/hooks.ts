@@ -1,6 +1,14 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
+export const countHooks = query({
+  args: {},
+  handler: async (ctx) => {
+    const all = await ctx.db.query("hooks").collect();
+    return all.length;
+  },
+});
+
 export const seedHooks = mutation({
   args: {
     hooks: v.array(
@@ -85,6 +93,11 @@ export const listHooks = query({
       const q = args.search.toLowerCase();
       results = results.filter((h) => h.text.toLowerCase().includes(q));
     }
+
+    // Alphabetical sort, case-insensitive, locale-aware
+    results.sort((a, b) =>
+      a.text.localeCompare(b.text, "fr", { sensitivity: "base" }),
+    );
 
     return results;
   },

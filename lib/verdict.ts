@@ -23,12 +23,5 @@ export function calculateAuditConversion(
   return commentsAudit / vues;
 }
 
-export function formatPercent(rate: number | null, digits = 2): string {
-  if (rate === null) return "—";
-  return `${(rate * 100).toFixed(digits)}%`;
-}
-
-export function formatNumber(n: number | null): string {
-  if (n === null) return "—";
-  return n.toLocaleString("fr-FR");
-}
+// Legacy re-exports — please import from "@/lib/format" instead.
+export { formatPercent, formatNumber } from "./format";

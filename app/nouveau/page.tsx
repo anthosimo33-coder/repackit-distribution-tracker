@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -40,6 +41,7 @@ import {
 } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import { Skeleton } from "@/components/ui/skeleton";
+import { fr } from "date-fns/locale";
 import {
   CalendarIcon,
   CheckIcon,
@@ -67,15 +69,6 @@ const ANGLES = [
   "Observation",
   "Provocant",
 ] as const;
-const COMPTES = [
-  "@compte_1",
-  "@compte_2",
-  "@compte_3",
-  "@compte_4",
-  "@compte_5",
-  "@compte_6",
-  "@instagram_main",
-];
 const MECANIQUES = [
   "Erreur",
   "Volume",
@@ -111,6 +104,7 @@ function NouveauForm() {
   const [selectedHookId, setSelectedHookId] = useState<Id<"hooks"> | null>(
     initialHookId as Id<"hooks"> | null,
   );
+  const [biblioLangue, setBiblioLangue] = useState<"FR" | "EN">("FR");
 
   const [customText, setCustomText] = useState("");
   const [customMecanique, setCustomMecanique] = useState<string>("Erreur");
@@ -125,12 +119,43 @@ function NouveauForm() {
     "TikTok",
     "Instagram",
   ]);
-  const [compte, setCompte] = useState(COMPTES[0]);
+  const [compte, setCompte] = useState<string>("");
   const [datePubli, setDatePubli] = useState<Date>(new Date());
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const allHooks = useQuery(api.hooks.listHooks, {});
+  // Filtered list shown in the combobox; biblioLangue defaults to FR but auto-syncs
+  // to the selected hook's langue (e.g. when arriving via ?hookId= for an EN hook).
+  const biblioFilteredHooks = useMemo(
+    () => allHooks?.filter((h) => h.langue === biblioLangue) ?? undefined,
+    [allHooks, biblioLangue],
+  );
+  const comptesData = useQuery(api.comptes.listComptes, { actifOnly: true });
+  const filteredComptes = useMemo(() => {
+    if (!comptesData) return [];
+    return comptesData.filter((c) => plateformes.includes(c.plateforme));
+  }, [comptesData, plateformes]);
+
+  // Reset compte if it no longer matches selected plateformes
+  useEffect(() => {
+    if (!comptesData) return;
+    const current = comptesData.find((c) => c.handle === compte);
+    if (compte && (!current || !plateformes.includes(current.plateforme))) {
+      setCompte("");
+    } else if (!compte && filteredComptes.length > 0) {
+      setCompte(filteredComptes[0].handle);
+    }
+  }, [comptesData, plateformes, compte, filteredComptes]);
+
+  // Effective plateformes = intersection of selected plateformes and the compte's plateforme
+  const selectedCompteData = comptesData?.find((c) => c.handle === compte);
+  const effectivePlateformes = selectedCompteData
+    ? plateformes.filter((p) => p === selectedCompteData.plateforme)
+    : [];
+  const missingPlateformes = selectedCompteData
+    ? plateformes.filter((p) => p !== selectedCompteData.plateforme)
+    : [];
   const nextCarouselId = useQuery(api.publications.getNextCarouselId);
   const createPub = useMutation(api.publications.createPublication);
 
@@ -138,6 +163,15 @@ function NouveauForm() {
     if (!allHooks || !selectedHookId) return null;
     return allHooks.find((h) => h._id === selectedHookId) ?? null;
   }, [allHooks, selectedHookId]);
+
+  // If the user arrives with a ?hookId= for a hook in the other langue,
+  // sync the toggle so the combobox list matches.
+  useEffect(() => {
+    if (selectedHook && selectedHook.langue !== biblioLangue) {
+      setBiblioLangue(selectedHook.langue);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedHook?._id]);
 
   useEffect(() => {
     setSlides((prev) => {
@@ -170,6 +204,12 @@ function NouveauForm() {
       toast.error("Compte requis");
       return;
     }
+    if (effectivePlateformes.length === 0) {
+      toast.error(
+        "Le compte choisi ne couvre aucune des plateformes sélectionnées",
+      );
+      return;
+    }
     if (!nextCarouselId) {
       toast.error("Carousel ID pas encore prêt, attends une seconde…");
       return;
@@ -194,13 +234,13 @@ function NouveauForm() {
         slides: slides.map((texte, i) => ({ position: i + 1, texte })),
         angleTonal: angle as (typeof ANGLES)[number],
         langue: langue as (typeof LANGUES)[number],
-        plateformes: plateformes as (typeof PLATEFORMES)[number][],
+        plateformes: effectivePlateformes as (typeof PLATEFORMES)[number][],
         compte,
         datePubli: datePubli.getTime(),
         notes,
       });
       toast.success(
-        `Carrousel ${nextCarouselId} créé sur ${plateformes.length} plateforme${plateformes.length > 1 ? "s" : ""}`,
+        `Carrousel ${nextCarouselId} créé sur ${effectivePlateformes.length} plateforme${effectivePlateformes.length > 1 ? "s" : ""}`,
       );
       router.push("/tracker");
     } catch (e) {
@@ -213,7 +253,7 @@ function NouveauForm() {
   return (
     <div className="space-y-6 pb-24">
       <header className="flex items-baseline justify-between">
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+        <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
           Nouveau carrousel
         </h1>
         <p className="text-sm text-slate-500">
@@ -236,8 +276,35 @@ function NouveauForm() {
             </TabsList>
 
             <TabsContent value="biblio" className="mt-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                  Langue
+                </span>
+                <div className="inline-flex rounded-md border border-slate-200 bg-white p-0.5">
+                  {(["FR", "EN"] as const).map((l) => (
+                    <button
+                      key={l}
+                      type="button"
+                      onClick={() => {
+                        if (l !== biblioLangue) {
+                          setBiblioLangue(l);
+                          setSelectedHookId(null);
+                        }
+                      }}
+                      className={cn(
+                        "rounded px-3 py-1 text-xs font-semibold transition-colors",
+                        biblioLangue === l
+                          ? "bg-slate-900 text-white"
+                          : "text-slate-600 hover:text-slate-900",
+                      )}
+                    >
+                      {l}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <HookCombobox
-                hooks={allHooks}
+                hooks={biblioFilteredHooks}
                 value={selectedHookId}
                 onChange={setSelectedHookId}
               />
@@ -257,6 +324,24 @@ function NouveauForm() {
 
             <TabsContent value="custom" className="mt-4 space-y-3">
               <div className="space-y-1.5">
+                <Label>Langue</Label>
+                <Select
+                  value={customLangue}
+                  onValueChange={(v) => v !== null && setCustomLangue(v)}
+                >
+                  <SelectTrigger className="w-32">
+                    <SelectValue>{customLangue}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LANGUES.map((l) => (
+                      <SelectItem key={l} value={l}>
+                        {l}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
                 <Label htmlFor="custom-text">Texte du hook</Label>
                 <Textarea
                   id="custom-text"
@@ -266,7 +351,7 @@ function NouveauForm() {
                   placeholder="Tape ton hook custom..."
                 />
               </div>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label>Mécanique</Label>
                   <Select
@@ -287,7 +372,10 @@ function NouveauForm() {
                 </div>
                 <div className="space-y-1.5">
                   <Label>Niveau</Label>
-                  <Select value={customNiveau} onValueChange={(v) => v !== null && setCustomNiveau(v)}>
+                  <Select
+                    value={customNiveau}
+                    onValueChange={(v) => v !== null && setCustomNiveau(v)}
+                  >
                     <SelectTrigger>
                       <SelectValue>{customNiveau}</SelectValue>
                     </SelectTrigger>
@@ -295,21 +383,6 @@ function NouveauForm() {
                       {NIVEAUX.map((n) => (
                         <SelectItem key={n} value={n}>
                           {n}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Langue</Label>
-                  <Select value={customLangue} onValueChange={(v) => v !== null && setCustomLangue(v)}>
-                    <SelectTrigger>
-                      <SelectValue>{customLangue}</SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {LANGUES.map((l) => (
-                        <SelectItem key={l} value={l}>
-                          {l}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -424,18 +497,48 @@ function NouveauForm() {
           </div>
           <div className="space-y-1.5">
             <Label>Compte</Label>
-            <Select value={compte} onValueChange={(v) => v !== null && setCompte(v)}>
-              <SelectTrigger>
-                <SelectValue>{compte}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {COMPTES.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {c}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {comptesData === undefined ? (
+              <Skeleton className="h-9 w-full" />
+            ) : filteredComptes.length === 0 ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                Aucun compte actif sur les plateformes sélectionnées.{" "}
+                <Link
+                  href="/comptes"
+                  className="font-medium underline underline-offset-2"
+                >
+                  Ajoute-en un
+                </Link>
+                .
+              </div>
+            ) : (
+              <Select
+                value={compte}
+                onValueChange={(v) => v !== null && setCompte(v)}
+              >
+                <SelectTrigger>
+                  <SelectValue>{compte || "Sélectionne un compte"}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {filteredComptes.map((c) => (
+                    <SelectItem key={c._id} value={c.handle}>
+                      <span className="font-mono">{c.handle}</span>
+                      <span className="ml-2 text-xs text-slate-500">
+                        {c.plateforme}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {selectedCompteData && missingPlateformes.length > 0 && (
+              <p className="text-xs text-amber-700">
+                Le compte{" "}
+                <span className="font-mono">{selectedCompteData.handle}</span>{" "}
+                n&apos;a pas de version {missingPlateformes.join(", ")}. La
+                publication ne sera créée que sur{" "}
+                {selectedCompteData.plateforme}.
+              </p>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label>Date de publication</Label>
@@ -458,6 +561,8 @@ function NouveauForm() {
                   mode="single"
                   selected={datePubli}
                   onSelect={(d) => d && setDatePubli(d)}
+                  locale={fr}
+                  weekStartsOn={1}
                 />
               </PopoverContent>
             </Popover>

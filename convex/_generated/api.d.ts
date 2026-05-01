@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as comptes from "../comptes.js";
 import type * as hooks from "../hooks.js";
 import type * as publications from "../publications.js";
 
@@ -18,6 +19,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  comptes: typeof comptes;
   hooks: typeof hooks;
   publications: typeof publications;
 }>;

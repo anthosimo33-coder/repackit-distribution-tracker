@@ -42,13 +42,8 @@ import {
 import { VerdictBadge, PlatformBadge } from "@/components/VerdictBadge";
 import { PublicationEditDialog } from "@/components/PublicationEditDialog";
 import { PublicationDetailDialog } from "@/components/PublicationDetailDialog";
-import {
-  calculateSaveRate,
-  calculateVerdict,
-  formatNumber,
-  formatPercent,
-  type Verdict,
-} from "@/lib/verdict";
+import { calculateSaveRate, calculateVerdict, type Verdict } from "@/lib/verdict";
+import { formatDate, formatNumber, formatPercent } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
   ArrowDownIcon,
@@ -213,7 +208,7 @@ export default function TrackerPage() {
     <div className="space-y-6">
       <header className="flex items-baseline justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+          <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
             Tracker
           </h1>
           <p className="text-sm text-slate-500">
@@ -332,11 +327,7 @@ export default function TrackerPage() {
                 return (
                   <TableRow key={p._id}>
                     <TableCell className="whitespace-nowrap text-xs text-slate-600">
-                      {new Date(p.datePubli).toLocaleDateString("fr-FR", {
-                        day: "2-digit",
-                        month: "2-digit",
-                        year: "2-digit",
-                      })}
+                      {formatDate(p.datePubli)}
                     </TableCell>
                     <TableCell className="font-mono text-xs">
                       {p.carouselId}
