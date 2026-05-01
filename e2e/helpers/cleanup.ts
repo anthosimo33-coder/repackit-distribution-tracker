@@ -44,4 +44,15 @@ export async function cleanupTestData() {
   } catch (e) {
     console.warn("Cleanup comptes failed:", (e as Error).message);
   }
+
+  try {
+    const presets = await client.query(api.filterPresets.listPresets, {});
+    for (const p of presets) {
+      if (p.name.startsWith(E2E_MARKER)) {
+        await client.mutation(api.filterPresets.deletePreset, { id: p._id });
+      }
+    }
+  } catch (e) {
+    console.warn("Cleanup filterPresets failed:", (e as Error).message);
+  }
 }

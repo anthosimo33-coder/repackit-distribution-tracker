@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import type { Doc } from "@/convex/_generated/dataModel";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -45,15 +45,32 @@ import { PublicationDetailDialog } from "@/components/PublicationDetailDialog";
 import { calculateSaveRate, calculateVerdict, type Verdict } from "@/lib/verdict";
 import { formatDate, formatNumber, formatPercent } from "@/lib/format";
 import { isPublished } from "@/lib/publication-status";
+import {
+  DEFAULT_SORT,
+  filtersEqual,
+  isDefaultFilters,
+  sortsEqual,
+  type TrackerFilters,
+  type TrackerSort,
+} from "@/lib/tracker-filters";
 import { cn } from "@/lib/utils";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Label } from "@/components/ui/label";
 import {
   ArrowDownIcon,
   ArrowUpDownIcon,
   ArrowUpIcon,
+  BookmarkIcon,
+  ChevronDownIcon,
   FileTextIcon,
   Loader2Icon,
   MoreHorizontalIcon,
   PlusIcon,
+  XIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -108,7 +125,107 @@ export default function TrackerPage() {
 
   const publications = useQuery(api.publications.listPublications);
   const comptes = useQuery(api.comptes.listComptes, { actifOnly: true });
+  const allPresets = useQuery(api.filterPresets.listPresets);
   const deletePub = useMutation(api.publications.deletePublication);
+  const createPreset = useMutation(api.filterPresets.createPreset);
+  const deletePreset = useMutation(api.filterPresets.deletePreset);
+
+  // Strip silencieux des presets d'une autre version (cf décision MVP).
+  // Si un futur changement de schéma bumpe à v2, les presets v1 disparaissent
+  // de l'UI sans message d'erreur — l'utilisateur recrée.
+  const presets = useMemo(
+    () => allPresets?.filter((p) => p.schemaVersion === 1) ?? [],
+    [allPresets],
+  );
+
+  // Snapshot de l'état courant — sert à comparer aux presets pour détecter
+  // le preset qui matche actuellement (= "preset chargé").
+  const currentFilters: TrackerFilters = useMemo(
+    () => ({
+      search,
+      plateforme,
+      compte: compteFilter,
+      statut: statutFilter,
+      mecanique,
+      format,
+      verdict: verdictFilter,
+    }),
+    [search, plateforme, compteFilter, statutFilter, mecanique, format, verdictFilter],
+  );
+  const currentSort: TrackerSort = useMemo(
+    () => ({ key: sortKey, dir: sortDir }),
+    [sortKey, sortDir],
+  );
+
+  // Preset dont l'état correspond exactement au state courant. null si aucun
+  // ne matche → on affichera "(custom)" ou "Aucun preset" selon le cas.
+  // Cette dérivation remplace un activePresetId state explicite : elle évite
+  // un useEffect setState (rule react-hooks/set-state-in-effect) tout en
+  // donnant le même résultat fonctionnel — le dropdown reflète toujours
+  // l'état réel des filtres, jamais une intention obsolète.
+  const matchingPreset = useMemo(() => {
+    if (!presets.length) return null;
+    return (
+      presets.find(
+        (p) =>
+          filtersEqual(currentFilters, p.filters) &&
+          sortsEqual(currentSort, p.sort),
+      ) ?? null
+    );
+  }, [presets, currentFilters, currentSort]);
+
+  const filtersAtDefault = isDefaultFilters(currentFilters);
+  const sortAtDefault = sortsEqual(currentSort, DEFAULT_SORT);
+
+  // Dialog "Sauvegarder ce preset"
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [presetName, setPresetName] = useState("");
+  const [savingPreset, setSavingPreset] = useState(false);
+  const [presetPopoverOpen, setPresetPopoverOpen] = useState(false);
+
+  function applyPreset(p: (typeof presets)[number]) {
+    setSearch(p.filters.search);
+    setPlateforme(p.filters.plateforme);
+    setCompteFilter(p.filters.compte);
+    setStatutFilter(p.filters.statut);
+    setMecanique(p.filters.mecanique);
+    setFormat(p.filters.format);
+    setVerdictFilter(p.filters.verdict);
+    setSortKey(p.sort.key);
+    setSortDir(p.sort.dir);
+    setPresetPopoverOpen(false);
+  }
+
+  async function handleSavePreset() {
+    setSavingPreset(true);
+    try {
+      await createPreset({
+        name: presetName,
+        filters: currentFilters,
+        sort: currentSort,
+      });
+      toast.success(`Preset « ${presetName.trim()} » sauvegardé`);
+      setSaveDialogOpen(false);
+      setPresetName("");
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : "Impossible de sauvegarder le preset",
+      );
+    } finally {
+      setSavingPreset(false);
+    }
+  }
+
+  async function handleDeletePreset(id: Id<"filterPresets">, name: string) {
+    try {
+      await deletePreset({ id });
+      toast.success(`Preset « ${name} » supprimé`);
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : "Impossible de supprimer le preset",
+      );
+    }
+  }
 
   const filtered = useMemo(() => {
     if (!publications) return [];
@@ -306,6 +423,23 @@ export default function TrackerPage() {
         <StatCard label="Winners" value={String(stats.winners)} highlight={stats.winners > 0} />
       </div>
 
+      <PresetBar
+        presets={presets}
+        matchingPreset={matchingPreset}
+        filtersAtDefault={filtersAtDefault && sortAtDefault}
+        popoverOpen={presetPopoverOpen}
+        onPopoverChange={setPresetPopoverOpen}
+        onApply={applyPreset}
+        onDelete={handleDeletePreset}
+        onSaveClick={() => {
+          // Pre-fill suggéré : si un preset matche, on propose son nom comme
+          // base (l'utilisateur typera autre chose vu qu'on refuse les
+          // doublons) ; sinon vide. Anti-friction.
+          setPresetName(matchingPreset?.name ?? "");
+          setSaveDialogOpen(true);
+        }}
+      />
+
       <div className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-3">
         <div className="flex min-w-[200px] flex-1 flex-col gap-1.5">
           <label className="text-xs font-medium text-slate-600">Recherche</label>
@@ -460,6 +594,54 @@ export default function TrackerPage() {
             >
               {deleting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
               Supprimer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={saveDialogOpen}
+        onOpenChange={(o) => !o && !savingPreset && setSaveDialogOpen(false)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Sauvegarder ce preset</DialogTitle>
+            <DialogDescription>
+              Donne un nom à cette combinaison de filtres + tri pour la
+              recharger plus tard.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <Label htmlFor="preset-name">Nom du preset</Label>
+            <Input
+              id="preset-name"
+              placeholder="Ex: Top winners FR"
+              value={presetName}
+              onChange={(e) => setPresetName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && presetName.trim().length > 0) {
+                  handleSavePreset();
+                }
+              }}
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setSaveDialogOpen(false)}
+              disabled={savingPreset}
+            >
+              Annuler
+            </Button>
+            <Button
+              onClick={handleSavePreset}
+              disabled={savingPreset || presetName.trim().length === 0}
+            >
+              {savingPreset && (
+                <Loader2Icon className="mr-2 size-4 animate-spin" />
+              )}
+              Sauvegarder
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -623,6 +805,120 @@ function PublicationsSection({
         </Table>
       </div>
     </section>
+  );
+}
+
+function PresetBar({
+  presets,
+  matchingPreset,
+  filtersAtDefault,
+  popoverOpen,
+  onPopoverChange,
+  onApply,
+  onDelete,
+  onSaveClick,
+}: {
+  presets: Doc<"filterPresets">[];
+  matchingPreset: Doc<"filterPresets"> | null;
+  filtersAtDefault: boolean;
+  popoverOpen: boolean;
+  onPopoverChange: (o: boolean) => void;
+  onApply: (p: Doc<"filterPresets">) => void;
+  onDelete: (id: Id<"filterPresets">, name: string) => void;
+  onSaveClick: () => void;
+}) {
+  // Texte du trigger Popover :
+  //   - Preset matche → son nom
+  //   - Filtres au default → invitation neutre
+  //   - Sinon → "(custom)" pour signaler qu'on a divergé d'un preset / de la base
+  const triggerLabel = matchingPreset
+    ? matchingPreset.name
+    : filtersAtDefault
+      ? "Charger un preset"
+      : "(custom)";
+
+  // Le bouton Sauvegarder est désactivé quand il n'y a rien à sauver
+  // (filtres+tri au default).
+  const saveDisabled = filtersAtDefault;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Popover open={popoverOpen} onOpenChange={onPopoverChange}>
+        <PopoverTrigger
+          render={
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2 font-normal"
+            >
+              <BookmarkIcon className="size-3.5" />
+              <span className="text-slate-700">{triggerLabel}</span>
+              <ChevronDownIcon className="size-3.5 opacity-60" />
+            </Button>
+          }
+        />
+        <PopoverContent
+          className="w-[260px] p-1"
+          align="start"
+        >
+          {presets.length === 0 ? (
+            <div className="px-3 py-4 text-center text-xs text-slate-500">
+              Aucun preset sauvegardé.
+            </div>
+          ) : (
+            <ul className="space-y-0.5">
+              {presets.map((p) => {
+                const isActive = matchingPreset?._id === p._id;
+                return (
+                  <li
+                    key={p._id}
+                    className={cn(
+                      "flex items-center gap-1 rounded-md px-1 py-0.5 text-sm",
+                      isActive ? "bg-slate-100" : "hover:bg-slate-50",
+                    )}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onApply(p)}
+                      className="flex-1 truncate px-2 py-1 text-left"
+                    >
+                      {p.name}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDelete(p._id, p.name);
+                      }}
+                      className="rounded p-1 text-slate-400 opacity-60 hover:bg-rose-50 hover:text-rose-600 hover:opacity-100"
+                      aria-label={`Supprimer le preset ${p.name}`}
+                    >
+                      <XIcon className="size-3.5" />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </PopoverContent>
+      </Popover>
+
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onSaveClick}
+        disabled={saveDisabled}
+        title={
+          saveDisabled
+            ? "Configure d'abord des filtres ou un tri à sauvegarder"
+            : undefined
+        }
+        className="gap-1.5"
+      >
+        <PlusIcon className="size-3.5" />
+        Sauvegarder ce preset
+      </Button>
+    </div>
   );
 }
 

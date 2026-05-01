@@ -97,4 +97,27 @@ export default defineSchema({
   })
     .index("by_plateforme", ["plateforme"])
     .index("by_actif", ["actif"]),
+
+  // Presets de filtres pour le tracker. schemaVersion permet de strip les
+  // anciens presets si la struct des filtres évolue (cf décision MVP : strip
+  // silencieux côté client). filters dupliquent volontairement le shape des
+  // useState de app/tracker/page.tsx — toute évolution de filtres tracker
+  // demande de bumper schemaVersion + d'updater le shape ici.
+  filterPresets: defineTable({
+    name: v.string(),
+    schemaVersion: v.number(),
+    filters: v.object({
+      search: v.string(),
+      plateforme: v.string(),
+      compte: v.string(),
+      statut: v.string(),
+      mecanique: v.string(),
+      format: v.string(),
+      verdict: v.string(),
+    }),
+    sort: v.object({
+      key: v.union(v.literal("date"), v.literal("saveRate")),
+      dir: v.union(v.literal("asc"), v.literal("desc")),
+    }),
+  }).index("by_name", ["name"]),
 });
