@@ -4,12 +4,13 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import type { Doc } from "@/convex/_generated/dataModel";
+import type { FunctionReturnType } from "convex/server";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/format";
 import {
@@ -35,6 +36,10 @@ type Mecanique = (typeof MECANIQUES)[number];
 type Niveau = (typeof NIVEAUX)[number];
 type Langue = (typeof LANGUES)[number];
 
+type HookWithUsage = FunctionReturnType<
+  typeof api.hooks.listHooksWithUsage
+>[number];
+
 const ALL = "all";
 
 function useDebounced<T>(value: T, delay: number): T {
@@ -52,12 +57,14 @@ export default function HooksPage() {
   const [mecanique, setMecanique] = useState<string>(ALL);
   const [niveau, setNiveau] = useState<string>(ALL);
   const [langue, setLangue] = useState<string>("FR");
+  const [hideUsed, setHideUsed] = useState(false);
 
-  const hooks = useQuery(api.hooks.listHooks, {
+  const hooks = useQuery(api.hooks.listHooksWithUsage, {
     search: debouncedSearch || undefined,
     mecanique: mecanique === ALL ? undefined : (mecanique as Mecanique),
     niveau: niveau === ALL ? undefined : (niveau as Niveau),
     langue: langue === ALL ? undefined : (langue as Langue),
+    hideUsed: hideUsed || undefined,
   });
   const totalCount = useQuery(api.hooks.countHooks);
 
@@ -66,6 +73,7 @@ export default function HooksPage() {
     setMecanique(ALL);
     setNiveau(ALL);
     setLangue("FR");
+    setHideUsed(false);
   };
 
   const grouped = hooks
@@ -157,6 +165,15 @@ export default function HooksPage() {
           </Select>
         </div>
 
+        <label className="flex cursor-pointer items-center gap-2 self-end pb-2">
+          <Switch
+            id="hide-used"
+            checked={hideUsed}
+            onCheckedChange={setHideUsed}
+          />
+          <span className="text-sm text-slate-700">Masquer publiés</span>
+        </label>
+
         <Button variant="outline" onClick={reset}>
           Reset filtres
         </Button>
@@ -189,7 +206,8 @@ export default function HooksPage() {
   );
 }
 
-function HookCard({ hook }: { hook: Doc<"hooks"> }) {
+function HookCard({ hook }: { hook: HookWithUsage }) {
+  const used = hook.publishedCount > 0;
   return (
     <Card>
       <CardContent className="flex items-start justify-between gap-3 p-4">
@@ -199,7 +217,19 @@ function HookCard({ hook }: { hook: Doc<"hooks"> }) {
             <Badge variant="secondary">{hook.mecanique}</Badge>
             <Badge variant="outline">{hook.niveau}</Badge>
             <Badge variant="outline">{hook.langue}</Badge>
+            {used && (
+              <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">
+                Utilisé {hook.publishedCount}{" "}
+                {hook.publishedCount > 1 ? "fois" : "fois"}
+              </Badge>
+            )}
+            {hook.draftCount > 0 && (
+              <Badge variant="outline" className="text-amber-700">
+                +{hook.draftCount} à venir
+              </Badge>
+            )}
           </div>
+          {used && <UsageDetail hook={hook} />}
         </div>
         <Link
           href={`/nouveau?hookId=${hook._id}`}
@@ -210,6 +240,41 @@ function HookCard({ hook }: { hook: Doc<"hooks"> }) {
       </CardContent>
     </Card>
   );
+}
+
+function UsageDetail({ hook }: { hook: HookWithUsage }) {
+  // Pas de badge "Frais" pour les hooks à publishedCount=0 (95% des cards) :
+  // l'absence de badge "Utilisé" porte déjà cette info, et ajouter un badge
+  // partout serait du bruit visuel.
+  const accounts = hook.accountsUsed;
+  const visibleAccounts = accounts.slice(0, 3);
+  const extraAccounts = accounts.length - visibleAccounts.length;
+
+  return (
+    <div className="space-y-0.5 pt-1 text-xs text-slate-500">
+      {accounts.length > 0 && (
+        <div>
+          <span className="font-mono">{visibleAccounts.join(" · ")}</span>
+          {extraAccounts > 0 && (
+            <span className="ml-1 text-slate-400">
+              +{extraAccounts} autre{extraAccounts > 1 ? "s" : ""}
+            </span>
+          )}
+        </div>
+      )}
+      {hook.lastPublishedAt !== null && (
+        <div>Dernière publi : {formatLongDate(hook.lastPublishedAt)}</div>
+      )}
+    </div>
+  );
+}
+
+function formatLongDate(timestamp: number): string {
+  return new Date(timestamp).toLocaleDateString("fr-FR", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
 }
 
 function LoadingSkeleton() {

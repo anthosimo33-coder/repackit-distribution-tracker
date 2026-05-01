@@ -83,7 +83,11 @@ export default defineSchema({
   })
     .index("by_carouselId", ["carouselId"])
     .index("by_plateforme", ["plateforme"])
-    .index("by_datePubli", ["datePubli"]),
+    .index("by_datePubli", ["datePubli"])
+    // by_hookId : prévu pour des lookups directs « toutes les publications
+    // d'un hook donné » (ex: depuis la fiche hook). listHooksWithUsage utilise
+    // un seul collect+groupBy en mémoire — l'index est là pour le futur.
+    .index("by_hookId", ["hookId"]),
 
   comptes: defineTable({
     handle: v.string(),

@@ -21,6 +21,12 @@ Ce fichier liste les anti-patterns repérés dans la zone touchée par chaque fe
 - **Impact** : à 50 publications c'est OK, à 5000 le rendu initial sera lent. Pas de pagination, pas d'aggregation côté Convex.
 - **Reco future** : query Convex dédiée qui retourne les stats agrégées au lieu de transférer toutes les rows au client.
 
+### TD-005 — `listHooksWithUsage` agrège côté serveur sur la collection complète
+- **Fichier** : `convex/hooks.ts` (`listHooksWithUsage`)
+- **Impact** : la query `collect()` toutes les publications puis groupe en mémoire par `hookId`. À 6-100 publications c'est sous 50 ms, OK. À 5000+ publications, le payload + le group-by deviennent significatifs (latence query Convex, taille de la réponse côté client).
+- **Reco future** : dénormaliser un `usageCount: number` (et éventuellement `lastPublishedAt`) directement sur la table `hooks`, mis à jour par une mutation post-publish (post-`updateMetrics` quand `postUrl` passe à non-vide). Permet une query `listHooks` simple sans collect croisé.
+- **Note** : l'index `by_hookId` ajouté dans le même commit n'est pas utilisé par cette query (le pattern collect+groupBy en mémoire est plus rapide qu'un withIndex per-hook). L'index reste là pour les futurs lookups ponctuels.
+
 ### TD-004 — `carouselId` est un string libre (`"C001"`) au lieu d'un identifiant typé
 - **Fichier** : `convex/schema.ts` (champ `carouselId` sur `publications`), `convex/publications.ts` (`getNextCarouselId` parse `parseInt(id.replace(/^C/, ""))`)
 - **Impact** : pas de table dédiée `carousels`, pas de FK. Si deux mutations parallèles appellent `getNextCarouselId`, elles peuvent recevoir le même ID (race condition non gérée).
