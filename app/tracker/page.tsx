@@ -9,13 +9,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button, buttonVariants } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { FilterSelect } from "@/components/filters/FilterSelect";
+import { FilterMultiSelect } from "@/components/filters/FilterMultiSelect";
 import {
   Table,
   TableBody,
@@ -97,6 +92,10 @@ function useDebounced<T>(value: T, delay: number): T {
   return debounced;
 }
 
+function setToSortedArray(s: Set<string>): string[] {
+  return Array.from(s).sort();
+}
+
 type SortKey = "date" | "saveRate";
 type SortDir = "asc" | "desc";
 
@@ -104,11 +103,12 @@ export default function TrackerPage() {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounced(search, 300);
   const [plateforme, setPlateforme] = useState<string>(ALL);
-  const [compteFilter, setCompteFilter] = useState<string>(ALL);
   const [statutFilter, setStatutFilter] = useState<string>(ALL);
-  const [mecanique, setMecanique] = useState<string>(ALL);
-  const [format, setFormat] = useState<string>(ALL);
-  const [verdictFilter, setVerdictFilter] = useState<string>(ALL);
+  // Multi-select v2 : 4 filtres en Set. Set vide = "tous".
+  const [compteFilter, setCompteFilter] = useState<Set<string>>(new Set());
+  const [mecanique, setMecanique] = useState<Set<string>>(new Set());
+  const [format, setFormat] = useState<Set<string>>(new Set());
+  const [verdictFilter, setVerdictFilter] = useState<Set<string>>(new Set());
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
@@ -131,24 +131,27 @@ export default function TrackerPage() {
   const deletePreset = useMutation(api.filterPresets.deletePreset);
 
   // Strip silencieux des presets d'une autre version (cf décision MVP).
-  // Si un futur changement de schéma bumpe à v2, les presets v1 disparaissent
-  // de l'UI sans message d'erreur — l'utilisateur recrée.
+  // Bumpé en v2 (multi-select) : les presets v1 disparaissent de l'UI sans
+  // message d'erreur — l'utilisateur recrée. Les v1 restent en DB (orphelins)
+  // sans impact (jamais lus).
   const presets = useMemo(
-    () => allPresets?.filter((p) => p.schemaVersion === 1) ?? [],
+    () => allPresets?.filter((p) => p.schemaVersion === 2) ?? [],
     [allPresets],
   );
 
   // Snapshot de l'état courant — sert à comparer aux presets pour détecter
-  // le preset qui matche actuellement (= "preset chargé").
+  // le preset qui matche actuellement (= "preset chargé"). Sets sérialisés
+  // en arrays triés (filtersEqual fait du tri-puis-egalité order-insensitive,
+  // mais on stocke trié pour cohérence inter-runs).
   const currentFilters: TrackerFilters = useMemo(
     () => ({
       search,
       plateforme,
-      compte: compteFilter,
       statut: statutFilter,
-      mecanique,
-      format,
-      verdict: verdictFilter,
+      compte: setToSortedArray(compteFilter),
+      mecanique: setToSortedArray(mecanique),
+      format: setToSortedArray(format),
+      verdict: setToSortedArray(verdictFilter),
     }),
     [search, plateforme, compteFilter, statutFilter, mecanique, format, verdictFilter],
   );
@@ -186,11 +189,11 @@ export default function TrackerPage() {
   function applyPreset(p: (typeof presets)[number]) {
     setSearch(p.filters.search);
     setPlateforme(p.filters.plateforme);
-    setCompteFilter(p.filters.compte);
     setStatutFilter(p.filters.statut);
-    setMecanique(p.filters.mecanique);
-    setFormat(p.filters.format);
-    setVerdictFilter(p.filters.verdict);
+    setCompteFilter(new Set(p.filters.compte));
+    setMecanique(new Set(p.filters.mecanique));
+    setFormat(new Set(p.filters.format));
+    setVerdictFilter(new Set(p.filters.verdict));
     setSortKey(p.sort.key);
     setSortDir(p.sort.dir);
     setPresetPopoverOpen(false);
@@ -236,8 +239,8 @@ export default function TrackerPage() {
     }
     if (plateforme !== ALL)
       list = list.filter((p) => p.plateforme === plateforme);
-    if (compteFilter !== ALL)
-      list = list.filter((p) => p.compte === compteFilter);
+    if (compteFilter.size > 0)
+      list = list.filter((p) => compteFilter.has(p.compte));
     if (statutFilter !== ALL) {
       // statutFilter ∈ {STATUT_PUBLISHED, STATUT_DRAFT}. La dichotomie suit la
       // règle isPublished — cohérente avec le split visuel des sections.
@@ -245,18 +248,18 @@ export default function TrackerPage() {
         statutFilter === STATUT_PUBLISHED ? isPublished(p) : !isPublished(p),
       );
     }
-    if (mecanique !== ALL)
-      list = list.filter((p) => p.mecanique === mecanique);
-    if (format !== ALL) list = list.filter((p) => p.format === format);
-    if (verdictFilter !== ALL) {
+    if (mecanique.size > 0)
+      list = list.filter((p) => mecanique.has(p.mecanique));
+    if (format.size > 0) list = list.filter((p) => format.has(p.format));
+    if (verdictFilter.size > 0) {
       list = list.filter((p) => {
         // Verdict ne s'applique qu'aux publiés (Feature 4). Les drafts sont
         // toujours en attente, peu importe leurs métriques saisies.
         const v = isPublished(p)
           ? calculateVerdict(calculateSaveRate(p.saves, p.vuesJ7))
           : null;
-        if (verdictFilter === PENDING) return v === null;
-        return v === verdictFilter;
+        if (v === null) return verdictFilter.has(PENDING);
+        return verdictFilter.has(v);
       });
     }
 
@@ -337,11 +340,11 @@ export default function TrackerPage() {
   function reset() {
     setSearch("");
     setPlateforme(ALL);
-    setCompteFilter(ALL);
     setStatutFilter(ALL);
-    setMecanique(ALL);
-    setFormat(ALL);
-    setVerdictFilter(ALL);
+    setCompteFilter(new Set());
+    setMecanique(new Set());
+    setFormat(new Set());
+    setVerdictFilter(new Set());
   }
 
   function toggleSort(key: SortKey) {
@@ -457,14 +460,14 @@ export default function TrackerPage() {
           allLabel="Toutes"
           width="w-[140px]"
         />
-        <FilterSelect
+        <FilterMultiSelect
           label="Compte"
-          value={compteFilter}
+          selectedValues={compteFilter}
           onChange={setCompteFilter}
           // Source dynamique : actifOnly=true côté query → on n'affiche que les
           // comptes encore en service. Si la query est encore loading on tombe
-          // sur une liste vide, le select reste fonctionnel (juste "Tous").
-          options={comptes?.map((c) => c.handle) ?? []}
+          // sur une liste vide (juste "Tout sélectionner" sans options).
+          options={(comptes ?? []).map((c) => ({ value: c.handle, label: c.handle }))}
           allLabel="Tous"
           width="w-[180px]"
         />
@@ -476,27 +479,30 @@ export default function TrackerPage() {
           allLabel="Tous"
           width="w-[120px]"
         />
-        <FilterSelect
+        <FilterMultiSelect
           label="Mécanique"
-          value={mecanique}
+          selectedValues={mecanique}
           onChange={setMecanique}
-          options={[...MECANIQUES]}
+          options={MECANIQUES.map((m) => ({ value: m, label: m }))}
           allLabel="Toutes"
           width="w-[160px]"
         />
-        <FilterSelect
+        <FilterMultiSelect
           label="Format"
-          value={format}
+          selectedValues={format}
           onChange={setFormat}
-          options={[...FORMATS]}
+          options={FORMATS.map((f) => ({ value: f, label: f }))}
           allLabel="Tous"
           width="w-[100px]"
         />
-        <FilterSelect
+        <FilterMultiSelect
           label="Verdict"
-          value={verdictFilter}
+          selectedValues={verdictFilter}
           onChange={setVerdictFilter}
-          options={["WINNER", "MOYEN", "FOLD", PENDING]}
+          options={["WINNER", "MOYEN", "FOLD", PENDING].map((v) => ({
+            value: v,
+            label: v,
+          }))}
           allLabel="Tous"
           width="w-[140px]"
         />
@@ -918,41 +924,6 @@ function PresetBar({
         <PlusIcon className="size-3.5" />
         Sauvegarder ce preset
       </Button>
-    </div>
-  );
-}
-
-function FilterSelect({
-  label,
-  value,
-  onChange,
-  options,
-  allLabel,
-  width,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: string[];
-  allLabel: string;
-  width: string;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <label className="text-xs font-medium text-slate-600">{label}</label>
-      <Select value={value} onValueChange={(v) => v !== null && onChange(v)}>
-        <SelectTrigger className={width}>
-          <SelectValue>{value === ALL ? allLabel : value}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={ALL}>{allLabel}</SelectItem>
-          {options.map((o) => (
-            <SelectItem key={o} value={o}>
-              {o}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
     </div>
   );
 }

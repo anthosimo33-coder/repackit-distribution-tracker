@@ -119,21 +119,28 @@ export const listHooks = query({
 export const listHooksWithUsage = query({
   args: {
     langue: v.optional(v.union(v.literal("FR"), v.literal("EN"))),
+    // Multi-select v2 : mecanique et niveau passent en array. undefined ou
+    // array vide = "tous" (pas de filtre). cf app/hooks/page.tsx qui envoie
+    // undefined si la Set est vide.
     mecanique: v.optional(
-      v.union(
-        v.literal("Erreur"),
-        v.literal("Volume"),
-        v.literal("Comparaison"),
-        v.literal("Contradiction"),
-        v.literal("Universalité"),
-        v.literal("Question"),
+      v.array(
+        v.union(
+          v.literal("Erreur"),
+          v.literal("Volume"),
+          v.literal("Comparaison"),
+          v.literal("Contradiction"),
+          v.literal("Universalité"),
+          v.literal("Question"),
+        ),
       ),
     ),
     niveau: v.optional(
-      v.union(
-        v.literal("Broad-A"),
-        v.literal("Broad-B"),
-        v.literal("Niché"),
+      v.array(
+        v.union(
+          v.literal("Broad-A"),
+          v.literal("Broad-B"),
+          v.literal("Niché"),
+        ),
       ),
     ),
     search: v.optional(v.string()),
@@ -193,10 +200,14 @@ export const listHooksWithUsage = query({
     });
 
     if (args.langue) results = results.filter((h) => h.langue === args.langue);
-    if (args.mecanique)
-      results = results.filter((h) => h.mecanique === args.mecanique);
-    if (args.niveau)
-      results = results.filter((h) => h.niveau === args.niveau);
+    if (args.mecanique && args.mecanique.length > 0) {
+      const set = new Set(args.mecanique);
+      results = results.filter((h) => set.has(h.mecanique));
+    }
+    if (args.niveau && args.niveau.length > 0) {
+      const set = new Set(args.niveau);
+      results = results.filter((h) => set.has(h.niveau));
+    }
     if (args.search && args.search.length > 0) {
       const q = args.search.toLowerCase();
       results = results.filter((h) => h.text.toLowerCase().includes(q));

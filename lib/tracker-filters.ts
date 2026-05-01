@@ -5,16 +5,19 @@
  * (search/plateforme/compte/statut/mecanique/format/verdict) ET au schéma
  * Convex `filterPresets.filters`. Toute évolution force à bumper
  * schemaVersion + updater les 3 endroits de manière synchrone.
+ *
+ * v2 : compte/mecanique/format/verdict passent en string[] (multi-select).
+ * Set vide = "tous" (pas de filtre). Plateforme/statut restent single.
  */
 
 export type TrackerFilters = {
   search: string;
   plateforme: string;
-  compte: string;
   statut: string;
-  mecanique: string;
-  format: string;
-  verdict: string;
+  compte: string[];
+  mecanique: string[];
+  format: string[];
+  verdict: string[];
 };
 
 export type TrackerSort = {
@@ -27,11 +30,11 @@ export const FILTER_ALL = "all";
 export const DEFAULT_FILTERS: TrackerFilters = {
   search: "",
   plateforme: FILTER_ALL,
-  compte: FILTER_ALL,
   statut: FILTER_ALL,
-  mecanique: FILTER_ALL,
-  format: FILTER_ALL,
-  verdict: FILTER_ALL,
+  compte: [],
+  mecanique: [],
+  format: [],
+  verdict: [],
 };
 
 export const DEFAULT_SORT: TrackerSort = {
@@ -41,8 +44,9 @@ export const DEFAULT_SORT: TrackerSort = {
 
 /**
  * Comparaison field-by-field pour éviter les pièges de JSON.stringify
- * (ordre de clés non garanti après round-trip Convex). Maintenue
- * synchronisée avec le shape de TrackerFilters.
+ * (ordre de clés non garanti après round-trip Convex). Les 4 arrays sont
+ * comparés order-insensitive (tri puis equals) pour qu'un preset ["A","B"]
+ * matche un état courant ["B","A"].
  */
 export function filtersEqual(
   a: TrackerFilters,
@@ -51,12 +55,22 @@ export function filtersEqual(
   return (
     a.search === b.search &&
     a.plateforme === b.plateforme &&
-    a.compte === b.compte &&
     a.statut === b.statut &&
-    a.mecanique === b.mecanique &&
-    a.format === b.format &&
-    a.verdict === b.verdict
+    arraysEqualSorted(a.compte, b.compte) &&
+    arraysEqualSorted(a.mecanique, b.mecanique) &&
+    arraysEqualSorted(a.format, b.format) &&
+    arraysEqualSorted(a.verdict, b.verdict)
   );
+}
+
+function arraysEqualSorted(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sa = [...a].sort();
+  const sb = [...b].sort();
+  for (let i = 0; i < sa.length; i++) {
+    if (sa[i] !== sb[i]) return false;
+  }
+  return true;
 }
 
 export function sortsEqual(a: TrackerSort, b: TrackerSort): boolean {
@@ -64,5 +78,13 @@ export function sortsEqual(a: TrackerSort, b: TrackerSort): boolean {
 }
 
 export function isDefaultFilters(f: TrackerFilters): boolean {
-  return filtersEqual(f, DEFAULT_FILTERS);
+  return (
+    f.search === DEFAULT_FILTERS.search &&
+    f.plateforme === DEFAULT_FILTERS.plateforme &&
+    f.statut === DEFAULT_FILTERS.statut &&
+    f.compte.length === 0 &&
+    f.mecanique.length === 0 &&
+    f.format.length === 0 &&
+    f.verdict.length === 0
+  );
 }

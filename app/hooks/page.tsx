@@ -11,15 +11,10 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { FilterSelect } from "@/components/filters/FilterSelect";
+import { FilterMultiSelect } from "@/components/filters/FilterMultiSelect";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/format";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 const MECANIQUES = [
   "Erreur",
@@ -54,16 +49,21 @@ function useDebounced<T>(value: T, delay: number): T {
 export default function HooksPage() {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounced(search, 300);
-  const [mecanique, setMecanique] = useState<string>(ALL);
-  const [niveau, setNiveau] = useState<string>(ALL);
+  // Multi-select v2 : Set vide = "tous". Langue reste single-select.
+  const [mecanique, setMecanique] = useState<Set<string>>(new Set());
+  const [niveau, setNiveau] = useState<Set<string>>(new Set());
   const [langue, setLangue] = useState<string>("FR");
   const [hideUsed, setHideUsed] = useState(false);
   const [hideDraft, setHideDraft] = useState(false);
 
   const hooks = useQuery(api.hooks.listHooksWithUsage, {
     search: debouncedSearch || undefined,
-    mecanique: mecanique === ALL ? undefined : (mecanique as Mecanique),
-    niveau: niveau === ALL ? undefined : (niveau as Niveau),
+    mecanique:
+      mecanique.size === 0
+        ? undefined
+        : (Array.from(mecanique) as Mecanique[]),
+    niveau:
+      niveau.size === 0 ? undefined : (Array.from(niveau) as Niveau[]),
     langue: langue === ALL ? undefined : (langue as Langue),
     hideUsed: hideUsed || undefined,
     hideDraft: hideDraft || undefined,
@@ -72,8 +72,8 @@ export default function HooksPage() {
 
   const reset = () => {
     setSearch("");
-    setMecanique(ALL);
-    setNiveau(ALL);
+    setMecanique(new Set());
+    setNiveau(new Set());
     setLangue("FR");
     setHideUsed(false);
     setHideDraft(false);
@@ -117,56 +117,32 @@ export default function HooksPage() {
           />
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-slate-600">Mécanique</label>
-          <Select value={mecanique} onValueChange={(v) => v !== null && setMecanique(v)}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue>{mecanique === ALL ? "Toutes" : mecanique}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>Toutes</SelectItem>
-              {MECANIQUES.map((m) => (
-                <SelectItem key={m} value={m}>
-                  {m}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <FilterMultiSelect
+          label="Mécanique"
+          selectedValues={mecanique}
+          onChange={setMecanique}
+          options={MECANIQUES.map((m) => ({ value: m, label: m }))}
+          allLabel="Toutes"
+          width="w-[180px]"
+        />
 
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-slate-600">Niveau</label>
-          <Select value={niveau} onValueChange={(v) => v !== null && setNiveau(v)}>
-            <SelectTrigger className="w-[140px]">
-              <SelectValue>{niveau === ALL ? "Tous" : niveau}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>Tous</SelectItem>
-              {NIVEAUX.map((n) => (
-                <SelectItem key={n} value={n}>
-                  {n}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <FilterMultiSelect
+          label="Niveau"
+          selectedValues={niveau}
+          onChange={setNiveau}
+          options={NIVEAUX.map((n) => ({ value: n, label: n }))}
+          allLabel="Tous"
+          width="w-[140px]"
+        />
 
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-slate-600">Langue</label>
-          <Select value={langue} onValueChange={(v) => v !== null && setLangue(v)}>
-            <SelectTrigger className="w-[120px]">
-              <SelectValue>{langue === ALL ? "Toutes" : langue}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>Toutes</SelectItem>
-              {LANGUES.map((l) => (
-                <SelectItem key={l} value={l}>
-                  {l}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <FilterSelect
+          label="Langue"
+          value={langue}
+          onChange={setLangue}
+          options={[...LANGUES]}
+          allLabel="Toutes"
+          width="w-[120px]"
+        />
 
         <label className="flex cursor-pointer items-center gap-2 self-end pb-2">
           <Switch

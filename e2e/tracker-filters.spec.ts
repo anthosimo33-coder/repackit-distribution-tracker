@@ -11,14 +11,18 @@ test.describe("Tracker filtres", () => {
     }
 
     // Anchor sémantique : trouve le label "Verdict", remonte au parent direct
-    // (le wrapper <div> de FilterSelect), descend à la combobox. Insensible à
+    // (le wrapper <div> de FilterMultiSelect), descend à la combobox. Insensible à
     // l'ajout de nouveaux filtres dans la barre (compte/statut/etc.).
+    // Modif 1 : Verdict est passé en multi-select (Popover + buttons role=option).
     const verdictLabel = page
       .locator("label")
       .filter({ hasText: /^Verdict$/ });
     const verdictWrapper = verdictLabel.locator("xpath=..");
     await verdictWrapper.getByRole("combobox").click();
     await page.getByRole("option", { name: "WINNER" }).click();
+    // Le popover multi-select reste ouvert (volontaire) — on le ferme via
+    // Escape pour libérer le DOM avant de vérifier les rows.
+    await page.keyboard.press("Escape");
 
     // Toutes les rows visibles doivent contenir WINNER (ou aucune si pas de winners)
     const rows = page.locator("tbody tr");

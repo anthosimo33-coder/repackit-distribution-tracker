@@ -4,11 +4,13 @@ import { v, ConvexError } from "convex/values";
 const filtersValidator = v.object({
   search: v.string(),
   plateforme: v.string(),
-  compte: v.string(),
   statut: v.string(),
-  mecanique: v.string(),
-  format: v.string(),
-  verdict: v.string(),
+  // Multi-select v2 : compte/mecanique/format/verdict deviennent des arrays.
+  // Set vide = "tous" (pas de filtre). cf bump schemaVersion 1→2.
+  compte: v.array(v.string()),
+  mecanique: v.array(v.string()),
+  format: v.array(v.string()),
+  verdict: v.array(v.string()),
 });
 
 const sortValidator = v.object({
@@ -16,7 +18,7 @@ const sortValidator = v.object({
   dir: v.union(v.literal("asc"), v.literal("desc")),
 });
 
-const CURRENT_SCHEMA_VERSION = 1;
+const CURRENT_SCHEMA_VERSION = 2;
 
 export const createPreset = mutation({
   args: {

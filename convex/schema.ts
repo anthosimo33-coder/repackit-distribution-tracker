@@ -109,11 +109,12 @@ export default defineSchema({
     filters: v.object({
       search: v.string(),
       plateforme: v.string(),
-      compte: v.string(),
       statut: v.string(),
-      mecanique: v.string(),
-      format: v.string(),
-      verdict: v.string(),
+      // Multi-select v2 : 4 champs en array (Set vide = "tous").
+      compte: v.array(v.string()),
+      mecanique: v.array(v.string()),
+      format: v.array(v.string()),
+      verdict: v.array(v.string()),
     }),
     sort: v.object({
       key: v.union(v.literal("date"), v.literal("saveRate")),
