@@ -122,6 +122,9 @@ export default function TrackerPage() {
     null,
   );
   const [deleting, setDeleting] = useState(false);
+  const [markingPub, setMarkingPub] = useState<Doc<"publications"> | null>(
+    null,
+  );
 
   const publications = useQuery(api.publications.listPublications);
   const comptes = useQuery(api.comptes.listComptes, { actifOnly: true });
@@ -533,6 +536,7 @@ export default function TrackerPage() {
               onView={setViewingPub}
               onEdit={setEditingPub}
               onDelete={setDeletingPub}
+              onMarkAsPosted={setMarkingPub}
             />
           )}
           {published.length > 0 && (
@@ -546,6 +550,7 @@ export default function TrackerPage() {
               onView={setViewingPub}
               onEdit={setEditingPub}
               onDelete={setDeletingPub}
+              onMarkAsPosted={setMarkingPub}
             />
           )}
         </div>
@@ -652,6 +657,15 @@ export default function TrackerPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {markingPub && (
+        <MarkAsPostedDialog
+          key={markingPub._id}
+          publication={markingPub}
+          open={true}
+          onOpenChange={(o) => !o && setMarkingPub(null)}
+        />
+      )}
     </div>
   );
 }
@@ -666,6 +680,7 @@ function PublicationsSection({
   onView,
   onEdit,
   onDelete,
+  onMarkAsPosted,
 }: {
   title: string;
   dotClass: string;
@@ -676,6 +691,7 @@ function PublicationsSection({
   onView: (p: Doc<"publications">) => void;
   onEdit: (p: Doc<"publications">) => void;
   onDelete: (p: Doc<"publications">) => void;
+  onMarkAsPosted: (p: Doc<"publications">) => void;
 }) {
   return (
     <section className="space-y-2">
@@ -778,6 +794,14 @@ function PublicationsSection({
                         }
                       />
                       <DropdownMenuContent align="end">
+                        {!isPublished(p) && (
+                          <DropdownMenuItem
+                            onClick={() => onMarkAsPosted(p)}
+                            className="font-medium"
+                          >
+                            Marquer comme posté
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem onClick={() => onView(p)}>
                           {isPublished(p)
                             ? "Voir détail"
@@ -811,6 +835,90 @@ function PublicationsSection({
         </Table>
       </div>
     </section>
+  );
+}
+
+/**
+ * Raccourci 1-clic pour passer un draft en publié sans ouvrir le dialog
+ * d'édition complète. Saisit uniquement la postUrl ; les métriques (J+1/J+3/
+ * J+7, saves…) seront renseignées plus tard via "Mettre à jour stats".
+ *
+ * Validation : `startsWith("http")` minimal (cf décision tranchée). Le
+ * type="url" HTML5 sert d'indicateur visuel (clavier mobile, autofill) mais
+ * ne bloque pas le submit — la garde réelle est sur le bouton.
+ */
+function MarkAsPostedDialog({
+  publication,
+  open,
+  onOpenChange,
+}: {
+  publication: Doc<"publications">;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [url, setUrl] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const updateMetrics = useMutation(api.publications.updateMetrics);
+
+  const trimmed = url.trim();
+  const canSubmit = trimmed.startsWith("http") && !submitting;
+
+  async function handleSubmit() {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    try {
+      await updateMetrics({ id: publication._id, postUrl: trimmed });
+      toast.success("Carrousel marqué comme publié");
+      onOpenChange(false);
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : "Impossible de marquer comme publié",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !submitting && onOpenChange(o)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Marquer comme posté</DialogTitle>
+          <DialogDescription>
+            {publication.carouselId} ({publication.plateforme}) — colle le lien
+            de la publication. Les métriques se saisissent ensuite via « Mettre
+            à jour stats ».
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1.5">
+          <Label htmlFor="mark-posted-url">Lien de publication</Label>
+          <Input
+            id="mark-posted-url"
+            type="url"
+            placeholder="https://www.tiktok.com/@... ou https://www.instagram.com/..."
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && canSubmit) handleSubmit();
+            }}
+            autoFocus
+          />
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={submitting}
+          >
+            Annuler
+          </Button>
+          <Button onClick={handleSubmit} disabled={!canSubmit}>
+            {submitting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+            Confirmer
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
