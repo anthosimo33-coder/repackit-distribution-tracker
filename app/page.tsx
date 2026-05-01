@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { Suspense, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "convex/react";
@@ -90,7 +90,12 @@ export default function Dashboard() {
       {publications.length === 0 ? (
         <EmptyState />
       ) : (
-        <DashboardContent publications={publications} />
+        // useSearchParams dans DashboardContent : doit être wrappé en Suspense
+        // pour ne pas bail out le pré-render statique (Next.js 16). Fallback
+        // null car le parent gate déjà sur publications === undefined.
+        <Suspense fallback={null}>
+          <DashboardContent publications={publications} />
+        </Suspense>
       )}
     </div>
   );

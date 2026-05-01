@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
@@ -107,7 +107,19 @@ function setToSortedArray(s: Set<string>): string[] {
 type SortKey = "date" | "saveRate";
 type SortDir = "asc" | "desc";
 
+// Wrap obligatoire pour useSearchParams (Next.js 16) : sans Suspense, le
+// pré-render statique bail out (cf https://nextjs.org/docs/messages/missing-suspense-with-csr-bailout).
+// Le contenu reste rendu statiquement quand carouselId est absent ; la
+// résolution de searchParams est ce qui suspend.
 export default function TrackerPage() {
+  return (
+    <Suspense fallback={<LoadingState />}>
+      <TrackerPageInner />
+    </Suspense>
+  );
+}
+
+function TrackerPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Modif 5 — deeplink ?carouselId=C00X depuis le Popover variantes /hooks.
