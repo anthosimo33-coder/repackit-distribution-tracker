@@ -59,6 +59,8 @@ import { toast } from "sonner";
 
 const ALL = "all";
 const PENDING = "Pending";
+const STATUT_PUBLISHED = "Publié";
+const STATUT_DRAFT = "À venir";
 const MECANIQUES = [
   "Erreur",
   "Volume",
@@ -85,6 +87,8 @@ export default function TrackerPage() {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounced(search, 300);
   const [plateforme, setPlateforme] = useState<string>(ALL);
+  const [compteFilter, setCompteFilter] = useState<string>(ALL);
+  const [statutFilter, setStatutFilter] = useState<string>(ALL);
   const [mecanique, setMecanique] = useState<string>(ALL);
   const [format, setFormat] = useState<string>(ALL);
   const [verdictFilter, setVerdictFilter] = useState<string>(ALL);
@@ -103,6 +107,7 @@ export default function TrackerPage() {
   const [deleting, setDeleting] = useState(false);
 
   const publications = useQuery(api.publications.listPublications);
+  const comptes = useQuery(api.comptes.listComptes, { actifOnly: true });
   const deletePub = useMutation(api.publications.deletePublication);
 
   const filtered = useMemo(() => {
@@ -114,6 +119,15 @@ export default function TrackerPage() {
     }
     if (plateforme !== ALL)
       list = list.filter((p) => p.plateforme === plateforme);
+    if (compteFilter !== ALL)
+      list = list.filter((p) => p.compte === compteFilter);
+    if (statutFilter !== ALL) {
+      // statutFilter ∈ {STATUT_PUBLISHED, STATUT_DRAFT}. La dichotomie suit la
+      // règle isPublished — cohérente avec le split visuel des sections.
+      list = list.filter((p) =>
+        statutFilter === STATUT_PUBLISHED ? isPublished(p) : !isPublished(p),
+      );
+    }
     if (mecanique !== ALL)
       list = list.filter((p) => p.mecanique === mecanique);
     if (format !== ALL) list = list.filter((p) => p.format === format);
@@ -149,6 +163,8 @@ export default function TrackerPage() {
     publications,
     debouncedSearch,
     plateforme,
+    compteFilter,
+    statutFilter,
     mecanique,
     format,
     verdictFilter,
@@ -204,6 +220,8 @@ export default function TrackerPage() {
   function reset() {
     setSearch("");
     setPlateforme(ALL);
+    setCompteFilter(ALL);
+    setStatutFilter(ALL);
     setMecanique(ALL);
     setFormat(ALL);
     setVerdictFilter(ALL);
@@ -304,6 +322,25 @@ export default function TrackerPage() {
           options={["TikTok", "Instagram"]}
           allLabel="Toutes"
           width="w-[140px]"
+        />
+        <FilterSelect
+          label="Compte"
+          value={compteFilter}
+          onChange={setCompteFilter}
+          // Source dynamique : actifOnly=true côté query → on n'affiche que les
+          // comptes encore en service. Si la query est encore loading on tombe
+          // sur une liste vide, le select reste fonctionnel (juste "Tous").
+          options={comptes?.map((c) => c.handle) ?? []}
+          allLabel="Tous"
+          width="w-[180px]"
+        />
+        <FilterSelect
+          label="Statut"
+          value={statutFilter}
+          onChange={setStatutFilter}
+          options={[STATUT_PUBLISHED, STATUT_DRAFT]}
+          allLabel="Tous"
+          width="w-[120px]"
         />
         <FilterSelect
           label="Mécanique"

@@ -21,6 +21,12 @@ Ce fichier liste les anti-patterns repérés dans la zone touchée par chaque fe
 - **Impact** : à 50 publications c'est OK, à 5000 le rendu initial sera lent. Pas de pagination, pas d'aggregation côté Convex.
 - **Reco future** : query Convex dédiée qui retourne les stats agrégées au lieu de transférer toutes les rows au client.
 
+### TD-007 — Le filtre `Compte` du tracker ne scale pas au-delà de ~15 comptes
+- **Fichier** : `app/tracker/page.tsx` (FilterSelect `Compte`)
+- **Symptôme** : à 7 comptes actuels, le `<FilterSelect>` shadcn (dropdown sans recherche) reste ergonomique. Au-delà de ~15 entrées, scroller dans une liste plate devient pénible.
+- **Reco** : passer à une combobox cherchable type `<HookCombobox>` de `app/nouveau/page.tsx` (Popover + Command de cmdk). Pattern déjà rodé sur le repo.
+- **Trigger** : si la table `comptes` dépasse 15 lignes actives, faire la migration. Pas avant — change UI sans valeur tant qu'on est sous le seuil.
+
 ### TD-006 — Configurer Vercel pour push automatique Convex au deploy
 - **Symptôme** : aujourd'hui le build Vercel ne fait que `next build`. Le schéma Convex prod (`fiery-wolf-460`) doit être poussé manuellement via `pnpm dlx convex@latest deploy` à chaque changement de schéma ou de fonction. Ça crée un mismatch potentiel entre le code Vercel (à jour) et le backend Convex prod (en retard) si on oublie le push manuel — c'est exactement ce qui s'est passé au deploy des 4 features (étapes 1-4) où le code est arrivé sur Vercel sans le schéma associé.
 - **Fix** :

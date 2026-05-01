@@ -10,11 +10,14 @@ test.describe("Tracker filtres", () => {
       return;
     }
 
-    // Filter bar comboboxes are in declaration order: Plateforme, Mécanique, Format, Verdict.
-    // The dialogs (edit metrics, detail) are NOT mounted on initial /tracker render, so
-    // we can safely use nth across all comboboxes.
-    const allCombos = page.getByRole("combobox");
-    await allCombos.nth(3).click();
+    // Anchor sémantique : trouve le label "Verdict", remonte au parent direct
+    // (le wrapper <div> de FilterSelect), descend à la combobox. Insensible à
+    // l'ajout de nouveaux filtres dans la barre (compte/statut/etc.).
+    const verdictLabel = page
+      .locator("label")
+      .filter({ hasText: /^Verdict$/ });
+    const verdictWrapper = verdictLabel.locator("xpath=..");
+    await verdictWrapper.getByRole("combobox").click();
     await page.getByRole("option", { name: "WINNER" }).click();
 
     // Toutes les rows visibles doivent contenir WINNER (ou aucune si pas de winners)
