@@ -1,6 +1,8 @@
 "use client";
 
+import { useMemo } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import {
@@ -25,6 +27,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { VerdictBadge, PlatformBadge } from "@/components/VerdictBadge";
+import { FilterMultiSelect } from "@/components/filters/FilterMultiSelect";
 import {
   aggregateByAngle,
   aggregateByFormat,
@@ -39,6 +42,16 @@ import { formatNumber, formatPercent } from "@/lib/format";
 import { isPublished } from "@/lib/publication-status";
 import { cn } from "@/lib/utils";
 import { FileTextIcon, PlusIcon } from "lucide-react";
+
+const MECANIQUES = [
+  "Erreur",
+  "Volume",
+  "Comparaison",
+  "Contradiction",
+  "Universalité",
+  "Question",
+] as const;
+const ALLOWED_MECANIQUES = new Set<string>(MECANIQUES);
 
 const COLOR_WINNER = "#10b981"; // emerald-500
 const COLOR_MOYEN = "#f59e0b"; // amber-500
@@ -88,11 +101,45 @@ function DashboardContent({
 }: {
   publications: NonNullable<ReturnType<typeof useQuery<typeof api.publications.listPublications>>>;
 }) {
-  // Filtrage isPublished en amont — toutes les agrégations consomment ce
-  // sous-ensemble. Les drafts n'ont sémantiquement ni verdict ni save rate,
-  // les inclure fausserait les KPIs.
-  const published = publications.filter(isPublished);
-  const draftCount = publications.length - published.length;
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Modif 6 — état dérivé de l'URL (?mecanique=Erreur,Volume). Format CSV
+  // simple choisi pour lisibilité humaine (vs ?mecanique=A&mecanique=B), aligné
+  // avec l'usage privé du dashboard et plus court à partager. Valeurs invalides
+  // silencieusement filtrées (cf ALLOWED_MECANIQUES) — pas d'erreur user-facing.
+  const mecaniqueSet = useMemo(() => {
+    const raw = searchParams.get("mecanique");
+    if (!raw) return new Set<string>();
+    return new Set(
+      raw
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => ALLOWED_MECANIQUES.has(s)),
+    );
+  }, [searchParams]);
+
+  function handleMecaniqueChange(next: Set<string>) {
+    const params = new URLSearchParams(searchParams);
+    if (next.size === 0) {
+      params.delete("mecanique");
+    } else {
+      // Tri alphabétique pour un URL stable (deeplink reproductible).
+      params.set("mecanique", Array.from(next).sort().join(","));
+    }
+    const qs = params.toString();
+    router.replace(qs ? `/?${qs}` : "/");
+  }
+
+  // Filtrage mécanique d'abord (Modif 6) puis isPublished (cohérence : le
+  // sous-titre "+X à venir" reflète aussi la sélection — décision tranchée 9).
+  // Les fonctions stats consomment juste l'array passé, contrat inchangé.
+  const filteredPublications =
+    mecaniqueSet.size === 0
+      ? publications
+      : publications.filter((p) => mecaniqueSet.has(p.mecanique));
+  const published = filteredPublications.filter(isPublished);
+  const draftCount = filteredPublications.length - published.length;
 
   const stats = getGlobalStats(published);
   const byMecanique = aggregateByMecanique(published);
@@ -104,6 +151,17 @@ function DashboardContent({
 
   return (
     <>
+      <div className="flex items-end gap-3">
+        <FilterMultiSelect
+          label="Mécanique"
+          selectedValues={mecaniqueSet}
+          onChange={handleMecaniqueChange}
+          options={MECANIQUES.map((m) => ({ value: m, label: m }))}
+          allLabel="Toutes"
+          width="w-[220px]"
+        />
+      </div>
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <KpiCard
           label="Publiés"
