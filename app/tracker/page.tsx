@@ -7,6 +7,7 @@ import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Select,
@@ -483,7 +484,7 @@ function FilterSelect({
   return (
     <div className="flex flex-col gap-1.5">
       <label className="text-xs font-medium text-slate-600">{label}</label>
-      <Select value={value} onValueChange={onChange}>
+      <Select value={value} onValueChange={(v) => v !== null && onChange(v)}>
         <SelectTrigger className={width}>
           <SelectValue>{value === ALL ? allLabel : value}</SelectValue>
         </SelectTrigger>
@@ -563,15 +564,17 @@ function StatCard({
 function LoadingState() {
   return (
     <div className="space-y-6">
+      <div className="space-y-2">
+        <Skeleton className="h-9 w-32" />
+        <Skeleton className="h-4 w-48" />
+      </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div
-            key={i}
-            className="h-20 animate-pulse rounded-lg border border-slate-200 bg-white"
-          />
+          <Skeleton key={i} className="h-20" />
         ))}
       </div>
-      <div className="h-96 animate-pulse rounded-lg border border-slate-200 bg-white" />
+      <Skeleton className="h-12 w-full" />
+      <Skeleton className="h-96 w-full" />
     </div>
   );
 }

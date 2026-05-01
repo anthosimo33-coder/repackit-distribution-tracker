@@ -39,6 +39,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   CalendarIcon,
   CheckIcon,
@@ -270,7 +271,7 @@ function NouveauForm() {
                   <Label>Mécanique</Label>
                   <Select
                     value={customMecanique}
-                    onValueChange={setCustomMecanique}
+                    onValueChange={(v) => v !== null && setCustomMecanique(v)}
                   >
                     <SelectTrigger>
                       <SelectValue>{customMecanique}</SelectValue>
@@ -286,7 +287,7 @@ function NouveauForm() {
                 </div>
                 <div className="space-y-1.5">
                   <Label>Niveau</Label>
-                  <Select value={customNiveau} onValueChange={setCustomNiveau}>
+                  <Select value={customNiveau} onValueChange={(v) => v !== null && setCustomNiveau(v)}>
                     <SelectTrigger>
                       <SelectValue>{customNiveau}</SelectValue>
                     </SelectTrigger>
@@ -301,7 +302,7 @@ function NouveauForm() {
                 </div>
                 <div className="space-y-1.5">
                   <Label>Langue</Label>
-                  <Select value={customLangue} onValueChange={setCustomLangue}>
+                  <Select value={customLangue} onValueChange={(v) => v !== null && setCustomLangue(v)}>
                     <SelectTrigger>
                       <SelectValue>{customLangue}</SelectValue>
                     </SelectTrigger>
@@ -327,7 +328,7 @@ function NouveauForm() {
         <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div className="space-y-1.5 md:col-span-2">
             <Label>Format</Label>
-            <Select value={format} onValueChange={setFormat}>
+            <Select value={format} onValueChange={(v) => v !== null && setFormat(v)}>
               <SelectTrigger>
                 <SelectValue>
                   {FORMATS.find((f) => f.value === format)?.label}
@@ -344,7 +345,7 @@ function NouveauForm() {
           </div>
           <div className="space-y-1.5">
             <Label>Angle tonal</Label>
-            <Select value={angle} onValueChange={setAngle}>
+            <Select value={angle} onValueChange={(v) => v !== null && setAngle(v)}>
               <SelectTrigger>
                 <SelectValue>{angle}</SelectValue>
               </SelectTrigger>
@@ -423,7 +424,7 @@ function NouveauForm() {
           </div>
           <div className="space-y-1.5">
             <Label>Compte</Label>
-            <Select value={compte} onValueChange={setCompte}>
+            <Select value={compte} onValueChange={(v) => v !== null && setCompte(v)}>
               <SelectTrigger>
                 <SelectValue>{compte}</SelectValue>
               </SelectTrigger>
@@ -527,32 +528,42 @@ function HookCombobox({
         <Command>
           <CommandInput placeholder="Cherche un hook..." />
           <CommandList>
-            <CommandEmpty>Aucun hook trouvé.</CommandEmpty>
-            <CommandGroup>
-              {hooks?.map((h) => (
-                <CommandItem
-                  key={h._id}
-                  value={h.text}
-                  onSelect={() => {
-                    onChange(h._id);
-                    setOpen(false);
-                  }}
-                >
-                  <CheckIcon
-                    className={cn(
-                      "mr-2 size-4",
-                      value === h._id ? "opacity-100" : "opacity-0",
-                    )}
-                  />
-                  <div className="flex-1">
-                    <div className="text-sm">{h.text}</div>
-                    <div className="text-xs text-slate-500">
-                      {h.mecanique} · {h.niveau} · {h.langue}
-                    </div>
-                  </div>
-                </CommandItem>
-              ))}
-            </CommandGroup>
+            {hooks === undefined ? (
+              <div className="space-y-2 p-2">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Skeleton key={i} className="h-10 w-full" />
+                ))}
+              </div>
+            ) : (
+              <>
+                <CommandEmpty>Aucun hook trouvé.</CommandEmpty>
+                <CommandGroup>
+                  {hooks.map((h) => (
+                    <CommandItem
+                      key={h._id}
+                      value={h.text}
+                      onSelect={() => {
+                        onChange(h._id);
+                        setOpen(false);
+                      }}
+                    >
+                      <CheckIcon
+                        className={cn(
+                          "mr-2 size-4",
+                          value === h._id ? "opacity-100" : "opacity-0",
+                        )}
+                      />
+                      <div className="flex-1">
+                        <div className="text-sm">{h.text}</div>
+                        <div className="text-xs text-slate-500">
+                          {h.mecanique} · {h.niveau} · {h.langue}
+                        </div>
+                      </div>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </>
+            )}
           </CommandList>
         </Command>
       </PopoverContent>

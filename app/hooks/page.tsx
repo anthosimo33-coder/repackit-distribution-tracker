@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -103,7 +104,7 @@ export default function HooksPage() {
 
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-medium text-slate-600">Mécanique</label>
-          <Select value={mecanique} onValueChange={setMecanique}>
+          <Select value={mecanique} onValueChange={(v) => v !== null && setMecanique(v)}>
             <SelectTrigger className="w-[180px]">
               <SelectValue>{mecanique === ALL ? "Toutes" : mecanique}</SelectValue>
             </SelectTrigger>
@@ -120,7 +121,7 @@ export default function HooksPage() {
 
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-medium text-slate-600">Niveau</label>
-          <Select value={niveau} onValueChange={setNiveau}>
+          <Select value={niveau} onValueChange={(v) => v !== null && setNiveau(v)}>
             <SelectTrigger className="w-[140px]">
               <SelectValue>{niveau === ALL ? "Tous" : niveau}</SelectValue>
             </SelectTrigger>
@@ -137,7 +138,7 @@ export default function HooksPage() {
 
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-medium text-slate-600">Langue</label>
-          <Select value={langue} onValueChange={setLangue}>
+          <Select value={langue} onValueChange={(v) => v !== null && setLangue(v)}>
             <SelectTrigger className="w-[120px]">
               <SelectValue>{langue === ALL ? "Toutes" : langue}</SelectValue>
             </SelectTrigger>
@@ -211,10 +212,7 @@ function LoadingSkeleton() {
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
       {Array.from({ length: 6 }).map((_, i) => (
-        <div
-          key={i}
-          className="h-24 animate-pulse rounded-lg border border-slate-200 bg-white"
-        />
+        <Skeleton key={i} className="h-24" />
       ))}
     </div>
   );

@@ -14,6 +14,7 @@ import {
   YAxis,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { buttonVariants } from "@/components/ui/button";
 import {
   Table,
@@ -379,21 +380,18 @@ function KpiCard({
 function LoadingState() {
   return (
     <div className="space-y-6">
-      <div className="h-12 w-48 animate-pulse rounded bg-slate-200" />
+      <div className="space-y-2">
+        <Skeleton className="h-9 w-40" />
+        <Skeleton className="h-4 w-72" />
+      </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div
-            key={i}
-            className="h-24 animate-pulse rounded-lg border border-slate-200 bg-white"
-          />
+          <Skeleton key={i} className="h-24" />
         ))}
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div
-            key={i}
-            className="h-72 animate-pulse rounded-lg border border-slate-200 bg-white"
-          />
+          <Skeleton key={i} className="h-72" />
         ))}
       </div>
     </div>

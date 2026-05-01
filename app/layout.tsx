@@ -18,7 +18,8 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "RepackIt Distribution Tracker",
   description:
-    "Tracker de distribution pour les carrousels TikTok et Instagram de RepackIt.",
+    "Tracker de distribution carrousels TikTok + Instagram pour RepackIt",
+  robots: "noindex, nofollow",
 };
 
 export default function RootLayout({

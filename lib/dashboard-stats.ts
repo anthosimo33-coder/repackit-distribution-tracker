@@ -94,22 +94,21 @@ export function getTopHooks(
   n: number = 10,
 ): TopHook[] {
   return publications
-    .map((p) => {
+    .flatMap<TopHook>((p) => {
       const saveRate = calculateSaveRate(p.saves, p.vuesJ7);
       const verdict = calculateVerdict(saveRate);
-      return {
-        hookText: p.hookText,
-        carouselId: p.carouselId,
-        plateforme: p.plateforme,
-        vuesJ7: p.vuesJ7 ?? 0,
-        saveRate: saveRate ?? 0,
-        verdict,
-      };
+      if (saveRate === null || verdict === null || saveRate <= 0) return [];
+      return [
+        {
+          hookText: p.hookText,
+          carouselId: p.carouselId,
+          plateforme: p.plateforme,
+          vuesJ7: p.vuesJ7 ?? 0,
+          saveRate,
+          verdict,
+        },
+      ];
     })
-    .filter(
-      (h): h is TopHook & { verdict: NonNullable<Verdict> } =>
-        h.saveRate > 0 && h.verdict !== null,
-    )
     .sort((a, b) => b.saveRate - a.saveRate)
     .slice(0, n);
 }
