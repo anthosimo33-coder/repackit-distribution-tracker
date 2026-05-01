@@ -3,6 +3,17 @@ import { calculateSaveRate, calculateVerdict, type Verdict } from "./verdict";
 
 type Publication = Doc<"publications">;
 
+/**
+ * CONTRAT — toutes les fonctions de ce module attendent en entrée une liste
+ * de publications DÉJÀ filtrée sur isPublished(). Le filtrage se fait en
+ * amont au callsite (cf. app/page.tsx, app/tracker/page.tsx). Les fonctions
+ * elles-mêmes ne re-filtrent pas — c'est la responsabilité de l'appelant
+ * pour éviter la double-filtration et garder ces fonctions pures.
+ *
+ * Justification : un draft (= postUrl vide) n'a sémantiquement pas de
+ * verdict ni de save rate à agréger. Inclure ces rows fausserait les KPIs.
+ */
+
 export type AggregateRow = {
   key: string;
   count: number;

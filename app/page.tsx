@@ -36,6 +36,7 @@ import {
   type AggregateRow,
 } from "@/lib/dashboard-stats";
 import { formatNumber, formatPercent } from "@/lib/format";
+import { isPublished } from "@/lib/publication-status";
 import { cn } from "@/lib/utils";
 import { FileTextIcon, PlusIcon } from "lucide-react";
 
@@ -87,18 +88,28 @@ function DashboardContent({
 }: {
   publications: NonNullable<ReturnType<typeof useQuery<typeof api.publications.listPublications>>>;
 }) {
-  const stats = getGlobalStats(publications);
-  const byMecanique = aggregateByMecanique(publications);
-  const byNiveau = aggregateByNiveau(publications);
-  const byFormat = aggregateByFormat(publications);
-  const byAngle = aggregateByAngle(publications);
-  const byPlateforme = aggregateByPlateforme(publications);
-  const topHooks = getTopHooks(publications, 10);
+  // Filtrage isPublished en amont — toutes les agrégations consomment ce
+  // sous-ensemble. Les drafts n'ont sémantiquement ni verdict ni save rate,
+  // les inclure fausserait les KPIs.
+  const published = publications.filter(isPublished);
+  const draftCount = publications.length - published.length;
+
+  const stats = getGlobalStats(published);
+  const byMecanique = aggregateByMecanique(published);
+  const byNiveau = aggregateByNiveau(published);
+  const byFormat = aggregateByFormat(published);
+  const byAngle = aggregateByAngle(published);
+  const byPlateforme = aggregateByPlateforme(published);
+  const topHooks = getTopHooks(published, 10);
 
   return (
     <>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <KpiCard label="Publications" value={String(stats.total)} />
+        <KpiCard
+          label="Publiés"
+          value={String(stats.total)}
+          secondary={draftCount > 0 ? `+${draftCount} à venir` : undefined}
+        />
         <KpiCard
           label="Vues totales (J+7)"
           value={formatNumber(stats.totalVues)}
@@ -355,21 +366,30 @@ function KpiCard({
   label,
   value,
   highlight,
+  secondary,
 }: {
   label: string;
   value: string;
   highlight?: boolean;
+  secondary?: string;
 }) {
   return (
     <Card>
       <CardContent className="p-4">
-        <div
-          className={cn(
-            "text-3xl font-bold tabular-nums",
-            highlight ? "text-emerald-600" : "text-slate-900",
+        <div className="flex items-baseline gap-2">
+          <div
+            className={cn(
+              "text-3xl font-bold tabular-nums",
+              highlight ? "text-emerald-600" : "text-slate-900",
+            )}
+          >
+            {value}
+          </div>
+          {secondary && (
+            <div className="text-xs font-medium text-slate-500">
+              {secondary}
+            </div>
           )}
-        >
-          {value}
         </div>
         <div className="mt-1 text-sm text-slate-500">{label}</div>
       </CardContent>

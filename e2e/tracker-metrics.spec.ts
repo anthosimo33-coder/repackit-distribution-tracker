@@ -50,6 +50,13 @@ test.describe("Tracker édition métriques", () => {
     await row.getByRole("button").last().click(); // dropdown
     await page.getByRole("menuitem", { name: /mettre à jour/i }).click();
 
+    // Feature 4 : un draft (postUrl vide) n'a jamais de verdict, peu importe
+    // ses métriques. Pour que la row affiche WINNER après save, il faut aussi
+    // renseigner un lien de publication (= passer la pub en "publié").
+    await page
+      .getByLabel(/lien de publication/i)
+      .fill("https://www.tiktok.com/@test_e2e_metrics/video/123");
+
     // Saisir vues=1500, saves=60 → save rate 4% → WINNER
     await page.getByLabel(/vues j\+7/i).fill("1500");
     await page.getByLabel(/^saves$/i).fill("60");
@@ -62,7 +69,7 @@ test.describe("Tracker édition métriques", () => {
     // Save
     await page.getByRole("button", { name: /enregistrer/i }).click();
 
-    // Dialog se ferme — vérifier la row
+    // Dialog se ferme — vérifier la row (qui est maintenant dans la section Publié)
     await expect(row.getByText("WINNER", { exact: true })).toBeVisible();
     await expect(row.getByText("4,00 %")).toBeVisible();
   });

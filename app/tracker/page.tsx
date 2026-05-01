@@ -119,7 +119,11 @@ export default function TrackerPage() {
     if (format !== ALL) list = list.filter((p) => p.format === format);
     if (verdictFilter !== ALL) {
       list = list.filter((p) => {
-        const v = calculateVerdict(calculateSaveRate(p.saves, p.vuesJ7));
+        // Verdict ne s'applique qu'aux publiés (Feature 4). Les drafts sont
+        // toujours en attente, peu importe leurs métriques saisies.
+        const v = isPublished(p)
+          ? calculateVerdict(calculateSaveRate(p.saves, p.vuesJ7))
+          : null;
         if (verdictFilter === PENDING) return v === null;
         return v === verdictFilter;
       });
@@ -129,8 +133,10 @@ export default function TrackerPage() {
       let cmp = 0;
       if (sortKey === "date") cmp = a.datePubli - b.datePubli;
       else {
-        const ra = calculateSaveRate(a.saves, a.vuesJ7);
-        const rb = calculateSaveRate(b.saves, b.vuesJ7);
+        // Save rate non défini sur les drafts pour le tri (consistance avec
+        // l'affichage et le filtre verdict).
+        const ra = isPublished(a) ? calculateSaveRate(a.saves, a.vuesJ7) : null;
+        const rb = isPublished(b) ? calculateSaveRate(b.saves, b.vuesJ7) : null;
         if (ra === null && rb === null) cmp = 0;
         else if (ra === null) cmp = 1;
         else if (rb === null) cmp = -1;
@@ -162,12 +168,23 @@ export default function TrackerPage() {
   );
 
   const stats = useMemo(() => {
-    if (!publications) return { total: 0, vuesTotal: 0, avgSaveRate: null as number | null, winners: 0 };
-    const total = publications.length;
+    if (!publications) {
+      return {
+        publishedCount: 0,
+        draftCount: 0,
+        vuesTotal: 0,
+        avgSaveRate: null as number | null,
+        winners: 0,
+      };
+    }
+    // Feature 4 : KPIs agrègent sur publiés uniquement. Les drafts comptent
+    // séparément pour l'affichage "+X à venir".
+    const publishedPubs = publications.filter(isPublished);
+    const draftCount = publications.length - publishedPubs.length;
     let vuesTotal = 0;
     const rates: number[] = [];
     let winners = 0;
-    for (const p of publications) {
+    for (const p of publishedPubs) {
       if (p.vuesJ7 !== null) vuesTotal += p.vuesJ7;
       const r = calculateSaveRate(p.saves, p.vuesJ7);
       if (r !== null) rates.push(r);
@@ -175,7 +192,13 @@ export default function TrackerPage() {
     }
     const avgSaveRate =
       rates.length > 0 ? rates.reduce((a, b) => a + b, 0) / rates.length : null;
-    return { total, vuesTotal, avgSaveRate, winners };
+    return {
+      publishedCount: publishedPubs.length,
+      draftCount,
+      vuesTotal,
+      avgSaveRate,
+      winners,
+    };
   }, [publications]);
 
   function reset() {
@@ -223,9 +246,24 @@ export default function TrackerPage() {
           <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
             Tracker
           </h1>
+          {/*
+            Compteur sous-header : on garde le contexte filtres+total
+            ("X sur Y publications") et on ajoute le détail publiés/à venir
+            de la sélection courante. "X publiés sur Y total" seul perdait
+            l'information "combien matchent les filtres", qui est ce que
+            l'utilisateur regarde quand il fouille.
+          */}
           <p className="text-sm text-slate-500">
             {filtered.length} sur {publications.length} publication
             {publications.length > 1 ? "s" : ""}
+            {filtered.length > 0 && (
+              <span className="text-slate-400">
+                {" "}
+                · {filtered.filter(isPublished).length} publié
+                {filtered.filter(isPublished).length > 1 ? "s" : ""} ·{" "}
+                {filtered.filter((p) => !isPublished(p)).length} à venir
+              </span>
+            )}
           </p>
         </div>
         <Link
@@ -238,7 +276,13 @@ export default function TrackerPage() {
       </header>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard label="Publications" value={String(stats.total)} />
+        <StatCard
+          label="Publiés"
+          value={String(stats.publishedCount)}
+          secondary={
+            stats.draftCount > 0 ? `+${stats.draftCount} à venir` : undefined
+          }
+        />
         <StatCard label="Vues totales (J+7)" value={formatNumber(stats.vuesTotal)} />
         <StatCard label="Save rate moyen" value={formatPercent(stats.avgSaveRate)} />
         <StatCard label="Winners" value={String(stats.winners)} highlight={stats.winners > 0} />
@@ -449,8 +493,14 @@ function PublicationsSection({
           </TableHeader>
           <TableBody>
             {rows.map((p) => {
+              // Feature 4 : un draft (= !isPublished) n'a pas de verdict, peu
+              // importe ses métriques. Le saveRate brut peut rester affiché
+              // (l'utilisateur peut saisir des chiffres en avance) mais le
+              // badge verdict est forcé à "En attente".
               const saveRate = calculateSaveRate(p.saves, p.vuesJ7);
-              const verdict = calculateVerdict(saveRate);
+              const verdict = isPublished(p)
+                ? calculateVerdict(saveRate)
+                : null;
               return (
                 <TableRow key={p._id}>
                   <TableCell className="whitespace-nowrap text-xs text-slate-600">
@@ -602,21 +652,30 @@ function StatCard({
   label,
   value,
   highlight,
+  secondary,
 }: {
   label: string;
   value: string;
   highlight?: boolean;
+  secondary?: string;
 }) {
   return (
     <Card>
       <CardContent className="p-4">
-        <div
-          className={cn(
-            "text-2xl font-bold tabular-nums",
-            highlight ? "text-emerald-600" : "text-slate-900",
+        <div className="flex items-baseline gap-2">
+          <div
+            className={cn(
+              "text-2xl font-bold tabular-nums",
+              highlight ? "text-emerald-600" : "text-slate-900",
+            )}
+          >
+            {value}
+          </div>
+          {secondary && (
+            <div className="text-xs font-medium text-slate-500">
+              {secondary}
+            </div>
           )}
-        >
-          {value}
         </div>
         <div className="text-xs text-slate-500">{label}</div>
       </CardContent>
