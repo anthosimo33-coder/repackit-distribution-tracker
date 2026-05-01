@@ -119,3 +119,38 @@ export const listPublications = query({
       .collect();
   },
 });
+
+export const updateMetrics = mutation({
+  args: {
+    id: v.id("publications"),
+    vuesJ1: v.optional(v.union(v.number(), v.null())),
+    vuesJ3: v.optional(v.union(v.number(), v.null())),
+    vuesJ7: v.optional(v.union(v.number(), v.null())),
+    saves: v.optional(v.union(v.number(), v.null())),
+    commentsTotal: v.optional(v.union(v.number(), v.null())),
+    commentsAudit: v.optional(v.union(v.number(), v.null())),
+    profileVisits: v.optional(v.union(v.number(), v.null())),
+    notes: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { id, ...rest } = args;
+    const existing = await ctx.db.get(id);
+    if (!existing) throw new Error("Publication not found");
+
+    const update: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(rest)) {
+      if (value !== undefined) update[key] = value;
+    }
+
+    await ctx.db.patch(id, update);
+    return { ok: true };
+  },
+});
+
+export const deletePublication = mutation({
+  args: { id: v.id("publications") },
+  handler: async (ctx, args) => {
+    await ctx.db.delete(args.id);
+    return { ok: true };
+  },
+});
