@@ -21,6 +21,14 @@ Ce fichier liste les anti-patterns repérés dans la zone touchée par chaque fe
 - **Impact** : à 50 publications c'est OK, à 5000 le rendu initial sera lent. Pas de pagination, pas d'aggregation côté Convex.
 - **Reco future** : query Convex dédiée qui retourne les stats agrégées au lieu de transférer toutes les rows au client.
 
+### TD-006 — Configurer Vercel pour push automatique Convex au deploy
+- **Symptôme** : aujourd'hui le build Vercel ne fait que `next build`. Le schéma Convex prod (`fiery-wolf-460`) doit être poussé manuellement via `pnpm dlx convex@latest deploy` à chaque changement de schéma ou de fonction. Ça crée un mismatch potentiel entre le code Vercel (à jour) et le backend Convex prod (en retard) si on oublie le push manuel — c'est exactement ce qui s'est passé au deploy des 4 features (étapes 1-4) où le code est arrivé sur Vercel sans le schéma associé.
+- **Fix** :
+  1. Convex dashboard → projet `repackit-distribution-tracker` → Settings → fiery-wolf-460 → **Generate Production Deploy Key**
+  2. Vercel → Project repackit-distribution-tracker → Settings → Environment Variables → ajouter `CONVEX_DEPLOY_KEY` (Production scope) avec la valeur générée
+  3. Vercel → Settings → Build & Development → Build Command : `npx convex deploy --cmd 'pnpm build'`
+- **Bénéfice** : élimine le mismatch schéma/code. Chaque deploy Vercel pousse le schéma Convex en amont du build Next.js, atomiquement. Plus jamais besoin de `convex deploy` manuel.
+
 ### TD-005 — `listHooksWithUsage` agrège côté serveur sur la collection complète
 - **Fichier** : `convex/hooks.ts` (`listHooksWithUsage`)
 - **Impact** : la query `collect()` toutes les publications puis groupe en mémoire par `hookId`. À 6-100 publications c'est sous 50 ms, OK. À 5000+ publications, le payload + le group-by deviennent significatifs (latence query Convex, taille de la réponse côté client).
