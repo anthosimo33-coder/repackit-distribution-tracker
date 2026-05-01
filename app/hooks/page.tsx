@@ -58,6 +58,7 @@ export default function HooksPage() {
   const [niveau, setNiveau] = useState<string>(ALL);
   const [langue, setLangue] = useState<string>("FR");
   const [hideUsed, setHideUsed] = useState(false);
+  const [hideDraft, setHideDraft] = useState(false);
 
   const hooks = useQuery(api.hooks.listHooksWithUsage, {
     search: debouncedSearch || undefined,
@@ -65,6 +66,7 @@ export default function HooksPage() {
     niveau: niveau === ALL ? undefined : (niveau as Niveau),
     langue: langue === ALL ? undefined : (langue as Langue),
     hideUsed: hideUsed || undefined,
+    hideDraft: hideDraft || undefined,
   });
   const totalCount = useQuery(api.hooks.countHooks);
 
@@ -74,6 +76,7 @@ export default function HooksPage() {
     setNiveau(ALL);
     setLangue("FR");
     setHideUsed(false);
+    setHideDraft(false);
   };
 
   const grouped = hooks
@@ -172,6 +175,15 @@ export default function HooksPage() {
             onCheckedChange={setHideUsed}
           />
           <span className="text-sm text-slate-700">Masquer publiés</span>
+        </label>
+
+        <label className="flex cursor-pointer items-center gap-2 self-end pb-2">
+          <Switch
+            id="hide-draft"
+            checked={hideDraft}
+            onCheckedChange={setHideDraft}
+          />
+          <span className="text-sm text-slate-700">Masquer les à venir</span>
         </label>
 
         <Button variant="outline" onClick={reset}>

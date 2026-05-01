@@ -138,6 +138,7 @@ export const listHooksWithUsage = query({
     ),
     search: v.optional(v.string()),
     hideUsed: v.optional(v.boolean()),
+    hideDraft: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const hooks = await ctx.db.query("hooks").collect();
@@ -202,6 +203,14 @@ export const listHooksWithUsage = query({
     }
     if (args.hideUsed) {
       results = results.filter((h) => h.publishedCount === 0);
+    }
+    // hideDraft est indépendant de hideUsed et combinable :
+    //   aucun        → tout
+    //   hideUsed     → publishedCount === 0 (peut avoir des drafts)
+    //   hideDraft    → draftCount === 0     (peut avoir des publiés)
+    //   les deux     → 100 % frais (publishedCount === 0 ET draftCount === 0)
+    if (args.hideDraft) {
+      results = results.filter((h) => h.draftCount === 0);
     }
 
     results.sort((a, b) =>
