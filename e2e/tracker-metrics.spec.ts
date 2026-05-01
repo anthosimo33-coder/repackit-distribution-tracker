@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 
 test.describe("Tracker édition métriques", () => {
   test("verdict change selon save rate", async ({ page }) => {
+
     // Pré-requis : compte
     await page.goto("/comptes");
     if ((await page.getByRole("cell", { name: "@test_e2e_metrics" }).count()) === 0) {
@@ -45,29 +46,38 @@ test.describe("Tracker édition métriques", () => {
 
     await expect(page).toHaveURL(/\/tracker/, { timeout: 10000 });
 
-    // Trouver la row et cliquer "Mettre à jour stats"
-    const row = page.getByRole("row").filter({ hasText: "Hook test metrics E2E" });
-    await row.getByRole("button").last().click(); // dropdown
-    await page.getByRole("menuitem", { name: /mettre à jour/i }).click();
+    const row = page
+      .getByRole("row")
+      .filter({ hasText: "Hook test metrics E2E" });
 
-    // Feature 4 : un draft (postUrl vide) n'a jamais de verdict, peu importe
-    // ses métriques. Pour que la row affiche WINNER après save, il faut aussi
-    // renseigner un lien de publication (= passer la pub en "publié").
+    // Feature 3 : "Mettre à jour stats" est désactivé sur les drafts.
+    // Pour saisir des métriques + voir un verdict, il faut d'abord publier
+    // via la vue détail (DraftEditView) en renseignant un postUrl.
+    await row.getByRole("button").last().click();
+    await page.getByRole("menuitem", { name: /voir détail/i }).click();
+
     await page
       .getByLabel(/lien de publication/i)
       .fill("https://www.tiktok.com/@test_e2e_metrics/video/123");
+    await page.getByRole("button", { name: /^enregistrer$/i }).click();
+
+    // Wait for the draft dialog to close before re-opening the dropdown.
+    await expect(page.getByRole("dialog")).toBeHidden();
+
+    // Désormais "Mettre à jour stats" est activé.
+    await row.getByRole("button").last().click();
+    await page.getByRole("menuitem", { name: /mettre à jour stats/i }).click();
 
     // Saisir vues=1500, saves=60 → save rate 4% → WINNER
     await page.getByLabel(/vues j\+7/i).fill("1500");
     await page.getByLabel(/^saves$/i).fill("60");
 
     // Vérifier preview live "WINNER" — exact pour ne pas matcher "Winners" (KPI label)
-    // Use the dialog scope to avoid the KPI banner.
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByText("WINNER", { exact: true })).toBeVisible();
 
     // Save
-    await page.getByRole("button", { name: /enregistrer/i }).click();
+    await page.getByRole("button", { name: /^enregistrer$/i }).click();
 
     // Dialog se ferme — vérifier la row (qui est maintenant dans la section Publié)
     await expect(row.getByText("WINNER", { exact: true })).toBeVisible();

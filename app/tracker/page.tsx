@@ -554,9 +554,19 @@ function PublicationsSection({
                       />
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => onView(p)}>
-                          Voir détail
+                          {isPublished(p)
+                            ? "Voir détail"
+                            : "Voir détail / éditer"}
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onEdit(p)}>
+                        <DropdownMenuItem
+                          onClick={() => onEdit(p)}
+                          disabled={!isPublished(p)}
+                          title={
+                            !isPublished(p)
+                              ? "Publiez d'abord pour saisir les stats"
+                              : undefined
+                          }
+                        >
                           Mettre à jour stats
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />

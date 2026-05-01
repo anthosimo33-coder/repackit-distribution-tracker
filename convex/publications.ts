@@ -1,5 +1,5 @@
 import { mutation, query } from "./_generated/server";
-import { v } from "convex/values";
+import { v, ConvexError } from "convex/values";
 
 const mecaniqueValidator = v.union(
   v.literal("Erreur"),
@@ -157,5 +157,86 @@ export const deletePublication = mutation({
   handler: async (ctx, args) => {
     await ctx.db.delete(args.id);
     return { ok: true };
+  },
+});
+
+/**
+ * Édition d'un brouillon au niveau CARROUSEL : patch toutes les rows
+ * partageant le même carouselId. Refuse l'opération si AU MOINS UNE row a
+ * postUrl renseigné (= déjà publiée) — on n'autorise pas la réécriture
+ * partielle d'un carrousel à moitié publié.
+ *
+ * Note multi-plateformes : tous les champs du patch (slides, datePubli,
+ * compte, plateforme) sont appliqués uniformément à toutes les rows. Si
+ * le carrousel a 2 rows (TikTok + IG) et que l'utilisateur change
+ * plateforme→TikTok, les 2 rows deviennent TikTok (data redundant mais
+ * cohérent avec « édition au niveau carrousel »). Le UI ouvre le dialog
+ * depuis une row spécifique mais propage à tout le carrousel.
+ */
+export const updateDraft = mutation({
+  args: {
+    carouselId: v.string(),
+    patch: v.object({
+      slides: v.optional(
+        v.array(v.object({ position: v.number(), texte: v.string() })),
+      ),
+      datePubli: v.optional(v.number()),
+      compte: v.optional(v.string()),
+      plateforme: v.optional(plateformeValidator),
+    }),
+  },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("publications")
+      .withIndex("by_carouselId", (q) =>
+        q.eq("carouselId", args.carouselId),
+      )
+      .collect();
+
+    if (rows.length === 0) {
+      throw new Error(`Carrousel ${args.carouselId} introuvable.`);
+    }
+
+    for (const r of rows) {
+      const isPub = typeof r.postUrl === "string" && r.postUrl.length > 0;
+      if (isPub) {
+        throw new ConvexError(
+          "Carrousel partiellement publié, édition impossible. Vide d'abord les liens de publication ou supprime les rows publiées.",
+        );
+      }
+    }
+
+    // Validation cross-table : si la plateforme cible change, le compte (s'il
+    // est aussi patché) doit exister sur cette plateforme côté table comptes.
+    if (args.patch.plateforme && args.patch.compte) {
+      const allComptes = await ctx.db.query("comptes").collect();
+      const matching = allComptes.find(
+        (c) =>
+          c.handle === args.patch.compte &&
+          c.plateforme === args.patch.plateforme,
+      );
+      if (!matching) {
+        throw new Error(
+          `Le compte ${args.patch.compte} n'existe pas sur ${args.patch.plateforme}.`,
+        );
+      }
+    }
+
+    const update: Record<string, unknown> = {};
+    if (args.patch.slides !== undefined) {
+      update.slides = args.patch.slides;
+      // nbSlides est dérivé : on le synchronise systématiquement avec
+      // slides.length pour qu'aucun appelant n'oublie.
+      update.nbSlides = args.patch.slides.length;
+    }
+    if (args.patch.datePubli !== undefined) update.datePubli = args.patch.datePubli;
+    if (args.patch.compte !== undefined) update.compte = args.patch.compte;
+    if (args.patch.plateforme !== undefined) update.plateforme = args.patch.plateforme;
+
+    for (const r of rows) {
+      await ctx.db.patch(r._id, update);
+    }
+
+    return { ok: true, rowsPatched: rows.length };
   },
 });
