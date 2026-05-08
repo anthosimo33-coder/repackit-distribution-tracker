@@ -40,23 +40,31 @@ export default defineSchema({
       v.literal("Broad-B"),
       v.literal("Niché"),
     ),
-    format: v.union(
-      v.literal("A"),
-      v.literal("B"),
-      v.literal("C"),
-      v.literal("D"),
-      v.literal("E"),
-      v.literal("F"),
-      v.literal("G"),
-      v.literal("H"),
+    // Batch 1 Shorts — mediaType discriminant. Optional pour rétro-compat :
+    // les rows pré-Shorts ont mediaType undefined (= "carousel" via helper
+    // getMediaType dans lib/media-type.ts). Aucun composant ne doit faire la
+    // coercion inline.
+    mediaType: v.optional(
+      v.union(v.literal("carousel"), v.literal("short")),
     ),
-    nbSlides: v.number(),
-    slides: v.array(
-      v.object({
-        position: v.number(),
-        texte: v.string(),
-      }),
+    // Carousel-only. Passé en optional avec ajout des Shorts (concept non
+    // applicable aux vidéos verticales). Rows pré-Shorts ont la valeur set
+    // (A-H), elles continuent de fonctionner identiquement. v.string() au
+    // lieu d'union literal pour préparer une éventuelle évolution des
+    // formats sans migration.
+    format: v.optional(v.string()),
+    nbSlides: v.optional(v.number()),
+    slides: v.optional(
+      v.array(
+        v.object({
+          position: v.number(),
+          texte: v.string(),
+        }),
+      ),
     ),
+    // Short-only. Texte continu (pas slides découpées). Le hook reste
+    // pré-rempli en haut du script côté UI (cf Batch 2 /nouveau).
+    script: v.optional(v.string()),
     angleTonal: v.union(
       v.literal("Psycho"),
       v.literal("Accusatoire"),
@@ -65,7 +73,14 @@ export default defineSchema({
       v.literal("Provocant"),
     ),
     langue: v.union(v.literal("FR"), v.literal("EN")),
-    plateforme: v.union(v.literal("TikTok"), v.literal("Instagram")),
+    // Plateforme étendue à YouTube pour les Shorts. La cohérence
+    // mediaType/plateforme (carousel ne peut pas vivre sur YouTube) est
+    // validée serveur via isFormatAllowedOnPlatform — pas via le schéma.
+    plateforme: v.union(
+      v.literal("TikTok"),
+      v.literal("Instagram"),
+      v.literal("YouTube"),
+    ),
     compte: v.string(),
     datePubli: v.number(),
     vuesJ1: v.union(v.number(), v.null()),
@@ -75,6 +90,11 @@ export default defineSchema({
     commentsTotal: v.union(v.number(), v.null()),
     commentsAudit: v.union(v.number(), v.null()),
     profileVisits: v.union(v.number(), v.null()),
+    // Métriques Shorts (likes, abonnés gagnés). Nullable comme les autres
+    // métriques (n/a pour les Carrousels existants ; null tant que pas
+    // saisi pour les Shorts).
+    likes: v.optional(v.union(v.number(), v.null())),
+    subsGained: v.optional(v.union(v.number(), v.null())),
     notes: v.string(),
     // Lien public TikTok ou Instagram du post une fois publié.
     // Définit l'état "publié" via lib/publication-status.ts → isPublished().
@@ -100,7 +120,11 @@ export default defineSchema({
 
   comptes: defineTable({
     handle: v.string(),
-    plateforme: v.union(v.literal("TikTok"), v.literal("Instagram")),
+    plateforme: v.union(
+      v.literal("TikTok"),
+      v.literal("Instagram"),
+      v.literal("YouTube"),
+    ),
     notes: v.string(),
     actif: v.boolean(),
   })

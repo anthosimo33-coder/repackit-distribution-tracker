@@ -40,7 +40,26 @@ const langueValidator = v.union(v.literal("FR"), v.literal("EN"));
 const plateformeValidator = v.union(
   v.literal("TikTok"),
   v.literal("Instagram"),
+  v.literal("YouTube"),
 );
+
+const mediaTypeValidator = v.union(
+  v.literal("carousel"),
+  v.literal("short"),
+);
+
+// Defense in depth — dupliqué côté serveur (Convex) car on ne peut pas
+// importer lib/media-type.ts depuis un module Convex (tsconfig séparé).
+// Logique alignée avec ALLOWED_PLATFORMS_FOR_CAROUSEL/SHORT côté client.
+function isFormatAllowedOnPlatform(
+  mediaType: "carousel" | "short",
+  plateforme: "TikTok" | "Instagram" | "YouTube",
+): boolean {
+  if (mediaType === "carousel") {
+    return plateforme === "TikTok" || plateforme === "Instagram";
+  }
+  return true; // Shorts autorisés sur les 3 plateformes
+}
 
 export const createPublication = mutation({
   args: {
@@ -49,11 +68,18 @@ export const createPublication = mutation({
     hookText: v.string(),
     mecanique: mecaniqueValidator,
     niveau: niveauValidator,
-    format: formatValidator,
-    nbSlides: v.number(),
-    slides: v.array(
-      v.object({ position: v.number(), texte: v.string() }),
+    // Batch 1 Shorts — mediaType optional (default "carousel" pour rétro-compat
+    // avec les callers existants qui ne passent pas le champ). Les champs
+    // carousel-only (format/nbSlides/slides) deviennent optionnels au niveau
+    // args : leur exigence est revalidée dans le handler selon mediaType.
+    mediaType: v.optional(mediaTypeValidator),
+    format: v.optional(formatValidator),
+    nbSlides: v.optional(v.number()),
+    slides: v.optional(
+      v.array(v.object({ position: v.number(), texte: v.string() })),
     ),
+    // Short-only : script continu remplaçant les slides découpées.
+    script: v.optional(v.string()),
     angleTonal: angleValidator,
     langue: langueValidator,
     plateformes: v.array(plateformeValidator),
@@ -62,6 +88,32 @@ export const createPublication = mutation({
     notes: v.string(),
   },
   handler: async (ctx, args) => {
+    const mediaType = args.mediaType ?? "carousel";
+
+    // Validation côté serveur : carousel/short ont chacun leurs champs requis.
+    if (mediaType === "carousel") {
+      if (
+        args.format === undefined ||
+        args.nbSlides === undefined ||
+        args.slides === undefined
+      ) {
+        throw new ConvexError(
+          "Carrousel : format, nbSlides et slides sont requis.",
+        );
+      }
+    }
+    // Short : pas d'exigence stricte sur script (peut être saisi plus tard
+    // via updateDraft). L'UI Batch 2 imposera son propre garde-fou.
+
+    // Couple plateforme/mediaType : carrousel non autorisé sur YouTube.
+    for (const plateforme of args.plateformes) {
+      if (!isFormatAllowedOnPlatform(mediaType, plateforme)) {
+        throw new ConvexError(
+          `Format ${mediaType} non autorisé sur ${plateforme}.`,
+        );
+      }
+    }
+
     const ids = [];
     for (const plateforme of args.plateformes) {
       const id = await ctx.db.insert("publications", {
@@ -70,9 +122,14 @@ export const createPublication = mutation({
         hookText: args.hookText,
         mecanique: args.mecanique,
         niveau: args.niveau,
+        // mediaType : on stocke explicitement la valeur résolue (jamais
+        // undefined côté DB pour les nouvelles rows). Les rows pré-Batch-1
+        // restent undefined et sont coercées via getMediaType().
+        mediaType,
         format: args.format,
         nbSlides: args.nbSlides,
         slides: args.slides,
+        script: args.script,
         angleTonal: args.angleTonal,
         langue: args.langue,
         plateforme,
@@ -85,6 +142,8 @@ export const createPublication = mutation({
         commentsTotal: null,
         commentsAudit: null,
         profileVisits: null,
+        likes: null,
+        subsGained: null,
         notes: args.notes,
       });
       ids.push(id);
@@ -130,6 +189,10 @@ export const updateMetrics = mutation({
     commentsTotal: v.optional(v.union(v.number(), v.null())),
     commentsAudit: v.optional(v.union(v.number(), v.null())),
     profileVisits: v.optional(v.union(v.number(), v.null())),
+    // Batch 1 Shorts — métriques short-only, nullable comme les autres.
+    // L'UI carrousel ne les saisit pas (les laisse undefined → ne patch pas).
+    likes: v.optional(v.union(v.number(), v.null())),
+    subsGained: v.optional(v.union(v.number(), v.null())),
     notes: v.optional(v.string()),
     // postUrl est volontairement intégré ici plutôt que dans une mutation
     // dédiée setPublishedUrl : l'utilisateur saisit le lien dans le même
@@ -198,6 +261,19 @@ export const duplicateCarousel = mutation({
     // identiques entre les rows d'un même carouselId (cf updateDraft).
     const source = sourceRows[0];
 
+    // Batch 1 Shorts — propage explicitement le mediaType source. Les rows
+    // pré-Shorts ont mediaType undefined → coerce en "carousel" (cohérent
+    // avec getMediaType côté client). La cohérence format/plateforme cible
+    // est validée juste après.
+    const sourceMediaType: "carousel" | "short" =
+      source.mediaType ?? "carousel";
+
+    if (!isFormatAllowedOnPlatform(sourceMediaType, args.targetPlateforme)) {
+      throw new ConvexError(
+        `Format ${sourceMediaType} non autorisé sur ${args.targetPlateforme}.`,
+      );
+    }
+
     // Validation cross-table compte/plateforme : refuse un compte qui n'existe
     // pas sur la plateforme cible. Évite des rows incohérentes côté DB.
     const allComptes = await ctx.db.query("comptes").collect();
@@ -234,9 +310,14 @@ export const duplicateCarousel = mutation({
       hookText: source.hookText,
       mecanique: source.mecanique,
       niveau: source.niveau,
+      // Propagation explicite mediaType + champs format-spécifiques.
+      // Carousel → format/nbSlides/slides ; Short → script. Les champs non
+      // pertinents au format restent undefined (omis du spread).
+      mediaType: sourceMediaType,
       format: source.format,
       nbSlides: source.nbSlides,
       slides: source.slides,
+      script: source.script,
       angleTonal: source.angleTonal,
       langue: source.langue,
       plateforme: args.targetPlateforme,
@@ -249,6 +330,10 @@ export const duplicateCarousel = mutation({
       commentsTotal: null,
       commentsAudit: null,
       profileVisits: null,
+      // Métriques Shorts également remises à null (pas d'héritage des chiffres
+      // source — un duplicat est un nouveau test).
+      likes: null,
+      subsGained: null,
       notes: "",
       // postUrl undefined → draft (cf isPublished). Volontairement omis.
       parentCarouselId: parentAncre,
@@ -278,6 +363,10 @@ export const updateDraft = mutation({
       slides: v.optional(
         v.array(v.object({ position: v.number(), texte: v.string() })),
       ),
+      // Batch 1 Shorts — script éditable au niveau carrousel pour les Shorts.
+      // Les Carrousels n'utilisent pas ce champ ; l'UI Batch 2 affichera l'un
+      // ou l'autre selon mediaType.
+      script: v.optional(v.string()),
       datePubli: v.optional(v.number()),
       compte: v.optional(v.string()),
       plateforme: v.optional(plateformeValidator),
@@ -320,13 +409,28 @@ export const updateDraft = mutation({
       }
     }
 
+    // Si la plateforme cible change, vérifier la cohérence avec le mediaType
+    // de la row (toutes les rows partagent le même mediaType — cf modèle
+    // 1 carouselId = N rows). Carrousel → YouTube est rejeté ici.
+    if (args.patch.plateforme !== undefined) {
+      const rowMediaType: "carousel" | "short" =
+        rows[0].mediaType ?? "carousel";
+      if (!isFormatAllowedOnPlatform(rowMediaType, args.patch.plateforme)) {
+        throw new ConvexError(
+          `Format ${rowMediaType} non autorisé sur ${args.patch.plateforme}.`,
+        );
+      }
+    }
+
     const update: Record<string, unknown> = {};
     if (args.patch.slides !== undefined) {
       update.slides = args.patch.slides;
       // nbSlides est dérivé : on le synchronise systématiquement avec
-      // slides.length pour qu'aucun appelant n'oublie.
+      // slides.length pour qu'aucun appelant n'oublie. No-op pour les
+      // Shorts (l'UI ne pousse pas slides pour un Short).
       update.nbSlides = args.patch.slides.length;
     }
+    if (args.patch.script !== undefined) update.script = args.patch.script;
     if (args.patch.datePubli !== undefined) update.datePubli = args.patch.datePubli;
     if (args.patch.compte !== undefined) update.compte = args.patch.compte;
     if (args.patch.plateforme !== undefined) update.plateforme = args.patch.plateforme;

@@ -15,7 +15,11 @@ export const listComptes = query({
 export const createCompte = mutation({
   args: {
     handle: v.string(),
-    plateforme: v.union(v.literal("TikTok"), v.literal("Instagram")),
+    plateforme: v.union(
+      v.literal("TikTok"),
+      v.literal("Instagram"),
+      v.literal("YouTube"),
+    ),
     notes: v.string(),
   },
   handler: async (ctx, args) => {

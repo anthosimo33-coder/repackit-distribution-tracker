@@ -154,7 +154,10 @@ test.describe("Tracker — Dupliquer un carrousel", () => {
     expect(firstDup.compte).toBe("@test_e2e_dup_dst");
     expect(firstDup.plateforme).toBe("TikTok");
     expect(firstDup.postUrl ?? "").toBe(""); // draft
-    expect(firstDup.slides[0].texte).toBe(slideText); // mêmes slides
+    // Batch 1 Shorts : slides est désormais optional côté schéma. La source
+    // est un carrousel (mediaType undefined → coerce "carousel") donc slides
+    // est forcément présent — non-null assertion explicite pour TSC.
+    expect(firstDup.slides![0].texte).toBe(slideText); // mêmes slides
 
     // 3) Dupliquer LE DUPLICAT — sous-duplicat doit pointer vers ORIGINAL
     //    (pas vers firstDup). Vérification via ConvexHttpClient direct, plus

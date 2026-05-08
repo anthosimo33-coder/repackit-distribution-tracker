@@ -289,7 +289,9 @@ function TrackerPageInner() {
     }
     if (mecanique.size > 0)
       list = list.filter((p) => mecanique.has(p.mecanique));
-    if (format.size > 0) list = list.filter((p) => format.has(p.format));
+    // p.format peut être undefined (Shorts) — coerce en "" qui ne match
+     // aucun filtre format actif → Shorts naturellement exclus si filtre set.
+    if (format.size > 0) list = list.filter((p) => format.has(p.format ?? ""));
     if (verdictFilter.size > 0) {
       list = list.filter((p) => {
         // Verdict ne s'applique qu'aux publiés (Feature 4). Les drafts sont

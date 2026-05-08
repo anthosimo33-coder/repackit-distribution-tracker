@@ -46,7 +46,11 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-const PLATEFORMES = ["TikTok", "Instagram"] as const;
+// Batch 1 Shorts : YouTube ajouté pour cohérence avec le schéma étendu
+// (Doc<"publications">.plateforme accepte désormais "YouTube"). La validation
+// du couple plateforme/mediaType (carrousel → pas YouTube) est appliquée
+// côté serveur dans updateDraft — defense in depth, pas de filtrage UI ici.
+const PLATEFORMES = ["TikTok", "Instagram", "YouTube"] as const;
 type Plateforme = (typeof PLATEFORMES)[number];
 
 function Field({
@@ -178,12 +182,18 @@ function PublishedView({
             <Field label="Nb slides">{publication.nbSlides}</Field>
           </div>
 
+          {/*
+            Batch 1 Shorts : slides est désormais optional côté schéma. Pour
+            les Carrousels (cas actuel ici puisqu'on est en PublishedView qui
+            ne supporte pas encore les Shorts), slides est toujours présent
+            en pratique — fallback ?? [] juste pour satisfaire TSC.
+          */}
           <div>
             <div className="mb-2 text-xs font-medium text-slate-500">
-              Slides ({publication.slides.length})
+              Slides ({(publication.slides ?? []).length})
             </div>
             <ol className="space-y-2">
-              {publication.slides.map((s) => (
+              {(publication.slides ?? []).map((s) => (
                 <li
                   key={s.position}
                   className="flex gap-3 rounded-md border border-slate-200 bg-white p-2 text-sm"
@@ -288,7 +298,10 @@ function DraftEditView({
   // key={viewingPub._id} sur le dialog, donc le composant remonte quand on
   // ouvre une autre publication → useState ré-init naturellement, pas besoin
   // d'un useEffect de synchronisation.
-  const [slides, setSlides] = useState(publication.slides);
+  // Batch 1 Shorts : slides désormais optional côté schéma. Initialise avec
+  // fallback [] pour les rows Short (qui n'ont pas de slides). En Batch 2,
+  // ce dialog adaptera l'UI selon mediaType (slides ↔ script).
+  const [slides, setSlides] = useState(publication.slides ?? []);
   const [datePubli, setDatePubli] = useState<Date>(
     new Date(publication.datePubli),
   );

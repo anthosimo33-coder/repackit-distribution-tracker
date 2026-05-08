@@ -82,8 +82,11 @@ export const aggregateByMecanique = (pubs: Publication[]) =>
   aggregateBy(pubs, (p) => p.mecanique);
 export const aggregateByNiveau = (pubs: Publication[]) =>
   aggregateBy(pubs, (p) => p.niveau);
+// p.format peut être undefined (Shorts). Coerce en "—" pour distinguer
+// visuellement les rows sans format ; ces buckets seront filtrés en amont
+// quand le dashboard splittera par mediaType (Batch 3).
 export const aggregateByFormat = (pubs: Publication[]) =>
-  aggregateBy(pubs, (p) => p.format);
+  aggregateBy(pubs, (p) => p.format ?? "—");
 export const aggregateByAngle = (pubs: Publication[]) =>
   aggregateBy(pubs, (p) => p.angleTonal);
 export const aggregateByPlateforme = (pubs: Publication[]) =>
