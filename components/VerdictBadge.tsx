@@ -26,9 +26,14 @@ export function VerdictBadge({
   );
 }
 
+// Couleurs : TikTok = noir (signature de la marque), Instagram = pink/magenta
+// (gradient officiel simplifié), YouTube = rouge (Material Red officiel YouTube).
+// Aucun conflit avec les couleurs verdict (emerald/amber/rose) : rose
+// ≠ red 50/700 (rose est plus rosé, red plus chaud).
 const PLATFORM_STYLES: Record<string, string> = {
   TikTok: "bg-slate-900 text-white border-slate-900",
   Instagram: "bg-pink-50 text-pink-700 border-pink-200",
+  YouTube: "bg-red-50 text-red-700 border-red-200",
 };
 
 export function PlatformBadge({ plateforme }: { plateforme: string }) {

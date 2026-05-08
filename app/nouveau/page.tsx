@@ -49,6 +49,7 @@ import {
   Loader2Icon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isFormatAllowedOnPlatform } from "@/lib/media-type";
 import { toast } from "sonner";
 
 const FORMATS = [
@@ -79,7 +80,12 @@ const MECANIQUES = [
 ] as const;
 const NIVEAUX = ["Broad-A", "Broad-B", "Niché"] as const;
 const LANGUES = ["FR", "EN"] as const;
-const PLATEFORMES = ["TikTok", "Instagram"] as const;
+// Batch 1 Shorts — YouTube ajouté pour cohérence avec le schéma étendu.
+// Comme /nouveau ne crée que des Carrousels à ce stade (toggle Format ajouté
+// en Batch 2 — Modif 3), un user qui choisit YouTube est bloqué côté serveur
+// par isFormatAllowedOnPlatform (cf createPublication). Garde client ajoutée
+// dans handleSubmit pour court-circuiter l'aller-retour serveur.
+const PLATEFORMES = ["TikTok", "Instagram", "YouTube"] as const;
 
 type Mode = "biblio" | "custom";
 
@@ -244,6 +250,20 @@ function NouveauForm() {
     if (effectivePlateformes.length === 0) {
       toast.error(
         "Le compte choisi ne couvre aucune des plateformes sélectionnées",
+      );
+      return;
+    }
+    // Batch 1 Shorts — garde client : /nouveau ne crée que des Carrousels
+    // tant que le toggle Format n'est pas ajouté (Batch 2). Si une des
+    // plateformes effectives n'est pas autorisée pour les Carrousels
+    // (= YouTube), bloquer ici plutôt que de se faire rejeter par
+    // createPublication. Defense in depth.
+    const invalidPlatform = effectivePlateformes.find(
+      (p) => !isFormatAllowedOnPlatform("carousel", p),
+    );
+    if (invalidPlatform) {
+      toast.error(
+        `Carrousels non autorisés sur ${invalidPlatform}. Choisis un compte TikTok ou Instagram.`,
       );
       return;
     }

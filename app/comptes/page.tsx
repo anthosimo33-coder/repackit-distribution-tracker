@@ -51,7 +51,11 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 type Compte = Doc<"comptes">;
-type Plateforme = "TikTok" | "Instagram";
+// Batch 1 Shorts — YouTube ajouté pour les Shorts (cf lib/media-type.ts).
+// Carrousels restent TikTok+Instagram only ; côté comptes la table accepte
+// les 3 plateformes, et la cohérence format/plateforme est validée
+// uniquement au moment de créer une publication (createPublication).
+type Plateforme = "TikTok" | "Instagram" | "YouTube";
 
 export default function ComptesPage() {
   const comptes = useQuery(api.comptes.listComptes, {});
@@ -315,6 +319,7 @@ function CompteDialog({
                 <SelectContent>
                   <SelectItem value="TikTok">TikTok</SelectItem>
                   <SelectItem value="Instagram">Instagram</SelectItem>
+                  <SelectItem value="YouTube">YouTube</SelectItem>
                 </SelectContent>
               </Select>
             </div>

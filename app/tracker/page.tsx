@@ -49,6 +49,11 @@ import { calculateSaveRate, calculateVerdict, type Verdict } from "@/lib/verdict
 import { formatDate, formatNumber, formatPercent } from "@/lib/format";
 import { isPublished } from "@/lib/publication-status";
 import {
+  getMediaType,
+  ALLOWED_PLATFORMS_FOR_CAROUSEL,
+  ALLOWED_PLATFORMS_FOR_SHORT,
+} from "@/lib/media-type";
+import {
   DEFAULT_SORT,
   filtersEqual,
   isDefaultFilters,
@@ -1023,7 +1028,18 @@ function DuplicateCarouselDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const [plateforme, setPlateforme] = useState<"" | "TikTok" | "Instagram">("");
+  // Batch 1 Shorts — filtrage des plateformes cibles selon le mediaType de
+  // la source. Carrousel → TikTok+Instagram (YouTube interdit côté serveur).
+  // Short → 3 plateformes. Defense in depth : la même garde existe dans
+  // duplicateCarousel (cf isFormatAllowedOnPlatform serveur).
+  const sourceMediaType = getMediaType(publication);
+  const allowedPlatforms =
+    sourceMediaType === "carousel"
+      ? ALLOWED_PLATFORMS_FOR_CAROUSEL
+      : ALLOWED_PLATFORMS_FOR_SHORT;
+  type TargetPlateforme = "" | "TikTok" | "Instagram" | "YouTube";
+
+  const [plateforme, setPlateforme] = useState<TargetPlateforme>("");
   const [compte, setCompte] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -1038,7 +1054,7 @@ function DuplicateCarouselDialog({
 
   const duplicate = useMutation(api.publications.duplicateCarousel);
 
-  function handlePlateformeChange(next: "TikTok" | "Instagram") {
+  function handlePlateformeChange(next: "TikTok" | "Instagram" | "YouTube") {
     setPlateforme(next);
     // Reset synchrone du compte si l'ancien n'est pas valide sur la nouvelle
     // plateforme — pattern aligné avec PublicationDetailDialog/DraftEditView.
@@ -1061,7 +1077,7 @@ function DuplicateCarouselDialog({
       await duplicate({
         sourceCarouselId: publication.carouselId,
         targetCompte: compte,
-        targetPlateforme: plateforme as "TikTok" | "Instagram",
+        targetPlateforme: plateforme as "TikTok" | "Instagram" | "YouTube",
       });
       toast.success("Carrousel dupliqué");
       onOpenChange(false);
@@ -1090,7 +1106,10 @@ function DuplicateCarouselDialog({
             <Select
               value={plateforme}
               onValueChange={(v) =>
-                v !== null && handlePlateformeChange(v as "TikTok" | "Instagram")
+                v !== null &&
+                handlePlateformeChange(
+                  v as "TikTok" | "Instagram" | "YouTube",
+                )
               }
             >
               <SelectTrigger id="dup-plateforme">
@@ -1099,8 +1118,11 @@ function DuplicateCarouselDialog({
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="TikTok">TikTok</SelectItem>
-                <SelectItem value="Instagram">Instagram</SelectItem>
+                {allowedPlatforms.map((p) => (
+                  <SelectItem key={p} value={p}>
+                    {p}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

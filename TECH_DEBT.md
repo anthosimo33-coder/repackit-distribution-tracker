@@ -45,3 +45,13 @@ Ce fichier liste les anti-patterns repérés dans la zone touchée par chaque fe
 - **Fichier** : `convex/schema.ts` (champ `carouselId` sur `publications`), `convex/publications.ts` (`getNextCarouselId` parse `parseInt(id.replace(/^C/, ""))`)
 - **Impact** : pas de table dédiée `carousels`, pas de FK. Si deux mutations parallèles appellent `getNextCarouselId`, elles peuvent recevoir le même ID (race condition non gérée).
 - **Note** : la logique métier "1 carrousel = N rows partageant le même string" repose entièrement sur la cohérence côté client.
+
+---
+
+## Détectés pendant Batch 1 Shorts (foundation YouTube)
+
+### TD-008 — Constante `PLATEFORMES` dupliquée 4× dans le front
+- **Fichiers** : `app/comptes/page.tsx` (type `Plateforme` local), `app/nouveau/page.tsx` (`const PLATEFORMES`), `app/tracker/page.tsx` (DuplicateCarouselDialog), `components/PublicationDetailDialog.tsx` (`const PLATEFORMES`)
+- **Impact** : ajouter une plateforme (ex: YouTube en Batch 1) force à éditer 4 fichiers en parallèle. Risque oubli + drift entre fichiers (ex: l'un en `["TikTok", "Instagram"]`, l'autre en `["TikTok", "Instagram", "YouTube"]`).
+- **Reco** : centraliser dans `lib/platforms.ts` (ou étendre `lib/media-type.ts` qui contient déjà `ALLOWED_PLATFORMS_FOR_*`) avec une const exportée `ALL_PLATFORMS = ["TikTok", "Instagram", "YouTube"] as const` et un type `Plateforme = (typeof ALL_PLATFORMS)[number]`. Tous les callsites importent.
+- **Bénéfice** : un seul endroit à éditer pour ajouter/retirer une plateforme. Garantit la cohérence du front avec le validator Convex (qui reste la source de vérité côté serveur).
