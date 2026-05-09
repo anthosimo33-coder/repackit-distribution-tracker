@@ -52,6 +52,7 @@ import {
   getMediaType,
   ALLOWED_PLATFORMS_FOR_CAROUSEL,
   ALLOWED_PLATFORMS_FOR_SHORT,
+  type MediaType,
 } from "@/lib/media-type";
 import {
   DEFAULT_SORT,
@@ -112,6 +113,57 @@ function setToSortedArray(s: Set<string>): string[] {
 type SortKey = "date" | "saveRate";
 type SortDir = "asc" | "desc";
 
+// Batch 2 Modif 4a — colonnes du tableau publications. Identifiant typed
+// strict (pas de magic string) pour qu'un futur ajout/suppression force la
+// mise à jour synchrone des deux callsites (TableHead + TableCell).
+type ColumnKey =
+  | "date"
+  | "carouselId"
+  | "hook"
+  | "plateforme"
+  | "compte"
+  | "mecanique"
+  | "format"
+  | "angle"
+  | "vues"
+  | "saves"
+  | "saveRate"
+  | "verdict"
+  | "likes"
+  | "subsGained"
+  | "actions";
+
+// Ordre de l'affichage en mode "Tous" (toutes colonnes visibles). Les
+// colonnes carousel-only (format, saves, saveRate, verdict) et short-only
+// (likes, subsGained) sont retirées du Set selon mediaTypeFilter.
+const ALL_COLUMNS: readonly ColumnKey[] = [
+  "date",
+  "carouselId",
+  "hook",
+  "plateforme",
+  "compte",
+  "mecanique",
+  "format",
+  "angle",
+  "vues",
+  "saves",
+  "saveRate",
+  "verdict",
+  "likes",
+  "subsGained",
+  "actions",
+];
+
+// Options du <FilterSelect> "Format" — labels affichés ; convertis en
+// MediaType lowercase via mediaTypeFilterToValue() pour matcher le helper
+// getMediaType() qui retourne "carousel" / "short".
+const MEDIA_TYPE_FILTER_OPTIONS = ["Carrousel", "Short"] as const;
+
+function mediaTypeFilterToValue(filter: string): MediaType | null {
+  if (filter === ALL) return null;
+  return filter === "Carrousel" ? "carousel" : "short";
+}
+
 // Wrap obligatoire pour useSearchParams (Next.js 16) : sans Suspense, le
 // pré-render statique bail out (cf https://nextjs.org/docs/messages/missing-suspense-with-csr-bailout).
 // Le contenu reste rendu statiquement quand carouselId est absent ; la
@@ -133,6 +185,10 @@ function TrackerPageInner() {
 
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounced(search, 300);
+  // Batch 2 Modif 4a — filtre top-level mediaType. Pas (encore) inclus dans
+  // currentFilters / presets : Modif 7 (étape 5) le fera. Pour cette étape
+  // c'est un filtre local au tracker, indépendant du système presets v2.
+  const [mediaTypeFilter, setMediaTypeFilter] = useState<string>(ALL);
   const [plateforme, setPlateforme] = useState<string>(ALL);
   const [statutFilter, setStatutFilter] = useState<string>(ALL);
   // Multi-select v2 : 4 filtres en Set. Set vide = "tous".
@@ -266,9 +322,46 @@ function TrackerPageInner() {
     }
   }
 
+  // Batch 2 Modif 4a — résolution lowercase du filtre mediaType, partagée
+  // par le pipeline `filtered` et le calcul `visibleColumns` ci-dessous.
+  const mediaTypeTarget = useMemo<MediaType | null>(
+    () => mediaTypeFilterToValue(mediaTypeFilter),
+    [mediaTypeFilter],
+  );
+
+  // Set des colonnes visibles selon mediaType filtre. Mode "all" = toutes ;
+  // "carousel" masque likes/subsGained ; "short" masque format/saves/
+  // saveRate/verdict. La cellule per-row gère le cas "non applicable" via
+  // un fallback "—" (cf PublicationsSection).
+  const visibleColumns = useMemo<ReadonlySet<ColumnKey>>(() => {
+    if (mediaTypeTarget === "carousel") {
+      return new Set(
+        ALL_COLUMNS.filter((k) => k !== "likes" && k !== "subsGained"),
+      );
+    }
+    if (mediaTypeTarget === "short") {
+      return new Set(
+        ALL_COLUMNS.filter(
+          (k) =>
+            k !== "format" &&
+            k !== "saves" &&
+            k !== "saveRate" &&
+            k !== "verdict",
+        ),
+      );
+    }
+    return new Set(ALL_COLUMNS);
+  }, [mediaTypeTarget]);
+
   const filtered = useMemo(() => {
     if (!publications) return [];
     let list = publications;
+    // Batch 2 Modif 4a — court-circuit mediaType en tête du pipeline pour
+    // minimiser les calculs en aval (les autres filtres ne tournent que sur
+    // les rows du format demandé).
+    if (mediaTypeTarget !== null) {
+      list = list.filter((p) => getMediaType(p) === mediaTypeTarget);
+    }
     // Deeplink filter intégré au pipeline plutôt que séparé : (a) cohérence
     // avec les autres filtres (intersection naturelle si l'user a aussi des
     // filtres set), (b) une seule traversée du tableau, (c) les useMemo deps
@@ -327,6 +420,7 @@ function TrackerPageInner() {
     return sorted;
   }, [
     publications,
+    mediaTypeTarget,
     carouselIdParam,
     debouncedSearch,
     plateforme,
@@ -386,6 +480,7 @@ function TrackerPageInner() {
 
   function reset() {
     setSearch("");
+    setMediaTypeFilter(ALL);
     setPlateforme(ALL);
     setStatutFilter(ALL);
     setCompteFilter(new Set());
@@ -499,6 +594,18 @@ function TrackerPageInner() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
+        {/*
+          Batch 2 Modif 4a — filtre top-level mediaType placé en 1ère
+          position. Pilote l'affichage des colonnes via visibleColumns.
+        */}
+        <FilterSelect
+          label="Format"
+          value={mediaTypeFilter}
+          onChange={setMediaTypeFilter}
+          options={[...MEDIA_TYPE_FILTER_OPTIONS]}
+          allLabel="Tous"
+          width="w-[120px]"
+        />
         <FilterSelect
           label="Plateforme"
           value={plateforme}
@@ -608,6 +715,7 @@ function TrackerPageInner() {
               onDelete={setDeletingPub}
               onMarkAsPosted={setMarkingPub}
               onDuplicate={setDuplicatingPub}
+              visibleColumns={visibleColumns}
             />
           )}
           {published.length > 0 && (
@@ -623,6 +731,7 @@ function TrackerPageInner() {
               onDelete={setDeletingPub}
               onMarkAsPosted={setMarkingPub}
               onDuplicate={setDuplicatingPub}
+              visibleColumns={visibleColumns}
             />
           )}
         </div>
@@ -751,6 +860,12 @@ function TrackerPageInner() {
   );
 }
 
+// Cellule "—" plate, utilisée pour les colonnes non applicables au mediaType
+// d'une row donnée en mode filtre "Tous" (ex: Format pour un Short, Likes
+// pour un Carrousel). Cohérent avec formatPercent/formatNumber qui retournent
+// déjà "—" pour null/undefined.
+const NA_CELL = <span className="text-slate-400">—</span>;
+
 function PublicationsSection({
   title,
   dotClass,
@@ -763,6 +878,7 @@ function PublicationsSection({
   onDelete,
   onMarkAsPosted,
   onDuplicate,
+  visibleColumns,
 }: {
   title: string;
   dotClass: string;
@@ -775,6 +891,7 @@ function PublicationsSection({
   onDelete: (p: Doc<"publications">) => void;
   onMarkAsPosted: (p: Doc<"publications">) => void;
   onDuplicate: (p: Doc<"publications">) => void;
+  visibleColumns: ReadonlySet<ColumnKey>;
 }) {
   return (
     <section className="space-y-2">
@@ -787,32 +904,54 @@ function PublicationsSection({
         <Table>
           <TableHeader>
             <TableRow>
-              <SortableHead
-                active={sortKey === "date"}
-                dir={sortDir}
-                onClick={() => onToggleSort("date")}
-              >
-                Date
-              </SortableHead>
-              <TableHead>Carrousel</TableHead>
-              <TableHead>Hook</TableHead>
-              <TableHead>Plateforme</TableHead>
-              <TableHead>Compte</TableHead>
-              <TableHead>Mécanique</TableHead>
-              <TableHead>Format</TableHead>
-              <TableHead>Angle</TableHead>
-              <TableHead className="text-right">Vues J7</TableHead>
-              <TableHead className="text-right">Saves</TableHead>
-              <SortableHead
-                active={sortKey === "saveRate"}
-                dir={sortDir}
-                onClick={() => onToggleSort("saveRate")}
-                className="text-right"
-              >
-                Save rate
-              </SortableHead>
-              <TableHead>Verdict</TableHead>
-              <TableHead></TableHead>
+              {visibleColumns.has("date") && (
+                <SortableHead
+                  active={sortKey === "date"}
+                  dir={sortDir}
+                  onClick={() => onToggleSort("date")}
+                >
+                  Date
+                </SortableHead>
+              )}
+              {visibleColumns.has("carouselId") && (
+                <TableHead>Carrousel</TableHead>
+              )}
+              {visibleColumns.has("hook") && <TableHead>Hook</TableHead>}
+              {visibleColumns.has("plateforme") && (
+                <TableHead>Plateforme</TableHead>
+              )}
+              {visibleColumns.has("compte") && <TableHead>Compte</TableHead>}
+              {visibleColumns.has("mecanique") && (
+                <TableHead>Mécanique</TableHead>
+              )}
+              {visibleColumns.has("format") && <TableHead>Format</TableHead>}
+              {visibleColumns.has("angle") && <TableHead>Angle</TableHead>}
+              {visibleColumns.has("vues") && (
+                <TableHead className="text-right">Vues J7</TableHead>
+              )}
+              {visibleColumns.has("saves") && (
+                <TableHead className="text-right">Saves</TableHead>
+              )}
+              {visibleColumns.has("saveRate") && (
+                <SortableHead
+                  active={sortKey === "saveRate"}
+                  dir={sortDir}
+                  onClick={() => onToggleSort("saveRate")}
+                  className="text-right"
+                >
+                  Save rate
+                </SortableHead>
+              )}
+              {visibleColumns.has("verdict") && (
+                <TableHead>Verdict</TableHead>
+              )}
+              {visibleColumns.has("likes") && (
+                <TableHead className="text-right">Likes</TableHead>
+              )}
+              {visibleColumns.has("subsGained") && (
+                <TableHead className="text-right">Subs gained</TableHead>
+              )}
+              {visibleColumns.has("actions") && <TableHead></TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -825,95 +964,139 @@ function PublicationsSection({
               const verdict = isPublished(p)
                 ? calculateVerdict(saveRate)
                 : null;
+              // Batch 2 Modif 4a — coercion mediaType pour les cellules
+              // conditionnelles : Format/Saves/SaveRate/Verdict → "—" pour
+              // un Short ; Likes/SubsGained → "—" pour un Carrousel.
+              const mt = getMediaType(p);
+              const isShort = mt === "short";
+              const isCarousel = mt === "carousel";
               return (
                 <TableRow key={p._id}>
-                  <TableCell className="whitespace-nowrap text-xs text-slate-600">
-                    {formatDate(p.datePubli)}
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">
-                    {p.carouselId}
-                  </TableCell>
-                  <TableCell
-                    className="max-w-[280px] truncate text-sm"
-                    title={p.hookText}
-                  >
-                    {p.hookText.length > 60
-                      ? p.hookText.slice(0, 60) + "…"
-                      : p.hookText}
-                  </TableCell>
-                  <TableCell>
-                    <PlatformBadge plateforme={p.plateforme} />
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">
-                    {p.compte}
-                  </TableCell>
-                  <TableCell className="text-xs">{p.mecanique}</TableCell>
-                  <TableCell className="font-mono text-xs">{p.format}</TableCell>
-                  <TableCell className="text-xs">{p.angleTonal}</TableCell>
-                  <TableCell className="text-right tabular-nums text-xs">
-                    {formatNumber(p.vuesJ7)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-xs">
-                    {formatNumber(p.saves)}
-                  </TableCell>
-                  <TableCell
-                    className={cn(
-                      "text-right tabular-nums text-xs",
-                      saveRate === null && "italic text-slate-400",
-                    )}
-                  >
-                    {formatPercent(saveRate)}
-                  </TableCell>
-                  <TableCell>
-                    <VerdictBadge verdict={verdict} />
-                  </TableCell>
-                  <TableCell className="w-8">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={
-                          <Button variant="ghost" size="icon-sm">
-                            <MoreHorizontalIcon />
-                          </Button>
-                        }
-                      />
-                      <DropdownMenuContent align="end">
-                        {!isPublished(p) && (
-                          <DropdownMenuItem
-                            onClick={() => onMarkAsPosted(p)}
-                            className="font-medium"
-                          >
-                            Marquer comme posté
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem onClick={() => onView(p)}>
-                          {isPublished(p)
-                            ? "Voir détail"
-                            : "Voir détail / éditer"}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => onEdit(p)}
-                          disabled={!isPublished(p)}
-                          title={
-                            !isPublished(p)
-                              ? "Publiez d'abord pour saisir les stats"
-                              : undefined
+                  {visibleColumns.has("date") && (
+                    <TableCell className="whitespace-nowrap text-xs text-slate-600">
+                      {formatDate(p.datePubli)}
+                    </TableCell>
+                  )}
+                  {visibleColumns.has("carouselId") && (
+                    <TableCell className="font-mono text-xs">
+                      {p.carouselId}
+                    </TableCell>
+                  )}
+                  {visibleColumns.has("hook") && (
+                    <TableCell
+                      className="max-w-[280px] truncate text-sm"
+                      title={p.hookText}
+                    >
+                      {p.hookText.length > 60
+                        ? p.hookText.slice(0, 60) + "…"
+                        : p.hookText}
+                    </TableCell>
+                  )}
+                  {visibleColumns.has("plateforme") && (
+                    <TableCell>
+                      <PlatformBadge plateforme={p.plateforme} />
+                    </TableCell>
+                  )}
+                  {visibleColumns.has("compte") && (
+                    <TableCell className="font-mono text-xs">
+                      {p.compte}
+                    </TableCell>
+                  )}
+                  {visibleColumns.has("mecanique") && (
+                    <TableCell className="text-xs">{p.mecanique}</TableCell>
+                  )}
+                  {visibleColumns.has("format") && (
+                    <TableCell className="font-mono text-xs">
+                      {isShort ? NA_CELL : (p.format ?? NA_CELL)}
+                    </TableCell>
+                  )}
+                  {visibleColumns.has("angle") && (
+                    <TableCell className="text-xs">{p.angleTonal}</TableCell>
+                  )}
+                  {visibleColumns.has("vues") && (
+                    <TableCell className="text-right tabular-nums text-xs">
+                      {formatNumber(p.vuesJ7)}
+                    </TableCell>
+                  )}
+                  {visibleColumns.has("saves") && (
+                    <TableCell className="text-right tabular-nums text-xs">
+                      {isShort ? NA_CELL : formatNumber(p.saves)}
+                    </TableCell>
+                  )}
+                  {visibleColumns.has("saveRate") && (
+                    <TableCell
+                      className={cn(
+                        "text-right tabular-nums text-xs",
+                        saveRate === null && "italic text-slate-400",
+                      )}
+                    >
+                      {isShort ? NA_CELL : formatPercent(saveRate)}
+                    </TableCell>
+                  )}
+                  {visibleColumns.has("verdict") && (
+                    <TableCell>
+                      {isShort ? NA_CELL : <VerdictBadge verdict={verdict} />}
+                    </TableCell>
+                  )}
+                  {visibleColumns.has("likes") && (
+                    <TableCell className="text-right tabular-nums text-xs">
+                      {isCarousel ? NA_CELL : formatNumber(p.likes)}
+                    </TableCell>
+                  )}
+                  {visibleColumns.has("subsGained") && (
+                    <TableCell className="text-right tabular-nums text-xs">
+                      {isCarousel ? NA_CELL : formatNumber(p.subsGained)}
+                    </TableCell>
+                  )}
+                  {visibleColumns.has("actions") && (
+                    <TableCell className="w-8">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          render={
+                            <Button variant="ghost" size="icon-sm">
+                              <MoreHorizontalIcon />
+                            </Button>
                           }
-                        >
-                          Mettre à jour stats
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onDuplicate(p)}>
-                          Dupliquer
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          className="text-rose-600 focus:text-rose-700"
-                          onClick={() => onDelete(p)}
-                        >
-                          Supprimer
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
+                        />
+                        <DropdownMenuContent align="end">
+                          {!isPublished(p) && (
+                            <DropdownMenuItem
+                              onClick={() => onMarkAsPosted(p)}
+                              className="font-medium"
+                            >
+                              Marquer comme posté
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem onClick={() => onView(p)}>
+                            {isPublished(p)
+                              ? "Voir détail"
+                              : "Voir détail / éditer"}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => onEdit(p)}
+                            disabled={!isPublished(p)}
+                            title={
+                              !isPublished(p)
+                                ? "Publiez d'abord pour saisir les stats"
+                                : undefined
+                            }
+                          >
+                            Mettre à jour stats
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => onDuplicate(p)}>
+                            Dupliquer
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="text-rose-600 focus:text-rose-700"
+                            onClick={() => onDelete(p)}
+                          >
+                            Supprimer
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  )}
                 </TableRow>
               );
             })}
