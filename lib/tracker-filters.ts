@@ -20,8 +20,14 @@ export type TrackerFilters = {
   verdict: string[];
 };
 
+// Batch 2 Modif 4b — tri étendu sur 6 axes côté tracker. TrackerSort
+// élargi en parallèle pour rester TS-cohérent. Le validator Convex côté
+// serveur (convex/filterPresets.ts sortValidator) reste strict 2 valeurs
+// pour les presets v2 — un user qui trie par likes/vues/etc. et tente de
+// sauver un preset reçoit un ConvexError explicite. Modif 7 (étape 5)
+// bumpera v3 et alignera le validator.
 export type TrackerSort = {
-  key: "date" | "saveRate";
+  key: "date" | "saveRate" | "vues" | "likes" | "comments" | "subsGained";
   dir: "asc" | "desc";
 };
 

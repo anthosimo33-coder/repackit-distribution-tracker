@@ -110,8 +110,42 @@ function setToSortedArray(s: Set<string>): string[] {
   return Array.from(s).sort();
 }
 
-type SortKey = "date" | "saveRate";
+// Batch 2 Modif 4b — tri étendu sur 6 axes. Convention héritée de saveRate :
+// null trié en bas (-Infinity), tie-break par datePubli desc pour stabilité.
+// Le SortKey "comments" est exposé pour cohérence (Modif 7 presets) mais
+// la colonne n'a pas de TableHead distinct → pas accessible via clic UI.
+type SortKey =
+  | "date"
+  | "saveRate"
+  | "vues"
+  | "likes"
+  | "comments"
+  | "subsGained";
 type SortDir = "asc" | "desc";
+
+// Extraction de la valeur de tri pour un (publication, sortKey). Retourne
+// null pour les valeurs absentes/non applicables — sera trié en bas par la
+// logique unifiée du useMemo `filtered`. saveRate n'est calculé que pour
+// les publiés (cohérence avec l'affichage et le filtre verdict).
+function getSortValue(
+  p: Doc<"publications">,
+  key: SortKey,
+): number | null {
+  switch (key) {
+    case "date":
+      return p.datePubli;
+    case "saveRate":
+      return isPublished(p) ? calculateSaveRate(p.saves, p.vuesJ7) : null;
+    case "vues":
+      return p.vuesJ7;
+    case "likes":
+      return p.likes ?? null;
+    case "comments":
+      return p.commentsTotal;
+    case "subsGained":
+      return p.subsGained ?? null;
+  }
+}
 
 // Batch 2 Modif 4a — colonnes du tableau publications. Identifiant typed
 // strict (pas de magic string) pour qu'un futur ajout/suppression force la
@@ -292,12 +326,27 @@ function TrackerPageInner() {
   }
 
   async function handleSavePreset() {
+    // Batch 2 Modif 4b — garde transitoire : sortValidator Convex v2 reste
+    // strict { "date", "saveRate" }. Les 4 nouveaux axes (vues/likes/
+    // comments/subsGained) ne sont pas encore sauvegardables. Modif 7
+    // (étape 5) bumpera v3 et étendra le validator.
+    if (
+      currentSort.key !== "date" &&
+      currentSort.key !== "saveRate"
+    ) {
+      toast.error(
+        "Ce tri n'est pas encore sauvegardable dans un preset. Reviens à un tri par Date ou Save rate avant de sauvegarder.",
+      );
+      return;
+    }
     setSavingPreset(true);
     try {
       await createPreset({
         name: presetName,
         filters: currentFilters,
-        sort: currentSort,
+        // Cast safe : la garde ci-dessus narrow currentSort.key aux 2
+        // valeurs supportées par le sortValidator Convex v2.
+        sort: currentSort as { key: "date" | "saveRate"; dir: SortDir },
       });
       toast.success(`Preset « ${presetName.trim()} » sauvegardé`);
       setSaveDialogOpen(false);
@@ -328,6 +377,40 @@ function TrackerPageInner() {
     () => mediaTypeFilterToValue(mediaTypeFilter),
     [mediaTypeFilter],
   );
+
+  // Batch 2 Modif 4b — axes de tri désactivés selon le filtre mediaType.
+  // Carrousel masque likes/subsGained ; Short masque saveRate ; Tous = aucun
+  // disabled. Le SortableHead reçoit cette info pour griser visuellement +
+  // bloquer le clic. La cohérence sortKey courant ↔ disabled est gérée par
+  // handleMediaTypeFilterChange (auto-reset à "date" si sortKey courant
+  // devient disabled) — handler-based pour éviter set-state-in-effect.
+  const disabledSortKeys = useMemo<ReadonlySet<SortKey>>(() => {
+    if (mediaTypeTarget === "carousel") {
+      return new Set<SortKey>(["likes", "subsGained"]);
+    }
+    if (mediaTypeTarget === "short") {
+      return new Set<SortKey>(["saveRate"]);
+    }
+    return new Set<SortKey>();
+  }, [mediaTypeTarget]);
+
+  // Handler du changement de filtre mediaType. Auto-reset du tri si l'axe
+  // courant devient inapplicable au nouveau filtre. Plus prévisible UX que
+  // de garder un sortKey "fantôme" qui n'aurait plus d'effet visible.
+  function handleMediaTypeFilterChange(next: string) {
+    setMediaTypeFilter(next);
+    const nextTarget = mediaTypeFilterToValue(next);
+    const nextDisabled =
+      nextTarget === "carousel"
+        ? (["likes", "subsGained"] as SortKey[])
+        : nextTarget === "short"
+          ? (["saveRate"] as SortKey[])
+          : ([] as SortKey[]);
+    if (nextDisabled.includes(sortKey)) {
+      setSortKey("date");
+      setSortDir("desc");
+    }
+  }
 
   // Set des colonnes visibles selon mediaType filtre. Mode "all" = toutes ;
   // "carousel" masque likes/subsGained ; "short" masque format/saves/
@@ -402,20 +485,20 @@ function TrackerPageInner() {
       });
     }
 
+    // Tri unifié sur les 6 axes via getSortValue. null trié en bas (cf
+     // convention existante saveRate). Tie-break datePubli desc pour
+     // stabilité (indépendant de sortDir, sauf si sortKey === "date" lui-même).
     const sorted = [...list].sort((a, b) => {
+      const ra = getSortValue(a, sortKey);
+      const rb = getSortValue(b, sortKey);
       let cmp = 0;
-      if (sortKey === "date") cmp = a.datePubli - b.datePubli;
-      else {
-        // Save rate non défini sur les drafts pour le tri (consistance avec
-        // l'affichage et le filtre verdict).
-        const ra = isPublished(a) ? calculateSaveRate(a.saves, a.vuesJ7) : null;
-        const rb = isPublished(b) ? calculateSaveRate(b.saves, b.vuesJ7) : null;
-        if (ra === null && rb === null) cmp = 0;
-        else if (ra === null) cmp = 1;
-        else if (rb === null) cmp = -1;
-        else cmp = ra - rb;
-      }
-      return sortDir === "asc" ? cmp : -cmp;
+      if (ra === null && rb === null) cmp = 0;
+      else if (ra === null) cmp = 1;
+      else if (rb === null) cmp = -1;
+      else cmp = ra - rb;
+      const directional = sortDir === "asc" ? cmp : -cmp;
+      if (directional !== 0 || sortKey === "date") return directional;
+      return b.datePubli - a.datePubli;
     });
     return sorted;
   }, [
@@ -601,7 +684,7 @@ function TrackerPageInner() {
         <FilterSelect
           label="Format"
           value={mediaTypeFilter}
-          onChange={setMediaTypeFilter}
+          onChange={handleMediaTypeFilterChange}
           options={[...MEDIA_TYPE_FILTER_OPTIONS]}
           allLabel="Tous"
           width="w-[120px]"
@@ -716,6 +799,7 @@ function TrackerPageInner() {
               onMarkAsPosted={setMarkingPub}
               onDuplicate={setDuplicatingPub}
               visibleColumns={visibleColumns}
+              disabledSortKeys={disabledSortKeys}
             />
           )}
           {published.length > 0 && (
@@ -732,6 +816,7 @@ function TrackerPageInner() {
               onMarkAsPosted={setMarkingPub}
               onDuplicate={setDuplicatingPub}
               visibleColumns={visibleColumns}
+              disabledSortKeys={disabledSortKeys}
             />
           )}
         </div>
@@ -879,6 +964,7 @@ function PublicationsSection({
   onMarkAsPosted,
   onDuplicate,
   visibleColumns,
+  disabledSortKeys,
 }: {
   title: string;
   dotClass: string;
@@ -892,6 +978,9 @@ function PublicationsSection({
   onMarkAsPosted: (p: Doc<"publications">) => void;
   onDuplicate: (p: Doc<"publications">) => void;
   visibleColumns: ReadonlySet<ColumnKey>;
+  // Batch 2 Modif 4b — axes de tri grisés selon le filtre mediaType courant.
+  // Le SortableHead lit ce Set pour décider du rendering disabled.
+  disabledSortKeys: ReadonlySet<SortKey>;
 }) {
   return (
     <section className="space-y-2">
@@ -909,6 +998,7 @@ function PublicationsSection({
                   active={sortKey === "date"}
                   dir={sortDir}
                   onClick={() => onToggleSort("date")}
+                  disabled={disabledSortKeys.has("date")}
                 >
                   Date
                 </SortableHead>
@@ -926,8 +1016,21 @@ function PublicationsSection({
               )}
               {visibleColumns.has("format") && <TableHead>Format</TableHead>}
               {visibleColumns.has("angle") && <TableHead>Angle</TableHead>}
+              {/*
+                Batch 2 Modif 4b — Vues/Likes/SubsGained convertis en
+                SortableHead. La colonne est masquée selon visibleColumns,
+                et le tri est grisé selon disabledSortKeys.
+              */}
               {visibleColumns.has("vues") && (
-                <TableHead className="text-right">Vues J7</TableHead>
+                <SortableHead
+                  active={sortKey === "vues"}
+                  dir={sortDir}
+                  onClick={() => onToggleSort("vues")}
+                  disabled={disabledSortKeys.has("vues")}
+                  className="text-right"
+                >
+                  Vues J7
+                </SortableHead>
               )}
               {visibleColumns.has("saves") && (
                 <TableHead className="text-right">Saves</TableHead>
@@ -937,6 +1040,7 @@ function PublicationsSection({
                   active={sortKey === "saveRate"}
                   dir={sortDir}
                   onClick={() => onToggleSort("saveRate")}
+                  disabled={disabledSortKeys.has("saveRate")}
                   className="text-right"
                 >
                   Save rate
@@ -946,10 +1050,26 @@ function PublicationsSection({
                 <TableHead>Verdict</TableHead>
               )}
               {visibleColumns.has("likes") && (
-                <TableHead className="text-right">Likes</TableHead>
+                <SortableHead
+                  active={sortKey === "likes"}
+                  dir={sortDir}
+                  onClick={() => onToggleSort("likes")}
+                  disabled={disabledSortKeys.has("likes")}
+                  className="text-right"
+                >
+                  Likes
+                </SortableHead>
               )}
               {visibleColumns.has("subsGained") && (
-                <TableHead className="text-right">Subs gained</TableHead>
+                <SortableHead
+                  active={sortKey === "subsGained"}
+                  dir={sortDir}
+                  onClick={() => onToggleSort("subsGained")}
+                  disabled={disabledSortKeys.has("subsGained")}
+                  className="text-right"
+                >
+                  Subs gained
+                </SortableHead>
               )}
               {visibleColumns.has("actions") && <TableHead></TableHead>}
             </TableRow>
@@ -1480,18 +1600,32 @@ function SortableHead({
   dir,
   onClick,
   className,
+  disabled = false,
 }: {
   children: React.ReactNode;
   active: boolean;
   dir: SortDir;
   onClick: () => void;
   className?: string;
+  // Batch 2 Modif 4b — axe de tri inapplicable au filtre mediaType courant.
+  // Visuel grisé + cursor-not-allowed + tooltip ; click bloqué.
+  disabled?: boolean;
 }) {
   return (
     <TableHead className={className}>
       <button
-        onClick={onClick}
-        className="inline-flex items-center gap-1 hover:text-slate-900"
+        type="button"
+        onClick={disabled ? undefined : onClick}
+        disabled={disabled}
+        title={
+          disabled ? "Tri non applicable au format actuel" : undefined
+        }
+        className={cn(
+          "inline-flex items-center gap-1",
+          disabled
+            ? "cursor-not-allowed text-slate-400"
+            : "hover:text-slate-900",
+        )}
       >
         {children}
         {active ? (
