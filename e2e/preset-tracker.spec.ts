@@ -33,10 +33,20 @@ test.describe("Tracker — presets de filtres", () => {
     // a laissé un orphelin. createPreset refuse les noms dupliqués.
     const presetName = `[E2E_TEST] preset-${Date.now()}`;
 
-    // 1. Changer un filtre pour avoir quelque chose à sauvegarder.
+    // 1. Changer 2 filtres pour avoir quelque chose à sauvegarder. Plateforme
+    //    + Format (mediaType) — Format ajouté en Modif 7 v3 pour couvrir le
+    //    save/reload du nouveau champ.
     const plateformeWrapper = plateformeLabel.locator("xpath=..");
     await plateformeWrapper.getByRole("combobox").click();
     await page.getByRole("option", { name: "TikTok" }).click();
+
+    const formatLabel = page
+      .locator("label")
+      .filter({ hasText: /^Format$/ })
+      .first();
+    const formatWrapper = formatLabel.locator("xpath=..");
+    await formatWrapper.getByRole("combobox").click();
+    await page.getByRole("option", { name: "Short" }).click();
 
     // 2. Le bouton "Sauvegarder ce preset" est maintenant actif.
     const saveBtn = page.getByRole("button", { name: /sauvegarder ce preset/i });
@@ -74,10 +84,11 @@ test.describe("Tracker — presets de filtres", () => {
     // La popover se ferme et le trigger reflète à nouveau le preset.
     await expect(presetTrigger).toContainText(presetName);
 
-    // 7. Vérifier que le filtre Plateforme est revenu à TikTok.
+    // 7. Vérifier que les filtres Plateforme et Format sont restaurés.
     await expect(plateformeWrapper.getByRole("combobox")).toContainText(
       "TikTok",
     );
+    await expect(formatWrapper.getByRole("combobox")).toContainText("Short");
 
     // 8. Supprimer le preset via la popover (X icon).
     await presetTrigger.click();

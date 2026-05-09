@@ -24,7 +24,8 @@ async function main() {
     `✓ État initial : ${initialPresets.length - orphans.length} preset(s) non-smoke en DB`,
   );
 
-  // VÉRIF 2 — créer un preset → apparaît (shape v2 : compte/mecanique/format/verdict en array)
+  // VÉRIF 2 — créer un preset → apparaît (shape v3 : ajout mediaType
+  // en plus des champs v2 array compte/mecanique/format/verdict)
   const presetName = `${SMOKE_PREFIX} smoke-${Date.now()}`;
   const newId = await client.mutation(api.filterPresets.createPreset, {
     name: presetName,
@@ -36,10 +37,11 @@ async function main() {
       mecanique: ["Erreur"],
       format: [],
       verdict: [],
+      mediaType: "all",
     },
     sort: { key: "saveRate", dir: "desc" },
   });
-  console.log(`✓ V2 : createPreset OK · "${presetName}"`);
+  console.log(`✓ V3 : createPreset OK · "${presetName}"`);
 
   const afterCreate = await client.query(api.filterPresets.listPresets, {});
   const found = afterCreate.find((p) => p._id === newId);

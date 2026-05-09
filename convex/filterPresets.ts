@@ -11,14 +11,30 @@ const filtersValidator = v.object({
   mecanique: v.array(v.string()),
   format: v.array(v.string()),
   verdict: v.array(v.string()),
+  // Batch 2 Modif 7 (v3) — filtre top-level mediaType (single-select).
+  // "all" = aucun filtre, "carousel" / "short" = restriction. Cohérent
+  // avec plateforme/statut qui sont aussi des single-select strings.
+  mediaType: v.string(),
 });
 
+// Batch 2 Modif 7 (v3) — sort.key étendu aux 6 axes de tri du tracker
+// (cf SortKey dans app/tracker/page.tsx). Les presets v2 stockaient
+// uniquement "date"|"saveRate" et restent valides en v3 (sous-ensemble
+// strict). La garde transitoire dans handleSavePreset (étape 3) peut
+// être retirée maintenant.
 const sortValidator = v.object({
-  key: v.union(v.literal("date"), v.literal("saveRate")),
+  key: v.union(
+    v.literal("date"),
+    v.literal("saveRate"),
+    v.literal("vues"),
+    v.literal("likes"),
+    v.literal("comments"),
+    v.literal("subsGained"),
+  ),
   dir: v.union(v.literal("asc"), v.literal("desc")),
 });
 
-const CURRENT_SCHEMA_VERSION = 2;
+const CURRENT_SCHEMA_VERSION = 3;
 
 export const createPreset = mutation({
   args: {

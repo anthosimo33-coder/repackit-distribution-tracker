@@ -261,7 +261,7 @@ function TrackerPageInner() {
   // message d'erreur — l'utilisateur recrée. Les v1 restent en DB (orphelins)
   // sans impact (jamais lus).
   const presets = useMemo(
-    () => allPresets?.filter((p) => p.schemaVersion === 2) ?? [],
+    () => allPresets?.filter((p) => p.schemaVersion === 3) ?? [],
     [allPresets],
   );
 
@@ -278,8 +278,19 @@ function TrackerPageInner() {
       mecanique: setToSortedArray(mecanique),
       format: setToSortedArray(format),
       verdict: setToSortedArray(verdictFilter),
+      // Batch 2 Modif 7 (v3) — capture du filtre top-level mediaType.
+      mediaType: mediaTypeFilter,
     }),
-    [search, plateforme, compteFilter, statutFilter, mecanique, format, verdictFilter],
+    [
+      search,
+      plateforme,
+      compteFilter,
+      statutFilter,
+      mecanique,
+      format,
+      verdictFilter,
+      mediaTypeFilter,
+    ],
   );
   const currentSort: TrackerSort = useMemo(
     () => ({ key: sortKey, dir: sortDir }),
@@ -320,33 +331,27 @@ function TrackerPageInner() {
     setMecanique(new Set(p.filters.mecanique));
     setFormat(new Set(p.filters.format));
     setVerdictFilter(new Set(p.filters.verdict));
+    // Batch 2 Modif 7 (v3) — restauration directe du filtre mediaType
+    // (pas via handleMediaTypeFilterChange : on ne veut PAS auto-reset
+    // le sortKey, on restaure exactement la combinaison preset stockée).
+    // Le preset garantit par construction la cohérence sortKey ↔ mediaType
+    // (sauf preset bricolé manuellement côté DB).
+    setMediaTypeFilter(p.filters.mediaType);
     setSortKey(p.sort.key);
     setSortDir(p.sort.dir);
     setPresetPopoverOpen(false);
   }
 
   async function handleSavePreset() {
-    // Batch 2 Modif 4b — garde transitoire : sortValidator Convex v2 reste
-    // strict { "date", "saveRate" }. Les 4 nouveaux axes (vues/likes/
-    // comments/subsGained) ne sont pas encore sauvegardables. Modif 7
-    // (étape 5) bumpera v3 et étendra le validator.
-    if (
-      currentSort.key !== "date" &&
-      currentSort.key !== "saveRate"
-    ) {
-      toast.error(
-        "Ce tri n'est pas encore sauvegardable dans un preset. Reviens à un tri par Date ou Save rate avant de sauvegarder.",
-      );
-      return;
-    }
+    // Batch 2 Modif 7 (v3) — validator Convex aligné avec les 6 sortKey.
+    // La garde transitoire de l'étape 3 (sort.key strict 2 valeurs côté
+    // serveur) est retirée. currentSort accepte désormais les 6 axes.
     setSavingPreset(true);
     try {
       await createPreset({
         name: presetName,
         filters: currentFilters,
-        // Cast safe : la garde ci-dessus narrow currentSort.key aux 2
-        // valeurs supportées par le sortValidator Convex v2.
-        sort: currentSort as { key: "date" | "saveRate"; dir: SortDir },
+        sort: currentSort,
       });
       toast.success(`Preset « ${presetName.trim()} » sauvegardé`);
       setSaveDialogOpen(false);

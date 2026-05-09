@@ -148,9 +148,21 @@ export default defineSchema({
       mecanique: v.array(v.string()),
       format: v.array(v.string()),
       verdict: v.array(v.string()),
+      // Batch 2 Modif 7 (v3) — filtre top-level mediaType (single-select).
+      mediaType: v.string(),
     }),
     sort: v.object({
-      key: v.union(v.literal("date"), v.literal("saveRate")),
+      // Batch 2 Modif 7 (v3) — sort.key étendu aux 6 axes (cf SortKey
+      // dans app/tracker/page.tsx). Les presets v2 stockent toujours
+      // "date"|"saveRate" et restent compatibles en v3.
+      key: v.union(
+        v.literal("date"),
+        v.literal("saveRate"),
+        v.literal("vues"),
+        v.literal("likes"),
+        v.literal("comments"),
+        v.literal("subsGained"),
+      ),
       dir: v.union(v.literal("asc"), v.literal("desc")),
     }),
   }).index("by_name", ["name"]),
