@@ -72,14 +72,18 @@ test.describe("Création Short via /nouveau", () => {
     await page.getByRole("checkbox", { name: /tiktok/i }).uncheck();
     await page.getByRole("checkbox", { name: /instagram/i }).uncheck();
 
-    // Le useEffect "compte reset" auto-sélectionne le premier compte
-    // matchant les plateformes courantes (cf app/nouveau/page.tsx). Avec
-    // plateformes=["YouTube"] et un seul compte YouTube en DB, on s'attend
-    // à @test_e2e_short_yt sélectionné automatiquement → on vérifie via le
-    // texte affiché dans le SelectTrigger (combobox role).
-    await expect(
-      page.getByRole("combobox").filter({ hasText: "@test_e2e_short_yt" }),
-    ).toBeVisible({ timeout: 5000 });
+    // Sélection explicite du compte cible via le combobox Compte. Évite
+    // l'aléa de l'auto-set quand plusieurs comptes YouTube existent en DB
+    // (ex : @test_e2e_mark_short_yt créé par mark-as-posted-short.spec.ts
+    // qui tourne avant nouveau-short en ordre alphabétique).
+    const compteWrapper = page
+      .locator("label")
+      .filter({ hasText: /^Compte$/ })
+      .locator("xpath=..");
+    await compteWrapper.getByRole("combobox").click();
+    await page
+      .getByRole("option", { name: /test_e2e_short_yt/i })
+      .click();
 
     await page.getByLabel("Notes").fill("[E2E_TEST] short via /nouveau");
 

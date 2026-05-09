@@ -39,6 +39,7 @@ import {
   formatPercent,
 } from "@/lib/verdict";
 import { isPublished } from "@/lib/publication-status";
+import { getMediaType } from "@/lib/media-type";
 import {
   CalendarIcon,
   ExternalLinkIcon,
@@ -119,6 +120,12 @@ function PublishedView({
   onOpenChange: (open: boolean) => void;
   onEdit: () => void;
 }) {
+  // Batch 2 Modif 4c — coercion mediaType pour le rendu conditionnel.
+  // En mode short : script à la place des slides, likes+subsGained à la
+  // place de saves dans les métriques, save rate + verdict masqués dans
+  // la section stats calculées. Aucune restructuration du layout général.
+  const mediaType = getMediaType(publication);
+  const isShort = mediaType === "short";
   const saveRate = calculateSaveRate(publication.saves, publication.vuesJ7);
   const verdict = calculateVerdict(saveRate);
   const auditConv = calculateAuditConversion(
@@ -166,7 +173,13 @@ function PublishedView({
             <Field label="Niveau">
               <Badge variant="outline">{publication.niveau}</Badge>
             </Field>
-            <Field label="Format">{publication.format}</Field>
+            <Field label="Format">
+              {isShort ? (
+                <span className="text-slate-400">—</span>
+              ) : (
+                publication.format
+              )}
+            </Field>
             <Field label="Angle tonal">{publication.angleTonal}</Field>
             <Field label="Langue">{publication.langue}</Field>
             <Field label="Compte">
@@ -179,37 +192,56 @@ function PublishedView({
                 year: "numeric",
               })}
             </Field>
-            <Field label="Nb slides">{publication.nbSlides}</Field>
+            <Field label="Nb slides">
+              {isShort ? (
+                <span className="text-slate-400">—</span>
+              ) : (
+                publication.nbSlides
+              )}
+            </Field>
           </div>
 
           {/*
-            Batch 1 Shorts : slides est désormais optional côté schéma. Pour
-            les Carrousels (cas actuel ici puisqu'on est en PublishedView qui
-            ne supporte pas encore les Shorts), slides est toujours présent
-            en pratique — fallback ?? [] juste pour satisfaire TSC.
+            Batch 2 Modif 4c — script (Short) ou liste de slides (Carousel).
+            Le script préserve les sauts de ligne via whitespace-pre-wrap.
           */}
-          <div>
-            <div className="mb-2 text-xs font-medium text-slate-500">
-              Slides ({(publication.slides ?? []).length})
+          {isShort ? (
+            <div>
+              <div className="mb-2 text-xs font-medium text-slate-500">
+                Script
+              </div>
+              <div className="whitespace-pre-wrap rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-700">
+                {publication.script ? (
+                  publication.script
+                ) : (
+                  <em className="text-slate-400">(vide)</em>
+                )}
+              </div>
             </div>
-            <ol className="space-y-2">
-              {(publication.slides ?? []).map((s) => (
-                <li
-                  key={s.position}
-                  className="flex gap-3 rounded-md border border-slate-200 bg-white p-2 text-sm"
-                >
-                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-slate-100 font-mono text-xs font-medium text-slate-600">
-                    {s.position}
-                  </span>
-                  <span className="whitespace-pre-wrap text-slate-700">
-                    {s.texte || (
-                      <em className="text-slate-400">(vide)</em>
-                    )}
-                  </span>
-                </li>
-              ))}
-            </ol>
-          </div>
+          ) : (
+            <div>
+              <div className="mb-2 text-xs font-medium text-slate-500">
+                Slides ({(publication.slides ?? []).length})
+              </div>
+              <ol className="space-y-2">
+                {(publication.slides ?? []).map((s) => (
+                  <li
+                    key={s.position}
+                    className="flex gap-3 rounded-md border border-slate-200 bg-white p-2 text-sm"
+                  >
+                    <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-slate-100 font-mono text-xs font-medium text-slate-600">
+                      {s.position}
+                    </span>
+                    <span className="whitespace-pre-wrap text-slate-700">
+                      {s.texte || (
+                        <em className="text-slate-400">(vide)</em>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
 
           <div>
             <div className="mb-2 text-xs font-medium text-slate-500">
@@ -219,15 +251,32 @@ function PublishedView({
               <Field label="Vues J+1">{formatNumber(publication.vuesJ1)}</Field>
               <Field label="Vues J+3">{formatNumber(publication.vuesJ3)}</Field>
               <Field label="Vues J+7">{formatNumber(publication.vuesJ7)}</Field>
-              <Field label="Saves">{formatNumber(publication.saves)}</Field>
+              {/*
+                Batch 2 Modif 4c — Saves (Carousel) remplacé par Likes +
+                Subs gained (Short). Comments AUDIT passe en Instagram-only
+                via la condition positive (cohérent avec l'inversion
+                isTikTok → isInstagram dans PublicationEditDialog).
+              */}
+              {isShort ? (
+                <>
+                  <Field label="Likes">
+                    {formatNumber(publication.likes)}
+                  </Field>
+                  <Field label="Subs gagnés">
+                    {formatNumber(publication.subsGained)}
+                  </Field>
+                </>
+              ) : (
+                <Field label="Saves">{formatNumber(publication.saves)}</Field>
+              )}
               <Field label="Comments total">
                 {formatNumber(publication.commentsTotal)}
               </Field>
               <Field label="Comments AUDIT">
-                {publication.plateforme === "TikTok" ? (
-                  <span className="text-slate-400">n/a</span>
-                ) : (
+                {publication.plateforme === "Instagram" ? (
                   formatNumber(publication.commentsAudit)
+                ) : (
+                  <span className="text-slate-400">n/a</span>
                 )}
               </Field>
               <Field label="Profile visits">
@@ -236,29 +285,44 @@ function PublishedView({
             </div>
           </div>
 
-          <div>
-            <div className="mb-2 text-xs font-medium text-slate-500">
-              Stats calculées
-            </div>
-            <div className="flex flex-wrap items-center gap-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
-              <div>
-                <span className="text-slate-500">Save rate :</span>{" "}
-                <span className="font-semibold">{formatPercent(saveRate)}</span>
+          {/*
+            Batch 2 Modif 4c — Save rate et Verdict masqués en mode short
+            (saveRate non calculé, verdict non applicable). Conv. AUDIT
+            reste Instagram-only (peut donc apparaître pour un Reel court
+            futur). Si en short toutes les sub-stats sont absentes, on ne
+            rend pas la section pour éviter une boîte vide.
+          */}
+          {(!isShort || publication.plateforme === "Instagram") && (
+            <div>
+              <div className="mb-2 text-xs font-medium text-slate-500">
+                Stats calculées
               </div>
-              {publication.plateforme === "Instagram" && (
-                <div>
-                  <span className="text-slate-500">Conv. AUDIT :</span>{" "}
-                  <span className="font-semibold">
-                    {formatPercent(auditConv, 3)}
-                  </span>
-                </div>
-              )}
-              <div className="flex items-center gap-2">
-                <span className="text-slate-500">Verdict :</span>
-                <VerdictBadge verdict={verdict} />
+              <div className="flex flex-wrap items-center gap-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
+                {!isShort && (
+                  <div>
+                    <span className="text-slate-500">Save rate :</span>{" "}
+                    <span className="font-semibold">
+                      {formatPercent(saveRate)}
+                    </span>
+                  </div>
+                )}
+                {publication.plateforme === "Instagram" && (
+                  <div>
+                    <span className="text-slate-500">Conv. AUDIT :</span>{" "}
+                    <span className="font-semibold">
+                      {formatPercent(auditConv, 3)}
+                    </span>
+                  </div>
+                )}
+                {!isShort && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500">Verdict :</span>
+                    <VerdictBadge verdict={verdict} />
+                  </div>
+                )}
               </div>
             </div>
-          </div>
+          )}
 
           {publication.notes && (
             <div>
@@ -294,14 +358,20 @@ function DraftEditView({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  // Batch 2 Modif 4c — coercion mediaType pour brancher slides ↔ script.
+  // Le mediaType d'un draft ne change pas (cf décision 8 : pas de switch
+  // de format après création), donc on le calcule au mount et on garde.
+  const mediaType = getMediaType(publication);
+  const isShort = mediaType === "short";
+
   // État form local — initialisé depuis publication. Le parent (tracker) passe
   // key={viewingPub._id} sur le dialog, donc le composant remonte quand on
   // ouvre une autre publication → useState ré-init naturellement, pas besoin
   // d'un useEffect de synchronisation.
-  // Batch 1 Shorts : slides désormais optional côté schéma. Initialise avec
-  // fallback [] pour les rows Short (qui n'ont pas de slides). En Batch 2,
-  // ce dialog adaptera l'UI selon mediaType (slides ↔ script).
+  // 2 useStates parallèles : slides (Carousel) ET script (Short). Permet de
+  // garder le code symétrique et d'éviter une union type discriminante.
   const [slides, setSlides] = useState(publication.slides ?? []);
+  const [script, setScript] = useState(publication.script ?? "");
   const [datePubli, setDatePubli] = useState<Date>(
     new Date(publication.datePubli),
   );
@@ -341,6 +411,12 @@ function DraftEditView({
       toast.error("Compte requis");
       return;
     }
+    // Batch 2 Modif 4c — validation script non vide pour les Shorts (pas
+    // de slides à valider, pas de longueur min/max — cf décision 1).
+    if (isShort && script.trim().length === 0) {
+      toast.error("Le script ne peut pas être vide.");
+      return;
+    }
     // Si comptesData est encore en cours de chargement (Convex query non
     // résolue), on saute la validation côté client. La validation côté serveur
     // dans updateDraft attrape toute incohérence et throw avec un message clair.
@@ -354,15 +430,26 @@ function DraftEditView({
 
     setSubmitting(true);
     try {
-      // 1. Champs partagés au niveau carrousel (toutes les rows du carouselId)
+      // 1. Champs partagés au niveau carrousel (toutes les rows du carouselId).
+      // Batch 2 Modif 4c — patch slides ou script selon mediaType. Les 2
+      // sont déjà des champs optionnels du patch (cf updateDraft serveur
+      // étendu Batch 1). On envoie uniquement le pertinent pour minimiser
+      // les patches DB.
       await updateDraft({
         carouselId: publication.carouselId,
-        patch: {
-          slides,
-          datePubli: datePubli.getTime(),
-          compte,
-          plateforme,
-        },
+        patch: isShort
+          ? {
+              script: script.trim(),
+              datePubli: datePubli.getTime(),
+              compte,
+              plateforme,
+            }
+          : {
+              slides,
+              datePubli: datePubli.getTime(),
+              compte,
+              plateforme,
+            },
       });
 
       // 2. Lien de publication = per-row (chaque plateforme a son propre lien).
@@ -484,35 +571,57 @@ function DraftEditView({
             </div>
           </div>
 
-          <div>
-            <div className="mb-2 text-xs font-medium text-slate-500">
-              Slides ({slides.length})
+          {/*
+            Batch 2 Modif 4c — édition script (Short) ou liste de slides
+            (Carousel). Le script est édité dans un seul Textarea long
+            (rows=12 pour donner de la place à un texte vidéo continu).
+          */}
+          {isShort ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-script">Script de la vidéo</Label>
+              <Textarea
+                id="edit-script"
+                rows={12}
+                value={script}
+                placeholder="Texte intégral du Short…"
+                onChange={(e) => setScript(e.target.value)}
+                className="whitespace-pre-wrap"
+              />
+              <p className="text-xs text-slate-500">
+                Texte continu, pas de slides découpées.
+              </p>
             </div>
-            <div className="space-y-2">
-              {slides.map((s, i) => (
-                <div key={i} className="space-y-1">
-                  <Label
-                    htmlFor={`edit-slide-${i}`}
-                    className="text-xs text-slate-600"
-                  >
-                    Slide {s.position}
-                  </Label>
-                  <Textarea
-                    id={`edit-slide-${i}`}
-                    rows={2}
-                    value={s.texte}
-                    placeholder={`Texte de la slide ${s.position}…`}
-                    onChange={(e) => {
-                      const next = [...slides];
-                      next[i] = { ...s, texte: e.target.value };
-                      setSlides(next);
-                    }}
-                    className="whitespace-pre-wrap"
-                  />
-                </div>
-              ))}
+          ) : (
+            <div>
+              <div className="mb-2 text-xs font-medium text-slate-500">
+                Slides ({slides.length})
+              </div>
+              <div className="space-y-2">
+                {slides.map((s, i) => (
+                  <div key={i} className="space-y-1">
+                    <Label
+                      htmlFor={`edit-slide-${i}`}
+                      className="text-xs text-slate-600"
+                    >
+                      Slide {s.position}
+                    </Label>
+                    <Textarea
+                      id={`edit-slide-${i}`}
+                      rows={2}
+                      value={s.texte}
+                      placeholder={`Texte de la slide ${s.position}…`}
+                      onChange={(e) => {
+                        const next = [...slides];
+                        next[i] = { ...s, texte: e.target.value };
+                        setSlides(next);
+                      }}
+                      className="whitespace-pre-wrap"
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="space-y-1.5">
             <Label htmlFor="post-url-detail">Lien de publication</Label>
