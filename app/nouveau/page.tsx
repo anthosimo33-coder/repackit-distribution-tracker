@@ -49,7 +49,12 @@ import {
   Loader2Icon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { isFormatAllowedOnPlatform } from "@/lib/media-type";
+import {
+  ALLOWED_PLATFORMS_FOR_CAROUSEL,
+  ALLOWED_PLATFORMS_FOR_SHORT,
+  isFormatAllowedOnPlatform,
+  type MediaType,
+} from "@/lib/media-type";
 import { toast } from "sonner";
 
 const FORMATS = [
@@ -80,12 +85,10 @@ const MECANIQUES = [
 ] as const;
 const NIVEAUX = ["Broad-A", "Broad-B", "Niché"] as const;
 const LANGUES = ["FR", "EN"] as const;
-// Batch 1 Shorts — YouTube ajouté pour cohérence avec le schéma étendu.
-// Comme /nouveau ne crée que des Carrousels à ce stade (toggle Format ajouté
-// en Batch 2 — Modif 3), un user qui choisit YouTube est bloqué côté serveur
-// par isFormatAllowedOnPlatform (cf createPublication). Garde client ajoutée
-// dans handleSubmit pour court-circuiter l'aller-retour serveur.
-const PLATEFORMES = ["TikTok", "Instagram", "YouTube"] as const;
+// Type uniquement (cast d'args dans createPub). Les listes affichées
+// (checkboxes) dépendent de allowedPlatforms calculé selon mediaType
+// — cf ALLOWED_PLATFORMS_FOR_CAROUSEL/SHORT depuis lib/media-type.ts.
+type Plateforme = "TikTok" | "Instagram" | "YouTube";
 
 type Mode = "biblio" | "custom";
 
@@ -106,6 +109,10 @@ function NouveauForm() {
   const searchParams = useSearchParams();
   const initialHookId = searchParams.get("hookId");
 
+  // Batch 2 Modif 3 — toggle Format. Default "carousel" pour préserver le
+  // comportement existant (e2e specs ciblant les Carrousels via le default).
+  const [mediaType, setMediaType] = useState<MediaType>("carousel");
+
   const [mode, setMode] = useState<Mode>("biblio");
   const [selectedHookId, setSelectedHookId] = useState<Id<"hooks"> | null>(
     initialHookId as Id<"hooks"> | null,
@@ -121,6 +128,11 @@ function NouveauForm() {
   const [angle, setAngle] = useState<string>("Psycho");
   const [nbSlides, setNbSlides] = useState(7);
   const [slides, setSlides] = useState<string[]>(Array(7).fill(""));
+  // Batch 2 Modif 3 — script Short, parallèle à slides[]. State indépendant
+  // pour permettre à l'utilisateur de switcher carousel ↔ short sans perdre
+  // le travail saisi côté slides ; symétrique côté script.
+  const [script, setScript] = useState<string>("");
+
   const [plateformes, setPlateformes] = useState<string[]>([
     "TikTok",
     "Instagram",
@@ -129,6 +141,17 @@ function NouveauForm() {
   const [datePubli, setDatePubli] = useState<Date>(new Date());
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  // Plateformes éligibles selon le mediaType (carousel = TikTok+Instagram ;
+  // short = les 3). Pilote l'affichage des checkboxes dans la Card
+  // Publication. La validation serveur (createPublication) reste l'autorité.
+  const allowedPlatforms = useMemo<readonly string[]>(
+    () =>
+      mediaType === "carousel"
+        ? ALLOWED_PLATFORMS_FOR_CAROUSEL
+        : ALLOWED_PLATFORMS_FOR_SHORT,
+    [mediaType],
+  );
 
   const allHooks = useQuery(api.hooks.listHooks, {});
   // Filtered list shown in the combobox; biblioLangue defaults to FR but auto-syncs
@@ -179,41 +202,79 @@ function NouveauForm() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedHook?._id]);
 
-  // Pre-fill slide 1 avec le texte du hook sélectionné. Politique d'écrasement :
-  // n'écrire que si slide 1 est vide (préserve les éditions manuelles). Pour
-  // une sélection au clic, géré dans handleHookSelect / handleCustomTextChange
-  // ci-dessous (handler-based, pas d'effect). Pour le cas d'arrivée via URL
-  // ?hookId= où la sélection est déjà active au mount mais le hook n'est
-  // chargé qu'après résolution de Convex, on a besoin d'un useEffect — ce
-  // n'est pas évitable sans refactor majeur (allHooks est async). Concession
-  // : 1 useEffect avec un useRef pour ne run qu'une seule fois après le
-  // premier load. Idempotent grâce au check prev[0] === "".
+  // Pre-fill du target (slide 1 ou script) avec le texte du hook sélectionné.
+  // Politique d'écrasement : n'écrire que si le target est vide (préserve les
+  // éditions manuelles). Pour une sélection au clic, géré dans
+  // handleHookSelect / handleCustomTextChange (handler-based, pas d'effect).
+  // Pour le cas d'arrivée via URL ?hookId= où la sélection est déjà active
+  // au mount mais le hook n'est chargé qu'après résolution de Convex, on a
+  // besoin d'un useEffect — ce n'est pas évitable sans refactor majeur
+  // (allHooks est async). Concession : 1 useEffect avec un useRef pour ne
+  // run qu'une seule fois après le premier load. Idempotent.
+  // Batch 2 Modif 3 : branche selon mediaType courant au moment du run.
   const initialSeedDone = useRef(false);
   useEffect(() => {
     if (initialSeedDone.current) return;
     if (!selectedHook) return;
     initialSeedDone.current = true;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSlides((prev) =>
-      prev[0] === "" ? [selectedHook.text, ...prev.slice(1)] : prev,
-    );
-  }, [selectedHook]);
+    if (mediaType === "carousel") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSlides((prev) =>
+        prev[0] === "" ? [selectedHook.text, ...prev.slice(1)] : prev,
+      );
+    } else {
+      // 2e setState dans le même effect : la règle est déjà silenced par
+      // le eslint-disable de la branche carousel (un seul report par effect).
+      setScript((prev) => (prev === "" ? selectedHook.text : prev));
+    }
+  }, [selectedHook, mediaType]);
 
   function handleHookSelect(id: Id<"hooks">) {
     setSelectedHookId(id);
     const hook = allHooks?.find((h) => h._id === id);
-    if (hook) {
+    if (!hook) return;
+    if (mediaType === "carousel") {
       setSlides((prev) =>
         prev[0] === "" ? [hook.text, ...prev.slice(1)] : prev,
       );
+    } else {
+      setScript((prev) => (prev === "" ? hook.text : prev));
     }
   }
 
   function handleCustomTextChange(value: string) {
     setCustomText(value);
-    setSlides((prev) =>
-      prev[0] === "" ? [value, ...prev.slice(1)] : prev,
+    if (mediaType === "carousel") {
+      setSlides((prev) =>
+        prev[0] === "" ? [value, ...prev.slice(1)] : prev,
+      );
+    } else {
+      setScript((prev) => (prev === "" ? value : prev));
+    }
+  }
+
+  // Switch Carousel ↔ Short. Reset des plateformes incohérentes (ex :
+  // short→carousel avec YouTube coché → on retire YouTube). Pre-fill
+  // idempotent du target nouvellement sélectionné si un hook ou un
+  // customText est déjà choisi : l'utilisateur s'attend à voir son hook
+  // pré-rempli après le switch sans avoir à re-cliquer.
+  function handleMediaTypeChange(next: MediaType) {
+    if (next === mediaType) return;
+    setMediaType(next);
+    setPlateformes((prev) =>
+      prev.filter((p) => isFormatAllowedOnPlatform(next, p)),
     );
+    const sourceText =
+      mode === "biblio" ? (selectedHook?.text ?? "") : customText.trim();
+    if (sourceText) {
+      if (next === "carousel") {
+        setSlides((prev) =>
+          prev[0] === "" ? [sourceText, ...prev.slice(1)] : prev,
+        );
+      } else {
+        setScript((prev) => (prev === "" ? sourceText : prev));
+      }
+    }
   }
 
   useEffect(() => {
@@ -253,22 +314,22 @@ function NouveauForm() {
       );
       return;
     }
-    // Batch 1 Shorts — garde client : /nouveau ne crée que des Carrousels
-    // tant que le toggle Format n'est pas ajouté (Batch 2). Si une des
-    // plateformes effectives n'est pas autorisée pour les Carrousels
-    // (= YouTube), bloquer ici plutôt que de se faire rejeter par
-    // createPublication. Defense in depth.
+    // Defense in depth : valide cohérence mediaType / plateforme effective.
+    // Carousel rejeté sur YouTube ; Short toujours OK (toutes plateformes).
     const invalidPlatform = effectivePlateformes.find(
-      (p) => !isFormatAllowedOnPlatform("carousel", p),
+      (p) => !isFormatAllowedOnPlatform(mediaType, p),
     );
     if (invalidPlatform) {
-      toast.error(
-        `Carrousels non autorisés sur ${invalidPlatform}. Choisis un compte TikTok ou Instagram.`,
-      );
+      const formatLabel = mediaType === "carousel" ? "Carrousels" : "Shorts";
+      toast.error(`${formatLabel} non autorisés sur ${invalidPlatform}.`);
+      return;
+    }
+    if (mediaType === "short" && script.trim().length === 0) {
+      toast.error("Le script ne peut pas être vide.");
       return;
     }
     if (!nextCarouselId) {
-      toast.error("Carousel ID pas encore prêt, attends une seconde…");
+      toast.error("ID pas encore prêt, attends une seconde…");
       return;
     }
 
@@ -280,24 +341,38 @@ function NouveauForm() {
 
     setSubmitting(true);
     try {
-      await createPub({
+      // Args communs aux 2 formats. Le payload format-spécifique (slides /
+      // script) est ajouté juste avant l'appel selon mediaType.
+      const baseArgs = {
         carouselId: nextCarouselId,
         hookId,
         hookText,
         mecanique: mecanique as (typeof MECANIQUES)[number],
         niveau: niveau as (typeof NIVEAUX)[number],
-        format: format as (typeof FORMATS)[number]["value"],
-        nbSlides,
-        slides: slides.map((texte, i) => ({ position: i + 1, texte })),
         angleTonal: angle as (typeof ANGLES)[number],
         langue: langue as (typeof LANGUES)[number],
-        plateformes: effectivePlateformes as (typeof PLATEFORMES)[number][],
+        plateformes: effectivePlateformes as Plateforme[],
         compte,
         datePubli: datePubli.getTime(),
         notes,
-      });
+        mediaType,
+      };
+      if (mediaType === "carousel") {
+        await createPub({
+          ...baseArgs,
+          format: format as (typeof FORMATS)[number]["value"],
+          nbSlides,
+          slides: slides.map((texte, i) => ({ position: i + 1, texte })),
+        });
+      } else {
+        await createPub({
+          ...baseArgs,
+          script: script.trim(),
+        });
+      }
+      const formatLabel = mediaType === "carousel" ? "Carrousel" : "Short";
       toast.success(
-        `Carrousel ${nextCarouselId} créé sur ${effectivePlateformes.length} plateforme${effectivePlateformes.length > 1 ? "s" : ""}`,
+        `${formatLabel} ${nextCarouselId} créé sur ${effectivePlateformes.length} plateforme${effectivePlateformes.length > 1 ? "s" : ""}`,
       );
       router.push("/tracker");
     } catch (e) {
@@ -311,10 +386,10 @@ function NouveauForm() {
     <div className="space-y-6 pb-24">
       <header className="flex items-baseline justify-between">
         <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-          Nouveau carrousel
+          {mediaType === "short" ? "Nouveau Short" : "Nouveau carrousel"}
         </h1>
         <p className="text-sm text-slate-500">
-          Carousel ID auto-attribué :{" "}
+          ID auto-attribué :{" "}
           <span className="font-mono font-medium text-slate-900">
             {nextCarouselId ?? "…"}
           </span>
@@ -323,7 +398,24 @@ function NouveauForm() {
 
       <Card>
         <CardHeader>
-          <CardTitle>1. Hook</CardTitle>
+          <CardTitle>1. Format</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Tabs
+            value={mediaType}
+            onValueChange={(v) => handleMediaTypeChange(v as MediaType)}
+          >
+            <TabsList>
+              <TabsTrigger value="carousel">Carrousel</TabsTrigger>
+              <TabsTrigger value="short">Short</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>2. Hook</CardTitle>
         </CardHeader>
         <CardContent>
           <Tabs value={mode} onValueChange={(v) => setMode(v as Mode)}>
@@ -453,27 +545,36 @@ function NouveauForm() {
 
       <Card>
         <CardHeader>
-          <CardTitle>2. Format & Angle</CardTitle>
+          <CardTitle>
+            3. {mediaType === "short" ? "Angle" : "Format & Angle"}
+          </CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div className="space-y-1.5 md:col-span-2">
-            <Label>Format</Label>
-            <Select value={format} onValueChange={(v) => v !== null && setFormat(v)}>
-              <SelectTrigger>
-                <SelectValue>
-                  {FORMATS.find((f) => f.value === format)?.label}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {FORMATS.map((f) => (
-                  <SelectItem key={f.value} value={f.value}>
-                    {f.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
+          {mediaType === "carousel" && (
+            <div className="space-y-1.5 md:col-span-2">
+              <Label>Format</Label>
+              <Select value={format} onValueChange={(v) => v !== null && setFormat(v)}>
+                <SelectTrigger>
+                  <SelectValue>
+                    {FORMATS.find((f) => f.value === format)?.label}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {FORMATS.map((f) => (
+                    <SelectItem key={f.value} value={f.value}>
+                      {f.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <div
+            className={cn(
+              "space-y-1.5",
+              mediaType === "short" && "md:col-span-3",
+            )}
+          >
             <Label>Angle tonal</Label>
             <Select value={angle} onValueChange={(v) => v !== null && setAngle(v)}>
               <SelectTrigger>
@@ -488,57 +589,83 @@ function NouveauForm() {
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="nb-slides">Nombre de slides</Label>
-            <Input
-              id="nb-slides"
-              type="number"
-              min={5}
-              max={8}
-              value={nbSlides}
-              onChange={(e) =>
-                setNbSlides(
-                  Math.max(5, Math.min(8, Number(e.target.value) || 5)),
-                )
-              }
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>3. Slides</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {slides.map((s, i) => (
-            <div key={i} className="space-y-1.5">
-              <Label htmlFor={`slide-${i}`}>Slide {i + 1}</Label>
-              <Textarea
-                id={`slide-${i}`}
-                rows={2}
-                placeholder={`Texte de la slide ${i + 1}...`}
-                value={s}
-                onChange={(e) => {
-                  const next = [...slides];
-                  next[i] = e.target.value;
-                  setSlides(next);
-                }}
+          {mediaType === "carousel" && (
+            <div className="space-y-1.5">
+              <Label htmlFor="nb-slides">Nombre de slides</Label>
+              <Input
+                id="nb-slides"
+                type="number"
+                min={5}
+                max={8}
+                value={nbSlides}
+                onChange={(e) =>
+                  setNbSlides(
+                    Math.max(5, Math.min(8, Number(e.target.value) || 5)),
+                  )
+                }
               />
             </div>
-          ))}
+          )}
         </CardContent>
       </Card>
 
+      {mediaType === "carousel" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>4. Slides</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {slides.map((s, i) => (
+              <div key={i} className="space-y-1.5">
+                <Label htmlFor={`slide-${i}`}>Slide {i + 1}</Label>
+                <Textarea
+                  id={`slide-${i}`}
+                  rows={2}
+                  placeholder={`Texte de la slide ${i + 1}...`}
+                  value={s}
+                  onChange={(e) => {
+                    const next = [...slides];
+                    next[i] = e.target.value;
+                    setSlides(next);
+                  }}
+                />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>4. Script</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-1.5">
+              <Label htmlFor="script">Script</Label>
+              <Textarea
+                id="script"
+                rows={12}
+                placeholder="Écris ton script complet — le hook reste pré-rempli en haut..."
+                value={script}
+                onChange={(e) => setScript(e.target.value)}
+              />
+              <p className="text-xs text-slate-500">
+                Texte continu, pas de slides découpées. Saisis le texte
+                intégral du Short.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
-          <CardTitle>4. Publication</CardTitle>
+          <CardTitle>5. Publication</CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="space-y-1.5">
             <Label>Plateformes</Label>
             <div className="flex gap-4 pt-2">
-              {PLATEFORMES.map((p) => (
+              {allowedPlatforms.map((p) => (
                 <label
                   key={p}
                   className="flex cursor-pointer items-center gap-2"
@@ -647,7 +774,7 @@ function NouveauForm() {
         </Button>
         <Button onClick={handleSubmit} disabled={submitting}>
           {submitting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-          Créer le carrousel
+          Créer {mediaType === "short" ? "le Short" : "le carrousel"}
         </Button>
       </div>
     </div>
