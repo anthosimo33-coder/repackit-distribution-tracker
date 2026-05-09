@@ -152,3 +152,147 @@ export function getGlobalStats(publications: Publication[]): GlobalStats {
     winners,
   };
 }
+
+// ─── Batch 3 Modif 5 — Shorts analytics (ajouts purs) ─────────────────────
+//
+// Les fonctions ci-dessus restent inchangées et opèrent en pratique
+// uniquement sur des Carrousels (le callsite DashboardContent filtre upstream
+// via getMediaType). Les fonctions *Shorts ci-dessous opèrent uniquement sur
+// des Shorts. Sémantique distincte : pas de verdict, métrique principale =
+// ratio subsGained/vuesJ7 (équivalent du saveRate côté carrousel).
+
+export type GlobalStatsShorts = {
+  total: number;
+  totalVuesJ7: number;
+  avgLikes: number | null;
+  totalSubsGained: number;
+  // sum(subsGained) / sum(vuesJ7), null si totalVues = 0 ou aucun
+  // subsGained renseigné. Cohérence d'unité avec saveRate (ratio entre
+  // 0 et 1, formaté en % à l'affichage).
+  ratioSubsViews: number | null;
+};
+
+export function getGlobalStatsShorts(
+  publications: Publication[],
+): GlobalStatsShorts {
+  let totalVuesJ7 = 0;
+  let totalSubsGained = 0;
+  const likesValues: number[] = [];
+  for (const p of publications) {
+    if (p.vuesJ7 !== null) totalVuesJ7 += p.vuesJ7;
+    if (p.subsGained !== null && p.subsGained !== undefined) {
+      totalSubsGained += p.subsGained;
+    }
+    if (p.likes !== null && p.likes !== undefined) likesValues.push(p.likes);
+  }
+  return {
+    total: publications.length,
+    totalVuesJ7,
+    avgLikes:
+      likesValues.length > 0
+        ? likesValues.reduce((a, b) => a + b, 0) / likesValues.length
+        : null,
+    totalSubsGained,
+    ratioSubsViews: totalVuesJ7 > 0 ? totalSubsGained / totalVuesJ7 : null,
+  };
+}
+
+export type TopHookShort = {
+  hookText: string;
+  carouselId: string;
+  plateforme: string;
+  vuesJ7: number;
+  likes: number | null;
+  subsGained: number;
+};
+
+export function getTopHooksShorts(
+  publications: Publication[],
+  n: number = 10,
+): TopHookShort[] {
+  return publications
+    .flatMap<TopHookShort>((p) => {
+      // Exclure les Shorts sans subsGained renseigné — pas de tri sur null,
+      // cohérent avec getTopHooks carrousel qui exclut saveRate null.
+      if (p.subsGained === null || p.subsGained === undefined) return [];
+      return [
+        {
+          hookText: p.hookText,
+          carouselId: p.carouselId,
+          plateforme: p.plateforme,
+          vuesJ7: p.vuesJ7 ?? 0,
+          likes: p.likes ?? null,
+          subsGained: p.subsGained,
+        },
+      ];
+    })
+    .sort((a, b) => {
+      // Tri principal : subsGained desc. Tie-break : vuesJ7 desc (cohérent
+      // avec convention "le plus récent en haut" sur égalité).
+      if (b.subsGained !== a.subsGained) return b.subsGained - a.subsGained;
+      return b.vuesJ7 - a.vuesJ7;
+    })
+    .slice(0, n);
+}
+
+export type AggregateRowShort = {
+  key: string;
+  count: number;
+  totalVues: number;
+  totalLikes: number;
+  totalSubsGained: number;
+  // Ratio bucket-level : sum(subsGained_bucket) / sum(vuesJ7_bucket).
+  // Pas une moyenne d'individus — évite les biais de petits échantillons
+  // (1 viral à 10k vues + 1 flop à 100 vues n'est pas dilué).
+  avgRatioSubsViews: number | null;
+};
+
+function aggregateByShorts(
+  publications: Publication[],
+  keyFn: (p: Publication) => string,
+): AggregateRowShort[] {
+  const groups = new Map<string, Publication[]>();
+  for (const pub of publications) {
+    const k = keyFn(pub);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k)!.push(pub);
+  }
+
+  const result: AggregateRowShort[] = [];
+  for (const [key, pubs] of groups.entries()) {
+    let totalVues = 0;
+    let totalLikes = 0;
+    let totalSubsGained = 0;
+    for (const p of pubs) {
+      if (p.vuesJ7 !== null) totalVues += p.vuesJ7;
+      if (p.likes !== null && p.likes !== undefined) totalLikes += p.likes;
+      if (p.subsGained !== null && p.subsGained !== undefined) {
+        totalSubsGained += p.subsGained;
+      }
+    }
+    result.push({
+      key,
+      count: pubs.length,
+      totalVues,
+      totalLikes,
+      totalSubsGained,
+      avgRatioSubsViews: totalVues > 0 ? totalSubsGained / totalVues : null,
+    });
+  }
+
+  return result.sort(
+    (a, b) => (b.avgRatioSubsViews ?? -1) - (a.avgRatioSubsViews ?? -1),
+  );
+}
+
+export const aggregateByMecaniqueShorts = (pubs: Publication[]) =>
+  aggregateByShorts(pubs, (p) => p.mecanique);
+export const aggregateByNiveauShorts = (pubs: Publication[]) =>
+  aggregateByShorts(pubs, (p) => p.niveau);
+export const aggregateByAngleShorts = (pubs: Publication[]) =>
+  aggregateByShorts(pubs, (p) => p.angleTonal);
+export const aggregateByPlateformeShorts = (pubs: Publication[]) =>
+  aggregateByShorts(pubs, (p) => p.plateforme);
+// Pas de aggregateByFormatShorts (format A-H carousel-only).
+// Pas de aggregateByCompteShorts pour ce batch — non demandé par le scope
+// dashboard Shorts (4 charts : Mécanique / Niveau / Angle / Plateforme).
