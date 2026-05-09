@@ -115,7 +115,19 @@ export const listHooks = query({
  * Cohérent avec lib/publication-status.ts (source unique de vérité côté
  * client). Dupliqué ici parce qu'on ne peut pas importer de lib/ depuis
  * un module Convex (chaque côté a son tsconfig).
+ *
+ * Batch 3 Modif 6 — refonte : compteurs split par mediaType. Les anciens
+ * publishedCount / draftCount / variantsCount disparaissent du return
+ * (refonte complète, pas de backward compat — seul callsite est HookCard).
+ * accountsUsed et lastPublishedAt restent agrégés tous formats (status quo).
+ *
+ * NOTE TD-005 (aggravation) : la map carouselsByParentAncreByFormat double
+ * la surface mémoire serveur (une map par mediaType au lieu d'une). Au
+ * volume actuel (~10 pubs prod) impact négligeable. À 5000+ pubs, à
+ * surveiller.
  */
+type MediaTypeServer = "carousel" | "short";
+
 export const listHooksWithUsage = query({
   args: {
     langue: v.optional(v.union(v.literal("FR"), v.literal("EN"))),
@@ -152,15 +164,20 @@ export const listHooksWithUsage = query({
     const publications = await ctx.db.query("publications").collect();
 
     type Usage = {
-      publishedCount: number;
-      draftCount: number;
+      publishedCarouselsCount: number;
+      publishedShortsCount: number;
+      draftCarouselsCount: number;
+      draftShortsCount: number;
       accountsUsed: Set<string>;
       lastPublishedAt: number | null;
-      // Modif 3 : groupement par parent ancré (parentCarouselId ?? carouselId).
-      // Pour chaque groupe, on stocke le Set des carouselIds distincts pour
-      // que 1 carrousel multi-plateforme (= 2 rows même carouselId) ne compte
-      // que 1. variantsCount = somme des tailles des groupes >= 2.
-      carouselsByParentAncre: Map<string, Set<string>>;
+      // Batch 3 Modif 6 : groupement parent ancré séparé par mediaType.
+      // Une lignée de duplicats partage UN seul mediaType (cf duplicate
+      // Carousel qui propage source.mediaType). Donc un parentAncre ne
+      // figure que dans UNE des 2 sous-maps.
+      carouselsByParentAncreByFormat: Map<
+        MediaTypeServer,
+        Map<string, Set<string>>
+      >;
     };
     const usageByHookId = new Map<string, Usage>();
 
@@ -170,17 +187,26 @@ export const listHooksWithUsage = query({
       const u =
         usageByHookId.get(key) ??
         ({
-          publishedCount: 0,
-          draftCount: 0,
+          publishedCarouselsCount: 0,
+          publishedShortsCount: 0,
+          draftCarouselsCount: 0,
+          draftShortsCount: 0,
           accountsUsed: new Set<string>(),
           lastPublishedAt: null,
-          carouselsByParentAncre: new Map<string, Set<string>>(),
+          carouselsByParentAncreByFormat: new Map<
+            MediaTypeServer,
+            Map<string, Set<string>>
+          >(),
         } satisfies Usage);
 
+      // Coercion mediaType côté serveur (pas d'import lib/media-type.ts
+      // possible, cf cross-tsconfig). Logique alignée avec getMediaType().
+      const mediaType: MediaTypeServer = pub.mediaType ?? "carousel";
       const isPub =
         typeof pub.postUrl === "string" && pub.postUrl.length > 0;
       if (isPub) {
-        u.publishedCount += 1;
+        if (mediaType === "carousel") u.publishedCarouselsCount += 1;
+        else u.publishedShortsCount += 1;
         u.accountsUsed.add(pub.compte);
         if (
           u.lastPublishedAt === null ||
@@ -189,40 +215,57 @@ export const listHooksWithUsage = query({
           u.lastPublishedAt = pub.datePubli;
         }
       } else {
-        u.draftCount += 1;
+        if (mediaType === "carousel") u.draftCarouselsCount += 1;
+        else u.draftShortsCount += 1;
       }
 
-      // Agrégation variantsCount : key = parent ancré. Tous les duplicats
-      // d'une même lignée pointent vers le carouselId original (cf
-      // duplicateCarousel) → ils tombent dans le même bucket que l'original.
+      // Agrégation variantsCount intra-format : 2 sous-maps par mediaType.
+      // Tous les duplicats d'une même lignée pointent vers le carouselId
+      // original (cf duplicateCarousel) ET partagent le mediaType source
+      // (la duplication ne change jamais de format) → ils tombent dans le
+      // même bucket sous-map[mediaType][parentAncre].
+      let formatMap = u.carouselsByParentAncreByFormat.get(mediaType);
+      if (!formatMap) {
+        formatMap = new Map<string, Set<string>>();
+        u.carouselsByParentAncreByFormat.set(mediaType, formatMap);
+      }
       const parentAncre = pub.parentCarouselId ?? pub.carouselId;
-      let bucket = u.carouselsByParentAncre.get(parentAncre);
+      let bucket = formatMap.get(parentAncre);
       if (!bucket) {
         bucket = new Set<string>();
-        u.carouselsByParentAncre.set(parentAncre, bucket);
+        formatMap.set(parentAncre, bucket);
       }
       bucket.add(pub.carouselId);
 
       usageByHookId.set(key, u);
     }
 
+    function variantsCountFor(
+      u: Usage | undefined,
+      mediaType: MediaTypeServer,
+    ): number {
+      if (!u) return 0;
+      const formatMap = u.carouselsByParentAncreByFormat.get(mediaType);
+      if (!formatMap) return 0;
+      let count = 0;
+      for (const distinctIds of formatMap.values()) {
+        if (distinctIds.size >= 2) count += distinctIds.size;
+      }
+      return count;
+    }
+
     let results = hooks.map((h) => {
       const u = usageByHookId.get(h._id as unknown as string);
-      let variantsCount = 0;
-      if (u) {
-        for (const distinctCarouselIds of u.carouselsByParentAncre.values()) {
-          if (distinctCarouselIds.size >= 2) {
-            variantsCount += distinctCarouselIds.size;
-          }
-        }
-      }
       return {
         ...h,
-        publishedCount: u?.publishedCount ?? 0,
-        draftCount: u?.draftCount ?? 0,
+        publishedCarouselsCount: u?.publishedCarouselsCount ?? 0,
+        publishedShortsCount: u?.publishedShortsCount ?? 0,
+        draftCarouselsCount: u?.draftCarouselsCount ?? 0,
+        draftShortsCount: u?.draftShortsCount ?? 0,
+        variantsCountCarousel: variantsCountFor(u, "carousel"),
+        variantsCountShort: variantsCountFor(u, "short"),
         accountsUsed: u ? Array.from(u.accountsUsed).sort() : [],
         lastPublishedAt: u?.lastPublishedAt ?? null,
-        variantsCount,
       };
     });
 
@@ -239,16 +282,18 @@ export const listHooksWithUsage = query({
       const q = args.search.toLowerCase();
       results = results.filter((h) => h.text.toLowerCase().includes(q));
     }
+    // hideUsed / hideDraft : agrégés tous formats (un hook est "used" s'il
+    // a au moins 1 pub publiée tous formats confondus, idem "draft").
     if (args.hideUsed) {
-      results = results.filter((h) => h.publishedCount === 0);
+      results = results.filter(
+        (h) =>
+          h.publishedCarouselsCount === 0 && h.publishedShortsCount === 0,
+      );
     }
-    // hideDraft est indépendant de hideUsed et combinable :
-    //   aucun        → tout
-    //   hideUsed     → publishedCount === 0 (peut avoir des drafts)
-    //   hideDraft    → draftCount === 0     (peut avoir des publiés)
-    //   les deux     → 100 % frais (publishedCount === 0 ET draftCount === 0)
     if (args.hideDraft) {
-      results = results.filter((h) => h.draftCount === 0);
+      results = results.filter(
+        (h) => h.draftCarouselsCount === 0 && h.draftShortsCount === 0,
+      );
     }
 
     results.sort((a, b) =>
@@ -273,12 +318,30 @@ export const listHooksWithUsage = query({
  * d'import cross-tsconfig depuis lib/verdict.ts). Logique identique.
  */
 export const getHookVariants = query({
-  args: { hookId: v.id("hooks") },
+  args: {
+    hookId: v.id("hooks"),
+    // Batch 3 Modif 6 — filtre optional par mediaType. Si défini, ne garde
+    // que les pubs du format demandé avant d'agréger en groupes variantes.
+    // Permet à HookVariantsPopover de scoper ses 2 boutons (carousel /
+    // short) sur le format approprié. Si undefined : behavior antérieur
+    // (tous formats), conservé pour compat des callsites existants.
+    mediaType: v.optional(
+      v.union(v.literal("carousel"), v.literal("short")),
+    ),
+  },
   handler: async (ctx, args) => {
-    const pubs = await ctx.db
+    const allPubs = await ctx.db
       .query("publications")
       .withIndex("by_hookId", (q) => q.eq("hookId", args.hookId))
       .collect();
+
+    // Filtre mediaType en amont. Coercion inline (pas d'import lib/).
+    const pubs =
+      args.mediaType === undefined
+        ? allPubs
+        : allPubs.filter(
+            (p) => (p.mediaType ?? "carousel") === args.mediaType,
+          );
 
     // 1. Identifie les "groupes variantes" : parent ancré → Set des carouselIds
     //    distincts. Garde uniquement les groupes de taille >= 2.

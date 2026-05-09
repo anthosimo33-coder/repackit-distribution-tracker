@@ -114,8 +114,11 @@ test.describe("Hooks — Vue variantes via Popover", () => {
     // Bouton variantes : "Voir les X variantes" — X dépend des éventuelles
     // duplications pré-existantes pour ce hook (peut être > 2 si d'autres
     // tests/data ont laissé des groupes). On accepte tout entier >= 2.
+    // Batch 3 Modif 6 — le bouton est désormais suffixé "carrousel" ou
+    // "Shorts" selon le mediaType. Le test crée un carrousel + dup, donc
+    // on cible le bouton "carrousel".
     const variantsBtn = page.getByRole("button", {
-      name: /voir les \d+ variantes/i,
+      name: /voir les \d+ variantes carrousel/i,
     });
     await expect(variantsBtn).toBeVisible({ timeout: 5000 });
     await variantsBtn.click();

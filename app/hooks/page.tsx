@@ -204,7 +204,27 @@ export default function HooksPage() {
 }
 
 function HookCard({ hook }: { hook: HookWithUsage }) {
-  const used = hook.publishedCount > 0;
+  // Batch 3 Modif 6 — split badges par mediaType. Compteurs séparés
+  // carrousels/Shorts ; couleur emerald pour carrousels seuls (status quo),
+  // rouge pour Shorts seuls (cohérent PlatformBadge YouTube), neutre slate
+  // quand les 2 formats sont utilisés (ni l'un ni l'autre dominant).
+  const totalPublished =
+    hook.publishedCarouselsCount + hook.publishedShortsCount;
+  const totalDraft = hook.draftCarouselsCount + hook.draftShortsCount;
+  const used = totalPublished > 0;
+  const onlyCarousels =
+    hook.publishedCarouselsCount > 0 && hook.publishedShortsCount === 0;
+  const onlyShorts =
+    hook.publishedShortsCount > 0 && hook.publishedCarouselsCount === 0;
+  const bothFormatsPublished =
+    hook.publishedCarouselsCount > 0 && hook.publishedShortsCount > 0;
+  const onlyCarouselsDraft =
+    hook.draftCarouselsCount > 0 && hook.draftShortsCount === 0;
+  const onlyShortsDraft =
+    hook.draftShortsCount > 0 && hook.draftCarouselsCount === 0;
+  const bothFormatsDraft =
+    hook.draftCarouselsCount > 0 && hook.draftShortsCount > 0;
+
   return (
     <Card>
       <CardContent className="flex items-start justify-between gap-3 p-4">
@@ -214,30 +234,72 @@ function HookCard({ hook }: { hook: HookWithUsage }) {
             <Badge variant="secondary">{hook.mecanique}</Badge>
             <Badge variant="outline">{hook.niveau}</Badge>
             <Badge variant="outline">{hook.langue}</Badge>
-            {used && (
+            {used && onlyCarousels && (
               <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">
-                Utilisé {hook.publishedCount}{" "}
-                {hook.publishedCount > 1 ? "fois" : "fois"}
+                Utilisé {hook.publishedCarouselsCount}{" "}
+                {hook.publishedCarouselsCount > 1 ? "fois" : "fois"}
               </Badge>
             )}
-            {hook.draftCount > 0 && (
+            {used && onlyShorts && (
+              <Badge className="border-red-200 bg-red-50 text-red-700">
+                Utilisé {hook.publishedShortsCount} fois en Short
+              </Badge>
+            )}
+            {used && bothFormatsPublished && (
+              <Badge className="border-slate-300 bg-slate-100 text-slate-700">
+                {hook.publishedCarouselsCount} carrousel
+                {hook.publishedCarouselsCount > 1 ? "s" : ""} ·{" "}
+                {hook.publishedShortsCount} Short
+                {hook.publishedShortsCount > 1 ? "s" : ""}
+              </Badge>
+            )}
+            {totalDraft > 0 && onlyCarouselsDraft && (
               <Badge variant="outline" className="text-amber-700">
-                +{hook.draftCount} à venir
+                +{hook.draftCarouselsCount} à venir
               </Badge>
             )}
-            {hook.variantsCount > 0 && (
+            {totalDraft > 0 && onlyShortsDraft && (
+              <Badge variant="outline" className="text-amber-700">
+                +{hook.draftShortsCount} Short{hook.draftShortsCount > 1 ? "s" : ""} à venir
+              </Badge>
+            )}
+            {totalDraft > 0 && bothFormatsDraft && (
+              <Badge variant="outline" className="text-amber-700">
+                +{hook.draftCarouselsCount} carr. · +{hook.draftShortsCount} Short
+                {hook.draftShortsCount > 1 ? "s" : ""} à venir
+              </Badge>
+            )}
+            {hook.variantsCountCarousel > 0 && (
               <Badge className="border-violet-200 bg-violet-50 text-violet-700">
-                {hook.variantsCount} variante{hook.variantsCount > 1 ? "s" : ""}
+                {hook.variantsCountCarousel} variante
+                {hook.variantsCountCarousel > 1 ? "s" : ""} carrousel
+              </Badge>
+            )}
+            {hook.variantsCountShort > 0 && (
+              <Badge className="border-red-200 bg-red-50 text-red-700">
+                {hook.variantsCountShort} variante
+                {hook.variantsCountShort > 1 ? "s" : ""} Short
+                {hook.variantsCountShort > 1 ? "s" : ""}
               </Badge>
             )}
           </div>
           {used && <UsageDetail hook={hook} />}
-          {hook.variantsCount > 0 && (
-            <HookVariantsPopover
-              hookId={hook._id}
-              count={hook.variantsCount}
-            />
-          )}
+          <div className="flex flex-wrap gap-1">
+            {hook.variantsCountCarousel > 0 && (
+              <HookVariantsPopover
+                hookId={hook._id}
+                count={hook.variantsCountCarousel}
+                mediaType="carousel"
+              />
+            )}
+            {hook.variantsCountShort > 0 && (
+              <HookVariantsPopover
+                hookId={hook._id}
+                count={hook.variantsCountShort}
+                mediaType="short"
+              />
+            )}
+          </div>
         </div>
         <Link
           href={`/nouveau?hookId=${hook._id}`}
@@ -260,18 +322,26 @@ function HookCard({ hook }: { hook: HookWithUsage }) {
  * Chaque entrée est un Link client-side vers /tracker?carouselId=… (cf
  * router.push). Le tracker lit ce param et applique un filtre temporaire
  * + bannière "Effacer".
+ *
+ * Batch 3 Modif 6 — prop mediaType obligatoire. Le bouton parent décide
+ * quel mediaType ouvrir (carousel ou short, 2 boutons distincts dans
+ * HookCard). Couleur du trigger adaptée : violet pour carousel (status
+ * quo), rouge pour short (cohérent PlatformBadge YouTube + badge
+ * "X variantes Shorts").
  */
 function HookVariantsPopover({
   hookId,
   count,
+  mediaType,
 }: {
   hookId: Id<"hooks">;
   count: number;
+  mediaType: "carousel" | "short";
 }) {
   const [open, setOpen] = useState(false);
   const variants = useQuery(
     api.hooks.getHookVariants,
-    open ? { hookId } : "skip",
+    open ? { hookId, mediaType } : "skip",
   );
   const router = useRouter();
 
@@ -280,6 +350,12 @@ function HookVariantsPopover({
     router.push(`/tracker?carouselId=${carouselId}`);
   }
 
+  const isShort = mediaType === "short";
+  const triggerLabel = `Voir les ${count} variantes ${isShort ? "Shorts" : "carrousel"}`;
+  const triggerColorClass = isShort
+    ? "text-red-700 hover:bg-red-50 hover:text-red-800"
+    : "text-violet-700 hover:bg-violet-50 hover:text-violet-800";
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
@@ -287,10 +363,10 @@ function HookVariantsPopover({
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 gap-1.5 px-2 text-xs text-violet-700 hover:bg-violet-50 hover:text-violet-800"
+            className={cn("h-7 gap-1.5 px-2 text-xs", triggerColorClass)}
           >
             <GitBranchIcon className="size-3.5" />
-            Voir les {count} variantes
+            {triggerLabel}
           </Button>
         }
       />
@@ -329,12 +405,23 @@ function HookVariantsPopover({
                     <span className="text-slate-400">·</span>
                     <PlatformBadge plateforme={v.plateforme} />
                   </div>
+                  {/*
+                    Batch 3 Modif 6 — saveRate/verdict masqués pour les
+                    Shorts (saveRate non applicable). Pour les carrousels :
+                    comportement existant (verdict + saveRate affichés).
+                  */}
                   <div className="flex items-center gap-2 text-xs text-slate-500">
-                    <VerdictBadge verdict={v.verdict} />
-                    <span className="tabular-nums">
-                      {v.saveRate === null ? "—" : formatPercent(v.saveRate)}
-                    </span>
-                    <span className="text-slate-400">·</span>
+                    {!isShort && (
+                      <>
+                        <VerdictBadge verdict={v.verdict} />
+                        <span className="tabular-nums">
+                          {v.saveRate === null
+                            ? "—"
+                            : formatPercent(v.saveRate)}
+                        </span>
+                        <span className="text-slate-400">·</span>
+                      </>
+                    )}
                     <span>{formatShortDate(v.datePubli)}</span>
                   </div>
                 </button>
