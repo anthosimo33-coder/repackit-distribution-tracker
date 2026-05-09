@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { Inter, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ConvexClientProvider } from "./ConvexClientProvider";
-import { Navigation } from "@/components/Navigation";
+import { SidebarLayout } from "@/components/layout/SidebarLayout";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 
 const inter = Inter({
@@ -33,12 +34,13 @@ export default function RootLayout({
       lang="fr"
       className={`${inter.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="flex min-h-full flex-col bg-slate-50 font-sans text-slate-900">
+      <body className="min-h-full bg-slate-50 font-sans text-slate-900">
         <ConvexClientProvider>
-          <Navigation />
-          <main className="container mx-auto flex-1 px-6 py-8">
-            {children}
-          </main>
+          <TooltipProvider delay={300}>
+            <SidebarLayout>
+              <div className="container mx-auto px-6 py-8">{children}</div>
+            </SidebarLayout>
+          </TooltipProvider>
           <Toaster richColors position="top-right" />
         </ConvexClientProvider>
       </body>
