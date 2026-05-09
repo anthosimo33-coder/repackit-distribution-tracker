@@ -123,6 +123,22 @@ test.describe("Tracker — Dupliquer un carrousel", () => {
     // Les Select shadcn sont 2 comboboxes du dialog (Plateforme cible, Compte cible).
     const dialogCombos = dialog.getByRole("combobox");
     await dialogCombos.nth(0).click();
+
+    // Batch 1 Shorts — assert que le dropdown plateforme cible est filtré
+    // selon le mediaType de la source. Source carousel (mediaType undefined
+    // → coerce "carousel" via getMediaType) → YouTube doit être absent (pas
+    // de carrousels sur YouTube). TikTok + Instagram doivent être présents.
+    // Couvre le filtrage UI ALLOWED_PLATFORMS_FOR_CAROUSEL côté tracker.
+    await expect(
+      page.getByRole("option", { name: "YouTube", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("option", { name: "TikTok", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("option", { name: "Instagram", exact: true }),
+    ).toBeVisible();
+
     await page.getByRole("option", { name: "TikTok" }).click();
     await dialogCombos.nth(1).click();
     await page.getByRole("option", { name: /test_e2e_dup_dst/i }).click();
