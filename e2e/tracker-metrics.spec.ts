@@ -51,9 +51,13 @@ test.describe("Tracker édition métriques", () => {
 
     await page.goto("/carrousels");
 
+    // Batch E — AnalyticsSection.TopHooksTable peut afficher la même
+    // ligne (hook winners listé en bas de page) → scope first() pour
+    // cibler la row de la liste tracker, pas du top.
     const row = page
       .getByRole("row")
-      .filter({ hasText: "Hook test metrics E2E" });
+      .filter({ hasText: "Hook test metrics E2E" })
+      .first();
 
     // Feature 3 : "Mettre à jour stats" est désactivé sur les drafts.
     // Pour saisir des métriques + voir un verdict, il faut d'abord publier

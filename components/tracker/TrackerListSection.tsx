@@ -55,6 +55,7 @@ import {
   type MediaType,
 } from "@/lib/media-type";
 import { FORMAT_CONFIGS } from "@/lib/format-config";
+import { AnalyticsSection } from "@/components/analytics/AnalyticsSection";
 import {
   DEFAULT_SORT,
   filtersEqual,
@@ -413,6 +414,15 @@ export function TrackerListSection({
   const visibleColumns = useMemo<ReadonlySet<ColumnKey>>(
     () => new Set(columnsForMediaType(mediaType)),
     [mediaType],
+  );
+
+  // Batch E — publications du format (non filtrées par les filtres internes).
+  // Source de vérité pour AnalyticsSection. `filtered` ci-dessous applique en
+  // plus la barre de filtres et nourrit la liste tracker uniquement.
+  const publicationsForFormat = useMemo(
+    () =>
+      (publications ?? []).filter((p) => getMediaType(p) === mediaType),
+    [publications, mediaType],
   );
 
   const filtered = useMemo(() => {
@@ -890,6 +900,21 @@ export function TrackerListSection({
           onOpenChange={(o) => !o && setDuplicatingPub(null)}
         />
       )}
+
+      {/*
+        Batch E — AnalyticsSection en bas de page. Décision tranchée :
+        l'analytics consomme TOUTES les publications du format (publicationsForFormat
+        ci-dessus), PAS le sous-ensemble filtré (filtered) par les filtres
+        internes du tracker. Rationale : l'analytics est une vue stratégique
+        globale du format ; si l'utilisateur veut zoomer, la liste filtrée
+        au-dessus est la zone d'investigation. Filtrer l'analytics par les
+        filtres internes mélangerait les 2 mental models et casserait la
+        consistance avec les dashboards classiques (Google Analytics, etc.).
+      */}
+      <AnalyticsSection
+        publications={publicationsForFormat}
+        mediaType={mediaType}
+      />
     </div>
   );
 }

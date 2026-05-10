@@ -296,3 +296,17 @@ export const aggregateByPlateformeShorts = (pubs: Publication[]) =>
 // Pas de aggregateByFormatShorts (format A-H carousel-only).
 // Pas de aggregateByCompteShorts pour ce batch — non demandé par le scope
 // dashboard Shorts (4 charts : Mécanique / Niveau / Angle / Plateforme).
+
+// ─── Batch D — ScreenRecorder (alias des fonctions Shorts) ─────────────────
+//
+// Le shape stats ScreenRecorder est strictement identique à celui des Shorts
+// (likes / subsGained / comments / vues, pas de saveRate ni verdict). Plutôt
+// que de dupliquer les fonctions, on expose des aliases nommés screenrecorder
+// pour la lisibilité du callsite. Si un jour les SR divergent (ex: ajout
+// d'une métrique watch_time), il sera temps de splitter.
+export const getGlobalStatsScreenRecorder = getGlobalStatsShorts;
+export const getTopHooksScreenRecorder = getTopHooksShorts;
+export const aggregateByMecaniqueScreenRecorder = aggregateByMecaniqueShorts;
+export const aggregateByNiveauScreenRecorder = aggregateByNiveauShorts;
+export const aggregateByAngleScreenRecorder = aggregateByAngleShorts;
+export const aggregateByPlateformeScreenRecorder = aggregateByPlateformeShorts;

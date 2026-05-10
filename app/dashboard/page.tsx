@@ -1,7 +1,6 @@
 "use client";
 
-import { Suspense, useMemo } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import {
@@ -20,7 +19,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { PlatformBadge } from "@/components/VerdictBadge";
-import { FilterMultiSelect } from "@/components/filters/FilterMultiSelect";
 import {
   getGlobalStats,
   getGlobalStatsShorts,
@@ -33,15 +31,6 @@ import { getMediaType } from "@/lib/media-type";
 import { cn } from "@/lib/utils";
 import { FileTextIcon } from "lucide-react";
 
-const MECANIQUES = [
-  "Erreur",
-  "Volume",
-  "Comparaison",
-  "Contradiction",
-  "Universalité",
-  "Question",
-] as const;
-const ALLOWED_MECANIQUES = new Set<string>(MECANIQUES);
 
 /**
  * Dashboard cross-format (Batch B).
@@ -94,39 +83,11 @@ function DashboardContent({
     ReturnType<typeof useQuery<typeof api.publications.listPublications>>
   >;
 }) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-
-  // Filtre mécanique URL-driven (deeplink-friendly). Format CSV ?mecanique=A,B
-  // hérité de l'ancien dashboard. Valeurs invalides silencieusement filtrées.
-  const mecaniqueSet = useMemo(() => {
-    const raw = searchParams.get("mecanique");
-    if (!raw) return new Set<string>();
-    return new Set(
-      raw
-        .split(",")
-        .map((s) => s.trim())
-        .filter((s) => ALLOWED_MECANIQUES.has(s)),
-    );
-  }, [searchParams]);
-
-  function handleMecaniqueChange(next: Set<string>) {
-    const params = new URLSearchParams(searchParams);
-    if (next.size === 0) {
-      params.delete("mecanique");
-    } else {
-      params.set("mecanique", Array.from(next).sort().join(","));
-    }
-    const qs = params.toString();
-    router.replace(qs ? `/dashboard?${qs}` : "/dashboard");
-  }
-
-  const filteredPublications =
-    mecaniqueSet.size === 0
-      ? publications
-      : publications.filter((p) => mecaniqueSet.has(p.mecanique));
-
-  const publishedAll = filteredPublications.filter(isPublished);
+  // Batch E — filtre mécanique top-level retiré (cf cleanup dashboard).
+  // Si on veut filtrer, on va sur la page format dédiée qui a son propre
+  // FilterMultiSelect "Mécanique" interne.
+  const publishedAll = publications.filter(isPublished);
+  const filteredPublications = publications;
   const carouselPubs = publishedAll.filter(
     (p) => getMediaType(p) === "carousel",
   );
@@ -214,18 +175,13 @@ function DashboardContent({
 
   return (
     <>
-      <div className="flex items-end gap-3">
-        <FilterMultiSelect
-          label="Mécanique"
-          selectedValues={mecaniqueSet}
-          onChange={handleMecaniqueChange}
-          options={MECANIQUES.map((m) => ({ value: m, label: m }))}
-          allLabel="Toutes"
-          width="w-[220px]"
-        />
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      {/*
+        Batch E — dashboard cleanup : filtres top-level retirés (la
+        granularité des filtres vit désormais sur les pages format
+        /carrousels, /shorts, /screenrecorder). Le dashboard reste un
+        résumé strict cross-format.
+      */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <KpiCard
           label="Publiés"
           value={String(totalPublished)}
@@ -244,12 +200,33 @@ function DashboardContent({
           }
         />
         <KpiCard
+          label="Winners"
+          value={
+            carouselPubs.length === 0
+              ? "—"
+              : String(carouselStats.winners)
+          }
+          secondary={
+            carouselPubs.length === 0 ? undefined : "Carrousels uniquement"
+          }
+          highlight={carouselStats.winners > 0}
+        />
+        <KpiCard
           label="Subs gagnés"
           value={
-            shortPubs.length === 0 ? "—" : formatNumber(totalSubsGained)
+            shortPubs.length + screenRecorderPubs.length === 0
+              ? "—"
+              : formatNumber(totalSubsGained)
           }
-          secondary={shortPubs.length === 0 ? undefined : "Shorts uniquement"}
-          highlight={shortPubs.length > 0 && totalSubsGained > 0}
+          secondary={
+            shortPubs.length + screenRecorderPubs.length === 0
+              ? undefined
+              : "Shorts + SR"
+          }
+          highlight={
+            shortPubs.length + screenRecorderPubs.length > 0 &&
+            totalSubsGained > 0
+          }
         />
         <KpiCard
           label="Engagement rate"

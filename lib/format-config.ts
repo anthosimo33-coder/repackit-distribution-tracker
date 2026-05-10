@@ -32,6 +32,30 @@ export type Platform = "TikTok" | "Instagram" | "YouTube";
 
 export const ALL_PLATFORMS = ["TikTok", "Instagram", "YouTube"] as const;
 
+// Batch E — clé KPI unique côté UI. Mappée vers une valeur via getKpiValue
+// dans les composants AnalyticsSection. Toutes les valeurs ne s'appliquent
+// pas à tous les formats (ex: saveRateAvg carousel-only).
+export type KpiKey =
+  | "publishedCount"
+  | "vuesTotal"
+  | "saveRateAvg"
+  | "winners"
+  | "savesTotal"
+  | "engagementRate"
+  | "likesAvg"
+  | "subsGainedTotal"
+  | "ratioSubsViews"
+  | "comments";
+
+// Métriques sélectionnables dans MetricChart (chips). Un sous-ensemble est
+// exposé par mediaType via FormatConfig.availableMetrics.
+export type ChartMetric =
+  | "views"
+  | "likes"
+  | "saves"
+  | "subsGained"
+  | "comments";
+
 export type FormatConfig = {
   mediaType: MediaType;
   singular: string;
@@ -45,6 +69,10 @@ export type FormatConfig = {
   /** true si la création est encore désactivée (ScreenRecorder en attente
    *  du Batch D — schema mediaType union étendu + Convex storage). */
   disabled?: boolean;
+  /** Batch E — KPIs affichés dans AnalyticsSection.KpiGrid (6 par défaut). */
+  kpiKeys: readonly KpiKey[];
+  /** Batch E — métriques disponibles dans MetricChart pour ce format. */
+  availableMetrics: readonly ChartMetric[];
 };
 
 // ScreenRecorder n'est pas encore dans le union MediaType (lib/media-type.ts).
@@ -64,6 +92,15 @@ export const FORMAT_CONFIGS: Record<FormatKey, FormatConfig> = {
     cardDescription:
       "5 à 8 slides texte pour TikTok et Instagram. Format historique RepackIt.",
     route: "/carrousels",
+    kpiKeys: [
+      "publishedCount",
+      "vuesTotal",
+      "saveRateAvg",
+      "winners",
+      "savesTotal",
+      "engagementRate",
+    ],
+    availableMetrics: ["views", "likes", "saves", "comments"],
   },
   short: {
     mediaType: "short" as MediaType,
@@ -75,6 +112,15 @@ export const FORMAT_CONFIGS: Record<FormatKey, FormatConfig> = {
     cardDescription:
       "Vidéo verticale courte (TikTok, Reels, YouTube Shorts). Script continu.",
     route: "/shorts",
+    kpiKeys: [
+      "publishedCount",
+      "vuesTotal",
+      "likesAvg",
+      "subsGainedTotal",
+      "ratioSubsViews",
+      "comments",
+    ],
+    availableMetrics: ["views", "likes", "subsGained", "comments"],
   },
   // Batch D — ScreenRecorder activé (mediaType union étendu côté schema +
   // helpers). Capture d'écran avec titre + image d'accompagnement, 3
@@ -89,5 +135,69 @@ export const FORMAT_CONFIGS: Record<FormatKey, FormatConfig> = {
     cardDescription:
       "Capture d'écran avec titre et image d'accompagnement (3 plateformes).",
     route: "/screenrecorder",
+    kpiKeys: [
+      "publishedCount",
+      "vuesTotal",
+      "likesAvg",
+      "subsGainedTotal",
+      "ratioSubsViews",
+      "comments",
+    ],
+    availableMetrics: ["views", "likes", "subsGained", "comments"],
   },
+};
+
+/**
+ * Batch E — labels et formatters par KpiKey.
+ *
+ * Une même KpiKey peut avoir une formulation légèrement différente selon le
+ * format (rare). Pour l'instant, libellés communs ; un override par format
+ * sera ajouté si besoin.
+ */
+export const KPI_LABELS: Record<KpiKey, string> = {
+  publishedCount: "Publiés",
+  vuesTotal: "Vues totales",
+  saveRateAvg: "Save rate moyen",
+  winners: "Winners",
+  savesTotal: "Saves totaux",
+  engagementRate: "Engagement rate",
+  likesAvg: "Likes moyens",
+  subsGainedTotal: "Subs gagnés",
+  ratioSubsViews: "Ratio subs/vues",
+  comments: "Comments totaux",
+};
+
+export type KpiFormatter = "number" | "percent";
+
+/** Le formatter (number vs percent) dépend de la nature mathématique du KPI,
+ *  pas du mediaType. Centralisé pour qu'un futur ajout reste cohérent. */
+export const KPI_FORMATTERS: Record<KpiKey, KpiFormatter> = {
+  publishedCount: "number",
+  vuesTotal: "number",
+  saveRateAvg: "percent",
+  winners: "number",
+  savesTotal: "number",
+  engagementRate: "percent",
+  likesAvg: "number",
+  subsGainedTotal: "number",
+  ratioSubsViews: "percent",
+  comments: "number",
+};
+
+/** Couleurs cohérentes par métrique pour MetricChart + MetricChipSelector.
+ *  Palette tailwind compatible. */
+export const METRIC_COLORS: Record<ChartMetric, string> = {
+  views: "#3b82f6", // blue-500
+  likes: "#ef4444", // red-500
+  saves: "#10b981", // emerald-500
+  subsGained: "#6366f1", // indigo-500
+  comments: "#64748b", // slate-500
+};
+
+export const METRIC_LABELS: Record<ChartMetric, string> = {
+  views: "Views",
+  likes: "Likes",
+  saves: "Saves",
+  subsGained: "Subs",
+  comments: "Comments",
 };
