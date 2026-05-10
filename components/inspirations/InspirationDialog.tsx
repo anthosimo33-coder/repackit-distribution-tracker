@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
 import {
   Dialog,
   DialogContent,
@@ -34,6 +34,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ImageUploader } from "@/components/ImageUploader";
 import { PlatformBadge } from "@/components/VerdictBadge";
 import { FolderCombobox } from "./FolderCombobox";
@@ -47,7 +48,7 @@ import {
   type Plateforme,
 } from "@/lib/inspiration-url";
 import { ALL_PLATFORMS } from "@/lib/format-config";
-import { Loader2Icon, StarIcon } from "lucide-react";
+import { Loader2Icon, StarIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 const TYPE_LABELS: Record<InspirationType, string> = {
@@ -64,54 +65,182 @@ function parseStatsNumber(s: string): number | undefined {
   return Number.isFinite(n) && n >= 0 ? n : undefined;
 }
 
+function numToStr(n: number | undefined): string {
+  return n === undefined ? "" : String(n);
+}
+
+type InspirationDoc = Doc<"inspirations"> & { thumbnailUrl: string | null };
+
 /**
- * Batch F — Dialog single-step pour création d'inspiration. Mode édition
- * sera ajouté en Batch G (le composant accepte déjà la prop pattern open
- * + onOpenChange contrôlé pour rester stateless).
+ * Batch F → G — Dialog single-step pour création OU édition d'inspiration.
  *
- * Auto-détection plateforme + type au blur de l'input URL. Si KO ou si
- * l'utilisateur clique "Modifier", fallback en 2 Selects manuels.
+ * En mode "edit" : fetch via getInspirationById, affiche Skeleton pendant
+ * le chargement, puis monte le form interne avec les initialData en seed
+ * useState (pas useEffect-set-state). Le sous-composant InspirationDialogForm
+ * est remonté via key={inspirationId} quand on bascule d'une inspiration à
+ * une autre.
  *
- * Reset state via key={isOpen ? "open" : "closed"} géré par le parent —
- * cf NouveauModal:166. Évite le code de reset manuel.
+ * Auto-détection plateforme + type au blur de l'input URL. Si KO ou
+ * "Modifier", fallback en 2 Selects manuels.
+ *
+ * Reset state via key={dialogKey} géré par le parent (cf page.tsx). Évite
+ * le code de reset manuel.
  */
 export function InspirationDialog({
   open,
   onOpenChange,
+  mode,
+  inspirationId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  mode: "create" | "edit";
+  inspirationId?: Id<"inspirations">;
 }) {
-  const [url, setUrl] = useState("");
-  const [detected, setDetected] =
-    useState<{ plateforme: Plateforme; type: InspirationType } | null>(null);
-  const [manualOverride, setManualOverride] = useState(false);
-  const [manualPlateforme, setManualPlateforme] = useState<Plateforme>("TikTok");
-  const [manualType, setManualType] = useState<InspirationType>("video");
+  const inspiration = useQuery(
+    api.inspirations.getInspirationById,
+    mode === "edit" && inspirationId !== undefined
+      ? { id: inspirationId }
+      : "skip",
+  );
 
-  const [titre, setTitre] = useState("");
-  const [notes, setNotes] = useState("");
-  const [thumbnail, setThumbnail] = useState<Id<"_storage"> | null>(null);
-  const [folderId, setFolderId] = useState<Id<"folders"> | null>(null);
-  const [tagsInput, setTagsInput] = useState("");
-  const [isFavorite, setIsFavorite] = useState(false);
+  const isLoadingEdit = mode === "edit" && inspiration === undefined;
 
-  const [statsViews, setStatsViews] = useState("");
-  const [statsLikes, setStatsLikes] = useState("");
-  const [statsComments, setStatsComments] = useState("");
-  const [statsFollowers, setStatsFollowers] = useState("");
-  const [statsCapturedAt, setStatsCapturedAt] = useState<number | null>(null);
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        {isLoadingEdit ? (
+          <DialogLoadingSkeleton />
+        ) : mode === "edit" && inspiration === null ? (
+          <DialogNotFound onClose={() => onOpenChange(false)} />
+        ) : (
+          <InspirationDialogForm
+            key={inspiration?._id ?? "create"}
+            mode={mode}
+            initialData={mode === "edit" ? inspiration ?? null : null}
+            onClose={() => onOpenChange(false)}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DialogLoadingSkeleton() {
+  return (
+    <div className="space-y-4">
+      <Skeleton className="h-6 w-2/3" />
+      <Skeleton className="h-4 w-full" />
+      <Skeleton className="h-10 w-full" />
+      <Skeleton className="h-24 w-full" />
+      <Skeleton className="h-10 w-full" />
+      <Skeleton className="h-10 w-full" />
+    </div>
+  );
+}
+
+function DialogNotFound({ onClose }: { onClose: () => void }) {
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>Inspiration introuvable</DialogTitle>
+        <DialogDescription>
+          Cette inspiration a été supprimée ou n&apos;existe plus.
+        </DialogDescription>
+      </DialogHeader>
+      <DialogFooter>
+        <Button onClick={onClose}>Fermer</Button>
+      </DialogFooter>
+    </>
+  );
+}
+
+function InspirationDialogForm({
+  mode,
+  initialData,
+  onClose,
+}: {
+  mode: "create" | "edit";
+  initialData: InspirationDoc | null;
+  onClose: () => void;
+}) {
+  const isEdit = mode === "edit";
+
+  const [url, setUrl] = useState(initialData?.url ?? "");
+  const [detected, setDetected] = useState<{
+    plateforme: Plateforme;
+    type: InspirationType;
+  } | null>(
+    initialData
+      ? { plateforme: initialData.plateforme, type: initialData.type }
+      : null,
+  );
+  // En edit, on commence en mode "override" pour préserver le couple
+  // plateforme/type stocké (qui peut différer d'une nouvelle détection si
+  // l'URL était originellement classée manuellement).
+  const [manualOverride, setManualOverride] = useState(isEdit);
+  const [manualPlateforme, setManualPlateforme] = useState<Plateforme>(
+    initialData?.plateforme ?? "TikTok",
+  );
+  const [manualType, setManualType] = useState<InspirationType>(
+    initialData?.type ?? "video",
+  );
+
+  const [titre, setTitre] = useState(initialData?.titre ?? "");
+  const [notes, setNotes] = useState(initialData?.notes ?? "");
+  const [thumbnail, setThumbnail] = useState<Id<"_storage"> | null>(
+    initialData?.thumbnail ?? null,
+  );
+  const [folderId, setFolderId] = useState<Id<"folders"> | null>(
+    initialData?.folderId ?? null,
+  );
+  const [tagsInput, setTagsInput] = useState(
+    (initialData?.tags ?? []).join(", "),
+  );
+  const [isFavorite, setIsFavorite] = useState(
+    initialData?.isFavorite ?? false,
+  );
+
+  const [statsViews, setStatsViews] = useState(
+    numToStr(initialData?.stats?.views),
+  );
+  const [statsLikes, setStatsLikes] = useState(
+    numToStr(initialData?.stats?.likes),
+  );
+  const [statsComments, setStatsComments] = useState(
+    numToStr(initialData?.stats?.comments),
+  );
+  const [statsFollowers, setStatsFollowers] = useState(
+    numToStr(initialData?.stats?.followers),
+  );
+  const [statsCapturedAt, setStatsCapturedAt] = useState<number | null>(
+    initialData?.stats?.capturedAt ?? null,
+  );
 
   const [submitting, setSubmitting] = useState(false);
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
-  const thumbnailUrl =
+  // Thumbnail URL : si on a initialData.thumbnailUrl c'est déjà résolu
+  // (enrichi par getInspirationById). Si l'utilisateur upload une nouvelle
+  // image (thumbnail change), on re-résolve via getPreviewUrl.
+  const liveThumbnailUrl =
     useQuery(
       api.storage.getPreviewUrl,
-      thumbnail ? { storageId: thumbnail } : "skip",
+      thumbnail && thumbnail !== initialData?.thumbnail
+        ? { storageId: thumbnail }
+        : "skip",
     ) ?? null;
+  const thumbnailUrl =
+    thumbnail === null
+      ? null
+      : thumbnail === initialData?.thumbnail
+        ? initialData?.thumbnailUrl ?? null
+        : liveThumbnailUrl;
 
   const createInspiration = useMutation(api.inspirations.createInspiration);
+  const updateInspiration = useMutation(api.inspirations.updateInspiration);
+  const deleteInspiration = useMutation(api.inspirations.deleteInspiration);
 
   const effectivePlateforme: Plateforme | null = manualOverride
     ? manualPlateforme
@@ -121,29 +250,49 @@ export function InspirationDialog({
     : detected?.type ?? null;
 
   const canSubmit =
-    url.trim().length > 0 && effectivePlateforme !== null && effectiveType !== null && !submitting;
+    url.trim().length > 0 &&
+    effectivePlateforme !== null &&
+    effectiveType !== null &&
+    !submitting;
 
   function isDirty(): boolean {
+    if (!isEdit) {
+      return (
+        url.length > 0 ||
+        titre.length > 0 ||
+        notes.length > 0 ||
+        thumbnail !== null ||
+        folderId !== null ||
+        tagsInput.length > 0 ||
+        isFavorite ||
+        statsViews.length > 0 ||
+        statsLikes.length > 0 ||
+        statsComments.length > 0 ||
+        statsFollowers.length > 0
+      );
+    }
+    // En edit : dirty = différence par rapport à initialData.
+    if (!initialData) return false;
+    const initialTags = (initialData.tags ?? []).join(", ");
     return (
-      url.length > 0 ||
-      titre.length > 0 ||
-      notes.length > 0 ||
-      thumbnail !== null ||
-      folderId !== null ||
-      tagsInput.length > 0 ||
-      isFavorite ||
-      statsViews.length > 0 ||
-      statsLikes.length > 0 ||
-      statsComments.length > 0 ||
-      statsFollowers.length > 0
+      url !== initialData.url ||
+      titre !== (initialData.titre ?? "") ||
+      notes !== (initialData.notes ?? "") ||
+      thumbnail !== (initialData.thumbnail ?? null) ||
+      folderId !== (initialData.folderId ?? null) ||
+      tagsInput !== initialTags ||
+      isFavorite !== (initialData.isFavorite ?? false) ||
+      statsViews !== numToStr(initialData.stats?.views) ||
+      statsLikes !== numToStr(initialData.stats?.likes) ||
+      statsComments !== numToStr(initialData.stats?.comments) ||
+      statsFollowers !== numToStr(initialData.stats?.followers) ||
+      statsCapturedAt !== (initialData.stats?.capturedAt ?? null) ||
+      effectivePlateforme !== initialData.plateforme ||
+      effectiveType !== initialData.type
     );
   }
 
   function handleUrlBlur(e: React.FocusEvent<HTMLInputElement>) {
-    // Lire depuis e.target.value plutôt que la state `url` : si onChange a
-    // queue un setUrl juste avant le blur (input rapide → Tab), la closure
-    // capturée par handleUrlBlur peut encore voir l'ancienne valeur de url
-    // au moment où on l'évalue. e.target.value est la source de vérité DOM.
     const trimmed = e.target.value.trim();
     if (trimmed.length === 0) {
       setDetected(null);
@@ -154,21 +303,47 @@ export function InspirationDialog({
     setManualOverride(false);
   }
 
-  function handleDialogOpenChange(nextOpen: boolean) {
-    if (nextOpen) {
-      onOpenChange(true);
-      return;
-    }
+  function handleClose() {
     if (isDirty()) {
       setConfirmCancelOpen(true);
       return;
     }
-    onOpenChange(false);
+    onClose();
   }
 
   function handleConfirmCancel() {
     setConfirmCancelOpen(false);
-    onOpenChange(false);
+    onClose();
+  }
+
+  type StatsPayload = {
+    views?: number;
+    likes?: number;
+    comments?: number;
+    followers?: number;
+    capturedAt?: number;
+  };
+  function buildStats(): StatsPayload | undefined {
+    const v = parseStatsNumber(statsViews);
+    const l = parseStatsNumber(statsLikes);
+    const c = parseStatsNumber(statsComments);
+    const f = parseStatsNumber(statsFollowers);
+    if (
+      v === undefined &&
+      l === undefined &&
+      c === undefined &&
+      f === undefined &&
+      statsCapturedAt === null
+    ) {
+      return undefined;
+    }
+    return {
+      views: v,
+      likes: l,
+      comments: c,
+      followers: f,
+      capturedAt: statsCapturedAt ?? undefined,
+    };
   }
 
   async function handleSave() {
@@ -179,43 +354,56 @@ export function InspirationDialog({
         .split(",")
         .map((t) => t.trim())
         .filter((t) => t.length > 0);
+      const stats = buildStats();
 
-      const v = parseStatsNumber(statsViews);
-      const l = parseStatsNumber(statsLikes);
-      const c = parseStatsNumber(statsComments);
-      const f = parseStatsNumber(statsFollowers);
-      const stats =
-        v === undefined &&
-        l === undefined &&
-        c === undefined &&
-        f === undefined &&
-        statsCapturedAt === null
-          ? undefined
-          : {
-              views: v,
-              likes: l,
-              comments: c,
-              followers: f,
-              capturedAt: statsCapturedAt ?? undefined,
-            };
-
-      await createInspiration({
-        url: url.trim(),
-        type: effectiveType,
-        plateforme: effectivePlateforme,
-        thumbnail: thumbnail ?? undefined,
-        titre: titre.trim() || undefined,
-        notes: notes.length > 0 ? notes : undefined,
-        stats,
-        folderId: folderId ?? undefined,
-        isFavorite,
-        tags,
-      });
-      toast.success("Inspiration enregistrée");
-      onOpenChange(false);
+      if (isEdit && initialData) {
+        await updateInspiration({
+          id: initialData._id,
+          url: url.trim(),
+          type: effectiveType,
+          plateforme: effectivePlateforme,
+          thumbnail: thumbnail ?? null,
+          titre: titre.trim(),
+          notes,
+          stats,
+          folderId: folderId ?? null,
+          isFavorite,
+          tags,
+        });
+        toast.success("Inspiration mise à jour");
+      } else {
+        await createInspiration({
+          url: url.trim(),
+          type: effectiveType,
+          plateforme: effectivePlateforme,
+          thumbnail: thumbnail ?? undefined,
+          titre: titre.trim() || undefined,
+          notes: notes.length > 0 ? notes : undefined,
+          stats,
+          folderId: folderId ?? undefined,
+          isFavorite,
+          tags,
+        });
+        toast.success("Inspiration enregistrée");
+      }
+      onClose();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur");
     } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!initialData) return;
+    setSubmitting(true);
+    try {
+      await deleteInspiration({ id: initialData._id });
+      toast.success("Inspiration supprimée");
+      setConfirmDeleteOpen(false);
+      onClose();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur");
       setSubmitting(false);
     }
   }
@@ -228,205 +416,216 @@ export function InspirationDialog({
     capturedAt: statsCapturedAt,
   };
 
+  const statsAccordionDefaultOpen =
+    isEdit && initialData?.stats !== undefined && initialData.stats !== null;
+
   return (
     <>
-      <Dialog open={open} onOpenChange={handleDialogOpenChange}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Nouvelle inspiration</DialogTitle>
-            <DialogDescription>
-              Capture une vidéo ou un compte qui t&apos;inspire.
-            </DialogDescription>
-          </DialogHeader>
+      <DialogHeader>
+        <DialogTitle>
+          {isEdit ? "Modifier l'inspiration" : "Nouvelle inspiration"}
+        </DialogTitle>
+        <DialogDescription>
+          {isEdit
+            ? "Mets à jour les détails de cette inspiration."
+            : "Capture une vidéo ou un compte qui t'inspire."}
+        </DialogDescription>
+      </DialogHeader>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="insp-url">URL *</Label>
-            <Input
-              id="insp-url"
-              type="url"
-              autoFocus
-              placeholder="https://www.tiktok.com/@... ou https://www.instagram.com/..."
-              value={url}
-              onChange={(e) => {
-                setUrl(e.target.value);
-                if (detected !== null) setDetected(null);
+      <div className="space-y-1.5">
+        <Label htmlFor="insp-url">URL *</Label>
+        <Input
+          id="insp-url"
+          type="url"
+          autoFocus={!isEdit}
+          placeholder="https://www.tiktok.com/@... ou https://www.instagram.com/..."
+          value={url}
+          onChange={(e) => {
+            setUrl(e.target.value);
+            if (detected !== null && !isEdit) setDetected(null);
+          }}
+          onBlur={handleUrlBlur}
+        />
+        {url.trim().length > 0 && !manualOverride && detected !== null && (
+          <div className="flex items-center gap-2 text-xs text-slate-600">
+            <span>Détection :</span>
+            <PlatformBadge plateforme={detected.plateforme} />
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 font-medium text-slate-600">
+              {TYPE_LABELS[detected.type]}
+            </span>
+            <button
+              type="button"
+              className="text-slate-500 underline-offset-2 hover:text-slate-900 hover:underline"
+              onClick={() => {
+                setManualOverride(true);
+                setManualPlateforme(detected.plateforme);
+                setManualType(detected.type);
               }}
-              onBlur={handleUrlBlur}
-            />
-            {url.trim().length > 0 && !manualOverride && detected !== null && (
-              <div className="flex items-center gap-2 text-xs text-slate-600">
-                <span>Détection :</span>
-                <PlatformBadge plateforme={detected.plateforme} />
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 font-medium text-slate-600">
-                  {TYPE_LABELS[detected.type]}
-                </span>
-                <button
-                  type="button"
-                  className="text-slate-500 underline-offset-2 hover:text-slate-900 hover:underline"
-                  onClick={() => {
+            >
+              Modifier
+            </button>
+          </div>
+        )}
+        {url.trim().length > 0 && (manualOverride || detected === null) && (
+          <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50/50 p-3">
+            <p className="text-xs text-slate-600">
+              {detected === null && !manualOverride
+                ? "Plateforme non détectée — sélectionne manuellement."
+                : "Override manuel."}
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="insp-manual-plateforme">Plateforme</Label>
+                <Select
+                  value={manualPlateforme}
+                  onValueChange={(v) => {
+                    setManualPlateforme(v as Plateforme);
                     setManualOverride(true);
-                    setManualPlateforme(detected.plateforme);
-                    setManualType(detected.type);
                   }}
                 >
-                  Modifier
-                </button>
+                  <SelectTrigger id="insp-manual-plateforme">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ALL_PLATFORMS.map((p) => (
+                      <SelectItem key={p} value={p}>
+                        {p}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            )}
-            {url.trim().length > 0 && (manualOverride || detected === null) && (
-              <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50/50 p-3">
-                <p className="text-xs text-slate-600">
-                  {detected === null && !manualOverride
-                    ? "Plateforme non détectée — sélectionne manuellement."
-                    : "Override manuel."}
-                </p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="insp-manual-plateforme">Plateforme</Label>
-                    <Select
-                      value={manualPlateforme}
-                      onValueChange={(v) => {
-                        setManualPlateforme(v as Plateforme);
-                        setManualOverride(true);
-                      }}
-                    >
-                      <SelectTrigger id="insp-manual-plateforme">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {ALL_PLATFORMS.map((p) => (
-                          <SelectItem key={p} value={p}>
-                            {p}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="insp-manual-type">Type</Label>
-                    <Select
-                      value={manualType}
-                      onValueChange={(v) => {
-                        setManualType(v as InspirationType);
-                        setManualOverride(true);
-                      }}
-                    >
-                      <SelectTrigger id="insp-manual-type">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {TYPES.map((t) => (
-                          <SelectItem key={t} value={t}>
-                            {TYPE_LABELS[t]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="insp-manual-type">Type</Label>
+                <Select
+                  value={manualType}
+                  onValueChange={(v) => {
+                    setManualType(v as InspirationType);
+                    setManualOverride(true);
+                  }}
+                >
+                  <SelectTrigger id="insp-manual-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TYPES.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {TYPE_LABELS[t]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            )}
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="insp-titre">Titre</Label>
-            <Input
-              id="insp-titre"
-              placeholder="Optionnel"
-              value={titre}
-              onChange={(e) => setTitre(e.target.value)}
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="insp-notes">Notes</Label>
-            <Textarea
-              id="insp-notes"
-              rows={6}
-              placeholder="Ce qui t'a marqué, ce que tu retiens..."
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="font-mono text-xs"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>Thumbnail</Label>
-            <ImageUploader
-              value={thumbnail}
-              imageUrl={thumbnailUrl}
-              onChange={(id) => setThumbnail(id)}
-              disabled={submitting}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label>Dossier</Label>
-              <FolderCombobox value={folderId} onChange={setFolderId} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="insp-tags">Tags</Label>
-              <Input
-                id="insp-tags"
-                placeholder="growth, b2b, hook"
-                value={tagsInput}
-                onChange={(e) => setTagsInput(e.target.value)}
-              />
-              <p className="text-xs text-slate-500">
-                Séparés par des virgules.
-              </p>
             </div>
           </div>
+        )}
+      </div>
 
-          <div className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50/50 px-3 py-2">
-            <div className="flex items-center gap-2">
-              <StarIcon
-                className={
-                  isFavorite
-                    ? "size-4 fill-amber-400 stroke-amber-500"
-                    : "size-4 text-slate-400"
-                }
-              />
-              <Label htmlFor="insp-favorite" className="cursor-pointer">
-                Favori
-              </Label>
-            </div>
-            <Switch
-              id="insp-favorite"
-              checked={isFavorite}
-              onCheckedChange={setIsFavorite}
-            />
-          </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="insp-titre">Titre</Label>
+        <Input
+          id="insp-titre"
+          placeholder="Optionnel"
+          value={titre}
+          onChange={(e) => setTitre(e.target.value)}
+        />
+      </div>
 
-          <InspirationStatsAccordion
-            values={statsValues}
-            handlers={{
-              setViews: setStatsViews,
-              setLikes: setStatsLikes,
-              setComments: setStatsComments,
-              setFollowers: setStatsFollowers,
-              setCapturedAt: setStatsCapturedAt,
-            }}
+      <div className="space-y-1.5">
+        <Label htmlFor="insp-notes">Notes</Label>
+        <Textarea
+          id="insp-notes"
+          rows={6}
+          placeholder="Ce qui t'a marqué, ce que tu retiens..."
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          className="font-mono text-xs"
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <Label>Thumbnail</Label>
+        <ImageUploader
+          value={thumbnail}
+          imageUrl={thumbnailUrl}
+          onChange={(id) => setThumbnail(id)}
+          disabled={submitting}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label>Dossier</Label>
+          <FolderCombobox value={folderId} onChange={setFolderId} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="insp-tags">Tags</Label>
+          <Input
+            id="insp-tags"
+            placeholder="growth, b2b, hook"
+            value={tagsInput}
+            onChange={(e) => setTagsInput(e.target.value)}
           />
+          <p className="text-xs text-slate-500">Séparés par des virgules.</p>
+        </div>
+      </div>
 
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => handleDialogOpenChange(false)}
-              disabled={submitting}
-            >
-              Annuler
-            </Button>
-            <Button onClick={handleSave} disabled={!canSubmit}>
-              {submitting && (
-                <Loader2Icon className="mr-2 size-4 animate-spin" />
-              )}
-              Enregistrer
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <div className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50/50 px-3 py-2">
+        <div className="flex items-center gap-2">
+          <StarIcon
+            className={
+              isFavorite
+                ? "size-4 fill-amber-400 stroke-amber-500"
+                : "size-4 text-slate-400"
+            }
+          />
+          <Label htmlFor="insp-favorite" className="cursor-pointer">
+            Favori
+          </Label>
+        </div>
+        <Switch
+          id="insp-favorite"
+          checked={isFavorite}
+          onCheckedChange={setIsFavorite}
+        />
+      </div>
+
+      <InspirationStatsAccordion
+        values={statsValues}
+        handlers={{
+          setViews: setStatsViews,
+          setLikes: setStatsLikes,
+          setComments: setStatsComments,
+          setFollowers: setStatsFollowers,
+          setCapturedAt: setStatsCapturedAt,
+        }}
+        defaultOpen={statsAccordionDefaultOpen}
+      />
+
+      <DialogFooter>
+        {isEdit && (
+          <Button
+            variant="ghost"
+            className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 sm:mr-auto"
+            onClick={() => setConfirmDeleteOpen(true)}
+            disabled={submitting}
+          >
+            <Trash2Icon className="size-4" />
+            Supprimer
+          </Button>
+        )}
+        <Button
+          variant="outline"
+          onClick={handleClose}
+          disabled={submitting}
+        >
+          Annuler
+        </Button>
+        <Button onClick={handleSave} disabled={!canSubmit}>
+          {submitting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+          {isEdit ? "Sauvegarder" : "Enregistrer"}
+        </Button>
+      </DialogFooter>
 
       <AlertDialog
         open={confirmCancelOpen}
@@ -446,6 +645,34 @@ export function InspirationDialog({
               onClick={handleConfirmCancel}
             >
               Quitter
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={confirmDeleteOpen}
+        onOpenChange={setConfirmDeleteOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer cette inspiration ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Action irréversible. L&apos;inspiration sera définitivement
+              supprimée.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={submitting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={submitting}
+            >
+              {submitting && (
+                <Loader2Icon className="mr-2 size-4 animate-spin" />
+              )}
+              Supprimer
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
