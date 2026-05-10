@@ -1,7 +1,6 @@
 "use client";
 
-import { Suspense } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   BookOpenIcon,
   ChevronsLeftIcon,
@@ -26,40 +25,24 @@ type SidebarProps = {
   isMobileDrawer?: boolean;
 };
 
-export function Sidebar(props: SidebarProps) {
-  // useSearchParams() bail-out le pré-render statique sans Suspense (Next 16,
-  // https://nextjs.org/docs/messages/missing-suspense-with-csr-bailout).
-  // Wrap interne pour ne pas polluer SidebarLayout / app/layout.tsx.
-  return (
-    <Suspense fallback={<SidebarShell {...props} />}>
-      <SidebarInner {...props} />
-    </Suspense>
-  );
-}
-
-function SidebarInner({
+// Batch B — split routes par format. Carrousels et Shorts ont chacun leur
+// propre page → plus besoin de useSearchParams pour les départager. Le
+// Suspense wrapper du Batch A est retiré (plus de hook qui suspend).
+export function Sidebar({
   isCollapsed,
   onToggle,
   onNavigate,
   isMobileDrawer,
 }: SidebarProps) {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const collapsed = isMobileDrawer ? false : isCollapsed;
-
-  // Batch A — Carrousels et Shorts pointent tous deux sur /tracker, départagés
-  // par ?mediaType=short. Au Batch B le tracker sera splitté en /carrousels et
-  // /shorts ; cette logique se simplifiera en startsWith.
-  const onTracker = pathname === "/tracker";
-  const isShort = onTracker && searchParams.get("mediaType") === "short";
-  const isCarrousels = onTracker && !isShort;
 
   const generalItems = [
     {
       icon: LayoutDashboardIcon,
       label: "Dashboard",
-      href: "/",
-      isActive: pathname === "/",
+      href: "/dashboard",
+      isActive: pathname.startsWith("/dashboard"),
     },
     {
       icon: Users2Icon,
@@ -76,20 +59,20 @@ function SidebarInner({
     {
       icon: GalleryHorizontalIcon,
       label: "Carrousels",
-      href: "/tracker",
-      isActive: isCarrousels,
+      href: "/carrousels",
+      isActive: pathname.startsWith("/carrousels"),
     },
     {
       icon: PlaySquareIcon,
       label: "Shorts",
-      href: "/tracker?mediaType=short",
-      isActive: isShort,
+      href: "/shorts",
+      isActive: pathname.startsWith("/shorts"),
     },
     {
       icon: BookOpenIcon,
       label: "Biblio Hooks",
-      href: "/hooks",
-      isActive: pathname.startsWith("/hooks"),
+      href: "/biblio-hooks",
+      isActive: pathname.startsWith("/biblio-hooks"),
     },
   ];
 
@@ -193,23 +176,5 @@ function SidebarSection({
       )}
       <div className="space-y-1">{children}</div>
     </div>
-  );
-}
-
-// Fallback rendu pendant que useSearchParams() suspend (premier paint avant
-// hydratation côté client). Conserve la même largeur que la sidebar finale
-// pour éviter un saut de layout.
-function SidebarShell(props: SidebarProps) {
-  return (
-    <aside
-      className={cn(
-        "flex h-full flex-col border-r border-slate-200 bg-white",
-        props.isMobileDrawer
-          ? "w-60"
-          : props.isCollapsed
-            ? "w-16"
-            : "w-60",
-      )}
-    />
   );
 }

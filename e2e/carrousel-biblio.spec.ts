@@ -17,12 +17,17 @@ test.describe("Création carrousel via bibliothèque", () => {
   test("flow complet bibliothèque → carrousel créé", async ({ page }) => {
     await ensureCompteExists(page, "test_e2e_carousel", "TikTok");
 
-    await page.goto("/hooks");
-    // Wait for hooks to load
-    await expect(page.getByText(/hooks?$/)).toBeVisible({ timeout: 10000 });
+    await page.goto("/biblio-hooks");
+    // Wait for hooks to load — attend le 1er link "Créer carrousel" qui n'apparaît
+    // qu'une fois la query Convex résolue. Plus précis que l'ancien match
+    // /hooks?$/ qui collait avec le titre h1 ET le compteur "X sur Y hooks".
+    const firstCreateLink = page
+      .getByRole("link", { name: /créer carrousel/i })
+      .first();
+    await expect(firstCreateLink).toBeVisible({ timeout: 10000 });
 
     // Click first "Créer carrousel" link in the FR Erreur section (default state)
-    await page.getByRole("link", { name: /créer carrousel/i }).first().click();
+    await firstCreateLink.click();
 
     await expect(page).toHaveURL(/\/nouveau\?hookId=/);
 
@@ -49,7 +54,7 @@ test.describe("Création carrousel via bibliothèque", () => {
     // Submit
     await page.getByRole("button", { name: /^créer le carrousel$/i }).click();
 
-    await expect(page).toHaveURL(/\/tracker/, { timeout: 10000 });
+    await expect(page).toHaveURL(/\/carrousels/, { timeout: 10000 });
     await expect(
       page.getByRole("cell", { name: "@test_e2e_carousel" }).first(),
     ).toBeVisible();

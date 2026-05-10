@@ -1,15 +1,18 @@
 /**
  * Types et constantes partagés pour les filtres tracker.
  *
- * Le shape ici DOIT correspondre exactement aux useState du tracker ET au
- * schéma Convex `filterPresets.filters`. Toute évolution force à bumper
+ * Le shape ici DOIT correspondre exactement aux useState de TrackerListSection
+ * ET au schéma Convex `filterPresets.filters`. Toute évolution force à bumper
  * schemaVersion + updater les 3 endroits de manière synchrone.
  *
  * v2 : compte/mecanique/format/verdict passent en string[] (multi-select).
  *      Set vide = "tous". Plateforme/statut restent single-select.
  * v3 (Batch 2 Modif 7) : ajout du filtre top-level mediaType (single).
- *      Les presets v2 sont strippés silencieusement au load (cf
- *      app/tracker/page.tsx, schemaVersion === 3).
+ *      Les presets v2 sont strippés silencieusement au load.
+ * v4 (Batch B) : split tracker en pages /carrousels et /shorts. Le champ
+ *      filters.mediaType disparaît (devient implicite par la page courante).
+ *      Le scope par format remonte en mediaTypeScope au top du preset.
+ *      Les presets v3 sont strippés silencieusement au load.
  */
 
 export type TrackerFilters = {
@@ -20,18 +23,9 @@ export type TrackerFilters = {
   mecanique: string[];
   format: string[];
   verdict: string[];
-  // Batch 2 Modif 7 (v3) — single-select : "all" = aucun filtre,
-  // "carousel" / "short" = restriction. Mappé via mediaTypeFilterToValue
-  // côté tracker.
-  mediaType: string;
 };
 
-// Batch 2 Modif 4b — tri étendu sur 6 axes côté tracker. TrackerSort
-// élargi en parallèle pour rester TS-cohérent. Le validator Convex côté
-// serveur (convex/filterPresets.ts sortValidator) reste strict 2 valeurs
-// pour les presets v2 — un user qui trie par likes/vues/etc. et tente de
-// sauver un preset reçoit un ConvexError explicite. Modif 7 (étape 5)
-// bumpera v3 et alignera le validator.
+// TrackerSort.key étendu sur 6 axes (Batch 2 Modif 4b). Inchangé en v4.
 export type TrackerSort = {
   key: "date" | "saveRate" | "vues" | "likes" | "comments" | "subsGained";
   dir: "asc" | "desc";
@@ -47,7 +41,6 @@ export const DEFAULT_FILTERS: TrackerFilters = {
   mecanique: [],
   format: [],
   verdict: [],
-  mediaType: FILTER_ALL,
 };
 
 export const DEFAULT_SORT: TrackerSort = {
@@ -69,7 +62,6 @@ export function filtersEqual(
     a.search === b.search &&
     a.plateforme === b.plateforme &&
     a.statut === b.statut &&
-    a.mediaType === b.mediaType &&
     arraysEqualSorted(a.compte, b.compte) &&
     arraysEqualSorted(a.mecanique, b.mecanique) &&
     arraysEqualSorted(a.format, b.format) &&
@@ -96,7 +88,6 @@ export function isDefaultFilters(f: TrackerFilters): boolean {
     f.search === DEFAULT_FILTERS.search &&
     f.plateforme === DEFAULT_FILTERS.plateforme &&
     f.statut === DEFAULT_FILTERS.statut &&
-    f.mediaType === DEFAULT_FILTERS.mediaType &&
     f.compte.length === 0 &&
     f.mecanique.length === 0 &&
     f.format.length === 0 &&

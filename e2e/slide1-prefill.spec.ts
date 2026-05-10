@@ -19,8 +19,8 @@ test.describe("Slide 1 — pre-fill depuis hook", () => {
   test("biblio: sélection → slide 1 remplie ; re-sélection → préservée ; vidage → re-fill", async ({
     page,
   }) => {
-    // Cas 1 : arriver via /hooks → click "Créer carrousel" → /nouveau ?hookId=
-    await page.goto("/hooks");
+    // Cas 1 : arriver via /biblio-hooks → click "Créer carrousel" → /nouveau ?hookId=
+    await page.goto("/biblio-hooks");
     const firstHookLink = page.locator('a[href*="hookId="]').first();
     const firstHookHref = await firstHookLink.getAttribute("href");
     expect(firstHookHref).toBeTruthy();

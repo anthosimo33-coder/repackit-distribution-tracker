@@ -91,7 +91,7 @@ test.describe("Création Short via /nouveau", () => {
       .getByRole("button", { name: /^créer le short$/i })
       .click();
 
-    await expect(page).toHaveURL(/\/tracker/, { timeout: 10000 });
+    await expect(page).toHaveURL(/\/shorts/, { timeout: 10000 });
     // La row apparaît avec son hookText (filtre mediaType ajouté en Modif 4
     // étape suivante — pour ce test l'absence de filtre suffit).
     await expect(page.getByText(hookText).first()).toBeVisible();

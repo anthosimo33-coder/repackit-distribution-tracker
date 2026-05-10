@@ -44,7 +44,7 @@ test.describe("Tracker édition métriques", () => {
     await page.getByLabel("Notes").fill("[E2E_TEST] verdict test");
     await page.getByRole("button", { name: /^créer le carrousel$/i }).click();
 
-    await expect(page).toHaveURL(/\/tracker/, { timeout: 10000 });
+    await expect(page).toHaveURL(/\/carrousels/, { timeout: 10000 });
 
     const row = page
       .getByRole("row")

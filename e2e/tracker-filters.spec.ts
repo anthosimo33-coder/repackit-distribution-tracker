@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 test.describe("Tracker filtres", () => {
   test("filtre par verdict WINNER affiche que les winners", async ({ page }) => {
-    await page.goto("/tracker");
+    await page.goto("/carrousels");
 
     // Skip si pas de pubs (test indépendant des autres)
     if ((await page.getByText(/aucun carrousel/i).count()) > 0) {

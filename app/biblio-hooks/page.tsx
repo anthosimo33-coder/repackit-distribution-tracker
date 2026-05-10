@@ -55,10 +55,17 @@ function useDebounced<T>(value: T, delay: number): T {
   return debounced;
 }
 
-export default function HooksPage() {
+/**
+ * Bibliothèque Hooks (Batch B — ex /hooks renommée /biblio-hooks).
+ *
+ * Reprend tel quel l'ancienne page /hooks. Seul changement fonctionnel :
+ * HookVariantsPopover route désormais vers /carrousels?carouselId= ou
+ * /shorts?carouselId= selon le mediaType de la variante (vs /tracker?
+ * carouselId=). Évite un double-redirect via /p/[carouselId].
+ */
+export default function BiblioHooksPage() {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounced(search, 300);
-  // Multi-select v2 : Set vide = "tous". Langue reste single-select.
   const [mecanique, setMecanique] = useState<Set<string>>(new Set());
   const [niveau, setNiveau] = useState<Set<string>>(new Set());
   const [langue, setLangue] = useState<string>("FR");
@@ -99,7 +106,7 @@ export default function HooksPage() {
     <div className="space-y-6">
       <header className="space-y-1">
         <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-          Bibliothèque hooks
+          Bibliothèque Hooks
         </h1>
         <p className="text-sm text-slate-500">
           {hooks === undefined || totalCount === undefined
@@ -204,10 +211,6 @@ export default function HooksPage() {
 }
 
 function HookCard({ hook }: { hook: HookWithUsage }) {
-  // Batch 3 Modif 6 — split badges par mediaType. Compteurs séparés
-  // carrousels/Shorts ; couleur emerald pour carrousels seuls (status quo),
-  // rouge pour Shorts seuls (cohérent PlatformBadge YouTube), neutre slate
-  // quand les 2 formats sont utilisés (ni l'un ni l'autre dominant).
   const totalPublished =
     hook.publishedCarouselsCount + hook.publishedShortsCount;
   const totalDraft = hook.draftCarouselsCount + hook.draftShortsCount;
@@ -260,12 +263,14 @@ function HookCard({ hook }: { hook: HookWithUsage }) {
             )}
             {totalDraft > 0 && onlyShortsDraft && (
               <Badge variant="outline" className="text-amber-700">
-                +{hook.draftShortsCount} Short{hook.draftShortsCount > 1 ? "s" : ""} à venir
+                +{hook.draftShortsCount} Short
+                {hook.draftShortsCount > 1 ? "s" : ""} à venir
               </Badge>
             )}
             {totalDraft > 0 && bothFormatsDraft && (
               <Badge variant="outline" className="text-amber-700">
-                +{hook.draftCarouselsCount} carr. · +{hook.draftShortsCount} Short
+                +{hook.draftCarouselsCount} carr. · +{hook.draftShortsCount}{" "}
+                Short
                 {hook.draftShortsCount > 1 ? "s" : ""} à venir
               </Badge>
             )}
@@ -315,19 +320,9 @@ function HookCard({ hook }: { hook: HookWithUsage }) {
 /**
  * Modif 5 — Popover compact listant les variantes d'un hook.
  *
- * Lazy : la query getHookVariants n'est lancée qu'à l'ouverture (skip arg
- * tant que open === false) → pas de fetch coûteux pour les hooks dont le
- * popover ne sera jamais ouvert.
- *
- * Chaque entrée est un Link client-side vers /tracker?carouselId=… (cf
- * router.push). Le tracker lit ce param et applique un filtre temporaire
- * + bannière "Effacer".
- *
- * Batch 3 Modif 6 — prop mediaType obligatoire. Le bouton parent décide
- * quel mediaType ouvrir (carousel ou short, 2 boutons distincts dans
- * HookCard). Couleur du trigger adaptée : violet pour carousel (status
- * quo), rouge pour short (cohérent PlatformBadge YouTube + badge
- * "X variantes Shorts").
+ * Batch B : route directement vers /carrousels?carouselId= ou /shorts?
+ * carouselId= selon mediaType (vs ancien /tracker?carouselId=). Évite le
+ * double-hop par la route catch-all /p/[carouselId].
  */
 function HookVariantsPopover({
   hookId,
@@ -347,7 +342,8 @@ function HookVariantsPopover({
 
   function go(carouselId: string) {
     setOpen(false);
-    router.push(`/tracker?carouselId=${carouselId}`);
+    const route = mediaType === "carousel" ? "/carrousels" : "/shorts";
+    router.push(`${route}?carouselId=${carouselId}`);
   }
 
   const isShort = mediaType === "short";
@@ -381,9 +377,6 @@ function HookVariantsPopover({
             ))}
           </div>
         ) : variants.length === 0 ? (
-          // Cas théorique : variantsCount > 0 côté listHooksWithUsage mais
-          // getHookVariants vide. Garde-fou si la donnée bouge entre les 2
-          // queries (ex: race avec une suppression).
           <p className="px-3 py-4 text-center text-xs text-slate-500">
             Aucune variante.
           </p>
@@ -405,11 +398,6 @@ function HookVariantsPopover({
                     <span className="text-slate-400">·</span>
                     <PlatformBadge plateforme={v.plateforme} />
                   </div>
-                  {/*
-                    Batch 3 Modif 6 — saveRate/verdict masqués pour les
-                    Shorts (saveRate non applicable). Pour les carrousels :
-                    comportement existant (verdict + saveRate affichés).
-                  */}
                   <div className="flex items-center gap-2 text-xs text-slate-500">
                     {!isShort && (
                       <>
@@ -442,9 +430,6 @@ function formatShortDate(timestamp: number): string {
 }
 
 function UsageDetail({ hook }: { hook: HookWithUsage }) {
-  // Pas de badge "Frais" pour les hooks à publishedCount=0 (95% des cards) :
-  // l'absence de badge "Utilisé" porte déjà cette info, et ajouter un badge
-  // partout serait du bruit visuel.
   const accounts = hook.accountsUsed;
   const visibleAccounts = accounts.slice(0, 3);
   const extraAccounts = accounts.length - visibleAccounts.length;

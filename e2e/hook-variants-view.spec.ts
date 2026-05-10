@@ -107,9 +107,9 @@ test.describe("Hooks — Vue variantes via Popover", () => {
     );
     const dupCid = dupResult.carouselId;
 
-    // UI : aller sur /hooks, filtrer par texte du hook pour réduire le DOM,
-    // puis trouver la card et son bouton "Voir les X variantes".
-    await page.goto("/hooks");
+    // UI : aller sur /biblio-hooks, filtrer par texte du hook pour réduire
+    // le DOM, puis trouver la card et son bouton "Voir les X variantes".
+    await page.goto("/biblio-hooks");
     await page.getByLabel("Recherche").fill(targetHook.text);
     // Bouton variantes : "Voir les X variantes" — X dépend des éventuelles
     // duplications pré-existantes pour ce hook (peut être > 2 si d'autres
@@ -129,9 +129,11 @@ test.describe("Hooks — Vue variantes via Popover", () => {
     await expect(popover.getByText(nextCid, { exact: false })).toBeVisible();
     await expect(popover.getByText(dupCid, { exact: false })).toBeVisible();
 
-    // Click la 1ère entrée → navigation /tracker?carouselId=…
+    // Click la 1ère entrée → navigation /carrousels?carouselId=… (Batch B :
+    // HookVariantsPopover route directement vers la page format au lieu de
+    // /tracker?carouselId qui passait par le redirect catch-all).
     await popover.locator("button").first().click();
-    await expect(page).toHaveURL(/\/tracker\?carouselId=C\d+/, {
+    await expect(page).toHaveURL(/\/carrousels\?carouselId=C\d+/, {
       timeout: 5000,
     });
 
@@ -142,7 +144,7 @@ test.describe("Hooks — Vue variantes via Popover", () => {
       .getByRole("button", { name: /^effacer$/i })
       .click();
     // URL nettoyée (pas de carouselId param)
-    await expect(page).toHaveURL(/\/tracker(?:\?(?!carouselId).*)?$/);
+    await expect(page).toHaveURL(/\/carrousels(?:\?(?!carouselId).*)?$/);
     await expect(banner).toBeHidden();
 
     // Cleanup explicite des 2 publications créées (notes="" sur le duplicat

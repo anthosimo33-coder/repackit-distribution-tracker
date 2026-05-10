@@ -100,7 +100,7 @@ test.describe("Tracker — Dupliquer un carrousel", () => {
     await page.getByLabel("Notes").fill("[E2E_TEST] duplicate");
     await page.getByRole("button", { name: /^créer le carrousel$/i }).click();
 
-    await expect(page).toHaveURL(/\/tracker/, { timeout: 10000 });
+    await expect(page).toHaveURL(/\/carrousels/, { timeout: 10000 });
 
     // Récupère carouselId de l'original via ConvexHttpClient (le client a déjà
     // accès, on évite de gratter la cellule du tracker pour rester explicite).

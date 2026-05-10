@@ -60,7 +60,7 @@ test.describe("Création carrousel mode custom", () => {
     // Submit
     await page.getByRole("button", { name: /^créer le carrousel$/i }).click();
 
-    await expect(page).toHaveURL(/\/tracker/, { timeout: 10000 });
+    await expect(page).toHaveURL(/\/carrousels/, { timeout: 10000 });
     await expect(page.getByText("Hook custom test E2E unique")).toBeVisible();
   });
 });

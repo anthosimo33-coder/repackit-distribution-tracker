@@ -134,11 +134,17 @@ export default defineSchema({
   // Presets de filtres pour le tracker. schemaVersion permet de strip les
   // anciens presets si la struct des filtres évolue (cf décision MVP : strip
   // silencieux côté client). filters dupliquent volontairement le shape des
-  // useState de app/tracker/page.tsx — toute évolution de filtres tracker
+  // useState de TrackerListSection — toute évolution de filtres tracker
   // demande de bumper schemaVersion + d'updater le shape ici.
+  //
+  // Batch B (v4) : split tracker en pages /carrousels et /shorts. Le champ
+  // top-level filters.mediaType disparaît (devient implicite par la page).
+  // Ajout de mediaTypeScope au niveau preset : chaque preset appartient à
+  // un format unique et n'est listé que sur sa page de référence.
   filterPresets: defineTable({
     name: v.string(),
     schemaVersion: v.number(),
+    mediaTypeScope: v.union(v.literal("carousel"), v.literal("short")),
     filters: v.object({
       search: v.string(),
       plateforme: v.string(),
@@ -148,13 +154,9 @@ export default defineSchema({
       mecanique: v.array(v.string()),
       format: v.array(v.string()),
       verdict: v.array(v.string()),
-      // Batch 2 Modif 7 (v3) — filtre top-level mediaType (single-select).
-      mediaType: v.string(),
     }),
     sort: v.object({
-      // Batch 2 Modif 7 (v3) — sort.key étendu aux 6 axes (cf SortKey
-      // dans app/tracker/page.tsx). Les presets v2 stockent toujours
-      // "date"|"saveRate" et restent compatibles en v3.
+      // Batch 2 Modif 7 (v3) — sort.key étendu aux 6 axes. Inchangé en v4.
       key: v.union(
         v.literal("date"),
         v.literal("saveRate"),
@@ -165,5 +167,7 @@ export default defineSchema({
       ),
       dir: v.union(v.literal("asc"), v.literal("desc")),
     }),
-  }).index("by_name", ["name"]),
+  })
+    .index("by_name", ["name"])
+    .index("by_mediaTypeScope", ["mediaTypeScope"]),
 });

@@ -5,23 +5,15 @@ const filtersValidator = v.object({
   search: v.string(),
   plateforme: v.string(),
   statut: v.string(),
-  // Multi-select v2 : compte/mecanique/format/verdict deviennent des arrays.
-  // Set vide = "tous" (pas de filtre). cf bump schemaVersion 1→2.
+  // Multi-select v2 : compte/mecanique/format/verdict en arrays.
+  // Set vide = "tous" (pas de filtre).
   compte: v.array(v.string()),
   mecanique: v.array(v.string()),
   format: v.array(v.string()),
   verdict: v.array(v.string()),
-  // Batch 2 Modif 7 (v3) — filtre top-level mediaType (single-select).
-  // "all" = aucun filtre, "carousel" / "short" = restriction. Cohérent
-  // avec plateforme/statut qui sont aussi des single-select strings.
-  mediaType: v.string(),
 });
 
-// Batch 2 Modif 7 (v3) — sort.key étendu aux 6 axes de tri du tracker
-// (cf SortKey dans app/tracker/page.tsx). Les presets v2 stockaient
-// uniquement "date"|"saveRate" et restent valides en v3 (sous-ensemble
-// strict). La garde transitoire dans handleSavePreset (étape 3) peut
-// être retirée maintenant.
+// Sort.key étendu aux 6 axes (Batch 2 Modif 7). Inchangé en v4.
 const sortValidator = v.object({
   key: v.union(
     v.literal("date"),
@@ -34,11 +26,21 @@ const sortValidator = v.object({
   dir: v.union(v.literal("asc"), v.literal("desc")),
 });
 
-const CURRENT_SCHEMA_VERSION = 3;
+const mediaTypeScopeValidator = v.union(
+  v.literal("carousel"),
+  v.literal("short"),
+);
+
+// Batch B — bump v4 : split tracker en pages /carrousels et /shorts.
+// Les presets sont désormais scopés par mediaType (mediaTypeScope au top du
+// document, plus dans filters). Les v3 sont stripés silencieusement côté
+// client par TrackerListSection avant filtrage.
+const CURRENT_SCHEMA_VERSION = 4;
 
 export const createPreset = mutation({
   args: {
     name: v.string(),
+    mediaTypeScope: mediaTypeScopeValidator,
     filters: filtersValidator,
     sort: sortValidator,
   },
@@ -48,6 +50,10 @@ export const createPreset = mutation({
       throw new ConvexError("Le nom du preset ne peut pas être vide.");
     }
 
+    // Unicité du nom : globale (pas par scope). Décision tranchée : un preset
+    // "Top winners FR" n'a de sens que dans un seul format à la fois ; refuser
+    // la collision force le user à préfixer/distinguer s'il en veut un par
+    // format (ex: "Top winners FR — carousel").
     const existing = await ctx.db
       .query("filterPresets")
       .withIndex("by_name", (q) => q.eq("name", trimmedName))
@@ -59,6 +65,7 @@ export const createPreset = mutation({
     return await ctx.db.insert("filterPresets", {
       name: trimmedName,
       schemaVersion: CURRENT_SCHEMA_VERSION,
+      mediaTypeScope: args.mediaTypeScope,
       filters: args.filters,
       sort: args.sort,
     });
@@ -73,12 +80,22 @@ export const deletePreset = mutation({
 });
 
 export const listPresets = query({
-  args: {},
-  handler: async (ctx) => {
-    // Tri par _creationTime desc (le plus récent d'abord). Le filtrage
-    // schemaVersion === 1 se fait côté client (cf décision MVP : strip
-    // silencieux). On retourne tout, sans filtre serveur, pour permettre
-    // au client d'éventuellement loguer/compter les presets obsolètes.
+  args: {
+    // mediaTypeScope optional : si fourni, filtre serveur via index
+    // by_mediaTypeScope ; sinon retourne tous (utile pour un futur dashboard
+    // global ou un audit). Le strip schemaVersion v3 reste côté client.
+    mediaTypeScope: v.optional(mediaTypeScopeValidator),
+  },
+  handler: async (ctx, args) => {
+    if (args.mediaTypeScope) {
+      return await ctx.db
+        .query("filterPresets")
+        .withIndex("by_mediaTypeScope", (q) =>
+          q.eq("mediaTypeScope", args.mediaTypeScope!),
+        )
+        .order("desc")
+        .collect();
+    }
     return await ctx.db.query("filterPresets").order("desc").collect();
   },
 });

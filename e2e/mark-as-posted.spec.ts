@@ -51,7 +51,7 @@ test.describe("Tracker — Marquer comme posté (raccourci 1-clic)", () => {
     await page.getByLabel("Notes").fill("[E2E_TEST] mark as posted");
     await page.getByRole("button", { name: /^créer le carrousel$/i }).click();
 
-    await expect(page).toHaveURL(/\/tracker/, { timeout: 10000 });
+    await expect(page).toHaveURL(/\/carrousels/, { timeout: 10000 });
 
     // La row vient d'être créée → section "À venir". Ouvre son dropdown.
     const row = page.getByRole("row").filter({ hasText: hookText });

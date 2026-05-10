@@ -1,7 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -9,7 +8,7 @@ import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { FilterSelect } from "@/components/filters/FilterSelect";
 import { FilterMultiSelect } from "@/components/filters/FilterMultiSelect";
 import {
@@ -45,7 +44,7 @@ import {
 import { VerdictBadge, PlatformBadge } from "@/components/VerdictBadge";
 import { PublicationEditDialog } from "@/components/PublicationEditDialog";
 import { PublicationDetailDialog } from "@/components/PublicationDetailDialog";
-import { calculateSaveRate, calculateVerdict, type Verdict } from "@/lib/verdict";
+import { calculateSaveRate, calculateVerdict } from "@/lib/verdict";
 import { formatDate, formatNumber, formatPercent } from "@/lib/format";
 import { isPublished } from "@/lib/publication-status";
 import {
@@ -75,7 +74,6 @@ import {
   ArrowUpIcon,
   BookmarkIcon,
   ChevronDownIcon,
-  FileTextIcon,
   Loader2Icon,
   MoreHorizontalIcon,
   PlusIcon,
@@ -97,6 +95,9 @@ const MECANIQUES = [
 ] as const;
 const FORMATS = ["A", "B", "C", "D", "E", "F", "G", "H"] as const;
 
+// Batch B (preset v4) — strip silencieux des presets pré-v4 côté client.
+const PRESET_SCHEMA_VERSION = 4;
+
 function useDebounced<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -110,10 +111,6 @@ function setToSortedArray(s: Set<string>): string[] {
   return Array.from(s).sort();
 }
 
-// Batch 2 Modif 4b — tri étendu sur 6 axes. Convention héritée de saveRate :
-// null trié en bas (-Infinity), tie-break par datePubli desc pour stabilité.
-// Le SortKey "comments" est exposé pour cohérence (Modif 7 presets) mais
-// la colonne n'a pas de TableHead distinct → pas accessible via clic UI.
 type SortKey =
   | "date"
   | "saveRate"
@@ -123,10 +120,6 @@ type SortKey =
   | "subsGained";
 type SortDir = "asc" | "desc";
 
-// Extraction de la valeur de tri pour un (publication, sortKey). Retourne
-// null pour les valeurs absentes/non applicables — sera trié en bas par la
-// logique unifiée du useMemo `filtered`. saveRate n'est calculé que pour
-// les publiés (cohérence avec l'affichage et le filtre verdict).
 function getSortValue(
   p: Doc<"publications">,
   key: SortKey,
@@ -147,9 +140,8 @@ function getSortValue(
   }
 }
 
-// Batch 2 Modif 4a — colonnes du tableau publications. Identifiant typed
-// strict (pas de magic string) pour qu'un futur ajout/suppression force la
-// mise à jour synchrone des deux callsites (TableHead + TableCell).
+// Colonnes du tableau publications. Identifiant typé strict pour qu'un futur
+// ajout/suppression force la mise à jour synchrone des deux callsites.
 type ColumnKey =
   | "date"
   | "carouselId"
@@ -167,10 +159,7 @@ type ColumnKey =
   | "subsGained"
   | "actions";
 
-// Ordre de l'affichage en mode "Tous" (toutes colonnes visibles). Les
-// colonnes carousel-only (format, saves, saveRate, verdict) et short-only
-// (likes, subsGained) sont retirées du Set selon mediaTypeFilter.
-const ALL_COLUMNS: readonly ColumnKey[] = [
+const CAROUSEL_COLUMNS: readonly ColumnKey[] = [
   "date",
   "carouselId",
   "hook",
@@ -183,49 +172,51 @@ const ALL_COLUMNS: readonly ColumnKey[] = [
   "saves",
   "saveRate",
   "verdict",
+  "actions",
+];
+
+const SHORT_COLUMNS: readonly ColumnKey[] = [
+  "date",
+  "carouselId",
+  "hook",
+  "plateforme",
+  "compte",
+  "mecanique",
+  "angle",
+  "vues",
   "likes",
   "subsGained",
   "actions",
 ];
 
-// Options du <FilterSelect> "Format" — labels affichés ; convertis en
-// MediaType lowercase via mediaTypeFilterToValue() pour matcher le helper
-// getMediaType() qui retourne "carousel" / "short".
-const MEDIA_TYPE_FILTER_OPTIONS = ["Carrousel", "Short"] as const;
-
-function mediaTypeFilterToValue(filter: string): MediaType | null {
-  if (filter === ALL) return null;
-  return filter === "Carrousel" ? "carousel" : "short";
-}
-
-// Wrap obligatoire pour useSearchParams (Next.js 16) : sans Suspense, le
-// pré-render statique bail out (cf https://nextjs.org/docs/messages/missing-suspense-with-csr-bailout).
-// Le contenu reste rendu statiquement quand carouselId est absent ; la
-// résolution de searchParams est ce qui suspend.
-export default function TrackerPage() {
-  return (
-    <Suspense fallback={<LoadingState />}>
-      <TrackerPageInner />
-    </Suspense>
-  );
-}
-
-function TrackerPageInner() {
+/**
+ * TrackerListSection — composant de listing tracker paramétré par mediaType.
+ *
+ * Utilisé par /carrousels (mediaType="carousel") et /shorts (mediaType="short").
+ * mediaType est implicite : pas de filtre top-level Format dans la barre, pas
+ * de mode "Tous". Les colonnes et axes de tri sont dérivés directement du
+ * prop. Les presets sont scopés par mediaType au niveau Convex (cf
+ * mediaTypeScope dans createPreset / listPresets).
+ *
+ * Stratégie d'extraction depuis l'ancien app/tracker/page.tsx (1721 lignes) :
+ * filtre interne mediaType (vs prop publications préfiltrées) — choix B des
+ * 2 options de la spec. Avantage : 1 seul useQuery par page, pas de prop
+ * drilling de la collection complète, et le composant reste self-contained
+ * (le filtre par mediaType est sa responsabilité, pas celle du parent).
+ */
+export function TrackerListSection({
+  mediaType,
+}: {
+  mediaType: MediaType;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  // Modif 5 — deeplink ?carouselId=C00X depuis le Popover variantes /hooks.
-  // Filtre temporaire intégré au pipeline `filtered` (cf justif inline plus bas).
   const carouselIdParam = searchParams.get("carouselId");
 
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounced(search, 300);
-  // Batch 2 Modif 4a — filtre top-level mediaType. Pas (encore) inclus dans
-  // currentFilters / presets : Modif 7 (étape 5) le fera. Pour cette étape
-  // c'est un filtre local au tracker, indépendant du système presets v2.
-  const [mediaTypeFilter, setMediaTypeFilter] = useState<string>(ALL);
   const [plateforme, setPlateforme] = useState<string>(ALL);
   const [statutFilter, setStatutFilter] = useState<string>(ALL);
-  // Multi-select v2 : 4 filtres en Set. Set vide = "tous".
   const [compteFilter, setCompteFilter] = useState<Set<string>>(new Set());
   const [mecanique, setMecanique] = useState<Set<string>>(new Set());
   const [format, setFormat] = useState<Set<string>>(new Set());
@@ -251,24 +242,30 @@ function TrackerPageInner() {
 
   const publications = useQuery(api.publications.listPublications);
   const comptes = useQuery(api.comptes.listComptes, { actifOnly: true });
-  const allPresets = useQuery(api.filterPresets.listPresets);
+  // Batch B — listPresets sans args. Le filtre par mediaTypeScope se fait
+  // côté client (cf `presets` ci-dessous). Le serveur Convex actuel attend
+  // `args: {}` ; passer un arg avant le deploy v4 ferait reject le validator
+  // strict. Une fois Convex déployé, on pourra repasser au filter serveur
+  // (1 ligne à changer + index by_mediaTypeScope).
+  const allPresets = useQuery(api.filterPresets.listPresets, {});
   const deletePub = useMutation(api.publications.deletePublication);
   const createPreset = useMutation(api.filterPresets.createPreset);
   const deletePreset = useMutation(api.filterPresets.deletePreset);
 
-  // Strip silencieux des presets d'une autre version (cf décision MVP).
-  // Bumpé en v2 (multi-select) : les presets v1 disparaissent de l'UI sans
-  // message d'erreur — l'utilisateur recrée. Les v1 restent en DB (orphelins)
-  // sans impact (jamais lus).
+  // Strip v1/v2/v3 + filter par mediaType scope (v4 only). Avant deploy v4,
+  // les presets existants n'ont ni schemaVersion=4 ni mediaTypeScope → la
+  // PresetBar affiche "Aucun preset sauvegardé" temporairement, ce qui est
+  // le comportement attendu de la migration.
   const presets = useMemo(
-    () => allPresets?.filter((p) => p.schemaVersion === 3) ?? [],
-    [allPresets],
+    () =>
+      allPresets?.filter(
+        (p) =>
+          p.schemaVersion === PRESET_SCHEMA_VERSION &&
+          p.mediaTypeScope === mediaType,
+      ) ?? [],
+    [allPresets, mediaType],
   );
 
-  // Snapshot de l'état courant — sert à comparer aux presets pour détecter
-  // le preset qui matche actuellement (= "preset chargé"). Sets sérialisés
-  // en arrays triés (filtersEqual fait du tri-puis-egalité order-insensitive,
-  // mais on stocke trié pour cohérence inter-runs).
   const currentFilters: TrackerFilters = useMemo(
     () => ({
       search,
@@ -278,8 +275,6 @@ function TrackerPageInner() {
       mecanique: setToSortedArray(mecanique),
       format: setToSortedArray(format),
       verdict: setToSortedArray(verdictFilter),
-      // Batch 2 Modif 7 (v3) — capture du filtre top-level mediaType.
-      mediaType: mediaTypeFilter,
     }),
     [
       search,
@@ -289,7 +284,6 @@ function TrackerPageInner() {
       mecanique,
       format,
       verdictFilter,
-      mediaTypeFilter,
     ],
   );
   const currentSort: TrackerSort = useMemo(
@@ -297,12 +291,6 @@ function TrackerPageInner() {
     [sortKey, sortDir],
   );
 
-  // Preset dont l'état correspond exactement au state courant. null si aucun
-  // ne matche → on affichera "(custom)" ou "Aucun preset" selon le cas.
-  // Cette dérivation remplace un activePresetId state explicite : elle évite
-  // un useEffect setState (rule react-hooks/set-state-in-effect) tout en
-  // donnant le même résultat fonctionnel — le dropdown reflète toujours
-  // l'état réel des filtres, jamais une intention obsolète.
   const matchingPreset = useMemo(() => {
     if (!presets.length) return null;
     return (
@@ -317,7 +305,6 @@ function TrackerPageInner() {
   const filtersAtDefault = isDefaultFilters(currentFilters);
   const sortAtDefault = sortsEqual(currentSort, DEFAULT_SORT);
 
-  // Dialog "Sauvegarder ce preset"
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [presetName, setPresetName] = useState("");
   const [savingPreset, setSavingPreset] = useState(false);
@@ -331,25 +318,17 @@ function TrackerPageInner() {
     setMecanique(new Set(p.filters.mecanique));
     setFormat(new Set(p.filters.format));
     setVerdictFilter(new Set(p.filters.verdict));
-    // Batch 2 Modif 7 (v3) — restauration directe du filtre mediaType
-    // (pas via handleMediaTypeFilterChange : on ne veut PAS auto-reset
-    // le sortKey, on restaure exactement la combinaison preset stockée).
-    // Le preset garantit par construction la cohérence sortKey ↔ mediaType
-    // (sauf preset bricolé manuellement côté DB).
-    setMediaTypeFilter(p.filters.mediaType);
     setSortKey(p.sort.key);
     setSortDir(p.sort.dir);
     setPresetPopoverOpen(false);
   }
 
   async function handleSavePreset() {
-    // Batch 2 Modif 7 (v3) — validator Convex aligné avec les 6 sortKey.
-    // La garde transitoire de l'étape 3 (sort.key strict 2 valeurs côté
-    // serveur) est retirée. currentSort accepte désormais les 6 axes.
     setSavingPreset(true);
     try {
       await createPreset({
         name: presetName,
+        mediaTypeScope: mediaType,
         filters: currentFilters,
         sort: currentSort,
       });
@@ -376,85 +355,40 @@ function TrackerPageInner() {
     }
   }
 
-  // Batch 2 Modif 4a — résolution lowercase du filtre mediaType, partagée
-  // par le pipeline `filtered` et le calcul `visibleColumns` ci-dessous.
-  const mediaTypeTarget = useMemo<MediaType | null>(
-    () => mediaTypeFilterToValue(mediaTypeFilter),
-    [mediaTypeFilter],
-  );
-
-  // Batch 2 Modif 4b — axes de tri désactivés selon le filtre mediaType.
-  // Carrousel masque likes/subsGained ; Short masque saveRate ; Tous = aucun
-  // disabled. Le SortableHead reçoit cette info pour griser visuellement +
-  // bloquer le clic. La cohérence sortKey courant ↔ disabled est gérée par
-  // handleMediaTypeFilterChange (auto-reset à "date" si sortKey courant
-  // devient disabled) — handler-based pour éviter set-state-in-effect.
+  // Axes de tri désactivés selon le mediaType (Batch B : implicite par prop,
+  // plus dérivé d'un filtre top-level). Carousel masque likes/subsGained ;
+  // Short masque saveRate.
   const disabledSortKeys = useMemo<ReadonlySet<SortKey>>(() => {
-    if (mediaTypeTarget === "carousel") {
+    if (mediaType === "carousel") {
       return new Set<SortKey>(["likes", "subsGained"]);
     }
-    if (mediaTypeTarget === "short") {
-      return new Set<SortKey>(["saveRate"]);
-    }
-    return new Set<SortKey>();
-  }, [mediaTypeTarget]);
+    return new Set<SortKey>(["saveRate"]);
+  }, [mediaType]);
 
-  // Handler du changement de filtre mediaType. Auto-reset du tri si l'axe
-  // courant devient inapplicable au nouveau filtre. Plus prévisible UX que
-  // de garder un sortKey "fantôme" qui n'aurait plus d'effet visible.
-  function handleMediaTypeFilterChange(next: string) {
-    setMediaTypeFilter(next);
-    const nextTarget = mediaTypeFilterToValue(next);
-    const nextDisabled =
-      nextTarget === "carousel"
-        ? (["likes", "subsGained"] as SortKey[])
-        : nextTarget === "short"
-          ? (["saveRate"] as SortKey[])
-          : ([] as SortKey[]);
-    if (nextDisabled.includes(sortKey)) {
+  // Auto-reset du tri si l'axe courant devient inapplicable. Au mount avec
+  // un sortKey qu'on aurait restauré d'un preset périmé, ou si TrackerListSection
+  // est remonté sur un autre format. Handler-only suffirait normalement, mais
+  // on protège aussi au mount initial.
+  useEffect(() => {
+    if (disabledSortKeys.has(sortKey)) {
+      // Reset coordonné des 2 axes : un seul disable couvre les 2 setState
+      // consécutifs (eslint signale le 1er seulement si non disabled).
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSortKey("date");
       setSortDir("desc");
     }
-  }
+  }, [disabledSortKeys, sortKey]);
 
-  // Set des colonnes visibles selon mediaType filtre. Mode "all" = toutes ;
-  // "carousel" masque likes/subsGained ; "short" masque format/saves/
-  // saveRate/verdict. La cellule per-row gère le cas "non applicable" via
-  // un fallback "—" (cf PublicationsSection).
-  const visibleColumns = useMemo<ReadonlySet<ColumnKey>>(() => {
-    if (mediaTypeTarget === "carousel") {
-      return new Set(
-        ALL_COLUMNS.filter((k) => k !== "likes" && k !== "subsGained"),
-      );
-    }
-    if (mediaTypeTarget === "short") {
-      return new Set(
-        ALL_COLUMNS.filter(
-          (k) =>
-            k !== "format" &&
-            k !== "saves" &&
-            k !== "saveRate" &&
-            k !== "verdict",
-        ),
-      );
-    }
-    return new Set(ALL_COLUMNS);
-  }, [mediaTypeTarget]);
+  const visibleColumns = useMemo<ReadonlySet<ColumnKey>>(
+    () =>
+      new Set(mediaType === "carousel" ? CAROUSEL_COLUMNS : SHORT_COLUMNS),
+    [mediaType],
+  );
 
   const filtered = useMemo(() => {
     if (!publications) return [];
-    let list = publications;
-    // Batch 2 Modif 4a — court-circuit mediaType en tête du pipeline pour
-    // minimiser les calculs en aval (les autres filtres ne tournent que sur
-    // les rows du format demandé).
-    if (mediaTypeTarget !== null) {
-      list = list.filter((p) => getMediaType(p) === mediaTypeTarget);
-    }
-    // Deeplink filter intégré au pipeline plutôt que séparé : (a) cohérence
-    // avec les autres filtres (intersection naturelle si l'user a aussi des
-    // filtres set), (b) une seule traversée du tableau, (c) les useMemo deps
-    // restent localisées. La bannière au-dessus signale visuellement que ce
-    // filtre est actif et offre l'escape (Effacer = reset URL param).
+    // Filtre format implicite : 1ère étape du pipeline.
+    let list = publications.filter((p) => getMediaType(p) === mediaType);
     if (carouselIdParam) {
       list = list.filter((p) => p.carouselId === carouselIdParam);
     }
@@ -467,21 +401,15 @@ function TrackerPageInner() {
     if (compteFilter.size > 0)
       list = list.filter((p) => compteFilter.has(p.compte));
     if (statutFilter !== ALL) {
-      // statutFilter ∈ {STATUT_PUBLISHED, STATUT_DRAFT}. La dichotomie suit la
-      // règle isPublished — cohérente avec le split visuel des sections.
       list = list.filter((p) =>
         statutFilter === STATUT_PUBLISHED ? isPublished(p) : !isPublished(p),
       );
     }
     if (mecanique.size > 0)
       list = list.filter((p) => mecanique.has(p.mecanique));
-    // p.format peut être undefined (Shorts) — coerce en "" qui ne match
-     // aucun filtre format actif → Shorts naturellement exclus si filtre set.
     if (format.size > 0) list = list.filter((p) => format.has(p.format ?? ""));
     if (verdictFilter.size > 0) {
       list = list.filter((p) => {
-        // Verdict ne s'applique qu'aux publiés (Feature 4). Les drafts sont
-        // toujours en attente, peu importe leurs métriques saisies.
         const v = isPublished(p)
           ? calculateVerdict(calculateSaveRate(p.saves, p.vuesJ7))
           : null;
@@ -490,9 +418,6 @@ function TrackerPageInner() {
       });
     }
 
-    // Tri unifié sur les 6 axes via getSortValue. null trié en bas (cf
-     // convention existante saveRate). Tie-break datePubli desc pour
-     // stabilité (indépendant de sortDir, sauf si sortKey === "date" lui-même).
     const sorted = [...list].sort((a, b) => {
       const ra = getSortValue(a, sortKey);
       const rb = getSortValue(b, sortKey);
@@ -508,7 +433,7 @@ function TrackerPageInner() {
     return sorted;
   }, [
     publications,
-    mediaTypeTarget,
+    mediaType,
     carouselIdParam,
     debouncedSearch,
     plateforme,
@@ -521,8 +446,6 @@ function TrackerPageInner() {
     sortDir,
   ]);
 
-  // Split filtered list along the published/draft boundary defined by isPublished.
-  // Both sections share the same filter + sort state — the split is purely visual.
   const drafts = useMemo(
     () => filtered.filter((p) => !isPublished(p)),
     [filtered],
@@ -542,10 +465,11 @@ function TrackerPageInner() {
         winners: 0,
       };
     }
-    // Feature 4 : KPIs agrègent sur publiés uniquement. Les drafts comptent
-    // séparément pour l'affichage "+X à venir".
-    const publishedPubs = publications.filter(isPublished);
-    const draftCount = publications.length - publishedPubs.length;
+    const formatPubs = publications.filter(
+      (p) => getMediaType(p) === mediaType,
+    );
+    const publishedPubs = formatPubs.filter(isPublished);
+    const draftCount = formatPubs.length - publishedPubs.length;
     let vuesTotal = 0;
     const rates: number[] = [];
     let winners = 0;
@@ -564,11 +488,10 @@ function TrackerPageInner() {
       avgSaveRate,
       winners,
     };
-  }, [publications]);
+  }, [publications, mediaType]);
 
   function reset() {
     setSearch("");
-    setMediaTypeFilter(ALL);
     setPlateforme(ALL);
     setStatutFilter(ALL);
     setCompteFilter(new Set());
@@ -590,59 +513,30 @@ function TrackerPageInner() {
     setDeleting(true);
     try {
       await deletePub({ id: deletingPub._id });
-      toast.success(`${deletingPub.carouselId} (${deletingPub.plateforme}) supprimé`);
+      toast.success(
+        `${deletingPub.carouselId} (${deletingPub.plateforme}) supprimé`,
+      );
       setDeletingPub(null);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur lors de la suppression");
+      toast.error(
+        e instanceof Error ? e.message : "Erreur lors de la suppression",
+      );
     } finally {
       setDeleting(false);
     }
   }
 
-  if (publications === undefined) {
-    return <LoadingState />;
-  }
+  if (publications === undefined) return <LoadingState />;
 
-  if (publications.length === 0) {
-    return <EmptyState />;
-  }
+  // Plateformes éligibles dans le filtre selon le format. Carousel masque
+  // YouTube ; short autorise les 3.
+  const platformOptions =
+    mediaType === "carousel"
+      ? [...ALLOWED_PLATFORMS_FOR_CAROUSEL]
+      : [...ALLOWED_PLATFORMS_FOR_SHORT];
 
   return (
     <div className="space-y-6">
-      <header className="flex items-baseline justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-            Tracker
-          </h1>
-          {/*
-            Compteur sous-header : on garde le contexte filtres+total
-            ("X sur Y publications") et on ajoute le détail publiés/à venir
-            de la sélection courante. "X publiés sur Y total" seul perdait
-            l'information "combien matchent les filtres", qui est ce que
-            l'utilisateur regarde quand il fouille.
-          */}
-          <p className="text-sm text-slate-500">
-            {filtered.length} sur {publications.length} publication
-            {publications.length > 1 ? "s" : ""}
-            {filtered.length > 0 && (
-              <span className="text-slate-400">
-                {" "}
-                · {filtered.filter(isPublished).length} publié
-                {filtered.filter(isPublished).length > 1 ? "s" : ""} ·{" "}
-                {filtered.filter((p) => !isPublished(p)).length} à venir
-              </span>
-            )}
-          </p>
-        </div>
-        <Link
-          href="/nouveau"
-          className={cn(buttonVariants({ size: "sm" }))}
-        >
-          <PlusIcon />
-          Nouveau carrousel
-        </Link>
-      </header>
-
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard
           label="Publiés"
@@ -651,9 +545,31 @@ function TrackerPageInner() {
             stats.draftCount > 0 ? `+${stats.draftCount} à venir` : undefined
           }
         />
-        <StatCard label="Vues totales (J+7)" value={formatNumber(stats.vuesTotal)} />
-        <StatCard label="Save rate moyen" value={formatPercent(stats.avgSaveRate)} />
-        <StatCard label="Winners" value={String(stats.winners)} highlight={stats.winners > 0} />
+        <StatCard
+          label="Vues totales (J+7)"
+          value={formatNumber(stats.vuesTotal)}
+        />
+        {mediaType === "carousel" ? (
+          <>
+            <StatCard
+              label="Save rate moyen"
+              value={formatPercent(stats.avgSaveRate)}
+            />
+            <StatCard
+              label="Winners"
+              value={String(stats.winners)}
+              highlight={stats.winners > 0}
+            />
+          </>
+        ) : (
+          // Pour les Shorts, les KPI Save rate / Winners n'ont pas de sens
+          // (pas de saves). On les remplace par 2 placeholders simples ;
+          // l'analytics chart configurable du Batch E les complétera.
+          <>
+            <StatCard label="Save rate moyen" value="—" />
+            <StatCard label="Winners" value="—" />
+          </>
+        )}
       </div>
 
       <PresetBar
@@ -665,9 +581,6 @@ function TrackerPageInner() {
         onApply={applyPreset}
         onDelete={handleDeletePreset}
         onSaveClick={() => {
-          // Pre-fill suggéré : si un preset matche, on propose son nom comme
-          // base (l'utilisateur typera autre chose vu qu'on refuse les
-          // doublons) ; sinon vide. Anti-friction.
           setPresetName(matchingPreset?.name ?? "");
           setSaveDialogOpen(true);
         }}
@@ -675,30 +588,20 @@ function TrackerPageInner() {
 
       <div className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-3">
         <div className="flex min-w-[200px] flex-1 flex-col gap-1.5">
-          <label className="text-xs font-medium text-slate-600">Recherche</label>
+          <label className="text-xs font-medium text-slate-600">
+            Recherche
+          </label>
           <Input
             placeholder="Hook text..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        {/*
-          Batch 2 Modif 4a — filtre top-level mediaType placé en 1ère
-          position. Pilote l'affichage des colonnes via visibleColumns.
-        */}
-        <FilterSelect
-          label="Format"
-          value={mediaTypeFilter}
-          onChange={handleMediaTypeFilterChange}
-          options={[...MEDIA_TYPE_FILTER_OPTIONS]}
-          allLabel="Tous"
-          width="w-[120px]"
-        />
         <FilterSelect
           label="Plateforme"
           value={plateforme}
           onChange={setPlateforme}
-          options={["TikTok", "Instagram"]}
+          options={platformOptions}
           allLabel="Toutes"
           width="w-[140px]"
         />
@@ -706,10 +609,10 @@ function TrackerPageInner() {
           label="Compte"
           selectedValues={compteFilter}
           onChange={setCompteFilter}
-          // Source dynamique : actifOnly=true côté query → on n'affiche que les
-          // comptes encore en service. Si la query est encore loading on tombe
-          // sur une liste vide (juste "Tout sélectionner" sans options).
-          options={(comptes ?? []).map((c) => ({ value: c.handle, label: c.handle }))}
+          options={(comptes ?? []).map((c) => ({
+            value: c.handle,
+            label: c.handle,
+          }))}
           allLabel="Tous"
           width="w-[180px]"
         />
@@ -729,25 +632,29 @@ function TrackerPageInner() {
           allLabel="Toutes"
           width="w-[160px]"
         />
-        <FilterMultiSelect
-          label="Format"
-          selectedValues={format}
-          onChange={setFormat}
-          options={FORMATS.map((f) => ({ value: f, label: f }))}
-          allLabel="Tous"
-          width="w-[100px]"
-        />
-        <FilterMultiSelect
-          label="Verdict"
-          selectedValues={verdictFilter}
-          onChange={setVerdictFilter}
-          options={["WINNER", "MOYEN", "FOLD", PENDING].map((v) => ({
-            value: v,
-            label: v,
-          }))}
-          allLabel="Tous"
-          width="w-[140px]"
-        />
+        {mediaType === "carousel" && (
+          <>
+            <FilterMultiSelect
+              label="Format"
+              selectedValues={format}
+              onChange={setFormat}
+              options={FORMATS.map((f) => ({ value: f, label: f }))}
+              allLabel="Tous"
+              width="w-[100px]"
+            />
+            <FilterMultiSelect
+              label="Verdict"
+              selectedValues={verdictFilter}
+              onChange={setVerdictFilter}
+              options={["WINNER", "MOYEN", "FOLD", PENDING].map((v) => ({
+                value: v,
+                label: v,
+              }))}
+              allLabel="Tous"
+              width="w-[140px]"
+            />
+          </>
+        )}
         <Button variant="outline" size="sm" onClick={reset}>
           Reset
         </Button>
@@ -758,13 +665,18 @@ function TrackerPageInner() {
           <div>
             {filtered.length === 0 ? (
               <>
-                Aucun carrousel trouvé pour{" "}
-                <span className="font-mono font-semibold">{carouselIdParam}</span>
+                Aucun{" "}
+                {mediaType === "carousel" ? "carrousel" : "Short"} trouvé pour{" "}
+                <span className="font-mono font-semibold">
+                  {carouselIdParam}
+                </span>
               </>
             ) : (
               <>
-                Filtré sur le carrousel{" "}
-                <span className="font-mono font-semibold">{carouselIdParam}</span>
+                Filtré sur le {mediaType === "carousel" ? "carrousel" : "Short"}{" "}
+                <span className="font-mono font-semibold">
+                  {carouselIdParam}
+                </span>
               </>
             )}
           </div>
@@ -772,7 +684,11 @@ function TrackerPageInner() {
             variant="ghost"
             size="sm"
             className="h-7 text-violet-700 hover:bg-violet-100 hover:text-violet-900"
-            onClick={() => router.replace("/tracker")}
+            onClick={() =>
+              router.replace(
+                mediaType === "carousel" ? "/carrousels" : "/shorts",
+              )
+            }
           >
             Effacer
           </Button>
@@ -780,14 +696,11 @@ function TrackerPageInner() {
       )}
 
       {filtered.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-slate-300 bg-white py-16">
-          <p className="text-sm text-slate-500">
-            Aucune publication ne correspond à ces filtres.
-          </p>
-          <Button variant="outline" size="sm" onClick={reset}>
-            Reset les filtres
-          </Button>
-        </div>
+        <EmptyOrFiltered
+          publishedCount={stats.publishedCount + stats.draftCount}
+          mediaType={mediaType}
+          onReset={reset}
+        />
       ) : (
         <div className="space-y-6">
           {drafts.length > 0 && (
@@ -950,10 +863,6 @@ function TrackerPageInner() {
   );
 }
 
-// Cellule "—" plate, utilisée pour les colonnes non applicables au mediaType
-// d'une row donnée en mode filtre "Tous" (ex: Format pour un Short, Likes
-// pour un Carrousel). Cohérent avec formatPercent/formatNumber qui retournent
-// déjà "—" pour null/undefined.
 const NA_CELL = <span className="text-slate-400">—</span>;
 
 function PublicationsSection({
@@ -983,8 +892,6 @@ function PublicationsSection({
   onMarkAsPosted: (p: Doc<"publications">) => void;
   onDuplicate: (p: Doc<"publications">) => void;
   visibleColumns: ReadonlySet<ColumnKey>;
-  // Batch 2 Modif 4b — axes de tri grisés selon le filtre mediaType courant.
-  // Le SortableHead lit ce Set pour décider du rendering disabled.
   disabledSortKeys: ReadonlySet<SortKey>;
 }) {
   return (
@@ -1021,11 +928,6 @@ function PublicationsSection({
               )}
               {visibleColumns.has("format") && <TableHead>Format</TableHead>}
               {visibleColumns.has("angle") && <TableHead>Angle</TableHead>}
-              {/*
-                Batch 2 Modif 4b — Vues/Likes/SubsGained convertis en
-                SortableHead. La colonne est masquée selon visibleColumns,
-                et le tri est grisé selon disabledSortKeys.
-              */}
               {visibleColumns.has("vues") && (
                 <SortableHead
                   active={sortKey === "vues"}
@@ -1081,17 +983,10 @@ function PublicationsSection({
           </TableHeader>
           <TableBody>
             {rows.map((p) => {
-              // Feature 4 : un draft (= !isPublished) n'a pas de verdict, peu
-              // importe ses métriques. Le saveRate brut peut rester affiché
-              // (l'utilisateur peut saisir des chiffres en avance) mais le
-              // badge verdict est forcé à "En attente".
               const saveRate = calculateSaveRate(p.saves, p.vuesJ7);
               const verdict = isPublished(p)
                 ? calculateVerdict(saveRate)
                 : null;
-              // Batch 2 Modif 4a — coercion mediaType pour les cellules
-              // conditionnelles : Format/Saves/SaveRate/Verdict → "—" pour
-              // un Short ; Likes/SubsGained → "—" pour un Carrousel.
               const mt = getMediaType(p);
               const isShort = mt === "short";
               const isCarousel = mt === "carousel";
@@ -1232,15 +1127,6 @@ function PublicationsSection({
   );
 }
 
-/**
- * Raccourci 1-clic pour passer un draft en publié sans ouvrir le dialog
- * d'édition complète. Saisit uniquement la postUrl ; les métriques (J+1/J+3/
- * J+7, saves…) seront renseignées plus tard via "Mettre à jour stats".
- *
- * Validation : `startsWith("http")` minimal (cf décision tranchée). Le
- * type="url" HTML5 sert d'indicateur visuel (clavier mobile, autofill) mais
- * ne bloque pas le submit — la garde réelle est sur le bouton.
- */
 function MarkAsPostedDialog({
   publication,
   open,
@@ -1262,7 +1148,7 @@ function MarkAsPostedDialog({
     setSubmitting(true);
     try {
       await updateMetrics({ id: publication._id, postUrl: trimmed });
-      toast.success("Carrousel marqué comme publié");
+      toast.success("Publication marquée comme publiée");
       onOpenChange(false);
     } catch (e) {
       toast.error(
@@ -1316,17 +1202,6 @@ function MarkAsPostedDialog({
   );
 }
 
-/**
- * Modif 2 — Dupliquer un carrousel sur une plateforme/compte cible.
- *
- * Pas de pré-sélection : la plateforme cible est un choix conscient (TikTok
- * vs IG = stratégies distinctes), le compte dépend de la plateforme. Les 2
- * dropdowns sont required ; Confirmer disabled tant que les deux sont vides.
- *
- * Filtrage compte par plateforme cible : évite d'arriver à la garde côté
- * serveur (qui throw si compte ∉ plateforme). Reset compte quand plateforme
- * change (le compte précédent n'a aucune chance d'être valide).
- */
 function DuplicateCarouselDialog({
   publication,
   open,
@@ -1336,10 +1211,6 @@ function DuplicateCarouselDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  // Batch 1 Shorts — filtrage des plateformes cibles selon le mediaType de
-  // la source. Carrousel → TikTok+Instagram (YouTube interdit côté serveur).
-  // Short → 3 plateformes. Defense in depth : la même garde existe dans
-  // duplicateCarousel (cf isFormatAllowedOnPlatform serveur).
   const sourceMediaType = getMediaType(publication);
   const allowedPlatforms =
     sourceMediaType === "carousel"
@@ -1364,8 +1235,6 @@ function DuplicateCarouselDialog({
 
   function handlePlateformeChange(next: "TikTok" | "Instagram" | "YouTube") {
     setPlateforme(next);
-    // Reset synchrone du compte si l'ancien n'est pas valide sur la nouvelle
-    // plateforme — pattern aligné avec PublicationDetailDialog/DraftEditView.
     if (!comptesData) {
       setCompte("");
       return;
@@ -1387,12 +1256,10 @@ function DuplicateCarouselDialog({
         targetCompte: compte,
         targetPlateforme: plateforme as "TikTok" | "Instagram" | "YouTube",
       });
-      toast.success("Carrousel dupliqué");
+      toast.success("Publication dupliquée");
       onOpenChange(false);
     } catch (e) {
-      toast.error(
-        e instanceof Error ? e.message : "Impossible de dupliquer",
-      );
+      toast.error(e instanceof Error ? e.message : "Impossible de dupliquer");
     } finally {
       setSubmitting(false);
     }
@@ -1415,9 +1282,7 @@ function DuplicateCarouselDialog({
               value={plateforme}
               onValueChange={(v) =>
                 v !== null &&
-                handlePlateformeChange(
-                  v as "TikTok" | "Instagram" | "YouTube",
-                )
+                handlePlateformeChange(v as "TikTok" | "Instagram" | "YouTube")
               }
             >
               <SelectTrigger id="dup-plateforme">
@@ -1504,18 +1369,12 @@ function PresetBar({
   onDelete: (id: Id<"filterPresets">, name: string) => void;
   onSaveClick: () => void;
 }) {
-  // Texte du trigger Popover :
-  //   - Preset matche → son nom
-  //   - Filtres au default → invitation neutre
-  //   - Sinon → "(custom)" pour signaler qu'on a divergé d'un preset / de la base
   const triggerLabel = matchingPreset
     ? matchingPreset.name
     : filtersAtDefault
       ? "Charger un preset"
       : "(custom)";
 
-  // Le bouton Sauvegarder est désactivé quand il n'y a rien à sauver
-  // (filtres+tri au default).
   const saveDisabled = filtersAtDefault;
 
   return (
@@ -1523,21 +1382,14 @@ function PresetBar({
       <Popover open={popoverOpen} onOpenChange={onPopoverChange}>
         <PopoverTrigger
           render={
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2 font-normal"
-            >
+            <Button variant="outline" size="sm" className="gap-2 font-normal">
               <BookmarkIcon className="size-3.5" />
               <span className="text-slate-700">{triggerLabel}</span>
               <ChevronDownIcon className="size-3.5 opacity-60" />
             </Button>
           }
         />
-        <PopoverContent
-          className="w-[260px] p-1"
-          align="start"
-        >
+        <PopoverContent className="w-[260px] p-1" align="start">
           {presets.length === 0 ? (
             <div className="px-3 py-4 text-center text-xs text-slate-500">
               Aucun preset sauvegardé.
@@ -1612,8 +1464,6 @@ function SortableHead({
   dir: SortDir;
   onClick: () => void;
   className?: string;
-  // Batch 2 Modif 4b — axe de tri inapplicable au filtre mediaType courant.
-  // Visuel grisé + cursor-not-allowed + tooltip ; click bloqué.
   disabled?: boolean;
 }) {
   return (
@@ -1622,9 +1472,7 @@ function SortableHead({
         type="button"
         onClick={disabled ? undefined : onClick}
         disabled={disabled}
-        title={
-          disabled ? "Tri non applicable au format actuel" : undefined
-        }
+        title={disabled ? "Tri non applicable au format actuel" : undefined}
         className={cn(
           "inline-flex items-center gap-1",
           disabled
@@ -1685,10 +1533,6 @@ function StatCard({
 function LoadingState() {
   return (
     <div className="space-y-6">
-      <div className="space-y-2">
-        <Skeleton className="h-9 w-32" />
-        <Skeleton className="h-4 w-48" />
-      </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
           <Skeleton key={i} className="h-20" />
@@ -1700,22 +1544,38 @@ function LoadingState() {
   );
 }
 
-function EmptyState() {
-  return (
-    <div className="flex flex-col items-center justify-center gap-4 rounded-lg border border-dashed border-slate-300 bg-white py-24 text-center">
-      <FileTextIcon className="size-10 text-slate-400" />
-      <div>
-        <h2 className="text-lg font-medium text-slate-900">
-          Aucun carrousel pour l&apos;instant
-        </h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Crée ton premier carrousel pour commencer le tracking.
+function EmptyOrFiltered({
+  publishedCount,
+  mediaType,
+  onReset,
+}: {
+  publishedCount: number;
+  mediaType: MediaType;
+  onReset: () => void;
+}) {
+  // publishedCount === 0 : aucune publication de ce format en DB → état initial.
+  // > 0 : il y en a, mais aucune ne matche les filtres courants.
+  if (publishedCount === 0) {
+    const label = mediaType === "carousel" ? "carrousel" : "Short";
+    return (
+      <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-slate-300 bg-white py-16 text-center">
+        <p className="text-sm text-slate-500">
+          Aucun {label} pour l&apos;instant.
+        </p>
+        <p className="text-xs text-slate-400">
+          Utilise le bouton « Nouveau » pour créer ton premier {label}.
         </p>
       </div>
-      <Link href="/nouveau" className={cn(buttonVariants({ size: "sm" }))}>
-        <PlusIcon />
-        Créer le premier carrousel
-      </Link>
+    );
+  }
+  return (
+    <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-slate-300 bg-white py-16">
+      <p className="text-sm text-slate-500">
+        Aucune publication ne correspond à ces filtres.
+      </p>
+      <Button variant="outline" size="sm" onClick={onReset}>
+        Reset les filtres
+      </Button>
     </div>
   );
 }

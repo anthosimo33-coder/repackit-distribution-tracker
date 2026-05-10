@@ -79,16 +79,9 @@ test.describe("Tracker — Marquer Short comme posté + édition métriques", ()
       notes: "[E2E_TEST] mark short",
     });
 
-    await page.goto("/tracker");
-    // Filtre top-level Format → Short pour réduire le DOM
-    await page
-      .locator("label")
-      .filter({ hasText: /^Format$/ })
-      .first()
-      .locator("xpath=..")
-      .getByRole("combobox")
-      .click();
-    await page.getByRole("option", { name: "Short" }).click();
+    // Batch B — page /shorts filtre déjà implicitement par mediaType=short.
+    // L'ancien filtre top-level Format disparaît avec le split de routes.
+    await page.goto("/shorts");
 
     // Row visible avec hookText. Ouvre le menu actions et clique "Marquer
     // comme posté".

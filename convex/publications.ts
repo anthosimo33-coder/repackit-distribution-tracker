@@ -179,6 +179,33 @@ export const listPublications = query({
   },
 });
 
+/**
+ * Batch B — résout un carouselId vers son mediaType pour permettre au
+ * catch-all /p/[carouselId] de rediriger vers la bonne page format.
+ *
+ * Retourne la PREMIÈRE row (n'importe laquelle) pour ce carouselId : toutes
+ * les rows partagent le même mediaType par construction (cf updateDraft +
+ * duplicateCarousel qui propagent source.mediaType).
+ *
+ * Coercion mediaType : alignée avec lib/media-type.getMediaType côté client
+ * (rows pré-Batch-1-Shorts → "carousel"). Dupliquée car cross-tsconfig.
+ */
+export const getByCarouselId = query({
+  args: { carouselId: v.string() },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("publications")
+      .withIndex("by_carouselId", (q) => q.eq("carouselId", args.carouselId))
+      .first();
+    if (!row) return null;
+    return {
+      _id: row._id,
+      carouselId: row.carouselId,
+      mediaType: (row.mediaType ?? "carousel") as "carousel" | "short",
+    };
+  },
+});
+
 export const updateMetrics = mutation({
   args: {
     id: v.id("publications"),

@@ -374,7 +374,11 @@ function NouveauForm() {
       toast.success(
         `${formatLabel} ${nextCarouselId} créé sur ${effectivePlateformes.length} plateforme${effectivePlateformes.length > 1 ? "s" : ""}`,
       );
-      router.push("/tracker");
+      // Batch B — push direct vers la page format de la pub créée plutôt
+      // que /tracker (qui n'existe plus, redirigé via next.config.ts). Évite
+      // un hop 308. Conservé en string littéral plutôt que dérivé pour
+      // garder le diff minimal.
+      router.push(mediaType === "carousel" ? "/carrousels" : "/shorts");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur lors de la création");
     } finally {

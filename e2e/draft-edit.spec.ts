@@ -50,7 +50,7 @@ test.describe("Draft edit via detail dialog", () => {
     await page.getByLabel("Notes").fill("[E2E_TEST] draft edit");
     await page.getByRole("button", { name: /^créer le carrousel$/i }).click();
 
-    await expect(page).toHaveURL(/\/tracker/, { timeout: 10000 });
+    await expect(page).toHaveURL(/\/carrousels/, { timeout: 10000 });
 
     // Ouvrir détail/édition du draft
     const row = page
