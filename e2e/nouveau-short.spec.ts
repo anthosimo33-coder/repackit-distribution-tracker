@@ -1,99 +1,95 @@
 import { test, expect } from "@playwright/test";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../convex/_generated/api";
+import { config } from "dotenv";
+
+config({ path: ".env.local" });
+
+const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
+const convex = new ConvexHttpClient(convexUrl);
 
 /**
- * Batch 2 Modif 3 — création d'un Short via le toggle Format de /nouveau.
+ * Batch C — création Short via modal NouveauModal.
  *
- * Couvre :
- *   - Toggle Format passe de "Carrousel" (default) à "Short"
- *   - Card "Script" remplace "Slides" ; Format Select et nbSlides Input
- *     disparaissent
- *   - Pre-fill du script avec le texte custom au keystroke (parallèle au
- *     pre-fill slide 1 carousel)
- *   - Plateforme YouTube disponible (apparaît dans les checkboxes après le
- *     switch ; absente en mode carousel)
- *   - Submit → row visible dans /tracker
- *
- * Cleanup : helpers/cleanup.ts global supprime les pubs et comptes marqués
- * "[E2E_TEST]" en début et fin de suite — pas besoin de cleanup local.
+ * Flow : /shorts → bouton "Nouveau Short" → modal pré-sélectionné short →
+ * étape 2 (Hook custom) → étape 3 (Script + Angle, pas de slides) → 4 → 5
+ * → Créer.
  */
-test.describe("Création Short via /nouveau", () => {
-  test("toggle Format → Short → script pré-rempli → YouTube → submit", async ({
+test.describe("Création Short via modal NouveauModal", () => {
+  test("Short pré-sélectionné → script pré-rempli → YouTube → submit", async ({
     page,
   }) => {
-    // Pré-requis : compte YouTube
-    await page.goto("/comptes");
-    if (
-      (await page
-        .getByRole("cell", { name: "@test_e2e_short_yt" })
-        .count()) === 0
-    ) {
-      await page
-        .getByRole("button", { name: /ajouter un compte/i })
-        .click();
-      await page.getByLabel("Handle").fill("test_e2e_short_yt");
-      await page.getByRole("combobox").first().click();
-      await page.getByRole("option", { name: "YouTube" }).click();
-      await page
-        .getByLabel("Notes")
-        .fill("[E2E_TEST] compte short YT");
-      await page.getByRole("button", { name: /^ajouter$/i }).click();
-      await expect(
-        page.getByRole("cell", { name: "@test_e2e_short_yt" }),
-      ).toBeVisible();
+    // Setup défensif Convex : si le compte test_e2e_short_yt existe mais est
+    // archivé (cleanup précédent), on le réactive pour que le Select compte
+    // affiche au lieu du message "Aucun compte actif".
+    const stalleComptes = await convex.query(api.comptes.listComptes, {});
+    for (const c of stalleComptes) {
+      if (c.handle === "@test_e2e_short_yt" && !c.actif) {
+        await convex.mutation(api.comptes.updateCompte, {
+          id: c._id,
+          actif: true,
+        });
+      }
+    }
+    const compteExists = stalleComptes.find(
+      (c) =>
+        c.handle === "@test_e2e_short_yt" && c.plateforme === "YouTube",
+    );
+    if (!compteExists) {
+      await convex.mutation(api.comptes.createCompte, {
+        handle: "@test_e2e_short_yt",
+        plateforme: "YouTube",
+        notes: "[E2E_TEST] compte short YT",
+      });
     }
 
     const hookText = `Hook short E2E ${Date.now()}`;
-    await page.goto("/nouveau");
 
-    // Default mediaType = "carousel" → vérifier que les éléments carousel
-    // sont visibles. Le Tab "Short" est unique (pas de collision avec
-    // "Custom" ou "Bibliothèque" du toggle Hook).
-    await expect(page.getByLabel("Slide 1")).toBeVisible();
+    // Modal pré-sélectionné short via URL → ouvre étape 2 directement.
+    await page.goto("/shorts?nouveau=open&format=short");
 
-    // Switcher vers Short via le Tab Format
-    await page.getByRole("tab", { name: "Short", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
 
-    // Card "Slides" doit disparaître, Card "Script" doit apparaître. Le
-    // bouton submit doit refléter le format.
-    await expect(page.getByLabel("Slide 1")).toHaveCount(0);
-    await expect(page.getByLabel("Script")).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: /^créer le short$/i }),
-    ).toBeVisible();
+    // Step 2 — switch Custom + saisir hook.
+    await dialog.getByRole("tab", { name: /custom/i }).click();
+    await dialog.getByLabel("Texte du hook").fill(hookText);
 
-    // Switcher Hook vers Custom + saisir texte → script pré-rempli
-    await page.getByRole("tab", { name: /^custom$/i }).click();
-    await page.getByLabel("Texte du hook").fill(hookText);
-    await expect(page.getByLabel("Script")).toHaveValue(hookText);
+    await dialog.getByRole("button", { name: /^suivant$/i }).click();
 
-    // Plateforme YouTube : visible en mode short (absente en carousel).
-    // Cocher YouTube + décocher TikTok/Instagram (le compte cible est YT).
-    await page.getByRole("checkbox", { name: /youtube/i }).check();
-    await page.getByRole("checkbox", { name: /tiktok/i }).uncheck();
-    await page.getByRole("checkbox", { name: /instagram/i }).uncheck();
+    // Step 3 (Contenu short) — Script visible, pas de Slides ni Format A-H.
+    await expect(dialog.getByLabel("Slide 1")).toHaveCount(0);
+    const script = dialog.getByLabel("Script");
+    await expect(script).toBeVisible();
+    // Script pré-rempli avec le hookText (idempotent).
+    await expect(script).toHaveValue(hookText);
 
-    // Sélection explicite du compte cible via le combobox Compte. Évite
-    // l'aléa de l'auto-set quand plusieurs comptes YouTube existent en DB
-    // (ex : @test_e2e_mark_short_yt créé par mark-as-posted-short.spec.ts
-    // qui tourne avant nouveau-short en ordre alphabétique).
-    const compteWrapper = page
+    await dialog.getByRole("button", { name: /^suivant$/i }).click();
+
+    // Step 4 (Publication) — YouTube est dans les plateformes éligibles
+    // (ALLOWED_PLATFORMS_FOR_SHORT = TikTok+Insta+YT). Cocher YouTube.
+    await dialog.getByRole("checkbox", { name: /youtube/i }).check();
+    // Sélecteur scopé au dialog (sinon le label "Compte" du filtre tracker
+    // en arrière-plan match en premier). Wait sur visibility au cas où le
+    // useQuery comptes résolve avec retard (1er fetch).
+    const compteCombo = dialog
       .locator("label")
       .filter({ hasText: /^Compte$/ })
-      .locator("xpath=..");
-    await compteWrapper.getByRole("combobox").click();
+      .locator("xpath=..")
+      .getByRole("combobox");
+    await compteCombo.waitFor({ state: "visible", timeout: 5000 });
+    await compteCombo.click();
     await page
       .getByRole("option", { name: /test_e2e_short_yt/i })
       .click();
+    await dialog.getByLabel("Notes").fill("[E2E_TEST] short via modal");
+    await dialog.getByRole("button", { name: /^suivant$/i }).click();
 
-    await page.getByLabel("Notes").fill("[E2E_TEST] short via /nouveau");
-
-    await page
-      .getByRole("button", { name: /^créer le short$/i })
-      .click();
+    // Step 5 → Créer.
+    await dialog.getByRole("button", { name: /^créer$/i }).click();
 
     await expect(page).toHaveURL(/\/shorts/, { timeout: 10000 });
-    // La row apparaît avec son hookText (filtre mediaType ajouté en Modif 4
-    // étape suivante — pour ce test l'absence de filtre suffit).
     await expect(page.getByText(hookText).first()).toBeVisible();
   });
 });

@@ -1,6 +1,11 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { Suspense } from "react";
+import {
+  usePathname,
+  useRouter,
+  useSearchParams,
+} from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -11,12 +16,25 @@ import { PlusIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
- * Batch A — pointe vers /nouveau (route legacy).
- * Au Batch C ce bouton ouvrira un modal multi-étapes (initialMediaType
- * optionnel selon le contexte de déclenchement). Cette version transitoire
- * est volontairement simple : router.push, pas de state global.
+ * Batch C — bouton "+ Nouveau" sidebar : déclenche l'ouverture du modal
+ * NouveauModal (rendu globalement par SidebarLayout) en ajoutant
+ * ?nouveau=open à la route courante. Pas de pré-sélection format depuis ce
+ * point d'entrée — c'est le flux générique.
  */
-export function NewButton({
+export function NewButton(props: {
+  isCollapsed: boolean;
+  onNavigate?: () => void;
+}) {
+  // useSearchParams() suspend en Next 16 — wrap interne pour ne pas
+  // polluer la Sidebar parent qui ne l'utilise plus depuis Batch B.
+  return (
+    <Suspense fallback={<NewButtonShell {...props} />}>
+      <NewButtonInner {...props} />
+    </Suspense>
+  );
+}
+
+function NewButtonInner({
   isCollapsed,
   onNavigate,
 }: {
@@ -24,10 +42,19 @@ export function NewButton({
   onNavigate?: () => void;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   function handleClick() {
     onNavigate?.();
-    router.push("/nouveau");
+    const next = new URLSearchParams(searchParams);
+    next.set("nouveau", "open");
+    // Pas de pré-sélection format ici — flux générique. Si l'utilisateur
+    // arrive depuis /carrousels ou /shorts, il pourra revenir au step 1
+    // via le bouton "Précédent" du modal.
+    next.delete("format");
+    next.delete("hookId");
+    router.push(`${pathname}?${next.toString()}`);
   }
 
   const button = (
@@ -49,5 +76,19 @@ export function NewButton({
         Nouveau
       </TooltipContent>
     </Tooltip>
+  );
+}
+
+// Fallback rendu pendant que useSearchParams() suspend (premier paint
+// avant hydratation). Bouton no-op pour préserver le layout.
+function NewButtonShell({ isCollapsed }: { isCollapsed: boolean }) {
+  return (
+    <Button
+      disabled
+      className={cn("h-10 w-full", isCollapsed && "px-0")}
+    >
+      <PlusIcon className="size-4" />
+      {!isCollapsed && <span>Nouveau</span>}
+    </Button>
   );
 }

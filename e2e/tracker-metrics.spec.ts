@@ -1,8 +1,16 @@
 import { test, expect } from "@playwright/test";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../convex/_generated/api";
+import { config } from "dotenv";
+
+config({ path: ".env.local" });
+
+const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
+const convex = new ConvexHttpClient(convexUrl);
 
 test.describe("Tracker édition métriques", () => {
   test("verdict change selon save rate", async ({ page }) => {
-
     // Pré-requis : compte
     await page.goto("/comptes");
     if ((await page.getByRole("cell", { name: "@test_e2e_metrics" }).count()) === 0) {
@@ -15,36 +23,33 @@ test.describe("Tracker édition métriques", () => {
       await expect(page.getByRole("cell", { name: "@test_e2e_metrics" })).toBeVisible();
     }
 
-    // Créer un carrousel custom rapide
-    await page.goto("/nouveau");
-    await page.getByRole("tab", { name: /custom/i }).click();
-    await page.getByLabel("Texte du hook").fill("Hook test metrics E2E");
+    // Batch C : setup direct via Convex (vs ancien UI /nouveau).
+    const carouselId = await convex.query(
+      api.publications.getNextCarouselId,
+      {},
+    );
+    await convex.mutation(api.publications.createPublication, {
+      carouselId,
+      hookId: null,
+      hookText: "Hook test metrics E2E",
+      mecanique: "Erreur",
+      niveau: "Broad-A",
+      mediaType: "carousel",
+      format: "A",
+      nbSlides: 7,
+      slides: Array.from({ length: 7 }, (_, i) => ({
+        position: i + 1,
+        texte: i === 0 ? "S1" : "",
+      })),
+      angleTonal: "Psycho",
+      langue: "FR",
+      plateformes: ["TikTok"],
+      compte: "@test_e2e_metrics",
+      datePubli: Date.now(),
+      notes: "[E2E_TEST] verdict test",
+    });
 
-    // Décocher Instagram
-    await page.getByRole("checkbox", { name: /instagram/i }).uncheck();
-
-    const comboboxes = page.getByRole("combobox");
-    // Mécanique = Erreur
-    await comboboxes.nth(1).click();
-    await page.getByRole("option", { name: "Erreur" }).click();
-    // Niveau = Broad-A
-    await comboboxes.nth(2).click();
-    await page.getByRole("option", { name: "Broad-A" }).click();
-    // Format A
-    await comboboxes.nth(3).click();
-    await page.getByRole("option", { name: /^A · / }).click();
-    // Angle = Psycho
-    await comboboxes.nth(4).click();
-    await page.getByRole("option", { name: "Psycho" }).click();
-    // Compte
-    await comboboxes.nth(5).click();
-    await page.getByRole("option", { name: /test_e2e_metrics/i }).click();
-
-    await page.getByLabel("Slide 1").fill("S1");
-    await page.getByLabel("Notes").fill("[E2E_TEST] verdict test");
-    await page.getByRole("button", { name: /^créer le carrousel$/i }).click();
-
-    await expect(page).toHaveURL(/\/carrousels/, { timeout: 10000 });
+    await page.goto("/carrousels");
 
     const row = page
       .getByRole("row")

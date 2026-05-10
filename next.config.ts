@@ -43,6 +43,17 @@ const nextConfig: NextConfig = {
         destination: "/carrousels",
         permanent: true,
       },
+      {
+        // Batch C — /nouveau remplacé par modal NouveauModal piloté par
+        // ?nouveau=open. format=carousel pré-sélectionné car c'était le
+        // default historique de l'ancienne /nouveau (useState<MediaType>
+        // ("carousel")). Les query params extra (hookId notamment) sont
+        // préservés automatiquement par Next.js → /nouveau?hookId=X devient
+        // /dashboard?nouveau=open&format=carousel&hookId=X.
+        source: "/nouveau",
+        destination: "/dashboard?nouveau=open&format=carousel",
+        permanent: true,
+      },
     ];
   },
 };

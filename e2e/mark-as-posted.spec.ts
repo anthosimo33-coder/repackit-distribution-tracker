@@ -1,11 +1,20 @@
 import { test, expect } from "@playwright/test";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../convex/_generated/api";
+import { config } from "dotenv";
+
+config({ path: ".env.local" });
+
+const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
+const convex = new ConvexHttpClient(convexUrl);
 
 /**
  * Modif 4 — raccourci 1-clic "Marquer comme posté" sur les drafts.
  *
- * Flow couvert : créer un draft → ouvrir le dropdown du tracker → cliquer
- * "Marquer comme posté" → vérifier la garde validation URL → submit avec
- * URL valide → la row passe en section "Publié" → l'item disparaît du dropdown.
+ * Batch C : setup du draft via ConvexHttpClient (vs ancien flow /nouveau
+ * qui n'existe plus). Le test couvre toujours le dropdown → dialog → URL →
+ * row en Publié.
  */
 test.describe("Tracker — Marquer comme posté (raccourci 1-clic)", () => {
   test("draft → dropdown → dialog → URL → row en Publié", async ({ page }) => {
@@ -27,31 +36,33 @@ test.describe("Tracker — Marquer comme posté (raccourci 1-clic)", () => {
       ).toBeVisible();
     }
 
-    // Créer un draft custom
     const hookText = `Hook mark posted E2E ${Date.now()}`;
-    await page.goto("/nouveau");
-    await page.getByRole("tab", { name: /custom/i }).click();
-    await page.getByLabel("Texte du hook").fill(hookText);
+    const carouselId = await convex.query(
+      api.publications.getNextCarouselId,
+      {},
+    );
+    await convex.mutation(api.publications.createPublication, {
+      carouselId,
+      hookId: null,
+      hookText,
+      mecanique: "Erreur",
+      niveau: "Broad-A",
+      mediaType: "carousel",
+      format: "A",
+      nbSlides: 7,
+      slides: Array.from({ length: 7 }, (_, i) => ({
+        position: i + 1,
+        texte: i === 0 ? "Slide initiale" : "",
+      })),
+      angleTonal: "Psycho",
+      langue: "FR",
+      plateformes: ["TikTok"],
+      compte: "@test_e2e_mark_posted",
+      datePubli: Date.now(),
+      notes: "[E2E_TEST] mark as posted",
+    });
 
-    await page.getByRole("checkbox", { name: /instagram/i }).uncheck();
-
-    const comboboxes = page.getByRole("combobox");
-    await comboboxes.nth(1).click();
-    await page.getByRole("option", { name: "Erreur" }).click();
-    await comboboxes.nth(2).click();
-    await page.getByRole("option", { name: "Broad-A" }).click();
-    await comboboxes.nth(3).click();
-    await page.getByRole("option", { name: /^A · / }).click();
-    await comboboxes.nth(4).click();
-    await page.getByRole("option", { name: "Psycho" }).click();
-    await comboboxes.nth(5).click();
-    await page.getByRole("option", { name: /test_e2e_mark_posted/i }).click();
-
-    await page.getByLabel("Slide 1").fill("Slide initiale");
-    await page.getByLabel("Notes").fill("[E2E_TEST] mark as posted");
-    await page.getByRole("button", { name: /^créer le carrousel$/i }).click();
-
-    await expect(page).toHaveURL(/\/carrousels/, { timeout: 10000 });
+    await page.goto("/carrousels");
 
     // La row vient d'être créée → section "À venir". Ouvre son dropdown.
     const row = page.getByRole("row").filter({ hasText: hookText });

@@ -1,15 +1,26 @@
 import { test, expect } from "@playwright/test";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../convex/_generated/api";
+import { config } from "dotenv";
+
+config({ path: ".env.local" });
+
+const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
+const convex = new ConvexHttpClient(convexUrl);
 
 /**
  * Feature 3 — édition d'un draft via la vue détail.
- * Couvre le flow : créer un draft → ouvrir détail → modifier une slide
- * → enregistrer → ré-ouvrir → vérifier que la modification a persisté.
+ * Batch C : setup du draft via ConvexHttpClient (vs ancien flow /nouveau
+ * qui n'existe plus). Le test conserve son scope : valider l'édition d'une
+ * slide d'un draft via DraftEditView dialog.
  */
 test.describe("Draft edit via detail dialog", () => {
   test("modifier le texte d'une slide d'un draft persiste", async ({
     page,
   }) => {
-    // Pré-requis : compte
+    // Pré-requis : compte (création UI car le test couvre incidemment ce
+    // flow — fonction extraite ailleurs aurait été plus DRY mais hors scope).
     await page.goto("/comptes");
     if (
       (await page
@@ -27,30 +38,38 @@ test.describe("Draft edit via detail dialog", () => {
       ).toBeVisible();
     }
 
-    // Créer un draft custom
-    await page.goto("/nouveau");
-    await page.getByRole("tab", { name: /custom/i }).click();
-    await page.getByLabel("Texte du hook").fill("Hook draft edit E2E");
+    // Setup direct du draft via Convex (vs ancien flow UI /nouveau).
+    const carouselId = await convex.query(
+      api.publications.getNextCarouselId,
+      {},
+    );
+    await convex.mutation(api.publications.createPublication, {
+      carouselId,
+      hookId: null,
+      hookText: "Hook draft edit E2E",
+      mecanique: "Erreur",
+      niveau: "Broad-A",
+      mediaType: "carousel",
+      format: "A",
+      nbSlides: 7,
+      slides: [
+        { position: 1, texte: "Texte initial slide 1" },
+        { position: 2, texte: "" },
+        { position: 3, texte: "" },
+        { position: 4, texte: "" },
+        { position: 5, texte: "" },
+        { position: 6, texte: "" },
+        { position: 7, texte: "" },
+      ],
+      angleTonal: "Psycho",
+      langue: "FR",
+      plateformes: ["TikTok"],
+      compte: "@test_e2e_draft_edit",
+      datePubli: Date.now(),
+      notes: "[E2E_TEST] draft edit",
+    });
 
-    await page.getByRole("checkbox", { name: /instagram/i }).uncheck();
-
-    const comboboxes = page.getByRole("combobox");
-    await comboboxes.nth(1).click();
-    await page.getByRole("option", { name: "Erreur" }).click();
-    await comboboxes.nth(2).click();
-    await page.getByRole("option", { name: "Broad-A" }).click();
-    await comboboxes.nth(3).click();
-    await page.getByRole("option", { name: /^A · / }).click();
-    await comboboxes.nth(4).click();
-    await page.getByRole("option", { name: "Psycho" }).click();
-    await comboboxes.nth(5).click();
-    await page.getByRole("option", { name: /test_e2e_draft_edit/i }).click();
-
-    await page.getByLabel("Slide 1").fill("Texte initial slide 1");
-    await page.getByLabel("Notes").fill("[E2E_TEST] draft edit");
-    await page.getByRole("button", { name: /^créer le carrousel$/i }).click();
-
-    await expect(page).toHaveURL(/\/carrousels/, { timeout: 10000 });
+    await page.goto("/carrousels");
 
     // Ouvrir détail/édition du draft
     const row = page

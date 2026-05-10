@@ -75,32 +75,35 @@ test.describe("Tracker — Dupliquer un carrousel", () => {
       }
     }
 
-    // Créer un carrousel original (custom)
+    // Batch C : setup direct via Convex (vs ancien UI /nouveau).
     const hookText = `Hook duplicate E2E ${Date.now()}`;
     const slideText = `Slide originale ${Date.now()}`;
-    await page.goto("/nouveau");
-    await page.getByRole("tab", { name: /custom/i }).click();
-    await page.getByLabel("Texte du hook").fill(hookText);
+    const carouselId = await convex.query(
+      api.publications.getNextCarouselId,
+      {},
+    );
+    await convex.mutation(api.publications.createPublication, {
+      carouselId,
+      hookId: null,
+      hookText,
+      mecanique: "Erreur",
+      niveau: "Broad-A",
+      mediaType: "carousel",
+      format: "A",
+      nbSlides: 7,
+      slides: Array.from({ length: 7 }, (_, i) => ({
+        position: i + 1,
+        texte: i === 0 ? slideText : "",
+      })),
+      angleTonal: "Psycho",
+      langue: "FR",
+      plateformes: ["TikTok"],
+      compte: "@test_e2e_dup_src",
+      datePubli: Date.now(),
+      notes: "[E2E_TEST] duplicate",
+    });
 
-    await page.getByRole("checkbox", { name: /instagram/i }).uncheck();
-
-    const cb = page.getByRole("combobox");
-    await cb.nth(1).click();
-    await page.getByRole("option", { name: "Erreur" }).click();
-    await cb.nth(2).click();
-    await page.getByRole("option", { name: "Broad-A" }).click();
-    await cb.nth(3).click();
-    await page.getByRole("option", { name: /^A · / }).click();
-    await cb.nth(4).click();
-    await page.getByRole("option", { name: "Psycho" }).click();
-    await cb.nth(5).click();
-    await page.getByRole("option", { name: /test_e2e_dup_src/i }).click();
-
-    await page.getByLabel("Slide 1").fill(slideText);
-    await page.getByLabel("Notes").fill("[E2E_TEST] duplicate");
-    await page.getByRole("button", { name: /^créer le carrousel$/i }).click();
-
-    await expect(page).toHaveURL(/\/carrousels/, { timeout: 10000 });
+    await page.goto("/carrousels");
 
     // Récupère carouselId de l'original via ConvexHttpClient (le client a déjà
     // accès, on évite de gratter la cellule du tracker pour rester explicite).

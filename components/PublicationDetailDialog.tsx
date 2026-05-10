@@ -47,12 +47,13 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-// Batch 1 Shorts : YouTube ajouté pour cohérence avec le schéma étendu
-// (Doc<"publications">.plateforme accepte désormais "YouTube"). La validation
-// du couple plateforme/mediaType (carrousel → pas YouTube) est appliquée
-// côté serveur dans updateDraft — defense in depth, pas de filtrage UI ici.
-const PLATEFORMES = ["TikTok", "Instagram", "YouTube"] as const;
-type Plateforme = (typeof PLATEFORMES)[number];
+// Batch C — adresse TD-008 : la const PLATEFORMES locale est remplacée par
+// ALL_PLATFORMS de lib/format-config.ts (single source of truth).
+// La validation du couple plateforme/mediaType (carrousel → pas YouTube) est
+// appliquée côté serveur dans updateDraft — defense in depth, pas de
+// filtrage UI ici (le draft autorise n'importe quelle des 3 plateformes,
+// le serveur reject si incohérent avec le mediaType existant).
+import { ALL_PLATFORMS, type Platform as Plateforme } from "@/lib/format-config";
 
 function Field({
   label,
@@ -506,7 +507,7 @@ function DraftEditView({
                   <SelectValue>{plateforme}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {PLATEFORMES.map((p) => (
+                  {ALL_PLATFORMS.map((p) => (
                     <SelectItem key={p} value={p}>
                       {p}
                     </SelectItem>
