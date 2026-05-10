@@ -2,12 +2,13 @@
 
 import { Button } from "@/components/ui/button";
 import { FolderIcon, PlusIcon, SlidersHorizontalIcon } from "lucide-react";
+import { ViewToggle } from "./ViewToggle";
 import { cn } from "@/lib/utils";
 
 /**
- * Batch F → G — header de la page /inspirations. Étendu avec 2 boutons
- * supplémentaires : Filtres (toggle panneau) + Dossiers (navigation vers
- * ?view=folders).
+ * Batch F → G → H — header de la page /inspirations. Étendu avec ViewToggle
+ * Grid/List (masqué en mode folders), badge count filtres, et bouton
+ * Dossiers qui navigue vers ?view=folders.
  */
 export function InspirationsHeader({
   onCreate,
@@ -15,12 +16,16 @@ export function InspirationsHeader({
   onOpenFolders,
   filtersOpen,
   activeFilterCount,
+  view,
+  onViewChange,
 }: {
   onCreate: () => void;
   onToggleFilters: () => void;
   onOpenFolders: () => void;
   filtersOpen: boolean;
   activeFilterCount: number;
+  view: "grid" | "list";
+  onViewChange: (next: "grid" | "list") => void;
 }) {
   return (
     <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
@@ -32,7 +37,8 @@ export function InspirationsHeader({
           Bibliothèque de vidéos et comptes qui t&apos;inspirent.
         </p>
       </div>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <ViewToggle value={view} onChange={onViewChange} />
         <Button
           variant="outline"
           onClick={onToggleFilters}

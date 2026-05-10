@@ -3,11 +3,12 @@ import type {
   InspirationType,
   Plateforme,
 } from "./inspiration-url";
+import { ALL_PLATFORMS } from "./format-config";
 
 /**
- * Batch G — état local des filtres /inspirations. URL params côté Batch H
- * si besoin (decision tranchée #3). Sets vides = "tous" (pas de filtre)
- * cohérent avec FilterMultiSelect sémantique.
+ * Batch G → H — état local des filtres /inspirations. Sets vides = "tous"
+ * (pas de filtre actif). Sérialisé en URL params dans Batch H pour
+ * deeplinks via filtersToSearchParams / searchParamsToFilters.
  */
 export type InspirationFilters = {
   folderIds: Set<Id<"folders">>;
@@ -79,3 +80,115 @@ export function filtersToQueryArgs(f: InspirationFilters): {
   if (f.tags.size > 0) args.tags = Array.from(f.tags);
   return args;
 }
+
+/**
+ * Batch H — clés URL utilisées pour sérialiser les filtres. Listées en
+ * constante pour permettre un cleanup propre côté page.tsx (preserve ?view=
+ * et autres params hors-filtre).
+ */
+export const FILTER_PARAM_KEYS = [
+  "folders",
+  "plateformes",
+  "types",
+  "favorites",
+  "q",
+  "tags",
+] as const;
+
+const VALID_TYPES: ReadonlySet<InspirationType> = new Set<InspirationType>([
+  "video",
+  "account",
+]);
+const VALID_PLATEFORMES: ReadonlySet<Plateforme> = new Set<Plateforme>(
+  ALL_PLATFORMS,
+);
+
+/**
+ * Batch H — encode l'état des filtres en URLSearchParams compatible
+ * router.replace. CSV pour les sets, "1" pour le bool favorites, "q" pour
+ * la search. Sets vides + search vide + isFavorite false → absents.
+ */
+export function filtersToSearchParams(
+  f: InspirationFilters,
+): URLSearchParams {
+  const p = new URLSearchParams();
+  if (f.folderIds.size > 0) p.set("folders", Array.from(f.folderIds).join(","));
+  if (f.plateformes.size > 0)
+    p.set("plateformes", Array.from(f.plateformes).join(","));
+  if (f.types.size > 0) p.set("types", Array.from(f.types).join(","));
+  if (f.isFavorite) p.set("favorites", "1");
+  const trimmedSearch = f.search.trim();
+  if (trimmedSearch.length > 0) p.set("q", trimmedSearch);
+  if (f.tags.size > 0) p.set("tags", Array.from(f.tags).join(","));
+  return p;
+}
+
+/**
+ * Batch H — parse URL search params vers InspirationFilters avec
+ * validation. Les folderIds qui n'existent plus en DB sont strippés
+ * silencieusement (cas typique : ouverture d'un deeplink après suppression
+ * d'un dossier dans une autre tab). Idem pour les tags qui n'existent plus.
+ *
+ * Les plateformes/types invalides sont rejetés. La search est trim mais pas
+ * lowercase (cohérent avec le serveur qui lowercase au compare).
+ *
+ * validFolderIds et validTags peuvent être vides si la query Convex n'a pas
+ * encore résolu ; dans ce cas tout est strippé (filters revalidés une fois
+ * les données arrivées via useEffect côté page).
+ */
+export function searchParamsToFilters(
+  params: URLSearchParams | ReadonlyURLSearchParams,
+  validFolderIds: ReadonlySet<string>,
+  validTags: ReadonlySet<string>,
+): InspirationFilters {
+  function csv(key: string): string[] {
+    const raw = params.get(key);
+    if (!raw) return [];
+    return raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  }
+
+  const folderIds = new Set<Id<"folders">>();
+  for (const id of csv("folders")) {
+    if (validFolderIds.has(id)) folderIds.add(id as Id<"folders">);
+  }
+
+  const plateformes = new Set<Plateforme>();
+  for (const p of csv("plateformes")) {
+    if (VALID_PLATEFORMES.has(p as Plateforme)) {
+      plateformes.add(p as Plateforme);
+    }
+  }
+
+  const types = new Set<InspirationType>();
+  for (const t of csv("types")) {
+    if (VALID_TYPES.has(t as InspirationType)) {
+      types.add(t as InspirationType);
+    }
+  }
+
+  const tags = new Set<string>();
+  for (const t of csv("tags")) {
+    const normalized = t.toLowerCase();
+    if (validTags.has(normalized)) tags.add(normalized);
+  }
+
+  const isFavorite = params.get("favorites") === "1";
+  const search = (params.get("q") ?? "").trim();
+
+  return {
+    folderIds,
+    plateformes,
+    types,
+    isFavorite,
+    search,
+    tags,
+  };
+}
+
+// Type compat pour Next.js useSearchParams (ReadonlyURLSearchParams).
+type ReadonlyURLSearchParams = {
+  get(key: string): string | null;
+};

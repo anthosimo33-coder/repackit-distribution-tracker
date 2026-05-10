@@ -114,14 +114,14 @@ function FolderEditDialogForm({
           description: description.trim() || undefined,
           color,
         });
-        toast.success("Dossier mis à jour");
+        toast.success("Dossier modifié");
       } else {
         await createFolder({
           name: trimmed,
           description: description.trim() || undefined,
           color,
         });
-        toast.success(`Dossier "${trimmed}" créé`);
+        toast.success("Dossier créé");
       }
       onClose();
     } catch (e) {

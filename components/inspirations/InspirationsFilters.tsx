@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,10 +45,22 @@ export function InspirationsFilters({
 }) {
   const [searchInput, setSearchInput] = useState(filters.search);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track la dernière valeur committée par nous (debounce) pour distinguer
+  // les changements externes (URL deeplink, reset programmatique) de
+  // l'écho de notre propre commit. Permet de sync l'input local quand
+  // filters.search change externalement sans casser le debounce typing.
+  const lastCommittedRef = useRef(filters.search);
+
+  useEffect(() => {
+    if (filters.search === lastCommittedRef.current) return;
+    lastCommittedRef.current = filters.search;
+    setSearchInput(filters.search);
+  }, [filters.search]);
 
   function commitSearch(value: string) {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
+      lastCommittedRef.current = value;
       onFiltersChange({ ...filters, search: value });
     }, 300);
   }
@@ -60,6 +72,7 @@ export function InspirationsFilters({
 
   function reset() {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    lastCommittedRef.current = "";
     setSearchInput("");
     onFiltersChange(DEFAULT_FILTERS);
   }

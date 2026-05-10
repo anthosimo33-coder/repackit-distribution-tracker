@@ -38,6 +38,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ImageUploader } from "@/components/ImageUploader";
 import { PlatformBadge } from "@/components/VerdictBadge";
 import { FolderCombobox } from "./FolderCombobox";
+import { TagsInput } from "./TagsInput";
 import {
   InspirationStatsAccordion,
   type StatsValues,
@@ -91,11 +92,13 @@ export function InspirationDialog({
   onOpenChange,
   mode,
   inspirationId,
+  tagSuggestions = [],
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   mode: "create" | "edit";
   inspirationId?: Id<"inspirations">;
+  tagSuggestions?: string[];
 }) {
   const inspiration = useQuery(
     api.inspirations.getInspirationById,
@@ -119,6 +122,7 @@ export function InspirationDialog({
             mode={mode}
             initialData={mode === "edit" ? inspiration ?? null : null}
             onClose={() => onOpenChange(false)}
+            tagSuggestions={tagSuggestions}
           />
         )}
       </DialogContent>
@@ -159,10 +163,12 @@ function InspirationDialogForm({
   mode,
   initialData,
   onClose,
+  tagSuggestions,
 }: {
   mode: "create" | "edit";
   initialData: InspirationDoc | null;
   onClose: () => void;
+  tagSuggestions: string[];
 }) {
   const isEdit = mode === "edit";
 
@@ -194,9 +200,7 @@ function InspirationDialogForm({
   const [folderId, setFolderId] = useState<Id<"folders"> | null>(
     initialData?.folderId ?? null,
   );
-  const [tagsInput, setTagsInput] = useState(
-    (initialData?.tags ?? []).join(", "),
-  );
+  const [tags, setTags] = useState<string[]>(initialData?.tags ?? []);
   const [isFavorite, setIsFavorite] = useState(
     initialData?.isFavorite ?? false,
   );
@@ -263,7 +267,7 @@ function InspirationDialogForm({
         notes.length > 0 ||
         thumbnail !== null ||
         folderId !== null ||
-        tagsInput.length > 0 ||
+        tags.length > 0 ||
         isFavorite ||
         statsViews.length > 0 ||
         statsLikes.length > 0 ||
@@ -273,14 +277,17 @@ function InspirationDialogForm({
     }
     // En edit : dirty = différence par rapport à initialData.
     if (!initialData) return false;
-    const initialTags = (initialData.tags ?? []).join(", ");
+    const initialTags = initialData.tags ?? [];
+    const tagsEqual =
+      initialTags.length === tags.length &&
+      initialTags.every((t, idx) => t === tags[idx]);
     return (
       url !== initialData.url ||
       titre !== (initialData.titre ?? "") ||
       notes !== (initialData.notes ?? "") ||
       thumbnail !== (initialData.thumbnail ?? null) ||
       folderId !== (initialData.folderId ?? null) ||
-      tagsInput !== initialTags ||
+      !tagsEqual ||
       isFavorite !== (initialData.isFavorite ?? false) ||
       statsViews !== numToStr(initialData.stats?.views) ||
       statsLikes !== numToStr(initialData.stats?.likes) ||
@@ -350,10 +357,6 @@ function InspirationDialogForm({
     if (!canSubmit || !effectivePlateforme || !effectiveType) return;
     setSubmitting(true);
     try {
-      const tags = tagsInput
-        .split(",")
-        .map((t) => t.trim())
-        .filter((t) => t.length > 0);
       const stats = buildStats();
 
       if (isEdit && initialData) {
@@ -370,7 +373,7 @@ function InspirationDialogForm({
           isFavorite,
           tags,
         });
-        toast.success("Inspiration mise à jour");
+        toast.success("Inspiration modifiée");
       } else {
         await createInspiration({
           url: url.trim(),
@@ -384,7 +387,7 @@ function InspirationDialogForm({
           isFavorite,
           tags,
         });
-        toast.success("Inspiration enregistrée");
+        toast.success("Inspiration créée");
       }
       onClose();
     } catch (e) {
@@ -559,14 +562,16 @@ function InspirationDialogForm({
           <FolderCombobox value={folderId} onChange={setFolderId} />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="insp-tags">Tags</Label>
-          <Input
-            id="insp-tags"
-            placeholder="growth, b2b, hook"
-            value={tagsInput}
-            onChange={(e) => setTagsInput(e.target.value)}
+          <Label htmlFor="insp-tags-input">Tags</Label>
+          <TagsInput
+            value={tags}
+            onChange={setTags}
+            suggestions={tagSuggestions}
+            disabled={submitting}
           />
-          <p className="text-xs text-slate-500">Séparés par des virgules.</p>
+          <p className="text-xs text-slate-500">
+            Entrée, virgule ou Tab pour valider. Backspace pour retirer.
+          </p>
         </div>
       </div>
 

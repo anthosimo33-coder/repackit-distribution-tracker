@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -8,26 +8,46 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { InspirationsHeader } from "@/components/inspirations/InspirationsHeader";
 import { InspirationsFilters } from "@/components/inspirations/InspirationsFilters";
 import { InspirationGrid } from "@/components/inspirations/InspirationGrid";
+import { InspirationsList } from "@/components/inspirations/InspirationsList";
 import { InspirationsEmptyState } from "@/components/inspirations/InspirationsEmptyState";
+import { InspirationGridSkeleton } from "@/components/inspirations/InspirationGridSkeleton";
+import { InspirationsListSkeleton } from "@/components/inspirations/InspirationsListSkeleton";
 import { InspirationDialog } from "@/components/inspirations/InspirationDialog";
 import { FolderManagerSection } from "@/components/inspirations/FolderManagerSection";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { FolderRef } from "@/components/inspirations/InspirationCard";
 import {
   DEFAULT_FILTERS,
+  FILTER_PARAM_KEYS,
   filtersToQueryArgs,
+  filtersToSearchParams,
+  searchParamsToFilters,
   activeFilterCount,
   type InspirationFilters,
 } from "@/lib/inspiration-filters";
 
+const FILTER_KEYS_SET = new Set<string>(FILTER_PARAM_KEYS);
+
 /**
- * Batch F → G — pilier VEILLE. Page principale + bascule ?view=folders.
+ * Batch F → G → H — pilier VEILLE. Page principale unifiée :
+ *  - ?view=folders → FolderManagerSection (CRUD admin)
+ *  - ?view=list    → InspirationsList (vue tableau)
+ *  - default/grid  → InspirationGrid (vue cards)
  *
- * Mode "inspirations" (default) : header + filtres collapsable + grid + dialog
- * Mode "folders" (?view=folders) : FolderManagerSection CRUD
+ * Filtres + vue sérialisés en URL params pour deeplinks (Batch H).
  *
- * Filtres en local state (decision tranchée #3 — URL params en Batch H si
- * besoin). Pattern dialogKey pour reset clean state au close.
+ * Stratégie URL params : useState local pour `filters` (source réactive
+ * immédiate, pas de stale closure dans le debounce de search). Hydration
+ * UNE FOIS quand les queries résolvent — re-valide URL contre les
+ * folderIds/tags actuels. Sync filters → URL via useEffect après
+ * hydration. Comparaison filter-params-only évite les writes inutiles.
+ *
+ * Rationale vs URL-as-source-of-truth pattern : router.replace est async,
+ * donc filters dérivé via useMemo peut être stale momentanément entre
+ * setFilters et la propagation searchParams. Dans le debounce de
+ * InspirationsFilters (300ms), `{...filters, search: value}` capturerait
+ * alors les anciens filters dans la closure → query Convex avec mauvais
+ * args. useState garantit la cohérence du rendu synchronously.
  *
  * Wrapper Suspense pour useSearchParams (Next 16 le suspend).
  */
@@ -43,11 +63,7 @@ function PageSkeleton() {
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-6 p-4 sm:p-6">
       <Skeleton className="h-12 w-full" />
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <Skeleton key={i} className="aspect-square w-full" />
-        ))}
-      </div>
+      <InspirationGridSkeleton />
     </div>
   );
 }
@@ -55,20 +71,88 @@ function PageSkeleton() {
 function InspirationsPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const view = searchParams.get("view");
-  const isFoldersView = view === "folders";
+
+  const viewParam = searchParams.get("view");
+  const isFoldersView = viewParam === "folders";
+  const isListView = viewParam === "list";
+  const view: "grid" | "list" = isListView ? "list" : "grid";
+
+  const allInspirations = useQuery(api.inspirations.listInspirations, {});
+  const folders = useQuery(api.folders.listFolders, {});
+
+  const validFolderIds = useMemo(
+    () => new Set<string>((folders ?? []).map((f) => f._id)),
+    [folders],
+  );
+  const validTags = useMemo(() => {
+    const s = new Set<string>();
+    for (const i of allInspirations ?? []) {
+      for (const t of i.tags) s.add(t);
+    }
+    return s;
+  }, [allInspirations]);
+
+  const tagSuggestions = useMemo(
+    () =>
+      Array.from(validTags).sort((a, b) =>
+        a.localeCompare(b, "fr", { sensitivity: "base" }),
+      ),
+    [validTags],
+  );
 
   const [filters, setFilters] = useState<InspirationFilters>(DEFAULT_FILTERS);
-  const [showFilters, setShowFilters] = useState(false);
+  // Auto-open panneau filtres si l'URL au mount contient des filter params
+  // (cas deeplink). Évite que le user ouvre une URL filtrée et ne voit pas
+  // ses critères actifs.
+  const [showFilters, setShowFilters] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const params = new URLSearchParams(window.location.search);
+    return FILTER_PARAM_KEYS.some((k) => params.has(k));
+  });
+
+  const hydratedRef = useRef(false);
+
+  // Hydrate filters depuis URL une fois les 2 queries résolues. Strip
+  // silencieux des folderIds/tags stales (deletion dans autre tab, etc.).
+  // L'eslint-disable est ciblé : c'est une hydratation one-shot (gated par
+  // hydratedRef), pas un set-state-in-effect cascadant.
+  useEffect(() => {
+    if (hydratedRef.current) return;
+    if (folders === undefined || allInspirations === undefined) return;
+    hydratedRef.current = true;
+    const fromUrl = searchParamsToFilters(
+      searchParams,
+      validFolderIds,
+      validTags,
+    );
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFilters(fromUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [folders, allInspirations]);
+
+  // Sync filters → URL après hydration. Compare filter params actuels vs
+  // nouveaux pour éviter writes inutiles. Préserve view + autres params.
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    const newFilterParams = filtersToSearchParams(filters);
+    const currentFilterParams = new URLSearchParams();
+    for (const k of FILTER_PARAM_KEYS) {
+      const v = searchParams.get(k);
+      if (v) currentFilterParams.set(k, v);
+    }
+    if (newFilterParams.toString() === currentFilterParams.toString()) return;
+
+    const merged = new URLSearchParams();
+    for (const [k, v] of searchParams.entries()) {
+      if (!FILTER_KEYS_SET.has(k)) merged.set(k, v);
+    }
+    for (const [k, v] of newFilterParams.entries()) merged.set(k, v);
+    const qs = merged.toString();
+    router.replace(qs ? `/inspirations?${qs}` : "/inspirations");
+  }, [filters, searchParams, router]);
 
   const queryArgs = useMemo(() => filtersToQueryArgs(filters), [filters]);
   const inspirations = useQuery(api.inspirations.listInspirations, queryArgs);
-  // Unfiltered fetch utilisé pour 2 choses : alimenter les options du
-  // filtre Tags (sinon ils disparaissent quand on filtre par autre chose)
-  // et calculer le count "X inspirations" même quand un filtre est appliqué
-  // (sur la facet courante on a déjà inspirations.length).
-  const allInspirations = useQuery(api.inspirations.listInspirations, {});
-  const folders = useQuery(api.folders.listFolders, {});
 
   const folderMap = useMemo<Map<Id<"folders">, FolderRef>>(() => {
     const m = new Map<Id<"folders">, FolderRef>();
@@ -97,10 +181,18 @@ function InspirationsPageInner() {
     setDialogOpen(true);
   }
 
-  function navigate(view: "folders" | null) {
+  function navigate(nextView: "folders" | null) {
     const params = new URLSearchParams(searchParams);
-    if (view) params.set("view", view);
+    if (nextView) params.set("view", nextView);
     else params.delete("view");
+    const qs = params.toString();
+    router.replace(qs ? `/inspirations?${qs}` : "/inspirations");
+  }
+
+  function handleViewChange(next: "grid" | "list") {
+    const params = new URLSearchParams(searchParams);
+    if (next === "grid") params.delete("view");
+    else params.set("view", "list");
     const qs = params.toString();
     router.replace(qs ? `/inspirations?${qs}` : "/inspirations");
   }
@@ -125,6 +217,8 @@ function InspirationsPageInner() {
         onOpenFolders={() => navigate("folders")}
         filtersOpen={showFilters}
         activeFilterCount={filterCount}
+        view={view}
+        onViewChange={handleViewChange}
       />
 
       {showFilters && (
@@ -137,20 +231,11 @@ function InspirationsPageInner() {
       )}
 
       {inspirations === undefined ? (
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div
-              key={i}
-              className="overflow-hidden rounded-lg border border-slate-200 bg-white"
-            >
-              <Skeleton className="aspect-square w-full" />
-              <div className="space-y-2 p-3">
-                <Skeleton className="h-4 w-3/4" />
-                <Skeleton className="h-4 w-1/2" />
-              </div>
-            </div>
-          ))}
-        </div>
+        view === "list" ? (
+          <InspirationsListSkeleton />
+        ) : (
+          <InspirationGridSkeleton />
+        )
       ) : inspirations.length === 0 ? (
         hasAnyInspiration ? (
           <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-200 bg-slate-50/50 px-6 py-16 text-center">
@@ -164,6 +249,12 @@ function InspirationsPageInner() {
         ) : (
           <InspirationsEmptyState onCreate={openCreateDialog} />
         )
+      ) : view === "list" ? (
+        <InspirationsList
+          inspirations={inspirations}
+          folderMap={folderMap}
+          onCardClick={openEditDialog}
+        />
       ) : (
         <InspirationGrid
           inspirations={inspirations}
@@ -178,6 +269,7 @@ function InspirationsPageInner() {
         onOpenChange={setDialogOpen}
         mode={dialogMode}
         inspirationId={editingId ?? undefined}
+        tagSuggestions={tagSuggestions}
       />
     </div>
   );
