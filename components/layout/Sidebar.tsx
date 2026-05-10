@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import {
+  BookmarkIcon,
   BookOpenIcon,
   ChevronsLeftIcon,
   ChevronsRightIcon,
@@ -83,6 +84,17 @@ export function Sidebar({
     },
   ];
 
+  // Batch F — pilier VEILLE / Inspirations. Bibliothèque manuelle d'URLs
+  // (vidéos + comptes) cross-plateforme. Indépendant du tracker (publications).
+  const veilleItems = [
+    {
+      icon: BookmarkIcon,
+      label: "Inspirations",
+      href: "/inspirations",
+      isActive: pathname.startsWith("/inspirations"),
+    },
+  ];
+
   return (
     <aside
       className={cn(
@@ -131,6 +143,16 @@ export function Sidebar({
         </SidebarSection>
         <SidebarSection collapsed={collapsed} label="Contenu">
           {contenuItems.map((item) => (
+            <SidebarItem
+              key={item.href}
+              {...item}
+              isCollapsed={collapsed}
+              onNavigate={onNavigate}
+            />
+          ))}
+        </SidebarSection>
+        <SidebarSection collapsed={collapsed} label="Veille">
+          {veilleItems.map((item) => (
             <SidebarItem
               key={item.href}
               {...item}

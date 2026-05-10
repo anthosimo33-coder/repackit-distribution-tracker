@@ -184,4 +184,56 @@ export default defineSchema({
   })
     .index("by_name", ["name"])
     .index("by_mediaTypeScope", ["mediaTypeScope"]),
+
+  // Batch F — pilier VEILLE / Inspirations. Bibliothèque manuelle d'URLs
+  // (vidéos ou comptes) sur TikTok / Instagram / YouTube, organisée par
+  // dossiers + tags + favoris. Greenfield, pas de migration data.
+  //
+  // type est détecté côté client via lib/inspiration-url.ts mais l'override
+  // manuel reste possible (fallback Selects si l'autodétection échoue).
+  // thumbnail réutilise le pattern Convex storage du Batch D
+  // (generateUploadUrl + getPreviewUrl).
+  inspirations: defineTable({
+    url: v.string(),
+    type: v.union(v.literal("video"), v.literal("account")),
+    plateforme: v.union(
+      v.literal("TikTok"),
+      v.literal("Instagram"),
+      v.literal("YouTube"),
+    ),
+    thumbnail: v.optional(v.id("_storage")),
+    titre: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    // Stats manuelles capturées au moment de la saisie. Toutes optional —
+    // l'utilisateur peut skipper l'accordéon entièrement. capturedAt est
+    // utile pour Produit A futur (timeseries) si on décide d'élargir.
+    stats: v.optional(
+      v.object({
+        views: v.optional(v.number()),
+        likes: v.optional(v.number()),
+        followers: v.optional(v.number()),
+        comments: v.optional(v.number()),
+        capturedAt: v.optional(v.number()),
+      }),
+    ),
+    folderId: v.optional(v.id("folders")),
+    isFavorite: v.boolean(),
+    tags: v.array(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_folder", ["folderId"])
+    .index("by_plateforme", ["plateforme"])
+    .index("by_favorite", ["isFavorite"])
+    .index("by_createdAt", ["createdAt"]),
+
+  // Dossiers de classement pour les inspirations. color = clé palette
+  // (lib/folder-colors.ts à créer en Batch G), pas un hex direct.
+  folders: defineTable({
+    name: v.string(),
+    description: v.optional(v.string()),
+    color: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_name", ["name"]),
 });

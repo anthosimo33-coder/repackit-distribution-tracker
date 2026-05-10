@@ -55,4 +55,20 @@ export async function cleanupTestData() {
   } catch (e) {
     console.warn("Cleanup filterPresets failed:", (e as Error).message);
   }
+
+  // Batch F — pilier VEILLE. cleanupTestInspirations / cleanupTestFolders
+  // sont des mutations bulk côté Convex qui filtrent par marker [E2E_TEST]
+  // dans notes / description (cf convex/inspirations.ts + convex/folders.ts).
+  // deleteInspiration / deleteFolder publics ne shippent qu'en Batch G.
+  try {
+    await client.mutation(api.inspirations.cleanupTestInspirations, {});
+  } catch (e) {
+    console.warn("Cleanup inspirations failed:", (e as Error).message);
+  }
+
+  try {
+    await client.mutation(api.folders.cleanupTestFolders, {});
+  } catch (e) {
+    console.warn("Cleanup folders failed:", (e as Error).message);
+  }
 }
