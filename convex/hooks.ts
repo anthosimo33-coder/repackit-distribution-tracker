@@ -126,7 +126,7 @@ export const listHooks = query({
  * volume actuel (~10 pubs prod) impact négligeable. À 5000+ pubs, à
  * surveiller.
  */
-type MediaTypeServer = "carousel" | "short";
+type MediaTypeServer = "carousel" | "short" | "screenrecorder";
 
 export const listHooksWithUsage = query({
   args: {
@@ -166,14 +166,16 @@ export const listHooksWithUsage = query({
     type Usage = {
       publishedCarouselsCount: number;
       publishedShortsCount: number;
+      publishedScreenRecorderCount: number;
       draftCarouselsCount: number;
       draftShortsCount: number;
+      draftScreenRecorderCount: number;
       accountsUsed: Set<string>;
       lastPublishedAt: number | null;
       // Batch 3 Modif 6 : groupement parent ancré séparé par mediaType.
       // Une lignée de duplicats partage UN seul mediaType (cf duplicate
       // Carousel qui propage source.mediaType). Donc un parentAncre ne
-      // figure que dans UNE des 2 sous-maps.
+      // figure que dans UNE des 3 sous-maps (Batch D : 3e bucket SR).
       carouselsByParentAncreByFormat: Map<
         MediaTypeServer,
         Map<string, Set<string>>
@@ -189,8 +191,10 @@ export const listHooksWithUsage = query({
         ({
           publishedCarouselsCount: 0,
           publishedShortsCount: 0,
+          publishedScreenRecorderCount: 0,
           draftCarouselsCount: 0,
           draftShortsCount: 0,
+          draftScreenRecorderCount: 0,
           accountsUsed: new Set<string>(),
           lastPublishedAt: null,
           carouselsByParentAncreByFormat: new Map<
@@ -206,7 +210,8 @@ export const listHooksWithUsage = query({
         typeof pub.postUrl === "string" && pub.postUrl.length > 0;
       if (isPub) {
         if (mediaType === "carousel") u.publishedCarouselsCount += 1;
-        else u.publishedShortsCount += 1;
+        else if (mediaType === "short") u.publishedShortsCount += 1;
+        else u.publishedScreenRecorderCount += 1;
         u.accountsUsed.add(pub.compte);
         if (
           u.lastPublishedAt === null ||
@@ -216,7 +221,8 @@ export const listHooksWithUsage = query({
         }
       } else {
         if (mediaType === "carousel") u.draftCarouselsCount += 1;
-        else u.draftShortsCount += 1;
+        else if (mediaType === "short") u.draftShortsCount += 1;
+        else u.draftScreenRecorderCount += 1;
       }
 
       // Agrégation variantsCount intra-format : 2 sous-maps par mediaType.
@@ -260,10 +266,13 @@ export const listHooksWithUsage = query({
         ...h,
         publishedCarouselsCount: u?.publishedCarouselsCount ?? 0,
         publishedShortsCount: u?.publishedShortsCount ?? 0,
+        publishedScreenRecorderCount: u?.publishedScreenRecorderCount ?? 0,
         draftCarouselsCount: u?.draftCarouselsCount ?? 0,
         draftShortsCount: u?.draftShortsCount ?? 0,
+        draftScreenRecorderCount: u?.draftScreenRecorderCount ?? 0,
         variantsCountCarousel: variantsCountFor(u, "carousel"),
         variantsCountShort: variantsCountFor(u, "short"),
+        variantsCountScreenRecorder: variantsCountFor(u, "screenrecorder"),
         accountsUsed: u ? Array.from(u.accountsUsed).sort() : [],
         lastPublishedAt: u?.lastPublishedAt ?? null,
       };
@@ -287,12 +296,17 @@ export const listHooksWithUsage = query({
     if (args.hideUsed) {
       results = results.filter(
         (h) =>
-          h.publishedCarouselsCount === 0 && h.publishedShortsCount === 0,
+          h.publishedCarouselsCount === 0 &&
+          h.publishedShortsCount === 0 &&
+          h.publishedScreenRecorderCount === 0,
       );
     }
     if (args.hideDraft) {
       results = results.filter(
-        (h) => h.draftCarouselsCount === 0 && h.draftShortsCount === 0,
+        (h) =>
+          h.draftCarouselsCount === 0 &&
+          h.draftShortsCount === 0 &&
+          h.draftScreenRecorderCount === 0,
       );
     }
 
@@ -326,7 +340,11 @@ export const getHookVariants = query({
     // short) sur le format approprié. Si undefined : behavior antérieur
     // (tous formats), conservé pour compat des callsites existants.
     mediaType: v.optional(
-      v.union(v.literal("carousel"), v.literal("short")),
+      v.union(
+        v.literal("carousel"),
+        v.literal("short"),
+        v.literal("screenrecorder"),
+      ),
     ),
   },
   handler: async (ctx, args) => {

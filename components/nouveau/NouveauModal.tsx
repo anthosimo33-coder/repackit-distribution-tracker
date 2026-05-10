@@ -111,9 +111,13 @@ export function NouveauModal({
     if (state.data.mediaType === "carousel" && state.data.slides[0] === "") {
       dispatch({ type: "SET_SLIDE", index: 0, texte: hookText });
     } else if (
-      state.data.mediaType === "short" &&
+      (state.data.mediaType === "short" ||
+        state.data.mediaType === "screenrecorder") &&
       state.data.script === ""
     ) {
+      // Short et ScreenRecorder partagent le pre-fill script (même
+      // sémantique : hook = première phrase du script). Pour SR, le titre
+      // reste un champ explicite (pas de pre-fill auto).
       dispatch({ type: "SET_SCRIPT", script: hookText });
     }
     // IMPORTANT — slides + script volontairement HORS deps. Sinon vider
@@ -181,6 +185,19 @@ export function NouveauModal({
     } else if (state.data.mediaType === "short") {
       if (state.data.script.trim().length === 0) {
         toast.error("Le script ne peut pas être vide");
+        goto(3);
+        return;
+      }
+    } else if (state.data.mediaType === "screenrecorder") {
+      // Batch D — ScreenRecorder requiert titre (3-200 char) + image.
+      const titre = state.data.titre.trim();
+      if (titre.length < 3 || titre.length > 200) {
+        toast.error("Titre requis (3-200 caractères).");
+        goto(3);
+        return;
+      }
+      if (state.data.image === null) {
+        toast.error("Image requise pour ScreenRecorder.");
         goto(3);
         return;
       }
@@ -270,6 +287,13 @@ export function NouveauModal({
             position: i + 1,
             texte,
           })),
+        });
+      } else if (state.data.mediaType === "screenrecorder") {
+        await createPub({
+          ...baseArgs,
+          titre: state.data.titre.trim(),
+          image: state.data.image ?? undefined,
+          script: state.data.script.trim() || undefined,
         });
       } else {
         await createPub({

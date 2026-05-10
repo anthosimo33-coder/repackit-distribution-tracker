@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import {
   ALLOWED_PLATFORMS_FOR_CAROUSEL,
+  ALLOWED_PLATFORMS_FOR_SCREENRECORDER,
   ALLOWED_PLATFORMS_FOR_SHORT,
   type MediaType,
 } from "./media-type";
@@ -75,19 +76,18 @@ export const FORMAT_CONFIGS: Record<FormatKey, FormatConfig> = {
       "Vidéo verticale courte (TikTok, Reels, YouTube Shorts). Script continu.",
     route: "/shorts",
   },
-  // Note : la clé screenrecorder est typée à part car le union MediaType ne
-  // l'inclut pas encore. Batch D étendra le type ; jusque là, la card est
-  // affichée avec disabled=true et bloque la sélection.
+  // Batch D — ScreenRecorder activé (mediaType union étendu côté schema +
+  // helpers). Capture d'écran avec titre + image d'accompagnement, 3
+  // plateformes (cohérent Shorts).
   screenrecorder: {
-    mediaType: "screenrecorder" as unknown as MediaType,
+    mediaType: "screenrecorder",
     singular: "ScreenRecorder",
     plural: "ScreenRecorders",
     newButtonLabel: "Nouveau ScreenRecorder",
-    allowedPlatforms: ALL_PLATFORMS,
+    allowedPlatforms: ALLOWED_PLATFORMS_FOR_SCREENRECORDER,
     icon: MonitorIcon,
     cardDescription:
-      "Capture d'écran narrée (3 plateformes). Disponible bientôt.",
+      "Capture d'écran avec titre et image d'accompagnement (3 plateformes).",
     route: "/screenrecorder",
-    disabled: true,
   },
 };

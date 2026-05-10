@@ -131,17 +131,29 @@ function DashboardContent({
     (p) => getMediaType(p) === "carousel",
   );
   const shortPubs = publishedAll.filter((p) => getMediaType(p) === "short");
+  // Batch D — ScreenRecorder partage le shape métriques de Short
+  // (likes/subsGained/comments) → mêmes helpers stats côté pages format.
+  // Ici on ne distingue pas, on agrège tout via les helpers Shorts.
+  const screenRecorderPubs = publishedAll.filter(
+    (p) => getMediaType(p) === "screenrecorder",
+  );
 
   // KPIs cross-format dérivés des helpers existants pour cohérence avec les
   // pages format (pas de re-calcul ad-hoc qui pourrait dériver des stats par
-  // format). Save rate carousel-only ; Subs short-only.
+  // format). Save rate carousel-only ; Subs short + screenrecorder.
   const carouselStats = getGlobalStats(carouselPubs);
   const shortsStats = getGlobalStatsShorts(shortPubs);
+  const screenRecorderStats = getGlobalStatsShorts(screenRecorderPubs);
 
-  const totalPublished = carouselStats.total + shortsStats.total;
+  const totalPublished =
+    carouselStats.total + shortsStats.total + screenRecorderStats.total;
   const totalDrafts = filteredPublications.length - totalPublished;
-  const totalVues = carouselStats.totalVues + shortsStats.totalVuesJ7;
-  const totalSubsGained = shortsStats.totalSubsGained;
+  const totalVues =
+    carouselStats.totalVues +
+    shortsStats.totalVuesJ7 +
+    screenRecorderStats.totalVuesJ7;
+  const totalSubsGained =
+    shortsStats.totalSubsGained + screenRecorderStats.totalSubsGained;
 
   // Engagement rate cross-format : (likes + comments) / vues, agrégé sum.
   // Likes et subsGained existent uniquement sur les Shorts (carousel n'a
@@ -166,7 +178,7 @@ function DashboardContent({
     carouselId: string;
     plateforme: string;
     vuesJ7: number;
-    mediaType: "carousel" | "short";
+    mediaType: "carousel" | "short" | "screenrecorder";
   };
   const carouselTopRows: TopRow[] = getTopHooks(carouselPubs, 10).map((h) => ({
     hookText: h.hookText,
@@ -182,7 +194,21 @@ function DashboardContent({
     vuesJ7: h.vuesJ7,
     mediaType: "short",
   }));
-  const topMix = [...carouselTopRows, ...shortTopRows]
+  const screenRecorderTopRows: TopRow[] = getTopHooksShorts(
+    screenRecorderPubs,
+    10,
+  ).map((h) => ({
+    hookText: h.hookText,
+    carouselId: h.carouselId,
+    plateforme: h.plateforme,
+    vuesJ7: h.vuesJ7,
+    mediaType: "screenrecorder",
+  }));
+  const topMix = [
+    ...carouselTopRows,
+    ...shortTopRows,
+    ...screenRecorderTopRows,
+  ]
     .sort((a, b) => b.vuesJ7 - a.vuesJ7)
     .slice(0, 3);
 
@@ -265,7 +291,11 @@ function DashboardContent({
                           : h.hookText}
                       </TableCell>
                       <TableCell className="text-xs">
-                        {h.mediaType === "carousel" ? "Carrousel" : "Short"}
+                        {h.mediaType === "carousel"
+                          ? "Carrousel"
+                          : h.mediaType === "screenrecorder"
+                            ? "ScreenRecorder"
+                            : "Short"}
                       </TableCell>
                       <TableCell className="font-mono text-xs">
                         {h.carouselId}

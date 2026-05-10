@@ -50,9 +50,11 @@ import { isPublished } from "@/lib/publication-status";
 import {
   getMediaType,
   ALLOWED_PLATFORMS_FOR_CAROUSEL,
+  ALLOWED_PLATFORMS_FOR_SCREENRECORDER,
   ALLOWED_PLATFORMS_FOR_SHORT,
   type MediaType,
 } from "@/lib/media-type";
+import { FORMAT_CONFIGS } from "@/lib/format-config";
 import {
   DEFAULT_SORT,
   filtersEqual,
@@ -142,10 +144,13 @@ function getSortValue(
 
 // Colonnes du tableau publications. Identifiant typé strict pour qu'un futur
 // ajout/suppression force la mise à jour synchrone des deux callsites.
+// Batch D — ajout image (thumbnail) et titre, ScreenRecorder uniquement.
 type ColumnKey =
   | "date"
+  | "image"
   | "carouselId"
   | "hook"
+  | "titre"
   | "plateforme"
   | "compte"
   | "mecanique"
@@ -188,6 +193,31 @@ const SHORT_COLUMNS: readonly ColumnKey[] = [
   "subsGained",
   "actions",
 ];
+
+// Batch D — ScreenRecorder columns : image (thumbnail à gauche) + titre +
+// métriques short-like (likes/subsGained). Pas de saves/saveRate/verdict
+// (carousel-only) ni de format A-H.
+const SCREENRECORDER_COLUMNS: readonly ColumnKey[] = [
+  "date",
+  "image",
+  "carouselId",
+  "hook",
+  "titre",
+  "plateforme",
+  "compte",
+  "mecanique",
+  "angle",
+  "vues",
+  "likes",
+  "subsGained",
+  "actions",
+];
+
+function columnsForMediaType(mediaType: MediaType): readonly ColumnKey[] {
+  if (mediaType === "carousel") return CAROUSEL_COLUMNS;
+  if (mediaType === "screenrecorder") return SCREENRECORDER_COLUMNS;
+  return SHORT_COLUMNS;
+}
 
 /**
  * TrackerListSection — composant de listing tracker paramétré par mediaType.
@@ -362,6 +392,7 @@ export function TrackerListSection({
     if (mediaType === "carousel") {
       return new Set<SortKey>(["likes", "subsGained"]);
     }
+    // Short ET ScreenRecorder : pas de saveRate (carousel-only).
     return new Set<SortKey>(["saveRate"]);
   }, [mediaType]);
 
@@ -380,8 +411,7 @@ export function TrackerListSection({
   }, [disabledSortKeys, sortKey]);
 
   const visibleColumns = useMemo<ReadonlySet<ColumnKey>>(
-    () =>
-      new Set(mediaType === "carousel" ? CAROUSEL_COLUMNS : SHORT_COLUMNS),
+    () => new Set(columnsForMediaType(mediaType)),
     [mediaType],
   );
 
@@ -529,11 +559,13 @@ export function TrackerListSection({
   if (publications === undefined) return <LoadingState />;
 
   // Plateformes éligibles dans le filtre selon le format. Carousel masque
-  // YouTube ; short autorise les 3.
+  // YouTube ; short et screenrecorder autorisent les 3.
   const platformOptions =
     mediaType === "carousel"
       ? [...ALLOWED_PLATFORMS_FOR_CAROUSEL]
-      : [...ALLOWED_PLATFORMS_FOR_SHORT];
+      : mediaType === "screenrecorder"
+        ? [...ALLOWED_PLATFORMS_FOR_SCREENRECORDER]
+        : [...ALLOWED_PLATFORMS_FOR_SHORT];
 
   return (
     <div className="space-y-6">
@@ -666,14 +698,15 @@ export function TrackerListSection({
             {filtered.length === 0 ? (
               <>
                 Aucun{" "}
-                {mediaType === "carousel" ? "carrousel" : "Short"} trouvé pour{" "}
+                {FORMAT_CONFIGS[mediaType].singular.toLowerCase()} trouvé pour{" "}
                 <span className="font-mono font-semibold">
                   {carouselIdParam}
                 </span>
               </>
             ) : (
               <>
-                Filtré sur le {mediaType === "carousel" ? "carrousel" : "Short"}{" "}
+                Filtré sur le{" "}
+                {FORMAT_CONFIGS[mediaType].singular.toLowerCase()}{" "}
                 <span className="font-mono font-semibold">
                   {carouselIdParam}
                 </span>
@@ -685,9 +718,7 @@ export function TrackerListSection({
             size="sm"
             className="h-7 text-violet-700 hover:bg-violet-100 hover:text-violet-900"
             onClick={() =>
-              router.replace(
-                mediaType === "carousel" ? "/carrousels" : "/shorts",
-              )
+              router.replace(FORMAT_CONFIGS[mediaType].route)
             }
           >
             Effacer
@@ -915,10 +946,16 @@ function PublicationsSection({
                   Date
                 </SortableHead>
               )}
+              {visibleColumns.has("image") && (
+                <TableHead className="w-14">Image</TableHead>
+              )}
               {visibleColumns.has("carouselId") && (
                 <TableHead>Carrousel</TableHead>
               )}
               {visibleColumns.has("hook") && <TableHead>Hook</TableHead>}
+              {visibleColumns.has("titre") && (
+                <TableHead>Titre</TableHead>
+              )}
               {visibleColumns.has("plateforme") && (
                 <TableHead>Plateforme</TableHead>
               )}
@@ -997,6 +1034,22 @@ function PublicationsSection({
                       {formatDate(p.datePubli)}
                     </TableCell>
                   )}
+                  {visibleColumns.has("image") && (
+                    <TableCell className="w-14">
+                      {(p as { imageUrl?: string | null }).imageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={
+                            (p as { imageUrl?: string | null }).imageUrl ?? ""
+                          }
+                          alt={p.titre ?? "image"}
+                          className="size-10 rounded object-cover"
+                        />
+                      ) : (
+                        <div className="size-10 rounded bg-slate-100" />
+                      )}
+                    </TableCell>
+                  )}
                   {visibleColumns.has("carouselId") && (
                     <TableCell className="font-mono text-xs">
                       {p.carouselId}
@@ -1010,6 +1063,16 @@ function PublicationsSection({
                       {p.hookText.length > 60
                         ? p.hookText.slice(0, 60) + "…"
                         : p.hookText}
+                    </TableCell>
+                  )}
+                  {visibleColumns.has("titre") && (
+                    <TableCell
+                      className="max-w-[200px] truncate text-sm font-medium"
+                      title={p.titre ?? ""}
+                    >
+                      {p.titre ?? (
+                        <span className="text-slate-400">—</span>
+                      )}
                     </TableCell>
                   )}
                   {visibleColumns.has("plateforme") && (
@@ -1215,7 +1278,9 @@ function DuplicateCarouselDialog({
   const allowedPlatforms =
     sourceMediaType === "carousel"
       ? ALLOWED_PLATFORMS_FOR_CAROUSEL
-      : ALLOWED_PLATFORMS_FOR_SHORT;
+      : sourceMediaType === "screenrecorder"
+        ? ALLOWED_PLATFORMS_FOR_SCREENRECORDER
+        : ALLOWED_PLATFORMS_FOR_SHORT;
   type TargetPlateforme = "" | "TikTok" | "Instagram" | "YouTube";
 
   const [plateforme, setPlateforme] = useState<TargetPlateforme>("");
@@ -1556,7 +1621,7 @@ function EmptyOrFiltered({
   // publishedCount === 0 : aucune publication de ce format en DB → état initial.
   // > 0 : il y en a, mais aucune ne matche les filtres courants.
   if (publishedCount === 0) {
-    const label = mediaType === "carousel" ? "carrousel" : "Short";
+    const label = FORMAT_CONFIGS[mediaType].singular;
     return (
       <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-slate-300 bg-white py-16 text-center">
         <p className="text-sm text-slate-500">

@@ -11,7 +11,7 @@ import type { MediaType } from "@/lib/media-type";
 import type { Id } from "@/convex/_generated/dataModel";
 
 const STORAGE_KEY = "sidebar-collapsed";
-const VALID_FORMATS = ["carousel", "short"] as const;
+const VALID_FORMATS = ["carousel", "short", "screenrecorder"] as const;
 
 /**
  * Layout root sidebar + main slot. Logique :
@@ -152,7 +152,12 @@ function NouveauModalController() {
   }
 
   function handleSuccess(carouselId: string, mediaType: MediaType) {
-    const route = mediaType === "carousel" ? "/carrousels" : "/shorts";
+    const route =
+      mediaType === "carousel"
+        ? "/carrousels"
+        : mediaType === "screenrecorder"
+          ? "/screenrecorder"
+          : "/shorts";
     router.push(`${route}?carouselId=${carouselId}`);
   }
 

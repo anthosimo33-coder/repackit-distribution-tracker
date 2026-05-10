@@ -41,8 +41,11 @@ export type NouveauData = {
   format: FormatLetter;
   nbSlides: number;
   slides: string[];
-  // short
+  // short + screenrecorder
   script: string;
+  // screenrecorder uniquement (Batch D)
+  titre: string;
+  image: Id<"_storage"> | null;
   // publication
   plateformes: string[];
   compte: string;
@@ -76,6 +79,8 @@ export type NouveauAction =
   | { type: "SET_SLIDES"; slides: string[] }
   | { type: "SET_SLIDE"; index: number; texte: string }
   | { type: "SET_SCRIPT"; script: string }
+  | { type: "SET_TITRE"; titre: string }
+  | { type: "SET_IMAGE"; image: Id<"_storage"> | null }
   | { type: "SET_PLATEFORMES"; plateformes: string[] }
   | { type: "TOGGLE_PLATEFORME"; plateforme: string }
   | { type: "SET_COMPTE"; compte: string }
@@ -101,6 +106,8 @@ function initialData(): NouveauData {
     nbSlides: DEFAULT_NB_SLIDES,
     slides: Array(DEFAULT_NB_SLIDES).fill(""),
     script: "",
+    titre: "",
+    image: null,
     plateformes: [],
     compte: "",
     datePubli: Date.now(),
@@ -189,6 +196,10 @@ function reducer(state: NouveauState, action: NouveauAction): NouveauState {
     }
     case "SET_SCRIPT":
       return { ...state, data: { ...state.data, script: action.script } };
+    case "SET_TITRE":
+      return { ...state, data: { ...state.data, titre: action.titre } };
+    case "SET_IMAGE":
+      return { ...state, data: { ...state.data, image: action.image } };
     case "SET_PLATEFORMES":
       return {
         ...state,
@@ -223,6 +234,8 @@ export function isDataDirty(data: NouveauData): boolean {
   if (data.hookId !== null) return true;
   if (data.script.trim().length > 0) return true;
   if (data.slides.some((s) => s.trim().length > 0)) return true;
+  if (data.titre.trim().length > 0) return true;
+  if (data.image !== null) return true;
   if (data.plateformes.length > 0) return true;
   if (data.compte.length > 0) return true;
   if (data.notes.trim().length > 0) return true;

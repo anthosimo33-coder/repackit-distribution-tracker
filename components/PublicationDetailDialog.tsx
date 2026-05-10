@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import type { Doc } from "@/convex/_generated/dataModel";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
+import { ImageUploader } from "@/components/ImageUploader";
 import {
   Dialog,
   DialogContent,
@@ -78,13 +79,21 @@ function Field({
  * avec ce que la table montre déjà. Sur un publié, l'inverse : on protège
  * l'historique et l'édition des stats passe par un dialog dédié.
  */
+// Batch D — type étendu : la query listPublications enrichit chaque row
+// avec imageUrl résolu (cf convex/publications.ts). Les composants qui
+// consomment ces rows doivent typer avec l'augmentation. Doc<"publications">
+// reste la source de vérité pour les champs persistés.
+export type PublicationWithImage = Doc<"publications"> & {
+  imageUrl?: string | null;
+};
+
 export function PublicationDetailDialog({
   publication,
   open,
   onOpenChange,
   onEdit,
 }: {
-  publication: Doc<"publications">;
+  publication: PublicationWithImage;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onEdit: () => void;
@@ -116,17 +125,19 @@ function PublishedView({
   onOpenChange,
   onEdit,
 }: {
-  publication: Doc<"publications">;
+  publication: PublicationWithImage;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onEdit: () => void;
 }) {
   // Batch 2 Modif 4c — coercion mediaType pour le rendu conditionnel.
-  // En mode short : script à la place des slides, likes+subsGained à la
-  // place de saves dans les métriques, save rate + verdict masqués dans
-  // la section stats calculées. Aucune restructuration du layout général.
+  // Batch D — branche screenrecorder ajoutée : titre + image en plus.
+  // Pour les métriques, ScreenRecorder partage le shape Short
+  // (likes/subsGained, pas de saveRate/verdict).
   const mediaType = getMediaType(publication);
   const isShort = mediaType === "short";
+  const isScreenRecorder = mediaType === "screenrecorder";
+  const isVideoFormat = isShort || isScreenRecorder;
   const saveRate = calculateSaveRate(publication.saves, publication.vuesJ7);
   const verdict = calculateVerdict(saveRate);
   const auditConv = calculateAuditConversion(
@@ -167,6 +178,37 @@ function PublishedView({
             </a>
           </div>
 
+          {/* Batch D — Section ScreenRecorder : image preview large +
+              titre. Affiché uniquement pour ce mediaType (carousel/short
+              n'ont ni titre ni image). L'image est cliquable pour ouvrir
+              la URL Convex en plein écran (target=_blank). */}
+          {isScreenRecorder && publication.imageUrl && (
+            <div className="space-y-2">
+              <div className="text-xs font-medium text-slate-500">Image</div>
+              <a
+                href={publication.imageUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block max-w-md overflow-hidden rounded-md border border-slate-200 hover:opacity-90"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={publication.imageUrl}
+                  alt={publication.titre ?? "ScreenRecorder image"}
+                  className="aspect-video w-full object-cover"
+                />
+              </a>
+            </div>
+          )}
+          {isScreenRecorder && publication.titre && (
+            <div>
+              <div className="text-xs font-medium text-slate-500">Titre</div>
+              <p className="mt-1 text-base font-semibold text-slate-900">
+                {publication.titre}
+              </p>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <Field label="Mécanique">
               <Badge variant="secondary">{publication.mecanique}</Badge>
@@ -175,7 +217,7 @@ function PublishedView({
               <Badge variant="outline">{publication.niveau}</Badge>
             </Field>
             <Field label="Format">
-              {isShort ? (
+              {isVideoFormat ? (
                 <span className="text-slate-400">—</span>
               ) : (
                 publication.format
@@ -194,7 +236,7 @@ function PublishedView({
               })}
             </Field>
             <Field label="Nb slides">
-              {isShort ? (
+              {isVideoFormat ? (
                 <span className="text-slate-400">—</span>
               ) : (
                 publication.nbSlides
@@ -206,7 +248,7 @@ function PublishedView({
             Batch 2 Modif 4c — script (Short) ou liste de slides (Carousel).
             Le script préserve les sauts de ligne via whitespace-pre-wrap.
           */}
-          {isShort ? (
+          {isVideoFormat ? (
             <div>
               <div className="mb-2 text-xs font-medium text-slate-500">
                 Script
@@ -258,7 +300,7 @@ function PublishedView({
                 via la condition positive (cohérent avec l'inversion
                 isTikTok → isInstagram dans PublicationEditDialog).
               */}
-              {isShort ? (
+              {isVideoFormat ? (
                 <>
                   <Field label="Likes">
                     {formatNumber(publication.likes)}
@@ -293,13 +335,13 @@ function PublishedView({
             futur). Si en short toutes les sub-stats sont absentes, on ne
             rend pas la section pour éviter une boîte vide.
           */}
-          {(!isShort || publication.plateforme === "Instagram") && (
+          {(!isVideoFormat || publication.plateforme === "Instagram") && (
             <div>
               <div className="mb-2 text-xs font-medium text-slate-500">
                 Stats calculées
               </div>
               <div className="flex flex-wrap items-center gap-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
-                {!isShort && (
+                {!isVideoFormat && (
                   <div>
                     <span className="text-slate-500">Save rate :</span>{" "}
                     <span className="font-semibold">
@@ -315,7 +357,7 @@ function PublishedView({
                     </span>
                   </div>
                 )}
-                {!isShort && (
+                {!isVideoFormat && (
                   <div className="flex items-center gap-2">
                     <span className="text-slate-500">Verdict :</span>
                     <VerdictBadge verdict={verdict} />
@@ -355,24 +397,30 @@ function DraftEditView({
   open,
   onOpenChange,
 }: {
-  publication: Doc<"publications">;
+  publication: PublicationWithImage;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
   // Batch 2 Modif 4c — coercion mediaType pour brancher slides ↔ script.
   // Le mediaType d'un draft ne change pas (cf décision 8 : pas de switch
   // de format après création), donc on le calcule au mount et on garde.
+  // Batch D — branche screenrecorder ajoutée : titre + image éditables.
   const mediaType = getMediaType(publication);
   const isShort = mediaType === "short";
+  const isScreenRecorder = mediaType === "screenrecorder";
+  const isVideoFormat = isShort || isScreenRecorder;
 
   // État form local — initialisé depuis publication. Le parent (tracker) passe
   // key={viewingPub._id} sur le dialog, donc le composant remonte quand on
   // ouvre une autre publication → useState ré-init naturellement, pas besoin
   // d'un useEffect de synchronisation.
-  // 2 useStates parallèles : slides (Carousel) ET script (Short). Permet de
-  // garder le code symétrique et d'éviter une union type discriminante.
   const [slides, setSlides] = useState(publication.slides ?? []);
   const [script, setScript] = useState(publication.script ?? "");
+  const [titre, setTitre] = useState(publication.titre ?? "");
+  // image: storageId (null = supprimée, undefined = non touchée).
+  const [image, setImage] = useState<Id<"_storage"> | null | undefined>(
+    publication.image ?? null,
+  );
   const [datePubli, setDatePubli] = useState<Date>(
     new Date(publication.datePubli),
   );
@@ -418,6 +466,18 @@ function DraftEditView({
       toast.error("Le script ne peut pas être vide.");
       return;
     }
+    // Batch D — ScreenRecorder : titre 3-200 + image requise.
+    if (isScreenRecorder) {
+      const t = titre.trim();
+      if (t.length < 3 || t.length > 200) {
+        toast.error("Titre requis (3-200 caractères).");
+        return;
+      }
+      if (image === null || image === undefined) {
+        toast.error("Image requise pour ScreenRecorder.");
+        return;
+      }
+    }
     // Si comptesData est encore en cours de chargement (Convex query non
     // résolue), on saute la validation côté client. La validation côté serveur
     // dans updateDraft attrape toute incohérence et throw avec un message clair.
@@ -436,9 +496,22 @@ function DraftEditView({
       // sont déjà des champs optionnels du patch (cf updateDraft serveur
       // étendu Batch 1). On envoie uniquement le pertinent pour minimiser
       // les patches DB.
-      await updateDraft({
-        carouselId: publication.carouselId,
-        patch: isShort
+      // Patch shape selon mediaType :
+      //   - carousel : slides
+      //   - short : script
+      //   - screenrecorder : script + titre + image
+      const patchPayload = isScreenRecorder
+        ? {
+            script: script.trim(),
+            titre: titre.trim(),
+            // image: undefined = ne pas toucher ; null = supprimer la
+            // référence storage (pas de cascade sur le blob — TD-011).
+            image: image === undefined ? undefined : image,
+            datePubli: datePubli.getTime(),
+            compte,
+            plateforme,
+          }
+        : isShort
           ? {
               script: script.trim(),
               datePubli: datePubli.getTime(),
@@ -450,7 +523,10 @@ function DraftEditView({
               datePubli: datePubli.getTime(),
               compte,
               plateforme,
-            },
+            };
+      await updateDraft({
+        carouselId: publication.carouselId,
+        patch: patchPayload,
       });
 
       // 2. Lien de publication = per-row (chaque plateforme a son propre lien).
@@ -573,18 +649,48 @@ function DraftEditView({
           </div>
 
           {/*
-            Batch 2 Modif 4c — édition script (Short) ou liste de slides
+            Batch 2 Modif 4c — édition script (Short/SR) ou liste de slides
             (Carousel). Le script est édité dans un seul Textarea long
             (rows=12 pour donner de la place à un texte vidéo continu).
+            Batch D — pour ScreenRecorder, on ajoute Titre + ImageUploader
+            au-dessus du script.
           */}
-          {isShort ? (
+          {isScreenRecorder && (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-titre">Titre</Label>
+                <Input
+                  id="edit-titre"
+                  value={titre}
+                  onChange={(e) => setTitre(e.target.value)}
+                  placeholder="Titre du ScreenRecorder (3-200 caractères)"
+                  maxLength={200}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Image</Label>
+                <ImageUploader
+                  value={image ?? null}
+                  imageUrl={publication.imageUrl ?? null}
+                  onChange={(storageId) => setImage(storageId)}
+                />
+              </div>
+            </div>
+          )}
+          {isVideoFormat ? (
             <div className="space-y-1.5">
-              <Label htmlFor="edit-script">Script de la vidéo</Label>
+              <Label htmlFor="edit-script">
+                {isScreenRecorder ? "Script (optionnel)" : "Script de la vidéo"}
+              </Label>
               <Textarea
                 id="edit-script"
                 rows={12}
                 value={script}
-                placeholder="Texte intégral du Short…"
+                placeholder={
+                  isScreenRecorder
+                    ? "Script de la narration — optionnel."
+                    : "Texte intégral du Short…"
+                }
                 onChange={(e) => setScript(e.target.value)}
                 className="whitespace-pre-wrap"
               />

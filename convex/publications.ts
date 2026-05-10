@@ -46,19 +46,23 @@ const plateformeValidator = v.union(
 const mediaTypeValidator = v.union(
   v.literal("carousel"),
   v.literal("short"),
+  v.literal("screenrecorder"),
 );
+
+type MediaTypeServer = "carousel" | "short" | "screenrecorder";
 
 // Defense in depth — dupliqué côté serveur (Convex) car on ne peut pas
 // importer lib/media-type.ts depuis un module Convex (tsconfig séparé).
-// Logique alignée avec ALLOWED_PLATFORMS_FOR_CAROUSEL/SHORT côté client.
+// Logique alignée avec ALLOWED_PLATFORMS_FOR_* côté client.
 function isFormatAllowedOnPlatform(
-  mediaType: "carousel" | "short",
+  mediaType: MediaTypeServer,
   plateforme: "TikTok" | "Instagram" | "YouTube",
 ): boolean {
   if (mediaType === "carousel") {
     return plateforme === "TikTok" || plateforme === "Instagram";
   }
-  return true; // Shorts autorisés sur les 3 plateformes
+  // Short et ScreenRecorder : autorisés sur les 3 plateformes.
+  return true;
 }
 
 export const createPublication = mutation({
@@ -78,8 +82,12 @@ export const createPublication = mutation({
     slides: v.optional(
       v.array(v.object({ position: v.number(), texte: v.string() })),
     ),
-    // Short-only : script continu remplaçant les slides découpées.
+    // Short-only : script continu remplaçant les slides découpées. Réutilisé
+    // par ScreenRecorder.
     script: v.optional(v.string()),
+    // Batch D — ScreenRecorder uniquement. Validation handler ci-dessous.
+    titre: v.optional(v.string()),
+    image: v.optional(v.id("_storage")),
     angleTonal: angleValidator,
     langue: langueValidator,
     plateformes: v.array(plateformeValidator),
@@ -104,6 +112,21 @@ export const createPublication = mutation({
     }
     // Short : pas d'exigence stricte sur script (peut être saisi plus tard
     // via updateDraft). L'UI Batch 2 imposera son propre garde-fou.
+    //
+    // Batch D — ScreenRecorder : titre (3-200 char trim) ET image
+    // (storageId non null) sont REQUIS au moment de la création. script
+    // reste optional (peut être saisi plus tard, comme un Short).
+    if (mediaType === "screenrecorder") {
+      const trimmed = (args.titre ?? "").trim();
+      if (trimmed.length < 3 || trimmed.length > 200) {
+        throw new ConvexError(
+          "ScreenRecorder : titre requis (3-200 caractères).",
+        );
+      }
+      if (args.image === undefined || args.image === null) {
+        throw new ConvexError("ScreenRecorder : image requise.");
+      }
+    }
 
     // Couple plateforme/mediaType : carrousel non autorisé sur YouTube.
     for (const plateforme of args.plateformes) {
@@ -130,6 +153,10 @@ export const createPublication = mutation({
         nbSlides: args.nbSlides,
         slides: args.slides,
         script: args.script,
+        // Batch D — ScreenRecorder uniquement. Pour carousel/short, ces
+        // valeurs sont undefined (silencieusement ignorées au insert).
+        titre: args.titre,
+        image: args.image,
         angleTonal: args.angleTonal,
         langue: args.langue,
         plateforme,
@@ -168,14 +195,34 @@ export const getNextCarouselId = query({
   },
 });
 
+/**
+ * Batch D — listPublications enrichit chaque row avec `imageUrl` (résolu
+ * depuis le storageId via ctx.storage.getUrl). N+1 acceptable au volume
+ * actuel ; à 100+ ScreenRecorders, optimiser via batched query (TD-011).
+ *
+ * Pour les rows sans image (carousel/short ou ScreenRecorder dont l'image
+ * a été supprimée du storage), imageUrl = null. Le client ne doit JAMAIS
+ * s'appuyer sur p.image directement pour afficher une URL — toujours
+ * passer par imageUrl exposé par cette query.
+ */
 export const listPublications = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db
+    const rows = await ctx.db
       .query("publications")
       .withIndex("by_datePubli")
       .order("desc")
       .collect();
+
+    return await Promise.all(
+      rows.map(async (p) => {
+        const imageUrl =
+          p.image !== undefined && p.image !== null
+            ? await ctx.storage.getUrl(p.image)
+            : null;
+        return { ...p, imageUrl };
+      }),
+    );
   },
 });
 
@@ -201,7 +248,7 @@ export const getByCarouselId = query({
     return {
       _id: row._id,
       carouselId: row.carouselId,
-      mediaType: (row.mediaType ?? "carousel") as "carousel" | "short",
+      mediaType: (row.mediaType ?? "carousel") as MediaTypeServer,
     };
   },
 });
@@ -292,8 +339,8 @@ export const duplicateCarousel = mutation({
     // pré-Shorts ont mediaType undefined → coerce en "carousel" (cohérent
     // avec getMediaType côté client). La cohérence format/plateforme cible
     // est validée juste après.
-    const sourceMediaType: "carousel" | "short" =
-      source.mediaType ?? "carousel";
+    // Batch D — supporte aussi "screenrecorder" (le union étendu).
+    const sourceMediaType: MediaTypeServer = source.mediaType ?? "carousel";
 
     if (!isFormatAllowedOnPlatform(sourceMediaType, args.targetPlateforme)) {
       throw new ConvexError(
@@ -345,6 +392,13 @@ export const duplicateCarousel = mutation({
       nbSlides: source.nbSlides,
       slides: source.slides,
       script: source.script,
+      // Batch D — ScreenRecorder uniquement. Décision tranchée : on PARTAGE
+      // le storageId (économique, simple). Les 2 publications référencent
+      // le même blob. Conséquence documentée : supprimer l'image d'une pub
+      // orphelinerait le partage côté Convex storage. Pas de cascade
+      // implémentée dans deletePublication (TD-011).
+      titre: source.titre,
+      image: source.image,
       angleTonal: source.angleTonal,
       langue: source.langue,
       plateforme: args.targetPlateforme,
@@ -392,8 +446,15 @@ export const updateDraft = mutation({
       ),
       // Batch 1 Shorts — script éditable au niveau carrousel pour les Shorts.
       // Les Carrousels n'utilisent pas ce champ ; l'UI Batch 2 affichera l'un
-      // ou l'autre selon mediaType.
+      // ou l'autre selon mediaType. Réutilisé par ScreenRecorder (Batch D).
       script: v.optional(v.string()),
+      // Batch D — ScreenRecorder uniquement. Le DraftEditView du dialog
+      // détail expose Input titre + ImageUploader. titre vide = "" pour
+      // distinguer absent (undefined côté DB) vs reset explicite.
+      titre: v.optional(v.string()),
+      // Note : v.union pour permettre setter à null = retirer l'image.
+      // L'UI passera null sur "Supprimer", undefined sur "non touché".
+      image: v.optional(v.union(v.id("_storage"), v.null())),
       datePubli: v.optional(v.number()),
       compte: v.optional(v.string()),
       plateforme: v.optional(plateformeValidator),
@@ -440,8 +501,7 @@ export const updateDraft = mutation({
     // de la row (toutes les rows partagent le même mediaType — cf modèle
     // 1 carouselId = N rows). Carrousel → YouTube est rejeté ici.
     if (args.patch.plateforme !== undefined) {
-      const rowMediaType: "carousel" | "short" =
-        rows[0].mediaType ?? "carousel";
+      const rowMediaType: MediaTypeServer = rows[0].mediaType ?? "carousel";
       if (!isFormatAllowedOnPlatform(rowMediaType, args.patch.plateforme)) {
         throw new ConvexError(
           `Format ${rowMediaType} non autorisé sur ${args.patch.plateforme}.`,
@@ -458,6 +518,8 @@ export const updateDraft = mutation({
       update.nbSlides = args.patch.slides.length;
     }
     if (args.patch.script !== undefined) update.script = args.patch.script;
+    if (args.patch.titre !== undefined) update.titre = args.patch.titre;
+    if (args.patch.image !== undefined) update.image = args.patch.image;
     if (args.patch.datePubli !== undefined) update.datePubli = args.patch.datePubli;
     if (args.patch.compte !== undefined) update.compte = args.patch.compte;
     if (args.patch.plateforme !== undefined) update.plateforme = args.patch.plateforme;

@@ -1,6 +1,9 @@
 "use client";
 
+import { useQuery } from "convex/react";
 import type { Dispatch } from "react";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -11,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ImageUploader } from "@/components/ImageUploader";
 import type {
   Angle,
   FormatLetter,
@@ -41,8 +45,7 @@ const ANGLES: Angle[] = [
  * StepContenu — étape 3 du modal. Switch sur mediaType :
  *  - carousel → Format A-H + Angle + nbSlides + N Textareas slides
  *  - short → Angle + 1 Textarea script
- *  - screenrecorder → bloqué tant que Batch D n'a pas livré (l'étape 1
- *    n'aurait pas dû laisser passer la sélection)
+ *  - screenrecorder (Batch D) → Titre + ImageUploader + Angle + Script
  *
  * Le pre-fill slide 1 / script depuis le hook est géré au niveau
  * NouveauModal — pas ici.
@@ -54,16 +57,100 @@ export function StepContenu({
   data: NouveauData;
   dispatch: Dispatch<NouveauAction>;
 }) {
-  if (!data.mediaType || data.mediaType === ("screenrecorder" as never)) {
+  // Résolution lazy de l'imageUrl pour ScreenRecorder : on cherche dans
+  // listPublications les pubs avec storageId === data.image. Si présent
+  // (ex: l'utilisateur a uploadé l'image, on a le storageId mais pas
+  // l'URL), on récupère via la query enrichie. Edge case : freshly
+  // uploaded image n'est pas encore dans listPublications → pas d'URL.
+  // Pour l'usage ImageUploader.preview pendant le flow nouveau, on
+  // résout via l'API _storage directement.
+  const previewUrl = useQuery(
+    api.storage.getPreviewUrl,
+    data.image ? { storageId: data.image } : "skip",
+  );
+
+  if (!data.mediaType) {
     return (
       <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-        Format non sélectionné ou indisponible.
+        Format non sélectionné.
       </div>
     );
   }
 
   const isCarousel = data.mediaType === "carousel";
   const isShort = data.mediaType === "short";
+  const isScreenRecorder = data.mediaType === "screenrecorder";
+
+  if (isScreenRecorder) {
+    return (
+      <div className="space-y-4">
+        <div className="space-y-1.5">
+          <Label htmlFor="sr-titre">Titre</Label>
+          <Input
+            id="sr-titre"
+            value={data.titre}
+            onChange={(e) =>
+              dispatch({ type: "SET_TITRE", titre: e.target.value })
+            }
+            placeholder="Titre du ScreenRecorder (3-200 caractères)"
+            maxLength={200}
+          />
+          {data.titre.trim().length > 0 &&
+            data.titre.trim().length < 3 && (
+              <p className="text-xs text-amber-700">
+                Le titre doit faire au moins 3 caractères.
+              </p>
+            )}
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Image</Label>
+          <ImageUploader
+            value={data.image}
+            imageUrl={previewUrl ?? null}
+            onChange={(storageId) =>
+              dispatch({ type: "SET_IMAGE", image: storageId as Id<"_storage"> | null })
+            }
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Angle tonal</Label>
+          <Select
+            value={data.angleTonal}
+            onValueChange={(v) =>
+              v !== null &&
+              dispatch({ type: "SET_ANGLE", angle: v as Angle })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue>{data.angleTonal}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {ANGLES.map((a) => (
+                <SelectItem key={a} value={a}>
+                  {a}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="script">Script (optionnel)</Label>
+          <Textarea
+            id="script"
+            rows={8}
+            placeholder="Script de la narration — optionnel à la création, peut être ajouté plus tard."
+            value={data.script}
+            onChange={(e) =>
+              dispatch({ type: "SET_SCRIPT", script: e.target.value })
+            }
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

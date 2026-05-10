@@ -7,6 +7,7 @@ import {
   ChevronsRightIcon,
   GalleryHorizontalIcon,
   LayoutDashboardIcon,
+  MonitorIcon,
   PlaySquareIcon,
   Users2Icon,
 } from "lucide-react";
@@ -52,9 +53,9 @@ export function Sidebar({
     },
   ];
 
-  // ScreenRecorder (MonitorIcon) sera ajouté au Batch D, en même temps que le
-  // mediaType "screenrecorder" + l'extension schéma Convex. La route n'existe
-  // pas encore — masqué tant qu'elle ne renvoie pas du contenu utile.
+  // Batch D — ScreenRecorder activé (mediaType union étendu côté schéma
+  // Convex + Convex storage en place). Position entre Shorts et Biblio
+  // Hooks pour respecter l'ordre formats puis ressources.
   const contenuItems = [
     {
       icon: GalleryHorizontalIcon,
@@ -67,6 +68,12 @@ export function Sidebar({
       label: "Shorts",
       href: "/shorts",
       isActive: pathname.startsWith("/shorts"),
+    },
+    {
+      icon: MonitorIcon,
+      label: "ScreenRecorder",
+      href: "/screenrecorder",
+      isActive: pathname.startsWith("/screenrecorder"),
     },
     {
       icon: BookOpenIcon,

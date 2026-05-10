@@ -44,9 +44,19 @@ export default defineSchema({
     // les rows pré-Shorts ont mediaType undefined (= "carousel" via helper
     // getMediaType dans lib/media-type.ts). Aucun composant ne doit faire la
     // coercion inline.
+    // Batch D — ajout "screenrecorder" (capture d'écran avec titre + image).
     mediaType: v.optional(
-      v.union(v.literal("carousel"), v.literal("short")),
+      v.union(
+        v.literal("carousel"),
+        v.literal("short"),
+        v.literal("screenrecorder"),
+      ),
     ),
+    // Batch D — ScreenRecorder uniquement (carousel/short ignorent ces
+    // champs). titre et image sont optional au schéma ; leur exigence est
+    // imposée serveur dans createPublication selon le mediaType.
+    titre: v.optional(v.string()),
+    image: v.optional(v.id("_storage")),
     // Carousel-only. Passé en optional avec ajout des Shorts (concept non
     // applicable aux vidéos verticales). Rows pré-Shorts ont la valeur set
     // (A-H), elles continuent de fonctionner identiquement. v.string() au
@@ -144,7 +154,11 @@ export default defineSchema({
   filterPresets: defineTable({
     name: v.string(),
     schemaVersion: v.number(),
-    mediaTypeScope: v.union(v.literal("carousel"), v.literal("short")),
+    mediaTypeScope: v.union(
+      v.literal("carousel"),
+      v.literal("short"),
+      v.literal("screenrecorder"),
+    ),
     filters: v.object({
       search: v.string(),
       plateforme: v.string(),

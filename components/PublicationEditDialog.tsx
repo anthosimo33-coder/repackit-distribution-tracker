@@ -49,8 +49,12 @@ export function PublicationEditDialog({
   // métriques. Saves est carousel-only ; likes + subsGained sont
   // short-only. Le mediaType d'une publication ne change pas après
   // création (cf décision 8) → calculé une fois au mount.
+  // Batch D — ScreenRecorder partage le shape métriques de Short
+  // (likes/subsGained/comments, pas de saves/saveRate/verdict).
   const mediaType = getMediaType(publication);
   const isShort = mediaType === "short";
+  const isScreenRecorder = mediaType === "screenrecorder";
+  const isVideoFormat = isShort || isScreenRecorder;
 
   const [vuesJ1, setVuesJ1] = useState(toStr(publication.vuesJ1));
   const [vuesJ3, setVuesJ3] = useState(toStr(publication.vuesJ3));
@@ -79,8 +83,9 @@ export function PublicationEditDialog({
   // concept. La nouvelle condition positive « Instagram seul l'expose »
   // couvre correctement les 3 plateformes.
   const isInstagram = publication.plateforme === "Instagram";
-  // Save rate preview : non applicable aux Shorts (saves n'existe pas).
-  const previewSaveRate = isShort
+  // Save rate preview : non applicable aux Shorts/ScreenRecorders (pas de
+  // saves côté métriques de ces formats).
+  const previewSaveRate = isVideoFormat
     ? null
     : calculateSaveRate(parseNumOrNull(saves), parseNumOrNull(vuesJ7));
   const previewVerdict = calculateVerdict(previewSaveRate);
@@ -98,9 +103,9 @@ export function PublicationEditDialog({
         vuesJ1: parseNumOrNull(vuesJ1),
         vuesJ3: parseNumOrNull(vuesJ3),
         vuesJ7: parseNumOrNull(vuesJ7),
-        saves: isShort ? null : parseNumOrNull(saves),
-        likes: isShort ? parseNumOrNull(likes) : null,
-        subsGained: isShort ? parseNumOrNull(subsGained) : null,
+        saves: isVideoFormat ? null : parseNumOrNull(saves),
+        likes: isVideoFormat ? parseNumOrNull(likes) : null,
+        subsGained: isVideoFormat ? parseNumOrNull(subsGained) : null,
         commentsTotal: parseNumOrNull(commentsTotal),
         commentsAudit: isInstagram ? parseNumOrNull(commentsAudit) : null,
         profileVisits: parseNumOrNull(profileVisits),
@@ -181,7 +186,7 @@ export function PublicationEditDialog({
             Batch 2 Modif 4c — Saves (Carousel) vs Likes + SubsGained (Short).
             Mutuellement exclusif selon mediaType.
           */}
-          {isShort ? (
+          {isVideoFormat ? (
             <>
               <div className="space-y-1.5">
                 <Label htmlFor="likes">Likes</Label>
@@ -271,7 +276,7 @@ export function PublicationEditDialog({
           Short (saveRate non applicable, donc previewSaveRate=null +
           previewVerdict=null donneraient un affichage vide trompeur).
         */}
-        {!isShort && (
+        {!isVideoFormat && (
           <div className="flex items-center justify-between gap-4 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
             <div className="text-slate-600">
               Save rate (sur Vues J+7) :{" "}

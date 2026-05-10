@@ -12,6 +12,7 @@ import type * as comptes from "../comptes.js";
 import type * as filterPresets from "../filterPresets.js";
 import type * as hooks from "../hooks.js";
 import type * as publications from "../publications.js";
+import type * as storage from "../storage.js";
 
 import type {
   ApiFromModules,
@@ -24,6 +25,7 @@ declare const fullApi: ApiFromModules<{
   filterPresets: typeof filterPresets;
   hooks: typeof hooks;
   publications: typeof publications;
+  storage: typeof storage;
 }>;
 
 /**

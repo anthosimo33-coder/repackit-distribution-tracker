@@ -10,7 +10,8 @@ import type { Doc } from "@/convex/_generated/dataModel";
  *
  * NE PAS recoder cette coercion ailleurs — toujours importer ce helper.
  */
-export type MediaType = "carousel" | "short";
+// Batch D — extension "screenrecorder" (capture d'écran + titre + image).
+export type MediaType = "carousel" | "short" | "screenrecorder";
 
 export function getMediaType(p: Doc<"publications">): MediaType {
   return p.mediaType ?? "carousel";
@@ -18,8 +19,8 @@ export function getMediaType(p: Doc<"publications">): MediaType {
 
 /**
  * Plateformes éligibles selon le mediaType. Les Carrousels ne sont pas
- * autorisés sur YouTube (pas de format carrousel natif). Les Shorts couvrent
- * les 3 plateformes (TikTok, Reels Instagram, YouTube Shorts).
+ * autorisés sur YouTube (pas de format carrousel natif). Les Shorts et les
+ * ScreenRecorders couvrent les 3 plateformes (TikTok, Instagram, YouTube).
  *
  * Defense in depth : ces constantes pilotent l'UI (filtrage des dropdowns
  * plateforme cible) ET la validation serveur (cf isFormatAllowedOnPlatform
@@ -27,6 +28,11 @@ export function getMediaType(p: Doc<"publications">): MediaType {
  */
 export const ALLOWED_PLATFORMS_FOR_CAROUSEL = ["TikTok", "Instagram"] as const;
 export const ALLOWED_PLATFORMS_FOR_SHORT = [
+  "TikTok",
+  "Instagram",
+  "YouTube",
+] as const;
+export const ALLOWED_PLATFORMS_FOR_SCREENRECORDER = [
   "TikTok",
   "Instagram",
   "YouTube",
@@ -40,6 +46,11 @@ export function isFormatAllowedOnPlatform(
     return (ALLOWED_PLATFORMS_FOR_CAROUSEL as readonly string[]).includes(
       plateforme,
     );
+  }
+  if (mediaType === "screenrecorder") {
+    return (
+      ALLOWED_PLATFORMS_FOR_SCREENRECORDER as readonly string[]
+    ).includes(plateforme);
   }
   return (ALLOWED_PLATFORMS_FOR_SHORT as readonly string[]).includes(
     plateforme,

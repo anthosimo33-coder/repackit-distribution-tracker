@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FORMAT_CONFIGS, type FormatKey } from "@/lib/format-config";
 import { PencilIcon } from "lucide-react";
+import Image from "next/image";
 import type { Dispatch } from "react";
 import type { NouveauAction, NouveauData, Step } from "../useNouveauState";
 
@@ -22,6 +23,11 @@ export function StepRecap({
   dispatch: Dispatch<NouveauAction>;
 }) {
   const allHooks = useQuery(api.hooks.listHooks, {});
+  // Batch D — résolution image preview pour le récap ScreenRecorder.
+  const imagePreview = useQuery(
+    api.storage.getPreviewUrl,
+    data.image ? { storageId: data.image } : "skip",
+  );
   const selectedHook =
     data.hookMode === "biblio"
       ? allHooks?.find((h) => h._id === data.hookId) ?? null
@@ -132,6 +138,45 @@ export function StepRecap({
               ) : (
                 <span className="italic text-slate-400">(vide)</span>
               )}
+            </div>
+          )}
+          {data.mediaType === "screenrecorder" && (
+            <div className="space-y-2 text-xs text-slate-600">
+              <div>
+                <span className="text-slate-400">Titre :</span>{" "}
+                {data.titre.trim() ? (
+                  <span className="font-medium text-slate-900">
+                    {data.titre}
+                  </span>
+                ) : (
+                  <span className="italic text-slate-400">(vide)</span>
+                )}
+              </div>
+              <div>
+                <span className="text-slate-400">Image :</span>{" "}
+                {data.image && imagePreview ? (
+                  <Image
+                    src={imagePreview}
+                    alt="Preview"
+                    width={160}
+                    height={90}
+                    unoptimized
+                    className="mt-1 aspect-video rounded border border-slate-200 object-cover"
+                  />
+                ) : (
+                  <span className="italic text-slate-400">(absente)</span>
+                )}
+              </div>
+              <div>
+                <span className="text-slate-400">Script :</span>{" "}
+                {data.script.trim() ? (
+                  data.script.length > 200
+                    ? data.script.slice(0, 200) + "…"
+                    : data.script
+                ) : (
+                  <span className="italic text-slate-400">(optionnel)</span>
+                )}
+              </div>
             </div>
           )}
         </div>

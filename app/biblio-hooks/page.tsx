@@ -210,23 +210,93 @@ export default function BiblioHooksPage() {
   );
 }
 
+/**
+ * Badge condensé pour publications publiées sur 1, 2 ou 3 formats.
+ * Couleurs : emerald=carousel only, red=short only, indigo=SR only,
+ * slate=multi-formats. Pluriel cohérent avec l'usage des autres badges.
+ */
+function PublishedBadge({
+  carousels,
+  shorts,
+  screenrecorders,
+}: {
+  carousels: number;
+  shorts: number;
+  screenrecorders: number;
+}) {
+  const activeFormats = [
+    carousels > 0,
+    shorts > 0,
+    screenrecorders > 0,
+  ].filter(Boolean).length;
+
+  if (activeFormats === 1) {
+    if (carousels > 0)
+      return (
+        <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">
+          Utilisé {carousels} {carousels > 1 ? "fois" : "fois"}
+        </Badge>
+      );
+    if (shorts > 0)
+      return (
+        <Badge className="border-red-200 bg-red-50 text-red-700">
+          Utilisé {shorts} fois en Short
+        </Badge>
+      );
+    return (
+      <Badge className="border-indigo-200 bg-indigo-50 text-indigo-700">
+        Utilisé {screenrecorders} fois en SR
+      </Badge>
+    );
+  }
+  // 2 ou 3 formats : un seul badge mixte slate qui liste les compteurs
+  // non-zéro (SR labellé "SR" pour rester compact).
+  const parts: string[] = [];
+  if (carousels > 0)
+    parts.push(`${carousels} carr.${carousels > 1 ? "" : ""}`);
+  if (shorts > 0) parts.push(`${shorts} Short${shorts > 1 ? "s" : ""}`);
+  if (screenrecorders > 0) parts.push(`${screenrecorders} SR`);
+  return (
+    <Badge className="border-slate-300 bg-slate-100 text-slate-700">
+      {parts.join(" · ")}
+    </Badge>
+  );
+}
+
+function DraftBadge({
+  carousels,
+  shorts,
+  screenrecorders,
+}: {
+  carousels: number;
+  shorts: number;
+  screenrecorders: number;
+}) {
+  const parts: string[] = [];
+  if (carousels > 0) parts.push(`+${carousels} carr.`);
+  if (shorts > 0)
+    parts.push(`+${shorts} Short${shorts > 1 ? "s" : ""}`);
+  if (screenrecorders > 0) parts.push(`+${screenrecorders} SR`);
+  return (
+    <Badge variant="outline" className="text-amber-700">
+      {parts.join(" · ")} à venir
+    </Badge>
+  );
+}
+
 function HookCard({ hook }: { hook: HookWithUsage }) {
+  // Batch D — 3 formats. Pour rester lisible sans exploser combinatoire, on
+  // délègue à countPublishedSummary qui renvoie 1 badge condensé adapté au
+  // nombre de formats actifs (1, 2 ou 3).
   const totalPublished =
-    hook.publishedCarouselsCount + hook.publishedShortsCount;
-  const totalDraft = hook.draftCarouselsCount + hook.draftShortsCount;
+    hook.publishedCarouselsCount +
+    hook.publishedShortsCount +
+    hook.publishedScreenRecorderCount;
+  const totalDraft =
+    hook.draftCarouselsCount +
+    hook.draftShortsCount +
+    hook.draftScreenRecorderCount;
   const used = totalPublished > 0;
-  const onlyCarousels =
-    hook.publishedCarouselsCount > 0 && hook.publishedShortsCount === 0;
-  const onlyShorts =
-    hook.publishedShortsCount > 0 && hook.publishedCarouselsCount === 0;
-  const bothFormatsPublished =
-    hook.publishedCarouselsCount > 0 && hook.publishedShortsCount > 0;
-  const onlyCarouselsDraft =
-    hook.draftCarouselsCount > 0 && hook.draftShortsCount === 0;
-  const onlyShortsDraft =
-    hook.draftShortsCount > 0 && hook.draftCarouselsCount === 0;
-  const bothFormatsDraft =
-    hook.draftCarouselsCount > 0 && hook.draftShortsCount > 0;
 
   return (
     <Card>
@@ -237,42 +307,19 @@ function HookCard({ hook }: { hook: HookWithUsage }) {
             <Badge variant="secondary">{hook.mecanique}</Badge>
             <Badge variant="outline">{hook.niveau}</Badge>
             <Badge variant="outline">{hook.langue}</Badge>
-            {used && onlyCarousels && (
-              <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">
-                Utilisé {hook.publishedCarouselsCount}{" "}
-                {hook.publishedCarouselsCount > 1 ? "fois" : "fois"}
-              </Badge>
+            {used && (
+              <PublishedBadge
+                carousels={hook.publishedCarouselsCount}
+                shorts={hook.publishedShortsCount}
+                screenrecorders={hook.publishedScreenRecorderCount}
+              />
             )}
-            {used && onlyShorts && (
-              <Badge className="border-red-200 bg-red-50 text-red-700">
-                Utilisé {hook.publishedShortsCount} fois en Short
-              </Badge>
-            )}
-            {used && bothFormatsPublished && (
-              <Badge className="border-slate-300 bg-slate-100 text-slate-700">
-                {hook.publishedCarouselsCount} carrousel
-                {hook.publishedCarouselsCount > 1 ? "s" : ""} ·{" "}
-                {hook.publishedShortsCount} Short
-                {hook.publishedShortsCount > 1 ? "s" : ""}
-              </Badge>
-            )}
-            {totalDraft > 0 && onlyCarouselsDraft && (
-              <Badge variant="outline" className="text-amber-700">
-                +{hook.draftCarouselsCount} à venir
-              </Badge>
-            )}
-            {totalDraft > 0 && onlyShortsDraft && (
-              <Badge variant="outline" className="text-amber-700">
-                +{hook.draftShortsCount} Short
-                {hook.draftShortsCount > 1 ? "s" : ""} à venir
-              </Badge>
-            )}
-            {totalDraft > 0 && bothFormatsDraft && (
-              <Badge variant="outline" className="text-amber-700">
-                +{hook.draftCarouselsCount} carr. · +{hook.draftShortsCount}{" "}
-                Short
-                {hook.draftShortsCount > 1 ? "s" : ""} à venir
-              </Badge>
+            {totalDraft > 0 && (
+              <DraftBadge
+                carousels={hook.draftCarouselsCount}
+                shorts={hook.draftShortsCount}
+                screenrecorders={hook.draftScreenRecorderCount}
+              />
             )}
             {hook.variantsCountCarousel > 0 && (
               <Badge className="border-violet-200 bg-violet-50 text-violet-700">
@@ -285,6 +332,12 @@ function HookCard({ hook }: { hook: HookWithUsage }) {
                 {hook.variantsCountShort} variante
                 {hook.variantsCountShort > 1 ? "s" : ""} Short
                 {hook.variantsCountShort > 1 ? "s" : ""}
+              </Badge>
+            )}
+            {hook.variantsCountScreenRecorder > 0 && (
+              <Badge className="border-indigo-200 bg-indigo-50 text-indigo-700">
+                {hook.variantsCountScreenRecorder} variante
+                {hook.variantsCountScreenRecorder > 1 ? "s" : ""} SR
               </Badge>
             )}
           </div>
@@ -302,6 +355,13 @@ function HookCard({ hook }: { hook: HookWithUsage }) {
                 hookId={hook._id}
                 count={hook.variantsCountShort}
                 mediaType="short"
+              />
+            )}
+            {hook.variantsCountScreenRecorder > 0 && (
+              <HookVariantsPopover
+                hookId={hook._id}
+                count={hook.variantsCountScreenRecorder}
+                mediaType="screenrecorder"
               />
             )}
           </div>
@@ -331,7 +391,7 @@ function HookVariantsPopover({
 }: {
   hookId: Id<"hooks">;
   count: number;
-  mediaType: "carousel" | "short";
+  mediaType: "carousel" | "short" | "screenrecorder";
 }) {
   const [open, setOpen] = useState(false);
   const variants = useQuery(
@@ -342,15 +402,29 @@ function HookVariantsPopover({
 
   function go(carouselId: string) {
     setOpen(false);
-    const route = mediaType === "carousel" ? "/carrousels" : "/shorts";
+    const route =
+      mediaType === "carousel"
+        ? "/carrousels"
+        : mediaType === "screenrecorder"
+          ? "/screenrecorder"
+          : "/shorts";
     router.push(`${route}?carouselId=${carouselId}`);
   }
 
   const isShort = mediaType === "short";
-  const triggerLabel = `Voir les ${count} variantes ${isShort ? "Shorts" : "carrousel"}`;
-  const triggerColorClass = isShort
-    ? "text-red-700 hover:bg-red-50 hover:text-red-800"
-    : "text-violet-700 hover:bg-violet-50 hover:text-violet-800";
+  const isScreenRecorder = mediaType === "screenrecorder";
+  const triggerLabel = `Voir les ${count} variantes ${
+    isScreenRecorder
+      ? "ScreenRecorder"
+      : isShort
+        ? "Shorts"
+        : "carrousel"
+  }`;
+  const triggerColorClass = isScreenRecorder
+    ? "text-indigo-700 hover:bg-indigo-50 hover:text-indigo-800"
+    : isShort
+      ? "text-red-700 hover:bg-red-50 hover:text-red-800"
+      : "text-violet-700 hover:bg-violet-50 hover:text-violet-800";
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -399,7 +473,7 @@ function HookVariantsPopover({
                     <PlatformBadge plateforme={v.plateforme} />
                   </div>
                   <div className="flex items-center gap-2 text-xs text-slate-500">
-                    {!isShort && (
+                    {!isShort && !isScreenRecorder && (
                       <>
                         <VerdictBadge verdict={v.verdict} />
                         <span className="tabular-nums">

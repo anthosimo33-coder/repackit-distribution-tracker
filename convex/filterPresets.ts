@@ -29,6 +29,7 @@ const sortValidator = v.object({
 const mediaTypeScopeValidator = v.union(
   v.literal("carousel"),
   v.literal("short"),
+  v.literal("screenrecorder"),
 );
 
 // Batch B — bump v4 : split tracker en pages /carrousels et /shorts.
