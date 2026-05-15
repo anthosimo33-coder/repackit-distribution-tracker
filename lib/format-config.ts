@@ -20,6 +20,7 @@ import {
   GalleryHorizontalIcon,
   MonitorIcon,
   PlaySquareIcon,
+  SmartphoneIcon,
 } from "lucide-react";
 import {
   ALLOWED_PLATFORMS_FOR_CAROUSEL,
@@ -200,4 +201,24 @@ export const METRIC_LABELS: Record<ChartMetric, string> = {
   saves: "Saves",
   subsGained: "Subs",
   comments: "Comments",
+};
+
+// ─── Refinement ScreenRecorder — Appareil d'enregistrement ────────────────
+// recordingDevice indique sur quel device la capture a été réalisée. Pilote
+// l'affichage de l'icône dans la liste tracker + le filtre Appareil dans
+// la barre filtres /screenrecorder. Distinct du concept "plateforme" qui
+// reste TikTok/Instagram/YouTube.
+
+export type RecordingDevice = "phone" | "desktop";
+
+export const RECORDING_DEVICES = ["phone", "desktop"] as const;
+
+export const RECORDING_DEVICE_LABELS: Record<RecordingDevice, string> = {
+  phone: "Téléphone",
+  desktop: "Ordinateur",
+};
+
+export const RECORDING_DEVICE_ICONS: Record<RecordingDevice, LucideIcon> = {
+  phone: SmartphoneIcon,
+  desktop: MonitorIcon,
 };

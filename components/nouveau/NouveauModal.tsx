@@ -21,6 +21,8 @@ import {
 } from "@/lib/media-type";
 import { FORMAT_CONFIGS, type FormatKey } from "@/lib/format-config";
 import {
+  getDisplayedStep,
+  getStepCount,
   isDataDirty,
   useNouveauState,
   type Step,
@@ -170,14 +172,24 @@ export function NouveauModal({
       goto(1);
       return;
     }
-    const hookText =
-      state.data.hookMode === "biblio"
+    const isSR = state.data.mediaType === "screenrecorder";
+    // Refinement SR — l'étape Hook est skip pour SR. On utilise le titre
+    // comme hookText synthétique (sémantique : le titre est l'accroche
+    // principale du SR, équivalent du hook côté carousel/short). hookText
+    // reste required en DB ; on le remplit avec le titre côté SR.
+    const hookText = isSR
+      ? state.data.titre.trim()
+      : state.data.hookMode === "biblio"
         ? selectedHook?.text ?? ""
         : state.data.customHook.text.trim();
     if (!hookText) {
-      toast.error("Hook requis");
-      goto(2);
-      return;
+      // SR : l'erreur "titre requis" sera levée plus bas (toast plus
+      // spécifique). Pour carousel/short, on redirige vers step 2 (Hook).
+      if (!isSR) {
+        toast.error("Hook requis");
+        goto(2);
+        return;
+      }
     }
     if (state.data.mediaType === "carousel") {
       // Pas de check explicite slides[0] non vide (le hook est pre-rempli
@@ -189,7 +201,10 @@ export function NouveauModal({
         return;
       }
     } else if (state.data.mediaType === "screenrecorder") {
-      // Batch D — ScreenRecorder requiert titre (3-200 char) + image.
+      // Batch D + Refinement SR — ScreenRecorder requiert titre (3-200
+      // char) + image + recordingDevice + isRepackaging. Le hook étape 2
+      // est skip donc on n'a pas de check hook ici (la validation
+      // hookText au-dessus accepte le hookText synthétique du titre).
       const titre = state.data.titre.trim();
       if (titre.length < 3 || titre.length > 200) {
         toast.error("Titre requis (3-200 caractères).");
@@ -198,6 +213,16 @@ export function NouveauModal({
       }
       if (state.data.image === null) {
         toast.error("Image requise pour ScreenRecorder.");
+        goto(3);
+        return;
+      }
+      if (state.data.recordingDevice === undefined) {
+        toast.error("Appareil d'enregistrement requis.");
+        goto(3);
+        return;
+      }
+      if (state.data.isRepackaging === undefined) {
+        toast.error("Indique si c'est un repackaging RepackIt.");
         goto(3);
         return;
       }
@@ -245,18 +270,31 @@ export function NouveauModal({
       return;
     }
 
+    // Refinement SR — hookId/mecanique/niveau/langue n'ont pas de sens pour
+    // SR (étape Hook skip). On utilise des sentinelles inertes côté schéma
+    // (les champs restent required côté validator mais ne sont pas exposés
+    // dans l'UI SR — liste, dialogs, biblio-hooks ignorent ces valeurs
+    // pour les SR via getMediaType). Voir aussi convex/hooks.ts qui retire
+    // les SR du comptage listHooksWithUsage.
     const hookId =
-      state.data.hookMode === "biblio" ? state.data.hookId : null;
-    const mecanique =
-      state.data.hookMode === "biblio"
+      isSR
+        ? null
+        : state.data.hookMode === "biblio"
+          ? state.data.hookId
+          : null;
+    const mecanique = isSR
+      ? state.data.customHook.mecanique // "Erreur" par default depuis initialData()
+      : state.data.hookMode === "biblio"
         ? selectedHook!.mecanique
         : state.data.customHook.mecanique;
-    const niveau =
-      state.data.hookMode === "biblio"
+    const niveau = isSR
+      ? state.data.customHook.niveau // "Broad-A" par default
+      : state.data.hookMode === "biblio"
         ? selectedHook!.niveau
         : state.data.customHook.niveau;
-    const langue =
-      state.data.hookMode === "biblio"
+    const langue = isSR
+      ? state.data.customHook.langue // "FR" par default
+      : state.data.hookMode === "biblio"
         ? selectedHook!.langue
         : state.data.customHook.langue;
 
@@ -294,6 +332,8 @@ export function NouveauModal({
           titre: state.data.titre.trim(),
           image: state.data.image ?? undefined,
           script: state.data.script.trim() || undefined,
+          recordingDevice: state.data.recordingDevice,
+          isRepackaging: state.data.isRepackaging,
         });
       } else {
         await createPub({
@@ -336,9 +376,12 @@ export function NouveauModal({
           <DialogHeader>
             <DialogTitle>Nouvelle publication</DialogTitle>
             <DialogDescription className="sr-only">
-              Création d&apos;une nouvelle publication en {STEP_LABELS[5]} étapes
+              Création d&apos;une nouvelle publication
             </DialogDescription>
-            <ProgressBar step={state.step} />
+            <ProgressBar
+              step={state.step}
+              mediaType={state.data.mediaType}
+            />
           </DialogHeader>
 
           <div className="py-2">
@@ -430,13 +473,23 @@ export function NouveauModal({
   );
 }
 
-function ProgressBar({ step }: { step: Step }) {
-  const total = 5;
+function ProgressBar({
+  step,
+  mediaType,
+}: {
+  step: Step;
+  mediaType: MediaType | undefined;
+}) {
+  // Refinement SR — total dynamique : 4 pour ScreenRecorder (skip Hook),
+  // 5 pour carousel/short. L'étape affichée (1-based) compresse les
+  // steps internes 3/4/5 en 2/3/4 pour SR.
+  const total = getStepCount(mediaType);
+  const displayedStep = getDisplayedStep(step, mediaType);
   return (
     <div className="space-y-1.5 pt-1">
       <div className="flex items-center justify-between text-xs text-slate-500">
         <span>
-          Étape {step} / {total} — {STEP_LABELS[step]}
+          Étape {displayedStep} / {total} — {STEP_LABELS[step]}
         </span>
       </div>
       <div className="flex gap-1">
@@ -445,7 +498,7 @@ function ProgressBar({ step }: { step: Step }) {
             key={s}
             className={cn(
               "h-1 flex-1 rounded-full transition-colors",
-              s <= step ? "bg-slate-900" : "bg-slate-200",
+              s <= displayedStep ? "bg-slate-900" : "bg-slate-200",
             )}
           />
         ))}

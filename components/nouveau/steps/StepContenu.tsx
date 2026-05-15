@@ -15,6 +15,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ImageUploader } from "@/components/ImageUploader";
+import {
+  RECORDING_DEVICES,
+  RECORDING_DEVICE_ICONS,
+  RECORDING_DEVICE_LABELS,
+  type RecordingDevice,
+} from "@/lib/format-config";
+import { cn } from "@/lib/utils";
 import type {
   Angle,
   FormatLetter,
@@ -82,6 +89,11 @@ export function StepContenu({
   const isScreenRecorder = data.mediaType === "screenrecorder";
 
   if (isScreenRecorder) {
+    // Refinement SR — l'étape Hook étant skip, on retire l'Angle tonal
+    // (concept hook-level). Ajout des 2 champs SR-specific : Appareil
+    // d'enregistrement (cards radio Phone/Desktop) + Type de capture
+    // (Repackaging vs Autre). Les 2 sont required pour la validation
+    // finale (cf NouveauModal.handleCreate).
     return (
       <div className="space-y-4">
         <div className="space-y-1.5">
@@ -115,25 +127,79 @@ export function StepContenu({
         </div>
 
         <div className="space-y-1.5">
-          <Label>Angle tonal</Label>
-          <Select
-            value={data.angleTonal}
-            onValueChange={(v) =>
-              v !== null &&
-              dispatch({ type: "SET_ANGLE", angle: v as Angle })
-            }
-          >
-            <SelectTrigger>
-              <SelectValue>{data.angleTonal}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {ANGLES.map((a) => (
-                <SelectItem key={a} value={a}>
-                  {a}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Label>Appareil d&apos;enregistrement</Label>
+          <div className="grid grid-cols-2 gap-3">
+            {RECORDING_DEVICES.map((device) => {
+              const Icon = RECORDING_DEVICE_ICONS[device];
+              const selected = data.recordingDevice === device;
+              return (
+                <button
+                  key={device}
+                  type="button"
+                  onClick={() =>
+                    dispatch({
+                      type: "SET_RECORDING_DEVICE",
+                      device: device as RecordingDevice,
+                    })
+                  }
+                  className={cn(
+                    "flex flex-col items-center gap-2 rounded-lg border p-4 text-sm transition-colors",
+                    selected
+                      ? "border-slate-900 bg-slate-50 text-slate-900"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300",
+                  )}
+                  aria-pressed={selected}
+                >
+                  <Icon className="size-6" />
+                  <span className="font-medium">
+                    {RECORDING_DEVICE_LABELS[device]}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Type de capture</Label>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() =>
+                dispatch({ type: "SET_IS_REPACKAGING", value: true })
+              }
+              className={cn(
+                "rounded-lg border p-4 text-left text-sm transition-colors",
+                data.isRepackaging === true
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-300",
+              )}
+              aria-pressed={data.isRepackaging === true}
+            >
+              <div className="font-medium">Repackaging RepackIt</div>
+              <div className="mt-1 text-xs text-slate-500">
+                Capture liée à un repack RepackIt existant.
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                dispatch({ type: "SET_IS_REPACKAGING", value: false })
+              }
+              className={cn(
+                "rounded-lg border p-4 text-left text-sm transition-colors",
+                data.isRepackaging === false
+                  ? "border-slate-400 bg-slate-100 text-slate-900"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-300",
+              )}
+              aria-pressed={data.isRepackaging === false}
+            >
+              <div className="font-medium">Autre capture</div>
+              <div className="mt-1 text-xs text-slate-500">
+                Capture standalone, hors repack.
+              </div>
+            </button>
+          </div>
         </div>
 
         <div className="space-y-1.5">

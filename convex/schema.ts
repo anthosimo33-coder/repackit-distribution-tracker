@@ -57,6 +57,16 @@ export default defineSchema({
     // imposée serveur dans createPublication selon le mediaType.
     titre: v.optional(v.string()),
     image: v.optional(v.id("_storage")),
+    // Refinement ScreenRecorder — recordingDevice et isRepackaging sont
+    // required pour les nouveaux SR (validation handler createPublication),
+    // mais restent optional côté schéma pour ne pas casser les SR pré-
+    // existants potentiels (créés en Batch D sans ces champs). UI gère le
+    // case undefined gracieusement (afficher "—"). Édition draft permet de
+    // les renseigner rétroactivement.
+    recordingDevice: v.optional(
+      v.union(v.literal("phone"), v.literal("desktop")),
+    ),
+    isRepackaging: v.optional(v.boolean()),
     // Carousel-only. Passé en optional avec ajout des Shorts (concept non
     // applicable aux vidéos verticales). Rows pré-Shorts ont la valeur set
     // (A-H), elles continuent de fonctionner identiquement. v.string() au

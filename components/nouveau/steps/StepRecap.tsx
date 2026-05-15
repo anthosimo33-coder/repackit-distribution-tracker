@@ -4,7 +4,12 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FORMAT_CONFIGS, type FormatKey } from "@/lib/format-config";
+import {
+  FORMAT_CONFIGS,
+  RECORDING_DEVICE_ICONS,
+  RECORDING_DEVICE_LABELS,
+  type FormatKey,
+} from "@/lib/format-config";
 import { PencilIcon } from "lucide-react";
 import Image from "next/image";
 import type { Dispatch } from "react";
@@ -53,6 +58,14 @@ export function StepRecap({
     ? FORMAT_CONFIGS[data.mediaType as FormatKey]
     : null;
 
+  // Refinement SR — section Hook masquée (skip étape 2 pour SR). Angle
+  // également retiré de la section Contenu SR (concept hook-level).
+  const isSR = data.mediaType === "screenrecorder";
+  const DeviceIcon =
+    data.recordingDevice !== undefined
+      ? RECORDING_DEVICE_ICONS[data.recordingDevice]
+      : null;
+
   const dateLabel = new Date(data.datePubli).toLocaleDateString("fr-FR", {
     day: "2-digit",
     month: "long",
@@ -75,38 +88,46 @@ export function StepRecap({
         )}
       </Section>
 
-      <Section
-        title="Hook"
-        onEdit={() => dispatch({ type: "GOTO", step: 2 as Step })}
-      >
-        {hookText ? (
-          <div className="space-y-2">
-            <p className="text-sm text-slate-900">{hookText}</p>
-            <div className="flex gap-1.5">
-              {hookMecanique && (
-                <Badge variant="secondary">{hookMecanique}</Badge>
-              )}
-              {hookNiveau && <Badge variant="outline">{hookNiveau}</Badge>}
-              {hookLangue && <Badge variant="outline">{hookLangue}</Badge>}
-              <Badge variant="outline" className="text-slate-500">
-                {data.hookMode === "biblio" ? "Bibliothèque" : "Custom"}
-              </Badge>
+      {!isSR && (
+        <Section
+          title="Hook"
+          onEdit={() => dispatch({ type: "GOTO", step: 2 as Step })}
+        >
+          {hookText ? (
+            <div className="space-y-2">
+              <p className="text-sm text-slate-900">{hookText}</p>
+              <div className="flex gap-1.5">
+                {hookMecanique && (
+                  <Badge variant="secondary">{hookMecanique}</Badge>
+                )}
+                {hookNiveau && <Badge variant="outline">{hookNiveau}</Badge>}
+                {hookLangue && <Badge variant="outline">{hookLangue}</Badge>}
+                <Badge variant="outline" className="text-slate-500">
+                  {data.hookMode === "biblio" ? "Bibliothèque" : "Custom"}
+                </Badge>
+              </div>
             </div>
-          </div>
-        ) : (
-          <span className="italic text-slate-400">Non saisi</span>
-        )}
-      </Section>
+          ) : (
+            <span className="italic text-slate-400">Non saisi</span>
+          )}
+        </Section>
+      )}
 
       <Section
         title="Contenu"
         onEdit={() => dispatch({ type: "GOTO", step: 3 as Step })}
       >
         <div className="space-y-2 text-sm">
-          <div>
-            <span className="text-slate-500">Angle tonal :</span>{" "}
-            <span className="font-medium">{data.angleTonal}</span>
-          </div>
+          {/*
+            Refinement SR — Angle tonal masqué côté SR (concept hook-level
+            retiré). Pour carousel/short, comportement inchangé.
+          */}
+          {!isSR && (
+            <div>
+              <span className="text-slate-500">Angle tonal :</span>{" "}
+              <span className="font-medium">{data.angleTonal}</span>
+            </div>
+          )}
           {data.mediaType === "carousel" && (
             <>
               <div>
@@ -165,6 +186,33 @@ export function StepRecap({
                   />
                 ) : (
                   <span className="italic text-slate-400">(absente)</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-slate-400">Appareil :</span>
+                {data.recordingDevice && DeviceIcon ? (
+                  <Badge variant="outline" className="gap-1">
+                    <DeviceIcon className="size-3" />
+                    {RECORDING_DEVICE_LABELS[data.recordingDevice]}
+                  </Badge>
+                ) : (
+                  <span className="italic text-slate-400">
+                    Non sélectionné
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-slate-400">Type :</span>
+                {data.isRepackaging === true ? (
+                  <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">
+                    Repackaging RepackIt
+                  </Badge>
+                ) : data.isRepackaging === false ? (
+                  <Badge variant="outline" className="text-slate-600">
+                    Autre capture
+                  </Badge>
+                ) : (
+                  <span className="italic text-slate-400">Non choisi</span>
                 )}
               </div>
               <div>

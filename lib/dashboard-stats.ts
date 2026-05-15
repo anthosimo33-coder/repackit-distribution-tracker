@@ -310,3 +310,26 @@ export const aggregateByMecaniqueScreenRecorder = aggregateByMecaniqueShorts;
 export const aggregateByNiveauScreenRecorder = aggregateByNiveauShorts;
 export const aggregateByAngleScreenRecorder = aggregateByAngleShorts;
 export const aggregateByPlateformeScreenRecorder = aggregateByPlateformeShorts;
+
+// ─── Refinement SR — aggregations spécifiques ScreenRecorder ───────────────
+//
+// 2 nouvelles dimensions agrégeables pour AnalyticsSection /screenrecorder :
+//   - Appareil d'enregistrement (Phone vs Desktop)
+//   - Type de capture (Repackaging RepackIt vs Autre)
+//
+// Les rows sans recordingDevice/isRepackaging défini (SR pré-Refinement)
+// sont ignorées pour ne pas créer de bucket "Non renseigné" dans les
+// charts. La matrice 2x2 combinatoire (Phone+Repack / Phone+Autre /
+// Desktop+Repack / Desktop+Autre) est différée à un TD séparé.
+
+export const aggregateByRecordingDevice = (pubs: Publication[]) =>
+  aggregateByShorts(
+    pubs.filter((p) => p.recordingDevice !== undefined),
+    (p) => p.recordingDevice as string,
+  );
+
+export const aggregateByRepackaging = (pubs: Publication[]) =>
+  aggregateByShorts(
+    pubs.filter((p) => p.isRepackaging !== undefined),
+    (p) => (p.isRepackaging ? "Repackaging" : "Autre capture"),
+  );

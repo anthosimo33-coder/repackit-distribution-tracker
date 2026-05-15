@@ -88,6 +88,13 @@ export const createPublication = mutation({
     // Batch D — ScreenRecorder uniquement. Validation handler ci-dessous.
     titre: v.optional(v.string()),
     image: v.optional(v.id("_storage")),
+    // Refinement ScreenRecorder — recordingDevice + isRepackaging required
+    // pour les nouveaux SR (validation handler ci-dessous). Optional côté
+    // args pour rester compat avec carousel/short qui ne les passent pas.
+    recordingDevice: v.optional(
+      v.union(v.literal("phone"), v.literal("desktop")),
+    ),
+    isRepackaging: v.optional(v.boolean()),
     angleTonal: angleValidator,
     langue: langueValidator,
     plateformes: v.array(plateformeValidator),
@@ -126,6 +133,20 @@ export const createPublication = mutation({
       if (args.image === undefined || args.image === null) {
         throw new ConvexError("ScreenRecorder : image requise.");
       }
+      // Refinement ScreenRecorder — recordingDevice + isRepackaging required.
+      // isRepackaging accepte true OU false explicite (le user voit le
+      // toggle), mais pas undefined (= pas choisi). recordingDevice : pas
+      // de default, force l'utilisateur à choisir explicitement.
+      if (args.recordingDevice === undefined) {
+        throw new ConvexError(
+          "ScreenRecorder : appareil d'enregistrement requis.",
+        );
+      }
+      if (args.isRepackaging === undefined) {
+        throw new ConvexError(
+          "ScreenRecorder : indique si c'est un repackaging RepackIt.",
+        );
+      }
     }
 
     // Couple plateforme/mediaType : carrousel non autorisé sur YouTube.
@@ -157,6 +178,8 @@ export const createPublication = mutation({
         // valeurs sont undefined (silencieusement ignorées au insert).
         titre: args.titre,
         image: args.image,
+        recordingDevice: args.recordingDevice,
+        isRepackaging: args.isRepackaging,
         angleTonal: args.angleTonal,
         langue: args.langue,
         plateforme,
@@ -399,6 +422,11 @@ export const duplicateCarousel = mutation({
       // implémentée dans deletePublication (TD-011).
       titre: source.titre,
       image: source.image,
+      // Refinement SR — propagation des nouveaux champs SR vers le duplicat.
+      // Cohérent avec décision : la duplication conserve le mediaType source
+      // et ses champs spécifiques.
+      recordingDevice: source.recordingDevice,
+      isRepackaging: source.isRepackaging,
       angleTonal: source.angleTonal,
       langue: source.langue,
       plateforme: args.targetPlateforme,
@@ -455,6 +483,13 @@ export const updateDraft = mutation({
       // Note : v.union pour permettre setter à null = retirer l'image.
       // L'UI passera null sur "Supprimer", undefined sur "non touché".
       image: v.optional(v.union(v.id("_storage"), v.null())),
+      // Refinement SR — recordingDevice + isRepackaging éditables au niveau
+      // draft. Pas de validation stricte ici (l'utilisateur peut rester
+      // temporairement undefined ; la validation stricte est au create).
+      recordingDevice: v.optional(
+        v.union(v.literal("phone"), v.literal("desktop")),
+      ),
+      isRepackaging: v.optional(v.boolean()),
       datePubli: v.optional(v.number()),
       compte: v.optional(v.string()),
       plateforme: v.optional(plateformeValidator),
@@ -520,6 +555,12 @@ export const updateDraft = mutation({
     if (args.patch.script !== undefined) update.script = args.patch.script;
     if (args.patch.titre !== undefined) update.titre = args.patch.titre;
     if (args.patch.image !== undefined) update.image = args.patch.image;
+    if (args.patch.recordingDevice !== undefined) {
+      update.recordingDevice = args.patch.recordingDevice;
+    }
+    if (args.patch.isRepackaging !== undefined) {
+      update.isRepackaging = args.patch.isRepackaging;
+    }
     if (args.patch.datePubli !== undefined) update.datePubli = args.patch.datePubli;
     if (args.patch.compte !== undefined) update.compte = args.patch.compte;
     if (args.patch.plateforme !== undefined) update.plateforme = args.patch.plateforme;

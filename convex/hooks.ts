@@ -126,7 +126,9 @@ export const listHooks = query({
  * volume actuel (~10 pubs prod) impact négligeable. À 5000+ pubs, à
  * surveiller.
  */
-type MediaTypeServer = "carousel" | "short" | "screenrecorder";
+// Refinement SR — MediaTypeServer retiré du module (n'était utilisé que
+// dans listHooksWithUsage qui scope désormais aux 2 formats carousel|short).
+// getHookVariants utilise le validator inline (cf args plus bas).
 
 export const listHooksWithUsage = query({
   args: {
@@ -163,21 +165,25 @@ export const listHooksWithUsage = query({
     const hooks = await ctx.db.query("hooks").collect();
     const publications = await ctx.db.query("publications").collect();
 
+    // Refinement SR — les ScreenRecorders ne sont plus comptés dans la
+    // biblio hooks. Justification : le concept "hook" n'existe plus pour
+    // SR (étape Hook skip dans le modal nouveau). Les SR pré-existants
+    // peuvent garder un hookId orphelin en DB (rétrocompat) mais ils ne
+    // contribuent plus aux compteurs publishedScreenRecorderCount /
+    // draftScreenRecorderCount / variantsCountScreenRecorder — ces champs
+    // sont retirés du return shape.
     type Usage = {
       publishedCarouselsCount: number;
       publishedShortsCount: number;
-      publishedScreenRecorderCount: number;
       draftCarouselsCount: number;
       draftShortsCount: number;
-      draftScreenRecorderCount: number;
       accountsUsed: Set<string>;
       lastPublishedAt: number | null;
       // Batch 3 Modif 6 : groupement parent ancré séparé par mediaType.
-      // Une lignée de duplicats partage UN seul mediaType (cf duplicate
-      // Carousel qui propage source.mediaType). Donc un parentAncre ne
-      // figure que dans UNE des 3 sous-maps (Batch D : 3e bucket SR).
+      // Refinement SR — seulement "carousel" et "short" comme keys
+      // possibles (SR exclus en amont de la boucle).
       carouselsByParentAncreByFormat: Map<
-        MediaTypeServer,
+        "carousel" | "short",
         Map<string, Set<string>>
       >;
     };
@@ -185,33 +191,36 @@ export const listHooksWithUsage = query({
 
     for (const pub of publications) {
       if (pub.hookId === null) continue;
+      // Refinement SR — exclure les ScreenRecorders du comptage. Les SR
+      // n'ont plus le concept de hook (étape skip dans le modal nouveau).
+      // Les SR pré-existants en DB gardent leur hookId orphelin mais ne
+      // contribuent plus aux compteurs de la biblio hooks.
+      const pubMediaType = pub.mediaType ?? "carousel";
+      if (pubMediaType === "screenrecorder") continue;
       const key = pub.hookId as unknown as string;
       const u =
         usageByHookId.get(key) ??
         ({
           publishedCarouselsCount: 0,
           publishedShortsCount: 0,
-          publishedScreenRecorderCount: 0,
           draftCarouselsCount: 0,
           draftShortsCount: 0,
-          draftScreenRecorderCount: 0,
           accountsUsed: new Set<string>(),
           lastPublishedAt: null,
           carouselsByParentAncreByFormat: new Map<
-            MediaTypeServer,
+            "carousel" | "short",
             Map<string, Set<string>>
           >(),
         } satisfies Usage);
 
-      // Coercion mediaType côté serveur (pas d'import lib/media-type.ts
-      // possible, cf cross-tsconfig). Logique alignée avec getMediaType().
-      const mediaType: MediaTypeServer = pub.mediaType ?? "carousel";
+      // pubMediaType est garanti "carousel" ou "short" ici (SR exclus
+      // au-dessus). Cast pour TS narrowing.
+      const mediaType = pubMediaType as "carousel" | "short";
       const isPub =
         typeof pub.postUrl === "string" && pub.postUrl.length > 0;
       if (isPub) {
         if (mediaType === "carousel") u.publishedCarouselsCount += 1;
-        else if (mediaType === "short") u.publishedShortsCount += 1;
-        else u.publishedScreenRecorderCount += 1;
+        else u.publishedShortsCount += 1;
         u.accountsUsed.add(pub.compte);
         if (
           u.lastPublishedAt === null ||
@@ -221,8 +230,7 @@ export const listHooksWithUsage = query({
         }
       } else {
         if (mediaType === "carousel") u.draftCarouselsCount += 1;
-        else if (mediaType === "short") u.draftShortsCount += 1;
-        else u.draftScreenRecorderCount += 1;
+        else u.draftShortsCount += 1;
       }
 
       // Agrégation variantsCount intra-format : 2 sous-maps par mediaType.
@@ -248,7 +256,7 @@ export const listHooksWithUsage = query({
 
     function variantsCountFor(
       u: Usage | undefined,
-      mediaType: MediaTypeServer,
+      mediaType: "carousel" | "short",
     ): number {
       if (!u) return 0;
       const formatMap = u.carouselsByParentAncreByFormat.get(mediaType);
@@ -260,19 +268,20 @@ export const listHooksWithUsage = query({
       return count;
     }
 
+    // Refinement SR — return shape sans les champs *ScreenRecorder*
+    // (publishedScreenRecorderCount / draftScreenRecorderCount /
+    // variantsCountScreenRecorder). Le seul callsite (HookCard dans
+    // app/biblio-hooks/page.tsx) est adapté dans le même commit.
     let results = hooks.map((h) => {
       const u = usageByHookId.get(h._id as unknown as string);
       return {
         ...h,
         publishedCarouselsCount: u?.publishedCarouselsCount ?? 0,
         publishedShortsCount: u?.publishedShortsCount ?? 0,
-        publishedScreenRecorderCount: u?.publishedScreenRecorderCount ?? 0,
         draftCarouselsCount: u?.draftCarouselsCount ?? 0,
         draftShortsCount: u?.draftShortsCount ?? 0,
-        draftScreenRecorderCount: u?.draftScreenRecorderCount ?? 0,
         variantsCountCarousel: variantsCountFor(u, "carousel"),
         variantsCountShort: variantsCountFor(u, "short"),
-        variantsCountScreenRecorder: variantsCountFor(u, "screenrecorder"),
         accountsUsed: u ? Array.from(u.accountsUsed).sort() : [],
         lastPublishedAt: u?.lastPublishedAt ?? null,
       };
@@ -297,16 +306,14 @@ export const listHooksWithUsage = query({
       results = results.filter(
         (h) =>
           h.publishedCarouselsCount === 0 &&
-          h.publishedShortsCount === 0 &&
-          h.publishedScreenRecorderCount === 0,
+          h.publishedShortsCount === 0,
       );
     }
     if (args.hideDraft) {
       results = results.filter(
         (h) =>
           h.draftCarouselsCount === 0 &&
-          h.draftShortsCount === 0 &&
-          h.draftScreenRecorderCount === 0,
+          h.draftShortsCount === 0,
       );
     }
 

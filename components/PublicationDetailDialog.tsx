@@ -42,11 +42,31 @@ import {
 import { isPublished } from "@/lib/publication-status";
 import { getMediaType } from "@/lib/media-type";
 import {
+  RECORDING_DEVICES,
+  RECORDING_DEVICE_ICONS,
+  RECORDING_DEVICE_LABELS,
+  type RecordingDevice,
+} from "@/lib/format-config";
+import { cn } from "@/lib/utils";
+import {
   CalendarIcon,
   ExternalLinkIcon,
   Loader2Icon,
 } from "lucide-react";
 import { toast } from "sonner";
+
+// Refinement SR — helper local pour afficher un badge Appareil avec
+// icône Lucide. Couleurs neutres (info ≠ verdict). Réutilisé par
+// PublishedView et DraftEditView.
+function RecordingDeviceInlineBadge({ device }: { device: RecordingDevice }) {
+  const Icon = RECORDING_DEVICE_ICONS[device];
+  return (
+    <Badge variant="outline" className="gap-1 text-slate-700">
+      <Icon className="size-3" />
+      {RECORDING_DEVICE_LABELS[device]}
+    </Badge>
+  );
+}
 
 // Batch C — adresse TD-008 : la const PLATEFORMES locale est remplacée par
 // ALL_PLATFORMS de lib/format-config.ts (single source of truth).
@@ -156,12 +176,19 @@ function PublishedView({
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-            <div className="text-xs font-medium text-slate-500">Hook</div>
-            <p className="mt-1 text-sm font-medium text-slate-900">
-              {publication.hookText}
-            </p>
-          </div>
+          {/*
+            Refinement SR — section Hook masquée pour SR (concept hook-level
+            retiré). Le titre se substitue (affiché séparément ci-dessous).
+            Pour carousel/short : comportement inchangé.
+          */}
+          {!isScreenRecorder && (
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+              <div className="text-xs font-medium text-slate-500">Hook</div>
+              <p className="mt-1 text-sm font-medium text-slate-900">
+                {publication.hookText}
+              </p>
+            </div>
+          )}
 
           <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3">
             <div className="text-xs font-medium text-emerald-700">
@@ -210,21 +237,51 @@ function PublishedView({
           )}
 
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <Field label="Mécanique">
-              <Badge variant="secondary">{publication.mecanique}</Badge>
-            </Field>
-            <Field label="Niveau">
-              <Badge variant="outline">{publication.niveau}</Badge>
-            </Field>
-            <Field label="Format">
-              {isVideoFormat ? (
-                <span className="text-slate-400">—</span>
-              ) : (
-                publication.format
-              )}
-            </Field>
-            <Field label="Angle tonal">{publication.angleTonal}</Field>
-            <Field label="Langue">{publication.langue}</Field>
+            {/*
+              Refinement SR — Mécanique/Niveau/Format/Angle/Langue masqués
+              pour SR (concepts hook-level retirés). Remplacés par Appareil
+              + Repackaging plus bas. Pour carousel/short : grid identique
+              à l'existant.
+            */}
+            {!isScreenRecorder && (
+              <>
+                <Field label="Mécanique">
+                  <Badge variant="secondary">{publication.mecanique}</Badge>
+                </Field>
+                <Field label="Niveau">
+                  <Badge variant="outline">{publication.niveau}</Badge>
+                </Field>
+                <Field label="Format">
+                  {isVideoFormat ? (
+                    <span className="text-slate-400">—</span>
+                  ) : (
+                    publication.format
+                  )}
+                </Field>
+                <Field label="Angle tonal">{publication.angleTonal}</Field>
+                <Field label="Langue">{publication.langue}</Field>
+              </>
+            )}
+            {isScreenRecorder && publication.recordingDevice && (
+              <Field label="Appareil">
+                <RecordingDeviceInlineBadge
+                  device={publication.recordingDevice}
+                />
+              </Field>
+            )}
+            {isScreenRecorder && publication.isRepackaging !== undefined && (
+              <Field label="Type">
+                {publication.isRepackaging === true ? (
+                  <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">
+                    Repackaging RepackIt
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-slate-600">
+                    Autre capture
+                  </Badge>
+                )}
+              </Field>
+            )}
             <Field label="Compte">
               <span className="font-mono text-xs">{publication.compte}</span>
             </Field>
@@ -421,6 +478,17 @@ function DraftEditView({
   const [image, setImage] = useState<Id<"_storage"> | null | undefined>(
     publication.image ?? null,
   );
+  // Refinement SR — recordingDevice + isRepackaging éditables au niveau
+  // draft. Init depuis publication (peuvent être undefined pour SR
+  // pré-Refinement créés en Batch D). Validation au save uniquement pour
+  // SR ; pour carousel/short, ces states existent mais sont ignorés au
+  // patch.
+  const [recordingDevice, setRecordingDevice] = useState<
+    RecordingDevice | undefined
+  >(publication.recordingDevice);
+  const [isRepackaging, setIsRepackaging] = useState<boolean | undefined>(
+    publication.isRepackaging,
+  );
   const [datePubli, setDatePubli] = useState<Date>(
     new Date(publication.datePubli),
   );
@@ -466,7 +534,8 @@ function DraftEditView({
       toast.error("Le script ne peut pas être vide.");
       return;
     }
-    // Batch D — ScreenRecorder : titre 3-200 + image requise.
+    // Batch D + Refinement SR — ScreenRecorder : titre 3-200 + image +
+    // recordingDevice + isRepackaging requis.
     if (isScreenRecorder) {
       const t = titre.trim();
       if (t.length < 3 || t.length > 200) {
@@ -475,6 +544,14 @@ function DraftEditView({
       }
       if (image === null || image === undefined) {
         toast.error("Image requise pour ScreenRecorder.");
+        return;
+      }
+      if (recordingDevice === undefined) {
+        toast.error("Appareil d'enregistrement requis.");
+        return;
+      }
+      if (isRepackaging === undefined) {
+        toast.error("Indique si c'est un repackaging RepackIt.");
         return;
       }
     }
@@ -507,6 +584,10 @@ function DraftEditView({
             // image: undefined = ne pas toucher ; null = supprimer la
             // référence storage (pas de cascade sur le blob — TD-011).
             image: image === undefined ? undefined : image,
+            // Refinement SR — patcher recordingDevice + isRepackaging si
+            // changés. Toujours définis ici (validation au-dessus).
+            recordingDevice,
+            isRepackaging,
             datePubli: datePubli.getTime(),
             compte,
             plateforme,
@@ -674,6 +755,71 @@ function DraftEditView({
                   imageUrl={publication.imageUrl ?? null}
                   onChange={(storageId) => setImage(storageId)}
                 />
+              </div>
+              {/*
+                Refinement SR — édition de l'Appareil + Type. 2 grids
+                radio identiques à StepContenu.tsx du modal nouveau.
+              */}
+              <div className="space-y-1.5">
+                <Label>Appareil d&apos;enregistrement</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  {RECORDING_DEVICES.map((device) => {
+                    const Icon = RECORDING_DEVICE_ICONS[device];
+                    const selected = recordingDevice === device;
+                    return (
+                      <button
+                        key={device}
+                        type="button"
+                        onClick={() =>
+                          setRecordingDevice(device as RecordingDevice)
+                        }
+                        className={cn(
+                          "flex flex-col items-center gap-2 rounded-lg border p-3 text-sm transition-colors",
+                          selected
+                            ? "border-slate-900 bg-slate-50 text-slate-900"
+                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300",
+                        )}
+                        aria-pressed={selected}
+                      >
+                        <Icon className="size-5" />
+                        <span className="font-medium">
+                          {RECORDING_DEVICE_LABELS[device]}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Type de capture</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsRepackaging(true)}
+                    className={cn(
+                      "rounded-lg border p-3 text-left text-sm transition-colors",
+                      isRepackaging === true
+                        ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300",
+                    )}
+                    aria-pressed={isRepackaging === true}
+                  >
+                    <div className="font-medium">Repackaging RepackIt</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsRepackaging(false)}
+                    className={cn(
+                      "rounded-lg border p-3 text-left text-sm transition-colors",
+                      isRepackaging === false
+                        ? "border-slate-400 bg-slate-100 text-slate-900"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300",
+                    )}
+                    aria-pressed={isRepackaging === false}
+                  >
+                    <div className="font-medium">Autre capture</div>
+                  </button>
+                </div>
               </div>
             </div>
           )}

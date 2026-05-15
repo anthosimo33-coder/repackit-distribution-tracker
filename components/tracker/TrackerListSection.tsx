@@ -41,6 +41,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import { VerdictBadge, PlatformBadge } from "@/components/VerdictBadge";
 import { PublicationEditDialog } from "@/components/PublicationEditDialog";
 import { PublicationDetailDialog } from "@/components/PublicationDetailDialog";
@@ -54,7 +55,13 @@ import {
   ALLOWED_PLATFORMS_FOR_SHORT,
   type MediaType,
 } from "@/lib/media-type";
-import { FORMAT_CONFIGS } from "@/lib/format-config";
+import {
+  FORMAT_CONFIGS,
+  RECORDING_DEVICES,
+  RECORDING_DEVICE_ICONS,
+  RECORDING_DEVICE_LABELS,
+  type RecordingDevice,
+} from "@/lib/format-config";
 import { AnalyticsSection } from "@/components/analytics/AnalyticsSection";
 import {
   DEFAULT_SORT,
@@ -146,6 +153,7 @@ function getSortValue(
 // Colonnes du tableau publications. Identifiant typé strict pour qu'un futur
 // ajout/suppression force la mise à jour synchrone des deux callsites.
 // Batch D — ajout image (thumbnail) et titre, ScreenRecorder uniquement.
+// Refinement SR — ajout recordingDevice et isRepackaging (SR uniquement).
 type ColumnKey =
   | "date"
   | "image"
@@ -163,6 +171,8 @@ type ColumnKey =
   | "verdict"
   | "likes"
   | "subsGained"
+  | "recordingDevice"
+  | "isRepackaging"
   | "actions";
 
 const CAROUSEL_COLUMNS: readonly ColumnKey[] = [
@@ -195,19 +205,18 @@ const SHORT_COLUMNS: readonly ColumnKey[] = [
   "actions",
 ];
 
-// Batch D — ScreenRecorder columns : image (thumbnail à gauche) + titre +
-// métriques short-like (likes/subsGained). Pas de saves/saveRate/verdict
-// (carousel-only) ni de format A-H.
+// Batch D + Refinement SR — ScreenRecorder columns. Hook, mécanique et
+// angle retirés (étape Hook skip pour SR, concepts hook-level inertes).
+// Ajout recordingDevice (badge avec icône) et isRepackaging (badge type).
 const SCREENRECORDER_COLUMNS: readonly ColumnKey[] = [
   "date",
   "image",
   "carouselId",
-  "hook",
   "titre",
+  "recordingDevice",
+  "isRepackaging",
   "plateforme",
   "compte",
-  "mecanique",
-  "angle",
   "vues",
   "likes",
   "subsGained",
@@ -218,6 +227,20 @@ function columnsForMediaType(mediaType: MediaType): readonly ColumnKey[] {
   if (mediaType === "carousel") return CAROUSEL_COLUMNS;
   if (mediaType === "screenrecorder") return SCREENRECORDER_COLUMNS;
   return SHORT_COLUMNS;
+}
+
+/**
+ * Refinement SR — badge compact "Téléphone" ou "Ordinateur" avec icône
+ * Lucide. Couleurs neutres slate (l'info n'est pas un verdict).
+ */
+function RecordingDeviceBadge({ device }: { device: RecordingDevice }) {
+  const Icon = RECORDING_DEVICE_ICONS[device];
+  return (
+    <Badge variant="outline" className="gap-1 text-slate-700">
+      <Icon className="size-3" />
+      {RECORDING_DEVICE_LABELS[device]}
+    </Badge>
+  );
 }
 
 /**
@@ -252,6 +275,14 @@ export function TrackerListSection({
   const [mecanique, setMecanique] = useState<Set<string>>(new Set());
   const [format, setFormat] = useState<Set<string>>(new Set());
   const [verdictFilter, setVerdictFilter] = useState<Set<string>>(new Set());
+  // Refinement SR — filtres SR-specific, session-only (non persistés dans
+  // presets v4 — la décision de migrer le schéma presets pour ces 2 filtres
+  // est reportée). recordingDeviceFilter = multi-select ("phone"|"desktop").
+  // repackagingFilter = single-select : "all" | "repack" | "other".
+  const [recordingDeviceFilter, setRecordingDeviceFilter] = useState<
+    Set<string>
+  >(new Set());
+  const [repackagingFilter, setRepackagingFilter] = useState<string>(ALL);
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
@@ -457,6 +488,19 @@ export function TrackerListSection({
         return verdictFilter.has(v);
       });
     }
+    // Refinement SR — filtres SR-specific. N'ont d'effet que sur
+    // mediaType=screenrecorder (les autres rows n'ont pas ces champs).
+    if (recordingDeviceFilter.size > 0) {
+      list = list.filter(
+        (p) =>
+          p.recordingDevice !== undefined &&
+          recordingDeviceFilter.has(p.recordingDevice),
+      );
+    }
+    if (repackagingFilter !== ALL) {
+      const wantRepack = repackagingFilter === "repack";
+      list = list.filter((p) => p.isRepackaging === wantRepack);
+    }
 
     const sorted = [...list].sort((a, b) => {
       const ra = getSortValue(a, sortKey);
@@ -482,6 +526,8 @@ export function TrackerListSection({
     mecanique,
     format,
     verdictFilter,
+    recordingDeviceFilter,
+    repackagingFilter,
     sortKey,
     sortDir,
   ]);
@@ -538,6 +584,8 @@ export function TrackerListSection({
     setMecanique(new Set());
     setFormat(new Set());
     setVerdictFilter(new Set());
+    setRecordingDeviceFilter(new Set());
+    setRepackagingFilter(ALL);
   }
 
   function toggleSort(key: SortKey) {
@@ -666,14 +714,21 @@ export function TrackerListSection({
           allLabel="Tous"
           width="w-[120px]"
         />
-        <FilterMultiSelect
-          label="Mécanique"
-          selectedValues={mecanique}
-          onChange={setMecanique}
-          options={MECANIQUES.map((m) => ({ value: m, label: m }))}
-          allLabel="Toutes"
-          width="w-[160px]"
-        />
+        {/*
+          Refinement SR — Mécanique masquée pour SR (concept hook-level
+          retiré). Carousel et Short la conservent. Pour SR, on ajoute
+          2 filtres dédiés : Appareil (multi) + Repackaging (single).
+        */}
+        {mediaType !== "screenrecorder" && (
+          <FilterMultiSelect
+            label="Mécanique"
+            selectedValues={mecanique}
+            onChange={setMecanique}
+            options={MECANIQUES.map((m) => ({ value: m, label: m }))}
+            allLabel="Toutes"
+            width="w-[160px]"
+          />
+        )}
         {mediaType === "carousel" && (
           <>
             <FilterMultiSelect
@@ -692,6 +747,29 @@ export function TrackerListSection({
                 value: v,
                 label: v,
               }))}
+              allLabel="Tous"
+              width="w-[140px]"
+            />
+          </>
+        )}
+        {mediaType === "screenrecorder" && (
+          <>
+            <FilterMultiSelect
+              label="Appareil"
+              selectedValues={recordingDeviceFilter}
+              onChange={setRecordingDeviceFilter}
+              options={RECORDING_DEVICES.map((d) => ({
+                value: d,
+                label: RECORDING_DEVICE_LABELS[d],
+              }))}
+              allLabel="Tous"
+              width="w-[160px]"
+            />
+            <FilterSelect
+              label="Type"
+              value={repackagingFilter}
+              onChange={setRepackagingFilter}
+              options={["repack", "other"]}
               allLabel="Tous"
               width="w-[140px]"
             />
@@ -981,6 +1059,12 @@ function PublicationsSection({
               {visibleColumns.has("titre") && (
                 <TableHead>Titre</TableHead>
               )}
+              {visibleColumns.has("recordingDevice") && (
+                <TableHead>Appareil</TableHead>
+              )}
+              {visibleColumns.has("isRepackaging") && (
+                <TableHead>Repackaging</TableHead>
+              )}
               {visibleColumns.has("plateforme") && (
                 <TableHead>Plateforme</TableHead>
               )}
@@ -1096,6 +1180,32 @@ function PublicationsSection({
                       title={p.titre ?? ""}
                     >
                       {p.titre ?? (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </TableCell>
+                  )}
+                  {visibleColumns.has("recordingDevice") && (
+                    <TableCell>
+                      {p.recordingDevice ? (
+                        <RecordingDeviceBadge
+                          device={p.recordingDevice}
+                        />
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </TableCell>
+                  )}
+                  {visibleColumns.has("isRepackaging") && (
+                    <TableCell>
+                      {p.isRepackaging === true ? (
+                        <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">
+                          Repack
+                        </Badge>
+                      ) : p.isRepackaging === false ? (
+                        <Badge variant="outline" className="text-slate-600">
+                          Autre
+                        </Badge>
+                      ) : (
                         <span className="text-slate-400">—</span>
                       )}
                     </TableCell>
