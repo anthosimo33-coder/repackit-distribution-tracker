@@ -57,6 +57,12 @@ test.describe("Tracker — Marquer Short comme posté + édition métriques", ()
       });
     }
 
+    // Refinement Shorts — un Short requiert désormais un ICP (validation
+    // createPublication + PublicationEditDialog). On en crée un (marqué).
+    const icpId = await convex.mutation(api.icps.createIcp, {
+      nom: `[E2E_TEST] mark short ${Date.now()}`,
+    });
+
     // 1 Short draft via mutation directe
     const hookText = `Hook mark short E2E ${Date.now()}`;
     const carouselId = await convex.query(
@@ -70,6 +76,7 @@ test.describe("Tracker — Marquer Short comme posté + édition métriques", ()
       mecanique: "Volume",
       niveau: "Broad-B",
       mediaType: "short",
+      icpId,
       script: "Script E2E mark short",
       angleTonal: "Pédagogique",
       langue: "FR",

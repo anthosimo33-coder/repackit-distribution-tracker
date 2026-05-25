@@ -52,11 +52,13 @@ import {
   Loader2Icon,
   PlusIcon,
   UsersIcon,
+  TargetIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { PersonnesManagerSection } from "@/components/comptes/PersonnesManagerSection";
 import { PersonneCombobox } from "@/components/comptes/PersonneCombobox";
+import { IcpsManagerSection } from "@/components/icps/IcpsManagerSection";
 
 // listComptes enrichit chaque compte avec `personne` (lookup serveur).
 type Compte = Doc<"comptes"> & {
@@ -84,9 +86,11 @@ function ComptesPageInner() {
   const [editTarget, setEditTarget] = useState<Compte | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Compte | null>(null);
 
-  const isPersonnesView = searchParams.get("view") === "personnes";
+  const viewParam = searchParams.get("view");
+  const isPersonnesView = viewParam === "personnes";
+  const isIcpsView = viewParam === "icps";
 
-  function navigate(view: "personnes" | null) {
+  function navigate(view: "personnes" | "icps" | null) {
     const params = new URLSearchParams(searchParams);
     if (view) params.set("view", view);
     else params.delete("view");
@@ -98,6 +102,14 @@ function ComptesPageInner() {
     return (
       <div className="space-y-6">
         <PersonnesManagerSection onBack={() => navigate(null)} />
+      </div>
+    );
+  }
+
+  if (isIcpsView) {
+    return (
+      <div className="space-y-6">
+        <IcpsManagerSection onBack={() => navigate(null)} />
       </div>
     );
   }
@@ -122,6 +134,10 @@ function ComptesPageInner() {
           <Button variant="outline" onClick={() => navigate("personnes")}>
             <UsersIcon className="mr-2 size-4" />
             Personnes
+          </Button>
+          <Button variant="outline" onClick={() => navigate("icps")}>
+            <TargetIcon className="mr-2 size-4" />
+            ICPs
           </Button>
           <Button onClick={() => setAddOpen(true)}>
             <PlusIcon className="mr-2 size-4" />

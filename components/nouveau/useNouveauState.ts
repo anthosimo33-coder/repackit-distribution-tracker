@@ -52,6 +52,9 @@ export type NouveauData = {
   // accepte true|false explicite ; undefined = pas encore choisi.
   recordingDevice?: RecordingDevice;
   isRepackaging?: boolean;
+  // short uniquement — ICP ciblé (required à la création d'un Short, validé
+  // dans NouveauModal.handleCreate + côté serveur).
+  icpId?: Id<"icps">;
   // publication
   plateformes: string[];
   compte: string;
@@ -89,6 +92,7 @@ export type NouveauAction =
   | { type: "SET_IMAGE"; image: Id<"_storage"> | null }
   | { type: "SET_RECORDING_DEVICE"; device: RecordingDevice }
   | { type: "SET_IS_REPACKAGING"; value: boolean }
+  | { type: "SET_ICP"; icpId: Id<"icps"> | null }
   | { type: "SET_PLATEFORMES"; plateformes: string[] }
   | { type: "TOGGLE_PLATEFORME"; plateforme: string }
   | { type: "SET_COMPTE"; compte: string }
@@ -118,6 +122,7 @@ function initialData(): NouveauData {
     image: null,
     recordingDevice: undefined,
     isRepackaging: undefined,
+    icpId: undefined,
     plateformes: [],
     compte: "",
     datePubli: Date.now(),
@@ -264,6 +269,11 @@ function reducer(state: NouveauState, action: NouveauAction): NouveauState {
         ...state,
         data: { ...state.data, isRepackaging: action.value },
       };
+    case "SET_ICP":
+      return {
+        ...state,
+        data: { ...state.data, icpId: action.icpId ?? undefined },
+      };
     case "SET_PLATEFORMES":
       return {
         ...state,
@@ -302,6 +312,7 @@ export function isDataDirty(data: NouveauData): boolean {
   if (data.image !== null) return true;
   if (data.recordingDevice !== undefined) return true;
   if (data.isRepackaging !== undefined) return true;
+  if (data.icpId !== undefined) return true;
   if (data.plateformes.length > 0) return true;
   if (data.compte.length > 0) return true;
   if (data.notes.trim().length > 0) return true;

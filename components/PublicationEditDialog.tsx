@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import type { Doc } from "@/convex/_generated/dataModel";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
 import {
   Dialog,
   DialogContent,
@@ -23,6 +23,7 @@ import {
   formatPercent,
 } from "@/lib/verdict";
 import { getMediaType } from "@/lib/media-type";
+import { IcpCombobox } from "@/components/icps/IcpCombobox";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 
@@ -73,6 +74,11 @@ export function PublicationEditDialog({
   );
   const [notes, setNotes] = useState(publication.notes ?? "");
   const [postUrl, setPostUrl] = useState(publication.postUrl ?? "");
+  // Refinement Shorts — ICP éditable depuis le dialog métriques (seul point
+  // d'édition d'un Short publié). Required pour Short.
+  const [icpId, setIcpId] = useState<Id<"icps"> | null>(
+    publication.icpId ?? null,
+  );
   const [submitting, setSubmitting] = useState(false);
 
   const updateMetrics = useMutation(api.publications.updateMetrics);
@@ -91,6 +97,12 @@ export function PublicationEditDialog({
   const previewVerdict = calculateVerdict(previewSaveRate);
 
   async function handleSave() {
+    // Refinement Shorts — ICP requis pour un Short (édition rétroactive
+    // incluse). N'a pas d'effet sur les autres formats (icpId ignoré).
+    if (isShort && icpId === null) {
+      toast.error("ICP requis pour le Short.");
+      return;
+    }
     setSubmitting(true);
     try {
       // Batch 2 Modif 4c — payload conditionnel selon mediaType :
@@ -110,6 +122,8 @@ export function PublicationEditDialog({
         commentsAudit: isInstagram ? parseNumOrNull(commentsAudit) : null,
         profileVisits: parseNumOrNull(profileVisits),
         notes,
+        // ICP : envoyé uniquement pour les Shorts (sinon ne pas toucher).
+        icpId: isShort ? icpId : undefined,
         postUrl: postUrl.trim(),
       });
       toast.success("Métriques mises à jour");
@@ -259,6 +273,13 @@ export function PublicationEditDialog({
             />
           </div>
         </div>
+
+        {isShort && (
+          <div className="space-y-1.5">
+            <Label>ICP ciblé</Label>
+            <IcpCombobox value={icpId} onChange={setIcpId} required />
+          </div>
+        )}
 
         <div className="space-y-1.5">
           <Label htmlFor="edit-notes">Notes</Label>

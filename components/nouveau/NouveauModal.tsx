@@ -195,8 +195,10 @@ export function NouveauModal({
       // Pas de check explicite slides[0] non vide (le hook est pre-rempli
       // au step 2). Mais on vérifie qu'au moins le hook est présent.
     } else if (state.data.mediaType === "short") {
-      if (state.data.script.trim().length === 0) {
-        toast.error("Le script ne peut pas être vide");
+      // Refinement Shorts — script optionnel (saisissable plus tard), mais
+      // l'ICP ciblé est REQUIS à la création.
+      if (state.data.icpId === undefined) {
+        toast.error("ICP requis pour le Short");
         goto(3);
         return;
       }
@@ -336,9 +338,11 @@ export function NouveauModal({
           isRepackaging: state.data.isRepackaging,
         });
       } else {
+        // Short — icpId required (validé au-dessus), script optionnel.
         await createPub({
           ...baseArgs,
-          script: state.data.script.trim(),
+          script: state.data.script.trim() || undefined,
+          icpId: state.data.icpId,
         });
       }
       const formatLabel =

@@ -209,6 +209,22 @@ export const METRIC_LABELS: Record<ChartMetric, string> = {
 // la barre filtres /screenrecorder. Distinct du concept "plateforme" qui
 // reste TikTok/Instagram/YouTube.
 
+/**
+ * Refinement Shorts — label de la colonne "ID de contenu" du tracker,
+ * contextuel au mediaType. "Carrousel" sur /carrousels, "Short" sur /shorts,
+ * "SR" sur /screenrecorder (abrégé, distinct du singular "ScreenRecorder").
+ */
+export function getIdColumnLabel(mediaType: MediaType): string {
+  switch (mediaType) {
+    case "short":
+      return "Short";
+    case "screenrecorder":
+      return "SR";
+    default:
+      return "Carrousel";
+  }
+}
+
 export type RecordingDevice = "phone" | "desktop";
 
 export const RECORDING_DEVICES = ["phone", "desktop"] as const;

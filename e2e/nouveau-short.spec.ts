@@ -44,12 +44,18 @@ test.describe("Création Short via modal NouveauModal", () => {
       });
     }
 
-    const hookText = `Hook short E2E ${Date.now()}`;
+    const ts = Date.now();
+    const hookText = `Hook short E2E ${ts}`;
+    // Refinement Shorts — un Short requiert désormais un ICP. On en crée un
+    // (marqué [E2E_TEST]) pour pouvoir le sélectionner à l'étape Contenu.
+    const icpName = `[E2E_TEST] short ${ts}`;
+    await convex.mutation(api.icps.createIcp, { nom: icpName });
 
     // Modal pré-sélectionné short via URL → ouvre étape 2 directement.
     await page.goto("/shorts?nouveau=open&format=short");
 
-    const dialog = page.getByRole("dialog");
+    // Scopé par nom : le Popover de l'IcpCombobox a aussi role="dialog".
+    const dialog = page.getByRole("dialog", { name: /nouvelle publication/i });
     await expect(dialog).toBeVisible();
 
     // Step 2 — switch Custom + saisir hook.
@@ -64,6 +70,12 @@ test.describe("Création Short via modal NouveauModal", () => {
     await expect(script).toBeVisible();
     // Script pré-rempli avec le hookText (idempotent).
     await expect(script).toHaveValue(hookText);
+
+    // Refinement Shorts — sélectionner l'ICP (combobox required, pas d'Angle).
+    await dialog.getByRole("combobox").click();
+    await page
+      .getByRole("option", { name: new RegExp(`short ${ts}`, "i") })
+      .click();
 
     await dialog.getByRole("button", { name: /^suivant$/i }).click();
 

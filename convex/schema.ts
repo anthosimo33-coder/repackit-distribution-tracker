@@ -125,6 +125,11 @@ export default defineSchema({
     // duplicats de partager un seul point d'ancrage. undefined = carrousel
     // original (pas de parent). Optional pour les rows pré-Modif 2.
     parentCarouselId: v.optional(v.string()),
+    // Refinement Shorts — ICP ciblé (audience). Required à la création d'un
+    // Short (validé dans createPublication), optional côté schéma pour la
+    // rétro-compat des Shorts pré-existants + des carousel/SR qui l'ignorent.
+    // Unset via patch { icpId: undefined } (cascade deleteIcp).
+    icpId: v.optional(v.id("icps")),
   })
     .index("by_carouselId", ["carouselId"])
     .index("by_plateforme", ["plateforme"])
@@ -161,6 +166,18 @@ export default defineSchema({
   personnes: defineTable({
     prenom: v.string(),
     nom: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_nom", ["nom"]),
+
+  // ICPs (Ideal Customer Profiles) — audiences ciblées par les Shorts.
+  // Greenfield, admin via /comptes?view=icps. Lien Short → ICP via
+  // publications.icpId (required à la création d'un Short). color = clé
+  // palette FOLDER_COLORS (lib/folder-colors), pas un hex direct.
+  icps: defineTable({
+    nom: v.string(),
+    description: v.optional(v.string()),
+    color: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_nom", ["nom"]),

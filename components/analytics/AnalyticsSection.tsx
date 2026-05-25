@@ -1,5 +1,7 @@
 "use client";
 
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { KpiGrid } from "./KpiGrid";
 import { MetricChart } from "./MetricChart";
@@ -26,10 +28,13 @@ import {
   type RecordingDevice,
 } from "@/lib/format-config";
 import {
+  aggregateByIcp,
   aggregateByRecordingDevice,
   aggregateByRepackaging,
   type AggregateRowShort,
 } from "@/lib/dashboard-stats";
+import { getFolderColor } from "@/lib/folder-colors";
+import { cn } from "@/lib/utils";
 import { formatNumber, formatPercent } from "@/lib/format";
 
 type Publication = Doc<"publications">;
@@ -58,6 +63,7 @@ export function AnalyticsSection({
   mediaType: FormatKey;
 }) {
   const isSR = mediaType === "screenrecorder";
+  const isShort = mediaType === "short";
   return (
     <section className="space-y-6">
       <h2 className="text-lg font-semibold text-slate-900">Analytics</h2>
@@ -65,10 +71,51 @@ export function AnalyticsSection({
       <MetricChart publications={publications} mediaType={mediaType} />
       {isSR ? (
         <ScreenRecorderAnalytics publications={publications} />
+      ) : isShort ? (
+        // Refinement Shorts — TopHooks (simplifié, sans mécanique/niveau via
+        // TopHooksTable mediaType=short) + table Performance par ICP.
+        <>
+          <TopHooksTable publications={publications} mediaType={mediaType} />
+          <IcpAnalytics publications={publications} />
+        </>
       ) : (
         <TopHooksTable publications={publications} mediaType={mediaType} />
       )}
     </section>
+  );
+}
+
+/**
+ * Refinement Shorts — Performance par ICP. Réutilise SimpleDimensionTable
+ * (cohérent avec les tables SR). La clé de chaque row est l'icpId, résolu
+ * en nom + couleur via listIcps. Les Shorts sans ICP sont exclus en amont
+ * (aggregateByIcp).
+ */
+function IcpAnalytics({ publications }: { publications: Publication[] }) {
+  const icps = useQuery(api.icps.listIcps, {});
+  const rows = aggregateByIcp(publications);
+  const icpMap = new Map(
+    (icps ?? []).map((i) => [i._id as string, i] as const),
+  );
+  return (
+    <SimpleDimensionTable
+      title="Performance par ICP"
+      rows={rows}
+      renderKey={(key) => {
+        const icp = icpMap.get(key);
+        if (!icp) {
+          return <span className="text-slate-400">ICP supprimé</span>;
+        }
+        const color = getFolderColor(icp.color);
+        return (
+          <Badge variant="outline" className="gap-1.5 text-slate-700">
+            <span className={cn("size-2 rounded-full", color.dotClass)} />
+            {icp.nom}
+          </Badge>
+        );
+      }}
+      emptyLabel="Aucun Short avec ICP assigné."
+    />
   );
 }
 

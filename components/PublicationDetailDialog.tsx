@@ -47,6 +47,8 @@ import {
   RECORDING_DEVICE_LABELS,
   type RecordingDevice,
 } from "@/lib/format-config";
+import { IcpCombobox } from "@/components/icps/IcpCombobox";
+import { getFolderColor } from "@/lib/folder-colors";
 import { cn } from "@/lib/utils";
 import {
   CalendarIcon,
@@ -105,6 +107,8 @@ function Field({
 // reste la source de vérité pour les champs persistés.
 export type PublicationWithImage = Doc<"publications"> & {
   imageUrl?: string | null;
+  // Refinement Shorts — listPublications enrichit avec l'ICP résolu.
+  icp?: { nom: string; color: string | null } | null;
 };
 
 export function PublicationDetailDialog({
@@ -238,12 +242,11 @@ function PublishedView({
 
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             {/*
-              Refinement SR — Mécanique/Niveau/Format/Angle/Langue masqués
-              pour SR (concepts hook-level retirés). Remplacés par Appareil
-              + Repackaging plus bas. Pour carousel/short : grid identique
-              à l'existant.
+              Refinement SR + Shorts — Mécanique/Niveau/Format/Angle réservés
+              au Carrousel. SR : remplacés par Appareil + Repackaging. Short :
+              remplacés par ICP ciblé. Langue conservée pour Carrousel + Short.
             */}
-            {!isScreenRecorder && (
+            {!isVideoFormat && (
               <>
                 <Field label="Mécanique">
                   <Badge variant="secondary">{publication.mecanique}</Badge>
@@ -251,14 +254,31 @@ function PublishedView({
                 <Field label="Niveau">
                   <Badge variant="outline">{publication.niveau}</Badge>
                 </Field>
-                <Field label="Format">
-                  {isVideoFormat ? (
-                    <span className="text-slate-400">—</span>
+                <Field label="Format">{publication.format}</Field>
+                <Field label="Angle tonal">{publication.angleTonal}</Field>
+                <Field label="Langue">{publication.langue}</Field>
+              </>
+            )}
+            {isShort && (
+              <>
+                <Field label="ICP ciblé">
+                  {publication.icp ? (
+                    <Badge
+                      variant="outline"
+                      className="gap-1.5 text-slate-700"
+                    >
+                      <span
+                        className={cn(
+                          "size-2 rounded-full",
+                          getFolderColor(publication.icp.color).dotClass,
+                        )}
+                      />
+                      {publication.icp.nom}
+                    </Badge>
                   ) : (
-                    publication.format
+                    <span className="text-slate-400">—</span>
                   )}
                 </Field>
-                <Field label="Angle tonal">{publication.angleTonal}</Field>
                 <Field label="Langue">{publication.langue}</Field>
               </>
             )}
@@ -473,6 +493,10 @@ function DraftEditView({
   // d'un useEffect de synchronisation.
   const [slides, setSlides] = useState(publication.slides ?? []);
   const [script, setScript] = useState(publication.script ?? "");
+  // Refinement Shorts — ICP éditable (required pour Short à l'enregistrement).
+  const [icpId, setIcpId] = useState<Id<"icps"> | null>(
+    publication.icpId ?? null,
+  );
   const [titre, setTitre] = useState(publication.titre ?? "");
   // image: storageId (null = supprimée, undefined = non touchée).
   const [image, setImage] = useState<Id<"_storage"> | null | undefined>(
@@ -528,10 +552,11 @@ function DraftEditView({
       toast.error("Compte requis");
       return;
     }
-    // Batch 2 Modif 4c — validation script non vide pour les Shorts (pas
-    // de slides à valider, pas de longueur min/max — cf décision 1).
-    if (isShort && script.trim().length === 0) {
-      toast.error("Le script ne peut pas être vide.");
+    // Refinement Shorts — script optionnel désormais (saisissable plus
+    // tard) ; en revanche l'ICP ciblé est requis, y compris en édition
+    // rétroactive d'un Short pré-existant.
+    if (isShort && icpId === null) {
+      toast.error("ICP requis pour le Short.");
       return;
     }
     // Batch D + Refinement SR — ScreenRecorder : titre 3-200 + image +
@@ -595,6 +620,7 @@ function DraftEditView({
         : isShort
           ? {
               script: script.trim(),
+              icpId,
               datePubli: datePubli.getTime(),
               compte,
               plateforme,
@@ -821,6 +847,15 @@ function DraftEditView({
                   </button>
                 </div>
               </div>
+            </div>
+          )}
+          {isShort && (
+            <div className="space-y-1.5">
+              <Label>ICP ciblé</Label>
+              <IcpCombobox value={icpId} onChange={setIcpId} required />
+              <p className="text-xs text-slate-500">
+                Requis — l&apos;audience visée par ce Short.
+              </p>
             </div>
           )}
           {isVideoFormat ? (

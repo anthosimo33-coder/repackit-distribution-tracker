@@ -333,3 +333,15 @@ export const aggregateByRepackaging = (pubs: Publication[]) =>
     pubs.filter((p) => p.isRepackaging !== undefined),
     (p) => (p.isRepackaging ? "Repackaging" : "Autre capture"),
   );
+
+// ─── Refinement Shorts — agrégation par ICP ────────────────────────────────
+//
+// Performance par audience cible pour AnalyticsSection /shorts. La clé est
+// l'icpId (résolu en nom + couleur côté composant via listIcps). Les Shorts
+// sans icpId (pré-existants) sont ignorés — pas de bucket "Sans ICP" dans
+// la table. Calque aggregateByRecordingDevice (filtre + key inline).
+export const aggregateByIcp = (pubs: Publication[]) =>
+  aggregateByShorts(
+    pubs.filter((p) => p.icpId !== undefined),
+    (p) => p.icpId as string,
+  );

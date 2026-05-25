@@ -165,62 +165,47 @@ export const listHooksWithUsage = query({
     const hooks = await ctx.db.query("hooks").collect();
     const publications = await ctx.db.query("publications").collect();
 
-    // Refinement SR — les ScreenRecorders ne sont plus comptés dans la
-    // biblio hooks. Justification : le concept "hook" n'existe plus pour
-    // SR (étape Hook skip dans le modal nouveau). Les SR pré-existants
-    // peuvent garder un hookId orphelin en DB (rétrocompat) mais ils ne
-    // contribuent plus aux compteurs publishedScreenRecorderCount /
-    // draftScreenRecorderCount / variantsCountScreenRecorder — ces champs
-    // sont retirés du return shape.
+    // Refinement Shorts — les Shorts ne sont plus comptés dans la biblio
+    // hooks (cohérent avec le retrait SR précédent). Le concept "hook" pour
+    // un Short se réduit à texte + langue (mécanique/niveau sont des
+    // sentinelles inertes). La biblio hooks devient donc EXCLUSIVEMENT
+    // carrousel. Les Shorts/SR pré-existants gardent un hookId orphelin en
+    // DB (rétrocompat lecture seule) mais ne contribuent plus aux compteurs
+    // publishedShortsCount / draftShortsCount / variantsCountShort — ces
+    // champs sont retirés du return shape.
     type Usage = {
       publishedCarouselsCount: number;
-      publishedShortsCount: number;
       draftCarouselsCount: number;
-      draftShortsCount: number;
       accountsUsed: Set<string>;
       lastPublishedAt: number | null;
-      // Batch 3 Modif 6 : groupement parent ancré séparé par mediaType.
-      // Refinement SR — seulement "carousel" et "short" comme keys
-      // possibles (SR exclus en amont de la boucle).
-      carouselsByParentAncreByFormat: Map<
-        "carousel" | "short",
-        Map<string, Set<string>>
-      >;
+      // Groupement parent ancré pour le comptage des variantes carrousel.
+      // Plus de split par mediaType : seuls les carrousels sont comptés.
+      carouselsByParentAncre: Map<string, Set<string>>;
     };
     const usageByHookId = new Map<string, Usage>();
 
     for (const pub of publications) {
       if (pub.hookId === null) continue;
-      // Refinement SR — exclure les ScreenRecorders du comptage. Les SR
-      // n'ont plus le concept de hook (étape skip dans le modal nouveau).
-      // Les SR pré-existants en DB gardent leur hookId orphelin mais ne
-      // contribuent plus aux compteurs de la biblio hooks.
+      // Refinement Shorts — seuls les carrousels comptent désormais. Shorts
+      // et ScreenRecorders sont exclus (leur hookId orphelin éventuel ne
+      // contribue pas aux compteurs de la biblio hooks).
       const pubMediaType = pub.mediaType ?? "carousel";
-      if (pubMediaType === "screenrecorder") continue;
+      if (pubMediaType !== "carousel") continue;
       const key = pub.hookId as unknown as string;
       const u =
         usageByHookId.get(key) ??
         ({
           publishedCarouselsCount: 0,
-          publishedShortsCount: 0,
           draftCarouselsCount: 0,
-          draftShortsCount: 0,
           accountsUsed: new Set<string>(),
           lastPublishedAt: null,
-          carouselsByParentAncreByFormat: new Map<
-            "carousel" | "short",
-            Map<string, Set<string>>
-          >(),
+          carouselsByParentAncre: new Map<string, Set<string>>(),
         } satisfies Usage);
 
-      // pubMediaType est garanti "carousel" ou "short" ici (SR exclus
-      // au-dessus). Cast pour TS narrowing.
-      const mediaType = pubMediaType as "carousel" | "short";
       const isPub =
         typeof pub.postUrl === "string" && pub.postUrl.length > 0;
       if (isPub) {
-        if (mediaType === "carousel") u.publishedCarouselsCount += 1;
-        else u.publishedShortsCount += 1;
+        u.publishedCarouselsCount += 1;
         u.accountsUsed.add(pub.compte);
         if (
           u.lastPublishedAt === null ||
@@ -229,59 +214,43 @@ export const listHooksWithUsage = query({
           u.lastPublishedAt = pub.datePubli;
         }
       } else {
-        if (mediaType === "carousel") u.draftCarouselsCount += 1;
-        else u.draftShortsCount += 1;
+        u.draftCarouselsCount += 1;
       }
 
-      // Agrégation variantsCount intra-format : 2 sous-maps par mediaType.
-      // Tous les duplicats d'une même lignée pointent vers le carouselId
-      // original (cf duplicateCarousel) ET partagent le mediaType source
-      // (la duplication ne change jamais de format) → ils tombent dans le
-      // même bucket sous-map[mediaType][parentAncre].
-      let formatMap = u.carouselsByParentAncreByFormat.get(mediaType);
-      if (!formatMap) {
-        formatMap = new Map<string, Set<string>>();
-        u.carouselsByParentAncreByFormat.set(mediaType, formatMap);
-      }
+      // Agrégation variantsCount carrousel : tous les duplicats d'une même
+      // lignée pointent vers le carouselId original (cf duplicateCarousel)
+      // → ils tombent dans le même bucket [parentAncre].
       const parentAncre = pub.parentCarouselId ?? pub.carouselId;
-      let bucket = formatMap.get(parentAncre);
+      let bucket = u.carouselsByParentAncre.get(parentAncre);
       if (!bucket) {
         bucket = new Set<string>();
-        formatMap.set(parentAncre, bucket);
+        u.carouselsByParentAncre.set(parentAncre, bucket);
       }
       bucket.add(pub.carouselId);
 
       usageByHookId.set(key, u);
     }
 
-    function variantsCountFor(
-      u: Usage | undefined,
-      mediaType: "carousel" | "short",
-    ): number {
+    function variantsCountCarouselFor(u: Usage | undefined): number {
       if (!u) return 0;
-      const formatMap = u.carouselsByParentAncreByFormat.get(mediaType);
-      if (!formatMap) return 0;
       let count = 0;
-      for (const distinctIds of formatMap.values()) {
+      for (const distinctIds of u.carouselsByParentAncre.values()) {
         if (distinctIds.size >= 2) count += distinctIds.size;
       }
       return count;
     }
 
-    // Refinement SR — return shape sans les champs *ScreenRecorder*
-    // (publishedScreenRecorderCount / draftScreenRecorderCount /
-    // variantsCountScreenRecorder). Le seul callsite (HookCard dans
-    // app/biblio-hooks/page.tsx) est adapté dans le même commit.
+    // Refinement Shorts — return shape sans les champs *Shorts*
+    // (publishedShortsCount / draftShortsCount / variantsCountShort). Le
+    // seul callsite (HookCard dans app/biblio-hooks/page.tsx) est adapté
+    // dans le même commit.
     let results = hooks.map((h) => {
       const u = usageByHookId.get(h._id as unknown as string);
       return {
         ...h,
         publishedCarouselsCount: u?.publishedCarouselsCount ?? 0,
-        publishedShortsCount: u?.publishedShortsCount ?? 0,
         draftCarouselsCount: u?.draftCarouselsCount ?? 0,
-        draftShortsCount: u?.draftShortsCount ?? 0,
-        variantsCountCarousel: variantsCountFor(u, "carousel"),
-        variantsCountShort: variantsCountFor(u, "short"),
+        variantsCountCarousel: variantsCountCarouselFor(u),
         accountsUsed: u ? Array.from(u.accountsUsed).sort() : [],
         lastPublishedAt: u?.lastPublishedAt ?? null,
       };
@@ -300,21 +269,13 @@ export const listHooksWithUsage = query({
       const q = args.search.toLowerCase();
       results = results.filter((h) => h.text.toLowerCase().includes(q));
     }
-    // hideUsed / hideDraft : agrégés tous formats (un hook est "used" s'il
-    // a au moins 1 pub publiée tous formats confondus, idem "draft").
+    // hideUsed / hideDraft : carrousel uniquement désormais (un hook est
+    // "used" s'il a au moins 1 carrousel publié, idem "draft").
     if (args.hideUsed) {
-      results = results.filter(
-        (h) =>
-          h.publishedCarouselsCount === 0 &&
-          h.publishedShortsCount === 0,
-      );
+      results = results.filter((h) => h.publishedCarouselsCount === 0);
     }
     if (args.hideDraft) {
-      results = results.filter(
-        (h) =>
-          h.draftCarouselsCount === 0 &&
-          h.draftShortsCount === 0,
-      );
+      results = results.filter((h) => h.draftCarouselsCount === 0);
     }
 
     results.sort((a, b) =>

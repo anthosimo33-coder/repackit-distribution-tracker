@@ -10,6 +10,8 @@ import {
   RECORDING_DEVICE_LABELS,
   type FormatKey,
 } from "@/lib/format-config";
+import { getFolderColor } from "@/lib/folder-colors";
+import { cn } from "@/lib/utils";
 import { PencilIcon } from "lucide-react";
 import Image from "next/image";
 import type { Dispatch } from "react";
@@ -60,7 +62,15 @@ export function StepRecap({
 
   // Refinement SR — section Hook masquée (skip étape 2 pour SR). Angle
   // également retiré de la section Contenu SR (concept hook-level).
+  // Refinement Shorts — pour un Short : hook sans mécanique/niveau, pas
+  // d'angle, ajout de l'ICP ciblé.
   const isSR = data.mediaType === "screenrecorder";
+  const isShort = data.mediaType === "short";
+  const icps = useQuery(api.icps.listIcps, {});
+  const selectedIcp = data.icpId
+    ? icps?.find((i) => i._id === data.icpId) ?? null
+    : null;
+  const icpColor = selectedIcp ? getFolderColor(selectedIcp.color) : null;
   const DeviceIcon =
     data.recordingDevice !== undefined
       ? RECORDING_DEVICE_ICONS[data.recordingDevice]
@@ -97,10 +107,12 @@ export function StepRecap({
             <div className="space-y-2">
               <p className="text-sm text-slate-900">{hookText}</p>
               <div className="flex gap-1.5">
-                {hookMecanique && (
+                {!isShort && hookMecanique && (
                   <Badge variant="secondary">{hookMecanique}</Badge>
                 )}
-                {hookNiveau && <Badge variant="outline">{hookNiveau}</Badge>}
+                {!isShort && hookNiveau && (
+                  <Badge variant="outline">{hookNiveau}</Badge>
+                )}
                 {hookLangue && <Badge variant="outline">{hookLangue}</Badge>}
                 <Badge variant="outline" className="text-slate-500">
                   {data.hookMode === "biblio" ? "Bibliothèque" : "Custom"}
@@ -119,10 +131,10 @@ export function StepRecap({
       >
         <div className="space-y-2 text-sm">
           {/*
-            Refinement SR — Angle tonal masqué côté SR (concept hook-level
-            retiré). Pour carousel/short, comportement inchangé.
+            Angle tonal masqué côté SR (concept hook-level retiré) ET côté
+            Short (Refinement Shorts). N'apparaît plus que pour les carrousels.
           */}
-          {!isSR && (
+          {!isSR && !isShort && (
             <div>
               <span className="text-slate-500">Angle tonal :</span>{" "}
               <span className="font-medium">{data.angleTonal}</span>
@@ -150,15 +162,35 @@ export function StepRecap({
             </>
           )}
           {data.mediaType === "short" && (
-            <div className="text-xs text-slate-600">
-              <span className="text-slate-400">Script :</span>{" "}
-              {data.script.trim() ? (
-                data.script.length > 200
-                  ? data.script.slice(0, 200) + "…"
-                  : data.script
-              ) : (
-                <span className="italic text-slate-400">(vide)</span>
-              )}
+            <div className="space-y-2 text-xs text-slate-600">
+              <div className="flex items-center gap-2">
+                <span className="text-slate-400">ICP ciblé :</span>
+                {selectedIcp && icpColor ? (
+                  <Badge variant="outline" className="gap-1.5">
+                    <span
+                      className={cn(
+                        "size-2 rounded-full",
+                        icpColor.dotClass,
+                      )}
+                    />
+                    {selectedIcp.nom}
+                  </Badge>
+                ) : (
+                  <span className="italic text-slate-400">
+                    Non sélectionné
+                  </span>
+                )}
+              </div>
+              <div>
+                <span className="text-slate-400">Script :</span>{" "}
+                {data.script.trim() ? (
+                  data.script.length > 200
+                    ? data.script.slice(0, 200) + "…"
+                    : data.script
+                ) : (
+                  <span className="italic text-slate-400">(vide)</span>
+                )}
+              </div>
             </div>
           )}
           {data.mediaType === "screenrecorder" && (

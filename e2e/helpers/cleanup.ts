@@ -80,4 +80,13 @@ export async function cleanupTestData() {
   } catch (e) {
     console.warn("Cleanup personnes failed:", (e as Error).message);
   }
+
+  // ICPs. cleanupTestIcps filtre par marker [E2E_TEST] dans nom (cf
+  // convex/icps.ts). Les publications de test sont nettoyées au-dessus →
+  // pas d'icpId orphelin résiduel.
+  try {
+    await client.mutation(api.icps.cleanupTestIcps, {});
+  } catch (e) {
+    console.warn("Cleanup icps failed:", (e as Error).message);
+  }
 }

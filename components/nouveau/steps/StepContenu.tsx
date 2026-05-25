@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ImageUploader } from "@/components/ImageUploader";
+import { IcpCombobox } from "@/components/icps/IcpCombobox";
 import {
   RECORDING_DEVICES,
   RECORDING_DEVICE_ICONS,
@@ -213,6 +214,42 @@ export function StepContenu({
               dispatch({ type: "SET_SCRIPT", script: e.target.value })
             }
           />
+        </div>
+      </div>
+    );
+  }
+
+  if (isShort) {
+    // Refinement Shorts — l'Angle tonal (concept hook-level) est retiré.
+    // L'ICP ciblé devient le champ structurant, required à la création.
+    return (
+      <div className="space-y-4">
+        <div className="space-y-1.5">
+          <Label>ICP ciblé</Label>
+          <IcpCombobox
+            value={data.icpId ?? null}
+            onChange={(id) => dispatch({ type: "SET_ICP", icpId: id })}
+            required
+          />
+          <p className="text-xs text-slate-500">
+            Requis — l&apos;audience visée par ce Short.
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="script">Script</Label>
+          <Textarea
+            id="script"
+            rows={12}
+            placeholder="Écris ton script complet — le hook reste pré-rempli en haut..."
+            value={data.script}
+            onChange={(e) =>
+              dispatch({ type: "SET_SCRIPT", script: e.target.value })
+            }
+          />
+          <p className="text-xs text-slate-500">
+            Texte continu, pas de slides découpées. Peut être complété plus
+            tard.
+          </p>
         </div>
       </div>
     );

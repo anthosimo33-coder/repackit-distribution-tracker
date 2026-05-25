@@ -12,6 +12,7 @@ import type * as comptes from "../comptes.js";
 import type * as filterPresets from "../filterPresets.js";
 import type * as folders from "../folders.js";
 import type * as hooks from "../hooks.js";
+import type * as icps from "../icps.js";
 import type * as inspirations from "../inspirations.js";
 import type * as personnes from "../personnes.js";
 import type * as publications from "../publications.js";
@@ -28,6 +29,7 @@ declare const fullApi: ApiFromModules<{
   filterPresets: typeof filterPresets;
   folders: typeof folders;
   hooks: typeof hooks;
+  icps: typeof icps;
   inspirations: typeof inspirations;
   personnes: typeof personnes;
   publications: typeof publications;

@@ -57,11 +57,13 @@ import {
 } from "@/lib/media-type";
 import {
   FORMAT_CONFIGS,
+  getIdColumnLabel,
   RECORDING_DEVICES,
   RECORDING_DEVICE_ICONS,
   RECORDING_DEVICE_LABELS,
   type RecordingDevice,
 } from "@/lib/format-config";
+import { getFolderColor } from "@/lib/folder-colors";
 import { AnalyticsSection } from "@/components/analytics/AnalyticsSection";
 import {
   DEFAULT_SORT,
@@ -162,6 +164,7 @@ type ColumnKey =
   | "titre"
   | "plateforme"
   | "compte"
+  | "icp"
   | "mecanique"
   | "format"
   | "angle"
@@ -191,14 +194,15 @@ const CAROUSEL_COLUMNS: readonly ColumnKey[] = [
   "actions",
 ];
 
+// Refinement Shorts — Mécanique et Angle retirés (concepts hook-level non
+// pertinents pour les Shorts). Ajout de la colonne ICP (audience ciblée).
 const SHORT_COLUMNS: readonly ColumnKey[] = [
   "date",
   "carouselId",
   "hook",
   "plateforme",
   "compte",
-  "mecanique",
-  "angle",
+  "icp",
   "vues",
   "likes",
   "subsGained",
@@ -283,6 +287,9 @@ export function TrackerListSection({
     Set<string>
   >(new Set());
   const [repackagingFilter, setRepackagingFilter] = useState<string>(ALL);
+  // Refinement Shorts — filtre ICP (multi), session-only (non persisté dans
+  // les presets v4, comme les filtres SR). Vide = "tous".
+  const [icpFilter, setIcpFilter] = useState<Set<string>>(new Set());
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
@@ -304,6 +311,8 @@ export function TrackerListSection({
 
   const publications = useQuery(api.publications.listPublications);
   const comptes = useQuery(api.comptes.listComptes, { actifOnly: true });
+  // Options du filtre ICP (Short uniquement). Query inconditionnelle (légère).
+  const icps = useQuery(api.icps.listIcps, {});
   // Batch B — listPresets sans args. Le filtre par mediaTypeScope se fait
   // côté client (cf `presets` ci-dessous). Le serveur Convex actuel attend
   // `args: {}` ; passer un arg avant le deploy v4 ferait reject le validator
@@ -501,6 +510,13 @@ export function TrackerListSection({
       const wantRepack = repackagingFilter === "repack";
       list = list.filter((p) => p.isRepackaging === wantRepack);
     }
+    // Refinement Shorts — filtre ICP (n'a d'effet que pour les Shorts ; les
+    // autres formats n'ont pas d'icpId).
+    if (icpFilter.size > 0) {
+      list = list.filter(
+        (p) => p.icpId !== undefined && icpFilter.has(p.icpId),
+      );
+    }
 
     const sorted = [...list].sort((a, b) => {
       const ra = getSortValue(a, sortKey);
@@ -528,6 +544,7 @@ export function TrackerListSection({
     verdictFilter,
     recordingDeviceFilter,
     repackagingFilter,
+    icpFilter,
     sortKey,
     sortDir,
   ]);
@@ -586,6 +603,7 @@ export function TrackerListSection({
     setVerdictFilter(new Set());
     setRecordingDeviceFilter(new Set());
     setRepackagingFilter(ALL);
+    setIcpFilter(new Set());
   }
 
   function toggleSort(key: SortKey) {
@@ -715,11 +733,11 @@ export function TrackerListSection({
           width="w-[120px]"
         />
         {/*
-          Refinement SR — Mécanique masquée pour SR (concept hook-level
-          retiré). Carousel et Short la conservent. Pour SR, on ajoute
-          2 filtres dédiés : Appareil (multi) + Repackaging (single).
+          Refinement SR + Shorts — Mécanique réservée au Carrousel désormais
+          (concept hook-level retiré pour SR ET Short). Pour SR : filtres
+          Appareil + Repackaging. Pour Short : filtre ICP.
         */}
-        {mediaType !== "screenrecorder" && (
+        {mediaType === "carousel" && (
           <FilterMultiSelect
             label="Mécanique"
             selectedValues={mecanique}
@@ -727,6 +745,19 @@ export function TrackerListSection({
             options={MECANIQUES.map((m) => ({ value: m, label: m }))}
             allLabel="Toutes"
             width="w-[160px]"
+          />
+        )}
+        {mediaType === "short" && (
+          <FilterMultiSelect
+            label="ICP"
+            selectedValues={icpFilter}
+            onChange={setIcpFilter}
+            options={(icps ?? []).map((i) => ({
+              value: i._id,
+              label: i.nom,
+            }))}
+            allLabel="Tous"
+            width="w-[180px]"
           />
         )}
         {mediaType === "carousel" && (
@@ -837,6 +868,7 @@ export function TrackerListSection({
               onDuplicate={setDuplicatingPub}
               visibleColumns={visibleColumns}
               disabledSortKeys={disabledSortKeys}
+              idColumnLabel={getIdColumnLabel(mediaType)}
             />
           )}
           {published.length > 0 && (
@@ -854,6 +886,7 @@ export function TrackerListSection({
               onDuplicate={setDuplicatingPub}
               visibleColumns={visibleColumns}
               disabledSortKeys={disabledSortKeys}
+              idColumnLabel={getIdColumnLabel(mediaType)}
             />
           )}
         </div>
@@ -1013,6 +1046,7 @@ function PublicationsSection({
   onDuplicate,
   visibleColumns,
   disabledSortKeys,
+  idColumnLabel,
 }: {
   title: string;
   dotClass: string;
@@ -1027,6 +1061,7 @@ function PublicationsSection({
   onDuplicate: (p: Doc<"publications">) => void;
   visibleColumns: ReadonlySet<ColumnKey>;
   disabledSortKeys: ReadonlySet<SortKey>;
+  idColumnLabel: string;
 }) {
   return (
     <section className="space-y-2">
@@ -1053,7 +1088,7 @@ function PublicationsSection({
                 <TableHead className="w-14">Image</TableHead>
               )}
               {visibleColumns.has("carouselId") && (
-                <TableHead>Carrousel</TableHead>
+                <TableHead>{idColumnLabel}</TableHead>
               )}
               {visibleColumns.has("hook") && <TableHead>Hook</TableHead>}
               {visibleColumns.has("titre") && (
@@ -1069,6 +1104,7 @@ function PublicationsSection({
                 <TableHead>Plateforme</TableHead>
               )}
               {visibleColumns.has("compte") && <TableHead>Compte</TableHead>}
+              {visibleColumns.has("icp") && <TableHead>ICP</TableHead>}
               {visibleColumns.has("mecanique") && (
                 <TableHead>Mécanique</TableHead>
               )}
@@ -1136,6 +1172,10 @@ function PublicationsSection({
               const mt = getMediaType(p);
               const isShort = mt === "short";
               const isCarousel = mt === "carousel";
+              // listPublications enrichit chaque row avec icp { nom, color }.
+              const icp =
+                (p as { icp?: { nom: string; color: string | null } | null })
+                  .icp ?? null;
               return (
                 <TableRow key={p._id}>
                   {visibleColumns.has("date") && (
@@ -1218,6 +1258,28 @@ function PublicationsSection({
                   {visibleColumns.has("compte") && (
                     <TableCell className="font-mono text-xs">
                       {p.compte}
+                    </TableCell>
+                  )}
+                  {visibleColumns.has("icp") && (
+                    <TableCell>
+                      {icp ? (
+                        <Badge
+                          variant="outline"
+                          className="gap-1.5 text-slate-700"
+                        >
+                          <span
+                            className={cn(
+                              "size-2 rounded-full",
+                              getFolderColor(icp.color).dotClass,
+                            )}
+                          />
+                          <span className="max-w-[120px] truncate">
+                            {icp.nom}
+                          </span>
+                        </Badge>
+                      ) : (
+                        NA_CELL
+                      )}
                     </TableCell>
                   )}
                   {visibleColumns.has("mecanique") && (

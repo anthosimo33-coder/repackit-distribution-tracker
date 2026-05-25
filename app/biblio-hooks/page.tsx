@@ -215,67 +215,31 @@ export default function BiblioHooksPage() {
  * Couleurs : emerald=carousel only, red=short only, indigo=SR only,
  * slate=multi-formats. Pluriel cohérent avec l'usage des autres badges.
  */
-function PublishedBadge({
-  carousels,
-  shorts,
-}: {
-  carousels: number;
-  shorts: number;
-}) {
-  // Refinement SR — retour à 2 formats (SR retiré du comptage biblio).
-  // Couleurs : emerald=carousel only, red=short only, slate=les 2.
-  const activeFormats = [carousels > 0, shorts > 0].filter(Boolean).length;
-
-  if (activeFormats === 1) {
-    if (carousels > 0)
-      return (
-        <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">
-          Utilisé {carousels} {carousels > 1 ? "fois" : "fois"}
-        </Badge>
-      );
-    return (
-      <Badge className="border-red-200 bg-red-50 text-red-700">
-        Utilisé {shorts} fois en Short
-      </Badge>
-    );
-  }
-  // 2 formats : badge mixte slate.
+// Refinement Shorts — biblio hooks = carrousel only (SR puis Short retirés
+// du comptage). Les badges ne reflètent plus que les carrousels.
+function PublishedBadge({ carousels }: { carousels: number }) {
   return (
-    <Badge className="border-slate-300 bg-slate-100 text-slate-700">
-      {carousels} carr.{carousels > 1 ? "" : ""} ·{" "}
-      {shorts} Short{shorts > 1 ? "s" : ""}
+    <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">
+      Utilisé {carousels} fois
     </Badge>
   );
 }
 
-function DraftBadge({
-  carousels,
-  shorts,
-}: {
-  carousels: number;
-  shorts: number;
-}) {
-  const parts: string[] = [];
-  if (carousels > 0) parts.push(`+${carousels} carr.`);
-  if (shorts > 0)
-    parts.push(`+${shorts} Short${shorts > 1 ? "s" : ""}`);
+function DraftBadge({ carousels }: { carousels: number }) {
   return (
     <Badge variant="outline" className="text-amber-700">
-      {parts.join(" · ")} à venir
+      +{carousels} carr. à venir
     </Badge>
   );
 }
 
 function HookCard({ hook }: { hook: HookWithUsage }) {
-  // Refinement SR — ScreenRecorder retiré du comptage biblio hooks. Le
-  // concept "hook" n'existe plus pour SR (étape Hook skip dans modal
-  // nouveau). Les badges SR (indigo) et le 3e bouton popover variantes
-  // SR sont retirés. Justification : un SR ne mérite pas d'apparaître
-  // dans la biblio hooks car il n'a pas de "hook" sémantiquement.
-  const totalPublished =
-    hook.publishedCarouselsCount + hook.publishedShortsCount;
-  const totalDraft = hook.draftCarouselsCount + hook.draftShortsCount;
-  const used = totalPublished > 0;
+  // Refinement Shorts — biblio hooks = exclusivement carrousel (SR puis
+  // Short retirés du comptage). Les badges/variantes Short et SR ne sont
+  // plus affichés ; un hook utilisé uniquement en Short apparaît donc
+  // comme "non utilisé" ici, ce qui est le comportement voulu.
+  const used = hook.publishedCarouselsCount > 0;
+  const totalDraft = hook.draftCarouselsCount;
 
   return (
     <Card>
@@ -287,28 +251,15 @@ function HookCard({ hook }: { hook: HookWithUsage }) {
             <Badge variant="outline">{hook.niveau}</Badge>
             <Badge variant="outline">{hook.langue}</Badge>
             {used && (
-              <PublishedBadge
-                carousels={hook.publishedCarouselsCount}
-                shorts={hook.publishedShortsCount}
-              />
+              <PublishedBadge carousels={hook.publishedCarouselsCount} />
             )}
             {totalDraft > 0 && (
-              <DraftBadge
-                carousels={hook.draftCarouselsCount}
-                shorts={hook.draftShortsCount}
-              />
+              <DraftBadge carousels={hook.draftCarouselsCount} />
             )}
             {hook.variantsCountCarousel > 0 && (
               <Badge className="border-violet-200 bg-violet-50 text-violet-700">
                 {hook.variantsCountCarousel} variante
                 {hook.variantsCountCarousel > 1 ? "s" : ""} carrousel
-              </Badge>
-            )}
-            {hook.variantsCountShort > 0 && (
-              <Badge className="border-red-200 bg-red-50 text-red-700">
-                {hook.variantsCountShort} variante
-                {hook.variantsCountShort > 1 ? "s" : ""} Short
-                {hook.variantsCountShort > 1 ? "s" : ""}
               </Badge>
             )}
           </div>
@@ -319,13 +270,6 @@ function HookCard({ hook }: { hook: HookWithUsage }) {
                 hookId={hook._id}
                 count={hook.variantsCountCarousel}
                 mediaType="carousel"
-              />
-            )}
-            {hook.variantsCountShort > 0 && (
-              <HookVariantsPopover
-                hookId={hook._id}
-                count={hook.variantsCountShort}
-                mediaType="short"
               />
             )}
           </div>

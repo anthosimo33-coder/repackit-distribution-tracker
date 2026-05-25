@@ -97,6 +97,10 @@ export const createPublication = mutation({
     isRepackaging: v.optional(v.boolean()),
     angleTonal: angleValidator,
     langue: langueValidator,
+    // Refinement Shorts — ICP ciblé. Required pour un Short (validation
+    // handler ci-dessous). Optional côté args pour rester compat avec
+    // carousel/SR qui ne le passent pas.
+    icpId: v.optional(v.id("icps")),
     plateformes: v.array(plateformeValidator),
     compte: v.string(),
     datePubli: v.number(),
@@ -149,6 +153,12 @@ export const createPublication = mutation({
       }
     }
 
+    // Refinement Shorts — l'ICP est REQUIS à la création d'un Short. Pour
+    // carousel/screenrecorder, icpId est ignoré silencieusement (pas stocké).
+    if (mediaType === "short" && args.icpId === undefined) {
+      throw new ConvexError("ICP requis pour un Short.");
+    }
+
     // Couple plateforme/mediaType : carrousel non autorisé sur YouTube.
     for (const plateforme of args.plateformes) {
       if (!isFormatAllowedOnPlatform(mediaType, plateforme)) {
@@ -182,6 +192,9 @@ export const createPublication = mutation({
         isRepackaging: args.isRepackaging,
         angleTonal: args.angleTonal,
         langue: args.langue,
+        // ICP stocké uniquement pour les Shorts (ignoré pour carousel/SR
+        // même si fourni — cf décision "ignoré silencieusement").
+        icpId: mediaType === "short" ? args.icpId : undefined,
         plateforme,
         compte: args.compte,
         datePubli: args.datePubli,
@@ -237,13 +250,24 @@ export const listPublications = query({
       .order("desc")
       .collect();
 
+    // Refinement Shorts — enrichissement ICP côté serveur (lookup, cohérent
+    // pattern listComptes.personne). L'UI /shorts lit directement p.icp sans
+    // re-query. N+1 mémoire acceptable au volume. Champ additif `icp` : ne
+    // casse aucun caller existant.
+    const icps = await ctx.db.query("icps").collect();
+    const icpMap = new Map(icps.map((i) => [i._id, i]));
+
     return await Promise.all(
       rows.map(async (p) => {
         const imageUrl =
           p.image !== undefined && p.image !== null
             ? await ctx.storage.getUrl(p.image)
             : null;
-        return { ...p, imageUrl };
+        const icpDoc = p.icpId ? icpMap.get(p.icpId) : null;
+        const icp = icpDoc
+          ? { nom: icpDoc.nom, color: icpDoc.color ?? null }
+          : null;
+        return { ...p, imageUrl, icp };
       }),
     );
   },
@@ -291,6 +315,11 @@ export const updateMetrics = mutation({
     likes: v.optional(v.union(v.number(), v.null())),
     subsGained: v.optional(v.union(v.number(), v.null())),
     notes: v.optional(v.string()),
+    // Refinement Shorts — édition de l'ICP d'un Short publié via le dialog
+    // métriques (le seul point d'édition d'un publié — updateDraft refuse
+    // les rows publiées). Patch single-row, cohérent avec la granularité de
+    // ce dialog. null = désassigner, Id = assigner, absent = ne pas toucher.
+    icpId: v.optional(v.union(v.id("icps"), v.null())),
     // postUrl est volontairement intégré ici plutôt que dans une mutation
     // dédiée setPublishedUrl : l'utilisateur saisit le lien dans le même
     // dialog que les métriques (PublicationEditDialog), donc 1 seul appel
@@ -298,13 +327,16 @@ export const updateMetrics = mutation({
     postUrl: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { id, ...rest } = args;
+    const { id, icpId, ...rest } = args;
     const existing = await ctx.db.get(id);
     if (!existing) throw new Error("Publication not found");
 
     const update: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(rest)) {
       if (value !== undefined) update[key] = value;
+    }
+    if (icpId !== undefined) {
+      update.icpId = icpId === null ? undefined : icpId;
     }
 
     await ctx.db.patch(id, update);
@@ -429,6 +461,9 @@ export const duplicateCarousel = mutation({
       isRepackaging: source.isRepackaging,
       angleTonal: source.angleTonal,
       langue: source.langue,
+      // Refinement Shorts — propage l'ICP source au duplicat (un duplicat de
+      // Short conserve son ICP ; undefined pour carousel/SR).
+      icpId: source.icpId,
       plateforme: args.targetPlateforme,
       compte: args.targetCompte,
       datePubli: Date.now(),
@@ -490,6 +525,10 @@ export const updateDraft = mutation({
         v.union(v.literal("phone"), v.literal("desktop")),
       ),
       isRepackaging: v.optional(v.boolean()),
+      // Refinement Shorts — ICP éditable au niveau draft (édition progressive
+      // des Shorts pré-existants). null = désassigner, Id = assigner, absent =
+      // ne pas toucher. Pas de validation required ici (uniquement au create).
+      icpId: v.optional(v.union(v.id("icps"), v.null())),
       datePubli: v.optional(v.number()),
       compte: v.optional(v.string()),
       plateforme: v.optional(plateformeValidator),
@@ -560,6 +599,9 @@ export const updateDraft = mutation({
     }
     if (args.patch.isRepackaging !== undefined) {
       update.isRepackaging = args.patch.isRepackaging;
+    }
+    if (args.patch.icpId !== undefined) {
+      update.icpId = args.patch.icpId === null ? undefined : args.patch.icpId;
     }
     if (args.patch.datePubli !== undefined) update.datePubli = args.patch.datePubli;
     if (args.patch.compte !== undefined) update.compte = args.patch.compte;
