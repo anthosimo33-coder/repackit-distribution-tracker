@@ -13,6 +13,7 @@ import type * as filterPresets from "../filterPresets.js";
 import type * as folders from "../folders.js";
 import type * as hooks from "../hooks.js";
 import type * as inspirations from "../inspirations.js";
+import type * as personnes from "../personnes.js";
 import type * as publications from "../publications.js";
 import type * as storage from "../storage.js";
 
@@ -28,6 +29,7 @@ declare const fullApi: ApiFromModules<{
   folders: typeof folders;
   hooks: typeof hooks;
   inspirations: typeof inspirations;
+  personnes: typeof personnes;
   publications: typeof publications;
   storage: typeof storage;
 }>;

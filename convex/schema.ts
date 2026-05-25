@@ -147,9 +147,23 @@ export default defineSchema({
     ),
     notes: v.string(),
     actif: v.boolean(),
+    // Gestionnaire optionnel (1-to-1 vers personnes). Absent = aucun
+    // gestionnaire. Unset via patch { personneId: undefined } (cf
+    // updateCompte + cascade deletePersonne) — pattern folderId d'inspirations.
+    personneId: v.optional(v.id("personnes")),
   })
     .index("by_plateforme", ["plateforme"])
     .index("by_actif", ["actif"]),
+
+  // Gestionnaires de comptes (greenfield). Lien 1-to-1 optionnel depuis
+  // comptes.personneId. Dedupe insensible à la casse sur le couple
+  // (prenom, nom) imposé côté mutations.
+  personnes: defineTable({
+    prenom: v.string(),
+    nom: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_nom", ["nom"]),
 
   // Presets de filtres pour le tracker. schemaVersion permet de strip les
   // anciens presets si la struct des filtres évolue (cf décision MVP : strip

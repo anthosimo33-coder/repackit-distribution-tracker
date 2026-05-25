@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
@@ -46,11 +47,21 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontalIcon, Loader2Icon, PlusIcon } from "lucide-react";
+import {
+  MoreHorizontalIcon,
+  Loader2Icon,
+  PlusIcon,
+  UsersIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { PersonnesManagerSection } from "@/components/comptes/PersonnesManagerSection";
+import { PersonneCombobox } from "@/components/comptes/PersonneCombobox";
 
-type Compte = Doc<"comptes">;
+// listComptes enrichit chaque compte avec `personne` (lookup serveur).
+type Compte = Doc<"comptes"> & {
+  personne: { prenom: string; nom: string } | null;
+};
 // Batch 1 Shorts — YouTube ajouté pour les Shorts (cf lib/media-type.ts).
 // Carrousels restent TikTok+Instagram only ; côté comptes la table accepte
 // les 3 plateformes, et la cohérence format/plateforme est validée
@@ -58,10 +69,38 @@ type Compte = Doc<"comptes">;
 type Plateforme = "TikTok" | "Instagram" | "YouTube";
 
 export default function ComptesPage() {
+  return (
+    <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+      <ComptesPageInner />
+    </Suspense>
+  );
+}
+
+function ComptesPageInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const comptes = useQuery(api.comptes.listComptes, {});
   const [addOpen, setAddOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Compte | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Compte | null>(null);
+
+  const isPersonnesView = searchParams.get("view") === "personnes";
+
+  function navigate(view: "personnes" | null) {
+    const params = new URLSearchParams(searchParams);
+    if (view) params.set("view", view);
+    else params.delete("view");
+    const qs = params.toString();
+    router.replace(qs ? `/comptes?${qs}` : "/comptes");
+  }
+
+  if (isPersonnesView) {
+    return (
+      <div className="space-y-6">
+        <PersonnesManagerSection onBack={() => navigate(null)} />
+      </div>
+    );
+  }
 
   const actifs = comptes?.filter((c) => c.actif) ?? [];
   const archives = comptes?.filter((c) => !c.actif) ?? [];
@@ -79,10 +118,16 @@ export default function ComptesPage() {
               : `${actifs.length} actif${actifs.length > 1 ? "s" : ""}${archives.length > 0 ? ` · ${archives.length} archivé${archives.length > 1 ? "s" : ""}` : ""}`}
           </p>
         </div>
-        <Button onClick={() => setAddOpen(true)}>
-          <PlusIcon className="mr-2 size-4" />
-          Ajouter un compte
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => navigate("personnes")}>
+            <UsersIcon className="mr-2 size-4" />
+            Personnes
+          </Button>
+          <Button onClick={() => setAddOpen(true)}>
+            <PlusIcon className="mr-2 size-4" />
+            Ajouter un compte
+          </Button>
+        </div>
       </header>
 
       {comptes === undefined ? (
@@ -98,6 +143,7 @@ export default function ComptesPage() {
                   <TableHead>Handle</TableHead>
                   <TableHead>Plateforme</TableHead>
                   <TableHead>Statut</TableHead>
+                  <TableHead>Gestionnaire</TableHead>
                   <TableHead>Notes</TableHead>
                   <TableHead className="w-12" />
                 </TableRow>
@@ -123,6 +169,15 @@ export default function ComptesPage() {
                         <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-0.5 text-xs font-semibold text-slate-500">
                           Archivé
                         </span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {c.personne ? (
+                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-700">
+                          {c.personne.prenom} {c.personne.nom}
+                        </span>
+                      ) : (
+                        <span className="text-sm text-slate-400">—</span>
                       )}
                     </TableCell>
                     <TableCell className="max-w-xs truncate text-sm text-slate-500">
@@ -227,6 +282,9 @@ function CompteDialog({
     compte?.plateforme ?? "TikTok",
   );
   const [notes, setNotes] = useState(compte?.notes ?? "");
+  const [personneId, setPersonneId] = useState<Id<"personnes"> | null>(
+    compte?.personneId ?? null,
+  );
   const [submitting, setSubmitting] = useState(false);
 
   const createCompte = useMutation(api.comptes.createCompte);
@@ -238,6 +296,7 @@ function CompteDialog({
       setHandle(compte?.handle ?? "");
       setPlateforme(compte?.plateforme ?? "TikTok");
       setNotes(compte?.notes ?? "");
+      setPersonneId(compte?.personneId ?? null);
     }
   }, [open, compte]);
 
@@ -260,6 +319,7 @@ function CompteDialog({
           id: compte._id,
           handle: finalHandle,
           notes,
+          personneId,
         });
         toast.success(`${finalHandle} mis à jour`);
       } else {
@@ -267,12 +327,14 @@ function CompteDialog({
           handle: finalHandle,
           plateforme: plateforme as Plateforme,
           notes,
+          personneId: personneId ?? undefined,
         });
         toast.success(`${finalHandle} ajouté sur ${plateforme}`);
       }
       onOpenChange(false);
       setHandle("");
       setNotes("");
+      setPersonneId(null);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -333,6 +395,13 @@ function CompteDialog({
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
             />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Gestionnaire</Label>
+            <PersonneCombobox value={personneId} onChange={setPersonneId} />
+            <p className="text-xs text-slate-500">
+              Optionnel — qui gère ce compte.
+            </p>
           </div>
         </div>
         <DialogFooter>

@@ -71,4 +71,13 @@ export async function cleanupTestData() {
   } catch (e) {
     console.warn("Cleanup folders failed:", (e as Error).message);
   }
+
+  // Gestionnaires de comptes. cleanupTestPersonnes filtre par marker
+  // [E2E_TEST] dans nom / prénom (cf convex/personnes.ts). Comptes de test
+  // déjà nettoyés au-dessus → pas de personneId orphelin résiduel.
+  try {
+    await client.mutation(api.personnes.cleanupTestPersonnes, {});
+  } catch (e) {
+    console.warn("Cleanup personnes failed:", (e as Error).message);
+  }
 }
