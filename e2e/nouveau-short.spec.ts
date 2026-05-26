@@ -62,6 +62,20 @@ test.describe("Création Short via modal NouveauModal", () => {
     await dialog.getByRole("tab", { name: /custom/i }).click();
     await dialog.getByLabel("Texte du hook").fill(hookText);
 
+    // Anti-shadowban — la source est désormais requise pour un Short (saisie
+    // à l'étape Hook). On crée une source inédite via le SourceIdCombobox.
+    const sourceVal = `test_source_e2e_${ts}`;
+    const sourceCombo = dialog
+      .locator("label")
+      .filter({ hasText: /Source \(nom de fichier Drive\)/ })
+      .locator("xpath=..")
+      .getByRole("combobox");
+    await sourceCombo.click();
+    await page
+      .getByPlaceholder("Cherche ou saisis une source…")
+      .fill(sourceVal);
+    await page.getByRole("option", { name: /utiliser/i }).click();
+
     await dialog.getByRole("button", { name: /^suivant$/i }).click();
 
     // Step 3 (Contenu short) — Script visible, pas de Slides ni Format A-H.

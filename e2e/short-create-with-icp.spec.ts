@@ -59,6 +59,20 @@ test.describe("Short — création avec ICP", () => {
     await expect(dialog.getByText("Mécanique")).toHaveCount(0);
     await expect(dialog.getByText("Niveau")).toHaveCount(0);
     await dialog.getByLabel("Texte du hook").fill(hookText);
+
+    // Anti-shadowban — source requise pour un Short (saisie étape Hook).
+    const sourceVal = `test_source_icp_${ts}`;
+    const sourceCombo = dialog
+      .locator("label")
+      .filter({ hasText: /Source \(nom de fichier Drive\)/ })
+      .locator("xpath=..")
+      .getByRole("combobox");
+    await sourceCombo.click();
+    await page
+      .getByPlaceholder("Cherche ou saisis une source…")
+      .fill(sourceVal);
+    await page.getByRole("option", { name: /utiliser/i }).click();
+
     await dialog.getByRole("button", { name: /^suivant$/i }).click();
 
     // Étape 3 (Contenu) — Script + IcpCombobox required, PAS d'angle.

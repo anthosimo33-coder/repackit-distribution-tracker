@@ -186,6 +186,7 @@ type ColumnKey =
   | "date"
   | "image"
   | "carouselId"
+  | "source"
   | "hook"
   | "titre"
   | "plateforme"
@@ -225,6 +226,7 @@ const CAROUSEL_COLUMNS: readonly ColumnKey[] = [
 const SHORT_COLUMNS: readonly ColumnKey[] = [
   "date",
   "carouselId",
+  "source",
   "hook",
   "plateforme",
   "compte",
@@ -504,7 +506,12 @@ export function TrackerListSection({
     }
     if (debouncedSearch) {
       const q = debouncedSearch.toLowerCase();
-      list = list.filter((p) => p.hookText.toLowerCase().includes(q));
+      // Recherche étendue : hook + carouselId + sourceId (anti-shadowban).
+      list = list.filter((p) =>
+        `${p.hookText} ${p.carouselId} ${p.sourceId ?? ""}`
+          .toLowerCase()
+          .includes(q),
+      );
     }
     if (plateforme !== ALL)
       list = list.filter((p) => p.plateforme === plateforme);
@@ -1122,6 +1129,7 @@ function PublicationsSection({
               {visibleColumns.has("carouselId") && (
                 <TableHead>{idColumnLabel}</TableHead>
               )}
+              {visibleColumns.has("source") && <TableHead>Source</TableHead>}
               {visibleColumns.has("hook") && <TableHead>Hook</TableHead>}
               {visibleColumns.has("titre") && (
                 <TableHead>Titre</TableHead>
@@ -1238,6 +1246,20 @@ function PublicationsSection({
                   {visibleColumns.has("carouselId") && (
                     <TableCell className="font-mono text-xs">
                       {p.carouselId}
+                    </TableCell>
+                  )}
+                  {visibleColumns.has("source") && (
+                    <TableCell className="text-xs">
+                      {p.sourceId ? (
+                        <span className="font-mono">{p.sourceId}</span>
+                      ) : (
+                        <Badge
+                          variant="outline"
+                          className="border-amber-200 bg-amber-50 text-amber-700"
+                        >
+                          ⚠ sans source
+                        </Badge>
+                      )}
                     </TableCell>
                   )}
                   {visibleColumns.has("hook") && (

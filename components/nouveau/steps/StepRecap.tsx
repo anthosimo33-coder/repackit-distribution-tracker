@@ -11,6 +11,7 @@ import {
   type FormatKey,
 } from "@/lib/format-config";
 import { getFolderColor } from "@/lib/folder-colors";
+import { SourceStatusBadge } from "@/components/shorts/SourceStatusBadge";
 import { cn } from "@/lib/utils";
 import { PencilIcon } from "lucide-react";
 import Image from "next/image";
@@ -164,6 +165,16 @@ export function StepRecap({
           {data.mediaType === "short" && (
             <div className="space-y-2 text-xs text-slate-600">
               <div className="flex items-center gap-2">
+                <span className="text-slate-400">Source :</span>
+                {data.sourceId.trim() ? (
+                  <span className="font-mono text-slate-900">
+                    {data.sourceId}
+                  </span>
+                ) : (
+                  <span className="italic text-slate-400">Non saisie</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
                 <span className="text-slate-400">ICP ciblé :</span>
                 {selectedIcp && icpColor ? (
                   <Badge variant="outline" className="gap-1.5">
@@ -291,6 +302,11 @@ export function StepRecap({
             <div>
               <span className="text-slate-500">Notes :</span>{" "}
               <span className="text-slate-700">{data.notes}</span>
+            </div>
+          )}
+          {isShort && data.sourceId.trim() && (
+            <div className="pt-1">
+              <SourceStatusBadge sourceId={data.sourceId} />
             </div>
           )}
         </div>

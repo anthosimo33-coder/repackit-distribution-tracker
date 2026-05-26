@@ -37,6 +37,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getMediaType } from "@/lib/media-type";
 import { IcpCombobox } from "@/components/icps/IcpCombobox";
+import { SourceIdCombobox } from "@/components/shorts/SourceIdCombobox";
 import { formatDate, formatNumber } from "@/lib/format";
 import {
   CalendarIcon,
@@ -102,6 +103,8 @@ export function PublicationEditDialog({
   const [icpId, setIcpId] = useState<Id<"icps"> | null>(
     publication.icpId ?? null,
   );
+  // Anti-shadowban — sourceId éditable a posteriori (backfill S007/S008).
+  const [sourceId, setSourceId] = useState(publication.sourceId ?? "");
   const [savingInfos, setSavingInfos] = useState(false);
 
   const updateMetrics = useMutation(api.publications.updateMetrics);
@@ -118,6 +121,10 @@ export function PublicationEditDialog({
       toast.error("ICP requis pour le Short.");
       return;
     }
+    if (isShort && !sourceId.trim()) {
+      toast.error("Source requise pour le Short.");
+      return;
+    }
     setSavingInfos(true);
     try {
       await updateMetrics({
@@ -126,6 +133,7 @@ export function PublicationEditDialog({
         profileVisits: parseNumOrNull(profileVisits),
         notes,
         icpId: isShort ? icpId : undefined,
+        sourceId: isShort ? sourceId.trim() : undefined,
         postUrl: postUrl.trim(),
       });
       toast.success("Infos publication mises à jour");
@@ -281,6 +289,17 @@ export function PublicationEditDialog({
               />
             </div>
           </div>
+
+          {isShort && (
+            <div className="space-y-1.5">
+              <Label>Source (nom de fichier Drive)</Label>
+              <SourceIdCombobox
+                value={sourceId}
+                onChange={setSourceId}
+                required
+              />
+            </div>
+          )}
 
           {isShort && (
             <div className="space-y-1.5">

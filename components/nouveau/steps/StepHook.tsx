@@ -16,6 +16,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { HookCombobox } from "../HookCombobox";
+import { SourceIdCombobox } from "@/components/shorts/SourceIdCombobox";
+import { SourceStatusBadge } from "@/components/shorts/SourceStatusBadge";
 import { cn } from "@/lib/utils";
 import type {
   Langue,
@@ -72,6 +74,28 @@ export function StepHook({
 
   return (
     <div className="space-y-3">
+      {/* Anti-shadowban Shorts — Source du Short (required). En tête, avant le
+          hook, car c'est l'identité du fichier source qui pilote toute la
+          validation cross-plateforme. */}
+      {isShort && (
+        <div className="space-y-2 rounded-md border border-slate-200 bg-white p-3">
+          <Label htmlFor="source-id-combobox">
+            Source (nom de fichier Drive){" "}
+            <span className="text-rose-500">*</span>
+          </Label>
+          <SourceIdCombobox
+            value={data.sourceId}
+            onChange={(v) =>
+              dispatch({ type: "SET_SOURCE_ID", sourceId: v })
+            }
+            required
+          />
+          {data.sourceId.trim() !== "" && (
+            <SourceStatusBadge sourceId={data.sourceId} />
+          )}
+        </div>
+      )}
+
       <Tabs
         value={data.hookMode}
         onValueChange={(v) =>

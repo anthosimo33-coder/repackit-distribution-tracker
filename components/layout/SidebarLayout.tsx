@@ -132,6 +132,7 @@ function NouveauModalController() {
   const isOpen = searchParams.get("nouveau") === "open";
   const formatParam = searchParams.get("format");
   const hookIdParam = searchParams.get("hookId");
+  const sourceIdParam = searchParams.get("sourceId");
 
   const initialMediaType = (
     VALID_FORMATS as readonly string[]
@@ -141,12 +142,14 @@ function NouveauModalController() {
   const initialHookId = hookIdParam
     ? (hookIdParam as Id<"hooks">)
     : null;
+  const initialSourceId = sourceIdParam ?? undefined;
 
   function close() {
     const next = new URLSearchParams(searchParams);
     next.delete("nouveau");
     next.delete("format");
     next.delete("hookId");
+    next.delete("sourceId");
     const qs = next.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname);
   }
@@ -163,13 +166,18 @@ function NouveauModalController() {
 
   return (
     <NouveauModal
-      key={isOpen ? `open-${formatParam ?? ""}-${hookIdParam ?? ""}` : "closed"}
+      key={
+        isOpen
+          ? `open-${formatParam ?? ""}-${hookIdParam ?? ""}-${sourceIdParam ?? ""}`
+          : "closed"
+      }
       open={isOpen}
       onOpenChange={(o) => {
         if (!o) close();
       }}
       initialMediaType={initialMediaType}
       initialHookId={initialHookId}
+      initialSourceId={initialSourceId}
       onSuccess={handleSuccess}
     />
   );

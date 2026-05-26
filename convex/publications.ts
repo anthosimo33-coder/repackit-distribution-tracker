@@ -517,9 +517,14 @@ export const updateMetrics = mutation({
     // dialog que les métriques (PublicationEditDialog), donc 1 seul appel
     // mutation au save. Passer "" remet la publication en "à venir".
     postUrl: v.optional(v.string()),
+    // Anti-shadowban — édition rétroactive du sourceId d'un Short PUBLIÉ
+    // (backfill S007/S008). Stocké normalisé. "" = unset. Pas de validation
+    // triple-chemin ici : la row est déjà postée (historique), le but est
+    // juste de la rattacher à sa source pour la matrice /shorts/sources.
+    sourceId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { id, icpId, ...rest } = args;
+    const { id, icpId, sourceId, ...rest } = args;
     const existing = await ctx.db.get(id);
     if (!existing) throw new Error("Publication not found");
 
@@ -529,6 +534,9 @@ export const updateMetrics = mutation({
     }
     if (icpId !== undefined) {
       update.icpId = icpId === null ? undefined : icpId;
+    }
+    if (sourceId !== undefined) {
+      update.sourceId = normalizeSourceId(sourceId) || undefined;
     }
 
     await ctx.db.patch(id, update);

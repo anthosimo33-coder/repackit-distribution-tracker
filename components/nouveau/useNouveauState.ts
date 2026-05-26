@@ -55,6 +55,10 @@ export type NouveauData = {
   // short uniquement — ICP ciblé (required à la création d'un Short, validé
   // dans NouveauModal.handleCreate + côté serveur).
   icpId?: Id<"icps">;
+  // short uniquement — sourceId (nom de fichier source, anti-shadowban).
+  // Required UI pour un nouveau Short (validé NouveauModal.handleCreate + serveur).
+  // Saisi à l'étape Hook via SourceIdCombobox. "" = non saisi.
+  sourceId: string;
   // publication
   plateformes: string[];
   compte: string;
@@ -93,6 +97,7 @@ export type NouveauAction =
   | { type: "SET_RECORDING_DEVICE"; device: RecordingDevice }
   | { type: "SET_IS_REPACKAGING"; value: boolean }
   | { type: "SET_ICP"; icpId: Id<"icps"> | null }
+  | { type: "SET_SOURCE_ID"; sourceId: string }
   | { type: "SET_PLATEFORMES"; plateformes: string[] }
   | { type: "TOGGLE_PLATEFORME"; plateforme: string }
   | { type: "SET_COMPTE"; compte: string }
@@ -123,6 +128,7 @@ function initialData(): NouveauData {
     recordingDevice: undefined,
     isRepackaging: undefined,
     icpId: undefined,
+    sourceId: "",
     plateformes: [],
     compte: "",
     datePubli: Date.now(),
@@ -133,6 +139,8 @@ function initialData(): NouveauData {
 export type InitialOptions = {
   initialMediaType?: MediaType;
   initialHookId?: Id<"hooks"> | null;
+  // Pré-remplissage du sourceId (depuis /shorts/sources "+ Nouveau Short").
+  initialSourceId?: string;
 };
 
 function init(opts: InitialOptions): NouveauState {
@@ -140,6 +148,9 @@ function init(opts: InitialOptions): NouveauState {
   if (opts.initialHookId) {
     data.hookId = opts.initialHookId;
     data.hookMode = "biblio";
+  }
+  if (opts.initialSourceId) {
+    data.sourceId = opts.initialSourceId;
   }
   if (opts.initialMediaType) {
     data.mediaType = opts.initialMediaType;
@@ -274,6 +285,11 @@ function reducer(state: NouveauState, action: NouveauAction): NouveauState {
         ...state,
         data: { ...state.data, icpId: action.icpId ?? undefined },
       };
+    case "SET_SOURCE_ID":
+      return {
+        ...state,
+        data: { ...state.data, sourceId: action.sourceId },
+      };
     case "SET_PLATEFORMES":
       return {
         ...state,
@@ -313,6 +329,7 @@ export function isDataDirty(data: NouveauData): boolean {
   if (data.recordingDevice !== undefined) return true;
   if (data.isRepackaging !== undefined) return true;
   if (data.icpId !== undefined) return true;
+  if (data.sourceId.trim().length > 0) return true;
   if (data.plateformes.length > 0) return true;
   if (data.compte.length > 0) return true;
   if (data.notes.trim().length > 0) return true;

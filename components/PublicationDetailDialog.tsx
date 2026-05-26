@@ -54,6 +54,7 @@ import {
   type RecordingDevice,
 } from "@/lib/format-config";
 import { IcpCombobox } from "@/components/icps/IcpCombobox";
+import { SourceIdCombobox } from "@/components/shorts/SourceIdCombobox";
 import { getFolderColor } from "@/lib/folder-colors";
 import { cn } from "@/lib/utils";
 import {
@@ -283,6 +284,20 @@ function PublishedView({
             )}
             {isShort && (
               <>
+                <Field label="Source">
+                  {publication.sourceId ? (
+                    <span className="font-mono text-xs">
+                      {publication.sourceId}
+                    </span>
+                  ) : (
+                    <Badge
+                      variant="outline"
+                      className="border-amber-200 bg-amber-50 text-amber-700"
+                    >
+                      ⚠ Sans source
+                    </Badge>
+                  )}
+                </Field>
                 <Field label="ICP ciblé">
                   {publication.icp ? (
                     <Badge
@@ -690,6 +705,8 @@ function DraftEditView({
   const [icpId, setIcpId] = useState<Id<"icps"> | null>(
     publication.icpId ?? null,
   );
+  // Anti-shadowban — sourceId éditable (required pour Short, validé serveur).
+  const [sourceId, setSourceId] = useState(publication.sourceId ?? "");
   const [titre, setTitre] = useState(publication.titre ?? "");
   // image: storageId (null = supprimée, undefined = non touchée).
   const [image, setImage] = useState<Id<"_storage"> | null | undefined>(
@@ -750,6 +767,11 @@ function DraftEditView({
     // rétroactive d'un Short pré-existant.
     if (isShort && icpId === null) {
       toast.error("ICP requis pour le Short.");
+      return;
+    }
+    // Anti-shadowban — sourceId requis pour un Short (y compris backfill draft).
+    if (isShort && !sourceId.trim()) {
+      toast.error("Source requise pour le Short.");
       return;
     }
     // Batch D + Refinement SR — ScreenRecorder : titre 3-200 + image +
@@ -827,6 +849,9 @@ function DraftEditView({
       await updateDraft({
         carouselId: publication.carouselId,
         patch: patchPayload,
+        // Anti-shadowban — sourceId au niveau top (couplé à la validation
+        // serveur). Short uniquement ; non touché pour carousel/SR.
+        sourceId: isShort ? sourceId.trim() : undefined,
       });
 
       // 2. Lien de publication = per-row (chaque plateforme a son propre lien).
@@ -1040,6 +1065,19 @@ function DraftEditView({
                   </button>
                 </div>
               </div>
+            </div>
+          )}
+          {isShort && (
+            <div className="space-y-1.5">
+              <Label>Source (nom de fichier Drive)</Label>
+              <SourceIdCombobox
+                value={sourceId}
+                onChange={setSourceId}
+                required
+              />
+              <p className="text-xs text-slate-500">
+                Requis — anti-doublon par plateforme (shadowban).
+              </p>
             </div>
           )}
           {isShort && (

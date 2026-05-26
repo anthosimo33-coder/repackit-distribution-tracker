@@ -69,12 +69,15 @@ export function NouveauModal({
   onOpenChange,
   initialMediaType,
   initialHookId,
+  initialSourceId,
   onSuccess,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialMediaType?: MediaType;
   initialHookId?: Id<"hooks"> | null;
+  /** Pré-remplissage du sourceId (depuis /shorts/sources "+ Nouveau Short"). */
+  initialSourceId?: string;
   /** Appelé après création réussie. Le parent (SidebarLayout) est
    *  responsable de la redirection vers /carrousels?carouselId=X ou
    *  /shorts?carouselId=X. */
@@ -83,9 +86,12 @@ export function NouveauModal({
   const { state, dispatch, goto, next, prev, isStep5 } = useNouveauState({
     initialMediaType,
     initialHookId,
+    initialSourceId,
   });
   const [submitting, setSubmitting] = useState(false);
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
+  // Anti-shadowban — override de doublon IG/YouTube (checkbox StepPublication).
+  const [confirmOverride, setConfirmOverride] = useState(false);
 
   const allHooks = useQuery(api.hooks.listHooks, {});
   const comptesData = useQuery(api.comptes.listComptes, { actifOnly: true });
@@ -96,6 +102,17 @@ export function NouveauModal({
     state.data.mediaType ? { mediaType: state.data.mediaType } : "skip",
   );
   const createPub = useMutation(api.publications.createPublication);
+
+  // Anti-shadowban — statut du sourceId courant (Short + sourceId non vide).
+  // Pilote le pré-gate UI (StepPublication) + le gating du bouton Créer. Le
+  // serveur revalide systématiquement (defense in depth).
+  const sourceTrimmed = state.data.sourceId.trim();
+  const sourceStatus = useQuery(
+    api.publications.getSourceStatus,
+    state.data.mediaType === "short" && sourceTrimmed
+      ? { sourceId: state.data.sourceId }
+      : "skip",
+  );
 
   const selectedHook = useMemo(
     () =>
@@ -155,6 +172,21 @@ export function NouveauModal({
     }
   }, [comptesData, state.data.plateformes, state.data.compte, dispatch]);
 
+  // Anti-shadowban — retire de la sélection toute plateforme devenue bloquée
+  // (cas : l'utilisateur revient à l'étape Hook et change le sourceId pour un
+  // déjà posté sur une plateforme cochée). Le guard hasBlocked évite la boucle.
+  useEffect(() => {
+    if (!sourceStatus) return;
+    const hasBlocked = state.data.plateformes.some((p) =>
+      sourceStatus.blockedPlatforms.includes(p),
+    );
+    if (!hasBlocked) return;
+    const cleaned = state.data.plateformes.filter(
+      (p) => !sourceStatus.blockedPlatforms.includes(p),
+    );
+    dispatch({ type: "SET_PLATEFORMES", plateformes: cleaned });
+  }, [sourceStatus, state.data.plateformes, dispatch]);
+
   function attemptClose() {
     if (isDataDirty(state.data)) {
       setConfirmCloseOpen(true);
@@ -200,6 +232,13 @@ export function NouveauModal({
       // Pas de check explicite slides[0] non vide (le hook est pre-rempli
       // au step 2). Mais on vérifie qu'au moins le hook est présent.
     } else if (state.data.mediaType === "short") {
+      // Anti-shadowban — sourceId REQUIS pour un nouveau Short (saisi à
+      // l'étape Hook, step 2). Optional au schéma (S007/S008 a posteriori).
+      if (!state.data.sourceId.trim()) {
+        toast.error("Source requise pour le Short");
+        goto(2);
+        return;
+      }
       // Refinement Shorts — script optionnel (saisissable plus tard), mais
       // l'ICP ciblé est REQUIS à la création.
       if (state.data.icpId === undefined) {
@@ -344,10 +383,13 @@ export function NouveauModal({
         });
       } else {
         // Short — icpId required (validé au-dessus), script optionnel.
+        // Anti-shadowban : sourceId (required UI) + override IG/YT éventuel.
         await createPub({
           ...baseArgs,
           script: state.data.script.trim() || undefined,
           icpId: state.data.icpId,
+          sourceId: state.data.sourceId.trim(),
+          confirmDuplicateOverride: confirmOverride,
         });
       }
       const formatLabel =
@@ -371,6 +413,23 @@ export function NouveauModal({
       setSubmitting(false);
     }
   }
+
+  // Anti-shadowban — gating du bouton Créer : une plateforme bloquée (TikTok)
+  // sélectionnée OU une plateforme à confirmer (IG/YT) sélectionnée sans
+  // override coché désactive la création. Le serveur revalide (defense in depth).
+  const selectedBlocked = sourceStatus
+    ? state.data.plateformes.filter((p) =>
+        sourceStatus.blockedPlatforms.includes(p),
+      )
+    : [];
+  const selectedWarnings = sourceStatus
+    ? state.data.plateformes.filter((p) =>
+        sourceStatus.warningPlatforms.includes(p),
+      )
+    : [];
+  const sourceBlocksSubmit =
+    selectedBlocked.length > 0 ||
+    (selectedWarnings.length > 0 && !confirmOverride);
 
   return (
     <>
@@ -408,7 +467,13 @@ export function NouveauModal({
               <StepContenu data={state.data} dispatch={dispatch} />
             )}
             {state.step === 4 && (
-              <StepPublication data={state.data} dispatch={dispatch} />
+              <StepPublication
+                data={state.data}
+                dispatch={dispatch}
+                sourceStatus={sourceStatus}
+                confirmOverride={confirmOverride}
+                onConfirmOverrideChange={setConfirmOverride}
+              />
             )}
             {state.step === 5 && (
               <StepRecap data={state.data} dispatch={dispatch} />
@@ -438,7 +503,10 @@ export function NouveauModal({
                   Suivant
                 </Button>
               ) : (
-                <Button onClick={handleCreate} disabled={submitting}>
+                <Button
+                  onClick={handleCreate}
+                  disabled={submitting || sourceBlocksSubmit}
+                >
                   {submitting && (
                     <Loader2Icon className="mr-2 size-4 animate-spin" />
                   )}
