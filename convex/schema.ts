@@ -130,6 +130,14 @@ export default defineSchema({
     // rétro-compat des Shorts pré-existants + des carousel/SR qui l'ignorent.
     // Unset via patch { icpId: undefined } (cascade deleteIcp).
     icpId: v.optional(v.id("icps")),
+    // Anti-shadowban Shorts — identifiant de la vidéo source (ex: nom de
+    // fichier Drive "short_042"). Cross-format au schéma (v.optional) mais la
+    // contrainte d'unicité (sourceId, plateforme) n'est imposée QUE pour les
+    // Shorts côté serveur (createPublication / updateDraft / duplicateCarousel).
+    // Stocké NORMALISÉ (trim + strip extension vidéo + lowercase, cf
+    // normalizeSourceId). undefined = pas de source (S007/S008 pré-fix +
+    // carousel/SR). AUCUN index : collect()+filter trivial au volume (TD).
+    sourceId: v.optional(v.string()),
     // Modification compte post-publication : undefined/false = jamais modifié
     // (modification possible 1 fois), true = déjà modifié une fois (lecture
     // seule désormais). Cf updatePublishedAccount.

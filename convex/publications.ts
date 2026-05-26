@@ -1,4 +1,6 @@
 import { internalMutation, mutation, query } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
 import { coerceSnapshotAge } from "./snapshotMatching";
 import {
@@ -109,6 +111,74 @@ function computeNextPublicationId(
   return `${prefix}${String(max + 1).padStart(3, "0")}`;
 }
 
+// ─── Anti-shadowban Shorts — sourceId ────────────────────────────────────────
+
+// Dupliqué de lib/source-id.ts (cross-tsconfig : un module Convex ne peut pas
+// importer lib/, cf isFormatAllowedOnPlatform / coerceSnapshotAge). Garder les
+// deux implémentations identiques. Règle : trim → strip extension vidéo →
+// lowercase.
+const VIDEO_EXTENSIONS = [".mp4", ".mov", ".webm", ".avi"];
+function normalizeSourceId(raw: string): string {
+  const lower = raw.trim().toLowerCase();
+  for (const ext of VIDEO_EXTENSIONS) {
+    if (lower.endsWith(ext)) {
+      return lower.slice(0, lower.length - ext.length);
+    }
+  }
+  return lower;
+}
+
+// Format date FR "JJ/MM/AA" inline (cross-tsconfig : pas d'import lib/format).
+// Aligné avec lib/format.formatDate pour des messages d'erreur cohérents.
+function formatDateFr(ts: number): string {
+  return new Date(ts).toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+  });
+}
+
+// Statut d'une publication (aligné lib/publication-status isPublished/isLate,
+// dupliqué cross-tsconfig). published = postUrl non vide ; late = échéance
+// passée sans lien ; draft sinon.
+function sourceStatusOf(p: Doc<"publications">): "published" | "draft" | "late" {
+  const isPub = typeof p.postUrl === "string" && p.postUrl.length > 0;
+  if (isPub) return "published";
+  if (p.datePubli < Date.now()) return "late";
+  return "draft";
+}
+
+/**
+ * Récupère les Shorts existants partageant un sourceId normalisé donné.
+ * Utilisé par createPublication / updateDraft / duplicateCarousel (validation)
+ * et getSourceStatus / listSources (lecture). collect()+filter trivial au
+ * volume (pas d'index by_sourceId — décision MVP).
+ *
+ * `excludeCarouselId` exclut le groupe en cours d'édition (updateDraft) pour
+ * ne pas se signaler doublon à soi-même.
+ */
+async function findExistingSourcePublications(
+  ctx: QueryCtx | MutationCtx,
+  normalizedSourceId: string,
+  excludeCarouselId?: string,
+): Promise<Array<{ publication: Doc<"publications">; normalizedSourceId: string }>> {
+  const all = await ctx.db.query("publications").collect();
+  const matches: Array<{
+    publication: Doc<"publications">;
+    normalizedSourceId: string;
+  }> = [];
+  for (const p of all) {
+    if ((p.mediaType ?? "carousel") !== "short") continue;
+    if (p.sourceId === undefined || p.sourceId === "") continue;
+    if (normalizeSourceId(p.sourceId) !== normalizedSourceId) continue;
+    if (excludeCarouselId !== undefined && p.carouselId === excludeCarouselId) {
+      continue;
+    }
+    matches.push({ publication: p, normalizedSourceId });
+  }
+  return matches;
+}
+
 export const createPublication = mutation({
   args: {
     carouselId: v.string(),
@@ -149,6 +219,11 @@ export const createPublication = mutation({
     compte: v.string(),
     datePubli: v.number(),
     notes: v.string(),
+    // Anti-shadowban Shorts — sourceId (cross-format au schéma, validé Shorts
+    // only). confirmDuplicateOverride débloque un doublon Instagram/YouTube
+    // (jamais TikTok — strict bloquant). cf getSourceStatus pour le pré-gate UI.
+    sourceId: v.optional(v.string()),
+    confirmDuplicateOverride: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const mediaType = args.mediaType ?? "carousel";
@@ -203,6 +278,34 @@ export const createPublication = mutation({
       throw new ConvexError("ICP requis pour un Short.");
     }
 
+    // Anti-shadowban Shorts — validation sourceId × plateforme. UNIQUEMENT pour
+    // les Shorts avec sourceId fourni (carousel/SR ignorés). TikTok = strict
+    // bloquant (toujours) ; Instagram/YouTube = bloquant sauf override confirmé.
+    if (mediaType === "short" && args.sourceId !== undefined) {
+      const normalized = normalizeSourceId(args.sourceId);
+      if (normalized === "") {
+        throw new ConvexError("SourceId vide ou invalide.");
+      }
+      const existing = await findExistingSourcePublications(ctx, normalized);
+      for (const plateforme of args.plateformes) {
+        const onPlatform = existing.filter(
+          (e) => e.publication.plateforme === plateforme,
+        );
+        if (onPlatform.length === 0) continue;
+        const e = onPlatform[0].publication;
+        if (plateforme === "TikTok") {
+          throw new ConvexError(
+            `Ce short a déjà été posté sur TikTok (compte ${e.compte} le ${formatDateFr(e.datePubli)}). Risque shadowban.`,
+          );
+        }
+        if (args.confirmDuplicateOverride !== true) {
+          throw new ConvexError(
+            `Ce short est déjà posté sur ${plateforme} (compte ${e.compte} le ${formatDateFr(e.datePubli)}). Confirmer l'override.`,
+          );
+        }
+      }
+    }
+
     // Couple plateforme/mediaType : carrousel non autorisé sur YouTube.
     for (const plateforme of args.plateformes) {
       if (!isFormatAllowedOnPlatform(mediaType, plateforme)) {
@@ -252,6 +355,11 @@ export const createPublication = mutation({
         likes: null,
         subsGained: null,
         notes: args.notes,
+        // Anti-shadowban — stocké NORMALISÉ (cross-format). Empty → undefined.
+        sourceId:
+          args.sourceId !== undefined
+            ? normalizeSourceId(args.sourceId) || undefined
+            : undefined,
       });
       ids.push(id);
     }
@@ -505,6 +613,10 @@ export const duplicateCarousel = mutation({
     sourceCarouselId: v.string(),
     targetCompte: v.string(),
     targetPlateforme: plateformeValidator,
+    // Anti-shadowban Shorts — sourceId du duplicat. undefined → hérite du
+    // sourceId source. Validé × targetPlateforme si Short. override = IG/YT.
+    newSourceId: v.optional(v.string()),
+    confirmDuplicateOverride: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const sourceRows = await ctx.db
@@ -553,16 +665,39 @@ export const duplicateCarousel = mutation({
         ? source.carouselId
         : source.parentCarouselId;
 
-    // Génération inline du prochain carouselId. Logique alignée avec
-    // getNextCarouselId — duplication assumée (mutation transactionnelle ne
-    // peut pas appeler une query). TD-004 (race condition) inchangé.
+    // Anti-shadowban Shorts — sourceId du duplicat : override explicite sinon
+    // hérité de la source. Validation × targetPlateforme (le duplicat est une
+    // nouvelle row → pas d'exclude). TikTok strict bloquant / IG-YT override.
+    const sourceIdToUse = args.newSourceId ?? source.sourceId;
+    if (sourceMediaType === "short" && sourceIdToUse !== undefined) {
+      const normalized = normalizeSourceId(sourceIdToUse);
+      if (normalized !== "") {
+        const existing = await findExistingSourcePublications(ctx, normalized);
+        const onPlatform = existing.filter(
+          (e) => e.publication.plateforme === args.targetPlateforme,
+        );
+        if (onPlatform.length > 0) {
+          const e = onPlatform[0].publication;
+          if (args.targetPlateforme === "TikTok") {
+            throw new ConvexError(
+              `Ce short a déjà été posté sur TikTok (compte ${e.compte} le ${formatDateFr(e.datePubli)}). Risque shadowban.`,
+            );
+          }
+          if (args.confirmDuplicateOverride !== true) {
+            throw new ConvexError(
+              `Ce short est déjà posté sur ${args.targetPlateforme} (compte ${e.compte} le ${formatDateFr(e.datePubli)}). Confirmer l'override.`,
+            );
+          }
+        }
+      }
+    }
+
+    // 🔴 Bug fix ID-prefix : le préfixe d'ID doit suivre le mediaType source
+    // (S### pour un Short, SR### pour un SR), pas un "C" hardcodé. On réutilise
+    // computeNextPublicationId (déjà ancré par préfixe + filtré par mediaType),
+    // identique à getNextPublicationId. TD-004 (race condition) inchangé.
     const all = await ctx.db.query("publications").collect();
-    const numbers = all
-      .map((p) => p.carouselId)
-      .map((id) => parseInt(id.replace(/^C/, ""), 10))
-      .filter((n) => !isNaN(n));
-    const maxNumber = numbers.length > 0 ? Math.max(...numbers) : 0;
-    const nextCarouselId = `C${String(maxNumber + 1).padStart(3, "0")}`;
+    const nextCarouselId = computeNextPublicationId(all, sourceMediaType);
 
     await ctx.db.insert("publications", {
       carouselId: nextCarouselId,
@@ -612,6 +747,11 @@ export const duplicateCarousel = mutation({
       notes: "",
       // postUrl undefined → draft (cf isPublished). Volontairement omis.
       parentCarouselId: parentAncre,
+      // Anti-shadowban — propage le sourceId (override ou hérité), normalisé.
+      sourceId:
+        sourceIdToUse !== undefined
+          ? normalizeSourceId(sourceIdToUse) || undefined
+          : undefined,
     });
 
     return { carouselId: nextCarouselId };
@@ -664,6 +804,11 @@ export const updateDraft = mutation({
       compte: v.optional(v.string()),
       plateforme: v.optional(plateformeValidator),
     }),
+    // Anti-shadowban Shorts — sourceId éditable a posteriori (top-level, hors
+    // patch car couplé à confirmDuplicateOverride). undefined = ne pas toucher ;
+    // null = désassigner (unset) ; string = (re)définir + valider si Short.
+    sourceId: v.optional(v.union(v.string(), v.null())),
+    confirmDuplicateOverride: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const rows = await ctx.db
@@ -737,6 +882,46 @@ export const updateDraft = mutation({
     if (args.patch.datePubli !== undefined) update.datePubli = args.patch.datePubli;
     if (args.patch.compte !== undefined) update.compte = args.patch.compte;
     if (args.patch.plateforme !== undefined) update.plateforme = args.patch.plateforme;
+
+    // Anti-shadowban Shorts — édition du sourceId (a posteriori, ex: backfill
+    // S007/S008). null = unset ; string = (re)définir. Validation × plateforme
+    // courante uniquement pour les Shorts, en excluant le groupe lui-même.
+    if (args.sourceId !== undefined) {
+      if (args.sourceId === null) {
+        update.sourceId = undefined;
+      } else {
+        const rowMediaType = rows[0].mediaType ?? "carousel";
+        const normalized = normalizeSourceId(args.sourceId);
+        if (rowMediaType === "short") {
+          if (normalized === "") {
+            throw new ConvexError("SourceId vide ou invalide.");
+          }
+          const existing = await findExistingSourcePublications(
+            ctx,
+            normalized,
+            args.carouselId,
+          );
+          for (const r of rows) {
+            const onPlatform = existing.filter(
+              (e) => e.publication.plateforme === r.plateforme,
+            );
+            if (onPlatform.length === 0) continue;
+            const e = onPlatform[0].publication;
+            if (r.plateforme === "TikTok") {
+              throw new ConvexError(
+                `Ce short a déjà été posté sur TikTok (compte ${e.compte} le ${formatDateFr(e.datePubli)}). Risque shadowban.`,
+              );
+            }
+            if (args.confirmDuplicateOverride !== true) {
+              throw new ConvexError(
+                `Ce short est déjà posté sur ${r.plateforme} (compte ${e.compte} le ${formatDateFr(e.datePubli)}). Confirmer l'override.`,
+              );
+            }
+          }
+        }
+        update.sourceId = normalized || undefined;
+      }
+    }
 
     for (const r of rows) {
       await ctx.db.patch(r._id, update);
@@ -842,5 +1027,119 @@ export const migrateLegacyCarouselIds = internalMutation({
     }
 
     return { carrouselsRenamed, shortsRenamed, srRenamed, parentRefsUpdated };
+  },
+});
+
+/**
+ * Anti-shadowban Shorts — bibliothèque des sources (/shorts/sources). 1 entrée
+ * par sourceId normalisé distinct, avec la matrice de couverture par plateforme
+ * (TikTok / Instagram / YouTube). Group by serveur (pattern listComptes), pas
+ * d'index (collect()+filter trivial au volume — décision MVP). Shorts only.
+ */
+export const listSources = query({
+  args: {},
+  handler: async (ctx) => {
+    const all = await ctx.db.query("publications").collect();
+    const shorts = all.filter(
+      (p) =>
+        (p.mediaType ?? "carousel") === "short" &&
+        p.sourceId !== undefined &&
+        p.sourceId !== "",
+    );
+    const groups = new Map<
+      string,
+      {
+        displaySourceId: string;
+        latestAt: number;
+        pubs: Doc<"publications">[];
+      }
+    >();
+    for (const p of shorts) {
+      if (p.sourceId === undefined) continue;
+      const norm = normalizeSourceId(p.sourceId);
+      if (norm === "") continue;
+      const g = groups.get(norm);
+      if (g) {
+        g.pubs.push(p);
+        if (p._creationTime > g.latestAt) {
+          g.latestAt = p._creationTime;
+          g.displaySourceId = p.sourceId;
+        }
+      } else {
+        groups.set(norm, {
+          displaySourceId: p.sourceId,
+          latestAt: p._creationTime,
+          pubs: [p],
+        });
+      }
+    }
+    const result = Array.from(groups.entries()).map(([sourceId, g]) => {
+      const publications = g.pubs.map((p) => ({
+        publicationId: p._id,
+        carouselId: p.carouselId,
+        plateforme: p.plateforme,
+        compte: p.compte,
+        datePubli: p.datePubli,
+        status: sourceStatusOf(p),
+      }));
+      const tiktok = publications.some((x) => x.plateforme === "TikTok");
+      const instagram = publications.some((x) => x.plateforme === "Instagram");
+      const youtube = publications.some((x) => x.plateforme === "YouTube");
+      return {
+        sourceId,
+        displaySourceId: g.displaySourceId,
+        publications,
+        coverage: {
+          tiktok,
+          instagram,
+          youtube,
+          total: [tiktok, instagram, youtube].filter(Boolean).length,
+        },
+      };
+    });
+    result.sort((a, b) => a.sourceId.localeCompare(b.sourceId));
+    return result;
+  },
+});
+
+/**
+ * Anti-shadowban Shorts — statut d'un sourceId pour le pré-gate UI (modal
+ * étape Hook + Publication). Retourne les plateformes bloquées (TikTok déjà
+ * posté), à confirmer (IG/YT déjà posté, override possible) et disponibles.
+ * Source unique de vérité de l'UX ; la validation mutation reste le filet
+ * defense-in-depth. sourceId vide/inédit → exists=false, tout disponible.
+ */
+export const getSourceStatus = query({
+  args: { sourceId: v.string() },
+  handler: async (ctx, args) => {
+    const normalized = normalizeSourceId(args.sourceId);
+    const existing = await findExistingSourcePublications(ctx, normalized);
+    const publications = existing.map((e) => ({
+      plateforme: e.publication.plateforme,
+      compte: e.publication.compte,
+      datePubli: e.publication.datePubli,
+      status: sourceStatusOf(e.publication),
+      carouselId: e.publication.carouselId,
+    }));
+    const onTikTok = publications.some((x) => x.plateforme === "TikTok");
+    const onInstagram = publications.some((x) => x.plateforme === "Instagram");
+    const onYouTube = publications.some((x) => x.plateforme === "YouTube");
+    const blockedPlatforms: string[] = onTikTok ? ["TikTok"] : [];
+    const warningPlatforms: string[] = [
+      ...(onInstagram ? ["Instagram"] : []),
+      ...(onYouTube ? ["YouTube"] : []),
+    ];
+    const availablePlatforms: string[] = [
+      ...(onTikTok ? [] : ["TikTok"]),
+      ...(onInstagram ? [] : ["Instagram"]),
+      ...(onYouTube ? [] : ["YouTube"]),
+    ];
+    return {
+      exists: publications.length > 0,
+      publications,
+      blockedPlatforms,
+      warningPlatforms,
+      availablePlatforms,
+    };
   },
 });
