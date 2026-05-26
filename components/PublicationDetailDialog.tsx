@@ -8,6 +8,7 @@ import { ImageUploader } from "@/components/ImageUploader";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -45,6 +46,7 @@ import {
   RECORDING_DEVICES,
   RECORDING_DEVICE_ICONS,
   RECORDING_DEVICE_LABELS,
+  getPublicationIdLabel,
   type RecordingDevice,
 } from "@/lib/format-config";
 import { IcpCombobox } from "@/components/icps/IcpCombobox";
@@ -54,6 +56,7 @@ import {
   CalendarIcon,
   ExternalLinkIcon,
   Loader2Icon,
+  PencilIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -162,6 +165,9 @@ function PublishedView({
   const isShort = mediaType === "short";
   const isScreenRecorder = mediaType === "screenrecorder";
   const isVideoFormat = isShort || isScreenRecorder;
+  // Modification du compte post-publication (1 seule fois) — sub-dialog
+  // imbriqué (cohérent pattern FolderEditDialog/PersonneEditDialog inline).
+  const [accountEditOpen, setAccountEditOpen] = useState(false);
   const saveRate = calculateSaveRate(publication.saves, publication.vuesJ7);
   const verdict = calculateVerdict(saveRate);
   const auditConv = calculateAuditConversion(
@@ -174,7 +180,10 @@ function PublishedView({
       <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
-            <span className="font-mono">{publication.carouselId}</span>
+            <span>
+              {getPublicationIdLabel(mediaType)}{" "}
+              <span className="font-mono">{publication.carouselId}</span>
+            </span>
             <PlatformBadge plateforme={publication.plateforme} />
           </DialogTitle>
         </DialogHeader>
@@ -303,7 +312,24 @@ function PublishedView({
               </Field>
             )}
             <Field label="Compte">
-              <span className="font-mono text-xs">{publication.compte}</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-xs">{publication.compte}</span>
+                {publication.accountModified ? (
+                  <Badge variant="outline" className="text-slate-500">
+                    Modifié
+                  </Badge>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="h-6 gap-1 px-1.5 text-slate-500 hover:text-slate-900"
+                    onClick={() => setAccountEditOpen(true)}
+                  >
+                    <PencilIcon className="size-3" />
+                    Modifier
+                  </Button>
+                )}
+              </div>
             </Field>
             <Field label="Date publi">
               {new Date(publication.datePubli).toLocaleDateString("fr-FR", {
@@ -461,6 +487,111 @@ function PublishedView({
             Fermer
           </Button>
           <Button onClick={onEdit}>Modifier les stats</Button>
+        </DialogFooter>
+
+        <AccountEditSubDialog
+          open={accountEditOpen}
+          onOpenChange={setAccountEditOpen}
+          publication={publication}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Sub-dialog imbriqué — modification UNIQUE du compte d'une publication
+ * publiée. Select compte filtré par la plateforme de la pub (le serveur
+ * revalide la compatibilité). Avertissement explicite "unique et définitif".
+ */
+function AccountEditSubDialog({
+  open,
+  onOpenChange,
+  publication,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  publication: PublicationWithImage;
+}) {
+  const [newCompte, setNewCompte] = useState(publication.compte);
+  const [submitting, setSubmitting] = useState(false);
+  const comptesData = useQuery(api.comptes.listComptes, { actifOnly: true });
+  const filtered = useMemo(
+    () =>
+      (comptesData ?? []).filter(
+        (c) => c.plateforme === publication.plateforme,
+      ),
+    [comptesData, publication.plateforme],
+  );
+  const updateAccount = useMutation(api.publications.updatePublishedAccount);
+
+  async function confirm() {
+    if (newCompte === publication.compte) {
+      onOpenChange(false);
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await updateAccount({ id: publication._id, newCompte });
+      toast.success("Compte de publication modifié");
+      onOpenChange(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Modifier le compte de publication</DialogTitle>
+          <DialogDescription className="text-amber-700">
+            Cette modification est unique et définitive.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1.5">
+          <Label>Compte ({publication.plateforme})</Label>
+          {comptesData === undefined ? (
+            <div className="h-9 animate-pulse rounded-md bg-slate-100" />
+          ) : filtered.length === 0 ? (
+            <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+              Aucun compte actif sur {publication.plateforme}.
+            </p>
+          ) : (
+            <Select
+              value={newCompte}
+              onValueChange={(v) => v !== null && setNewCompte(v)}
+            >
+              <SelectTrigger>
+                <SelectValue>{newCompte}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {filtered.map((c) => (
+                  <SelectItem key={c._id} value={c.handle}>
+                    <span className="font-mono">{c.handle}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={submitting}
+          >
+            Annuler
+          </Button>
+          <Button
+            onClick={confirm}
+            disabled={submitting || filtered.length === 0}
+          >
+            {submitting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+            Confirmer
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -225,6 +225,31 @@ export function getIdColumnLabel(mediaType: MediaType): string {
   }
 }
 
+/**
+ * Préfixe d'ID de publication par mediaType : C### (carousel), S### (short),
+ * SR### (screenrecorder). Le champ Convex reste `carouselId` (dette de
+ * nommage assumée — Option B) mais son contenu reflète désormais le format.
+ * Source unique de vérité, réutilisée par les compteurs Convex (dupliquée
+ * côté serveur car cross-tsconfig) + la migration data.
+ */
+export function getPublicationIdPrefix(mediaType: MediaType): string {
+  switch (mediaType) {
+    case "short":
+      return "S";
+    case "screenrecorder":
+      return "SR";
+    default:
+      return "C";
+  }
+}
+
+/** Libellé singulier du format ("Carrousel" / "Short" / "ScreenRecorder"),
+ *  pour les titres de dialog "{label} {carouselId}". Alias lisible de
+ *  FORMAT_CONFIGS[mediaType].singular. */
+export function getPublicationIdLabel(mediaType: MediaType): string {
+  return FORMAT_CONFIGS[mediaType as FormatKey].singular;
+}
+
 export type RecordingDevice = "phone" | "desktop";
 
 export const RECORDING_DEVICES = ["phone", "desktop"] as const;

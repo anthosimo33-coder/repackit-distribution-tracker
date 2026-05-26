@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 
 const mecaniqueValidator = v.union(
@@ -63,6 +63,45 @@ function isFormatAllowedOnPlatform(
   }
   // Short et ScreenRecorder : autorisés sur les 3 plateformes.
   return true;
+}
+
+// Préfixe d'ID de publication par mediaType (cf lib/format-config.
+// getPublicationIdPrefix — dupliqué côté serveur, cross-tsconfig). Le champ
+// Convex reste `carouselId` (Option B) mais son contenu est désormais
+// C### (carousel) / S### (short) / SR### (screenrecorder).
+const ID_PREFIX: Record<MediaTypeServer, string> = {
+  carousel: "C",
+  short: "S",
+  screenrecorder: "SR",
+};
+
+/**
+ * Calcule le prochain carouselId pour un mediaType : max des numéros des
+ * publications de ce format (parsés via le préfixe ancré) + 1, padding 3
+ * chiffres. Helper pur partagé par getNextPublicationId, getNextCarouselId
+ * (alias) et migrateLegacyCarouselIds.
+ *
+ * Regex ancré : `^S(\d+)$` ne matche PAS "SR001" (R après S) → pas de
+ * collision S/SR. Le filtre mediaType garantit qu'on ne compte que les ids
+ * du bon format (un Short legacy "C037" non migré est ignoré par le compteur
+ * short → d'où l'exigence "migration avant nouveaux créés").
+ */
+function computeNextPublicationId(
+  pubs: { carouselId: string; mediaType?: MediaTypeServer }[],
+  mediaType: MediaTypeServer,
+): string {
+  const prefix = ID_PREFIX[mediaType];
+  const re = new RegExp(`^${prefix}(\\d+)$`);
+  let max = 0;
+  for (const p of pubs) {
+    if ((p.mediaType ?? "carousel") !== mediaType) continue;
+    const m = p.carouselId.match(re);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n > max) max = n;
+    }
+  }
+  return `${prefix}${String(max + 1).padStart(3, "0")}`;
 }
 
 export const createPublication = mutation({
@@ -215,19 +254,30 @@ export const createPublication = mutation({
   },
 });
 
+/**
+ * Prochain carouselId pour un mediaType donné (compteur distinct par format).
+ * mediaType optional → default "carousel" (backward compat pour un caller
+ * oublié qui n'enverrait pas l'arg). Préfixe automatique C### / S### / SR###.
+ */
+export const getNextPublicationId = query({
+  args: { mediaType: v.optional(mediaTypeValidator) },
+  handler: async (ctx, args) => {
+    const all = await ctx.db.query("publications").collect();
+    return computeNextPublicationId(all, args.mediaType ?? "carousel");
+  },
+});
+
+/**
+ * Backward-compat : ancien nom de getNextPublicationId, conservé pour ne pas
+ * casser les callers carousel existants (route legacy app/nouveau encore
+ * présente sur disque + specs e2e). Délègue au compteur carousel. Le nouveau
+ * code (NouveauModal) utilise getNextPublicationId({ mediaType }).
+ */
 export const getNextCarouselId = query({
   args: {},
   handler: async (ctx) => {
     const all = await ctx.db.query("publications").collect();
-    if (all.length === 0) return "C001";
-
-    const numbers = all
-      .map((p) => p.carouselId)
-      .map((id) => parseInt(id.replace(/^C/, ""), 10))
-      .filter((n) => !isNaN(n));
-
-    const maxNumber = numbers.length > 0 ? Math.max(...numbers) : 0;
-    return `C${String(maxNumber + 1).padStart(3, "0")}`;
+    return computeNextPublicationId(all, "carousel");
   },
 });
 
@@ -340,6 +390,53 @@ export const updateMetrics = mutation({
     }
 
     await ctx.db.patch(id, update);
+    return { ok: true };
+  },
+});
+
+/**
+ * Modification du compte d'une publication PUBLIÉE, autorisée UNE SEULE fois
+ * (friction observée : erreur de saisie du compte ~1/15 au moment du post).
+ *
+ * Garde-fous serveur :
+ *   - publication doit être publiée (postUrl non vide) — sinon le compte est
+ *     librement éditable via le DraftEditView.
+ *   - accountModified !== true (modification unique et définitive).
+ *   - le nouveau compte doit exister sur la MÊME plateforme que la pub.
+ *
+ * Patch single-row (chaque row = 1 plateforme a son propre compte). Pas de
+ * updatedAt sur publications → non patché. Pattern cohérent avec updateMetrics.
+ */
+export const updatePublishedAccount = mutation({
+  args: { id: v.id("publications"), newCompte: v.string() },
+  handler: async (ctx, args) => {
+    const pub = await ctx.db.get(args.id);
+    if (!pub) throw new ConvexError("Publication introuvable.");
+
+    const isPub = typeof pub.postUrl === "string" && pub.postUrl.length > 0;
+    if (!isPub) {
+      throw new ConvexError(
+        "Modification du compte uniquement possible après publication.",
+      );
+    }
+    if (pub.accountModified === true) {
+      throw new ConvexError("Le compte ne peut être modifié qu'une seule fois.");
+    }
+
+    const comptes = await ctx.db.query("comptes").collect();
+    const match = comptes.find(
+      (c) => c.handle === args.newCompte && c.plateforme === pub.plateforme,
+    );
+    if (!match) {
+      throw new ConvexError(
+        `Le compte ${args.newCompte} n'existe pas sur ${pub.plateforme}.`,
+      );
+    }
+
+    await ctx.db.patch(args.id, {
+      compte: args.newCompte,
+      accountModified: true,
+    });
     return { ok: true };
   },
 });
@@ -612,5 +709,104 @@ export const updateDraft = mutation({
     }
 
     return { ok: true, rowsPatched: rows.length };
+  },
+});
+
+/**
+ * Migration data ONE-SHOT (internal — à lancer UNE SEULE FOIS post-deploy via
+ * `pnpm dlx convex@latest run --prod publications:migrateLegacyCarouselIds`,
+ * testable d'abord en dev). Renumérote les publications dont le préfixe d'ID
+ * ne correspond pas à leur mediaType : les Shorts/SR créés avant ce batch ont
+ * hérité d'un id "C###" → ils deviennent "S###" / "SR###". Les carrousels
+ * (déjà "C###") sont SKIP (leur id ne change pas).
+ *
+ * IDEMPOTENT (heuristique préfixe vs mediaType, pas de flag dédié) : un groupe
+ * dont l'id matche déjà son préfixe attendu est sauté ; les compteurs sont
+ * initialisés au max existant déjà correctement préfixé. Relançable sans
+ * risque de double-incrément.
+ *
+ * Grouping : 1 carouselId = N rows (une par plateforme). On assigne UN nouvel
+ * id par GROUPE (toutes les rows du groupe gardent le même id) — sinon on
+ * casserait le modèle 1 carouselId = N rows. parentCarouselId (ancre des
+ * variantes) est remappé old→new pour préserver l'intégrité des lignées de
+ * duplicats.
+ */
+export const migrateLegacyCarouselIds = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const pubs = await ctx.db.query("publications").collect();
+
+    // Groupes par carouselId courant (1 id = N rows multi-plateformes).
+    const groups = new Map<string, typeof pubs>();
+    for (const p of pubs) {
+      const g = groups.get(p.carouselId);
+      if (g) g.push(p);
+      else groups.set(p.carouselId, [p]);
+    }
+
+    // Compteurs init au max existant déjà correctement préfixé (idempotence).
+    const counters: Record<MediaTypeServer, number> = {
+      carousel: 0,
+      short: 0,
+      screenrecorder: 0,
+    };
+    const toMigrate: {
+      oldId: string;
+      mediaType: MediaTypeServer;
+      rows: typeof pubs;
+      createdAt: number;
+    }[] = [];
+    for (const [oldId, rows] of groups) {
+      const mt = (rows[0].mediaType ?? "carousel") as MediaTypeServer;
+      const m = oldId.match(new RegExp(`^${ID_PREFIX[mt]}(\\d+)$`));
+      if (m) {
+        const n = parseInt(m[1], 10);
+        if (n > counters[mt]) counters[mt] = n;
+      } else {
+        const createdAt = Math.min(...rows.map((r) => r._creationTime));
+        toMigrate.push({ oldId, mediaType: mt, rows, createdAt });
+      }
+    }
+
+    // Tri stable : mediaType puis createdAt ASC (ordre de création préservé).
+    toMigrate.sort((a, b) =>
+      a.mediaType !== b.mediaType
+        ? a.mediaType < b.mediaType
+          ? -1
+          : 1
+        : a.createdAt - b.createdAt,
+    );
+
+    const idRemap = new Map<string, string>();
+    let carrouselsRenamed = 0;
+    let shortsRenamed = 0;
+    let srRenamed = 0;
+    for (const g of toMigrate) {
+      counters[g.mediaType] += 1;
+      const newId = `${ID_PREFIX[g.mediaType]}${String(
+        counters[g.mediaType],
+      ).padStart(3, "0")}`;
+      idRemap.set(g.oldId, newId);
+      for (const r of g.rows) {
+        await ctx.db.patch(r._id, { carouselId: newId });
+      }
+      if (g.mediaType === "carousel") carrouselsRenamed += 1;
+      else if (g.mediaType === "short") shortsRenamed += 1;
+      else srRenamed += 1;
+    }
+
+    // Remap parentCarouselId (ancre des variantes) pour les rows pointant vers
+    // un id renommé. Snapshot `pubs` pré-migration → _id stable.
+    let parentRefsUpdated = 0;
+    for (const p of pubs) {
+      if (p.parentCarouselId && idRemap.has(p.parentCarouselId)) {
+        await ctx.db.patch(p._id, {
+          parentCarouselId: idRemap.get(p.parentCarouselId),
+        });
+        parentRefsUpdated += 1;
+      }
+    }
+
+    return { carrouselsRenamed, shortsRenamed, srRenamed, parentRefsUpdated };
   },
 });

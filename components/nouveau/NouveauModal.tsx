@@ -89,7 +89,12 @@ export function NouveauModal({
 
   const allHooks = useQuery(api.hooks.listHooks, {});
   const comptesData = useQuery(api.comptes.listComptes, { actifOnly: true });
-  const nextCarouselId = useQuery(api.publications.getNextCarouselId);
+  // Préfixe d'ID par mediaType (C### / S### / SR###). Skip tant que le format
+  // n'est pas choisi (étape 1). Compteur distinct par format côté serveur.
+  const nextCarouselId = useQuery(
+    api.publications.getNextPublicationId,
+    state.data.mediaType ? { mediaType: state.data.mediaType } : "skip",
+  );
   const createPub = useMutation(api.publications.createPublication);
 
   const selectedHook = useMemo(
