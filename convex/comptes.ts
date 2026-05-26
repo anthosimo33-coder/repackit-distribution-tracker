@@ -1,5 +1,5 @@
 import { mutation, query } from "./_generated/server";
-import { v } from "convex/values";
+import { v, ConvexError } from "convex/values";
 
 export const listComptes = query({
   args: { actifOnly: v.optional(v.boolean()) },
@@ -65,6 +65,31 @@ export const updateCompte = mutation({
   },
   handler: async (ctx, args) => {
     const { id, personneId, ...rest } = args;
+
+    // Garde-fou rename : publications.compte est une string (= handle, pas un
+    // Id). Renommer un handle déjà utilisé orphelinerait ces publications — le
+    // matching p.compte === compte.handle ne les retrouverait plus (filtre
+    // tracker, vue détail compte, garde deleteCompte). On bloque le rename
+    // tant que des publications l'utilisent. L'archivage (actif) reste permis
+    // car il n'altère pas le handle. Pattern cohérent avec deleteCompte.
+    if (args.handle !== undefined) {
+      const compte = await ctx.db.get(id);
+      if (!compte) throw new ConvexError("Compte introuvable.");
+      if (args.handle !== compte.handle) {
+        const pubs = await ctx.db.query("publications").collect();
+        const used = pubs.filter((p) => p.compte === compte.handle);
+        if (used.length > 0) {
+          throw new ConvexError(
+            `Impossible de renommer ce compte : ${used.length} publication${
+              used.length > 1 ? "s" : ""
+            } l'utilise${
+              used.length > 1 ? "nt" : ""
+            }. Renommer le handle créerait des publications orphelines.`,
+          );
+        }
+      }
+    }
+
     const update: Record<string, unknown> = {};
     for (const [k, value] of Object.entries(rest)) {
       if (value !== undefined) update[k] = value;
