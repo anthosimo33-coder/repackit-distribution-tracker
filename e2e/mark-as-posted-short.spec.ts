@@ -118,35 +118,53 @@ test.describe("Tracker — Marquer Short comme posté + édition métriques", ()
       .getByRole("menuitem", { name: /mettre à jour stats/i })
       .click();
 
-    const editDialog = page.getByRole("dialog");
+    const editDialog = page
+      .getByRole("dialog")
+      .filter({ hasText: "Mettre à jour" });
     await expect(editDialog).toBeVisible();
-
-    // Mode short : saves caché, likes + subsGained visibles, commentsAudit
-    // disabled (YouTube). Vérifie la présence des 3 fields short-specific.
-    await expect(editDialog.getByLabel("Likes")).toBeVisible();
-    await expect(editDialog.getByLabel("Subs gagnés")).toBeVisible();
-    await expect(editDialog.getByLabel("Saves")).toHaveCount(0);
+    // Comments AUDIT publication-level disabled (YouTube → !isInstagram).
     await expect(editDialog.getByLabel("Comments AUDIT")).toBeDisabled();
 
-    // Saisir métriques
-    await editDialog.getByLabel("Vues J+7").fill("1000");
-    await editDialog.getByLabel("Likes").fill("50");
-    await editDialog.getByLabel("Subs gagnés").fill("10");
-    await editDialog.getByRole("button", { name: /enregistrer/i }).click();
+    // Ajoute un snapshot J+7. Mode short : likes + subs visibles, saves absent.
+    await editDialog
+      .getByRole("button", { name: /ajouter un snapshot/i })
+      .click();
+    const addDialog = page
+      .getByRole("dialog")
+      .filter({ hasText: "Nouveau snapshot" });
+    await expect(addDialog.getByLabel(/^likes$/i)).toBeVisible();
+    await expect(addDialog.getByLabel(/subs gagnés/i)).toBeVisible();
+    await expect(addDialog.getByLabel(/^saves$/i)).toHaveCount(0);
+    await addDialog.getByRole("button", { name: "J+7", exact: true }).click();
+    await addDialog.getByLabel(/^vues$/i).fill("1000");
+    await addDialog.getByLabel(/^likes$/i).fill("50");
+    await addDialog.getByLabel(/subs gagnés/i).fill("10");
+    await addDialog.getByRole("button", { name: /^enregistrer$/i }).click();
+    await expect(addDialog).toBeHidden();
+    await editDialog.getByRole("button", { name: /^fermer$/i }).click();
     await expect(editDialog).toBeHidden();
 
-    // Vérifier persistence côté DB
+    // Persistence : snapshot + champs latest dénormalisés + displayMetrics.
     const finalPubs = await convex.query(
       api.publications.listPublications,
       {},
     );
     const saved = finalPubs.find((p) => p.hookText === hookText);
     expect(saved).toBeTruthy();
-    expect(saved!.likes).toBe(50);
-    expect(saved!.subsGained).toBe(10);
-    expect(saved!.vuesJ7).toBe(1000);
-    expect(saved!.saves).toBeNull();
-    // commentsAudit : YouTube → null (cf inversion isInstagram)
+    expect(saved!.vuesLatest).toBe(1000);
+    expect(saved!.likesLatest).toBe(50);
+    expect(saved!.subsGainedLatest).toBe(10);
+    // savesLatest non renseigné pour un Short.
+    expect(saved!.savesLatest).toBeUndefined();
+    expect(saved!.displayMetrics.vues).toBe(1000);
+    const snaps = await convex.query(
+      api.metricSnapshots.listSnapshotsByPublication,
+      { publicationId: saved!._id },
+    );
+    expect(snaps.length).toBe(1);
+    expect(snaps[0].likes).toBe(50);
+    expect(snaps[0].subsGained).toBe(10);
+    // commentsAudit : YouTube → reste null (publication-level, non saisi).
     expect(saved!.commentsAudit).toBeNull();
 
     // Cleanup explicite

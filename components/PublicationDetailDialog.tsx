@@ -42,6 +42,10 @@ import {
 } from "@/lib/verdict";
 import { isPublished } from "@/lib/publication-status";
 import { getMediaType } from "@/lib/media-type";
+import { MetricChart } from "@/components/analytics/MetricChart";
+import { Skeleton } from "@/components/ui/skeleton";
+import { formatDate } from "@/lib/format";
+import type { DisplayMetrics } from "@/convex/metricsDisplay";
 import {
   RECORDING_DEVICES,
   RECORDING_DEVICE_ICONS,
@@ -112,6 +116,9 @@ export type PublicationWithImage = Doc<"publications"> & {
   imageUrl?: string | null;
   // Refinement Shorts — listPublications enrichit avec l'ICP résolu.
   icp?: { nom: string; color: string | null } | null;
+  // Refactor multi-snapshots — métriques résolues pour la période globale.
+  // Optional : Doc<"publications"> brut (sans enrichissement) reste assignable.
+  displayMetrics?: DisplayMetrics;
 };
 
 export function PublicationDetailDialog({
@@ -168,12 +175,18 @@ function PublishedView({
   // Modification du compte post-publication (1 seule fois) — sub-dialog
   // imbriqué (cohérent pattern FolderEditDialog/PersonneEditDialog inline).
   const [accountEditOpen, setAccountEditOpen] = useState(false);
-  const saveRate = calculateSaveRate(publication.saves, publication.vuesJ7);
+  // Refactor multi-snapshots — métriques affichées = displayMetrics résolu
+  // pour la période globale (snapshotAge), porté par la row listPublications.
+  const dm = publication.displayMetrics;
+  const vues = dm?.vues ?? null;
+  const saveRate = calculateSaveRate(dm?.saves ?? null, vues);
   const verdict = calculateVerdict(saveRate);
-  const auditConv = calculateAuditConversion(
-    publication.commentsAudit,
-    publication.vuesJ7,
-  );
+  const auditConv = calculateAuditConversion(publication.commentsAudit, vues);
+  // Snapshots pour la liste + le graphe d'évolution (query dédupliquée avec
+  // MetricChart single_publication ci-dessous).
+  const snaps = useQuery(api.metricSnapshots.listSnapshotsByPublication, {
+    publicationId: publication._id,
+  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -390,33 +403,33 @@ function PublishedView({
           )}
 
           <div>
-            <div className="mb-2 text-xs font-medium text-slate-500">
+            <div className="mb-2 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500">
               Métriques
+              {dm?.snapshotUsed ? (
+                <Badge variant="outline" className="font-mono text-[10px]">
+                  Snapshot J+{dm.snapshotUsed.daysSincePublication}
+                  {!dm.matchExact && " ≈"}
+                </Badge>
+              ) : (
+                <span className="text-slate-400">(aucun snapshot)</span>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3 rounded-md border border-slate-200 bg-white p-3 text-sm sm:grid-cols-4">
-              <Field label="Vues J+1">{formatNumber(publication.vuesJ1)}</Field>
-              <Field label="Vues J+3">{formatNumber(publication.vuesJ3)}</Field>
-              <Field label="Vues J+7">{formatNumber(publication.vuesJ7)}</Field>
-              {/*
-                Batch 2 Modif 4c — Saves (Carousel) remplacé par Likes +
-                Subs gained (Short). Comments AUDIT passe en Instagram-only
-                via la condition positive (cohérent avec l'inversion
-                isTikTok → isInstagram dans PublicationEditDialog).
-              */}
+              <Field label="Vues">{formatNumber(vues)}</Field>
               {isVideoFormat ? (
                 <>
                   <Field label="Likes">
-                    {formatNumber(publication.likes)}
+                    {formatNumber(dm?.likes ?? null)}
                   </Field>
                   <Field label="Subs gagnés">
-                    {formatNumber(publication.subsGained)}
+                    {formatNumber(dm?.subsGained ?? null)}
                   </Field>
                 </>
               ) : (
-                <Field label="Saves">{formatNumber(publication.saves)}</Field>
+                <Field label="Saves">{formatNumber(dm?.saves ?? null)}</Field>
               )}
               <Field label="Comments total">
-                {formatNumber(publication.commentsTotal)}
+                {formatNumber(dm?.comments ?? null)}
               </Field>
               <Field label="Comments AUDIT">
                 {publication.plateforme === "Instagram" ? (
@@ -430,6 +443,55 @@ function PublishedView({
               </Field>
             </div>
           </div>
+
+          {/* Liste des snapshots (lecture seule) — l'édition se fait via le
+              dialog « Modifier les stats ». */}
+          <div>
+            <div className="mb-2 text-xs font-medium text-slate-500">
+              Snapshots ({snaps?.length ?? 0})
+            </div>
+            {snaps === undefined ? (
+              <Skeleton className="h-12 w-full" />
+            ) : snaps.length === 0 ? (
+              <p className="rounded-md border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-400">
+                Aucun snapshot. Ajoute des mesures via « Modifier les stats ».
+              </p>
+            ) : (
+              <ul className="space-y-1.5">
+                {snaps.map((s) => (
+                  <li
+                    key={s._id}
+                    className="flex items-center gap-3 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs"
+                  >
+                    <Badge variant="outline" className="shrink-0 font-mono">
+                      J+{s.daysSincePublication}
+                    </Badge>
+                    <span className="shrink-0 text-slate-500">
+                      {formatDate(s.capturedAt)}
+                    </span>
+                    <span className="flex-1 truncate text-slate-600">
+                      {formatNumber(s.vues)} vues · {formatNumber(s.likes)}{" "}
+                      likes
+                      {s.saves != null && ` · ${formatNumber(s.saves)} saves`}
+                      {s.subsGained != null &&
+                        ` · ${formatNumber(s.subsGained)} subs`}
+                      {s.comments != null &&
+                        ` · ${formatNumber(s.comments)} comm.`}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Évolution (mode single_publication) — affichée dès 2 snapshots. */}
+          {snaps && snaps.length >= 2 && (
+            <MetricChart
+              mode="single_publication"
+              publicationId={publication._id}
+              mediaType={mediaType}
+            />
+          )}
 
           {/*
             Batch 2 Modif 4c — Save rate et Verdict masqués en mode short

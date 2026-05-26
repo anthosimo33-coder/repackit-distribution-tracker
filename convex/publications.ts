@@ -1,5 +1,10 @@
 import { internalMutation, mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
+import { coerceSnapshotAge } from "./snapshotMatching";
+import {
+  buildDisplayMetrics,
+  groupSnapshotsByPublication,
+} from "./metricsDisplay";
 
 const mecaniqueValidator = v.union(
   v.literal("Erreur"),
@@ -292,8 +297,14 @@ export const getNextCarouselId = query({
  * passer par imageUrl exposé par cette query.
  */
 export const listPublications = query({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    // Refactor multi-snapshots — période d'âge sélectionnée globalement (UI).
+    // Optional → "latest" (cf coerceSnapshotAge). customDay pour age="custom".
+    snapshotAge: v.optional(v.string()),
+    customDay: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const age = coerceSnapshotAge(args.snapshotAge);
     const rows = await ctx.db
       .query("publications")
       .withIndex("by_datePubli")
@@ -307,6 +318,11 @@ export const listPublications = query({
     const icps = await ctx.db.query("icps").collect();
     const icpMap = new Map(icps.map((i) => [i._id, i]));
 
+    // Tous les snapshots chargés une fois puis groupés en mémoire (évite un
+    // N+1 par publication). Volume actuel trivial ; TD-009 si > 2000 snapshots.
+    const allSnaps = await ctx.db.query("metricSnapshots").collect();
+    const snapsByPub = groupSnapshotsByPublication(allSnaps);
+
     return await Promise.all(
       rows.map(async (p) => {
         const imageUrl =
@@ -317,7 +333,12 @@ export const listPublications = query({
         const icp = icpDoc
           ? { nom: icpDoc.nom, color: icpDoc.color ?? null }
           : null;
-        return { ...p, imageUrl, icp };
+        const displayMetrics = buildDisplayMetrics(
+          snapsByPub.get(p._id) ?? [],
+          age,
+          args.customDay,
+        );
+        return { ...p, imageUrl, icp, displayMetrics };
       }),
     );
   },
@@ -335,17 +356,30 @@ export const listPublications = query({
  * (rows pré-Batch-1-Shorts → "carousel"). Dupliquée car cross-tsconfig.
  */
 export const getByCarouselId = query({
-  args: { carouselId: v.string() },
+  args: {
+    carouselId: v.string(),
+    snapshotAge: v.optional(v.string()),
+    customDay: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
     const row = await ctx.db
       .query("publications")
       .withIndex("by_carouselId", (q) => q.eq("carouselId", args.carouselId))
       .first();
     if (!row) return null;
+    const age = coerceSnapshotAge(args.snapshotAge);
+    const snaps = await ctx.db
+      .query("metricSnapshots")
+      .withIndex("by_publication_and_capturedAt", (q) =>
+        q.eq("publicationId", row._id),
+      )
+      .order("desc")
+      .collect();
     return {
       _id: row._id,
       carouselId: row.carouselId,
       mediaType: (row.mediaType ?? "carousel") as MediaTypeServer,
+      displayMetrics: buildDisplayMetrics(snaps, age, args.customDay),
     };
   },
 });

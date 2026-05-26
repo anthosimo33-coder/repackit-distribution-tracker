@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import {
   CartesianGrid,
-  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -11,7 +10,9 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { Doc } from "@/convex/_generated/dataModel";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import {
   Select,
   SelectContent,
@@ -20,8 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
-import { MetricChipSelector } from "./MetricChipSelector";
-import { PeriodToggle } from "./PeriodToggle";
+import { ChartPeriodToggle } from "./ChartPeriodToggle";
 import {
   FORMAT_CONFIGS,
   METRIC_COLORS,
@@ -30,92 +30,156 @@ import {
   type FormatKey,
 } from "@/lib/format-config";
 import {
-  getTimeseries,
+  getPeriodStart,
+  getSinglePublicationTimeseries,
+  type ChartMetricKey,
   type Granularity,
   type Period,
 } from "@/lib/analytics-stats";
+import { cn } from "@/lib/utils";
 
-type Publication = Doc<"publications">;
+const ALL_METRICS: readonly ChartMetric[] = [
+  "views",
+  "likes",
+  "saves",
+  "subsGained",
+  "comments",
+];
+
+/** ChartMetric ("views") → clé snapshot ("vues"). Les autres sont identiques. */
+function toMetricKey(m: ChartMetric): ChartMetricKey {
+  return m === "views" ? "vues" : m;
+}
 
 /**
- * MetricChart — séries temporelles configurables.
+ * Graphe "Évolution" — 2 modes :
+ *  - "aggregate" : axe X = date calendaire (capturedAt bucketé), somme de la
+ *    métrique cross-publication. Pilote : ChartPeriodToggle (fenêtre) +
+ *    granularité. Source : query aggregateTimeseries.
+ *  - "single_publication" : axe X = âge (J+X), valeur du snapshot d'UNE
+ *    publication. Source : listSnapshotsByPublication.
  *
- * State local (pas d'URL params dans ce batch — TD-010 séparé) :
- *  - metrics : Set<ChartMetric>, default = première métrique du
- *    availableMetrics du format.
- *  - period : "J30" par défaut (compromis entre signal et bruit).
- *  - granularity : "day" par défaut.
- *
- * <LineChart> Recharts (vs <BarChart> du dashboard pré-Batch B qui était un
- * bucket-by-dimension). Une <Line> par métrique sélectionnée, couleur tirée
- * de METRIC_COLORS pour cohérence avec MetricChipSelector.
+ * Une seule métrique à la fois (sélecteur), couleur METRIC_COLORS.
  */
 export function MetricChart({
-  publications,
+  mode,
+  publicationId,
   mediaType,
 }: {
-  publications: Publication[];
-  mediaType: FormatKey;
+  mode: "aggregate" | "single_publication";
+  publicationId?: Id<"publications">;
+  mediaType?: FormatKey;
 }) {
-  const config = FORMAT_CONFIGS[mediaType];
+  const available = mediaType
+    ? FORMAT_CONFIGS[mediaType].availableMetrics
+    : ALL_METRICS;
+  const [metric, setMetric] = useState<ChartMetric>(available[0]);
   const [period, setPeriod] = useState<Period>("J30");
   const [granularity, setGranularity] = useState<Granularity>("day");
-  const [selected, setSelected] = useState<Set<ChartMetric>>(
-    () => new Set(config.availableMetrics.slice(0, 1)),
+  // `now` figé au mount → args de query stables (sinon refetch en boucle).
+  const [now] = useState(() => Date.now());
+
+  const metricKey = toMetricKey(metric);
+
+  const aggregateData = useQuery(
+    api.metricSnapshots.aggregateTimeseries,
+    mode === "aggregate"
+      ? {
+          metric: metricKey,
+          dateFrom: getPeriodStart(period, now),
+          dateTo: now,
+          granularity,
+          mediaType,
+        }
+      : "skip",
   );
 
-  const data = useMemo(
-    () =>
-      getTimeseries(publications, {
-        period,
-        granularity,
-        metrics: selected,
-      }),
-    [publications, period, granularity, selected],
+  const singleSnaps = useQuery(
+    api.metricSnapshots.listSnapshotsByPublication,
+    mode === "single_publication" && publicationId
+      ? { publicationId }
+      : "skip",
   );
 
-  const orderedMetrics = useMemo(
-    () => config.availableMetrics.filter((m) => selected.has(m)),
-    [config.availableMetrics, selected],
-  );
+  const data = useMemo(() => {
+    if (mode === "single_publication") {
+      if (!singleSnaps) return [];
+      return getSinglePublicationTimeseries(singleSnaps, metricKey).map((p) => ({
+        x: p.label,
+        value: p.value,
+      }));
+    }
+    return (aggregateData ?? []).map((p) => ({ x: p.date, value: p.value }));
+  }, [mode, singleSnaps, aggregateData, metricKey]);
+
+  const loading =
+    mode === "aggregate"
+      ? aggregateData === undefined
+      : singleSnaps === undefined;
 
   return (
     <Card>
       <CardContent className="space-y-4 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-base font-semibold text-slate-900">
-            Évolution
-          </h3>
-          <div className="flex flex-wrap items-center gap-2">
-            <PeriodToggle value={period} onChange={setPeriod} />
-            <Select
-              value={granularity}
-              onValueChange={(v) =>
-                v !== null && setGranularity(v as Granularity)
-              }
-            >
-              <SelectTrigger className="h-8 w-[110px] text-xs">
-                <SelectValue>
-                  {granularity === "day" ? "Jour" : "Semaine"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="day">Jour</SelectItem>
-                <SelectItem value="week">Semaine</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          <h3 className="text-base font-semibold text-slate-900">Évolution</h3>
+          {mode === "aggregate" && (
+            <div className="flex flex-wrap items-center gap-2">
+              <ChartPeriodToggle value={period} onChange={setPeriod} />
+              <Select
+                value={granularity}
+                onValueChange={(v) =>
+                  v !== null && setGranularity(v as Granularity)
+                }
+              >
+                <SelectTrigger className="h-8 w-[110px] text-xs">
+                  <SelectValue>
+                    {granularity === "day" ? "Jour" : "Semaine"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="day">Jour</SelectItem>
+                  <SelectItem value="week">Semaine</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </div>
-        <MetricChipSelector
-          available={config.availableMetrics}
-          selected={selected}
-          onChange={setSelected}
-        />
-        {data.length === 0 || selected.size === 0 ? (
+
+        <div className="flex flex-wrap gap-1.5">
+          {available.map((m) => {
+            const isOn = m === metric;
+            return (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMetric(m)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                  isOn
+                    ? "border-slate-900 bg-slate-900 text-white"
+                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+                )}
+                aria-pressed={isOn}
+              >
+                <span
+                  className="size-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: METRIC_COLORS[m] }}
+                />
+                {METRIC_LABELS[m]}
+              </button>
+            );
+          })}
+        </div>
+
+        {loading ? (
           <div className="flex h-[300px] items-center justify-center rounded-md border border-dashed border-slate-200 text-sm text-slate-400">
-            {selected.size === 0
-              ? "Sélectionne au moins une métrique."
-              : "Aucune publication dans cette période."}
+            Chargement…
+          </div>
+        ) : data.length === 0 ? (
+          <div className="flex h-[300px] items-center justify-center rounded-md border border-dashed border-slate-200 text-sm text-slate-400">
+            {mode === "single_publication"
+              ? "Pas assez de données pour afficher l'évolution."
+              : "Aucune donnée sur cette période."}
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={300}>
@@ -129,7 +193,7 @@ export function MetricChart({
                 vertical={false}
               />
               <XAxis
-                dataKey="date"
+                dataKey="x"
                 tick={{ fontSize: 11, fill: "#475569" }}
                 axisLine={{ stroke: "#cbd5e1" }}
                 tickLine={false}
@@ -147,23 +211,15 @@ export function MetricChart({
                   fontSize: 12,
                 }}
               />
-              <Legend
-                wrapperStyle={{ fontSize: 12 }}
-                formatter={(value) =>
-                  METRIC_LABELS[value as ChartMetric] ?? value
-                }
+              <Line
+                type="monotone"
+                dataKey="value"
+                name={METRIC_LABELS[metric]}
+                stroke={METRIC_COLORS[metric]}
+                strokeWidth={2}
+                dot={{ r: 3 }}
+                connectNulls
               />
-              {orderedMetrics.map((metric) => (
-                <Line
-                  key={metric}
-                  type="monotone"
-                  dataKey={metric}
-                  stroke={METRIC_COLORS[metric]}
-                  strokeWidth={2}
-                  dot={{ r: 3 }}
-                  connectNulls
-                />
-              ))}
             </LineChart>
           </ResponsiveContainer>
         )}

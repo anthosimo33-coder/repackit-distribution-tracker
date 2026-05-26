@@ -7,7 +7,7 @@ config({ path: ".env.local" });
 const client = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
 async function main() {
-  const all = await client.query(api.publications.listPublications);
+  const all = await client.query(api.publications.listPublications, {});
   console.log(`Wiping ${all.length} publications...`);
   for (const p of all) {
     await client.mutation(api.publications.deletePublication, { id: p._id });

@@ -11,12 +11,13 @@ const OPTIONS: ReadonlyArray<{ value: Period; label: string }> = [
 ];
 
 /**
- * Toggle button group pour choisir la période d'agrégation du chart.
- * Bouton simple stylé : pas de shadcn ToggleGroup (non installé), pas
- * besoin de la complexité d'un base-ui Tabs pour ce contrôle de 4
- * options exclusives.
+ * Fenêtre temporelle de l'axe X du graphe d'évolution (7 derniers jours,
+ * 30 jours, …). ⚠️ DIFFÉRENT du SnapshotAgeSelector : ici on borne la plage
+ * de dates (capturedAt) affichée ; là-bas on choisit l'âge du snapshot
+ * (J+1, J+7…) pour les métriques/verdict. Renommé depuis PeriodToggle pour
+ * lever l'ambiguïté.
  */
-export function PeriodToggle({
+export function ChartPeriodToggle({
   value,
   onChange,
 }: {
@@ -27,7 +28,7 @@ export function PeriodToggle({
     <div
       className="inline-flex rounded-md border border-slate-200 bg-white p-0.5"
       role="radiogroup"
-      aria-label="Période"
+      aria-label="Fenêtre du graphe"
     >
       {OPTIONS.map((opt) => (
         <button

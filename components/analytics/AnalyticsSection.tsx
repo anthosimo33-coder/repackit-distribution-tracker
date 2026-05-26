@@ -68,7 +68,7 @@ export function AnalyticsSection({
     <section className="space-y-6">
       <h2 className="text-lg font-semibold text-slate-900">Analytics</h2>
       <KpiGrid publications={publications} mediaType={mediaType} />
-      <MetricChart publications={publications} mediaType={mediaType} />
+      <MetricChart mode="aggregate" mediaType={mediaType} />
       {isSR ? (
         <ScreenRecorderAnalytics publications={publications} />
       ) : isShort ? (

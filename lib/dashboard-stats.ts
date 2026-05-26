@@ -1,18 +1,27 @@
 import type { Doc } from "@/convex/_generated/dataModel";
+import type { DisplayMetrics } from "@/convex/metricsDisplay";
 import { calculateSaveRate, calculateVerdict, type Verdict } from "./verdict";
 
-type Publication = Doc<"publications">;
-
 /**
- * CONTRAT — toutes les fonctions de ce module attendent en entrée une liste
- * de publications DÉJÀ filtrée sur isPublished(). Le filtrage se fait en
- * amont au callsite (cf. app/page.tsx, app/tracker/page.tsx). Les fonctions
- * elles-mêmes ne re-filtrent pas — c'est la responsabilité de l'appelant
- * pour éviter la double-filtration et garder ces fonctions pures.
+ * Refactor multi-snapshots — toutes les agrégations lisent désormais
+ * `publication.displayMetrics` (résolu serveur pour la période sélectionnée),
+ * et NON plus les anciens champs scalaires vuesJ7/saves/likes/subsGained.
  *
- * Justification : un draft (= postUrl vide) n'a sémantiquement pas de
- * verdict ni de save rate à agréger. Inclure ces rows fausserait les KPIs.
+ * CONTRAT inchangé : l'entrée est une liste DÉJÀ filtrée sur isPublished()
+ * (cf. callsites). Les fonctions restent pures.
  */
+
+type Publication = Doc<"publications"> & { displayMetrics?: DisplayMetrics };
+
+const NO_METRICS: Pick<
+  DisplayMetrics,
+  "vues" | "likes" | "saves" | "subsGained" | "comments"
+> = { vues: null, likes: null, saves: null, subsGained: null, comments: null };
+
+/** Métriques affichables d'une publication (snapshot résolu) ou tout-null. */
+function m(p: Publication) {
+  return p.displayMetrics ?? NO_METRICS;
+}
 
 export type AggregateRow = {
   key: string;
@@ -38,10 +47,10 @@ function aggregateBy(
 
   const result: AggregateRow[] = [];
   for (const [key, pubs] of groups.entries()) {
-    const totalVues = pubs.reduce((sum, p) => sum + (p.vuesJ7 ?? 0), 0);
+    const totalVues = pubs.reduce((sum, p) => sum + (m(p).vues ?? 0), 0);
 
     const saveRates = pubs
-      .map((p) => calculateSaveRate(p.saves, p.vuesJ7))
+      .map((p) => calculateSaveRate(m(p).saves, m(p).vues))
       .filter((sr): sr is number => sr !== null);
     const avgSaveRate =
       saveRates.length > 0
@@ -53,7 +62,7 @@ function aggregateBy(
       folds = 0,
       pending = 0;
     for (const pub of pubs) {
-      const sr = calculateSaveRate(pub.saves, pub.vuesJ7);
+      const sr = calculateSaveRate(m(pub).saves, m(pub).vues);
       const v = calculateVerdict(sr);
       if (v === "WINNER") winners++;
       else if (v === "MOYEN") moyens++;
@@ -73,18 +82,13 @@ function aggregateBy(
     });
   }
 
-  return result.sort(
-    (a, b) => (b.avgSaveRate ?? -1) - (a.avgSaveRate ?? -1),
-  );
+  return result.sort((a, b) => (b.avgSaveRate ?? -1) - (a.avgSaveRate ?? -1));
 }
 
 export const aggregateByMecanique = (pubs: Publication[]) =>
   aggregateBy(pubs, (p) => p.mecanique);
 export const aggregateByNiveau = (pubs: Publication[]) =>
   aggregateBy(pubs, (p) => p.niveau);
-// p.format peut être undefined (Shorts). Coerce en "—" pour distinguer
-// visuellement les rows sans format ; ces buckets seront filtrés en amont
-// quand le dashboard splittera par mediaType (Batch 3).
 export const aggregateByFormat = (pubs: Publication[]) =>
   aggregateBy(pubs, (p) => p.format ?? "—");
 export const aggregateByAngle = (pubs: Publication[]) =>
@@ -98,7 +102,7 @@ export type TopHook = {
   hookText: string;
   carouselId: string;
   plateforme: string;
-  vuesJ7: number;
+  vues: number;
   saveRate: number;
   verdict: NonNullable<Verdict>;
 };
@@ -109,7 +113,7 @@ export function getTopHooks(
 ): TopHook[] {
   return publications
     .flatMap<TopHook>((p) => {
-      const saveRate = calculateSaveRate(p.saves, p.vuesJ7);
+      const saveRate = calculateSaveRate(m(p).saves, m(p).vues);
       const verdict = calculateVerdict(saveRate);
       if (saveRate === null || verdict === null || saveRate <= 0) return [];
       return [
@@ -117,7 +121,7 @@ export function getTopHooks(
           hookText: p.hookText,
           carouselId: p.carouselId,
           plateforme: p.plateforme,
-          vuesJ7: p.vuesJ7 ?? 0,
+          vues: m(p).vues ?? 0,
           saveRate,
           verdict,
         },
@@ -139,8 +143,9 @@ export function getGlobalStats(publications: Publication[]): GlobalStats {
   const rates: number[] = [];
   let winners = 0;
   for (const p of publications) {
-    if (p.vuesJ7 !== null) totalVues += p.vuesJ7;
-    const r = calculateSaveRate(p.saves, p.vuesJ7);
+    const vues = m(p).vues;
+    if (vues !== null) totalVues += vues;
+    const r = calculateSaveRate(m(p).saves, vues);
     if (r !== null) rates.push(r);
     if (calculateVerdict(r) === "WINNER") winners++;
   }
@@ -153,22 +158,13 @@ export function getGlobalStats(publications: Publication[]): GlobalStats {
   };
 }
 
-// ─── Batch 3 Modif 5 — Shorts analytics (ajouts purs) ─────────────────────
-//
-// Les fonctions ci-dessus restent inchangées et opèrent en pratique
-// uniquement sur des Carrousels (le callsite DashboardContent filtre upstream
-// via getMediaType). Les fonctions *Shorts ci-dessous opèrent uniquement sur
-// des Shorts. Sémantique distincte : pas de verdict, métrique principale =
-// ratio subsGained/vuesJ7 (équivalent du saveRate côté carrousel).
+// ─── Shorts / ScreenRecorder — ratio subsGained/vues ───────────────────────
 
 export type GlobalStatsShorts = {
   total: number;
   totalVuesJ7: number;
   avgLikes: number | null;
   totalSubsGained: number;
-  // sum(subsGained) / sum(vuesJ7), null si totalVues = 0 ou aucun
-  // subsGained renseigné. Cohérence d'unité avec saveRate (ratio entre
-  // 0 et 1, formaté en % à l'affichage).
   ratioSubsViews: number | null;
 };
 
@@ -179,11 +175,10 @@ export function getGlobalStatsShorts(
   let totalSubsGained = 0;
   const likesValues: number[] = [];
   for (const p of publications) {
-    if (p.vuesJ7 !== null) totalVuesJ7 += p.vuesJ7;
-    if (p.subsGained !== null && p.subsGained !== undefined) {
-      totalSubsGained += p.subsGained;
-    }
-    if (p.likes !== null && p.likes !== undefined) likesValues.push(p.likes);
+    const dm = m(p);
+    if (dm.vues !== null) totalVuesJ7 += dm.vues;
+    if (dm.subsGained !== null) totalSubsGained += dm.subsGained;
+    if (dm.likes !== null) likesValues.push(dm.likes);
   }
   return {
     total: publications.length,
@@ -201,7 +196,7 @@ export type TopHookShort = {
   hookText: string;
   carouselId: string;
   plateforme: string;
-  vuesJ7: number;
+  vues: number;
   likes: number | null;
   subsGained: number;
 };
@@ -212,25 +207,22 @@ export function getTopHooksShorts(
 ): TopHookShort[] {
   return publications
     .flatMap<TopHookShort>((p) => {
-      // Exclure les Shorts sans subsGained renseigné — pas de tri sur null,
-      // cohérent avec getTopHooks carrousel qui exclut saveRate null.
-      if (p.subsGained === null || p.subsGained === undefined) return [];
+      const dm = m(p);
+      if (dm.subsGained === null) return [];
       return [
         {
           hookText: p.hookText,
           carouselId: p.carouselId,
           plateforme: p.plateforme,
-          vuesJ7: p.vuesJ7 ?? 0,
-          likes: p.likes ?? null,
-          subsGained: p.subsGained,
+          vues: dm.vues ?? 0,
+          likes: dm.likes,
+          subsGained: dm.subsGained,
         },
       ];
     })
     .sort((a, b) => {
-      // Tri principal : subsGained desc. Tie-break : vuesJ7 desc (cohérent
-      // avec convention "le plus récent en haut" sur égalité).
       if (b.subsGained !== a.subsGained) return b.subsGained - a.subsGained;
-      return b.vuesJ7 - a.vuesJ7;
+      return b.vues - a.vues;
     })
     .slice(0, n);
 }
@@ -241,9 +233,6 @@ export type AggregateRowShort = {
   totalVues: number;
   totalLikes: number;
   totalSubsGained: number;
-  // Ratio bucket-level : sum(subsGained_bucket) / sum(vuesJ7_bucket).
-  // Pas une moyenne d'individus — évite les biais de petits échantillons
-  // (1 viral à 10k vues + 1 flop à 100 vues n'est pas dilué).
   avgRatioSubsViews: number | null;
 };
 
@@ -264,11 +253,10 @@ function aggregateByShorts(
     let totalLikes = 0;
     let totalSubsGained = 0;
     for (const p of pubs) {
-      if (p.vuesJ7 !== null) totalVues += p.vuesJ7;
-      if (p.likes !== null && p.likes !== undefined) totalLikes += p.likes;
-      if (p.subsGained !== null && p.subsGained !== undefined) {
-        totalSubsGained += p.subsGained;
-      }
+      const dm = m(p);
+      if (dm.vues !== null) totalVues += dm.vues;
+      if (dm.likes !== null) totalLikes += dm.likes;
+      if (dm.subsGained !== null) totalSubsGained += dm.subsGained;
     }
     result.push({
       key,
@@ -293,17 +281,8 @@ export const aggregateByAngleShorts = (pubs: Publication[]) =>
   aggregateByShorts(pubs, (p) => p.angleTonal);
 export const aggregateByPlateformeShorts = (pubs: Publication[]) =>
   aggregateByShorts(pubs, (p) => p.plateforme);
-// Pas de aggregateByFormatShorts (format A-H carousel-only).
-// Pas de aggregateByCompteShorts pour ce batch — non demandé par le scope
-// dashboard Shorts (4 charts : Mécanique / Niveau / Angle / Plateforme).
 
-// ─── Batch D — ScreenRecorder (alias des fonctions Shorts) ─────────────────
-//
-// Le shape stats ScreenRecorder est strictement identique à celui des Shorts
-// (likes / subsGained / comments / vues, pas de saveRate ni verdict). Plutôt
-// que de dupliquer les fonctions, on expose des aliases nommés screenrecorder
-// pour la lisibilité du callsite. Si un jour les SR divergent (ex: ajout
-// d'une métrique watch_time), il sera temps de splitter.
+// ─── ScreenRecorder — aliases (shape stats identique aux Shorts) ───────────
 export const getGlobalStatsScreenRecorder = getGlobalStatsShorts;
 export const getTopHooksScreenRecorder = getTopHooksShorts;
 export const aggregateByMecaniqueScreenRecorder = aggregateByMecaniqueShorts;
@@ -311,17 +290,7 @@ export const aggregateByNiveauScreenRecorder = aggregateByNiveauShorts;
 export const aggregateByAngleScreenRecorder = aggregateByAngleShorts;
 export const aggregateByPlateformeScreenRecorder = aggregateByPlateformeShorts;
 
-// ─── Refinement SR — aggregations spécifiques ScreenRecorder ───────────────
-//
-// 2 nouvelles dimensions agrégeables pour AnalyticsSection /screenrecorder :
-//   - Appareil d'enregistrement (Phone vs Desktop)
-//   - Type de capture (Repackaging RepackIt vs Autre)
-//
-// Les rows sans recordingDevice/isRepackaging défini (SR pré-Refinement)
-// sont ignorées pour ne pas créer de bucket "Non renseigné" dans les
-// charts. La matrice 2x2 combinatoire (Phone+Repack / Phone+Autre /
-// Desktop+Repack / Desktop+Autre) est différée à un TD séparé.
-
+// ─── Dimensions SR + ICP (filtre sur champ publication, métriques via dm) ──
 export const aggregateByRecordingDevice = (pubs: Publication[]) =>
   aggregateByShorts(
     pubs.filter((p) => p.recordingDevice !== undefined),
@@ -334,12 +303,6 @@ export const aggregateByRepackaging = (pubs: Publication[]) =>
     (p) => (p.isRepackaging ? "Repackaging" : "Autre capture"),
   );
 
-// ─── Refinement Shorts — agrégation par ICP ────────────────────────────────
-//
-// Performance par audience cible pour AnalyticsSection /shorts. La clé est
-// l'icpId (résolu en nom + couleur côté composant via listIcps). Les Shorts
-// sans icpId (pré-existants) sont ignorés — pas de bucket "Sans ICP" dans
-// la table. Calque aggregateByRecordingDevice (filtre + key inline).
 export const aggregateByIcp = (pubs: Publication[]) =>
   aggregateByShorts(
     pubs.filter((p) => p.icpId !== undefined),

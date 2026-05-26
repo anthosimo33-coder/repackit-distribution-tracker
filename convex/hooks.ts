@@ -1,5 +1,10 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { coerceSnapshotAge } from "./snapshotMatching";
+import {
+  buildDisplayMetrics,
+  groupSnapshotsByPublication,
+} from "./metricsDisplay";
 
 export const countHooks = query({
   args: {},
@@ -314,8 +319,14 @@ export const getHookVariants = query({
         v.literal("screenrecorder"),
       ),
     ),
+    // Refactor multi-snapshots — saveRate/verdict des variantes calculés sur
+    // le snapshot correspondant à la période globale (cohérence biblio-hooks
+    // ↔ tracker). Optional → "latest".
+    snapshotAge: v.optional(v.string()),
+    customDay: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const age = coerceSnapshotAge(args.snapshotAge);
     const allPubs = await ctx.db
       .query("publications")
       .withIndex("by_hookId", (q) => q.eq("hookId", args.hookId))
@@ -328,6 +339,11 @@ export const getHookVariants = query({
         : allPubs.filter(
             (p) => (p.mediaType ?? "carousel") === args.mediaType,
           );
+
+    // Snapshots des pubs du hook, groupés par publication (pour le matching
+    // par période ci-dessous).
+    const allSnaps = await ctx.db.query("metricSnapshots").collect();
+    const snapsByPub = groupSnapshotsByPublication(allSnaps);
 
     // 1. Identifie les "groupes variantes" : parent ancré → Set des carouselIds
     //    distincts. Garde uniquement les groupes de taille >= 2.
@@ -355,10 +371,15 @@ export const getHookVariants = query({
       .map((p) => {
         const isPublished =
           typeof p.postUrl === "string" && p.postUrl.length > 0;
+        const dm = buildDisplayMetrics(
+          snapsByPub.get(p._id) ?? [],
+          age,
+          args.customDay,
+        );
         const saveRate =
-          p.saves === null || p.vuesJ7 === null || p.vuesJ7 === 0
+          dm.saves === null || dm.vues === null || dm.vues === 0
             ? null
-            : p.saves / p.vuesJ7;
+            : dm.saves / dm.vues;
         let verdict: "WINNER" | "MOYEN" | "FOLD" | null = null;
         if (isPublished && saveRate !== null) {
           if (saveRate >= 0.03) verdict = "WINNER";

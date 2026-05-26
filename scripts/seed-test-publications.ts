@@ -86,7 +86,7 @@ const SPECS: SeedSpec[] = [
 
 async function main() {
   // Make sure DB is empty (or known-empty after wipe)
-  const existing = await client.query(api.publications.listPublications);
+  const existing = await client.query(api.publications.listPublications, {});
   if (existing.length > 0) {
     console.error(
       `❌ Found ${existing.length} existing publications. Run wipe-publications.ts first.`,
@@ -126,7 +126,7 @@ async function main() {
     );
 
     // Now update metrics on each row
-    const allPubs = await client.query(api.publications.listPublications);
+    const allPubs = await client.query(api.publications.listPublications, {});
     const newPubs = allPubs.filter((p) => p.carouselId === carouselId);
 
     for (const pub of newPubs) {

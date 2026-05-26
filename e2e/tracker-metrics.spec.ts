@@ -73,22 +73,32 @@ test.describe("Tracker édition métriques", () => {
     // Wait for the draft dialog to close before re-opening the dropdown.
     await expect(page.getByRole("dialog")).toBeHidden();
 
-    // Désormais "Mettre à jour stats" est activé.
+    // Désormais "Mettre à jour stats" est activé → gestionnaire de snapshots.
     await row.getByRole("button").last().click();
     await page.getByRole("menuitem", { name: /mettre à jour stats/i }).click();
 
-    // Saisir vues=1500, saves=60 → save rate 4% → WINNER
-    await page.getByLabel(/vues j\+7/i).fill("1500");
-    await page.getByLabel(/^saves$/i).fill("60");
+    // Ajoute un snapshot J+7 : vues=1500, saves=60 → save rate 4% → WINNER.
+    await page.getByRole("button", { name: /ajouter un snapshot/i }).click();
+    const snapDialog = page
+      .getByRole("dialog")
+      .filter({ hasText: "Nouveau snapshot" });
+    await snapDialog.getByRole("button", { name: "J+7", exact: true }).click();
+    await snapDialog.getByLabel(/^vues$/i).fill("1500");
+    await snapDialog.getByLabel(/^saves$/i).fill("60");
+    await snapDialog.getByRole("button", { name: /^enregistrer$/i }).click();
 
-    // Vérifier preview live "WINNER" — exact pour ne pas matcher "Winners" (KPI label)
-    const dialog = page.getByRole("dialog");
-    await expect(dialog.getByText("WINNER", { exact: true })).toBeVisible();
+    // Le snapshot apparaît dans la liste du dialog principal (badge J+7).
+    const editDialog = page
+      .getByRole("dialog")
+      .filter({ hasText: "Mettre à jour" });
+    await expect(editDialog.getByText("J+7").first()).toBeVisible();
 
-    // Save
-    await page.getByRole("button", { name: /^enregistrer$/i }).click();
+    // Ferme le dialog.
+    await page.getByRole("button", { name: /^fermer$/i }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
 
-    // Dialog se ferme — vérifier la row (qui est maintenant dans la section Publié)
+    // Période par défaut = Latest → la row affiche le snapshot J+7 :
+    // WINNER + 4,00 %.
     await expect(row.getByText("WINNER", { exact: true })).toBeVisible();
     await expect(row.getByText("4,00 %")).toBeVisible();
   });

@@ -15,6 +15,22 @@ export function calculateVerdict(saveRate: number | null): Verdict {
   return "FOLD";
 }
 
+/**
+ * Verdict à partir d'un jeu de métriques (typiquement les `displayMetrics`
+ * résolus pour la période sélectionnée). Pivot du refactor multi-snapshots :
+ * le verdict suit le snapshot affiché (décision C1 — cohérence KPI + verdict).
+ *
+ * Retourne `null` ("En attente") si aucune métrique ou saves/vues manquants —
+ * équivalent du "PENDING" de la spec, conservé en `null` pour que VerdictBadge
+ * et tous ses callers restent inchangés.
+ */
+export function computeVerdict(
+  metrics: { saves: number | null; vues: number | null } | null | undefined,
+): Verdict {
+  if (!metrics) return null;
+  return calculateVerdict(calculateSaveRate(metrics.saves, metrics.vues));
+}
+
 export function calculateAuditConversion(
   commentsAudit: number | null,
   vues: number | null,

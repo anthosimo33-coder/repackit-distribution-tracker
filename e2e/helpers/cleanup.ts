@@ -12,6 +12,14 @@ const client = new ConvexHttpClient(url);
 const E2E_MARKER = "[E2E_TEST]";
 
 export async function cleanupTestData() {
+  // Snapshots first — supprime ceux des publications de test (et orphelins)
+  // avant de supprimer les publications elles-mêmes.
+  try {
+    await client.mutation(api.metricSnapshots.cleanupTestSnapshots, {});
+  } catch (e) {
+    console.warn("Cleanup metricSnapshots failed:", (e as Error).message);
+  }
+
   // Publications first — comptes can be deleted only when no publications reference them.
   try {
     const pubs = await client.query(api.publications.listPublications, {});

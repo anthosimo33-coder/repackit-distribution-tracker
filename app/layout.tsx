@@ -3,6 +3,7 @@ import { Inter, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ConvexClientProvider } from "./ConvexClientProvider";
 import { SidebarLayout } from "@/components/layout/SidebarLayout";
+import { SnapshotAgeProvider } from "@/components/snapshot-age-selector/SnapshotAgeContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -36,12 +37,14 @@ export default function RootLayout({
     >
       <body className="min-h-full bg-slate-50 font-sans text-slate-900">
         <ConvexClientProvider>
-          <TooltipProvider delay={300}>
-            <SidebarLayout>
-              <div className="container mx-auto px-6 py-8">{children}</div>
-            </SidebarLayout>
-          </TooltipProvider>
-          <Toaster richColors position="top-right" />
+          <SnapshotAgeProvider>
+            <TooltipProvider delay={300}>
+              <SidebarLayout>
+                <div className="container mx-auto px-6 py-8">{children}</div>
+              </SidebarLayout>
+            </TooltipProvider>
+            <Toaster richColors position="top-right" />
+          </SnapshotAgeProvider>
         </ConvexClientProvider>
       </body>
     </html>

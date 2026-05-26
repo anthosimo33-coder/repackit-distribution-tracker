@@ -18,8 +18,9 @@ import {
 import { formatNumber, formatPercent } from "@/lib/format";
 import { isPublished } from "@/lib/publication-status";
 import { calculateSaveRate, calculateVerdict } from "@/lib/verdict";
+import type { DisplayMetrics } from "@/convex/metricsDisplay";
 
-type Publication = Doc<"publications">;
+type Publication = Doc<"publications"> & { displayMetrics?: DisplayMetrics };
 
 /**
  * KpiGrid — 6 KPI cards configurées par format via FORMAT_CONFIGS.kpiKeys.
@@ -112,9 +113,10 @@ function computeKpis(
     let likesSum = 0;
     let commentsSum = 0;
     for (const p of published) {
-      if (p.saves !== null) savesTotal += p.saves;
-      if (p.likes !== null && p.likes !== undefined) likesSum += p.likes;
-      if (p.commentsTotal !== null) commentsSum += p.commentsTotal;
+      const dmp = p.displayMetrics;
+      if (dmp?.saves != null) savesTotal += dmp.saves;
+      if (dmp?.likes != null) likesSum += dmp.likes;
+      if (dmp?.comments != null) commentsSum += dmp.comments;
     }
     result.savesTotal = savesTotal;
     result.comments = commentsSum;
@@ -136,7 +138,9 @@ function computeKpis(
     result.ratioSubsViews = stats.ratioSubsViews;
     let commentsSum = 0;
     for (const p of published) {
-      if (p.commentsTotal !== null) commentsSum += p.commentsTotal;
+      if (p.displayMetrics?.comments != null) {
+        commentsSum += p.displayMetrics.comments;
+      }
     }
     result.comments = commentsSum;
   }
@@ -146,7 +150,10 @@ function computeKpis(
   if (mediaType === "carousel" && result.winners === null) {
     let winners = 0;
     for (const p of published) {
-      const sr = calculateSaveRate(p.saves, p.vuesJ7);
+      const sr = calculateSaveRate(
+        p.displayMetrics?.saves ?? null,
+        p.displayMetrics?.vues ?? null,
+      );
       if (calculateVerdict(sr) === "WINNER") winners++;
     }
     result.winners = winners;

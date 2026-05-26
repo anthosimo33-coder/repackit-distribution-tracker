@@ -134,6 +134,24 @@ export default defineSchema({
     // (modification possible 1 fois), true = déjà modifié une fois (lecture
     // seule désormais). Cf updatePublishedAccount.
     accountModified: v.optional(v.boolean()),
+    // ─── Refactor multi-snapshots — valeurs dénormalisées "latest known" ───
+    // Copie du snapshot le plus récent (capturedAt max) maintenue par
+    // recomputeLatestMetrics à chaque create/update/delete de metricSnapshot.
+    // Optional : une publication sans aucun snapshot n'a pas de latest.
+    // L'UI affiche `displayMetrics` (résolu par snapshotAge dans les queries) ;
+    // ces champs servent de défaut "Latest" + lecture rapide sans join.
+    vuesLatest: v.optional(v.number()),
+    likesLatest: v.optional(v.number()),
+    savesLatest: v.optional(v.number()),
+    subsGainedLatest: v.optional(v.number()),
+    commentsLatest: v.optional(v.number()),
+    latestSnapshotId: v.optional(v.id("metricSnapshots")),
+    latestSnapshotAt: v.optional(v.number()),
+    // LEGACY (vuesJ1/J3/J7 ci-dessus + saves/likes/subsGained/commentsTotal/
+    // commentsAudit/profileVisits) : conservés temporairement. Les vues J1/J3/J7
+    // sont migrées en metricSnapshots puis supprimées dans un commit séparé
+    // (TD-016) après validation prod. commentsAudit/profileVisits restent
+    // publication-level (hors modèle snapshot).
   })
     .index("by_carouselId", ["carouselId"])
     .index("by_plateforme", ["plateforme"])
@@ -146,6 +164,33 @@ export default defineSchema({
     // Modif 5 (liste des variantes d'un carrousel). Lookup direct des
     // descendants d'un parent ancré.
     .index("by_parentCarouselId", ["parentCarouselId"]),
+
+  // ─── Refactor métriques temporelles — historique de mesures par row ──────
+  // Greenfield. 1 metricSnapshot = une relève de métriques à une date donnée
+  // pour UNE publication (= 1 row = 1 plateforme). `daysSincePublication` est
+  // dénormalisé (floor((capturedAt - datePubli)/jour)) pour le matching par
+  // période côté query/UI. `vues` et `likes` requis ; saves (carousel) /
+  // subsGained (short/SR) / comments optionnels selon le format. `source`
+  // distingue saisie manuelle, import, et migration one-shot (legacy J1/J3/J7).
+  metricSnapshots: defineTable({
+    publicationId: v.id("publications"),
+    capturedAt: v.number(),
+    daysSincePublication: v.number(),
+    vues: v.number(),
+    likes: v.number(),
+    saves: v.optional(v.number()),
+    subsGained: v.optional(v.number()),
+    comments: v.optional(v.number()),
+    createdAt: v.number(),
+    source: v.union(
+      v.literal("manual"),
+      v.literal("import"),
+      v.literal("migration"),
+    ),
+  })
+    .index("by_publication", ["publicationId"])
+    .index("by_publication_and_capturedAt", ["publicationId", "capturedAt"])
+    .index("by_capturedAt", ["capturedAt"]),
 
   comptes: defineTable({
     handle: v.string(),

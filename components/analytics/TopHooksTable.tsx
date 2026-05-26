@@ -125,7 +125,7 @@ function CarouselTable({
               <PlatformBadge plateforme={h.plateforme} />
             </TableCell>
             <TableCell className="text-right tabular-nums text-xs">
-              {formatNumber(h.vuesJ7)}
+              {formatNumber(h.vues)}
             </TableCell>
             <TableCell className="text-right tabular-nums text-sm font-medium">
               {formatPercent(h.saveRate)}
@@ -183,7 +183,7 @@ function ShortTable({
               <PlatformBadge plateforme={h.plateforme} />
             </TableCell>
             <TableCell className="text-right tabular-nums text-xs">
-              {formatNumber(h.vuesJ7)}
+              {formatNumber(h.vues)}
             </TableCell>
             <TableCell className="text-right tabular-nums text-xs">
               {formatNumber(h.likes)}
@@ -259,7 +259,7 @@ function ScreenRecorderTable({
                 <PlatformBadge plateforme={h.plateforme} />
               </TableCell>
               <TableCell className="text-right tabular-nums text-xs">
-                {formatNumber(h.vuesJ7)}
+                {formatNumber(h.vues)}
               </TableCell>
               <TableCell className="text-right tabular-nums text-xs">
                 {formatNumber(h.likes)}

@@ -66,6 +66,12 @@ import {
 import { getFolderColor } from "@/lib/folder-colors";
 import { AnalyticsSection } from "@/components/analytics/AnalyticsSection";
 import {
+  useSnapshotAge,
+  snapshotQueryArgs,
+} from "@/components/snapshot-age-selector/SnapshotAgeContext";
+import { SnapshotAgeSelector } from "@/components/snapshot-age-selector/SnapshotAgeSelector";
+import type { DisplayMetrics } from "@/convex/metricsDisplay";
+import {
   DEFAULT_SORT,
   filtersEqual,
   isDefaultFilters,
@@ -132,23 +138,43 @@ type SortKey =
   | "subsGained";
 type SortDir = "asc" | "desc";
 
+const NO_METRICS: DisplayMetrics = {
+  vues: null,
+  likes: null,
+  saves: null,
+  subsGained: null,
+  comments: null,
+  snapshotUsed: null,
+  matchExact: false,
+};
+
+/** displayMetrics de la row (enrichie par listPublications) ou tout-null.
+ *  Même pattern de cast que icp/imageUrl déjà utilisé dans ce fichier. */
+function metricsOf(p: Doc<"publications">): DisplayMetrics {
+  return (
+    (p as Doc<"publications"> & { displayMetrics?: DisplayMetrics })
+      .displayMetrics ?? NO_METRICS
+  );
+}
+
 function getSortValue(
   p: Doc<"publications">,
   key: SortKey,
 ): number | null {
+  const dm = metricsOf(p);
   switch (key) {
     case "date":
       return p.datePubli;
     case "saveRate":
-      return isPublished(p) ? calculateSaveRate(p.saves, p.vuesJ7) : null;
+      return isPublished(p) ? calculateSaveRate(dm.saves, dm.vues) : null;
     case "vues":
-      return p.vuesJ7;
+      return dm.vues;
     case "likes":
-      return p.likes ?? null;
+      return dm.likes;
     case "comments":
-      return p.commentsTotal;
+      return dm.comments;
     case "subsGained":
-      return p.subsGained ?? null;
+      return dm.subsGained;
   }
 }
 
@@ -309,7 +335,11 @@ export function TrackerListSection({
   const [duplicatingPub, setDuplicatingPub] =
     useState<Doc<"publications"> | null>(null);
 
-  const publications = useQuery(api.publications.listPublications);
+  const { age, customDay } = useSnapshotAge();
+  const publications = useQuery(
+    api.publications.listPublications,
+    snapshotQueryArgs({ age, customDay }),
+  );
   const comptes = useQuery(api.comptes.listComptes, { actifOnly: true });
   // Options du filtre ICP (Short uniquement). Query inconditionnelle (légère).
   const icps = useQuery(api.icps.listIcps, {});
@@ -490,8 +520,9 @@ export function TrackerListSection({
     if (format.size > 0) list = list.filter((p) => format.has(p.format ?? ""));
     if (verdictFilter.size > 0) {
       list = list.filter((p) => {
+        const dm = metricsOf(p);
         const v = isPublished(p)
-          ? calculateVerdict(calculateSaveRate(p.saves, p.vuesJ7))
+          ? calculateVerdict(calculateSaveRate(dm.saves, dm.vues))
           : null;
         if (v === null) return verdictFilter.has(PENDING);
         return verdictFilter.has(v);
@@ -577,8 +608,9 @@ export function TrackerListSection({
     const rates: number[] = [];
     let winners = 0;
     for (const p of publishedPubs) {
-      if (p.vuesJ7 !== null) vuesTotal += p.vuesJ7;
-      const r = calculateSaveRate(p.saves, p.vuesJ7);
+      const dm = metricsOf(p);
+      if (dm.vues !== null) vuesTotal += dm.vues;
+      const r = calculateSaveRate(dm.saves, dm.vues);
       if (r !== null) rates.push(r);
       if (calculateVerdict(r) === "WINNER") winners++;
     }
@@ -645,6 +677,9 @@ export function TrackerListSection({
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-end">
+        <SnapshotAgeSelector />
+      </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard
           label="Publiés"
@@ -653,10 +688,7 @@ export function TrackerListSection({
             stats.draftCount > 0 ? `+${stats.draftCount} à venir` : undefined
           }
         />
-        <StatCard
-          label="Vues totales (J+7)"
-          value={formatNumber(stats.vuesTotal)}
-        />
+        <StatCard label="Vues totales" value={formatNumber(stats.vuesTotal)} />
         {mediaType === "carousel" ? (
           <>
             <StatCard
@@ -1118,7 +1150,7 @@ function PublicationsSection({
                   disabled={disabledSortKeys.has("vues")}
                   className="text-right"
                 >
-                  Vues J7
+                  Vues
                 </SortableHead>
               )}
               {visibleColumns.has("saves") && (
@@ -1165,10 +1197,14 @@ function PublicationsSection({
           </TableHeader>
           <TableBody>
             {rows.map((p) => {
-              const saveRate = calculateSaveRate(p.saves, p.vuesJ7);
+              const dm = metricsOf(p);
+              const saveRate = calculateSaveRate(dm.saves, dm.vues);
               const verdict = isPublished(p)
                 ? calculateVerdict(saveRate)
                 : null;
+              const snapTitle = dm.snapshotUsed
+                ? `Snapshot J+${dm.snapshotUsed.daysSincePublication} capturé le ${formatDate(dm.snapshotUsed.capturedAt)}${dm.matchExact ? "" : " (proche)"}`
+                : "Aucun snapshot pour cette période";
               const mt = getMediaType(p);
               const isShort = mt === "short";
               const isCarousel = mt === "carousel";
@@ -1294,13 +1330,19 @@ function PublicationsSection({
                     <TableCell className="text-xs">{p.angleTonal}</TableCell>
                   )}
                   {visibleColumns.has("vues") && (
-                    <TableCell className="text-right tabular-nums text-xs">
-                      {formatNumber(p.vuesJ7)}
+                    <TableCell
+                      className="text-right tabular-nums text-xs"
+                      title={snapTitle}
+                    >
+                      {formatNumber(dm.vues)}
+                      {dm.snapshotUsed && !dm.matchExact && (
+                        <span className="ml-0.5 text-slate-400">≈</span>
+                      )}
                     </TableCell>
                   )}
                   {visibleColumns.has("saves") && (
                     <TableCell className="text-right tabular-nums text-xs">
-                      {isShort ? NA_CELL : formatNumber(p.saves)}
+                      {isShort ? NA_CELL : formatNumber(dm.saves)}
                     </TableCell>
                   )}
                   {visibleColumns.has("saveRate") && (
@@ -1320,12 +1362,12 @@ function PublicationsSection({
                   )}
                   {visibleColumns.has("likes") && (
                     <TableCell className="text-right tabular-nums text-xs">
-                      {isCarousel ? NA_CELL : formatNumber(p.likes)}
+                      {isCarousel ? NA_CELL : formatNumber(dm.likes)}
                     </TableCell>
                   )}
                   {visibleColumns.has("subsGained") && (
                     <TableCell className="text-right tabular-nums text-xs">
-                      {isCarousel ? NA_CELL : formatNumber(p.subsGained)}
+                      {isCarousel ? NA_CELL : formatNumber(dm.subsGained)}
                     </TableCell>
                   )}
                   {visibleColumns.has("actions") && (
