@@ -1151,3 +1151,79 @@ export const getSourceStatus = query({
     };
   },
 });
+
+/**
+ * Anti-shadowban Shorts — renomme un sourceId EN CASCADE (toutes les Shorts qui
+ * le partagent, depuis /shorts/sources). Différent du create/update : toute
+ * collision plateforme bloque (PAS d'override possible), car un rename qui
+ * fusionnerait deux sources sur une même plateforme produirait un état
+ * incohérent (2 Shorts du même fichier source sur la même plateforme = le
+ * risque shadowban qu'on combat). Shorts uniquement, normalisation systématique.
+ */
+export const renameSourceId = mutation({
+  args: { oldSourceId: v.string(), newSourceId: v.string() },
+  handler: async (ctx, args) => {
+    const normalizedOld = normalizeSourceId(args.oldSourceId);
+    const normalizedNew = normalizeSourceId(args.newSourceId);
+    if (normalizedOld === "") {
+      throw new ConvexError("Ancien sourceId vide ou invalide.");
+    }
+    if (normalizedNew === "") {
+      throw new ConvexError("Nouveau sourceId vide ou invalide.");
+    }
+    if (normalizedOld === normalizedNew) {
+      return {
+        renamed: 0,
+        oldSourceId: normalizedOld,
+        newSourceId: normalizedNew,
+        message: "No-op (même valeur)",
+      };
+    }
+
+    const all = await ctx.db.query("publications").collect();
+    const isShort = (p: Doc<"publications">) =>
+      (p.mediaType ?? "carousel") === "short";
+
+    const publicationsOld = all.filter(
+      (p) => isShort(p) && normalizeSourceId(p.sourceId ?? "") === normalizedOld,
+    );
+    if (publicationsOld.length === 0) {
+      throw new ConvexError("Aucune publication trouvée avec ce sourceId.");
+    }
+
+    // Exclut les rows déjà sur l'ancien sourceId (on ne se compare pas à
+    // soi-même). Reste les rows qui portent DÉJÀ le nouveau sourceId ailleurs.
+    const oldCarouselIds = new Set(publicationsOld.map((p) => p.carouselId));
+    const publicationsNew = all.filter(
+      (p) =>
+        isShort(p) &&
+        normalizeSourceId(p.sourceId ?? "") === normalizedNew &&
+        !oldCarouselIds.has(p.carouselId),
+    );
+
+    // Validation collision : si une row à renommer partage une plateforme avec
+    // une row portant déjà le nouveau sourceId → bloquant (aucun override).
+    for (const pub of publicationsOld) {
+      const onPlatform = publicationsNew.filter(
+        (e) => e.plateforme === pub.plateforme,
+      );
+      if (onPlatform.length > 0) {
+        const collision = onPlatform[0];
+        throw new ConvexError(
+          `Renommage impossible : ${normalizedNew} est déjà utilisé sur ${pub.plateforme} (compte ${collision.compte} le ${formatDateFr(collision.datePubli)}). Risque de conflit.`,
+        );
+      }
+    }
+
+    // Patch en cascade (sourceId stocké normalisé, cohérent avec les écritures).
+    for (const pub of publicationsOld) {
+      await ctx.db.patch(pub._id, { sourceId: normalizedNew });
+    }
+
+    return {
+      renamed: publicationsOld.length,
+      oldSourceId: normalizedOld,
+      newSourceId: normalizedNew,
+    };
+  },
+});

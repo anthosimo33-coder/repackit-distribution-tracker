@@ -20,7 +20,8 @@ import {
   type PublicationWithImage,
 } from "@/components/PublicationDetailDialog";
 import { PublicationEditDialog } from "@/components/PublicationEditDialog";
-import { PlusIcon } from "lucide-react";
+import { RenameSourceDialog } from "@/components/shorts/sources/RenameSourceDialog";
+import { PencilIcon, PlusIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type SourceRow = FunctionReturnType<typeof api.publications.listSources>[number];
@@ -64,6 +65,7 @@ export function ShortSourcesTable({ sources }: { sources: SourceRow[] }) {
   const [editingPub, setEditingPub] = useState<PublicationWithImage | null>(
     null,
   );
+  const [renameTarget, setRenameTarget] = useState<SourceRow | null>(null);
 
   function openDetail(publicationId: Id<"publications">) {
     const doc = pubMap.get(publicationId);
@@ -108,16 +110,26 @@ export function ShortSourcesTable({ sources }: { sources: SourceRow[] }) {
                 <TableCell className="text-right tabular-nums text-xs">
                   {s.coverage.total}/3
                 </TableCell>
-                <TableCell className="w-8">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="gap-1.5 whitespace-nowrap"
-                    onClick={() => createWithSource(s.displaySourceId)}
-                  >
-                    <PlusIcon className="size-3.5" />
-                    Nouveau Short
-                  </Button>
+                <TableCell>
+                  <div className="flex items-center justify-end gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Renommer la source ${s.displaySourceId}`}
+                      onClick={() => setRenameTarget(s)}
+                    >
+                      <PencilIcon className="size-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="gap-1.5 whitespace-nowrap"
+                      onClick={() => createWithSource(s.displaySourceId)}
+                    >
+                      <PlusIcon className="size-3.5" />
+                      Nouveau Short
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
@@ -145,6 +157,12 @@ export function ShortSourcesTable({ sources }: { sources: SourceRow[] }) {
           onOpenChange={(o) => !o && setEditingPub(null)}
         />
       )}
+
+      <RenameSourceDialog
+        key={renameTarget?.sourceId ?? "rename-closed"}
+        source={renameTarget}
+        onClose={() => setRenameTarget(null)}
+      />
     </>
   );
 }
