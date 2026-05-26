@@ -23,6 +23,10 @@ import { FilterSelect } from "@/components/filters/FilterSelect";
 import { FilterMultiSelect } from "@/components/filters/FilterMultiSelect";
 import { cn } from "@/lib/utils";
 import { formatNumber, formatPercent } from "@/lib/format";
+import {
+  useSnapshotAge,
+  snapshotQueryArgs,
+} from "@/components/snapshot-age-selector/SnapshotAgeContext";
 import { GitBranchIcon } from "lucide-react";
 
 const MECANIQUES = [
@@ -302,9 +306,14 @@ function HookVariantsPopover({
   mediaType: "carousel" | "short" | "screenrecorder";
 }) {
   const [open, setOpen] = useState(false);
+  // Cohérence biblio-hooks ↔ tracker : les verdicts des variantes suivent la
+  // période d'âge globale (SnapshotAgeSelector), comme le tracker.
+  const { age, customDay } = useSnapshotAge();
   const variants = useQuery(
     api.hooks.getHookVariants,
-    open ? { hookId, mediaType } : "skip",
+    open
+      ? { hookId, mediaType, ...snapshotQueryArgs({ age, customDay }) }
+      : "skip",
   );
   const router = useRouter();
 
