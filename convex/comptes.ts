@@ -1,11 +1,38 @@
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 
+const statusValidator = v.union(
+  v.literal("warmup"),
+  v.literal("actif"),
+  v.literal("shadowban"),
+  v.literal("archived"),
+);
+
+type CompteStatus = "warmup" | "actif" | "shadowban" | "archived";
+
+// Coercion legacy → statut effectif. ⚠️ Dupliqué côté UI (lib/compte-status
+// getEffectiveStatus) : un module Convex ne peut pas importer lib/ (cross-
+// tsconfig, cf isFormatAllowedOnPlatform / normalizeSourceId). Toute évolution
+// de cette règle doit être répliquée dans les deux fichiers. Rows sans `status`
+// (pré-migrateComptesStatus) : actif === false → "archived", sinon "actif".
+function effectiveStatus(c: {
+  status?: CompteStatus;
+  actif?: boolean;
+}): CompteStatus {
+  return c.status ?? (c.actif === false ? "archived" : "actif");
+}
+
 export const listComptes = query({
-  args: { actifOnly: v.optional(v.boolean()) },
+  args: {
+    actifOnly: v.optional(v.boolean()),
+    statusFilter: v.optional(statusValidator),
+  },
   handler: async (ctx, args) => {
     let results = await ctx.db.query("comptes").collect();
-    if (args.actifOnly) results = results.filter((c) => c.actif);
+    // Backward compat : actifOnly (legacy) est mappé sur statusFilter="actif".
+    const filter: CompteStatus | undefined =
+      args.statusFilter ?? (args.actifOnly ? "actif" : undefined);
+    if (filter) results = results.filter((c) => effectiveStatus(c) === filter);
     const sorted = results.sort((a, b) =>
       a.handle.localeCompare(b.handle, "fr", { sensitivity: "base" }),
     );
@@ -34,6 +61,12 @@ export const createCompte = mutation({
       v.literal("YouTube"),
     ),
     notes: v.string(),
+    // status optional côté API (rétro-compat des callers e2e qui créent sans
+    // status) → défaut "actif". L'exigence (warmup ⇒ date) est imposée ICI,
+    // pas au schéma — pattern repo (createPublication exige icpId/titre selon
+    // le mediaType alors que le schéma les laisse optional).
+    status: v.optional(statusValidator),
+    warmupStartedAt: v.optional(v.number()),
     personneId: v.optional(v.id("personnes")),
   },
   handler: async (ctx, args) => {
@@ -46,9 +79,24 @@ export const createCompte = mutation({
         `Compte ${args.handle} existe déjà sur ${args.plateforme}`,
       );
     }
+    const status: CompteStatus = args.status ?? "actif";
+    if (status === "warmup" && args.warmupStartedAt === undefined) {
+      throw new ConvexError("Date de début warmup requise.");
+    }
+    if (status !== "warmup" && args.warmupStartedAt !== undefined) {
+      throw new ConvexError(
+        "La date de warmup n'est valide que pour le statut warmup.",
+      );
+    }
     return await ctx.db.insert("comptes", {
-      ...args,
-      actif: true,
+      handle: args.handle,
+      plateforme: args.plateforme,
+      notes: args.notes,
+      personneId: args.personneId,
+      status,
+      warmupStartedAt: status === "warmup" ? args.warmupStartedAt : undefined,
+      // Legacy : maintenu synchronisé (actif === status "actif"). TD-017.
+      actif: status === "actif",
     });
   },
 });
@@ -58,45 +106,82 @@ export const updateCompte = mutation({
     id: v.id("comptes"),
     handle: v.optional(v.string()),
     notes: v.optional(v.string()),
+    // Legacy : conservé pour les callers e2e existants (setup/cleanup). Mappé
+    // sur status quand status est absent (true → "actif", false → "archived").
     actif: v.optional(v.boolean()),
+    status: v.optional(statusValidator),
+    // number = set, null = unset explicite, absent = ne pas toucher.
+    warmupStartedAt: v.optional(v.union(v.number(), v.null())),
     // null = désassigner le gestionnaire (unset), Id = assigner, absent =
     // ne pas toucher. Pattern folderId/thumbnail d'updateInspiration.
     personneId: v.optional(v.union(v.id("personnes"), v.null())),
   },
   handler: async (ctx, args) => {
-    const { id, personneId, ...rest } = args;
+    const { id } = args;
+    const compte = await ctx.db.get(id);
+    if (!compte) throw new ConvexError("Compte introuvable.");
 
     // Garde-fou rename : publications.compte est une string (= handle, pas un
     // Id). Renommer un handle déjà utilisé orphelinerait ces publications — le
     // matching p.compte === compte.handle ne les retrouverait plus (filtre
     // tracker, vue détail compte, garde deleteCompte). On bloque le rename
-    // tant que des publications l'utilisent. L'archivage (actif) reste permis
-    // car il n'altère pas le handle. Pattern cohérent avec deleteCompte.
-    if (args.handle !== undefined) {
-      const compte = await ctx.db.get(id);
-      if (!compte) throw new ConvexError("Compte introuvable.");
-      if (args.handle !== compte.handle) {
-        const pubs = await ctx.db.query("publications").collect();
-        const used = pubs.filter((p) => p.compte === compte.handle);
-        if (used.length > 0) {
-          throw new ConvexError(
-            `Impossible de renommer ce compte : ${used.length} publication${
-              used.length > 1 ? "s" : ""
-            } l'utilise${
-              used.length > 1 ? "nt" : ""
-            }. Renommer le handle créerait des publications orphelines.`,
-          );
-        }
+    // tant que des publications l'utilisent. Le changement de statut reste
+    // permis car il n'altère pas le handle. Pattern cohérent avec deleteCompte.
+    if (args.handle !== undefined && args.handle !== compte.handle) {
+      const pubs = await ctx.db.query("publications").collect();
+      const used = pubs.filter((p) => p.compte === compte.handle);
+      if (used.length > 0) {
+        throw new ConvexError(
+          `Impossible de renommer ce compte : ${used.length} publication${
+            used.length > 1 ? "s" : ""
+          } l'utilise${
+            used.length > 1 ? "nt" : ""
+          }. Renommer le handle créerait des publications orphelines.`,
+        );
       }
     }
 
     const update: Record<string, unknown> = {};
-    for (const [k, value] of Object.entries(rest)) {
-      if (value !== undefined) update[k] = value;
+    if (args.handle !== undefined) update.handle = args.handle;
+    if (args.notes !== undefined) update.notes = args.notes;
+    if (args.personneId !== undefined) {
+      update.personneId =
+        args.personneId === null ? undefined : args.personneId;
     }
-    if (personneId !== undefined) {
-      update.personneId = personneId === null ? undefined : personneId;
+
+    // Statut cible : status explicite prioritaire, sinon legacy actif mappé.
+    const targetStatus: CompteStatus | undefined =
+      args.status ??
+      (args.actif !== undefined
+        ? args.actif
+          ? "actif"
+          : "archived"
+        : undefined);
+
+    if (targetStatus !== undefined) {
+      if (targetStatus === "warmup") {
+        // Date requise : fournie en arg OU déjà présente (compte déjà warmup).
+        const start =
+          typeof args.warmupStartedAt === "number"
+            ? args.warmupStartedAt
+            : compte.warmupStartedAt;
+        if (start === undefined || start === null) {
+          throw new ConvexError("Date de début warmup requise.");
+        }
+        update.warmupStartedAt = start;
+      } else {
+        // Transition vers un statut non-warmup → unset warmupStartedAt.
+        update.warmupStartedAt = undefined;
+      }
+      update.status = targetStatus;
+      // Legacy synchronisé (TD-017).
+      update.actif = targetStatus === "actif";
+    } else if (args.warmupStartedAt !== undefined) {
+      // Édition de la date de warmup sans changer le statut.
+      update.warmupStartedAt =
+        args.warmupStartedAt === null ? undefined : args.warmupStartedAt;
     }
+
     await ctx.db.patch(id, update);
   },
 });
@@ -115,5 +200,35 @@ export const deleteCompte = mutation({
       );
     }
     await ctx.db.delete(args.id);
+  },
+});
+
+/**
+ * Migration data ONE-SHOT (internal — à lancer UNE SEULE FOIS post-deploy via
+ * `pnpm dlx convex@latest run --prod comptes:migrateComptesStatus`, testable
+ * d'abord en dev). Backfill `status` à partir du legacy `actif` :
+ *  - status déjà défini → skip (idempotence, pas de flag dédié)
+ *  - actif === true → "actif"
+ *  - actif === false → "archived"
+ *  - actif === undefined (edge) → "actif" (assumption documentée)
+ * Re-sync `actif` au passage. Ne touche pas warmupStartedAt (aucun compte
+ * legacy n'était en warmup). Relançable sans effet de bord.
+ */
+export const migrateComptesStatus = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const comptes = await ctx.db.query("comptes").collect();
+    let migrated = 0;
+    let skipped = 0;
+    for (const c of comptes) {
+      if (c.status !== undefined) {
+        skipped++;
+        continue;
+      }
+      const status: CompteStatus = c.actif === false ? "archived" : "actif";
+      await ctx.db.patch(c._id, { status, actif: status === "actif" });
+      migrated++;
+    }
+    return { migrated, skipped };
   },
 });

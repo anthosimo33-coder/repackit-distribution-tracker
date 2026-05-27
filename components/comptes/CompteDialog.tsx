@@ -23,25 +23,49 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2Icon } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { fr } from "date-fns/locale";
+import { CalendarIcon, CheckIcon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+import {
+  getEffectiveStatus,
+  getWarmupDuration,
+  isWarmupComplete,
+  type CompteStatus,
+  type Plateforme,
+} from "@/lib/compte-status";
 import { PersonneCombobox } from "@/components/comptes/PersonneCombobox";
 
 // listComptes enrichit chaque compte avec `personne` (lookup serveur).
 export type Compte = Doc<"comptes"> & {
   personne: { prenom: string; nom: string } | null;
 };
-// Batch 1 Shorts — YouTube ajouté pour les Shorts (cf lib/media-type.ts).
-// Carrousels restent TikTok+Instagram only ; côté comptes la table accepte
-// les 3 plateformes, et la cohérence format/plateforme est validée
-// uniquement au moment de créer une publication (createPublication).
-type Plateforme = "TikTok" | "Instagram" | "YouTube";
+
+const STATUS_OPTIONS: { value: CompteStatus; label: string; dot: string }[] = [
+  { value: "warmup", label: "Warmup", dot: "bg-amber-500" },
+  { value: "actif", label: "Actif", dot: "bg-emerald-500" },
+  { value: "shadowban", label: "Shadowban", dot: "bg-rose-500" },
+  { value: "archived", label: "Archivé", dot: "bg-slate-400" },
+];
+
+function todayStart(): number {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
 
 /**
- * Dialog création / édition d'un compte. Extrait de app/comptes/page.tsx pour
- * être réutilisé depuis le tableau /comptes ET le header de la vue détail
- * /comptes/[compteId]. Comportement inchangé : la plateforme n'est éditable
- * qu'à la création (mode "add").
+ * Dialog création / édition d'un compte. Statut opérationnel via Select (4
+ * états) ; si "warmup", un date picker conditionnel saisit warmupStartedAt et
+ * un info-badge rappelle la durée de warmup de la plateforme. En édition, un
+ * compte warmup arrivé à terme expose un bouton "Passer en actif" (raccourci).
+ * La plateforme n'est éditable qu'à la création (mode "add").
  */
 export default function CompteDialog({
   open,
@@ -63,6 +87,13 @@ export default function CompteDialog({
   const [personneId, setPersonneId] = useState<Id<"personnes"> | null>(
     compte?.personneId ?? null,
   );
+  const [status, setStatus] = useState<CompteStatus>(
+    compte ? getEffectiveStatus(compte) : "actif",
+  );
+  const [warmupStartedAt, setWarmupStartedAt] = useState<number | null>(
+    compte?.warmupStartedAt ?? null,
+  );
+  const [dateError, setDateError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const createCompte = useMutation(api.comptes.createCompte);
@@ -71,11 +102,15 @@ export default function CompteDialog({
   // Reset state when dialog opens (especially for edit mode targeting a different compte)
   useEffect(() => {
     if (open) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+      /* eslint-disable react-hooks/set-state-in-effect */
       setHandle(compte?.handle ?? "");
       setPlateforme(compte?.plateforme ?? "TikTok");
       setNotes(compte?.notes ?? "");
       setPersonneId(compte?.personneId ?? null);
+      setStatus(compte ? getEffectiveStatus(compte) : "actif");
+      setWarmupStartedAt(compte?.warmupStartedAt ?? null);
+      setDateError(false);
+      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [open, compte]);
 
@@ -85,10 +120,52 @@ export default function CompteDialog({
     return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
   };
 
+  function changeStatus(next: CompteStatus) {
+    setStatus(next);
+    setDateError(false);
+    // Bascule vers warmup sans date → défaut aujourd'hui.
+    if (next === "warmup" && warmupStartedAt == null) {
+      setWarmupStartedAt(todayStart());
+    }
+  }
+
+  const selectedStatus = STATUS_OPTIONS.find((o) => o.value === status);
+
+  // Bouton "Passer en actif" : basé sur l'état PERSISTÉ (pas le select courant).
+  const canPasserEnActif =
+    isEdit &&
+    compte !== undefined &&
+    getEffectiveStatus(compte) === "warmup" &&
+    compte.warmupStartedAt != null &&
+    isWarmupComplete(compte.warmupStartedAt, compte.plateforme as Plateforme);
+
+  async function passerEnActif() {
+    if (!compte) return;
+    setSubmitting(true);
+    try {
+      await updateCompte({
+        id: compte._id,
+        status: "actif",
+        warmupStartedAt: null,
+      });
+      toast.success(`${compte.handle} passé en actif`);
+      onOpenChange(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   async function submit() {
     const finalHandle = normalizeHandle(handle);
     if (!finalHandle || finalHandle === "@") {
       toast.error("Handle requis");
+      return;
+    }
+    if (status === "warmup" && warmupStartedAt == null) {
+      setDateError(true);
+      toast.error("Date de début warmup requise.");
       return;
     }
     setSubmitting(true);
@@ -99,6 +176,8 @@ export default function CompteDialog({
           handle: finalHandle,
           notes,
           personneId,
+          status,
+          warmupStartedAt: status === "warmup" ? warmupStartedAt : null,
         });
         toast.success(`${finalHandle} mis à jour`);
       } else {
@@ -107,6 +186,9 @@ export default function CompteDialog({
           plateforme: plateforme as Plateforme,
           notes,
           personneId: personneId ?? undefined,
+          status,
+          warmupStartedAt:
+            status === "warmup" ? (warmupStartedAt ?? undefined) : undefined,
         });
         toast.success(`${finalHandle} ajouté sur ${plateforme}`);
       }
@@ -114,6 +196,8 @@ export default function CompteDialog({
       setHandle("");
       setNotes("");
       setPersonneId(null);
+      setStatus("actif");
+      setWarmupStartedAt(null);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -130,10 +214,18 @@ export default function CompteDialog({
           </DialogTitle>
           <DialogDescription>
             {isEdit
-              ? "Modifie le handle ou les notes. La plateforme ne peut pas changer."
-              : "Ajoute un compte TikTok ou Instagram à utiliser pour publier."}
+              ? "Modifie le handle, le statut ou les notes. La plateforme ne peut pas changer."
+              : "Ajoute un compte TikTok, Instagram ou YouTube à utiliser pour publier."}
           </DialogDescription>
         </DialogHeader>
+
+        {canPasserEnActif && (
+          <Button onClick={passerEnActif} disabled={submitting}>
+            <CheckIcon className="mr-2 size-4" />
+            Passer en actif
+          </Button>
+        )}
+
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="compte-handle">Handle</Label>
@@ -163,6 +255,92 @@ export default function CompteDialog({
                   <SelectItem value="YouTube">YouTube</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+          )}
+          <div className="space-y-1.5">
+            <Label>Statut</Label>
+            <Select
+              value={status}
+              onValueChange={(v) => v !== null && changeStatus(v as CompteStatus)}
+            >
+              <SelectTrigger aria-label="Statut">
+                <SelectValue>
+                  <span className="flex items-center gap-2">
+                    <span
+                      className={cn(
+                        "size-2 rounded-full",
+                        selectedStatus?.dot,
+                      )}
+                    />
+                    {selectedStatus?.label}
+                  </span>
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {STATUS_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    <span className="flex items-center gap-2">
+                      <span className={cn("size-2 rounded-full", o.dot)} />
+                      {o.label}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {status === "warmup" && (
+            <div className="space-y-1.5">
+              <Label>Date de début du warmup</Label>
+              <Popover>
+                <PopoverTrigger
+                  render={
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        "w-full justify-start text-left font-normal",
+                        dateError && "border-rose-400",
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 size-4" />
+                      {warmupStartedAt != null
+                        ? new Date(warmupStartedAt).toLocaleDateString("fr-FR", {
+                            day: "2-digit",
+                            month: "long",
+                            year: "numeric",
+                          })
+                        : "Choisir une date"}
+                    </Button>
+                  }
+                />
+                <PopoverContent className="w-auto p-0">
+                  <Calendar
+                    mode="single"
+                    selected={
+                      warmupStartedAt != null
+                        ? new Date(warmupStartedAt)
+                        : undefined
+                    }
+                    onSelect={(d) => {
+                      if (d) {
+                        setWarmupStartedAt(d.getTime());
+                        setDateError(false);
+                      }
+                    }}
+                    locale={fr}
+                    weekStartsOn={1}
+                  />
+                </PopoverContent>
+              </Popover>
+              {dateError ? (
+                <p className="text-xs font-medium text-rose-600">
+                  Date de début warmup requise.
+                </p>
+              ) : (
+                <p className="text-xs text-slate-500">
+                  Durée warmup pour {plateforme} :{" "}
+                  {getWarmupDuration(plateforme as Plateforme)} jours
+                </p>
+              )}
             </div>
           )}
           <div className="space-y-1.5">

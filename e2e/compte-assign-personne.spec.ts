@@ -48,11 +48,17 @@ test.describe("Compte — assignation gestionnaire", () => {
     const dialog = page.getByRole("dialog", { name: /modifier le compte/i });
     await expect(dialog).toBeVisible();
 
-    // PersonneCombobox visible (label Gestionnaire + trigger combobox)
+    // PersonneCombobox visible (label Gestionnaire + trigger combobox).
+    // Scopé au conteneur "Gestionnaire" : le dialog a aussi un combobox de
+    // Statut (Select base-ui, role="combobox") depuis l'ajout des statuts.
     await expect(
       dialog.getByText("Gestionnaire", { exact: true }),
     ).toBeVisible();
-    const combobox = dialog.getByRole("combobox");
+    const combobox = dialog
+      .locator("label")
+      .filter({ hasText: "Gestionnaire" })
+      .locator("xpath=..")
+      .getByRole("combobox");
     await expect(combobox).toBeVisible();
     await combobox.click();
 

@@ -27,6 +27,10 @@ import {
 import { fr } from "date-fns/locale";
 import { CalendarIcon } from "lucide-react";
 import { FORMAT_CONFIGS, type FormatKey } from "@/lib/format-config";
+import {
+  getEffectiveStatus,
+  isSelectableForPublication,
+} from "@/lib/compte-status";
 import { cn } from "@/lib/utils";
 import type { NouveauAction, NouveauData } from "../useNouveauState";
 
@@ -55,7 +59,11 @@ export function StepPublication({
   confirmOverride: boolean;
   onConfirmOverrideChange: (value: boolean) => void;
 }) {
-  const comptesData = useQuery(api.comptes.listComptes, { actifOnly: true });
+  // On récupère TOUS les comptes (pas seulement les actifs) pour pouvoir
+  // afficher, quand aucun n'est sélectionnable, combien sont en warmup /
+  // shadowban sur les plateformes ciblées. Le dropdown ne propose que les
+  // comptes "actif" (isSelectableForPublication).
+  const comptesData = useQuery(api.comptes.listComptes, {});
 
   // Plateformes déjà couvertes par ce sourceId (Short). blocked = TikTok (strict
   // bloquant) ; warning = Instagram/YouTube (repost autorisé après confirmation).
@@ -78,10 +86,31 @@ export function StepPublication({
     return FORMAT_CONFIGS[key]?.allowedPlatforms ?? [];
   }, [data.mediaType]);
 
-  const filteredComptes = useMemo(() => {
+  // Comptes sur les plateformes ciblées (tous statuts) — sert au message.
+  const comptesOnPlatforms = useMemo(() => {
     if (!comptesData) return [];
     return comptesData.filter((c) => data.plateformes.includes(c.plateforme));
   }, [comptesData, data.plateformes]);
+
+  // Sélectionnables = uniquement les comptes "actif".
+  const filteredComptes = useMemo(
+    () =>
+      comptesOnPlatforms.filter((c) =>
+        isSelectableForPublication(getEffectiveStatus(c)),
+      ),
+    [comptesOnPlatforms],
+  );
+
+  const warmupCount = comptesOnPlatforms.filter(
+    (c) => getEffectiveStatus(c) === "warmup",
+  ).length;
+  const shadowbanCount = comptesOnPlatforms.filter(
+    (c) => getEffectiveStatus(c) === "shadowban",
+  ).length;
+  const platformLabel =
+    data.plateformes.length === 1
+      ? data.plateformes[0]
+      : "les plateformes sélectionnées";
 
   const datePubliDate = new Date(data.datePubli);
 
@@ -151,12 +180,18 @@ export function StepPublication({
           <Skeleton className="h-9 w-full" />
         ) : filteredComptes.length === 0 ? (
           <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-            Aucun compte actif sur les plateformes sélectionnées.{" "}
+            Aucun compte actif sur {platformLabel}.
+            {(warmupCount > 0 || shadowbanCount > 0) && (
+              <>
+                {" "}
+                {warmupCount} en warmup, {shadowbanCount} en shadowban.
+              </>
+            )}{" "}
             <Link
               href="/comptes"
               className="font-medium underline underline-offset-2"
             >
-              Ajoute-en un
+              Gérer les comptes
             </Link>
             .
           </div>

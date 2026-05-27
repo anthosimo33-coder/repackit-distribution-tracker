@@ -2,11 +2,22 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronLeftIcon, PencilIcon } from "lucide-react";
+import {
+  ChevronLeftIcon,
+  PencilIcon,
+  CheckIcon,
+  TriangleAlertIcon,
+} from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { PlatformBadge } from "@/components/VerdictBadge";
 import { SnapshotAgeSelector } from "@/components/snapshot-age-selector/SnapshotAgeSelector";
 import CompteDialog, { type Compte } from "@/components/comptes/CompteDialog";
+import {
+  getEffectiveStatus,
+  getStatusBadge,
+  isWarmupComplete,
+  type Plateforme,
+} from "@/lib/compte-status";
 import { cn } from "@/lib/utils";
 
 /**
@@ -16,6 +27,13 @@ import { cn } from "@/lib/utils";
  */
 export function CompteDetailHeader({ compte }: { compte: Compte }) {
   const [editOpen, setEditOpen] = useState(false);
+
+  const effStatus = getEffectiveStatus(compte);
+  const badge = getStatusBadge(compte);
+  const warmupComplete =
+    effStatus === "warmup" &&
+    compte.warmupStartedAt != null &&
+    isWarmupComplete(compte.warmupStartedAt, compte.plateforme as Plateforme);
 
   return (
     <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -36,10 +54,27 @@ export function CompteDetailHeader({ compte }: { compte: Compte }) {
             {compte.handle}
           </h1>
           <PlatformBadge plateforme={compte.plateforme} />
-          {!compte.actif && (
-            <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-0.5 text-xs font-semibold text-slate-500">
-              Archivé
-            </span>
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full border px-3 py-0.5 text-xs font-semibold",
+              badge.className,
+            )}
+          >
+            {effStatus === "shadowban" && (
+              <TriangleAlertIcon className="size-3.5" />
+            )}
+            {badge.label}
+          </span>
+          {warmupComplete && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7"
+              onClick={() => setEditOpen(true)}
+            >
+              <CheckIcon className="mr-1.5 size-3.5" />
+              Passer en actif
+            </Button>
           )}
           {compte.personne && (
             <span className="text-sm text-slate-500">

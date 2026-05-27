@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
@@ -33,6 +33,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   MoreHorizontalIcon,
   Loader2Icon,
   PlusIcon,
@@ -41,9 +48,25 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import {
+  getEffectiveStatus,
+  getStatusBadge,
+  type CompteStatus,
+} from "@/lib/compte-status";
 import { PersonnesManagerSection } from "@/components/comptes/PersonnesManagerSection";
 import { IcpsManagerSection } from "@/components/icps/IcpsManagerSection";
+import { WarmupGuideButton } from "@/components/comptes/WarmupGuideButton";
 import CompteDialog, { type Compte } from "@/components/comptes/CompteDialog";
+
+type StatusFilter = "all" | CompteStatus;
+
+const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
+  { value: "all", label: "Tous" },
+  { value: "actif", label: "Actifs" },
+  { value: "warmup", label: "Warmup" },
+  { value: "shadowban", label: "Shadowban" },
+  { value: "archived", label: "Archivés" },
+];
 
 export default function ComptesPage() {
   return (
@@ -60,6 +83,7 @@ function ComptesPageInner() {
   const [addOpen, setAddOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Compte | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Compte | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
   const viewParam = searchParams.get("view");
   const isPersonnesView = viewParam === "personnes";
@@ -72,6 +96,26 @@ function ComptesPageInner() {
     const qs = params.toString();
     router.replace(qs ? `/comptes?${qs}` : "/comptes");
   }
+
+  // Compteurs par statut (sur l'ensemble, hors filtre) pour le sous-titre.
+  const counts = useMemo(() => {
+    const acc = { actif: 0, warmup: 0, shadowban: 0, archived: 0 };
+    for (const c of comptes ?? []) acc[getEffectiveStatus(c)]++;
+    return acc;
+  }, [comptes]);
+
+  // Lignes affichées : filtre statut + archivés repoussés en bas (tri stable
+  // → l'ordre alphabétique du serveur est préservé à l'intérieur d'un rang).
+  const rows = useMemo(() => {
+    const list = (comptes ?? []).filter(
+      (c) => statusFilter === "all" || getEffectiveStatus(c) === statusFilter,
+    );
+    return [...list].sort(
+      (a, b) =>
+        (getEffectiveStatus(a) === "archived" ? 1 : 0) -
+        (getEffectiveStatus(b) === "archived" ? 1 : 0),
+    );
+  }, [comptes, statusFilter]);
 
   if (isPersonnesView) {
     return (
@@ -89,23 +133,47 @@ function ComptesPageInner() {
     );
   }
 
-  const actifs = comptes?.filter((c) => c.actif) ?? [];
-  const archives = comptes?.filter((c) => !c.actif) ?? [];
+  const subtitle = (() => {
+    if (comptes === undefined) return "Chargement…";
+    const parts = [`${counts.actif} actif${counts.actif > 1 ? "s" : ""}`];
+    if (counts.warmup > 0) parts.push(`${counts.warmup} warmup`);
+    if (counts.shadowban > 0) parts.push(`${counts.shadowban} shadowban`);
+    if (counts.archived > 0)
+      parts.push(`${counts.archived} archivé${counts.archived > 1 ? "s" : ""}`);
+    return parts.join(" · ");
+  })();
 
   return (
     <div className="space-y-6">
-      <header className="flex items-center justify-between">
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
           <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
             Comptes
           </h1>
-          <p className="text-sm text-slate-500">
-            {comptes === undefined
-              ? "Chargement…"
-              : `${actifs.length} actif${actifs.length > 1 ? "s" : ""}${archives.length > 0 ? ` · ${archives.length} archivé${archives.length > 1 ? "s" : ""}` : ""}`}
-          </p>
+          <p className="text-sm text-slate-500">{subtitle}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={statusFilter}
+            onValueChange={(v) =>
+              v !== null && setStatusFilter(v as StatusFilter)
+            }
+          >
+            <SelectTrigger className="w-36" aria-label="Filtrer par statut">
+              <SelectValue>
+                {STATUS_FILTER_OPTIONS.find((o) => o.value === statusFilter)
+                  ?.label ?? "Tous"}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {STATUS_FILTER_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <WarmupGuideButton />
           <Button variant="outline" onClick={() => navigate("personnes")}>
             <UsersIcon className="mr-2 size-4" />
             Personnes
@@ -125,6 +193,12 @@ function ComptesPageInner() {
         <Skeleton className="h-64 w-full" />
       ) : comptes.length === 0 ? (
         <EmptyState onAdd={() => setAddOpen(true)} />
+      ) : rows.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center text-sm text-slate-500">
+            Aucun compte pour ce filtre.
+          </CardContent>
+        </Card>
       ) : (
         <Card>
           <CardContent className="p-0">
@@ -140,54 +214,58 @@ function ComptesPageInner() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {[...actifs, ...archives].map((c) => (
-                  <TableRow
-                    key={c._id}
-                    className={cn(!c.actif && "opacity-50")}
-                  >
-                    <TableCell className="font-mono font-medium text-slate-900">
-                      <Link
-                        href={`/comptes/${c._id}`}
-                        className="transition-colors hover:text-primary hover:underline"
-                      >
-                        {c.handle}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <PlatformBadge plateforme={c.plateforme} />
-                    </TableCell>
-                    <TableCell>
-                      {c.actif ? (
-                        <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-0.5 text-xs font-semibold text-emerald-700">
-                          Actif
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-0.5 text-xs font-semibold text-slate-500">
-                          Archivé
-                        </span>
+                {rows.map((c) => {
+                  const badge = getStatusBadge(c);
+                  return (
+                    <TableRow
+                      key={c._id}
+                      className={cn(
+                        getEffectiveStatus(c) === "archived" && "opacity-50",
                       )}
-                    </TableCell>
-                    <TableCell>
-                      {c.personne ? (
-                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-700">
-                          {c.personne.prenom} {c.personne.nom}
+                    >
+                      <TableCell className="font-mono font-medium text-slate-900">
+                        <Link
+                          href={`/comptes/${c._id}`}
+                          className="transition-colors hover:text-primary hover:underline"
+                        >
+                          {c.handle}
+                        </Link>
+                      </TableCell>
+                      <TableCell>
+                        <PlatformBadge plateforme={c.plateforme} />
+                      </TableCell>
+                      <TableCell>
+                        <span
+                          className={cn(
+                            "inline-flex items-center rounded-full border px-3 py-0.5 text-xs font-semibold",
+                            badge.className,
+                          )}
+                        >
+                          {badge.label}
                         </span>
-                      ) : (
-                        <span className="text-sm text-slate-400">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="max-w-xs truncate text-sm text-slate-500">
-                      {c.notes || "—"}
-                    </TableCell>
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <RowActions
-                        compte={c}
-                        onEdit={() => setEditTarget(c)}
-                        onDelete={() => setDeleteTarget(c)}
-                      />
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      </TableCell>
+                      <TableCell>
+                        {c.personne ? (
+                          <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-700">
+                            {c.personne.prenom} {c.personne.nom}
+                          </span>
+                        ) : (
+                          <span className="text-sm text-slate-400">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="max-w-xs truncate text-sm text-slate-500">
+                        {c.notes || "—"}
+                      </TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <RowActions
+                          compte={c}
+                          onEdit={() => setEditTarget(c)}
+                          onDelete={() => setDeleteTarget(c)}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </CardContent>
@@ -209,8 +287,6 @@ function ComptesPageInner() {
   );
 }
 
-// PlatformBadge is imported from @/components/VerdictBadge
-
 function RowActions({
   compte,
   onEdit,
@@ -221,13 +297,15 @@ function RowActions({
   onDelete: () => void;
 }) {
   const updateCompte = useMutation(api.comptes.updateCompte);
-  const toggleActif = async () => {
+  const isArchived = getEffectiveStatus(compte) === "archived";
+  const toggleArchive = async () => {
     try {
-      await updateCompte({ id: compte._id, actif: !compte.actif });
+      await updateCompte({
+        id: compte._id,
+        status: isArchived ? "actif" : "archived",
+      });
       toast.success(
-        compte.actif
-          ? `${compte.handle} archivé`
-          : `${compte.handle} réactivé`,
+        isArchived ? `${compte.handle} réactivé` : `${compte.handle} archivé`,
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur");
@@ -245,8 +323,8 @@ function RowActions({
       />
       <DropdownMenuContent align="end">
         <DropdownMenuItem onClick={onEdit}>Modifier</DropdownMenuItem>
-        <DropdownMenuItem onClick={toggleActif}>
-          {compte.actif ? "Archiver" : "Réactiver"}
+        <DropdownMenuItem onClick={toggleArchive}>
+          {isArchived ? "Réactiver" : "Archiver"}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem

@@ -208,13 +208,35 @@ export default defineSchema({
       v.literal("YouTube"),
     ),
     notes: v.string(),
-    actif: v.boolean(),
+    // Statut opérationnel (4 états). Optional au schéma + exigence imposée
+    // côté handler (createCompte défaut "actif" ; updateCompte mappe le legacy
+    // `actif`), pattern repo (mediaType/sourceId/icpId/postUrl) : on peut
+    // pousser le schéma sans casser les rows existantes dépourvues de `status`,
+    // puis backfill via migrateComptesStatus. Resserrage en requis = TD futur.
+    status: v.optional(
+      v.union(
+        v.literal("warmup"),
+        v.literal("actif"),
+        v.literal("shadowban"),
+        v.literal("archived"),
+      ),
+    ),
+    // Timestamp ms du début de warmup. Requis (côté handler) si status ===
+    // "warmup", unset sinon (transition warmup → autre). Décompte adaptatif
+    // par plateforme côté UI (lib/compte-status, WARMUP_DURATION_BY_PLATFORM).
+    warmupStartedAt: v.optional(v.number()),
+    // LEGACY rétro-compat : passé en optional (était v.boolean()). Maintenu
+    // synchronisé par les mutations (actif === (status === "actif")) le temps
+    // que les callers e2e/UI migrent vers `status`. Suppression = TD-017.
+    actif: v.optional(v.boolean()),
     // Gestionnaire optionnel (1-to-1 vers personnes). Absent = aucun
     // gestionnaire. Unset via patch { personneId: undefined } (cf
     // updateCompte + cascade deletePersonne) — pattern folderId d'inspirations.
     personneId: v.optional(v.id("personnes")),
   })
     .index("by_plateforme", ["plateforme"])
+    // by_actif conservé (legacy, non requêté). Index sur champ optional OK côté
+    // Convex. Retrait avec le champ actif au TD-017.
     .index("by_actif", ["actif"]),
 
   // Gestionnaires de comptes (greenfield). Lien 1-to-1 optionnel depuis
