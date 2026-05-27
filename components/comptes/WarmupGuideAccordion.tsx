@@ -8,7 +8,6 @@ import {
   CameraIcon,
   PlayIcon,
   CheckCircle2Icon,
-  TriangleAlertIcon,
   RotateCcwIcon,
   BanIcon,
 } from "lucide-react";
@@ -18,19 +17,44 @@ import { WARMUP_DURATION_BY_PLATFORM } from "@/lib/compte-status";
 /**
  * Guide warmup intégré (TikTok / Instagram / YouTube), consultable inline sans
  * quitter le tracker. 7 sections repliables (repliées par défaut). Contenu en
- * data-arrays rendues en JSX structuré (pas de dangerouslySetInnerHTML) ;
- * accordéon maison (useState) plutôt qu'un composant shadcn absent du repo
- * (preset base-nova/base-ui n'inclut pas d'accordion). Les durées de chaque
- * plateforme dérivent de WARMUP_DURATION_BY_PLATFORM (source unique).
+ * data-arrays (markdown léger : **gras** + `code`) rendues en JSX structuré via
+ * renderInline (pas de dangerouslySetInnerHTML) ; accordéon maison (useState)
+ * plutôt qu'un composant shadcn absent du repo (preset base-nova/base-ui n'a
+ * pas d'accordion). Les durées des titres dérivent de WARMUP_DURATION_BY_PLATFORM
+ * (source unique, alignée sur le décompte du tracker).
  */
 
-// ─── Contenu (data) ────────────────────────────────────────────────────────
+// ─── Rendu inline markdown léger (**gras** + `code`) ─────────────────────────
+function renderInline(text: string): ReactNode[] {
+  return text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return (
+        <strong key={i} className="font-semibold text-slate-900">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return (
+        <code
+          key={i}
+          className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[0.7rem]"
+        >
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    return part;
+  });
+}
+
+// ─── Contenu (data) ──────────────────────────────────────────────────────────
 const COMMON_RULES = [
-  "Un email dédié par compte — jamais d'alias « + », jamais d'email recyclé.",
-  "App mobile native uniquement pendant tout le warmup et les 10 premiers posts (pas de desktop, pas d'émulateur).",
-  "Pas de VPN. Géo-cohérence stricte : SIM, IP, langue et fuseau du même pays.",
-  "Profil minimal les premiers jours (photo + handle cohérents) ; on étoffe la bio progressivement.",
-  "Engagement exclusivement dans la niche cible dès J1 — jamais de contenu hors-niche.",
+  "**Email dédié par compte**, pas d'alias `+`",
+  "**App mobile native uniquement** pendant warmup + 10 premiers posts (pas de web, pas d'API/scheduler)",
+  "**Pas de VPN**, géo-cohérence stricte (device + SIM + IP même pays)",
+  "**Profil minimal les premiers jours** : pas de bio commerciale, pas de lien externe agressif",
+  "Engagement **exclusivement dans la niche cible** dès J1",
 ];
 
 type SubBlock = { subtitle: string; items: string[] };
@@ -39,55 +63,68 @@ const TIKTOK_BLOCKS: SubBlock[] = [
   {
     subtitle: "Setup",
     items: [
-      "Compte créé via l'app mobile, profil light (photo + @ cohérent).",
-      "Aucune bio promotionnelle ni lien externe au démarrage.",
+      "Créer le compte → laisser profil quasi-vide 3 jours",
+      "Compléter bio + PP en J4",
     ],
   },
   {
     subtitle: "Warmup quotidien (J1 → J7)",
     items: [
-      "15-25 min/jour sur le FYP de la niche, watch-through complet des vidéos.",
-      "10-20 likes ciblés, 2-4 abonnements pertinents, 1-3 commentaires courts et naturels.",
-      "Monter en charge progressivement — pas de pic d'activité le 1er jour.",
+      "20-30 min/jour de scroll FYP dans ta niche",
+      "Watch time complet sur les vidéos (pas de scroll rapide)",
+      '10-20 likes/jour, 2-3 commentaires authentiques (pas "🔥")',
+      "5-10 follows/jour max sur des comptes de ta niche",
+      "Utilise la barre de recherche pour explorer des hashtags niche",
     ],
   },
   {
     subtitle: "Premier post",
-    items: ["J8 minimum — jamais avant que J7 soit révolu."],
+    items: ["J8 minimum", "1 post/jour pendant 7-10 jours avant de monter"],
   },
 ];
 
-const INSTAGRAM_BLOCKS: SubBlock[] = [
+const IG_SETUP: SubBlock[] = [
   {
     subtitle: "Setup",
     items: [
-      "Compte via l'app mobile, profil minimal, pas de lien en bio au départ.",
+      "Créer compte → profil vide J1-3",
+      "Compléter bio + PP + 1 highlight en J4-5",
+    ],
+  },
+];
+
+const IG_PHASES: SubBlock[] = [
+  {
+    subtitle: "Phase 1 — J1 à J3 : observation pure",
+    items: [
+      "15-20 min scroll feed + Stories",
+      "5-10 likes/jour",
+      "**Zéro follow, zéro commentaire**",
     ],
   },
   {
-    subtitle: "Phase 1 — J1-3 (observation pure)",
+    subtitle: "Phase 2 — J4 à J10 : engagement léger",
     items: [
-      "Consultation uniquement : scroll feed + reels de la niche.",
-      "Aucune interaction (ni like, ni follow, ni commentaire).",
+      "5-10 follows/jour niche",
+      "15-20 likes/jour",
+      "2-3 commentaires authentiques",
+      "Watch Stories quotidiennement",
     ],
   },
   {
-    subtitle: "Phase 2 — J4-10 (engagement léger)",
+    subtitle: "Phase 3 — J11 à J21 : activité normale",
     items: [
-      "Likes ciblés, quelques abonnements, stories visionnées.",
-      "Premiers commentaires sobres et pertinents.",
+      "15-25 likes/jour, 5-10 commentaires",
+      "Saves sur posts pertinents (signal fort)",
+      "Premières Stories possibles en J14-15",
     ],
   },
-  {
-    subtitle: "Phase 3 — J11-14 (activité normale)",
-    items: [
-      "Interactions régulières, enregistrements, DMs légers.",
-      "Compléter le profil (bio, highlights).",
-    ],
-  },
+];
+
+const IG_PREMIER: SubBlock[] = [
   {
     subtitle: "Premier Reel",
-    items: ["J14+."],
+    items: ["J21 minimum", "1 Reel/jour + Stories quotidiennes"],
   },
 ];
 
@@ -95,65 +132,100 @@ const YOUTUBE_BLOCKS: SubBlock[] = [
   {
     subtitle: "Setup channel (J1)",
     items: [
-      "Création de la chaîne : photo + bannière + description.",
-      "Confirmer l'adresse email associée.",
+      "Banner, PP, description channel, About complet",
+      "Créer 1 playlist (même vide)",
+      "Lier les réseaux sociaux dans la description",
     ],
   },
   {
-    subtitle: "Warmup quotidien (J1 → J3)",
+    subtitle: "Warmup quotidien (J1 → J5)",
     items: [
-      "Visionnage de Shorts de la niche, likes, abonnements pertinents.",
-      "Quelques commentaires naturels.",
+      "Watch 5-10 Shorts/jour dans ta niche",
+      "Watch 1-2 vidéos longues/jour dans ta niche (signal fort pour YT)",
+      "Likes + 2-3 commentaires authentiques",
+      "10-20 abonnements à des chaînes pertinentes",
     ],
   },
   {
     subtitle: "Premier Short",
-    items: ["J4."],
+    items: ["J5-6", "1 Short/jour, idéalement à la même heure"],
   },
 ];
 
 const CLEAN_SIGNALS = [
-  { plateforme: "TikTok", signal: "Vues du 1er post à 24h", cible: "> 200" },
-  { plateforme: "Instagram", signal: "Reach du 1er Reel", cible: "> 150 comptes" },
-  { plateforme: "YouTube", signal: "Impressions du 1er Short", cible: "> 100" },
+  { plateforme: "TikTok", signal: "Vues 1er post à H+6", cible: "200-500+" },
+  {
+    plateforme: "TikTok",
+    signal: "Source trafic FYP (Analytics → Reach)",
+    cible: ">30%, idéalement >50%",
+  },
+  { plateforme: "Instagram", signal: "Vues Reel à H+24", cible: "200-1000+" },
+  { plateforme: "Instagram", signal: "Non-followers reach", cible: ">40%" },
+  { plateforme: "YouTube", signal: "Vues Short à H+48", cible: "100-500+" },
+  {
+    plateforme: "YouTube",
+    signal: 'Source "Shorts feed" présente',
+    cible: "Oui",
+  },
+  {
+    plateforme: "Les 3",
+    signal: "Test hashtag unique",
+    cible: "Vidéo trouvable depuis autre compte",
+  },
+  {
+    plateforme: "Les 3",
+    signal: "Ton feed perso est devenu niché",
+    cible: "Oui",
+  },
 ];
 
 const FAILED_SIGNALS = [
-  "Vues bloquées à 0-50 sur plusieurs posts d'affilée.",
-  "Les hashtags ne sortent jamais dans la recherche.",
-  "Aucune impression « Pour toi » / FYP.",
-  "Chute brutale de reach après 2-3 posts.",
+  "Vues bloquées 0-50 ou exactement 200 répété",
+  "FYP / Reels feed / Shorts feed traffic = 0% en Analytics",
+  'Vidéo "Stuck Processing" >2h',
+  'Pop-up "Action blocked" sur Instagram',
+  "Posts visibles uniquement par tes followers existants",
+  'Notification "Ineligible for FYP" (TikTok)',
+  "Drop de 70%+ vs moyenne 28 jours",
 ];
 
 const RESET_STEPS = [
-  "Stopper toute publication pendant 72h.",
-  "Vérifier la géo-cohérence : email, SIM, IP, fuseau.",
-  "Reprendre un warmup léger 3-5 jours (consultation + engagement uniquement).",
-  "Re-tester avec un post neutre, mesurer les vues à 24h.",
-  "Toujours bloqué : repartir d'un compte neuf (nouvel email + appareil/réseau propres).",
+  "**Stop poster immédiatement** (clé absolue)",
+  "Supprimer les vidéos à <50 vues (signal négatif permanent)",
+  "Pause 5-7 jours **active** : scroll niche 20-30 min/jour, zéro post",
+  "Reposter UNE vidéo, observer",
+  "Si toujours 0 vues → abandonner le compte, en créer un neuf",
 ];
 
 const DONT_BLOCKS: SubBlock[] = [
   {
-    subtitle: "Pendant le warmup",
+    subtitle: "Pendant warmup",
     items: [
-      "Pas de post, pas de lien en bio, pas de VPN.",
-      "Pas de follow/unfollow massif.",
+      "Poster avant la fin du warmup",
+      "Suivre 50+ comptes le premier jour",
+      'Commentaires génériques ("nice", "🔥") en masse',
+      "Engagement hors-niche (confuse l'algo sur ta classification)",
+      "Modifier la bio/PP tous les jours",
+      "Switch entre VPN / IPs différentes",
     ],
   },
   {
     subtitle: "Au lancement post-warmup",
     items: [
-      "Pas de spam de hashtags.",
-      "Pas de 3 posts le même jour.",
-      "Pas de repost cross-plateforme à l'identique.",
+      "Balancer 3 vidéos d'un coup",
+      "Utiliser un scheduler/API pour les 10 premiers posts",
+      "Hashtags douteux ou bannis (toujours vérifier dans la barre de recherche)",
+      'Engagement bait ("like si tu es d\'accord", "follow pour la partie 2") — flag direct en 2026',
+      "Musique copyrightée sur compte business",
+      "Cross-poster le **même fichier vidéo** sur plusieurs comptes (fingerprint fichier détecté)",
     ],
   },
   {
     subtitle: "En continu",
     items: [
-      "Pas de changement brusque d'appareil ou de réseau.",
-      "Pas d'achat de followers, pas de DMs automatisés.",
+      "Arrêter de scroller la plateforme une fois en mode poster (l'algo track ta consommation aussi)",
+      "Spam-poster suite à un succès (passer de 1/jour à 10/jour = flag)",
+      "Switcher entre comptes toutes les 10 min",
     ],
   },
 ];
@@ -163,7 +235,7 @@ function Bullets({ items }: { items: string[] }) {
   return (
     <ul className="list-disc space-y-1 pl-5">
       {items.map((it, i) => (
-        <li key={i}>{it}</li>
+        <li key={i}>{renderInline(it)}</li>
       ))}
     </ul>
   );
@@ -245,14 +317,29 @@ export function WarmupGuideAccordion() {
         icon={<CameraIcon className="size-4" />}
         title={`Instagram — ${WARMUP_DURATION_BY_PLATFORM.Instagram} jours`}
       >
-        <SubSections blocks={INSTAGRAM_BLOCKS} />
+        <div className="space-y-3">
+          <SubSections blocks={IG_SETUP} />
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-slate-600">
+              Warmup par phases
+            </p>
+            <SubSections blocks={IG_PHASES} />
+          </div>
+          <SubSections blocks={IG_PREMIER} />
+        </div>
       </Section>
 
       <Section
         icon={<PlayIcon className="size-4" />}
         title={`YouTube Shorts — ${WARMUP_DURATION_BY_PLATFORM.YouTube} jours`}
       >
-        <SubSections blocks={YOUTUBE_BLOCKS} />
+        <div className="space-y-3">
+          <p>
+            YouTube est bien plus permissif. Le compte est tied à ton Google
+            account existant, donc moins de méfiance.
+          </p>
+          <SubSections blocks={YOUTUBE_BLOCKS} />
+        </div>
       </Section>
 
       <Section
@@ -261,9 +348,8 @@ export function WarmupGuideAccordion() {
       >
         <div className="space-y-3">
           <div className="space-y-1.5">
-            <p className="flex items-center gap-1.5 text-xs font-medium italic text-slate-500">
-              <CheckCircle2Icon className="size-3.5 text-emerald-500" />
-              Signaux — compte clean
+            <p className="text-xs font-semibold text-slate-600">
+              Signaux ✅ compte clean
             </p>
             <div className="overflow-hidden rounded-md border border-slate-200">
               <table className="w-full text-left text-xs">
@@ -275,15 +361,13 @@ export function WarmupGuideAccordion() {
                   </tr>
                 </thead>
                 <tbody>
-                  {CLEAN_SIGNALS.map((s) => (
-                    <tr key={s.plateforme} className="border-t border-slate-100">
+                  {CLEAN_SIGNALS.map((s, i) => (
+                    <tr key={i} className="border-t border-slate-100">
                       <td className="px-3 py-1.5 font-medium text-slate-700">
                         {s.plateforme}
                       </td>
                       <td className="px-3 py-1.5">{s.signal}</td>
-                      <td className="px-3 py-1.5 font-mono text-slate-700">
-                        {s.cible}
-                      </td>
+                      <td className="px-3 py-1.5 text-slate-700">{s.cible}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -291,9 +375,8 @@ export function WarmupGuideAccordion() {
             </div>
           </div>
           <div className="space-y-1.5">
-            <p className="flex items-center gap-1.5 text-xs font-medium italic text-slate-500">
-              <TriangleAlertIcon className="size-3.5 text-rose-500" />
-              Signaux — warmup raté ou shadowban
+            <p className="text-xs font-semibold text-slate-600">
+              Signaux 🚨 warmup raté ou shadowban
             </p>
             <Bullets items={FAILED_SIGNALS} />
           </div>
@@ -306,7 +389,7 @@ export function WarmupGuideAccordion() {
       >
         <ol className="list-decimal space-y-1 pl-5">
           {RESET_STEPS.map((step, i) => (
-            <li key={i}>{step}</li>
+            <li key={i}>{renderInline(step)}</li>
           ))}
         </ol>
       </Section>
