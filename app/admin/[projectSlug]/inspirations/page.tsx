@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "convex/react";
 import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
+import { useProjectPath } from "@/components/project/ProjectProvider";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { InspirationsHeader } from "@/components/inspirations/InspirationsHeader";
@@ -71,6 +72,7 @@ function PageSkeleton() {
 
 function InspirationsPageInner() {
   const router = useRouter();
+  const projectPath = useProjectPath();
   const searchParams = useSearchParams();
 
   const viewParam = searchParams.get("view");
@@ -149,8 +151,8 @@ function InspirationsPageInner() {
     }
     for (const [k, v] of newFilterParams.entries()) merged.set(k, v);
     const qs = merged.toString();
-    router.replace(qs ? `/inspirations?${qs}` : "/inspirations");
-  }, [filters, searchParams, router]);
+    router.replace(projectPath(qs ? `/inspirations?${qs}` : "/inspirations"));
+  }, [filters, searchParams, router, projectPath]);
 
   const queryArgs = useMemo(() => filtersToQueryArgs(filters), [filters]);
   const inspirations = useProjectQuery(api.inspirations.listInspirations, queryArgs);
@@ -187,7 +189,7 @@ function InspirationsPageInner() {
     if (nextView) params.set("view", nextView);
     else params.delete("view");
     const qs = params.toString();
-    router.replace(qs ? `/inspirations?${qs}` : "/inspirations");
+    router.replace(projectPath(qs ? `/inspirations?${qs}` : "/inspirations"));
   }
 
   function handleViewChange(next: "grid" | "list") {
@@ -195,7 +197,7 @@ function InspirationsPageInner() {
     if (next === "grid") params.delete("view");
     else params.set("view", "list");
     const qs = params.toString();
-    router.replace(qs ? `/inspirations?${qs}` : "/inspirations");
+    router.replace(projectPath(qs ? `/inspirations?${qs}` : "/inspirations"));
   }
 
   if (isFoldersView) {

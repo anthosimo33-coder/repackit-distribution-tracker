@@ -14,16 +14,20 @@ import {
  * authedQuery / authedMutation) — protéger les pages Next ne suffit pas,
  * NEXT_PUBLIC_CONVEX_URL étant public dans le bundle.
  *
- * Ordre Next : les redirects de next.config.ts (/ → /dashboard, /tracker →
- * /carrousels…) s'appliquent AVANT le proxy → le proxy voit la route cible.
+ * Ordre Next : les redirects de next.config.ts (/dashboard → /admin/repackit/…,
+ * /tracker → …) s'appliquent AVANT le proxy → le proxy voit la route cible.
  * La route /api/auth (cookies de session) est gérée par
  * convexAuthNextjsMiddleware lui-même, d'où le matcher qui inclut /api.
+ *
+ * P3 Multi-tenant — un utilisateur connecté sur /login est renvoyé vers `/`
+ * (resolver du projet par défaut → /admin/<slug>/dashboard), pas vers une route
+ * scopée codée en dur (le projet dépend de l'utilisateur).
  */
 const isLoginPage = createRouteMatcher(["/login"]);
 
 export default convexAuthNextjsMiddleware(async (request, { convexAuth }) => {
   if (isLoginPage(request) && (await convexAuth.isAuthenticated())) {
-    return nextjsMiddlewareRedirect(request, "/dashboard");
+    return nextjsMiddlewareRedirect(request, "/");
   }
   if (!isLoginPage(request) && !(await convexAuth.isAuthenticated())) {
     return nextjsMiddlewareRedirect(request, "/login");

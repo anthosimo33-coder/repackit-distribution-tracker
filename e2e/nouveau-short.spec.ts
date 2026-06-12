@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -52,7 +52,7 @@ test.describe("Création Short via modal NouveauModal", () => {
     await convex.mutation(api.icps.createIcp, { nom: icpName });
 
     // Modal pré-sélectionné short via URL → ouvre étape 2 directement.
-    await page.goto("/shorts?nouveau=open&format=short");
+    await page.goto(adminPath("/shorts?nouveau=open&format=short"));
 
     // Scopé par nom : le Popover de l'IcpCombobox a aussi role="dialog".
     const dialog = page.getByRole("dialog", { name: /nouvelle publication/i });

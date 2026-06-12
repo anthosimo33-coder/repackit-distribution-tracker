@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -52,7 +52,7 @@ test.describe("Inspirations — deeplink filtres", () => {
     });
 
     // Deeplink : URL pré-filtrée par plateforme TikTok
-    await page.goto("/inspirations?plateformes=TikTok");
+    await page.goto(adminPath("/inspirations?plateformes=TikTok"));
 
     // Hydration : TikTok visible, autres masqués
     await expect(page.getByText(tTik).first()).toBeVisible({ timeout: 5000 });

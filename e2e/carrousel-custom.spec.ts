@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 
 /**
  * Batch C — création carrousel mode Custom via modal NouveauModal.
@@ -9,7 +9,7 @@ import { test, expect } from "./fixtures/auth-fixture";
 test.describe("Création carrousel mode custom", () => {
   test("hook custom + tous les champs", async ({ page }) => {
     // Pré-requis : compte test
-    await page.goto("/comptes");
+    await page.goto(adminPath("/comptes"));
     if (
       (await page.getByRole("cell", { name: "@test_e2e_custom" }).count()) === 0
     ) {
@@ -26,7 +26,7 @@ test.describe("Création carrousel mode custom", () => {
 
     // Ouvre le modal directement avec format pré-sélectionné via URL.
     // Plus rapide et déterministe que de cliquer le bouton header.
-    await page.goto("/dashboard?nouveau=open&format=carousel");
+    await page.goto(adminPath("/dashboard?nouveau=open&format=carousel"));
 
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();

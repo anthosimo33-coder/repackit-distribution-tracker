@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -32,7 +32,7 @@ test.describe("StepPublication exclut les comptes non-actifs", () => {
     await convex.mutation(api.icps.createIcp, { nom: icpName });
 
     // Modal Nouveau Short pré-sélectionné.
-    await page.goto("/shorts?nouveau=open&format=short");
+    await page.goto(adminPath("/shorts?nouveau=open&format=short"));
     const dialog = page.getByRole("dialog", { name: /nouvelle publication/i });
     await expect(dialog).toBeVisible();
 

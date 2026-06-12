@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -36,7 +36,7 @@ test.describe("Inspirations — TagsInput", () => {
       notes: `${E2E_MARKER} tags test`,
     });
 
-    await page.goto("/inspirations");
+    await page.goto(adminPath("/inspirations"));
     await expect(page.getByText(titre).first()).toBeVisible({ timeout: 5000 });
 
     // Ouvrir Dialog edit

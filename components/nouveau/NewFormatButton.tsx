@@ -9,6 +9,7 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import { PlusIcon } from "lucide-react";
 import { FORMAT_CONFIGS, type FormatKey } from "@/lib/format-config";
+import { useProjectPath } from "@/components/project/ProjectProvider";
 import { cn } from "@/lib/utils";
 
 /**
@@ -18,15 +19,18 @@ import { cn } from "@/lib/utils";
  * cohérent avec la card de l'étape 1.
  */
 export function NewFormatButton({ format }: { format: FormatKey }) {
+  // useProjectPath ne suspend pas (sous ProjectProvider) → le fallback du
+  // Suspense (qui couvre useSearchParams) reste scopé au projet courant.
+  const projectPath = useProjectPath();
   return (
     <Suspense
       fallback={
-        // Fallback : Link statique vers /dashboard?nouveau=open&format=X
-        // pour préserver le comportement même pendant l'hydratation
+        // Fallback : Link statique vers /admin/<slug>/dashboard?nouveau=open
+        // &format=X pour préserver le comportement même pendant l'hydratation
         // initiale. Les utilisateurs cliquant trop tôt arrivent quand même
         // sur le bon modal.
         <a
-          href={`/dashboard?nouveau=open&format=${format}`}
+          href={projectPath(`/dashboard?nouveau=open&format=${format}`)}
           className={cn(buttonVariants({ size: "sm" }))}
         >
           <PlusIcon />

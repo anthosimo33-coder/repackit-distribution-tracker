@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
+import { useProjectPath } from "@/components/project/ProjectProvider";
 import { api } from "@/convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -51,6 +52,7 @@ const PLATFORMS = ["TikTok", "Instagram", "YouTube"] as const;
  */
 export function ShortSourcesTable({ sources }: { sources: SourceRow[] }) {
   const router = useRouter();
+  const projectPath = useProjectPath();
   // Docs complets pour ouvrir PublicationDetailDialog au clic sur un badge.
   // listPublications est déjà en cache (dédup Convex) — coût négligeable.
   const allPubs = useProjectQuery(api.publications.listPublications, {});
@@ -75,7 +77,9 @@ export function ShortSourcesTable({ sources }: { sources: SourceRow[] }) {
 
   function createWithSource(displaySourceId: string) {
     router.push(
-      `/shorts?nouveau=open&format=short&sourceId=${encodeURIComponent(displaySourceId)}`,
+      projectPath(
+        `/shorts?nouveau=open&format=short&sourceId=${encodeURIComponent(displaySourceId)}`,
+      ),
     );
   }
 

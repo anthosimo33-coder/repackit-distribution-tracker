@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { PlatformBadge } from "@/components/VerdictBadge";
+import { useProjectPath } from "@/components/project/ProjectProvider";
 import { SnapshotAgeSelector } from "@/components/snapshot-age-selector/SnapshotAgeSelector";
 import CompteDialog, { type Compte } from "@/components/comptes/CompteDialog";
 import {
@@ -27,6 +28,7 @@ import { cn } from "@/lib/utils";
  */
 export function CompteDetailHeader({ compte }: { compte: Compte }) {
   const [editOpen, setEditOpen] = useState(false);
+  const projectPath = useProjectPath();
 
   const effStatus = getEffectiveStatus(compte);
   const badge = getStatusBadge(compte);
@@ -39,7 +41,7 @@ export function CompteDetailHeader({ compte }: { compte: Compte }) {
     <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
       <div className="space-y-2">
         <Link
-          href="/comptes"
+          href={projectPath("/comptes")}
           aria-label="Retour aux comptes"
           className={cn(
             buttonVariants({ variant: "ghost", size: "sm" }),

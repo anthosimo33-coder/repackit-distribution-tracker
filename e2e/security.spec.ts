@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { createE2eClient } from "./helpers/authed-client";
+import { createE2eClient, adminPath } from "./helpers/authed-client";
 import { config } from "dotenv";
 
 config({ path: ".env.local" });
@@ -121,7 +121,7 @@ test.describe("Gating pages — proxy Next", () => {
       storageState: { cookies: [], origins: [] },
     });
     const page = await context.newPage();
-    await page.goto("/dashboard");
+    await page.goto(adminPath("/dashboard"));
     await page.waitForURL("**/login");
     await expect(
       page.getByRole("button", { name: "Se connecter" }),

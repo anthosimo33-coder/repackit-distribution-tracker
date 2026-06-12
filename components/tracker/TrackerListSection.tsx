@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
+import { useProjectPath } from "@/components/project/ProjectProvider";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { Card, CardContent } from "@/components/ui/card";
@@ -297,6 +298,7 @@ export function TrackerListSection({
   mediaType: MediaType;
 }) {
   const router = useRouter();
+  const projectPath = useProjectPath();
   const searchParams = useSearchParams();
   const carouselIdParam = searchParams.get("carouselId");
 
@@ -877,7 +879,7 @@ export function TrackerListSection({
             size="sm"
             className="h-7 text-violet-700 hover:bg-violet-100 hover:text-violet-900"
             onClick={() =>
-              router.replace(FORMAT_CONFIGS[mediaType].route)
+              router.replace(projectPath(FORMAT_CONFIGS[mediaType].route))
             }
           >
             Effacer

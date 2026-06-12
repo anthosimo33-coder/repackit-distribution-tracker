@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
+import { useProjectPath } from "@/components/project/ProjectProvider";
 import { api } from "@/convex/_generated/api";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -79,6 +80,7 @@ export default function ComptesPage() {
 
 function ComptesPageInner() {
   const router = useRouter();
+  const projectPath = useProjectPath();
   const searchParams = useSearchParams();
   const comptes = useProjectQuery(api.comptes.listComptes, {});
   const [addOpen, setAddOpen] = useState(false);
@@ -95,7 +97,7 @@ function ComptesPageInner() {
     if (view) params.set("view", view);
     else params.delete("view");
     const qs = params.toString();
-    router.replace(qs ? `/comptes?${qs}` : "/comptes");
+    router.replace(projectPath(qs ? `/comptes?${qs}` : "/comptes"));
   }
 
   // Compteurs par statut (sur l'ensemble, hors filtre) pour le sous-titre.
@@ -226,7 +228,7 @@ function ComptesPageInner() {
                     >
                       <TableCell className="font-mono font-medium text-slate-900">
                         <Link
-                          href={`/comptes/${c._id}`}
+                          href={projectPath(`/comptes/${c._id}`)}
                           className="transition-colors hover:text-primary hover:underline"
                         >
                           {c.handle}

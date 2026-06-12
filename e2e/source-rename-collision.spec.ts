@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -69,7 +69,7 @@ test.describe("Source rename — collision bloquante", () => {
       sourceId: srcB,
     });
 
-    await page.goto("/shorts/sources");
+    await page.goto(adminPath("/shorts/sources"));
     await page
       .getByRole("button", { name: `Renommer la source ${srcA}` })
       .click();

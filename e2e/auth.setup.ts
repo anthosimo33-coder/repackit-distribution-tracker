@@ -4,6 +4,7 @@ import {
   E2E_EMAIL,
   E2E_PASSWORD,
   ensureE2eProject,
+  adminPath,
 } from "./helpers/authed-client";
 
 export const STORAGE_STATE = path.join(__dirname, ".auth", "user.json");
@@ -21,6 +22,11 @@ export const STORAGE_STATE = path.join(__dirname, ".auth", "user.json");
  * users non vide sans le user e2e).
  */
 setup("authentifie le user e2e", async ({ page }) => {
+  // Bootstrap one-shot : ce test paie tous les coûts de compilation à froid du
+  // dev server (login, resolver `/`, route `/admin/[projectSlug]/dashboard`).
+  // Budget large pour absorber le cold-start Turbopack (local + CI).
+  setup.setTimeout(120_000);
+
   if (E2E_PASSWORD.length === 0) {
     throw new Error(
       "E2E_SECRET (ou E2E_PASSWORD) manquant — impossible d'authentifier le user e2e.",
@@ -66,7 +72,7 @@ setup("authentifie le user e2e", async ({ page }) => {
   await ensureE2eProject(convexUrl);
 
   // Reload pour que ProjectProvider re-résolve le projet (e2e désormais).
-  await page.goto("/dashboard");
+  await page.goto(adminPath("/dashboard"));
   await expect(
     page.getByRole("heading", { name: "Dashboard" }),
   ).toBeVisible({ timeout: 15_000 });

@@ -1,8 +1,8 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 
 test.describe("Comptes CRUD", () => {
   test("créer, modifier, archiver un compte", async ({ page }) => {
-    await page.goto("/comptes");
+    await page.goto(adminPath("/comptes"));
 
     // Ajouter
     await page.getByRole("button", { name: /ajouter un compte/i }).first().click();

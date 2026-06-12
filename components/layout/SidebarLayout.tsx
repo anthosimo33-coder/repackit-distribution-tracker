@@ -7,6 +7,10 @@ import { Sidebar } from "./Sidebar";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { NouveauModal } from "@/components/nouveau/NouveauModal";
+import {
+  useProject,
+  useProjectPath,
+} from "@/components/project/ProjectProvider";
 import type { MediaType } from "@/lib/media-type";
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -40,6 +44,7 @@ const VALID_FORMATS = ["carousel", "short", "screenrecorder"] as const;
 export function SidebarLayout({ children }: { children: React.ReactNode }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { project } = useProject();
 
   useEffect(() => {
     try {
@@ -100,8 +105,8 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
             />
           </SheetContent>
         </Sheet>
-        <span className="text-sm font-semibold text-slate-900">
-          RepackIt Distribution
+        <span className="truncate text-sm font-semibold text-slate-900">
+          {project.name}
         </span>
       </header>
 
@@ -129,6 +134,7 @@ function NouveauModalController() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const projectPath = useProjectPath();
   const isOpen = searchParams.get("nouveau") === "open";
   const formatParam = searchParams.get("format");
   const hookIdParam = searchParams.get("hookId");
@@ -161,7 +167,7 @@ function NouveauModalController() {
         : mediaType === "screenrecorder"
           ? "/screenrecorder"
           : "/shorts";
-    router.push(`${route}?carouselId=${carouselId}`);
+    router.push(projectPath(`${route}?carouselId=${carouselId}`));
   }
 
   return (

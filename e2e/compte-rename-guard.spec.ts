@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -59,7 +59,7 @@ test.describe("Garde-fou rename compte", () => {
       notes: "[E2E_TEST] rename guard",
     });
 
-    await page.goto("/comptes");
+    await page.goto(adminPath("/comptes"));
 
     // Ouvre Modifier via le menu d'actions de la ligne.
     const row = page.getByRole("row").filter({ hasText: HANDLE });

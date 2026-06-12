@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -54,7 +54,7 @@ test.describe("Tracker — Dupliquer un carrousel", () => {
     }
 
     // Pré-requis : 2 comptes TikTok pour pouvoir distinguer original/duplicat
-    await page.goto("/comptes");
+    await page.goto(adminPath("/comptes"));
     for (const handle of ["test_e2e_dup_src", "test_e2e_dup_dst"]) {
       if (
         (await page
@@ -103,7 +103,7 @@ test.describe("Tracker — Dupliquer un carrousel", () => {
       notes: "[E2E_TEST] duplicate",
     });
 
-    await page.goto("/carrousels");
+    await page.goto(adminPath("/carrousels"));
 
     // Récupère carouselId de l'original via ConvexHttpClient (le client a déjà
     // accès, on évite de gratter la cellule du tracker pour rester explicite).

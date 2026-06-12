@@ -6,6 +6,7 @@ import { TrackerListSection } from "@/components/tracker/TrackerListSection";
 import { Skeleton } from "@/components/ui/skeleton";
 import { buttonVariants } from "@/components/ui/button";
 import { NewFormatButton } from "@/components/nouveau/NewFormatButton";
+import { useProjectPath } from "@/components/project/ProjectProvider";
 import { LibraryIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -17,6 +18,7 @@ import { cn } from "@/lib/utils";
  * sources" → sous-route /shorts/sources (anti-shadowban : matrice sourceId).
  */
 export default function ShortsPage() {
+  const projectPath = useProjectPath();
   return (
     <div className="space-y-6">
       <header className="flex items-baseline justify-between">
@@ -25,7 +27,7 @@ export default function ShortsPage() {
         </h1>
         <div className="flex items-center gap-2">
           <Link
-            href="/shorts/sources"
+            href={projectPath("/shorts/sources")}
             className={cn(buttonVariants({ variant: "outline" }), "gap-1.5")}
           >
             <LibraryIcon className="size-4" />

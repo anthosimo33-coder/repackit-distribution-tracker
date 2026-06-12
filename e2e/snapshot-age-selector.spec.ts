@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -11,7 +11,7 @@ const convex = createE2eClient(convexUrl);
 const DAY = 86_400_000;
 
 async function ensureCompte(page: import("@playwright/test").Page, handle: string) {
-  await page.goto("/comptes");
+  await page.goto(adminPath("/comptes"));
   if ((await page.getByRole("cell", { name: `@${handle}` }).count()) === 0) {
     await page.getByRole("button", { name: /ajouter un compte/i }).first().click();
     await page.getByLabel("Handle").fill(handle);
@@ -80,7 +80,7 @@ test.describe("SnapshotAgeSelector", () => {
       likes: 0,
     });
 
-    await page.goto("/carrousels");
+    await page.goto(adminPath("/carrousels"));
     const row = page
       .getByRole("row")
       .filter({ hasText: "Hook E2E snapage" })

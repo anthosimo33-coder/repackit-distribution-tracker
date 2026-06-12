@@ -4,6 +4,7 @@ import { use, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
+import { useProjectPath } from "@/components/project/ProjectProvider";
 import { api } from "@/convex/_generated/api";
 import { CompteDetailView } from "@/components/comptes/detail/CompteDetailView";
 import { CompteDetailSkeleton } from "@/components/comptes/detail/CompteDetailSkeleton";
@@ -24,14 +25,15 @@ export default function CompteDetailPage({
 }) {
   const { compteId } = use(params);
   const router = useRouter();
+  const projectPath = useProjectPath();
   const comptes = useProjectQuery(api.comptes.listComptes, {});
   const compte = comptes?.find((c) => c._id === compteId);
 
   useEffect(() => {
     if (comptes !== undefined && compte === undefined) {
-      router.replace("/comptes");
+      router.replace(projectPath("/comptes"));
     }
-  }, [comptes, compte, router]);
+  }, [comptes, compte, router, projectPath]);
 
   if (comptes === undefined) return <CompteDetailSkeleton />;
   if (compte === undefined) return null; // redirection en cours

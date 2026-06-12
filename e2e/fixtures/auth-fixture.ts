@@ -95,3 +95,6 @@ function cookie(name: string, value: string, origin: string) {
 }
 
 export { expect };
+// P3 — réexporté pour que les specs naviguent dans /admin/e2e-test/… sans
+// importer un second helper (elles importent déjà { test, expect } d'ici).
+export { adminPath, E2E_PROJECT_SLUG } from "../helpers/authed-client";

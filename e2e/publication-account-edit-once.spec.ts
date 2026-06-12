@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -77,7 +77,7 @@ test.describe("Publication — modification compte (1 fois)", () => {
     });
 
     async function openDetail() {
-      await page.goto(`/carrousels?carouselId=${cid}`);
+      await page.goto(adminPath(`/carrousels?carouselId=${cid}`));
       const row = page.getByRole("row").filter({ hasText: cid });
       await expect(row).toBeVisible({ timeout: 5000 });
       await row.getByRole("button").last().click();

@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -88,7 +88,7 @@ test.describe("Tracker — Marquer Short comme posté + édition métriques", ()
 
     // Batch B — page /shorts filtre déjà implicitement par mediaType=short.
     // L'ancien filtre top-level Format disparaît avec le split de routes.
-    await page.goto("/shorts");
+    await page.goto(adminPath("/shorts"));
 
     // Row visible avec hookText. Ouvre le menu actions et clique "Marquer
     // comme posté".

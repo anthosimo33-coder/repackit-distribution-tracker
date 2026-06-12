@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -15,7 +15,7 @@ test.describe("Verdict suit la période sélectionnée", () => {
     page,
   }) => {
     // Compte
-    await page.goto("/comptes");
+    await page.goto(adminPath("/comptes"));
     if (
       (await page
         .getByRole("cell", { name: "@test_e2e_verdict" })
@@ -78,7 +78,7 @@ test.describe("Verdict suit la période sélectionnée", () => {
       saves: 40,
     });
 
-    await page.goto("/carrousels");
+    await page.goto(adminPath("/carrousels"));
     const row = page
       .getByRole("row")
       .filter({ hasText: "Hook E2E verdict période" })

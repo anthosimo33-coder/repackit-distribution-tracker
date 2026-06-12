@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { ArrowLeftIcon } from "lucide-react";
 import { ShortSourcesTable } from "@/components/shorts/sources/ShortSourcesTable";
 import { ShortSourcesSkeleton } from "@/components/shorts/sources/ShortSourcesSkeleton";
+import { useProjectPath } from "@/components/project/ProjectProvider";
 import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +31,7 @@ const FILTERS: { key: CoverageFilter; label: string }[] = [
 ];
 
 export default function ShortSourcesPage() {
+  const projectPath = useProjectPath();
   const sources = useProjectQuery(api.publications.listSources, {});
   const [search, setSearch] = useState("");
   const [coverageFilter, setCoverageFilter] = useState<CoverageFilter>("all");
@@ -56,7 +58,7 @@ export default function ShortSourcesPage() {
     <div className="space-y-6">
       <header className="space-y-2">
         <Link
-          href="/shorts"
+          href={projectPath("/shorts")}
           className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-900"
         >
           <ArrowLeftIcon className="size-4" />

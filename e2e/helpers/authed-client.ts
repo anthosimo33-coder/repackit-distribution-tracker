@@ -27,6 +27,15 @@ export const E2E_PASSWORD = process.env.E2E_PASSWORD ?? E2E_SECRET;
 export const E2E_PROJECT_SLUG = "e2e-test";
 
 /**
+ * P3 — l'app interne vit sous `/admin/[projectSlug]/…`. Les specs naviguent
+ * dans le projet e2e dédié : `adminPath("/comptes")` → `/admin/e2e-test/comptes`.
+ * Centralise le préfixe pour que les specs n'aient pas à coder le slug en dur.
+ */
+export function adminPath(path = ""): string {
+  return `/admin/${E2E_PROJECT_SLUG}${path}`;
+}
+
+/**
  * P2 — rend projectId OPTIONNEL au niveau type : les specs appellent les
  * fonctions scopées projet sans projectId, il est injecté au runtime (projet
  * e2e courant). Les fonctions e2e-gated (secret) ou auth (provider) ne le

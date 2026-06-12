@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -19,7 +19,7 @@ const convex = createE2eClient(convexUrl);
 test.describe("Tracker — Marquer comme posté (raccourci 1-clic)", () => {
   test("draft → dropdown → dialog → URL → row en Publié", async ({ page }) => {
     // Pré-requis : compte
-    await page.goto("/comptes");
+    await page.goto(adminPath("/comptes"));
     if (
       (await page
         .getByRole("cell", { name: "@test_e2e_mark_posted" })
@@ -62,7 +62,7 @@ test.describe("Tracker — Marquer comme posté (raccourci 1-clic)", () => {
       notes: "[E2E_TEST] mark as posted",
     });
 
-    await page.goto("/carrousels");
+    await page.goto(adminPath("/carrousels"));
 
     // La row vient d'être créée → section "À venir". Ouvre son dropdown.
     const row = page.getByRole("row").filter({ hasText: hookText });

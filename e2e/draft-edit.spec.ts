@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -21,7 +21,7 @@ test.describe("Draft edit via detail dialog", () => {
   }) => {
     // Pré-requis : compte (création UI car le test couvre incidemment ce
     // flow — fonction extraite ailleurs aurait été plus DRY mais hors scope).
-    await page.goto("/comptes");
+    await page.goto(adminPath("/comptes"));
     if (
       (await page
         .getByRole("cell", { name: "@test_e2e_draft_edit" })
@@ -69,7 +69,7 @@ test.describe("Draft edit via detail dialog", () => {
       notes: "[E2E_TEST] draft edit",
     });
 
-    await page.goto("/carrousels");
+    await page.goto(adminPath("/carrousels"));
 
     // Ouvrir détail/édition du draft
     const row = page

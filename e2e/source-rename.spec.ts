@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -48,7 +48,7 @@ test.describe("Source rename — renommage simple", () => {
       sourceId: oldSrc,
     });
 
-    await page.goto("/shorts/sources");
+    await page.goto(adminPath("/shorts/sources"));
     await page
       .getByRole("button", { name: `Renommer la source ${oldSrc}` })
       .click();
@@ -69,7 +69,7 @@ test.describe("Source rename — renommage simple", () => {
     await expect(page.getByText(oldSrc)).toHaveCount(0);
 
     // /shorts : la colonne Source affiche le nouveau nom.
-    await page.goto("/shorts");
+    await page.goto(adminPath("/shorts"));
     await expect(page.getByText(newSrc).first()).toBeVisible({
       timeout: 5000,
     });

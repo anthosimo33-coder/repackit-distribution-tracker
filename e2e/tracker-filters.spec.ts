@@ -1,8 +1,8 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 
 test.describe("Tracker filtres", () => {
   test("filtre par verdict WINNER affiche que les winners", async ({ page }) => {
-    await page.goto("/carrousels");
+    await page.goto(adminPath("/carrousels"));
 
     // Skip si pas de pubs (test indépendant des autres)
     if ((await page.getByText(/aucun carrousel/i).count()) > 0) {

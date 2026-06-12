@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -34,7 +34,7 @@ test.describe("Filtre statut /comptes", () => {
       status: "shadowban",
     });
 
-    await page.goto("/comptes");
+    await page.goto(adminPath("/comptes"));
     const rowA = page.getByRole("row").filter({ hasText: aHandle });
     const rowW = page.getByRole("row").filter({ hasText: wHandle });
     const rowS = page.getByRole("row").filter({ hasText: sHandle });

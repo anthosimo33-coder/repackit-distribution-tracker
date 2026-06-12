@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -53,7 +53,7 @@ test.describe("ICP — suppression cascade", () => {
     await createShort({ carouselId: c1, icpId, ts });
     await createShort({ carouselId: c2, icpId, ts });
 
-    await page.goto("/comptes?view=icps");
+    await page.goto(adminPath("/comptes?view=icps"));
 
     const row = page.locator("ul > li").filter({ hasText: icpName });
     await expect(row).toBeVisible({ timeout: 5000 });
@@ -70,7 +70,7 @@ test.describe("ICP — suppression cascade", () => {
     ).not.toBeVisible();
 
     // Les 2 Shorts restent, sans ICP.
-    await page.goto("/shorts");
+    await page.goto(adminPath("/shorts"));
     const r1 = page.getByRole("row").filter({ hasText: c1 });
     const r2 = page.getByRole("row").filter({ hasText: c2 });
     await expect(r1).toBeVisible({ timeout: 5000 });

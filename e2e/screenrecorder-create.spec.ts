@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -57,7 +57,7 @@ test.describe.skip("Création ScreenRecorder via modal NouveauModal", () => {
 
     const titre = `ScreenRecorder E2E ${Date.now()}`;
 
-    await page.goto("/screenrecorder?nouveau=open&format=screenrecorder");
+    await page.goto(adminPath("/screenrecorder?nouveau=open&format=screenrecorder"));
 
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();

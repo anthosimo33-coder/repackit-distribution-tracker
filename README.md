@@ -86,10 +86,33 @@ Pour amorcer un **nouveau deployment** (dev/test/prod neuf), lancer
 `setupRepackitProject` après le 1er provisioning auth (crée le projet repackit
 + membership superadmin ; idempotent).
 
-Côté front, le projet courant est résolu via `api.projects.getCurrentProject`
-(membership) dans `ProjectProvider` — **TODO(P3)** : remplacer par le sélecteur
-de projet. Les e2e utilisent un projet dédié `e2e-test` (créé par
-`auth.setup.ts`).
+### P3 — routes `/admin/[projectSlug]` + switcher + création de projet
+
+L'app interne vit sous `/admin/[projectSlug]/…` (dashboard, comptes, carrousels,
+shorts, screenrecorder, biblio-hooks, inspirations). **L'URL est la source de
+vérité du projet actif** : `ProjectProvider` lit le segment `[projectSlug]` et
+le résout via `api.projects.getProjectForCurrentUser` (vérif superadmin ou
+membership ; 404 propre si slug inexistant, accès refusé sinon). Plus aucun
+projet implicite ni stocké en localStorage.
+
+- `/` résout le projet par défaut de l'utilisateur (`getCurrentProject`) puis
+  redirige vers `/admin/<slug>/dashboard`. Les anciennes routes (`/dashboard`,
+  `/carrousels?carouselId=…`, `/nouveau`, `/tracker`…) redirigent vers
+  `/admin/repackit/…` (slug par défaut). `/p/[carouselId]` est un resolver
+  cross-projet : il cherche le carouselId dans les projets accessibles puis
+  redirige vers la route scopée (404 sinon).
+- **Switcher de projet** en tête de sidebar (`api.projects.listMyProjects` :
+  superadmin → tous, sinon memberships). **« Créer un projet »** (superadmin,
+  `api.projects.createProject`) : modal nom + slug + couleur d'accent (#FF5200)
+  + jour de paie (5) → projet vierge → bascule dessus. Footer sidebar : email
+  (`api.projects.getMe`) + déconnexion.
+- État local scopé : `tracker.snapshot-age:<slug>` (période J+X par projet) ;
+  `sidebar-collapsed` et le schéma des `filterPresets` restent globaux.
+- Les e2e naviguent dans `/admin/e2e-test/…` (helper `adminPath`) sur un projet
+  dédié `e2e-test` (créé par `auth.setup.ts`).
+
+Reste différé (hors P3) : rôle `creator` + portail `/app`, theming par
+`accentColor`.
 
 ## Authentification (Convex Auth)
 

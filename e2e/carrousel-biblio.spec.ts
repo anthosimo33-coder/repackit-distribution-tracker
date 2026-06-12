@@ -1,11 +1,11 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 
 async function ensureCompteExists(
   page: import("@playwright/test").Page,
   handle: string,
   plateforme: "TikTok" | "Instagram",
 ) {
-  await page.goto("/comptes");
+  await page.goto(adminPath("/comptes"));
   if ((await page.getByRole("cell", { name: `@${handle}` }).count()) > 0) return;
   await page.getByRole("button", { name: /ajouter un compte/i }).first().click();
   await page.getByLabel("Handle").fill(handle);
@@ -30,7 +30,7 @@ test.describe("Création carrousel via bibliothèque", () => {
   test("flow complet bibliothèque → carrousel créé", async ({ page }) => {
     await ensureCompteExists(page, "test_e2e_carousel", "TikTok");
 
-    await page.goto("/biblio-hooks");
+    await page.goto(adminPath("/biblio-hooks"));
     const firstCreateLink = page
       .getByRole("link", { name: /créer carrousel/i })
       .first();

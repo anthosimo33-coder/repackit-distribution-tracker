@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -29,7 +29,7 @@ test.describe("Personnes — CRUD", () => {
     const prenom = "Antoine";
     const nom = `${E2E_MARKER} Durand ${Date.now()}`;
 
-    await page.goto("/comptes?view=personnes");
+    await page.goto(adminPath("/comptes?view=personnes"));
 
     // Header + EmptyState
     await expect(

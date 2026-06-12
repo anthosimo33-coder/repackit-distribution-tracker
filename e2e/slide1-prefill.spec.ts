@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 
 /**
  * Batch C — pre-fill slide 1 dans le modal NouveauModal.
@@ -17,7 +17,7 @@ test.describe("Slide 1 — pre-fill depuis hook (modal NouveauModal)", () => {
   }) => {
     // Arrive via /biblio-hooks → click "Créer carrousel" → modal s'ouvre
     // étape 2 (format=carousel pré-sélectionné, hookId initial set).
-    await page.goto("/biblio-hooks");
+    await page.goto(adminPath("/biblio-hooks"));
     const firstHookLink = page.locator('a[href*="hookId="]').first();
     await firstHookLink.click();
     await expect(page).toHaveURL(/[?&]nouveau=open/, { timeout: 10000 });
@@ -60,7 +60,7 @@ test.describe("Slide 1 — pre-fill depuis hook (modal NouveauModal)", () => {
   test("custom: keystroke remplit slide 1 vide ; figée une fois remplie", async ({
     page,
   }) => {
-    await page.goto("/dashboard?nouveau=open&format=carousel");
+    await page.goto(adminPath("/dashboard?nouveau=open&format=carousel"));
 
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();

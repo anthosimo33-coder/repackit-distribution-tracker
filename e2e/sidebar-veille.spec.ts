@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 
 /**
  * Batch F — smoke test sidebar 3e section. Vérifie que la nav vers
@@ -8,7 +8,7 @@ import { test, expect } from "./fixtures/auth-fixture";
  */
 test.describe("Sidebar — section Veille", () => {
   test("affiche Inspirations + nav fonctionnelle", async ({ page }) => {
-    await page.goto("/dashboard");
+    await page.goto(adminPath("/dashboard"));
 
     // Les 3 labels de section sont visibles en mode expanded.
     // (Pas de role/heading sur le label de section — texte uppercase pur.)

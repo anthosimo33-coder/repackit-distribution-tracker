@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
@@ -88,7 +88,7 @@ test.describe("Anti-shadowban — bibliothèque /shorts/sources", () => {
     await createShort(srcC, "Instagram", "@e2e_lib_ig");
     await createShort(srcC, "YouTube", "@e2e_lib_yt");
 
-    await page.goto("/shorts/sources");
+    await page.goto(adminPath("/shorts/sources"));
 
     // Les 3 sources apparaissent dans la matrice.
     await expect(page.getByText(srcA).first()).toBeVisible({ timeout: 10000 });

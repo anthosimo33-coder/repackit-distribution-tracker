@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -54,7 +54,7 @@ test.describe("Hooks — Vue variantes via Popover", () => {
     }
 
     // Pré-requis : 2 comptes TikTok (création UI pour profiter du normalizeHandle)
-    await page.goto("/comptes");
+    await page.goto(adminPath("/comptes"));
     for (const handle of ["test_e2e_var_view_src", "test_e2e_var_view_dst"]) {
       if (
         (await page
@@ -109,7 +109,7 @@ test.describe("Hooks — Vue variantes via Popover", () => {
 
     // UI : aller sur /biblio-hooks, filtrer par texte du hook pour réduire
     // le DOM, puis trouver la card et son bouton "Voir les X variantes".
-    await page.goto("/biblio-hooks");
+    await page.goto(adminPath("/biblio-hooks"));
     await page.getByLabel("Recherche").fill(targetHook.text);
     // Bouton variantes : "Voir les X variantes" — X dépend des éventuelles
     // duplications pré-existantes pour ce hook (peut être > 2 si d'autres

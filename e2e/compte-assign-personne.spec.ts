@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -36,7 +36,7 @@ test.describe("Compte — assignation gestionnaire", () => {
       notes: `${E2E_MARKER} assign`,
     });
 
-    await page.goto("/comptes");
+    await page.goto(adminPath("/comptes"));
 
     // Ouvre le dialog d'édition du compte
     const row = page.getByRole("row").filter({ hasText: handle });

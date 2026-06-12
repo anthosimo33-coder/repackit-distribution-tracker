@@ -43,7 +43,9 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       await signIn("password", { email, password, flow });
-      router.push("/dashboard");
+      // P3 — `/` résout le projet par défaut puis redirige vers son dashboard
+      // scopé (le projet dépend de l'utilisateur, pas de route codée en dur).
+      router.push("/");
     } catch (err) {
       setError(
         err instanceof ConvexError && typeof err.data === "string"

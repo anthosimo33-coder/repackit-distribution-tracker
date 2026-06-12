@@ -1,4 +1,9 @@
-import { authedQuery, e2eMutation, requireProjectAccess } from "./functions";
+import {
+  authedQuery,
+  e2eMutation,
+  requireProjectAccess,
+  superadminMutation,
+} from "./functions";
 import { ConvexError, v } from "convex/values";
 import type { QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
@@ -50,6 +55,137 @@ export const getCurrentProject = authedQuery({
     }
 
     return await getProjectBySlug(ctx, REPACKIT_SLUG);
+  },
+});
+
+/**
+ * P3 — slugs réservés à l'arborescence de routes (`/admin/[slug]/…`, segment
+ * `/app` futur portail créateur, `/login`, `/p`). Empêche de créer un projet
+ * dont le slug entrerait en collision avec un segment top-level.
+ */
+const RESERVED_SLUGS = new Set([
+  "admin",
+  "app",
+  "login",
+  "api",
+  "p",
+  "_next",
+  "dashboard",
+]);
+
+/**
+ * P3 — résolution du projet par slug d'URL pour l'utilisateur courant. L'URL est
+ * la source de vérité : le ProjectProvider lit `[projectSlug]` et appelle cette
+ * query. Retour discriminé pour distinguer 404 (slug inexistant) et 403 (slug
+ * existant mais pas d'accès) côté UI.
+ */
+export const getProjectForCurrentUser = authedQuery({
+  args: { slug: v.string() },
+  handler: async (ctx, { slug }) => {
+    const project = await getProjectBySlug(ctx, slug);
+    if (project === null) return { status: "not_found" as const };
+    const user = await ctx.db.get(ctx.userId);
+    if (user?.role === "superadmin") {
+      return { status: "ok" as const, project };
+    }
+    const membership = await ctx.db
+      .query("memberships")
+      .withIndex("by_user_project", (q) =>
+        q.eq("userId", ctx.userId).eq("projectId", project._id),
+      )
+      .first();
+    if (membership === null) return { status: "forbidden" as const };
+    return { status: "ok" as const, project };
+  },
+});
+
+/**
+ * P3 — projets accessibles par l'utilisateur courant (switcher de projet).
+ * superadmin → tous les projets ; sinon → ceux liés par un membership. Triés
+ * par nom pour un ordre stable dans le menu.
+ */
+export const listMyProjects = authedQuery({
+  args: {},
+  handler: async (ctx) => {
+    const user = await ctx.db.get(ctx.userId);
+    let projects: Doc<"projects">[];
+    if (user?.role === "superadmin") {
+      projects = await ctx.db.query("projects").collect();
+    } else {
+      const memberships = await ctx.db
+        .query("memberships")
+        .withIndex("by_user", (q) => q.eq("userId", ctx.userId))
+        .collect();
+      projects = [];
+      for (const m of memberships) {
+        const p = await ctx.db.get(m.projectId);
+        if (p) projects.push(p);
+      }
+    }
+    return projects.sort((a, b) => a.name.localeCompare(b.name));
+  },
+});
+
+/**
+ * P3 — identité de l'utilisateur courant (email pour le footer sidebar, rôle
+ * pour gater « Créer un projet »). undefined role traité comme non-superadmin.
+ */
+export const getMe = authedQuery({
+  args: {},
+  handler: async (ctx) => {
+    const user = await ctx.db.get(ctx.userId);
+    return {
+      email: user?.email ?? null,
+      isSuperadmin: user?.role === "superadmin",
+    };
+  },
+});
+
+/**
+ * P3 — création d'un projet vierge (superadmin uniquement). Slug normalisé
+ * (minuscules / chiffres / tirets), unique, non réservé. accentColor défaut
+ * #FF5200, payoutDay défaut 5 (borné 1–28). Aucun membership créé : le
+ * superadmin a l'accès implicite ; le workspace reste 100 % vide.
+ */
+export const createProject = superadminMutation({
+  args: {
+    name: v.string(),
+    slug: v.string(),
+    accentColor: v.optional(v.string()),
+    payoutDay: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const name = args.name.trim();
+    if (name.length === 0) {
+      throw new ConvexError("Le nom du projet est requis.");
+    }
+    const slug = args.slug.trim().toLowerCase();
+    if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(slug)) {
+      throw new ConvexError(
+        "Slug invalide : minuscules, chiffres et tirets uniquement.",
+      );
+    }
+    if (RESERVED_SLUGS.has(slug)) {
+      throw new ConvexError(`Slug réservé : « ${slug} ».`);
+    }
+    const existing = await getProjectBySlug(ctx, slug);
+    if (existing !== null) {
+      throw new ConvexError(`Un projet « ${slug} » existe déjà.`);
+    }
+    const accentColor = args.accentColor?.trim() || "#FF5200";
+    const payoutDay = args.payoutDay ?? 5;
+    if (!Number.isInteger(payoutDay) || payoutDay < 1 || payoutDay > 28) {
+      throw new ConvexError("Le jour de paie doit être un entier entre 1 et 28.");
+    }
+    const projectId = await ctx.db.insert("projects", {
+      name,
+      slug,
+      accentColor,
+      payoutDay,
+      status: "active",
+      createdAt: Date.now(),
+    });
+    return { projectId, slug };
   },
 });
 
@@ -241,5 +377,28 @@ export const e2ePruneMemberships = e2eMutation({
       pruned += 1;
     }
     return { pruned };
+  },
+});
+
+/**
+ * Supprime un projet par slug + ses memberships — teardown du test de création
+ * de projet (project-create.spec) pour ne pas polluer le backend partagé entre
+ * runs. Refuse de toucher les projets « socles » (repackit / e2e-test).
+ */
+export const e2eDeleteProject = e2eMutation({
+  args: { slug: v.string() },
+  handler: async (ctx, args) => {
+    if (args.slug === REPACKIT_SLUG || args.slug === "e2e-test") {
+      throw new ConvexError(`Suppression interdite du projet socle « ${args.slug} ».`);
+    }
+    const project = await getProjectBySlug(ctx, args.slug);
+    if (project === null) return { deleted: false };
+    const memberships = await ctx.db
+      .query("memberships")
+      .withIndex("by_project", (q) => q.eq("projectId", project._id))
+      .collect();
+    for (const m of memberships) await ctx.db.delete(m._id);
+    await ctx.db.delete(project._id);
+    return { deleted: true };
   },
 });

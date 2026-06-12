@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 
 /**
  * Modif 2 — presets de filtres tracker.
@@ -18,7 +18,7 @@ import { test, expect } from "./fixtures/auth-fixture";
 // effacerait la couverture de save/reload/delete des presets.
 test.describe.skip("Tracker — presets de filtres (skip jusqu'à Convex deploy v4)", () => {
   test("create → reset → reload → delete", async ({ page }) => {
-    await page.goto("/carrousels");
+    await page.goto(adminPath("/carrousels"));
 
     // Skip si EmptyState (DB sans publication) — la PresetBar n'est rendue
     // que quand publications.length > 0. Wait stable de 3s pour laisser

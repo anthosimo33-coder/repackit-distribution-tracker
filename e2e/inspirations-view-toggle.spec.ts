@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -35,7 +35,7 @@ test.describe("Inspirations — toggle vue Grid/List", () => {
       notes: `${E2E_MARKER} view toggle`,
     });
 
-    await page.goto("/inspirations");
+    await page.goto(adminPath("/inspirations"));
 
     // Grid view default — card avec role=button visible (InspirationCard)
     const cardGrid = page.getByRole("button", { name: new RegExp(titre, "i") });

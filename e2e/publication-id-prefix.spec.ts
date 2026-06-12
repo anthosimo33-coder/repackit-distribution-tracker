@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -102,12 +102,12 @@ test.describe("Publication — préfixes d'ID par mediaType", () => {
     });
 
     // (2) Affichage : la liste /carrousels montre le C###, /shorts le S###.
-    await page.goto(`/carrousels?carouselId=${cId}`);
+    await page.goto(adminPath(`/carrousels?carouselId=${cId}`));
     await expect(
       page.getByRole("row").filter({ hasText: cId }),
     ).toBeVisible({ timeout: 5000 });
 
-    await page.goto(`/shorts?carouselId=${sId}`);
+    await page.goto(adminPath(`/shorts?carouselId=${sId}`));
     await expect(
       page.getByRole("row").filter({ hasText: sId }),
     ).toBeVisible({ timeout: 5000 });

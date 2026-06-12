@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -47,7 +47,7 @@ test.describe("Personne — suppression cascade", () => {
       personneId,
     });
 
-    await page.goto("/comptes?view=personnes");
+    await page.goto(adminPath("/comptes?view=personnes"));
 
     // Personne avec compteCount 2
     const row = page.locator("ul > li").filter({ hasText: prenom });
@@ -66,7 +66,7 @@ test.describe("Personne — suppression cascade", () => {
     ).not.toBeVisible();
 
     // Les 2 comptes restent, sans gestionnaire
-    await page.goto("/comptes");
+    await page.goto(adminPath("/comptes"));
     const r1 = page.getByRole("row").filter({ hasText: h1 });
     const r2 = page.getByRole("row").filter({ hasText: h2 });
     await expect(r1).toBeVisible({ timeout: 5000 });

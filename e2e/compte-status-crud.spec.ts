@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -22,7 +22,7 @@ test.describe("Compte status CRUD", () => {
       notes: "[E2E_TEST] status crud",
     });
 
-    await page.goto("/comptes");
+    await page.goto(adminPath("/comptes"));
     const row = page.getByRole("row").filter({ hasText: handle });
     await expect(row).toBeVisible();
 

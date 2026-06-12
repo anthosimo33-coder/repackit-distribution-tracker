@@ -4,6 +4,7 @@ import { useMemo, type Dispatch } from "react";
 import Link from "next/link";
 import { useQuery } from "convex/react";
 import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
+import { useProjectPath } from "@/components/project/ProjectProvider";
 import { api } from "@/convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -60,6 +61,7 @@ export function StepPublication({
   confirmOverride: boolean;
   onConfirmOverrideChange: (value: boolean) => void;
 }) {
+  const projectPath = useProjectPath();
   // On récupère TOUS les comptes (pas seulement les actifs) pour pouvoir
   // afficher, quand aucun n'est sélectionnable, combien sont en warmup /
   // shadowban sur les plateformes ciblées. Le dropdown ne propose que les
@@ -189,7 +191,7 @@ export function StepPublication({
               </>
             )}{" "}
             <Link
-              href="/comptes"
+              href={projectPath("/comptes")}
               className="font-medium underline underline-offset-2"
             >
               Gérer les comptes

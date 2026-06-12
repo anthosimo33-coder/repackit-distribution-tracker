@@ -1,10 +1,10 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 
 test.describe("Guide warmup intégré", () => {
   test("ouvre le Sheet, affiche les 7 sections, expand TikTok, ferme", async ({
     page,
   }) => {
-    await page.goto("/comptes");
+    await page.goto(adminPath("/comptes"));
 
     // Ouvrir le guide.
     await page.getByRole("button", { name: /guide warmup/i }).click();

@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -54,7 +54,7 @@ test.describe("Short — filtre par ICP", () => {
     await createShort(b, icp1, ts);
     await createShort(c, icp2, ts);
 
-    await page.goto("/shorts");
+    await page.goto(adminPath("/shorts"));
 
     const icpFilter = page
       .locator("label")

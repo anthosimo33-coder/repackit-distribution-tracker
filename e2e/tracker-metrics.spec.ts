@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -12,7 +12,7 @@ const convex = createE2eClient(convexUrl);
 test.describe("Tracker édition métriques", () => {
   test("verdict change selon save rate", async ({ page }) => {
     // Pré-requis : compte
-    await page.goto("/comptes");
+    await page.goto(adminPath("/comptes"));
     if ((await page.getByRole("cell", { name: "@test_e2e_metrics" }).count()) === 0) {
       await page.getByRole("button", { name: /ajouter un compte/i }).first().click();
       await page.getByLabel("Handle").fill("test_e2e_metrics");
@@ -49,7 +49,7 @@ test.describe("Tracker édition métriques", () => {
       notes: "[E2E_TEST] verdict test",
     });
 
-    await page.goto("/carrousels");
+    await page.goto(adminPath("/carrousels"));
 
     // Batch E — AnalyticsSection.TopHooksTable peut afficher la même
     // ligne (hook winners listé en bas de page) → scope first() pour

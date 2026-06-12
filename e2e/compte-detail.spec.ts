@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -111,7 +111,7 @@ test.describe("Vue détail compte", () => {
     });
 
     // Navigation via la cellule handle du tableau.
-    await page.goto("/comptes");
+    await page.goto(adminPath("/comptes"));
     await page.getByRole("link", { name: HANDLE }).click();
     await expect(page).toHaveURL(/\/comptes\/[a-z0-9]+/i);
 

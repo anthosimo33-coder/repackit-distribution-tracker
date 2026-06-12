@@ -1,22 +1,28 @@
 "use client";
 
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
+import Link from "next/link";
 import { useQuery } from "convex/react";
 import { Loader2Icon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
+import { projectPath } from "@/lib/project-path";
 
 /**
- * P2 Multi-tenant — contexte du projet courant.
- *
- * ⚠️ TODO(P3) : provisoire. Le projet est résolu via api.projects
- * .getCurrentProject (membership de l'utilisateur). Quand le sélecteur de
- * projet arrivera (P3), ce provider lira le projet choisi (URL/segment) au
- * lieu du « projet par défaut ».
+ * P3 Multi-tenant — contexte du projet courant, DÉRIVÉ DU SEGMENT D'URL
+ * `[projectSlug]`. L'URL est la source de vérité : plus aucun projet implicite
+ * ni stocké en localStorage (l'ancien provider basé sur getCurrentProject est
+ * remplacé). Le slug est résolu via api.projects.getProjectForCurrentUser, qui
+ * vérifie l'accès (superadmin ou membership) côté serveur.
  *
  * Le rendu des enfants est GATÉ tant que le projet n'est pas résolu : à
- * l'intérieur de l'arbre, useProjectId() renvoie donc TOUJOURS un Id valide,
- * et les call sites passent projectId sans logique de skip.
+ * l'intérieur de l'arbre, useProjectId()/useProject() renvoient TOUJOURS un
+ * projet valide, et les call sites passent projectId sans logique de skip.
+ *
+ * États non-ok rendus proprement :
+ *   - not_found : slug inexistant → 404 applicatif.
+ *   - forbidden : slug existant mais l'utilisateur n'a pas de membership
+ *     (et n'est pas superadmin) → accès refusé.
  */
 type ProjectContextValue = {
   projectId: Id<"projects">;
@@ -25,31 +31,41 @@ type ProjectContextValue = {
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
 
-export function ProjectProvider({ children }: { children: ReactNode }) {
-  const project = useQuery(api.projects.getCurrentProject, {});
+export function ProjectProvider({
+  slug,
+  children,
+}: {
+  slug: string;
+  children: ReactNode;
+}) {
+  const result = useQuery(api.projects.getProjectForCurrentUser, { slug });
 
-  if (project === undefined) {
+  if (result === undefined) {
     return <FullPageLoader />;
   }
 
-  if (project === null) {
+  if (result.status === "not_found") {
     return (
-      <div className="flex h-screen items-center justify-center px-6 text-center">
-        <div className="max-w-sm space-y-2">
-          <p className="text-sm font-medium text-slate-900">
-            Aucun projet accessible
-          </p>
-          <p className="text-sm text-slate-500">
-            Ton compte n&apos;est rattaché à aucun projet. Demande à un
-            administrateur de t&apos;ajouter à un projet.
-          </p>
-        </div>
-      </div>
+      <ProjectGateMessage
+        title="Projet introuvable"
+        body={`Aucun projet « ${slug} » n'existe.`}
+      />
+    );
+  }
+
+  if (result.status === "forbidden") {
+    return (
+      <ProjectGateMessage
+        title="Accès refusé"
+        body="Ton compte n'a pas accès à ce projet. Demande à un administrateur de t'y ajouter."
+      />
     );
   }
 
   return (
-    <ProjectContext.Provider value={{ projectId: project._id, project }}>
+    <ProjectContext.Provider
+      value={{ projectId: result.project._id, project: result.project }}
+    >
       {children}
     </ProjectContext.Provider>
   );
@@ -68,10 +84,41 @@ export function useProjectId(): Id<"projects"> {
   return useProject().projectId;
 }
 
+/** Le slug du projet courant (segment d'URL). */
+export function useProjectSlug(): string {
+  return useProject().project.slug;
+}
+
+/**
+ * Constructeur de href scopé projet : `useProjectPath()("/carrousels")` →
+ * `/admin/<slug>/carrousels`. Stable entre rendus pour un slug donné.
+ */
+export function useProjectPath(): (path?: string) => string {
+  const slug = useProject().project.slug;
+  return useMemo(() => (path = "") => projectPath(slug, path), [slug]);
+}
+
 function FullPageLoader() {
   return (
     <div className="flex h-screen items-center justify-center">
       <Loader2Icon className="size-6 animate-spin text-slate-400" />
+    </div>
+  );
+}
+
+function ProjectGateMessage({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="flex h-screen items-center justify-center px-6 text-center">
+      <div className="max-w-sm space-y-3">
+        <p className="text-sm font-medium text-slate-900">{title}</p>
+        <p className="text-sm text-slate-500">{body}</p>
+        <Link
+          href="/"
+          className="inline-block text-sm font-medium text-slate-900 underline underline-offset-4 hover:text-slate-700"
+        >
+          Retour à l&apos;accueil
+        </Link>
+      </div>
     </div>
   );
 }

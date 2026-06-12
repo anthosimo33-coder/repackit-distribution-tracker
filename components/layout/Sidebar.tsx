@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
+import { useQuery } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import {
   BookmarkIcon,
@@ -14,9 +15,17 @@ import {
   PlaySquareIcon,
   Users2Icon,
 } from "lucide-react";
+import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { SidebarItem } from "./SidebarItem";
 import { NewButton } from "./NewButton";
+import { ProjectSwitcher } from "@/components/project/ProjectSwitcher";
+import { useProjectPath } from "@/components/project/ProjectProvider";
 import { cn } from "@/lib/utils";
 
 type SidebarProps = {
@@ -29,9 +38,8 @@ type SidebarProps = {
   isMobileDrawer?: boolean;
 };
 
-// Batch B — split routes par format. Carrousels et Shorts ont chacun leur
-// propre page → plus besoin de useSearchParams pour les départager. Le
-// Suspense wrapper du Batch A est retiré (plus de hook qui suspend).
+// P3 — items de nav scopés au projet courant (préfixe /admin/<slug>). Les hrefs
+// sont construits via useProjectPath ; l'état actif compare le pathname scopé.
 export function Sidebar({
   isCollapsed,
   onToggle,
@@ -41,6 +49,8 @@ export function Sidebar({
   const pathname = usePathname();
   const router = useRouter();
   const { signOut } = useAuthActions();
+  const projectPath = useProjectPath();
+  const me = useQuery(api.projects.getMe, {});
   const collapsed = isMobileDrawer ? false : isCollapsed;
 
   // Remédiation sécurité — déconnexion Convex Auth. push /login explicite :
@@ -51,59 +61,55 @@ export function Sidebar({
     router.push("/login");
   }
 
+  const item = (href: string) => ({
+    href,
+    isActive: pathname.startsWith(href),
+  });
+
   const generalItems = [
     {
       icon: LayoutDashboardIcon,
       label: "Dashboard",
-      href: "/dashboard",
-      isActive: pathname.startsWith("/dashboard"),
+      ...item(projectPath("/dashboard")),
     },
     {
       icon: Users2Icon,
       label: "Comptes",
-      href: "/comptes",
-      isActive: pathname.startsWith("/comptes"),
+      ...item(projectPath("/comptes")),
     },
   ];
 
-  // Batch D — ScreenRecorder activé (mediaType union étendu côté schéma
-  // Convex + Convex storage en place). Position entre Shorts et Biblio
-  // Hooks pour respecter l'ordre formats puis ressources.
+  // Batch D — ScreenRecorder activé. Position entre Shorts et Biblio Hooks
+  // pour respecter l'ordre formats puis ressources.
   const contenuItems = [
     {
       icon: GalleryHorizontalIcon,
       label: "Carrousels",
-      href: "/carrousels",
-      isActive: pathname.startsWith("/carrousels"),
+      ...item(projectPath("/carrousels")),
     },
     {
       icon: PlaySquareIcon,
       label: "Shorts",
-      href: "/shorts",
-      isActive: pathname.startsWith("/shorts"),
+      ...item(projectPath("/shorts")),
     },
     {
       icon: MonitorIcon,
       label: "ScreenRecorder",
-      href: "/screenrecorder",
-      isActive: pathname.startsWith("/screenrecorder"),
+      ...item(projectPath("/screenrecorder")),
     },
     {
       icon: BookOpenIcon,
       label: "Biblio Hooks",
-      href: "/biblio-hooks",
-      isActive: pathname.startsWith("/biblio-hooks"),
+      ...item(projectPath("/biblio-hooks")),
     },
   ];
 
-  // Batch F — pilier VEILLE / Inspirations. Bibliothèque manuelle d'URLs
-  // (vidéos + comptes) cross-plateforme. Indépendant du tracker (publications).
+  // Batch F — pilier VEILLE / Inspirations.
   const veilleItems = [
     {
       icon: BookmarkIcon,
       label: "Inspirations",
-      href: "/inspirations",
-      isActive: pathname.startsWith("/inspirations"),
+      ...item(projectPath("/inspirations")),
     },
   ];
 
@@ -115,25 +121,14 @@ export function Sidebar({
         isMobileDrawer ? "w-60" : collapsed ? "w-16" : "w-60",
       )}
     >
-      {/* Header : logo + brand */}
+      {/* Header : switcher de projet */}
       <div
         className={cn(
           "flex h-14 shrink-0 items-center border-b border-slate-200",
-          collapsed ? "justify-center px-2" : "px-4",
+          collapsed ? "justify-center px-2" : "px-3",
         )}
       >
-        <span
-          className={cn(
-            "flex size-8 shrink-0 items-center justify-center rounded-md bg-slate-900 text-xs font-bold text-white",
-          )}
-        >
-          R
-        </span>
-        {!collapsed && (
-          <span className="ml-2 truncate text-sm font-semibold text-slate-900">
-            RepackIt Distribution
-          </span>
-        )}
+        <ProjectSwitcher isCollapsed={collapsed} onNavigate={onNavigate} />
       </div>
 
       {/* Bouton + Nouveau */}
@@ -144,30 +139,30 @@ export function Sidebar({
       {/* Sections nav */}
       <nav className="flex-1 space-y-6 overflow-y-auto px-3 pb-3">
         <SidebarSection collapsed={collapsed} label="Général">
-          {generalItems.map((item) => (
+          {generalItems.map((it) => (
             <SidebarItem
-              key={item.href}
-              {...item}
+              key={it.href}
+              {...it}
               isCollapsed={collapsed}
               onNavigate={onNavigate}
             />
           ))}
         </SidebarSection>
         <SidebarSection collapsed={collapsed} label="Contenu">
-          {contenuItems.map((item) => (
+          {contenuItems.map((it) => (
             <SidebarItem
-              key={item.href}
-              {...item}
+              key={it.href}
+              {...it}
               isCollapsed={collapsed}
               onNavigate={onNavigate}
             />
           ))}
         </SidebarSection>
         <SidebarSection collapsed={collapsed} label="Veille">
-          {veilleItems.map((item) => (
+          {veilleItems.map((it) => (
             <SidebarItem
-              key={item.href}
-              {...item}
+              key={it.href}
+              {...it}
               isCollapsed={collapsed}
               onNavigate={onNavigate}
             />
@@ -175,30 +170,54 @@ export function Sidebar({
         </SidebarSection>
       </nav>
 
-      {/* Footer : déconnexion + toggle collapse (desktop uniquement) */}
+      {/* Footer : email user + déconnexion + toggle collapse (desktop) */}
       <div className="space-y-1 border-t border-slate-200 p-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleSignOut}
-          className={cn(
-            "w-full text-slate-600 hover:text-slate-900",
-            collapsed ? "justify-center px-0" : "justify-start gap-2",
-          )}
-          aria-label="Se déconnecter"
-        >
-          <LogOutIcon className="size-4" />
-          {!collapsed && <span>Se déconnecter</span>}
-        </Button>
+        {!collapsed && me?.email && (
+          <div
+            className="truncate px-2 py-1 text-xs text-slate-400"
+            title={me.email}
+          >
+            {me.email}
+          </div>
+        )}
+        {collapsed ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleSignOut}
+                  className="w-full justify-center px-0 text-slate-600 hover:text-slate-900"
+                  aria-label="Se déconnecter"
+                >
+                  <LogOutIcon className="size-4" />
+                </Button>
+              }
+            />
+            <TooltipContent side="right" sideOffset={8}>
+              Se déconnecter
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleSignOut}
+            className="w-full justify-start gap-2 text-slate-600 hover:text-slate-900"
+            aria-label="Se déconnecter"
+          >
+            <LogOutIcon className="size-4" />
+            <span>Se déconnecter</span>
+          </Button>
+        )}
         {!isMobileDrawer && (
           <Button
             variant="ghost"
             size="icon-sm"
             onClick={onToggle}
             className="w-full"
-            aria-label={
-              collapsed ? "Étendre la sidebar" : "Réduire la sidebar"
-            }
+            aria-label={collapsed ? "Étendre la sidebar" : "Réduire la sidebar"}
           >
             {collapsed ? (
               <ChevronsRightIcon className="size-4" />

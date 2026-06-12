@@ -1,4 +1,9 @@
-import { e2eMutation, projectMutation, projectQuery } from "./functions";
+import {
+  authedQuery,
+  e2eMutation,
+  projectMutation,
+  projectQuery,
+} from "./functions";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
@@ -513,6 +518,46 @@ export const getByCarouselId = projectQuery({
       mediaType: (row.mediaType ?? "carousel") as MediaTypeServer,
       displayMetrics: buildDisplayMetrics(snaps, age, args.customDay),
     };
+  },
+});
+
+/**
+ * P3 — resolver deeplink legacy `/p/[carouselId]` HORS contexte projet. Cherche
+ * le carouselId dans TOUS les projets (index global by_carouselId) puis retient
+ * le premier match ACCESSIBLE à l'utilisateur (superadmin → tous ; sinon →
+ * membership). Retourne le slug du projet + mediaType pour rediriger vers la
+ * route scopée, ou null (→ 404 propre côté UI). Non scopé projet : authedQuery.
+ */
+export const resolveCarouselForUser = authedQuery({
+  args: { carouselId: v.string() },
+  handler: async (ctx, { carouselId }) => {
+    const matches = await ctx.db
+      .query("publications")
+      .withIndex("by_carouselId", (q) => q.eq("carouselId", carouselId))
+      .collect();
+    if (matches.length === 0) return null;
+    const user = await ctx.db.get(ctx.userId);
+    const isSuperadmin = user?.role === "superadmin";
+    for (const pub of matches) {
+      let allowed = isSuperadmin;
+      if (!allowed) {
+        const membership = await ctx.db
+          .query("memberships")
+          .withIndex("by_user_project", (q) =>
+            q.eq("userId", ctx.userId).eq("projectId", pub.projectId),
+          )
+          .first();
+        allowed = membership !== null;
+      }
+      if (!allowed) continue;
+      const project = await ctx.db.get(pub.projectId);
+      if (project === null) continue;
+      return {
+        projectSlug: project.slug,
+        mediaType: (pub.mediaType ?? "carousel") as MediaTypeServer,
+      };
+    }
+    return null;
   },
 });
 

@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -27,7 +27,7 @@ test.describe("ICPs — CRUD", () => {
     const nom = `${E2E_MARKER} Mid-tier FR ${ts}`;
     const renamed = `${E2E_MARKER} Mid-tier US ${ts}`;
 
-    await page.goto("/comptes?view=icps");
+    await page.goto(adminPath("/comptes?view=icps"));
 
     await expect(page.getByRole("heading", { name: /^icps$/i })).toBeVisible();
     await expect(

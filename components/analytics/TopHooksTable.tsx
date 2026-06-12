@@ -19,6 +19,7 @@ import {
 } from "@/lib/dashboard-stats";
 import { formatNumber, formatPercent } from "@/lib/format";
 import { FORMAT_CONFIGS, type FormatKey } from "@/lib/format-config";
+import { useProjectPath } from "@/components/project/ProjectProvider";
 import { isPublished } from "@/lib/publication-status";
 
 type Publication = Doc<"publications">;
@@ -43,13 +44,14 @@ export function TopHooksTable({
   n?: number;
 }) {
   const router = useRouter();
+  const projectPath = useProjectPath();
   const config = FORMAT_CONFIGS[mediaType];
   const published = publications.filter(isPublished);
 
   if (published.length === 0) return null;
 
   function go(carouselId: string) {
-    router.push(`${config.route}?carouselId=${carouselId}`);
+    router.push(projectPath(`${config.route}?carouselId=${carouselId}`));
   }
 
   return (

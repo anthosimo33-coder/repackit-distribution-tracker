@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -62,7 +62,7 @@ test.describe("Source rename — cascade 3 plateformes", () => {
       compte: "@e2e_casc_yt",
     });
 
-    await page.goto("/shorts/sources");
+    await page.goto(adminPath("/shorts/sources"));
     await page
       .getByRole("button", { name: `Renommer la source ${src}` })
       .click();
@@ -86,7 +86,7 @@ test.describe("Source rename — cascade 3 plateformes", () => {
     await expect(row.getByText("3/3")).toBeVisible();
 
     // /shorts : 3 publications portent le nouveau sourceId.
-    await page.goto("/shorts");
+    await page.goto(adminPath("/shorts"));
     await expect(page.getByText(newSrc)).toHaveCount(3, { timeout: 5000 });
   });
 });

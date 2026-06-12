@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -69,7 +69,7 @@ test.describe("Calendrier vue détail compte — navigation mois", () => {
     await seedCarousel("HOOKCAL mois courant E2E", midThis);
     await seedCarousel("HOOKCAL mois suivant E2E", midNext);
 
-    await page.goto(`/comptes/${compteId}`);
+    await page.goto(adminPath(`/comptes/${compteId}`));
 
     const badgeThis = page.locator(
       'button[title*="HOOKCAL mois courant E2E"]',

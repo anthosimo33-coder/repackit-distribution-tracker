@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -13,7 +13,7 @@ const DAY = 86_400_000;
 test.describe("CRUD snapshots via le dialog", () => {
   test("ajouter, éditer puis supprimer un snapshot", async ({ page }) => {
     // Compte
-    await page.goto("/comptes");
+    await page.goto(adminPath("/comptes"));
     if (
       (await page.getByRole("cell", { name: "@test_e2e_snapcrud" }).count()) ===
       0
@@ -60,7 +60,7 @@ test.describe("CRUD snapshots via le dialog", () => {
       postUrl: "https://www.tiktok.com/@test_e2e_snapcrud/video/1",
     });
 
-    await page.goto("/carrousels");
+    await page.goto(adminPath("/carrousels"));
     const row = page
       .getByRole("row")
       .filter({ hasText: "Hook E2E snapshot CRUD" })

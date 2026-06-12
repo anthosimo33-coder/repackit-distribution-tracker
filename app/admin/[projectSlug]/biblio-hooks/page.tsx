@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
+import { useProjectPath } from "@/components/project/ProjectProvider";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { FunctionReturnType } from "convex/server";
@@ -239,6 +240,7 @@ function DraftBadge({ carousels }: { carousels: number }) {
 }
 
 function HookCard({ hook }: { hook: HookWithUsage }) {
+  const projectPath = useProjectPath();
   // Refinement Shorts — biblio hooks = exclusivement carrousel (SR puis
   // Short retirés du comptage). Les badges/variantes Short et SR ne sont
   // plus affichés ; un hook utilisé uniquement en Short apparaît donc
@@ -280,7 +282,9 @@ function HookCard({ hook }: { hook: HookWithUsage }) {
           </div>
         </div>
         <Link
-          href={`/nouveau?hookId=${hook._id}`}
+          href={projectPath(
+            `/dashboard?nouveau=open&format=carousel&hookId=${hook._id}`,
+          )}
           className={cn(buttonVariants({ size: "sm" }), "shrink-0")}
         >
           Créer carrousel →
@@ -317,6 +321,7 @@ function HookVariantsPopover({
       : "skip",
   );
   const router = useRouter();
+  const projectPath = useProjectPath();
 
   function go(carouselId: string) {
     setOpen(false);
@@ -326,7 +331,7 @@ function HookVariantsPopover({
         : mediaType === "screenrecorder"
           ? "/screenrecorder"
           : "/shorts";
-    router.push(`${route}?carouselId=${carouselId}`);
+    router.push(projectPath(`${route}?carouselId=${carouselId}`));
   }
 
   const isShort = mediaType === "short";

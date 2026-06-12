@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth-fixture";
+import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -49,7 +49,7 @@ test.describe("Short — création avec ICP", () => {
     }
 
     const hookText = `Hook ICP E2E ${ts}`;
-    await page.goto("/shorts?nouveau=open&format=short");
+    await page.goto(adminPath("/shorts?nouveau=open&format=short"));
 
     const dialog = page.getByRole("dialog", { name: /nouvelle publication/i });
     await expect(dialog).toBeVisible();
