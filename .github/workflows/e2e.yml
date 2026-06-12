@@ -38,6 +38,10 @@ jobs:
         run: pnpm test:e2e
         env:
           NEXT_PUBLIC_CONVEX_URL: ${{ secrets.CONVEX_TEST_URL }}
+          # Remédiation sécurité — gate des mutations de seed/cleanup e2e +
+          # mot de passe du user e2e. Doit être identique à la variable
+          # E2E_SECRET du deployment Convex de test (cf README §Auth).
+          E2E_SECRET: ${{ secrets.E2E_SECRET }}
           CI: "true"
 
       - name: Upload Playwright report

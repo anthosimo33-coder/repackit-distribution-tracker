@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { authedMutation, authedQuery } from "./functions";
 import { v } from "convex/values";
 
 /**
@@ -21,7 +21,7 @@ import { v } from "convex/values";
  * listPublications via ctx.storage.getUrl. Le client ne touche jamais
  * directement le storageId pour l'affichage.
  */
-export const generateUploadUrl = mutation({
+export const generateUploadUrl = authedMutation({
   args: {},
   handler: async (ctx) => {
     return await ctx.storage.generateUploadUrl();
@@ -34,7 +34,7 @@ export const generateUploadUrl = mutation({
  * pas encore liée à une publication, donc pas dans listPublications).
  * Retourne null si le blob n'existe pas (storageId invalide ou supprimé).
  */
-export const getPreviewUrl = query({
+export const getPreviewUrl = authedQuery({
   args: { storageId: v.id("_storage") },
   handler: async (ctx, args) => {
     return await ctx.storage.getUrl(args.storageId);

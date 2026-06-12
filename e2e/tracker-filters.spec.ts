@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures/auth-fixture";
 
 test.describe("Tracker filtres", () => {
   test("filtre par verdict WINNER affiche que les winners", async ({ page }) => {

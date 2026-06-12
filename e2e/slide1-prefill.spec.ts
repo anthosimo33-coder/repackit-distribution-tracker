@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures/auth-fixture";
 
 /**
  * Batch C — pre-fill slide 1 dans le modal NouveauModal.

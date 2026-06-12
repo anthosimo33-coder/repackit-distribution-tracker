@@ -9,92 +9,62 @@ if (!url) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
 
 const client = new ConvexHttpClient(url);
 
-const E2E_MARKER = "[E2E_TEST]";
-
+/**
+ * Remédiation sécurité — cleanup 100 % server-side via les e2eMutation
+ * gated E2E_SECRET (cf convex/functions.ts). L'ancienne version listait et
+ * supprimait row par row avec un client ANONYME : impossible désormais
+ * (listPublications / deletePublication exigent une identité), et le
+ * global-setup tourne avant toute session (fenêtre bootstrap pas forcément
+ * franchie) → le secret est le seul canal d'accès possible ici.
+ *
+ * Ordre : snapshots → publications → comptes (un compte référencé par une
+ * publication n'est pas supprimable, cf cleanupTestComptes qui archive en
+ * fallback) → presets → veille (inspirations, folders) → personnes → icps.
+ */
 export async function cleanupTestData() {
-  // Snapshots first — supprime ceux des publications de test (et orphelins)
-  // avant de supprimer les publications elles-mêmes.
-  try {
-    await client.mutation(api.metricSnapshots.cleanupTestSnapshots, {});
-  } catch (e) {
-    console.warn("Cleanup metricSnapshots failed:", (e as Error).message);
+  const secret = process.env.E2E_SECRET;
+  if (!secret) {
+    console.warn(
+      "⚠️ E2E_SECRET non défini côté Node — cleanup e2e sauté. " +
+        "(Requis aussi comme env var du deployment Convex de test.)",
+    );
+    return;
   }
 
-  // Publications first — comptes can be deleted only when no publications reference them.
-  try {
-    const pubs = await client.query(api.publications.listPublications, {});
-    for (const pub of pubs) {
-      if (pub.notes.startsWith(E2E_MARKER)) {
-        await client.mutation(api.publications.deletePublication, {
-          id: pub._id,
-        });
-      }
+  const steps: Array<[string, () => Promise<unknown>]> = [
+    [
+      "metricSnapshots",
+      () =>
+        client.mutation(api.metricSnapshots.cleanupTestSnapshots, { secret }),
+    ],
+    [
+      "publications",
+      () =>
+        client.mutation(api.publications.cleanupTestPublications, { secret }),
+    ],
+    ["comptes", () => client.mutation(api.comptes.cleanupTestComptes, { secret })],
+    [
+      "filterPresets",
+      () => client.mutation(api.filterPresets.cleanupTestPresets, { secret }),
+    ],
+    [
+      "inspirations",
+      () =>
+        client.mutation(api.inspirations.cleanupTestInspirations, { secret }),
+    ],
+    ["folders", () => client.mutation(api.folders.cleanupTestFolders, { secret })],
+    [
+      "personnes",
+      () => client.mutation(api.personnes.cleanupTestPersonnes, { secret }),
+    ],
+    ["icps", () => client.mutation(api.icps.cleanupTestIcps, { secret })],
+  ];
+
+  for (const [label, run] of steps) {
+    try {
+      await run();
+    } catch (e) {
+      console.warn(`Cleanup ${label} failed:`, (e as Error).message);
     }
-  } catch (e) {
-    console.warn("Cleanup publications failed:", (e as Error).message);
-  }
-
-  try {
-    const comptes = await client.query(api.comptes.listComptes, {});
-    for (const compte of comptes) {
-      if (compte.notes.startsWith(E2E_MARKER)) {
-        try {
-          await client.mutation(api.comptes.deleteCompte, { id: compte._id });
-        } catch {
-          // Compte still in use somewhere → fall back to archive.
-          await client.mutation(api.comptes.updateCompte, {
-            id: compte._id,
-            actif: false,
-          });
-        }
-      }
-    }
-  } catch (e) {
-    console.warn("Cleanup comptes failed:", (e as Error).message);
-  }
-
-  try {
-    const presets = await client.query(api.filterPresets.listPresets, {});
-    for (const p of presets) {
-      if (p.name.startsWith(E2E_MARKER)) {
-        await client.mutation(api.filterPresets.deletePreset, { id: p._id });
-      }
-    }
-  } catch (e) {
-    console.warn("Cleanup filterPresets failed:", (e as Error).message);
-  }
-
-  // Batch F — pilier VEILLE. cleanupTestInspirations / cleanupTestFolders
-  // sont des mutations bulk côté Convex qui filtrent par marker [E2E_TEST]
-  // dans notes / description (cf convex/inspirations.ts + convex/folders.ts).
-  // deleteInspiration / deleteFolder publics ne shippent qu'en Batch G.
-  try {
-    await client.mutation(api.inspirations.cleanupTestInspirations, {});
-  } catch (e) {
-    console.warn("Cleanup inspirations failed:", (e as Error).message);
-  }
-
-  try {
-    await client.mutation(api.folders.cleanupTestFolders, {});
-  } catch (e) {
-    console.warn("Cleanup folders failed:", (e as Error).message);
-  }
-
-  // Gestionnaires de comptes. cleanupTestPersonnes filtre par marker
-  // [E2E_TEST] dans nom / prénom (cf convex/personnes.ts). Comptes de test
-  // déjà nettoyés au-dessus → pas de personneId orphelin résiduel.
-  try {
-    await client.mutation(api.personnes.cleanupTestPersonnes, {});
-  } catch (e) {
-    console.warn("Cleanup personnes failed:", (e as Error).message);
-  }
-
-  // ICPs. cleanupTestIcps filtre par marker [E2E_TEST] dans nom (cf
-  // convex/icps.ts). Les publications de test sont nettoyées au-dessus →
-  // pas d'icpId orphelin résiduel.
-  try {
-    await client.mutation(api.icps.cleanupTestIcps, {});
-  } catch (e) {
-    console.warn("Cleanup icps failed:", (e as Error).message);
   }
 }

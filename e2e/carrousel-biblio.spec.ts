@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures/auth-fixture";
 
 async function ensureCompteExists(
   page: import("@playwright/test").Page,

@@ -1,9 +1,5 @@
-import {
-  internalMutation,
-  mutation,
-  query,
-  type MutationCtx,
-} from "./_generated/server";
+import { internalMutation, type MutationCtx } from "./_generated/server";
+import { authedMutation, authedQuery, e2eMutation } from "./functions";
 import { v, ConvexError } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 
@@ -122,7 +118,7 @@ function readSnapshotMetric(
  * métrique par bucket de date (capturedAt), sur [dateFrom, dateTo], filtrée
  * optionnellement par mediaType. Retourne [{ date, value }] trié chronologique.
  */
-export const aggregateTimeseries = query({
+export const aggregateTimeseries = authedQuery({
   args: {
     metric: metricArg,
     dateFrom: v.number(),
@@ -170,7 +166,7 @@ export const aggregateTimeseries = query({
 });
 
 /** Snapshots d'une publication, triés par capturedAt desc (plus récent d'abord). */
-export const listSnapshotsByPublication = query({
+export const listSnapshotsByPublication = authedQuery({
   args: { publicationId: v.id("publications") },
   handler: async (ctx, args) => {
     return await ctx.db
@@ -183,7 +179,7 @@ export const listSnapshotsByPublication = query({
   },
 });
 
-export const createSnapshot = mutation({
+export const createSnapshot = authedMutation({
   args: {
     publicationId: v.id("publications"),
     capturedAt: v.number(),
@@ -228,7 +224,7 @@ export const createSnapshot = mutation({
   },
 });
 
-export const updateSnapshot = mutation({
+export const updateSnapshot = authedMutation({
   args: {
     id: v.id("metricSnapshots"),
     vues: v.optional(v.number()),
@@ -270,7 +266,7 @@ export const updateSnapshot = mutation({
   },
 });
 
-export const deleteSnapshot = mutation({
+export const deleteSnapshot = authedMutation({
   args: { id: v.id("metricSnapshots") },
   handler: async (ctx, args) => {
     const snap = await ctx.db.get(args.id);
@@ -287,7 +283,7 @@ export const deleteSnapshot = mutation({
  * rattachés à une publication de test ([E2E_TEST] dans notes). Robuste à
  * l'ordre de teardown (pubs supprimées avant ou après).
  */
-export const cleanupTestSnapshots = mutation({
+export const cleanupTestSnapshots = e2eMutation({
   args: {},
   handler: async (ctx) => {
     const snaps = await ctx.db.query("metricSnapshots").collect();

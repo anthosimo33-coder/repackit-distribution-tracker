@@ -1,8 +1,26 @@
-import { ConvexHttpClient } from "convex/browser";
 import { api } from "../convex/_generated/api";
+import { createE2eClient } from "../e2e/helpers/authed-client";
+import { config } from "dotenv";
+
+config({ path: ".env.prod.local" });
 
 const PROD_URL = "https://fiery-wolf-460.convex.cloud";
-const client = new ConvexHttpClient(PROD_URL);
+
+// Remédiation sécurité — la prod n'a pas d'E2E_SECRET (par design) : le smoke
+// s'authentifie avec un VRAI compte prod (créé via la fenêtre bootstrap au
+// premier déploiement). Renseigner PROD_SMOKE_EMAIL / PROD_SMOKE_PASSWORD
+// dans .env.prod.local (gitignored) ou en variables d'environnement shell.
+const smokeEmail = process.env.PROD_SMOKE_EMAIL;
+const smokePassword = process.env.PROD_SMOKE_PASSWORD;
+if (!smokeEmail || !smokePassword) {
+  throw new Error(
+    "PROD_SMOKE_EMAIL / PROD_SMOKE_PASSWORD requis (compte prod réel) — cf README §Auth.",
+  );
+}
+const client = createE2eClient(PROD_URL, {
+  email: smokeEmail,
+  password: smokePassword,
+});
 
 const SMOKE_PREFIX = "[SMOKE_TEST]";
 

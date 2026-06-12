@@ -1,10 +1,10 @@
-import { ConvexHttpClient } from "convex/browser";
+import { createE2eClient } from "../e2e/helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
 
 config({ path: ".env.local" });
 
-const client = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+const client = createE2eClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
 type Mecanique =
   | "Erreur"

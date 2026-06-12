@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures/auth-fixture";
 
 /**
  * Batch F — smoke test sidebar 3e section. Vérifie que la nav vers

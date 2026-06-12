@@ -22,9 +22,18 @@ export default defineConfig({
   },
 
   projects: [
+    // "setup" bootstrappe le user e2e (fenêtre bootstrap) pour que le fixture
+    // d'auth par test (e2e/fixtures/auth-fixture.ts) puisse signIn. Pas de
+    // storageState partagé : chaque test obtient sa propre session fraîche
+    // (cf le commentaire du fixture — refresh tokens single-use).
+    {
+      name: "setup",
+      testMatch: /auth\.setup\.ts/,
+    },
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
+      dependencies: ["setup"],
     },
   ],
 

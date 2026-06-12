@@ -1,5 +1,5 @@
-import { test, expect } from "@playwright/test";
-import { ConvexHttpClient } from "convex/browser";
+import { test, expect } from "./fixtures/auth-fixture";
+import { createE2eClient } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
 
@@ -7,7 +7,7 @@ config({ path: ".env.local" });
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
-const convex = new ConvexHttpClient(convexUrl);
+const convex = createE2eClient(convexUrl);
 
 const DAY = 86_400_000;
 

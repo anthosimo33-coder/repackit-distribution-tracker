@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures/auth-fixture";
 
 test.describe("Guide warmup intégré", () => {
   test("ouvre le Sheet, affiche les 7 sections, expand TikTok, ferme", async ({

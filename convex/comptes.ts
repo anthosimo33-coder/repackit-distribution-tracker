@@ -1,4 +1,5 @@
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation } from "./_generated/server";
+import { authedMutation, authedQuery, e2eMutation } from "./functions";
 import { v, ConvexError } from "convex/values";
 
 const statusValidator = v.union(
@@ -22,7 +23,7 @@ function effectiveStatus(c: {
   return c.status ?? (c.actif === false ? "archived" : "actif");
 }
 
-export const listComptes = query({
+export const listComptes = authedQuery({
   args: {
     actifOnly: v.optional(v.boolean()),
     statusFilter: v.optional(statusValidator),
@@ -52,7 +53,7 @@ export const listComptes = query({
   },
 });
 
-export const createCompte = mutation({
+export const createCompte = authedMutation({
   args: {
     handle: v.string(),
     plateforme: v.union(
@@ -101,7 +102,7 @@ export const createCompte = mutation({
   },
 });
 
-export const updateCompte = mutation({
+export const updateCompte = authedMutation({
   args: {
     id: v.id("comptes"),
     handle: v.optional(v.string()),
@@ -186,7 +187,7 @@ export const updateCompte = mutation({
   },
 });
 
-export const deleteCompte = mutation({
+export const deleteCompte = authedMutation({
   args: { id: v.id("comptes") },
   handler: async (ctx, args) => {
     const compte = await ctx.db.get(args.id);
@@ -230,5 +231,37 @@ export const migrateComptesStatus = internalMutation({
       migrated++;
     }
     return { migrated, skipped };
+  },
+});
+
+/**
+ * Remédiation sécurité — cleanup e2e server-side (cf cleanupTestPublications
+ * dans publications.ts). Supprime les comptes marqués [E2E_TEST] dans notes ;
+ * fallback archive si des publications référencent encore le handle
+ * (comportement historique du helper e2e). Gated E2E_SECRET.
+ */
+export const cleanupTestComptes = e2eMutation({
+  args: {},
+  handler: async (ctx) => {
+    const comptes = await ctx.db.query("comptes").collect();
+    const pubs = await ctx.db.query("publications").collect();
+    let deleted = 0;
+    let archived = 0;
+    for (const compte of comptes) {
+      if (!compte.notes.startsWith("[E2E_TEST]")) continue;
+      const used = pubs.some((p) => p.compte === compte.handle);
+      if (used) {
+        await ctx.db.patch(compte._id, {
+          status: "archived",
+          actif: false,
+          warmupStartedAt: undefined,
+        });
+        archived++;
+      } else {
+        await ctx.db.delete(compte._id);
+        deleted++;
+      }
+    }
+    return { deleted, archived };
   },
 });

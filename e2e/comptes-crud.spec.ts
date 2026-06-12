@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures/auth-fixture";
 
 test.describe("Comptes CRUD", () => {
   test("créer, modifier, archiver un compte", async ({ page }) => {

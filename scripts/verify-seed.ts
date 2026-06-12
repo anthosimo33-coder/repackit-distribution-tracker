@@ -1,4 +1,4 @@
-import { ConvexHttpClient } from "convex/browser";
+import { createE2eClient } from "../e2e/helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
 
@@ -14,7 +14,7 @@ const url = process.env.NEXT_PUBLIC_CONVEX_URL;
 if (!url) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
 
 async function main() {
-  const client = new ConvexHttpClient(url!);
+  const client = createE2eClient(url!);
   const all = await client.query(api.hooks.listHooks, {});
 
   const mecaniques = [

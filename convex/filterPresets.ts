@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { authedMutation, authedQuery, e2eMutation } from "./functions";
 import { v, ConvexError } from "convex/values";
 
 const filtersValidator = v.object({
@@ -38,7 +38,7 @@ const mediaTypeScopeValidator = v.union(
 // client par TrackerListSection avant filtrage.
 const CURRENT_SCHEMA_VERSION = 4;
 
-export const createPreset = mutation({
+export const createPreset = authedMutation({
   args: {
     name: v.string(),
     mediaTypeScope: mediaTypeScopeValidator,
@@ -73,14 +73,14 @@ export const createPreset = mutation({
   },
 });
 
-export const deletePreset = mutation({
+export const deletePreset = authedMutation({
   args: { id: v.id("filterPresets") },
   handler: async (ctx, args) => {
     await ctx.db.delete(args.id);
   },
 });
 
-export const listPresets = query({
+export const listPresets = authedQuery({
   args: {
     // mediaTypeScope optional : si fourni, filtre serveur via index
     // by_mediaTypeScope ; sinon retourne tous (utile pour un futur dashboard
@@ -98,5 +98,25 @@ export const listPresets = query({
         .collect();
     }
     return await ctx.db.query("filterPresets").order("desc").collect();
+  },
+});
+
+/**
+ * Remédiation sécurité — cleanup e2e server-side (cf cleanupTestPublications
+ * dans publications.ts). Supprime les presets nommés [E2E_TEST]*. Gated
+ * E2E_SECRET.
+ */
+export const cleanupTestPresets = e2eMutation({
+  args: {},
+  handler: async (ctx) => {
+    const presets = await ctx.db.query("filterPresets").collect();
+    let deleted = 0;
+    for (const p of presets) {
+      if (p.name.startsWith("[E2E_TEST]")) {
+        await ctx.db.delete(p._id);
+        deleted++;
+      }
+    }
+    return { deleted };
   },
 });

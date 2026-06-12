@@ -27,8 +27,10 @@ Ce fichier liste les anti-patterns repérés dans la zone touchée par chaque fe
 - **Reco** : passer à une combobox cherchable type `<HookCombobox>` de `app/nouveau/page.tsx` (Popover + Command de cmdk). Pattern déjà rodé sur le repo.
 - **Trigger** : si la table `comptes` dépasse 15 lignes actives, faire la migration. Pas avant — change UI sans valeur tant qu'on est sous le seuil.
 
-### TD-006 — Configurer Vercel pour push automatique Convex au deploy
-- **Symptôme** : aujourd'hui le build Vercel ne fait que `next build`. Le schéma Convex prod (`fiery-wolf-460`) doit être poussé manuellement via `pnpm dlx convex@latest deploy` à chaque changement de schéma ou de fonction. Ça crée un mismatch potentiel entre le code Vercel (à jour) et le backend Convex prod (en retard) si on oublie le push manuel — c'est exactement ce qui s'est passé au deploy des 4 features (étapes 1-4) où le code est arrivé sur Vercel sans le schéma associé.
+### TD-006 — Configurer Vercel pour push automatique Convex au deploy ✅ RÉSOLU (juin 2026)
+- **Résolution** : commité dans la remédiation sécurité auth. `vercel.json` définit `buildCommand: "npx convex deploy --cmd 'pnpm build'"` (le build command de l'UI Vercel n'est plus nécessaire). Reste à faire UNE FOIS côté dashboards (non commitable) : générer la Production Deploy Key Convex (fiery-wolf-460) et la poser en `CONVEX_DEPLOY_KEY` (scope Production) sur Vercel — cf README §Déploiement. Procédure ci-dessous conservée pour mémoire.
+- **Note (mai 2026)** : le pattern push code → deploy Convex manuel est désormais récurrent à chaque touch schéma/fonctions. Priorité montée vu la fréquence.
+- **Symptôme** : aujourd'hui le build Vercel ne fait que `next build`. Le schéma Convex prod (`fiery-wolf-460`) doit être poussé manuellement via `pnpm dlx convex@latest deploy` à chaque changement de schéma ou de fonction. Ça crée un mismatch potentiel entre le code Vercel (à jour) et le backend Convex prod (en retard) si on oublie le push manuel — c'est exactement ce qui s'est passé au deploy des 4 features (étapes 1-4) où le code est arrivé sur Vercel sans le schéma associé, et ça se répète à chaque session qui touche `convex/`.
 - **Fix** :
   1. Convex dashboard → projet `repackit-distribution-tracker` → Settings → fiery-wolf-460 → **Generate Production Deploy Key**
   2. Vercel → Project repackit-distribution-tracker → Settings → Environment Variables → ajouter `CONVEX_DEPLOY_KEY` (Production scope) avec la valeur générée

@@ -36,3 +36,81 @@ components/ui/  # Composants shadcn/ui
 lib/            # Utilitaires (cn, etc.)
 public/         # Assets statiques
 ```
+
+## Déploiement Vercel + Convex (TD-006)
+
+Le build Vercel pousse le backend Convex **avant** le build Next, atomiquement :
+`vercel.json` (commité) définit `buildCommand: "npx convex deploy --cmd 'pnpm build'"`.
+Plus jamais de mismatch code Vercel / schéma Convex.
+
+Configuration une seule fois :
+
+1. Dashboard Convex → projet `repackit-distribution-tracker` → deployment prod
+   `fiery-wolf-460` → Settings → **Generate Production Deploy Key**.
+2. Vercel → Project → Settings → Environment Variables → ajouter
+   `CONVEX_DEPLOY_KEY` (scope **Production**) avec la clé générée.
+
+Sans `CONVEX_DEPLOY_KEY`, le build Vercel échoue — c'est voulu : on ne peut
+plus shipper du code sans son schéma.
+
+## Authentification (Convex Auth)
+
+L'app est protégée de bout en bout :
+
+- **Fonctions Convex** : toutes les queries/mutations publiques passent par
+  les wrappers de `convex/functions.ts` (`authedQuery` / `authedMutation` =
+  session requise ; `superadminMutation` = rôle superadmin). C'est LA
+  barrière de sécurité — `NEXT_PUBLIC_CONVEX_URL` est publique dans le
+  bundle, protéger les pages ne suffit pas.
+- **Pages Next** : `proxy.ts` (middleware Next 16) redirige tout visiteur
+  sans session vers `/login`.
+- **Inscription fermée** : seul le premier compte d'un deployment peut
+  s'inscrire (fenêtre bootstrap, table `users` vide → rôle `superadmin`).
+  Ensuite, création de comptes par invitation uniquement (P4, à venir).
+- **Mutations e2e** (`seedHooks`, `clearHooks`, `cleanupTest*`,
+  `wipeAllPublications`) : gated par un arg `secret` égal à la variable
+  d'environnement `E2E_SECRET` du deployment. Si la variable n'est pas
+  définie (cas de la prod, toujours) → rejet systématique.
+
+### Provisionner un deployment (dev / test / prod)
+
+```bash
+# 1. Clés JWT (affiche les deux commandes `convex env set` à exécuter)
+pnpm tsx scripts/generate-jwt-keys.ts
+
+# 2. URL du site (redirections auth)
+./node_modules/.bin/convex env set SITE_URL http://localhost:3000   # prod : URL Vercel, avec --prod
+
+# 3. Secret e2e — deployments de DEV/TEST UNIQUEMENT, JAMAIS en prod
+./node_modules/.bin/convex env set E2E_SECRET <valeur ≥ 8 caractères>
+
+# 3 bis. JWT longue durée — DEV/TEST UNIQUEMENT, JAMAIS en prod (prod = 1h).
+# Défense en profondeur du fixture d'auth e2e : évite tout refresh de token
+# pendant un test (les refresh tokens sont single-use → races sinon). 30 jours.
+./node_modules/.bin/convex env set JWT_DURATION_MS 2592000000
+
+# 4. Pousser schéma + fonctions, puis créer le compte initial sur /login
+./node_modules/.bin/convex dev --once   # prod : convex deploy (ou push Vercel)
+```
+
+Premier compte : ouvrir `/login` → « Créer le compte initial » → superadmin.
+Compte perdu ou `E2E_SECRET` changé après création du user e2e :
+`./node_modules/.bin/convex run maintenance:wipeAuthTables` rouvre la fenêtre
+bootstrap (purge users + sessions).
+
+### E2E et CI
+
+- Le user e2e (`e2e@repackit.test`, mot de passe = `E2E_SECRET`) est créé au
+  premier run par `e2e/auth.setup.ts` via la fenêtre bootstrap ; sa session
+  (storageState) est partagée par toutes les specs.
+- En local : `E2E_SECRET` doit être dans `.env.local` ET sur le deployment
+  Convex visé par `NEXT_PUBLIC_CONVEX_URL`.
+- En CI : secrets GitHub `CONVEX_TEST_URL` (existant) + **`E2E_SECRET`**
+  (même valeur que la variable du deployment de test). Le deployment de test
+  doit être provisionné (étapes ci-dessus) avec les fonctions à jour.
+- Re-seed des hooks en prod (exceptionnel) : définir temporairement
+  `E2E_SECRET` sur la prod via `convex env set --prod`, lancer
+  `pnpm tsx scripts/run-seed.ts --env prod`, puis retirer la variable.
+- Smoke prod (`scripts/smoke-prod-presets.ts`) : s'authentifie avec un vrai
+  compte prod via `PROD_SMOKE_EMAIL` / `PROD_SMOKE_PASSWORD`
+  (`.env.prod.local`).

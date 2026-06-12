@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { authedMutation, authedQuery, e2eMutation } from "./functions";
 import { v, ConvexError } from "convex/values";
 
 const MAX_NAME_LENGTH = 80;
@@ -10,7 +10,7 @@ const MAX_NAME_LENGTH = 80;
  * icpId === icp._id). N+1 mémoire acceptable au volume (< 10 ICPs, < 500
  * Shorts), pattern listFolders / listPersonnes.
  */
-export const listIcps = query({
+export const listIcps = authedQuery({
   args: {},
   handler: async (ctx) => {
     const icps = await ctx.db.query("icps").collect();
@@ -25,7 +25,7 @@ export const listIcps = query({
   },
 });
 
-export const createIcp = mutation({
+export const createIcp = authedMutation({
   args: {
     nom: v.string(),
     description: v.optional(v.string()),
@@ -64,7 +64,7 @@ export const createIcp = mutation({
  * Patch partiel (nom / description / color). Dedupe case-insensitive sur le
  * nom en excluant soi-même. updatedAt bumpé toujours.
  */
-export const updateIcp = mutation({
+export const updateIcp = authedMutation({
   args: {
     id: v.id("icps"),
     nom: v.optional(v.string()),
@@ -115,7 +115,7 @@ export const updateIcp = mutation({
  * patch se limite à { icpId: undefined } (cohérent cascade deletePersonne).
  * Retourne { unsetCount } pour le toast UI.
  */
-export const deleteIcp = mutation({
+export const deleteIcp = authedMutation({
   args: { id: v.id("icps") },
   handler: async (ctx, args) => {
     const icp = await ctx.db.get(args.id);
@@ -134,7 +134,7 @@ export const deleteIcp = mutation({
  * Test-only cleanup. Supprime les ICPs dont le nom commence par [E2E_TEST].
  * Symétrique à cleanupTestPersonnes / cleanupTestFolders.
  */
-export const cleanupTestIcps = mutation({
+export const cleanupTestIcps = e2eMutation({
   args: {},
   handler: async (ctx) => {
     const all = await ctx.db.query("icps").collect();

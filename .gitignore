@@ -44,3 +44,5 @@ next-env.d.ts
 test-results/
 playwright-report/
 playwright/.cache/
+# Session e2e (storageState avec tokens Convex Auth — jamais commitée)
+e2e/.auth/

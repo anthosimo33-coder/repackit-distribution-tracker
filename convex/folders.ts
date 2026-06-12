@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { authedMutation, authedQuery, e2eMutation } from "./functions";
 import { v, ConvexError } from "convex/values";
 
 const MAX_NAME_LENGTH = 80;
@@ -14,7 +14,7 @@ const MAX_NAME_LENGTH = 80;
  * Champ inspirationCount additif : ne casse pas les callers Batch F qui
  * lisent uniquement name / _id / color.
  */
-export const listFolders = query({
+export const listFolders = authedQuery({
   args: {},
   handler: async (ctx) => {
     const folders = await ctx.db.query("folders").collect();
@@ -30,7 +30,7 @@ export const listFolders = query({
   },
 });
 
-export const createFolder = mutation({
+export const createFolder = authedMutation({
   args: {
     name: v.string(),
     description: v.optional(v.string()),
@@ -69,7 +69,7 @@ export const createFolder = mutation({
  * Batch G — patch partiel d'un dossier. name vérifié (1-80 char, dedupe
  * case-insensitive en excluant soi-même). updatedAt bumpé toujours.
  */
-export const updateFolder = mutation({
+export const updateFolder = authedMutation({
   args: {
     id: v.id("folders"),
     name: v.optional(v.string()),
@@ -125,7 +125,7 @@ export const updateFolder = mutation({
  * que si le patch d'une inspiration échoue, le delete du folder n'a pas
  * lieu (rollback automatique de la mutation).
  */
-export const deleteFolder = mutation({
+export const deleteFolder = authedMutation({
   args: { id: v.id("folders") },
   handler: async (ctx, args) => {
     const folder = await ctx.db.get(args.id);
@@ -147,7 +147,7 @@ export const deleteFolder = mutation({
  * Test-only cleanup. Supprime les folders dont la description commence par
  * [E2E_TEST]. Symétrique à cleanupTestInspirations.
  */
-export const cleanupTestFolders = mutation({
+export const cleanupTestFolders = e2eMutation({
   args: {},
   handler: async (ctx) => {
     const all = await ctx.db.query("folders").collect();

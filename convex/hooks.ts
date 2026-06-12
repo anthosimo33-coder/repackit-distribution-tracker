@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { authedQuery, e2eMutation } from "./functions";
 import { v } from "convex/values";
 import { coerceSnapshotAge } from "./snapshotMatching";
 import {
@@ -6,7 +6,7 @@ import {
   groupSnapshotsByPublication,
 } from "./metricsDisplay";
 
-export const countHooks = query({
+export const countHooks = authedQuery({
   args: {},
   handler: async (ctx) => {
     const all = await ctx.db.query("hooks").collect();
@@ -14,7 +14,7 @@ export const countHooks = query({
   },
 });
 
-export const seedHooks = mutation({
+export const seedHooks = e2eMutation({
   args: {
     hooks: v.array(
       v.object({
@@ -53,7 +53,7 @@ export const seedHooks = mutation({
   },
 });
 
-export const clearHooks = mutation({
+export const clearHooks = e2eMutation({
   args: {},
   handler: async (ctx) => {
     const all = await ctx.db.query("hooks").collect();
@@ -64,7 +64,7 @@ export const clearHooks = mutation({
   },
 });
 
-export const listHooks = query({
+export const listHooks = authedQuery({
   args: {
     langue: v.optional(v.union(v.literal("FR"), v.literal("EN"))),
     mecanique: v.optional(
@@ -135,7 +135,7 @@ export const listHooks = query({
 // dans listHooksWithUsage qui scope désormais aux 2 formats carousel|short).
 // getHookVariants utilise le validator inline (cf args plus bas).
 
-export const listHooksWithUsage = query({
+export const listHooksWithUsage = authedQuery({
   args: {
     langue: v.optional(v.union(v.literal("FR"), v.literal("EN"))),
     // Multi-select v2 : mecanique et niveau passent en array. undefined ou
@@ -304,7 +304,7 @@ export const listHooksWithUsage = query({
  * Helpers calculateSaveRate/calculateVerdict ré-implémentés inline (pas
  * d'import cross-tsconfig depuis lib/verdict.ts). Logique identique.
  */
-export const getHookVariants = query({
+export const getHookVariants = authedQuery({
   args: {
     hookId: v.id("hooks"),
     // Batch 3 Modif 6 — filtre optional par mediaType. Si défini, ne garde

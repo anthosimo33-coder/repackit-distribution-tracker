@@ -1,6 +1,7 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useAuthActions } from "@convex-dev/auth/react";
 import {
   BookmarkIcon,
   BookOpenIcon,
@@ -8,6 +9,7 @@ import {
   ChevronsRightIcon,
   GalleryHorizontalIcon,
   LayoutDashboardIcon,
+  LogOutIcon,
   MonitorIcon,
   PlaySquareIcon,
   Users2Icon,
@@ -37,7 +39,17 @@ export function Sidebar({
   isMobileDrawer,
 }: SidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { signOut } = useAuthActions();
   const collapsed = isMobileDrawer ? false : isCollapsed;
+
+  // Remédiation sécurité — déconnexion Convex Auth. push /login explicite :
+  // le proxy redirigerait de toute façon à la prochaine navigation, mais on
+  // évite l'état Unauthenticated transitoire (loader plein écran d'AppShell).
+  async function handleSignOut() {
+    await signOut();
+    router.push("/login");
+  }
 
   const generalItems = [
     {
@@ -163,9 +175,22 @@ export function Sidebar({
         </SidebarSection>
       </nav>
 
-      {/* Footer : toggle collapse (desktop uniquement) */}
-      {!isMobileDrawer && (
-        <div className="border-t border-slate-200 p-2">
+      {/* Footer : déconnexion + toggle collapse (desktop uniquement) */}
+      <div className="space-y-1 border-t border-slate-200 p-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleSignOut}
+          className={cn(
+            "w-full text-slate-600 hover:text-slate-900",
+            collapsed ? "justify-center px-0" : "justify-start gap-2",
+          )}
+          aria-label="Se déconnecter"
+        >
+          <LogOutIcon className="size-4" />
+          {!collapsed && <span>Se déconnecter</span>}
+        </Button>
+        {!isMobileDrawer && (
           <Button
             variant="ghost"
             size="icon-sm"
@@ -181,8 +206,8 @@ export function Sidebar({
               <ChevronsLeftIcon className="size-4" />
             )}
           </Button>
-        </div>
-      )}
+        )}
+      </div>
     </aside>
   );
 }

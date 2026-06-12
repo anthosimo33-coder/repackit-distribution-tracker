@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Code généré Convex + artefacts de test (jamais commités) : pas de lint.
+    "convex/_generated/**",
+    "playwright-report/**",
+    "test-results/**",
   ]),
 ]);
 

@@ -1,4 +1,5 @@
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation } from "./_generated/server";
+import { authedMutation, authedQuery, e2eMutation } from "./functions";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
@@ -179,7 +180,7 @@ async function findExistingSourcePublications(
   return matches;
 }
 
-export const createPublication = mutation({
+export const createPublication = authedMutation({
   args: {
     carouselId: v.string(),
     hookId: v.union(v.id("hooks"), v.null()),
@@ -372,7 +373,7 @@ export const createPublication = mutation({
  * mediaType optional → default "carousel" (backward compat pour un caller
  * oublié qui n'enverrait pas l'arg). Préfixe automatique C### / S### / SR###.
  */
-export const getNextPublicationId = query({
+export const getNextPublicationId = authedQuery({
   args: { mediaType: v.optional(mediaTypeValidator) },
   handler: async (ctx, args) => {
     const all = await ctx.db.query("publications").collect();
@@ -386,7 +387,7 @@ export const getNextPublicationId = query({
  * présente sur disque + specs e2e). Délègue au compteur carousel. Le nouveau
  * code (NouveauModal) utilise getNextPublicationId({ mediaType }).
  */
-export const getNextCarouselId = query({
+export const getNextCarouselId = authedQuery({
   args: {},
   handler: async (ctx) => {
     const all = await ctx.db.query("publications").collect();
@@ -404,7 +405,7 @@ export const getNextCarouselId = query({
  * s'appuyer sur p.image directement pour afficher une URL — toujours
  * passer par imageUrl exposé par cette query.
  */
-export const listPublications = query({
+export const listPublications = authedQuery({
   args: {
     // Refactor multi-snapshots — période d'âge sélectionnée globalement (UI).
     // Optional → "latest" (cf coerceSnapshotAge). customDay pour age="custom".
@@ -463,7 +464,7 @@ export const listPublications = query({
  * Coercion mediaType : alignée avec lib/media-type.getMediaType côté client
  * (rows pré-Batch-1-Shorts → "carousel"). Dupliquée car cross-tsconfig.
  */
-export const getByCarouselId = query({
+export const getByCarouselId = authedQuery({
   args: {
     carouselId: v.string(),
     snapshotAge: v.optional(v.string()),
@@ -492,7 +493,7 @@ export const getByCarouselId = query({
   },
 });
 
-export const updateMetrics = mutation({
+export const updateMetrics = authedMutation({
   args: {
     id: v.id("publications"),
     vuesJ1: v.optional(v.union(v.number(), v.null())),
@@ -557,7 +558,7 @@ export const updateMetrics = mutation({
  * Patch single-row (chaque row = 1 plateforme a son propre compte). Pas de
  * updatedAt sur publications → non patché. Pattern cohérent avec updateMetrics.
  */
-export const updatePublishedAccount = mutation({
+export const updatePublishedAccount = authedMutation({
   args: { id: v.id("publications"), newCompte: v.string() },
   handler: async (ctx, args) => {
     const pub = await ctx.db.get(args.id);
@@ -591,7 +592,7 @@ export const updatePublishedAccount = mutation({
   },
 });
 
-export const deletePublication = mutation({
+export const deletePublication = authedMutation({
   args: { id: v.id("publications") },
   handler: async (ctx, args) => {
     await ctx.db.delete(args.id);
@@ -616,7 +617,7 @@ export const deletePublication = mutation({
  * Race condition sur nextCarouselId : héritée de getNextCarouselId (TD-004),
  * pas adressée ici.
  */
-export const duplicateCarousel = mutation({
+export const duplicateCarousel = authedMutation({
   args: {
     sourceCarouselId: v.string(),
     targetCompte: v.string(),
@@ -779,7 +780,7 @@ export const duplicateCarousel = mutation({
  * cohérent avec « édition au niveau carrousel »). Le UI ouvre le dialog
  * depuis une row spécifique mais propage à tout le carrousel.
  */
-export const updateDraft = mutation({
+export const updateDraft = authedMutation({
   args: {
     carouselId: v.string(),
     patch: v.object({
@@ -1044,7 +1045,7 @@ export const migrateLegacyCarouselIds = internalMutation({
  * (TikTok / Instagram / YouTube). Group by serveur (pattern listComptes), pas
  * d'index (collect()+filter trivial au volume — décision MVP). Shorts only.
  */
-export const listSources = query({
+export const listSources = authedQuery({
   args: {},
   handler: async (ctx) => {
     const all = await ctx.db.query("publications").collect();
@@ -1117,7 +1118,7 @@ export const listSources = query({
  * Source unique de vérité de l'UX ; la validation mutation reste le filet
  * defense-in-depth. sourceId vide/inédit → exists=false, tout disponible.
  */
-export const getSourceStatus = query({
+export const getSourceStatus = authedQuery({
   args: { sourceId: v.string() },
   handler: async (ctx, args) => {
     const normalized = normalizeSourceId(args.sourceId);
@@ -1160,7 +1161,7 @@ export const getSourceStatus = query({
  * incohérent (2 Shorts du même fichier source sur la même plateforme = le
  * risque shadowban qu'on combat). Shorts uniquement, normalisation systématique.
  */
-export const renameSourceId = mutation({
+export const renameSourceId = authedMutation({
   args: { oldSourceId: v.string(), newSourceId: v.string() },
   handler: async (ctx, args) => {
     const normalizedOld = normalizeSourceId(args.oldSourceId);
@@ -1224,6 +1225,51 @@ export const renameSourceId = mutation({
       renamed: publicationsOld.length,
       oldSourceId: normalizedOld,
       newSourceId: normalizedNew,
+    };
+  },
+});
+
+/**
+ * Remédiation sécurité — cleanup e2e server-side. Porte la boucle historique
+ * de e2e/helpers/cleanup.ts (listPublications anonyme + deletePublication row
+ * par row) côté serveur : le global-setup Playwright tourne AVANT toute
+ * session (fenêtre bootstrap pas forcément franchie), il ne peut donc pas
+ * appeler les fonctions authed*. Gated E2E_SECRET (cf functions.ts).
+ */
+export const cleanupTestPublications = e2eMutation({
+  args: {},
+  handler: async (ctx) => {
+    const all = await ctx.db.query("publications").collect();
+    let deleted = 0;
+    for (const p of all) {
+      if (p.notes.startsWith("[E2E_TEST]")) {
+        await ctx.db.delete(p._id);
+        deleted++;
+      }
+    }
+    return { deleted };
+  },
+});
+
+/**
+ * Outillage dev (scripts/wipe-publications.ts) — vide TOUTES les publications
+ * ET leurs snapshots (l'ancien script laissait les snapshots orphelins).
+ * Inutilisable en prod par design : E2E_SECRET n'y est jamais défini.
+ */
+export const wipeAllPublications = e2eMutation({
+  args: {},
+  handler: async (ctx) => {
+    const snaps = await ctx.db.query("metricSnapshots").collect();
+    for (const s of snaps) {
+      await ctx.db.delete(s._id);
+    }
+    const pubs = await ctx.db.query("publications").collect();
+    for (const p of pubs) {
+      await ctx.db.delete(p._id);
+    }
+    return {
+      deletedPublications: pubs.length,
+      deletedSnapshots: snaps.length,
     };
   },
 });

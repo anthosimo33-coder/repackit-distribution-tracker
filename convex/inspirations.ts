@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { authedMutation, authedQuery, e2eMutation } from "./functions";
 import { v, ConvexError } from "convex/values";
 
 const plateformeValidator = v.union(
@@ -42,7 +42,7 @@ function normalizeTags(raw: string[]): string[] {
  * args optionnels (backward compat avec appel sans args). Filtrage en
  * mémoire après le collect — N+1 acceptable au volume cible (< 200 rows).
  */
-export const listInspirations = query({
+export const listInspirations = authedQuery({
   args: {
     folderIds: v.optional(v.array(v.id("folders"))),
     plateformes: v.optional(v.array(plateformeValidator)),
@@ -108,7 +108,7 @@ export const listInspirations = query({
  * Retourne null si non trouvée (idempotent côté UI). Enrichi thumbnailUrl
  * de la même façon que listInspirations.
  */
-export const getInspirationById = query({
+export const getInspirationById = authedQuery({
   args: { id: v.id("inspirations") },
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.id);
@@ -121,7 +121,7 @@ export const getInspirationById = query({
   },
 });
 
-export const createInspiration = mutation({
+export const createInspiration = authedMutation({
   args: {
     url: v.string(),
     type: typeValidator,
@@ -167,7 +167,7 @@ export const createInspiration = mutation({
  * tags : normalisés serveur (trim + lowercase + dedupe). Le client peut
  * envoyer ce qu'il veut, on garantit la cohérence en base.
  */
-export const updateInspiration = mutation({
+export const updateInspiration = authedMutation({
   args: {
     id: v.id("inspirations"),
     url: v.optional(v.string()),
@@ -215,7 +215,7 @@ export const updateInspiration = mutation({
  * (parallèle au tracker, cf TD-011 à traiter séparément). Idempotent :
  * suppression d'un id inexistant est silencieuse.
  */
-export const deleteInspiration = mutation({
+export const deleteInspiration = authedMutation({
   args: { id: v.id("inspirations") },
   handler: async (ctx, args) => {
     const existing = await ctx.db.get(args.id);
@@ -229,7 +229,7 @@ export const deleteInspiration = mutation({
  * supprime les rows dont les notes commencent par le marker [E2E_TEST]
  * (cf e2e/helpers/cleanup.ts).
  */
-export const cleanupTestInspirations = mutation({
+export const cleanupTestInspirations = e2eMutation({
   args: {},
   handler: async (ctx) => {
     const all = await ctx.db.query("inspirations").collect();

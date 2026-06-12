@@ -1,7 +1,31 @@
 import { defineSchema, defineTable } from "convex/server";
+import { authTables } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  // ─── Remédiation sécurité — tables Convex Auth ───────────────────────────
+  // authSessions / authAccounts / authRefreshTokens / authVerificationCodes /
+  // authVerifiers / authRateLimits viennent du spread. `users` est redéfinie
+  // ci-dessous (champs standard de authTables.users À L'IDENTIQUE + extension
+  // `role`) — pattern documenté Convex Auth pour étendre la table users.
+  ...authTables,
+  users: defineTable({
+    name: v.optional(v.string()),
+    image: v.optional(v.string()),
+    email: v.optional(v.string()),
+    emailVerificationTime: v.optional(v.number()),
+    phone: v.optional(v.string()),
+    phoneVerificationTime: v.optional(v.number()),
+    isAnonymous: v.optional(v.boolean()),
+    // Extension RepackIt : rôle global. "superadmin" = créé via la fenêtre
+    // bootstrap (1er compte) ; "member" = futurs comptes invités (P4).
+    // Optional par sécurité (un user créé par un chemin librairie sans rôle
+    // reste valide) — traiter undefined comme "member" côté checks.
+    role: v.optional(v.union(v.literal("superadmin"), v.literal("member"))),
+  })
+    .index("email", ["email"])
+    .index("phone", ["phone"]),
+
   hooks: defineTable({
     text: v.string(),
     mecanique: v.union(

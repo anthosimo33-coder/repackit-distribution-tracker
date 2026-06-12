@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { authedMutation, authedQuery, e2eMutation } from "./functions";
 import { v, ConvexError } from "convex/values";
 
 const MAX_NAME_LENGTH = 80;
@@ -11,7 +11,7 @@ const MAX_NAME_LENGTH = 80;
  * (parallèle listFolders de convex/folders.ts). À < 50 personnes / < 100
  * comptes, O(P*C) reste négligeable.
  */
-export const listPersonnes = query({
+export const listPersonnes = authedQuery({
   args: {},
   handler: async (ctx) => {
     const personnes = await ctx.db.query("personnes").collect();
@@ -39,7 +39,7 @@ function validateNames(prenom: string, nom: string) {
   }
 }
 
-export const createPersonne = mutation({
+export const createPersonne = authedMutation({
   args: { prenom: v.string(), nom: v.string() },
   handler: async (ctx, args) => {
     const prenom = args.prenom.trim();
@@ -71,7 +71,7 @@ export const createPersonne = mutation({
  * Patch partiel (prenom et/ou nom). Dedupe case-insensitive sur le couple
  * résultant, en excluant soi-même. updatedAt bumpé toujours.
  */
-export const updatePersonne = mutation({
+export const updatePersonne = authedMutation({
   args: {
     id: v.id("personnes"),
     prenom: v.optional(v.string()),
@@ -123,7 +123,7 @@ export const updatePersonne = mutation({
  * Atomicité Convex : si un patch échoue, le delete de la personne n'a pas
  * lieu (rollback de la mutation). Retourne { unsetCount } pour le toast UI.
  */
-export const deletePersonne = mutation({
+export const deletePersonne = authedMutation({
   args: { id: v.id("personnes") },
   handler: async (ctx, args) => {
     const personne = await ctx.db.get(args.id);
@@ -145,7 +145,7 @@ export const deletePersonne = mutation({
  * marqués + nettoyés séparément, et listComptes tolère un personneId
  * orphelin via lookup null).
  */
-export const cleanupTestPersonnes = mutation({
+export const cleanupTestPersonnes = e2eMutation({
   args: {},
   handler: async (ctx) => {
     const all = await ctx.db.query("personnes").collect();

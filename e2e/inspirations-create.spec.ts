@@ -1,5 +1,5 @@
-import { test, expect } from "@playwright/test";
-import { ConvexHttpClient } from "convex/browser";
+import { test, expect } from "./fixtures/auth-fixture";
+import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
 
@@ -7,7 +7,7 @@ config({ path: ".env.local" });
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
-const convex = new ConvexHttpClient(convexUrl);
+const convex = createE2eClient(convexUrl);
 
 const E2E_MARKER = "[E2E_TEST]";
 
@@ -27,7 +27,7 @@ const E2E_MARKER = "[E2E_TEST]";
 test.describe("Inspirations — création", () => {
   test.beforeEach(async () => {
     // Cleanup défensif des inspirations test laissées par un run précédent.
-    await convex.mutation(api.inspirations.cleanupTestInspirations, {});
+    await convex.mutation(api.inspirations.cleanupTestInspirations, { secret: E2E_SECRET });
   });
 
   test("flow création TikTok video", async ({ page }) => {
