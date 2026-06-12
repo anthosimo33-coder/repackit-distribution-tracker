@@ -449,6 +449,56 @@ export default defineSchema({
     .index("by_project", ["projectId"])
     .index("by_project_createdAt", ["projectId", "createdAt"]),
 
+  // ─── P1 Créateurs — gestion des créateurs + onboarding par invitation ─────
+  // Un créateur = une personne externe à qui on confie la publication. NE PAS
+  // confondre avec `personnes` (annuaire interne des gestionnaires de comptes).
+  // userId est optional tant que l'invitation n'est pas acceptée (le créateur
+  // n'a pas encore de compte). Posé + status "onboarding" à l'acceptation du
+  // lien d'invitation (cf convex/auth.ts createOrUpdateUser, branche token).
+  creators: defineTable({
+    projectId: v.id("projects"),
+    // Lien vers le compte de connexion. undefined = invité, pas encore inscrit.
+    userId: v.optional(v.id("users")),
+    name: v.string(),
+    email: v.string(),
+    phone: v.optional(v.string()),
+    status: v.union(
+      v.literal("invited"),
+      v.literal("onboarding"),
+      v.literal("active"),
+      v.literal("paused"),
+      v.literal("churned"),
+    ),
+    paymentMethod: v.optional(
+      v.union(
+        v.literal("sepa"),
+        v.literal("paypal"),
+        v.literal("usdt"),
+        v.literal("autre"),
+      ),
+    ),
+    paymentDetails: v.optional(v.string()),
+    adminNotes: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_user", ["userId"]),
+
+  // Invitations à token (uuid). Une invitation = un lien /join/<token> à usage
+  // unique, lié à un créateur. expiresAt défaut +14 j ; usedAt posé à la
+  // consommation (la mutation de signup la marque). by_token = résolution du
+  // lien public (pré-session, cf creators.getInvitationPreview / auth.ts).
+  invitations: defineTable({
+    token: v.string(),
+    creatorId: v.id("creators"),
+    projectId: v.id("projects"),
+    email: v.string(),
+    expiresAt: v.number(),
+    usedAt: v.optional(v.number()),
+  })
+    .index("by_token", ["token"])
+    .index("by_creator", ["creatorId"]),
+
   // Dossiers de classement pour les inspirations. color = clé palette
   // (lib/folder-colors.ts à créer en Batch G), pas un hex direct.
   folders: defineTable({

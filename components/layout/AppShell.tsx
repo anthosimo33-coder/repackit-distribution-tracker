@@ -7,8 +7,8 @@ import { Loader2Icon } from "lucide-react";
 /**
  * Remédiation sécurité — shell applicatif gaté par l'état d'auth (risque B4
  * du diagnostic) :
- *  - /login est rendu nu (la page doit être accessible sans session ; le
- *    proxy redirige déjà les utilisateurs connectés vers /).
+ *  - /login et /join/<token> sont rendus nus (pages accessibles sans session ;
+ *    le proxy les exclut du gating). /join est le flow d'onboarding créateur.
  *  - Le reste de l'app n'est monté QUE sous <Authenticated> : tout le
  *    data-fetching étant client-side (useQuery), cela garantit qu'aucune
  *    query n'est lancée sans token (les fonctions authed* rejetteraient)
@@ -25,7 +25,7 @@ import { Loader2Icon } from "lucide-react";
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
-  if (pathname === "/login") {
+  if (pathname === "/login" || pathname.startsWith("/join")) {
     return <>{children}</>;
   }
 

@@ -1,4 +1,4 @@
-import { e2eMutation, projectQuery } from "./functions";
+import { e2eMutation, adminQuery } from "./functions";
 import { v } from "convex/values";
 import { coerceSnapshotAge } from "./snapshotMatching";
 import {
@@ -6,7 +6,7 @@ import {
   groupSnapshotsByPublication,
 } from "./metricsDisplay";
 
-export const countHooks = projectQuery({
+export const countHooks = adminQuery({
   args: {},
   handler: async (ctx) => {
     const all = await ctx.db
@@ -75,7 +75,7 @@ export const clearHooks = e2eMutation({
   },
 });
 
-export const listHooks = projectQuery({
+export const listHooks = adminQuery({
   args: {
     langue: v.optional(v.union(v.literal("FR"), v.literal("EN"))),
     mecanique: v.optional(
@@ -149,7 +149,7 @@ export const listHooks = projectQuery({
 // dans listHooksWithUsage qui scope désormais aux 2 formats carousel|short).
 // getHookVariants utilise le validator inline (cf args plus bas).
 
-export const listHooksWithUsage = projectQuery({
+export const listHooksWithUsage = adminQuery({
   args: {
     langue: v.optional(v.union(v.literal("FR"), v.literal("EN"))),
     // Multi-select v2 : mecanique et niveau passent en array. undefined ou
@@ -324,7 +324,7 @@ export const listHooksWithUsage = projectQuery({
  * Helpers calculateSaveRate/calculateVerdict ré-implémentés inline (pas
  * d'import cross-tsconfig depuis lib/verdict.ts). Logique identique.
  */
-export const getHookVariants = projectQuery({
+export const getHookVariants = adminQuery({
   args: {
     hookId: v.id("hooks"),
     // Batch 3 Modif 6 — filtre optional par mediaType. Si défini, ne garde

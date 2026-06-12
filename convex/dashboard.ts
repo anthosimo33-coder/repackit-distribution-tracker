@@ -1,4 +1,4 @@
-import { projectQuery } from "./functions";
+import { adminQuery } from "./functions";
 import { v } from "convex/values";
 import { coerceSnapshotAge } from "./snapshotMatching";
 import {
@@ -15,7 +15,7 @@ import {
  * Save rate / winners = carrousels uniquement (pas de saves côté short/SR).
  * Engagement rate = (likes + comments) / vues, cross-format.
  */
-export const dashboardKpis = projectQuery({
+export const dashboardKpis = adminQuery({
   args: {
     snapshotAge: v.optional(v.string()),
     customDay: v.optional(v.number()),

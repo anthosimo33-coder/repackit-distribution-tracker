@@ -1,7 +1,14 @@
 "use client";
 
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { Loader2Icon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
@@ -23,6 +30,10 @@ import { projectPath } from "@/lib/project-path";
  *   - not_found : slug inexistant → 404 applicatif.
  *   - forbidden : slug existant mais l'utilisateur n'a pas de membership
  *     (et n'est pas superadmin) → accès refusé.
+ *
+ * P1 Créateurs — un creator a un membership sur le projet (status "ok") mais
+ * AUCUN accès à l'app interne : il est redirigé vers /app. La vraie barrière
+ * est serveur (adminQuery/adminMutation) ; ce redirect n'est que du confort UX.
  */
 type ProjectContextValue = {
   projectId: Id<"projects">;
@@ -62,6 +73,11 @@ export function ProjectProvider({
     );
   }
 
+  // Creator → l'app interne ne le concerne pas : on le renvoie vers son portail.
+  if (result.isCreator) {
+    return <RedirectTo href="/app" />;
+  }
+
   return (
     <ProjectContext.Provider
       value={{ projectId: result.project._id, project: result.project }}
@@ -96,6 +112,14 @@ export function useProjectSlug(): string {
 export function useProjectPath(): (path?: string) => string {
   const slug = useProject().project.slug;
   return useMemo(() => (path = "") => projectPath(slug, path), [slug]);
+}
+
+function RedirectTo({ href }: { href: string }) {
+  const router = useRouter();
+  useEffect(() => {
+    router.replace(href);
+  }, [router, href]);
+  return <FullPageLoader />;
 }
 
 function FullPageLoader() {

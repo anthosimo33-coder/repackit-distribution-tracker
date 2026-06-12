@@ -69,6 +69,39 @@ export async function requireProjectAccess(
   }
 }
 
+/**
+ * P1 Créateurs — COUCHE RÔLE au-dessus de la couche projet. Vérifie que
+ * `userId` est ADMIN du projet :
+ *   - superadmin (users.role) : accès implicite (comme requireProjectAccess) ;
+ *   - sinon : un membership (userId, projectId) de rôle "admin" est requis.
+ * Un membership "creator" est REJETÉ — le rôle creator n'a accès à rien de
+ * l'app interne (toutes ses fonctions passent par adminQuery/adminMutation).
+ */
+export async function requireProjectAdmin(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+  projectId: Id<"projects">,
+) {
+  const project = await ctx.db.get(projectId);
+  if (project === null) {
+    throw new ConvexError("Projet introuvable.");
+  }
+  const user = await ctx.db.get(userId);
+  if (user?.role === "superadmin") return;
+  const membership = await ctx.db
+    .query("memberships")
+    .withIndex("by_user_project", (q) =>
+      q.eq("userId", userId).eq("projectId", projectId),
+    )
+    .first();
+  if (membership === null) {
+    throw new ConvexError("Accès au projet refusé.");
+  }
+  if (membership.role !== "admin") {
+    throw new ConvexError("Réservé aux administrateurs du projet.");
+  }
+}
+
 export const authedQuery = customQuery(
   query,
   customCtx(async (ctx) => {
@@ -138,3 +171,39 @@ export const projectMutation = customMutation(mutation, {
     return { ctx: { userId, projectId }, args: {} };
   },
 });
+
+/**
+ * P1 Créateurs — wrappers ADMIN (couche rôle au-dessus de projectQuery/
+ * projectMutation). Même contrat (arg `projectId` obligatoire, `ctx.userId` +
+ * `ctx.projectId` injectés) mais exige le rôle admin (ou superadmin). TOUTES
+ * les fonctions de l'app interne (comptes, publications, hooks, icps, folders,
+ * inspirations, presets, personnes, snapshots, dashboard, créateurs) passent
+ * par ces wrappers. projectQuery/projectMutation restent la couche « accès
+ * projet, tout rôle » (réservée à de futures fonctions creator-accessibles).
+ */
+export const adminQuery = customQuery(query, {
+  args: { projectId: v.id("projects") },
+  input: async (ctx, { projectId }) => {
+    const userId = await requireUserId(ctx);
+    await requireProjectAdmin(ctx, userId, projectId);
+    return { ctx: { userId, projectId }, args: {} };
+  },
+});
+
+export const adminMutation = customMutation(mutation, {
+  args: { projectId: v.id("projects") },
+  input: async (ctx, { projectId }) => {
+    const userId = await requireUserId(ctx);
+    await requireProjectAdmin(ctx, userId, projectId);
+    return { ctx: { userId, projectId }, args: {} };
+  },
+});
+
+/**
+ * P1 Créateurs — endpoint GENUINEMENT PUBLIC (pré-session). Réservé au flow
+ * d'invitation : la page /join doit lire l'invitation par token AVANT que le
+ * compte n'existe (aucune identité possible). Comme /login, pas d'auth. Seul
+ * `creators.getInvitationPreview` doit l'utiliser, et ne retourner AUCUNE
+ * info qui leak l'existence/état d'un token (cf no-leak du chantier).
+ */
+export const publicQuery = query;

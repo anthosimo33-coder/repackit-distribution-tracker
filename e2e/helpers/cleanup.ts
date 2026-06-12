@@ -58,6 +58,10 @@ export async function cleanupTestData() {
       () => client.mutation(api.personnes.cleanupTestPersonnes, { secret }),
     ],
     ["icps", () => client.mutation(api.icps.cleanupTestIcps, { secret })],
+    [
+      "creators",
+      () => client.mutation(api.creators.cleanupTestCreators, { secret }),
+    ],
   ];
 
   for (const [label, run] of steps) {
