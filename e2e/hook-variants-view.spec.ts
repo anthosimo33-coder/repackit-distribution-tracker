@@ -53,14 +53,17 @@ test.describe("Hooks — Vue variantes via Popover", () => {
       }
     }
 
+    // Existence déterminée côté SERVEUR (allComptes ci-dessus), pas via le 1er
+    // rendu de la table : getByRole('cell').count() ne s'auto-attend pas et
+    // renvoyait 0 si la table n'était pas encore chargée (course aggravée par
+    // le listComptes désormais enrichi de la perf) → faux « créer » →
+    // « existe déjà ». Cf TD-018 (attendre l'état, pas le 1er rendu).
+    const existingHandles = new Set(allComptes.map((c) => c.handle));
+
     // Pré-requis : 2 comptes TikTok (création UI pour profiter du normalizeHandle)
     await page.goto(adminPath("/comptes"));
     for (const handle of ["test_e2e_var_view_src", "test_e2e_var_view_dst"]) {
-      if (
-        (await page
-          .getByRole("cell", { name: `@${handle}` })
-          .count()) === 0
-      ) {
+      if (!existingHandles.has(`@${handle}`)) {
         await page
           .getByRole("button", { name: /ajouter un compte/i }).first()
           .click();
