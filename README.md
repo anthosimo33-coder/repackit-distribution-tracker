@@ -59,25 +59,32 @@ Toutes les tables métier sont scopées par `projectId` (tables `projects` +
 `memberships`). Numérotation `C###`/`S###`/`SR###` **par projet**.
 
 À cause du déploiement atomique (le `convex deploy` du build pousse le schéma
-AVANT toute migration data), le rollout est en **2 phases** :
+AVANT toute migration data), le rollout a été fait en **2 phases** (prod
+backfillée le 2026-06-12) :
 
-1. **Ce commit** — `projectId` est `v.optional` sur les 9 tables, `vuesJ1/J3/J7`
-   conservés. Les fonctions imposent déjà `projectId` (wrappers
-   `projectQuery`/`projectMutation`), l'optional n'est qu'une fenêtre de
-   migration. Après déploiement, lancer **une fois** sur prod :
+1. **Phase 1** (`feat(multi-tenant)`) — `projectId` en `v.optional` + tables
+   `projects`/`memberships` + indexes. Après déploiement, lancé **une fois**
+   sur prod :
 
    ```bash
    ./node_modules/.bin/convex run migrations:setupRepackitProject --prod
    ```
 
-   → crée le projet `repackit`, donne un membership admin au superadmin,
-   backfille `projectId` partout, et unset `vuesJ1/J3/J7` (TD-016).
-   **Vérifier ensuite** que les KPIs du dashboard sont identiques à avant.
+   → projet `repackit`, membership admin du superadmin, backfill `projectId`
+   partout, unset `vuesJ1/J3/J7` (TD-016). Comptages des 9 tables inchangés
+   (64 publications, 490 hooks, etc.), KPIs dashboard identiques.
 
-2. **Commit de suivi** (une fois la prod backfillée) — resserrer `projectId` en
-   `v.id("projects")` (non-optional) et retirer `vuesJ1/J3/J7` du schéma
-   (cf bloc de tête de `convex/schema.ts`). TD-017 (`comptes.actif`) reste
-   différé : `lib/compte-status.ts` + des specs e2e le lisent encore.
+2. **Phase 2** (`chore(multi-tenant)`) — la prod étant backfillée, `projectId`
+   resserré en `v.id("projects")` (non-optional) sur les 9 tables et
+   `vuesJ1/J3/J7` retirés du schéma. Le succès du `convex deploy` au build
+   prouve qu'aucun doc prod ne viole le schéma resserré.
+
+TD-017 (`comptes.actif`) reste différé : `lib/compte-status.ts` + ~12 specs e2e
+le lisent encore.
+
+Pour amorcer un **nouveau deployment** (dev/test/prod neuf), lancer
+`setupRepackitProject` après le 1er provisioning auth (crée le projet repackit
++ membership superadmin ; idempotent).
 
 Côté front, le projet courant est résolu via `api.projects.getCurrentProject`
 (membership) dans `ProjectProvider` — **TODO(P3)** : remplacer par le sélecteur

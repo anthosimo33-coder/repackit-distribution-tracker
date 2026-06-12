@@ -3,22 +3,20 @@ import { authTables } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 
 /**
- * P2 Multi-tenant — ROLLOUT EN 2 PHASES (à cause du deploy atomique TD-006 :
- * `convex deploy` pousse le schéma AVANT toute migration data) :
+ * P2 Multi-tenant — rollout terminé (2 phases, à cause du deploy atomique
+ * TD-006 qui pousse le schéma AVANT toute migration data) :
  *
- *  Phase actuelle (ce commit) — projectId v.optional sur les 9 tables métier,
- *  vuesJ1/J3/J7 conservés en optional. Le push réussit sur une prod non encore
- *  backfillée. Les FONCTIONS imposent déjà projectId (projectQuery/Mutation) :
- *  l'optional n'est qu'une fenêtre de migration, pas un relâchement de garde.
- *  → Après déploiement, lancer UNE FOIS sur prod :
- *      convex run migrations:setupRepackitProject --prod
- *    (crée le projet repackit, membership admin du superadmin, backfill
- *     projectId partout, unset vuesJ1/J3/J7).
+ *  Phase 1 (commit feat(multi-tenant)) — projectId v.optional + tables
+ *  projects/memberships + indexes ; migration setupRepackitProject backfille
+ *  projectId partout et unset vuesJ1/J3/J7. Exécutée en prod le 2026-06-12.
  *
- *  Phase 2 (commit de suivi, une fois la prod backfillée) — resserrer
- *  projectId en v.id("projects") (non-optional) et RETIRER vuesJ1/J3/J7 du
- *  schéma. Ces deux changements échoueraient au push tant que des docs prod
- *  n'ont pas projectId / portent encore vuesJ*.
+ *  Phase 2 (CE commit) — la prod étant backfillée, on RESSERRE projectId en
+ *  v.id("projects") (non-optional) sur les 9 tables métier et on RETIRE
+ *  vuesJ1/J3/J7 du schéma. Le succès du push (build npx convex deploy) prouve
+ *  qu'aucun doc prod ne viole ce schéma resserré.
+ *
+ *  Reste différé : TD-017 (comptes.actif) — encore lu par lib/compte-status.ts
+ *  et ~12 specs e2e.
  */
 export default defineSchema({
   // ─── Remédiation sécurité — tables Convex Auth ───────────────────────────
@@ -74,7 +72,7 @@ export default defineSchema({
   hooks: defineTable({
     // P2 — projectId optional (phase migration) → resserré en required après
     // backfill. La biblio hooks est PAR PROJET (une autre app a ses hooks).
-    projectId: v.optional(v.id("projects")),
+    projectId: v.id("projects"),
     text: v.string(),
     mecanique: v.union(
       v.literal("Erreur"),
@@ -99,7 +97,7 @@ export default defineSchema({
 
   publications: defineTable({
     // P2 — scope projet (optional pendant migration, resserré ensuite).
-    projectId: v.optional(v.id("projects")),
+    projectId: v.id("projects"),
     carouselId: v.string(),
     hookId: v.union(v.id("hooks"), v.null()),
     hookText: v.string(),
@@ -179,14 +177,8 @@ export default defineSchema({
     ),
     compte: v.string(),
     datePubli: v.number(),
-    // TD-016 — vuesJ1/J3/J7 en cours de retrait. Optional ici : le backfill
-    // (setupRepackitProject) les unset, mais le RETRAIT du schéma ne peut se
-    // faire qu'au 2e deploy (après backfill prod), sinon le push échoue sur les
-    // docs prod qui les portent encore. Les nouveaux inserts ne les écrivent
-    // plus ; les métriques temporelles vivent en metricSnapshots.
-    vuesJ1: v.optional(v.union(v.number(), v.null())),
-    vuesJ3: v.optional(v.union(v.number(), v.null())),
-    vuesJ7: v.optional(v.union(v.number(), v.null())),
+    // TD-016 — vuesJ1/J3/J7 SUPPRIMÉS (phase 2). Les métriques temporelles
+    // vivent en metricSnapshots ; le backfill les a unset sur tous les docs.
     saves: v.union(v.number(), v.null()),
     commentsTotal: v.union(v.number(), v.null()),
     commentsAudit: v.union(v.number(), v.null()),
@@ -267,7 +259,7 @@ export default defineSchema({
     // P2 — scope projet dénormalisé (= projectId de la publication parente).
     // Permet aggregateTimeseries / le chargement "tous les snapshots du projet"
     // sans charger d'abord les publications. by_publication reste valable.
-    projectId: v.optional(v.id("projects")),
+    projectId: v.id("projects"),
     publicationId: v.id("publications"),
     capturedAt: v.number(),
     daysSincePublication: v.number(),
@@ -291,7 +283,7 @@ export default defineSchema({
 
   comptes: defineTable({
     // P2 — scope projet.
-    projectId: v.optional(v.id("projects")),
+    projectId: v.id("projects"),
     handle: v.string(),
     plateforme: v.union(
       v.literal("TikTok"),
@@ -335,7 +327,7 @@ export default defineSchema({
   // (prenom, nom) imposé côté mutations.
   personnes: defineTable({
     // P2 — scope projet (l'équipe peut différer d'un projet à l'autre).
-    projectId: v.optional(v.id("projects")),
+    projectId: v.id("projects"),
     prenom: v.string(),
     nom: v.string(),
     createdAt: v.number(),
@@ -351,7 +343,7 @@ export default defineSchema({
   // palette FOLDER_COLORS (lib/folder-colors), pas un hex direct.
   icps: defineTable({
     // P2 — scope projet.
-    projectId: v.optional(v.id("projects")),
+    projectId: v.id("projects"),
     nom: v.string(),
     description: v.optional(v.string()),
     color: v.optional(v.string()),
@@ -374,7 +366,7 @@ export default defineSchema({
   // un format unique et n'est listé que sur sa page de référence.
   filterPresets: defineTable({
     // P2 — scope projet (les presets de tracker sont propres à un projet).
-    projectId: v.optional(v.id("projects")),
+    projectId: v.id("projects"),
     name: v.string(),
     schemaVersion: v.number(),
     mediaTypeScope: v.union(
@@ -421,7 +413,7 @@ export default defineSchema({
   // (generateUploadUrl + getPreviewUrl).
   inspirations: defineTable({
     // P2 — scope projet (la veille est propre à chaque app).
-    projectId: v.optional(v.id("projects")),
+    projectId: v.id("projects"),
     url: v.string(),
     type: v.union(v.literal("video"), v.literal("account")),
     plateforme: v.union(
@@ -461,7 +453,7 @@ export default defineSchema({
   // (lib/folder-colors.ts à créer en Batch G), pas un hex direct.
   folders: defineTable({
     // P2 — scope projet.
-    projectId: v.optional(v.id("projects")),
+    projectId: v.id("projects"),
     name: v.string(),
     description: v.optional(v.string()),
     color: v.optional(v.string()),
