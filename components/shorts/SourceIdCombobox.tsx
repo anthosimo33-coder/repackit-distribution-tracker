@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import {
@@ -52,7 +53,7 @@ export function SourceIdCombobox({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
 
-  const sources = useQuery(api.publications.listSources, {});
+  const sources = useProjectQuery(api.publications.listSources, {});
 
   const trimmedQuery = query.trim();
   const normalizedQuery = normalizeSourceId(trimmedQuery);

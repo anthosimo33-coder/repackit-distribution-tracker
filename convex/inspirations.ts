@@ -1,4 +1,4 @@
-import { authedMutation, authedQuery, e2eMutation } from "./functions";
+import { e2eMutation, projectMutation, projectQuery } from "./functions";
 import { v, ConvexError } from "convex/values";
 
 const plateformeValidator = v.union(
@@ -42,7 +42,7 @@ function normalizeTags(raw: string[]): string[] {
  * args optionnels (backward compat avec appel sans args). Filtrage en
  * mémoire après le collect — N+1 acceptable au volume cible (< 200 rows).
  */
-export const listInspirations = authedQuery({
+export const listInspirations = projectQuery({
   args: {
     folderIds: v.optional(v.array(v.id("folders"))),
     plateformes: v.optional(v.array(plateformeValidator)),
@@ -54,7 +54,9 @@ export const listInspirations = authedQuery({
   handler: async (ctx, args) => {
     let rows = await ctx.db
       .query("inspirations")
-      .withIndex("by_createdAt")
+      .withIndex("by_project_createdAt", (q) =>
+        q.eq("projectId", ctx.projectId),
+      )
       .order("desc")
       .collect();
 
@@ -108,11 +110,11 @@ export const listInspirations = authedQuery({
  * Retourne null si non trouvée (idempotent côté UI). Enrichi thumbnailUrl
  * de la même façon que listInspirations.
  */
-export const getInspirationById = authedQuery({
+export const getInspirationById = projectQuery({
   args: { id: v.id("inspirations") },
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.id);
-    if (!row) return null;
+    if (!row || row.projectId !== ctx.projectId) return null;
     const thumbnailUrl =
       row.thumbnail !== undefined && row.thumbnail !== null
         ? await ctx.storage.getUrl(row.thumbnail)
@@ -121,7 +123,7 @@ export const getInspirationById = authedQuery({
   },
 });
 
-export const createInspiration = authedMutation({
+export const createInspiration = projectMutation({
   args: {
     url: v.string(),
     type: typeValidator,
@@ -140,6 +142,7 @@ export const createInspiration = authedMutation({
     }
     const now = Date.now();
     return await ctx.db.insert("inspirations", {
+      projectId: ctx.projectId,
       url: args.url,
       type: args.type,
       plateforme: args.plateforme,
@@ -167,7 +170,7 @@ export const createInspiration = authedMutation({
  * tags : normalisés serveur (trim + lowercase + dedupe). Le client peut
  * envoyer ce qu'il veut, on garantit la cohérence en base.
  */
-export const updateInspiration = authedMutation({
+export const updateInspiration = projectMutation({
   args: {
     id: v.id("inspirations"),
     url: v.optional(v.string()),
@@ -186,7 +189,7 @@ export const updateInspiration = authedMutation({
       throw new ConvexError("URL ne peut pas être vide.");
     }
     const existing = await ctx.db.get(args.id);
-    if (!existing) {
+    if (!existing || existing.projectId !== ctx.projectId) {
       throw new ConvexError("Inspiration introuvable.");
     }
 
@@ -215,11 +218,11 @@ export const updateInspiration = authedMutation({
  * (parallèle au tracker, cf TD-011 à traiter séparément). Idempotent :
  * suppression d'un id inexistant est silencieuse.
  */
-export const deleteInspiration = authedMutation({
+export const deleteInspiration = projectMutation({
   args: { id: v.id("inspirations") },
   handler: async (ctx, args) => {
     const existing = await ctx.db.get(args.id);
-    if (!existing) return;
+    if (!existing || existing.projectId !== ctx.projectId) return;
     await ctx.db.delete(args.id);
   },
 });

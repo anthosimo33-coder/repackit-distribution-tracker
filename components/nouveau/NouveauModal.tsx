@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -93,21 +94,21 @@ export function NouveauModal({
   // Anti-shadowban — override de doublon IG/YouTube (checkbox StepPublication).
   const [confirmOverride, setConfirmOverride] = useState(false);
 
-  const allHooks = useQuery(api.hooks.listHooks, {});
-  const comptesData = useQuery(api.comptes.listComptes, { actifOnly: true });
+  const allHooks = useProjectQuery(api.hooks.listHooks, {});
+  const comptesData = useProjectQuery(api.comptes.listComptes, { actifOnly: true });
   // Préfixe d'ID par mediaType (C### / S### / SR###). Skip tant que le format
   // n'est pas choisi (étape 1). Compteur distinct par format côté serveur.
-  const nextCarouselId = useQuery(
+  const nextCarouselId = useProjectQuery(
     api.publications.getNextPublicationId,
     state.data.mediaType ? { mediaType: state.data.mediaType } : "skip",
   );
-  const createPub = useMutation(api.publications.createPublication);
+  const createPub = useProjectMutation(api.publications.createPublication);
 
   // Anti-shadowban — statut du sourceId courant (Short + sourceId non vide).
   // Pilote le pré-gate UI (StepPublication) + le gating du bouton Créer. Le
   // serveur revalide systématiquement (defense in depth).
   const sourceTrimmed = state.data.sourceId.trim();
-  const sourceStatus = useQuery(
+  const sourceStatus = useProjectQuery(
     api.publications.getSourceStatus,
     state.data.mediaType === "short" && sourceTrimmed
       ? { sourceId: state.data.sourceId }

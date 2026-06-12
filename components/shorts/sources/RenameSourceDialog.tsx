@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
 import {
@@ -43,7 +44,7 @@ export function RenameSourceDialog({
   const [newName, setNewName] = useState(source?.displaySourceId ?? "");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const renameSourceId = useMutation(api.publications.renameSourceId);
+  const renameSourceId = useProjectMutation(api.publications.renameSourceId);
 
   const trimmed = newName.trim();
   const normalizedNew = normalizeSourceId(newName);
@@ -51,7 +52,7 @@ export function RenameSourceDialog({
   const isNoOp = normalizedNew === normalizedOld;
 
   // Preview status du nouveau nom (skip si fermé, vide ou identique à l'ancien).
-  const status = useQuery(
+  const status = useProjectQuery(
     api.publications.getSourceStatus,
     open && trimmed !== "" && !isNoOp ? { sourceId: newName } : "skip",
   );

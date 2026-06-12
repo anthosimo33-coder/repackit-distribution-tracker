@@ -3,6 +3,7 @@
 import { use, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -29,7 +30,7 @@ export default function CarouselIdResolver({
 }) {
   const { carouselId } = use(params);
   const router = useRouter();
-  const resolved = useQuery(api.publications.getByCarouselId, { carouselId });
+  const resolved = useProjectQuery(api.publications.getByCarouselId, { carouselId });
 
   useEffect(() => {
     if (resolved === undefined) return;

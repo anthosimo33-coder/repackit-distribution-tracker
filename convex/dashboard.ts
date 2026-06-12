@@ -1,4 +1,4 @@
-import { authedQuery } from "./functions";
+import { projectQuery } from "./functions";
 import { v } from "convex/values";
 import { coerceSnapshotAge } from "./snapshotMatching";
 import {
@@ -15,15 +15,21 @@ import {
  * Save rate / winners = carrousels uniquement (pas de saves côté short/SR).
  * Engagement rate = (likes + comments) / vues, cross-format.
  */
-export const dashboardKpis = authedQuery({
+export const dashboardKpis = projectQuery({
   args: {
     snapshotAge: v.optional(v.string()),
     customDay: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const age = coerceSnapshotAge(args.snapshotAge);
-    const pubs = await ctx.db.query("publications").collect();
-    const allSnaps = await ctx.db.query("metricSnapshots").collect();
+    const pubs = await ctx.db
+      .query("publications")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const allSnaps = await ctx.db
+      .query("metricSnapshots")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
     const snapsByPub = groupSnapshotsByPublication(allSnaps);
 
     let totalPublished = 0;

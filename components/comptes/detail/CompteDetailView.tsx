@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
 import {
@@ -32,7 +33,7 @@ import { CompteFormatLists } from "./CompteFormatLists";
  */
 export function CompteDetailView({ compte }: { compte: Compte }) {
   const { age, customDay } = useSnapshotAge();
-  const allPubs = useQuery(
+  const allPubs = useProjectQuery(
     api.publications.listPublications,
     snapshotQueryArgs({ age, customDay }),
   );

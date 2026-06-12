@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import {
@@ -86,7 +87,7 @@ export function PublicationEditDialog({
   const isVideoFormat = isShort || isScreenRecorder;
   const isInstagram = publication.plateforme === "Instagram";
 
-  const snapshots = useQuery(api.metricSnapshots.listSnapshotsByPublication, {
+  const snapshots = useProjectQuery(api.metricSnapshots.listSnapshotsByPublication, {
     publicationId: publication._id,
   });
 
@@ -107,8 +108,8 @@ export function PublicationEditDialog({
   const [sourceId, setSourceId] = useState(publication.sourceId ?? "");
   const [savingInfos, setSavingInfos] = useState(false);
 
-  const updateMetrics = useMutation(api.publications.updateMetrics);
-  const deleteSnapshot = useMutation(api.metricSnapshots.deleteSnapshot);
+  const updateMetrics = useProjectMutation(api.publications.updateMetrics);
+  const deleteSnapshot = useProjectMutation(api.metricSnapshots.deleteSnapshot);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editingSnapshot, setEditingSnapshot] =
@@ -390,8 +391,8 @@ function SnapshotFormDialog({
   isVideo: boolean;
   onClose: () => void;
 }) {
-  const createSnapshot = useMutation(api.metricSnapshots.createSnapshot);
-  const updateSnapshot = useMutation(api.metricSnapshots.updateSnapshot);
+  const createSnapshot = useProjectMutation(api.metricSnapshots.createSnapshot);
+  const updateSnapshot = useProjectMutation(api.metricSnapshots.updateSnapshot);
 
   const [capturedAt, setCapturedAt] = useState<Date>(
     editing ? new Date(editing.capturedAt) : new Date(),

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import { GalleryHorizontalIcon, StarIcon, UserIcon } from "lucide-react";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
@@ -46,7 +47,7 @@ export function InspirationCard({
     inspiration.type === "account" ? UserIcon : GalleryHorizontalIcon;
   const folderColor = getFolderColor(folder?.color);
 
-  const updateInspiration = useMutation(api.inspirations.updateInspiration);
+  const updateInspiration = useProjectMutation(api.inspirations.updateInspiration);
 
   // Optimistic favori toggle : décision immediate (mutation directe au
   // click). Justification : signal d'intention claire de l'utilisateur,

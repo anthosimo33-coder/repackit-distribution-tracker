@@ -62,7 +62,7 @@ test.describe("Hooks — Vue variantes via Popover", () => {
           .count()) === 0
       ) {
         await page
-          .getByRole("button", { name: /ajouter un compte/i })
+          .getByRole("button", { name: /ajouter un compte/i }).first()
           .click();
         await page.getByLabel("Handle").fill(handle);
         await page.getByRole("combobox").first().click();

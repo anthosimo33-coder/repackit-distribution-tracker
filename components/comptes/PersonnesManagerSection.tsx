@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
@@ -37,8 +38,8 @@ import { toast } from "sonner";
  * actions rename / delete.
  */
 export function PersonnesManagerSection({ onBack }: { onBack: () => void }) {
-  const personnes = useQuery(api.personnes.listPersonnes, {});
-  const deletePersonne = useMutation(api.personnes.deletePersonne);
+  const personnes = useProjectQuery(api.personnes.listPersonnes, {});
+  const deletePersonne = useProjectMutation(api.personnes.deletePersonne);
 
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editMode, setEditMode] = useState<"create" | "edit">("create");

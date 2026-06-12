@@ -14,7 +14,7 @@ test.describe("Tracker édition métriques", () => {
     // Pré-requis : compte
     await page.goto("/comptes");
     if ((await page.getByRole("cell", { name: "@test_e2e_metrics" }).count()) === 0) {
-      await page.getByRole("button", { name: /ajouter un compte/i }).click();
+      await page.getByRole("button", { name: /ajouter un compte/i }).first().click();
       await page.getByLabel("Handle").fill("test_e2e_metrics");
       await page.getByRole("combobox").first().click();
       await page.getByRole("option", { name: "TikTok" }).click();

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
@@ -46,9 +47,9 @@ import { toast } from "sonner";
  * Shorts assignés). Calque FolderManagerSection.
  */
 export function IcpsManagerSection({ onBack }: { onBack: () => void }) {
-  const icps = useQuery(api.icps.listIcps, {});
-  const updateIcp = useMutation(api.icps.updateIcp);
-  const deleteIcp = useMutation(api.icps.deleteIcp);
+  const icps = useProjectQuery(api.icps.listIcps, {});
+  const updateIcp = useProjectMutation(api.icps.updateIcp);
+  const deleteIcp = useProjectMutation(api.icps.deleteIcp);
 
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editMode, setEditMode] = useState<"create" | "edit">("create");

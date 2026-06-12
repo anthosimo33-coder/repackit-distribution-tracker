@@ -11,6 +11,7 @@ import {
   YAxis,
 } from "recharts";
 import { useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -81,7 +82,7 @@ export function MetricChart({
 
   const metricKey = toMetricKey(metric);
 
-  const aggregateData = useQuery(
+  const aggregateData = useProjectQuery(
     api.metricSnapshots.aggregateTimeseries,
     mode === "aggregate"
       ? {
@@ -94,7 +95,7 @@ export function MetricChart({
       : "skip",
   );
 
-  const singleSnaps = useQuery(
+  const singleSnaps = useProjectQuery(
     api.metricSnapshots.listSnapshotsByPublication,
     mode === "single_publication" && publicationId
       ? { publicationId }

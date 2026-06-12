@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { Card, CardContent } from "@/components/ui/card";
@@ -338,22 +339,22 @@ export function TrackerListSection({
     useState<Doc<"publications"> | null>(null);
 
   const { age, customDay } = useSnapshotAge();
-  const publications = useQuery(
+  const publications = useProjectQuery(
     api.publications.listPublications,
     snapshotQueryArgs({ age, customDay }),
   );
-  const comptes = useQuery(api.comptes.listComptes, { actifOnly: true });
+  const comptes = useProjectQuery(api.comptes.listComptes, { actifOnly: true });
   // Options du filtre ICP (Short uniquement). Query inconditionnelle (légère).
-  const icps = useQuery(api.icps.listIcps, {});
+  const icps = useProjectQuery(api.icps.listIcps, {});
   // Batch B — listPresets sans args. Le filtre par mediaTypeScope se fait
   // côté client (cf `presets` ci-dessous). Le serveur Convex actuel attend
   // `args: {}` ; passer un arg avant le deploy v4 ferait reject le validator
   // strict. Une fois Convex déployé, on pourra repasser au filter serveur
   // (1 ligne à changer + index by_mediaTypeScope).
-  const allPresets = useQuery(api.filterPresets.listPresets, {});
-  const deletePub = useMutation(api.publications.deletePublication);
-  const createPreset = useMutation(api.filterPresets.createPreset);
-  const deletePreset = useMutation(api.filterPresets.deletePreset);
+  const allPresets = useProjectQuery(api.filterPresets.listPresets, {});
+  const deletePub = useProjectMutation(api.publications.deletePublication);
+  const createPreset = useProjectMutation(api.filterPresets.createPreset);
+  const deletePreset = useProjectMutation(api.filterPresets.deletePreset);
 
   // Strip v1/v2/v3 + filter par mediaType scope (v4 only). Avant deploy v4,
   // les presets existants n'ont ni schemaVersion=4 ni mediaTypeScope → la
@@ -1462,7 +1463,7 @@ function MarkAsPostedDialog({
 }) {
   const [url, setUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const updateMetrics = useMutation(api.publications.updateMetrics);
+  const updateMetrics = useProjectMutation(api.publications.updateMetrics);
 
   const trimmed = url.trim();
   const canSubmit = trimmed.startsWith("http") && !submitting;
@@ -1548,7 +1549,7 @@ function DuplicateCarouselDialog({
   const [compte, setCompte] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const comptesData = useQuery(api.comptes.listComptes, { actifOnly: true });
+  const comptesData = useProjectQuery(api.comptes.listComptes, { actifOnly: true });
   const filteredComptes = useMemo(
     () =>
       plateforme === ""
@@ -1557,7 +1558,7 @@ function DuplicateCarouselDialog({
     [comptesData, plateforme],
   );
 
-  const duplicate = useMutation(api.publications.duplicateCarousel);
+  const duplicate = useProjectMutation(api.publications.duplicateCarousel);
 
   function handlePlateformeChange(next: "TikTok" | "Instagram" | "YouTube") {
     setPlateforme(next);

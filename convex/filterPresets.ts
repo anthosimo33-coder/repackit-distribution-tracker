@@ -1,4 +1,4 @@
-import { authedMutation, authedQuery, e2eMutation } from "./functions";
+import { e2eMutation, projectMutation, projectQuery } from "./functions";
 import { v, ConvexError } from "convex/values";
 
 const filtersValidator = v.object({
@@ -38,7 +38,7 @@ const mediaTypeScopeValidator = v.union(
 // client par TrackerListSection avant filtrage.
 const CURRENT_SCHEMA_VERSION = 4;
 
-export const createPreset = authedMutation({
+export const createPreset = projectMutation({
   args: {
     name: v.string(),
     mediaTypeScope: mediaTypeScopeValidator,
@@ -51,19 +51,19 @@ export const createPreset = authedMutation({
       throw new ConvexError("Le nom du preset ne peut pas être vide.");
     }
 
-    // Unicité du nom : globale (pas par scope). Décision tranchée : un preset
-    // "Top winners FR" n'a de sens que dans un seul format à la fois ; refuser
-    // la collision force le user à préfixer/distinguer s'il en veut un par
-    // format (ex: "Top winners FR — carousel").
+    // Unicité du nom DANS le projet (by_project_name).
     const existing = await ctx.db
       .query("filterPresets")
-      .withIndex("by_name", (q) => q.eq("name", trimmedName))
+      .withIndex("by_project_name", (q) =>
+        q.eq("projectId", ctx.projectId).eq("name", trimmedName),
+      )
       .first();
     if (existing) {
       throw new ConvexError("Un preset avec ce nom existe déjà.");
     }
 
     return await ctx.db.insert("filterPresets", {
+      projectId: ctx.projectId,
       name: trimmedName,
       schemaVersion: CURRENT_SCHEMA_VERSION,
       mediaTypeScope: args.mediaTypeScope,
@@ -73,31 +73,38 @@ export const createPreset = authedMutation({
   },
 });
 
-export const deletePreset = authedMutation({
+export const deletePreset = projectMutation({
   args: { id: v.id("filterPresets") },
   handler: async (ctx, args) => {
+    const preset = await ctx.db.get(args.id);
+    if (!preset || preset.projectId !== ctx.projectId) return;
     await ctx.db.delete(args.id);
   },
 });
 
-export const listPresets = authedQuery({
+export const listPresets = projectQuery({
   args: {
-    // mediaTypeScope optional : si fourni, filtre serveur via index
-    // by_mediaTypeScope ; sinon retourne tous (utile pour un futur dashboard
-    // global ou un audit). Le strip schemaVersion v3 reste côté client.
+    // mediaTypeScope optional : si fourni, filtre serveur via
+    // by_project_mediaTypeScope ; sinon tous les presets du projet.
     mediaTypeScope: v.optional(mediaTypeScopeValidator),
   },
   handler: async (ctx, args) => {
     if (args.mediaTypeScope) {
       return await ctx.db
         .query("filterPresets")
-        .withIndex("by_mediaTypeScope", (q) =>
-          q.eq("mediaTypeScope", args.mediaTypeScope!),
+        .withIndex("by_project_mediaTypeScope", (q) =>
+          q
+            .eq("projectId", ctx.projectId)
+            .eq("mediaTypeScope", args.mediaTypeScope!),
         )
         .order("desc")
         .collect();
     }
-    return await ctx.db.query("filterPresets").order("desc").collect();
+    return await ctx.db
+      .query("filterPresets")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .order("desc")
+      .collect();
   },
 });
 

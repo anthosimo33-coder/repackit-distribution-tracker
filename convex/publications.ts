@@ -1,7 +1,6 @@
-import { internalMutation } from "./_generated/server";
-import { authedMutation, authedQuery, e2eMutation } from "./functions";
+import { e2eMutation, projectMutation, projectQuery } from "./functions";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
 import { coerceSnapshotAge } from "./snapshotMatching";
 import {
@@ -160,10 +159,16 @@ function sourceStatusOf(p: Doc<"publications">): "published" | "draft" | "late" 
  */
 async function findExistingSourcePublications(
   ctx: QueryCtx | MutationCtx,
+  projectId: Id<"projects">,
   normalizedSourceId: string,
   excludeCarouselId?: string,
 ): Promise<Array<{ publication: Doc<"publications">; normalizedSourceId: string }>> {
-  const all = await ctx.db.query("publications").collect();
+  // A3 — unicité (sourceId × plateforme) scopée projet : on ne cherche QUE
+  // dans le projet courant.
+  const all = await ctx.db
+    .query("publications")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
   const matches: Array<{
     publication: Doc<"publications">;
     normalizedSourceId: string;
@@ -180,7 +185,7 @@ async function findExistingSourcePublications(
   return matches;
 }
 
-export const createPublication = authedMutation({
+export const createPublication = projectMutation({
   args: {
     carouselId: v.string(),
     hookId: v.union(v.id("hooks"), v.null()),
@@ -287,7 +292,11 @@ export const createPublication = authedMutation({
       if (normalized === "") {
         throw new ConvexError("SourceId vide ou invalide.");
       }
-      const existing = await findExistingSourcePublications(ctx, normalized);
+      const existing = await findExistingSourcePublications(
+        ctx,
+        ctx.projectId,
+        normalized,
+      );
       for (const plateforme of args.plateformes) {
         const onPlatform = existing.filter(
           (e) => e.publication.plateforme === plateforme,
@@ -319,6 +328,7 @@ export const createPublication = authedMutation({
     const ids = [];
     for (const plateforme of args.plateformes) {
       const id = await ctx.db.insert("publications", {
+        projectId: ctx.projectId,
         carouselId: args.carouselId,
         hookId: args.hookId,
         hookText: args.hookText,
@@ -346,9 +356,7 @@ export const createPublication = authedMutation({
         plateforme,
         compte: args.compte,
         datePubli: args.datePubli,
-        vuesJ1: null,
-        vuesJ3: null,
-        vuesJ7: null,
+        // TD-016 : vuesJ1/J3/J7 retirés du schéma (migrés en metricSnapshots).
         saves: null,
         commentsTotal: null,
         commentsAudit: null,
@@ -373,10 +381,14 @@ export const createPublication = authedMutation({
  * mediaType optional → default "carousel" (backward compat pour un caller
  * oublié qui n'enverrait pas l'arg). Préfixe automatique C### / S### / SR###.
  */
-export const getNextPublicationId = authedQuery({
+export const getNextPublicationId = projectQuery({
   args: { mediaType: v.optional(mediaTypeValidator) },
   handler: async (ctx, args) => {
-    const all = await ctx.db.query("publications").collect();
+    // A2 — compteur PAR PROJET : on ne compte que les publications du projet.
+    const all = await ctx.db
+      .query("publications")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
     return computeNextPublicationId(all, args.mediaType ?? "carousel");
   },
 });
@@ -387,10 +399,13 @@ export const getNextPublicationId = authedQuery({
  * présente sur disque + specs e2e). Délègue au compteur carousel. Le nouveau
  * code (NouveauModal) utilise getNextPublicationId({ mediaType }).
  */
-export const getNextCarouselId = authedQuery({
+export const getNextCarouselId = projectQuery({
   args: {},
   handler: async (ctx) => {
-    const all = await ctx.db.query("publications").collect();
+    const all = await ctx.db
+      .query("publications")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
     return computeNextPublicationId(all, "carousel");
   },
 });
@@ -405,7 +420,7 @@ export const getNextCarouselId = authedQuery({
  * s'appuyer sur p.image directement pour afficher une URL — toujours
  * passer par imageUrl exposé par cette query.
  */
-export const listPublications = authedQuery({
+export const listPublications = projectQuery({
   args: {
     // Refactor multi-snapshots — période d'âge sélectionnée globalement (UI).
     // Optional → "latest" (cf coerceSnapshotAge). customDay pour age="custom".
@@ -416,20 +431,24 @@ export const listPublications = authedQuery({
     const age = coerceSnapshotAge(args.snapshotAge);
     const rows = await ctx.db
       .query("publications")
-      .withIndex("by_datePubli")
+      .withIndex("by_project_datePubli", (q) =>
+        q.eq("projectId", ctx.projectId),
+      )
       .order("desc")
       .collect();
 
-    // Refinement Shorts — enrichissement ICP côté serveur (lookup, cohérent
-    // pattern listComptes.personne). L'UI /shorts lit directement p.icp sans
-    // re-query. N+1 mémoire acceptable au volume. Champ additif `icp` : ne
-    // casse aucun caller existant.
-    const icps = await ctx.db.query("icps").collect();
+    // Enrichissement ICP (scopé projet).
+    const icps = await ctx.db
+      .query("icps")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
     const icpMap = new Map(icps.map((i) => [i._id, i]));
 
-    // Tous les snapshots chargés une fois puis groupés en mémoire (évite un
-    // N+1 par publication). Volume actuel trivial ; TD-009 si > 2000 snapshots.
-    const allSnaps = await ctx.db.query("metricSnapshots").collect();
+    // Tous les snapshots DU PROJET, groupés en mémoire (évite un N+1).
+    const allSnaps = await ctx.db
+      .query("metricSnapshots")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
     const snapsByPub = groupSnapshotsByPublication(allSnaps);
 
     return await Promise.all(
@@ -464,16 +483,20 @@ export const listPublications = authedQuery({
  * Coercion mediaType : alignée avec lib/media-type.getMediaType côté client
  * (rows pré-Batch-1-Shorts → "carousel"). Dupliquée car cross-tsconfig.
  */
-export const getByCarouselId = authedQuery({
+export const getByCarouselId = projectQuery({
   args: {
     carouselId: v.string(),
     snapshotAge: v.optional(v.string()),
     customDay: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    // A2 — résolution (projectId, carouselId) : carouselId n'est plus unique
+    // globalement.
     const row = await ctx.db
       .query("publications")
-      .withIndex("by_carouselId", (q) => q.eq("carouselId", args.carouselId))
+      .withIndex("by_project_carouselId", (q) =>
+        q.eq("projectId", ctx.projectId).eq("carouselId", args.carouselId),
+      )
       .first();
     if (!row) return null;
     const age = coerceSnapshotAge(args.snapshotAge);
@@ -493,12 +516,10 @@ export const getByCarouselId = authedQuery({
   },
 });
 
-export const updateMetrics = authedMutation({
+export const updateMetrics = projectMutation({
   args: {
     id: v.id("publications"),
-    vuesJ1: v.optional(v.union(v.number(), v.null())),
-    vuesJ3: v.optional(v.union(v.number(), v.null())),
-    vuesJ7: v.optional(v.union(v.number(), v.null())),
+    // TD-016 : vuesJ1/J3/J7 retirés (le front saisit via les snapshots).
     saves: v.optional(v.union(v.number(), v.null())),
     commentsTotal: v.optional(v.union(v.number(), v.null())),
     commentsAudit: v.optional(v.union(v.number(), v.null())),
@@ -527,7 +548,9 @@ export const updateMetrics = authedMutation({
   handler: async (ctx, args) => {
     const { id, icpId, sourceId, ...rest } = args;
     const existing = await ctx.db.get(id);
-    if (!existing) throw new Error("Publication not found");
+    if (!existing || existing.projectId !== ctx.projectId) {
+      throw new Error("Publication not found");
+    }
 
     const update: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(rest)) {
@@ -558,11 +581,13 @@ export const updateMetrics = authedMutation({
  * Patch single-row (chaque row = 1 plateforme a son propre compte). Pas de
  * updatedAt sur publications → non patché. Pattern cohérent avec updateMetrics.
  */
-export const updatePublishedAccount = authedMutation({
+export const updatePublishedAccount = projectMutation({
   args: { id: v.id("publications"), newCompte: v.string() },
   handler: async (ctx, args) => {
     const pub = await ctx.db.get(args.id);
-    if (!pub) throw new ConvexError("Publication introuvable.");
+    if (!pub || pub.projectId !== ctx.projectId) {
+      throw new ConvexError("Publication introuvable.");
+    }
 
     const isPub = typeof pub.postUrl === "string" && pub.postUrl.length > 0;
     if (!isPub) {
@@ -574,10 +599,13 @@ export const updatePublishedAccount = authedMutation({
       throw new ConvexError("Le compte ne peut être modifié qu'une seule fois.");
     }
 
-    const comptes = await ctx.db.query("comptes").collect();
-    const match = comptes.find(
-      (c) => c.handle === args.newCompte && c.plateforme === pub.plateforme,
-    );
+    const comptes = await ctx.db
+      .query("comptes")
+      .withIndex("by_project_plateforme", (q) =>
+        q.eq("projectId", ctx.projectId).eq("plateforme", pub.plateforme),
+      )
+      .collect();
+    const match = comptes.find((c) => c.handle === args.newCompte);
     if (!match) {
       throw new ConvexError(
         `Le compte ${args.newCompte} n'existe pas sur ${pub.plateforme}.`,
@@ -592,9 +620,11 @@ export const updatePublishedAccount = authedMutation({
   },
 });
 
-export const deletePublication = authedMutation({
+export const deletePublication = projectMutation({
   args: { id: v.id("publications") },
   handler: async (ctx, args) => {
+    const pub = await ctx.db.get(args.id);
+    if (!pub || pub.projectId !== ctx.projectId) return { ok: true };
     await ctx.db.delete(args.id);
     return { ok: true };
   },
@@ -617,7 +647,7 @@ export const deletePublication = authedMutation({
  * Race condition sur nextCarouselId : héritée de getNextCarouselId (TD-004),
  * pas adressée ici.
  */
-export const duplicateCarousel = authedMutation({
+export const duplicateCarousel = projectMutation({
   args: {
     sourceCarouselId: v.string(),
     targetCompte: v.string(),
@@ -630,8 +660,10 @@ export const duplicateCarousel = authedMutation({
   handler: async (ctx, args) => {
     const sourceRows = await ctx.db
       .query("publications")
-      .withIndex("by_carouselId", (q) =>
-        q.eq("carouselId", args.sourceCarouselId),
+      .withIndex("by_project_carouselId", (q) =>
+        q
+          .eq("projectId", ctx.projectId)
+          .eq("carouselId", args.sourceCarouselId),
       )
       .collect();
 
@@ -655,13 +687,17 @@ export const duplicateCarousel = authedMutation({
       );
     }
 
-    // Validation cross-table compte/plateforme : refuse un compte qui n'existe
-    // pas sur la plateforme cible. Évite des rows incohérentes côté DB.
-    const allComptes = await ctx.db.query("comptes").collect();
+    // Validation cross-table compte/plateforme (scopée projet).
+    const allComptes = await ctx.db
+      .query("comptes")
+      .withIndex("by_project_plateforme", (q) =>
+        q
+          .eq("projectId", ctx.projectId)
+          .eq("plateforme", args.targetPlateforme),
+      )
+      .collect();
     const matchingCompte = allComptes.find(
-      (c) =>
-        c.handle === args.targetCompte &&
-        c.plateforme === args.targetPlateforme,
+      (c) => c.handle === args.targetCompte,
     );
     if (!matchingCompte) {
       throw new ConvexError(
@@ -681,7 +717,11 @@ export const duplicateCarousel = authedMutation({
     if (sourceMediaType === "short" && sourceIdToUse !== undefined) {
       const normalized = normalizeSourceId(sourceIdToUse);
       if (normalized !== "") {
-        const existing = await findExistingSourcePublications(ctx, normalized);
+        const existing = await findExistingSourcePublications(
+          ctx,
+          ctx.projectId,
+          normalized,
+        );
         const onPlatform = existing.filter(
           (e) => e.publication.plateforme === args.targetPlateforme,
         );
@@ -705,10 +745,14 @@ export const duplicateCarousel = authedMutation({
     // (S### pour un Short, SR### pour un SR), pas un "C" hardcodé. On réutilise
     // computeNextPublicationId (déjà ancré par préfixe + filtré par mediaType),
     // identique à getNextPublicationId. TD-004 (race condition) inchangé.
-    const all = await ctx.db.query("publications").collect();
+    const all = await ctx.db
+      .query("publications")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
     const nextCarouselId = computeNextPublicationId(all, sourceMediaType);
 
     await ctx.db.insert("publications", {
+      projectId: ctx.projectId,
       carouselId: nextCarouselId,
       hookId: source.hookId,
       hookText: source.hookText,
@@ -742,9 +786,7 @@ export const duplicateCarousel = authedMutation({
       plateforme: args.targetPlateforme,
       compte: args.targetCompte,
       datePubli: Date.now(),
-      vuesJ1: null,
-      vuesJ3: null,
-      vuesJ7: null,
+      // TD-016 : vuesJ1/J3/J7 retirés du schéma.
       saves: null,
       commentsTotal: null,
       commentsAudit: null,
@@ -780,7 +822,7 @@ export const duplicateCarousel = authedMutation({
  * cohérent avec « édition au niveau carrousel »). Le UI ouvre le dialog
  * depuis une row spécifique mais propage à tout le carrousel.
  */
-export const updateDraft = authedMutation({
+export const updateDraft = projectMutation({
   args: {
     carouselId: v.string(),
     patch: v.object({
@@ -822,8 +864,8 @@ export const updateDraft = authedMutation({
   handler: async (ctx, args) => {
     const rows = await ctx.db
       .query("publications")
-      .withIndex("by_carouselId", (q) =>
-        q.eq("carouselId", args.carouselId),
+      .withIndex("by_project_carouselId", (q) =>
+        q.eq("projectId", ctx.projectId).eq("carouselId", args.carouselId),
       )
       .collect();
 
@@ -843,11 +885,16 @@ export const updateDraft = authedMutation({
     // Validation cross-table : si la plateforme cible change, le compte (s'il
     // est aussi patché) doit exister sur cette plateforme côté table comptes.
     if (args.patch.plateforme && args.patch.compte) {
-      const allComptes = await ctx.db.query("comptes").collect();
+      const allComptes = await ctx.db
+        .query("comptes")
+        .withIndex("by_project_plateforme", (q) =>
+          q
+            .eq("projectId", ctx.projectId)
+            .eq("plateforme", args.patch.plateforme!),
+        )
+        .collect();
       const matching = allComptes.find(
-        (c) =>
-          c.handle === args.patch.compte &&
-          c.plateforme === args.patch.plateforme,
+        (c) => c.handle === args.patch.compte,
       );
       if (!matching) {
         throw new Error(
@@ -907,6 +954,7 @@ export const updateDraft = authedMutation({
           }
           const existing = await findExistingSourcePublications(
             ctx,
+            ctx.projectId,
             normalized,
             args.carouselId,
           );
@@ -940,115 +988,23 @@ export const updateDraft = authedMutation({
   },
 });
 
-/**
- * Migration data ONE-SHOT (internal — à lancer UNE SEULE FOIS post-deploy via
- * `pnpm dlx convex@latest run --prod publications:migrateLegacyCarouselIds`,
- * testable d'abord en dev). Renumérote les publications dont le préfixe d'ID
- * ne correspond pas à leur mediaType : les Shorts/SR créés avant ce batch ont
- * hérité d'un id "C###" → ils deviennent "S###" / "SR###". Les carrousels
- * (déjà "C###") sont SKIP (leur id ne change pas).
- *
- * IDEMPOTENT (heuristique préfixe vs mediaType, pas de flag dédié) : un groupe
- * dont l'id matche déjà son préfixe attendu est sauté ; les compteurs sont
- * initialisés au max existant déjà correctement préfixé. Relançable sans
- * risque de double-incrément.
- *
- * Grouping : 1 carouselId = N rows (une par plateforme). On assigne UN nouvel
- * id par GROUPE (toutes les rows du groupe gardent le même id) — sinon on
- * casserait le modèle 1 carouselId = N rows. parentCarouselId (ancre des
- * variantes) est remappé old→new pour préserver l'intégrité des lignées de
- * duplicats.
- */
-export const migrateLegacyCarouselIds = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const pubs = await ctx.db.query("publications").collect();
-
-    // Groupes par carouselId courant (1 id = N rows multi-plateformes).
-    const groups = new Map<string, typeof pubs>();
-    for (const p of pubs) {
-      const g = groups.get(p.carouselId);
-      if (g) g.push(p);
-      else groups.set(p.carouselId, [p]);
-    }
-
-    // Compteurs init au max existant déjà correctement préfixé (idempotence).
-    const counters: Record<MediaTypeServer, number> = {
-      carousel: 0,
-      short: 0,
-      screenrecorder: 0,
-    };
-    const toMigrate: {
-      oldId: string;
-      mediaType: MediaTypeServer;
-      rows: typeof pubs;
-      createdAt: number;
-    }[] = [];
-    for (const [oldId, rows] of groups) {
-      const mt = (rows[0].mediaType ?? "carousel") as MediaTypeServer;
-      const m = oldId.match(new RegExp(`^${ID_PREFIX[mt]}(\\d+)$`));
-      if (m) {
-        const n = parseInt(m[1], 10);
-        if (n > counters[mt]) counters[mt] = n;
-      } else {
-        const createdAt = Math.min(...rows.map((r) => r._creationTime));
-        toMigrate.push({ oldId, mediaType: mt, rows, createdAt });
-      }
-    }
-
-    // Tri stable : mediaType puis createdAt ASC (ordre de création préservé).
-    toMigrate.sort((a, b) =>
-      a.mediaType !== b.mediaType
-        ? a.mediaType < b.mediaType
-          ? -1
-          : 1
-        : a.createdAt - b.createdAt,
-    );
-
-    const idRemap = new Map<string, string>();
-    let carrouselsRenamed = 0;
-    let shortsRenamed = 0;
-    let srRenamed = 0;
-    for (const g of toMigrate) {
-      counters[g.mediaType] += 1;
-      const newId = `${ID_PREFIX[g.mediaType]}${String(
-        counters[g.mediaType],
-      ).padStart(3, "0")}`;
-      idRemap.set(g.oldId, newId);
-      for (const r of g.rows) {
-        await ctx.db.patch(r._id, { carouselId: newId });
-      }
-      if (g.mediaType === "carousel") carrouselsRenamed += 1;
-      else if (g.mediaType === "short") shortsRenamed += 1;
-      else srRenamed += 1;
-    }
-
-    // Remap parentCarouselId (ancre des variantes) pour les rows pointant vers
-    // un id renommé. Snapshot `pubs` pré-migration → _id stable.
-    let parentRefsUpdated = 0;
-    for (const p of pubs) {
-      if (p.parentCarouselId && idRemap.has(p.parentCarouselId)) {
-        await ctx.db.patch(p._id, {
-          parentCarouselId: idRemap.get(p.parentCarouselId),
-        });
-        parentRefsUpdated += 1;
-      }
-    }
-
-    return { carrouselsRenamed, shortsRenamed, srRenamed, parentRefsUpdated };
-  },
-});
+// NB (P2) : migrateLegacyCarouselIds (renumérotation one-shot des préfixes
+// d'ID par mediaType) a été SUPPRIMÉE — elle a déjà tourné en prod, et sa
+// logique de numérotation GLOBALE est incompatible avec le compteur PAR PROJET
+// (A2). Toute renumérotation future devra être scopée projet.
 
 /**
- * Anti-shadowban Shorts — bibliothèque des sources (/shorts/sources). 1 entrée
- * par sourceId normalisé distinct, avec la matrice de couverture par plateforme
- * (TikTok / Instagram / YouTube). Group by serveur (pattern listComptes), pas
- * d'index (collect()+filter trivial au volume — décision MVP). Shorts only.
+ * Anti-shadowban Shorts — bibliothèque des sources (/shorts/sources) du projet.
+ * 1 entrée par sourceId normalisé distinct, avec la matrice de couverture par
+ * plateforme. Shorts only, scopé projet (by_project).
  */
-export const listSources = authedQuery({
+export const listSources = projectQuery({
   args: {},
   handler: async (ctx) => {
-    const all = await ctx.db.query("publications").collect();
+    const all = await ctx.db
+      .query("publications")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
     const shorts = all.filter(
       (p) =>
         (p.mediaType ?? "carousel") === "short" &&
@@ -1118,11 +1074,15 @@ export const listSources = authedQuery({
  * Source unique de vérité de l'UX ; la validation mutation reste le filet
  * defense-in-depth. sourceId vide/inédit → exists=false, tout disponible.
  */
-export const getSourceStatus = authedQuery({
+export const getSourceStatus = projectQuery({
   args: { sourceId: v.string() },
   handler: async (ctx, args) => {
     const normalized = normalizeSourceId(args.sourceId);
-    const existing = await findExistingSourcePublications(ctx, normalized);
+    const existing = await findExistingSourcePublications(
+      ctx,
+      ctx.projectId,
+      normalized,
+    );
     const publications = existing.map((e) => ({
       plateforme: e.publication.plateforme,
       compte: e.publication.compte,
@@ -1161,7 +1121,7 @@ export const getSourceStatus = authedQuery({
  * incohérent (2 Shorts du même fichier source sur la même plateforme = le
  * risque shadowban qu'on combat). Shorts uniquement, normalisation systématique.
  */
-export const renameSourceId = authedMutation({
+export const renameSourceId = projectMutation({
   args: { oldSourceId: v.string(), newSourceId: v.string() },
   handler: async (ctx, args) => {
     const normalizedOld = normalizeSourceId(args.oldSourceId);
@@ -1181,7 +1141,11 @@ export const renameSourceId = authedMutation({
       };
     }
 
-    const all = await ctx.db.query("publications").collect();
+    // Cascade scopée projet (A3).
+    const all = await ctx.db
+      .query("publications")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
     const isShort = (p: Doc<"publications">) =>
       (p.mediaType ?? "carousel") === "short";
 

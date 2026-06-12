@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useMutation } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
@@ -96,8 +97,8 @@ export default function CompteDialog({
   const [dateError, setDateError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const createCompte = useMutation(api.comptes.createCompte);
-  const updateCompte = useMutation(api.comptes.updateCompte);
+  const createCompte = useProjectMutation(api.comptes.createCompte);
+  const updateCompte = useProjectMutation(api.comptes.updateCompte);
 
   // Reset state when dialog opens (especially for edit mode targeting a different compte)
   useEffect(() => {

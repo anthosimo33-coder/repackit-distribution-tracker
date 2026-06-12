@@ -1,6 +1,10 @@
 import { test as setup, expect } from "@playwright/test";
 import path from "path";
-import { E2E_EMAIL, E2E_PASSWORD } from "./helpers/authed-client";
+import {
+  E2E_EMAIL,
+  E2E_PASSWORD,
+  ensureE2eProject,
+} from "./helpers/authed-client";
 
 export const STORAGE_STATE = path.join(__dirname, ".auth", "user.json");
 
@@ -54,7 +58,15 @@ setup("authentifie le user e2e", async ({ page }) => {
     });
   }
 
-  // Confirme que l'app authentifiée est bien montée avant de figer le state.
+  // P2 — le user existe désormais : on crée (idempotent) le projet e2e dédié
+  // et on y rattache le user. getCurrentProject (membership le plus récent)
+  // renverra ce projet → l'app se monte sur le projet e2e isolé.
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
+  await ensureE2eProject(convexUrl);
+
+  // Reload pour que ProjectProvider re-résolve le projet (e2e désormais).
+  await page.goto("/dashboard");
   await expect(
     page.getByRole("heading", { name: "Dashboard" }),
   ).toBeVisible({ timeout: 15_000 });

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
@@ -52,9 +53,9 @@ import { toast } from "sonner";
  * d'édition, qui requiert plus de friction).
  */
 export function FolderManagerSection({ onBack }: { onBack: () => void }) {
-  const folders = useQuery(api.folders.listFolders, {});
-  const updateFolder = useMutation(api.folders.updateFolder);
-  const deleteFolder = useMutation(api.folders.deleteFolder);
+  const folders = useProjectQuery(api.folders.listFolders, {});
+  const updateFolder = useProjectMutation(api.folders.updateFolder);
+  const deleteFolder = useProjectMutation(api.folders.deleteFolder);
 
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editMode, setEditMode] = useState<"create" | "edit">("create");

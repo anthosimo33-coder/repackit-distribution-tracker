@@ -4,6 +4,7 @@ import { Suspense, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -79,7 +80,7 @@ export default function ComptesPage() {
 function ComptesPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const comptes = useQuery(api.comptes.listComptes, {});
+  const comptes = useProjectQuery(api.comptes.listComptes, {});
   const [addOpen, setAddOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Compte | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Compte | null>(null);
@@ -296,7 +297,7 @@ function RowActions({
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const updateCompte = useMutation(api.comptes.updateCompte);
+  const updateCompte = useProjectMutation(api.comptes.updateCompte);
   const isArchived = getEffectiveStatus(compte) === "archived";
   const toggleArchive = async () => {
     try {
@@ -346,7 +347,7 @@ function DeleteDialog({
   onOpenChange: (o: boolean) => void;
 }) {
   const [submitting, setSubmitting] = useState(false);
-  const deleteCompte = useMutation(api.comptes.deleteCompte);
+  const deleteCompte = useProjectMutation(api.comptes.deleteCompte);
 
   async function confirm() {
     if (!compte) return;

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
@@ -57,8 +58,8 @@ export function IcpCombobox({
   const [creating, setCreating] = useState(false);
   const [subOpen, setSubOpen] = useState(false);
 
-  const icps = useQuery(api.icps.listIcps, {});
-  const createIcp = useMutation(api.icps.createIcp);
+  const icps = useProjectQuery(api.icps.listIcps, {});
+  const createIcp = useProjectMutation(api.icps.createIcp);
 
   const selected = icps?.find((i) => i._id === value) ?? null;
   const trimmedQuery = query.trim();

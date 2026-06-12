@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../convex/_generated/api";
+import type { Id } from "../convex/_generated/dataModel";
 import { createE2eClient } from "./helpers/authed-client";
 import { config } from "dotenv";
 
@@ -8,6 +9,14 @@ config({ path: ".env.local" });
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
+
+// P2 — un vrai projectId est requis pour que la validation d'args Convex passe
+// (elle PRÉCÈDE le check d'auth). On le résout une fois ; l'appel anonyme est
+// ensuite rejeté sur l'AUTH, pas sur la validation. Renseigné en beforeAll.
+let projectId: Id<"projects">;
+test.beforeAll(async () => {
+  projectId = await createE2eClient(convexUrl).getProjectId();
+});
 
 /**
  * Remédiation sécurité — preuve du gating des fonctions Convex. Ces tests
@@ -19,7 +28,7 @@ test.describe("Gating Convex — client anonyme rejeté", () => {
   test("listPublications (lecture) → rejeté", async () => {
     const anon = new ConvexHttpClient(convexUrl);
     await expect(
-      anon.query(api.publications.listPublications, {}),
+      anon.query(api.publications.listPublications, { projectId }),
     ).rejects.toThrow(/Non authentifié/);
   });
 
@@ -53,7 +62,10 @@ test.describe("Gating Convex — client anonyme rejeté", () => {
 
     const anon = new ConvexHttpClient(convexUrl);
     await expect(
-      anon.mutation(api.publications.deletePublication, { id: ids[0] }),
+      anon.mutation(api.publications.deletePublication, {
+        id: ids[0],
+        projectId,
+      }),
     ).rejects.toThrow(/Non authentifié/);
 
     // La même suppression passe en authentifié (et nettoie le draft).
@@ -64,6 +76,7 @@ test.describe("Gating Convex — client anonyme rejeté", () => {
     const anon = new ConvexHttpClient(convexUrl);
     await expect(
       anon.mutation(api.comptes.createCompte, {
+        projectId,
         handle: "intrus_anonyme",
         plateforme: "TikTok",
         notes: "[E2E_TEST] tentative anonyme",
@@ -81,14 +94,20 @@ test.describe("Gating Convex — client anonyme rejeté", () => {
   test("clearHooks avec un secret invalide → rejeté (même authentifié)", async () => {
     const anon = new ConvexHttpClient(convexUrl);
     await expect(
-      anon.mutation(api.hooks.clearHooks, { secret: "mauvais-secret" }),
+      anon.mutation(api.hooks.clearHooks, {
+        secret: "mauvais-secret",
+        projectId,
+      }),
     ).rejects.toThrow(/invalide|désactivées/);
 
     // Le secret est vérifié indépendamment de l'identité : un user connecté
     // avec un mauvais secret est rejeté pareil.
     const authed = createE2eClient(convexUrl);
     await expect(
-      authed.mutation(api.hooks.clearHooks, { secret: "mauvais-secret" }),
+      authed.mutation(api.hooks.clearHooks, {
+        secret: "mauvais-secret",
+        projectId,
+      }),
     ).rejects.toThrow(/invalide|désactivées/);
   });
 });

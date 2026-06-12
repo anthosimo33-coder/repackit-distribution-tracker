@@ -7,6 +7,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 
 /**
  * Remédiation sécurité — wrappers de gating pour TOUTES les fonctions
@@ -35,6 +36,37 @@ async function requireUserId(ctx: QueryCtx | MutationCtx) {
     throw new ConvexError("Non authentifié.");
   }
   return userId;
+}
+
+/**
+ * P2 — vérifie que `userId` a accès au projet `projectId` :
+ *   - superadmin (users.role) : accès implicite à TOUS les projets, sans
+ *     membership ;
+ *   - sinon : un membership (userId, projectId) doit exister (rôle admin ou
+ *     creator — la séparation par fonction arrive en P4+).
+ * Rejette sinon (isolation inter-projets ; B6 : projet et rôle = deux couches
+ * distinctes).
+ */
+export async function requireProjectAccess(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+  projectId: Id<"projects">,
+) {
+  const project = await ctx.db.get(projectId);
+  if (project === null) {
+    throw new ConvexError("Projet introuvable.");
+  }
+  const user = await ctx.db.get(userId);
+  if (user?.role === "superadmin") return;
+  const membership = await ctx.db
+    .query("memberships")
+    .withIndex("by_user_project", (q) =>
+      q.eq("userId", userId).eq("projectId", projectId),
+    )
+    .first();
+  if (membership === null) {
+    throw new ConvexError("Accès au projet refusé.");
+  }
 }
 
 export const authedQuery = customQuery(
@@ -79,5 +111,30 @@ export const e2eMutation = customMutation(mutation, {
     }
     // `secret` est consommé ici : il n'atteint jamais le handler.
     return { ctx: {}, args: {} };
+  },
+});
+
+/**
+ * P2 — wrappers MÉTIER au-dessus des wrappers auth. Toute fonction qui touche
+ * une table scopée projet passe par projectQuery/projectMutation : identité
+ * requise + `projectId` (arg public obligatoire) + membership/superadmin
+ * vérifié. Le handler reçoit `ctx.userId` et `ctx.projectId` (ne PAS
+ * re-déclarer projectId dans les args du handler — le wrapper l'injecte).
+ */
+export const projectQuery = customQuery(query, {
+  args: { projectId: v.id("projects") },
+  input: async (ctx, { projectId }) => {
+    const userId = await requireUserId(ctx);
+    await requireProjectAccess(ctx, userId, projectId);
+    return { ctx: { userId, projectId }, args: {} };
+  },
+});
+
+export const projectMutation = customMutation(mutation, {
+  args: { projectId: v.id("projects") },
+  input: async (ctx, { projectId }) => {
+    const userId = await requireUserId(ctx);
+    await requireProjectAccess(ctx, userId, projectId);
+    return { ctx: { userId, projectId }, args: {} };
   },
 });

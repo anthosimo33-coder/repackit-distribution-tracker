@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { ImageUploader } from "@/components/ImageUploader";
@@ -185,7 +186,7 @@ function PublishedView({
   const auditConv = calculateAuditConversion(publication.commentsAudit, vues);
   // Snapshots pour la liste + le graphe d'évolution (query dédupliquée avec
   // MetricChart single_publication ci-dessous).
-  const snaps = useQuery(api.metricSnapshots.listSnapshotsByPublication, {
+  const snaps = useProjectQuery(api.metricSnapshots.listSnapshotsByPublication, {
     publicationId: publication._id,
   });
 
@@ -592,7 +593,7 @@ function AccountEditSubDialog({
 }) {
   const [newCompte, setNewCompte] = useState(publication.compte);
   const [submitting, setSubmitting] = useState(false);
-  const comptesData = useQuery(api.comptes.listComptes, { actifOnly: true });
+  const comptesData = useProjectQuery(api.comptes.listComptes, { actifOnly: true });
   const filtered = useMemo(
     () =>
       (comptesData ?? []).filter(
@@ -600,7 +601,7 @@ function AccountEditSubDialog({
       ),
     [comptesData, publication.plateforme],
   );
-  const updateAccount = useMutation(api.publications.updatePublishedAccount);
+  const updateAccount = useProjectMutation(api.publications.updatePublishedAccount);
 
   async function confirm() {
     if (newCompte === publication.compte) {
@@ -733,7 +734,7 @@ function DraftEditView({
   const [postUrl, setPostUrl] = useState(publication.postUrl ?? "");
   const [submitting, setSubmitting] = useState(false);
 
-  const comptesData = useQuery(api.comptes.listComptes, { actifOnly: true });
+  const comptesData = useProjectQuery(api.comptes.listComptes, { actifOnly: true });
   const filteredComptes = useMemo(
     () => comptesData?.filter((c) => c.plateforme === plateforme) ?? [],
     [comptesData, plateforme],
@@ -754,8 +755,8 @@ function DraftEditView({
     }
   }
 
-  const updateDraft = useMutation(api.publications.updateDraft);
-  const updateMetrics = useMutation(api.publications.updateMetrics);
+  const updateDraft = useProjectMutation(api.publications.updateDraft);
+  const updateMetrics = useProjectMutation(api.publications.updateMetrics);
 
   async function handleSave() {
     if (!compte) {

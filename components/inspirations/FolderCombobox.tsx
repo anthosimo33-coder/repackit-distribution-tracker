@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
@@ -45,8 +46,8 @@ export function FolderCombobox({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
-  const folders = useQuery(api.folders.listFolders, {});
-  const createFolder = useMutation(api.folders.createFolder);
+  const folders = useProjectQuery(api.folders.listFolders, {});
+  const createFolder = useProjectMutation(api.folders.createFolder);
 
   const selected = folders?.find((f) => f._id === value) ?? null;
   const trimmedQuery = query.trim();

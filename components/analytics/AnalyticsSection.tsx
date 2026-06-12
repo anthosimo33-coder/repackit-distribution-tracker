@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { KpiGrid } from "./KpiGrid";
@@ -92,7 +93,7 @@ export function AnalyticsSection({
  * (aggregateByIcp).
  */
 function IcpAnalytics({ publications }: { publications: Publication[] }) {
-  const icps = useQuery(api.icps.listIcps, {});
+  const icps = useProjectQuery(api.icps.listIcps, {});
   const rows = aggregateByIcp(publications);
   const icpMap = new Map(
     (icps ?? []).map((i) => [i._id as string, i] as const),

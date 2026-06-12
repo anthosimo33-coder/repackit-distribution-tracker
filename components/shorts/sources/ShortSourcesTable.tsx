@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -52,7 +53,7 @@ export function ShortSourcesTable({ sources }: { sources: SourceRow[] }) {
   const router = useRouter();
   // Docs complets pour ouvrir PublicationDetailDialog au clic sur un badge.
   // listPublications est déjà en cache (dédup Convex) — coût négligeable.
-  const allPubs = useQuery(api.publications.listPublications, {});
+  const allPubs = useProjectQuery(api.publications.listPublications, {});
   const pubMap = useMemo(() => {
     const m = new Map<Id<"publications">, PublicationWithImage>();
     for (const p of allPubs ?? []) m.set(p._id, p);

@@ -27,7 +27,7 @@ test.describe("Draft edit via detail dialog", () => {
         .getByRole("cell", { name: "@test_e2e_draft_edit" })
         .count()) === 0
     ) {
-      await page.getByRole("button", { name: /ajouter un compte/i }).click();
+      await page.getByRole("button", { name: /ajouter un compte/i }).first().click();
       await page.getByLabel("Handle").fill("test_e2e_draft_edit");
       await page.getByRole("combobox").first().click();
       await page.getByRole("option", { name: "TikTok" }).click();

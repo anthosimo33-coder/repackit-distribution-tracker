@@ -31,8 +31,24 @@ async function main() {
   const client = new ConvexHttpClient(url!);
   const hooks = JSON.parse(readFileSync("./scripts/hooks-seed.json", "utf-8"));
 
+  // P2 — la biblio hooks est scopée projet. On résout le projet "repackit"
+  // par slug (e2e-gated, pas d'auth requise) puis on seed dedans.
+  const { projectId } = await client.mutation(
+    api.projects.e2eGetProjectIdBySlug,
+    { secret, slug: "repackit" },
+  );
+  if (!projectId) {
+    throw new Error(
+      "Projet 'repackit' introuvable sur ce deployment — lance d'abord migrations:setupRepackitProject.",
+    );
+  }
+
   console.log(`Seeding ${hooks.length} hooks → ${url}  (from ${envFile})`);
-  const result = await client.mutation(api.hooks.seedHooks, { hooks, secret });
+  const result = await client.mutation(api.hooks.seedHooks, {
+    hooks,
+    secret,
+    projectId,
+  });
   console.log(`✅ Inserted ${result.inserted} hooks`);
 }
 

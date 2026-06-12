@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -49,7 +50,7 @@ export function PersonneEditDialog({
   initialPrenom?: string;
   initialNom?: string;
 }) {
-  const personnes = useQuery(api.personnes.listPersonnes, {});
+  const personnes = useProjectQuery(api.personnes.listPersonnes, {});
   const personne =
     mode === "edit" && personneId !== undefined
       ? personnes?.find((p) => p._id === personneId)
@@ -108,8 +109,8 @@ function PersonneEditDialogForm({
   const [nom, setNom] = useState(initialPersonne?.nom ?? initialNom ?? "");
   const [submitting, setSubmitting] = useState(false);
 
-  const createPersonne = useMutation(api.personnes.createPersonne);
-  const updatePersonne = useMutation(api.personnes.updatePersonne);
+  const createPersonne = useProjectMutation(api.personnes.createPersonne);
+  const updatePersonne = useProjectMutation(api.personnes.updatePersonne);
 
   const trimmedPrenom = prenom.trim();
   const trimmedNom = nom.trim();

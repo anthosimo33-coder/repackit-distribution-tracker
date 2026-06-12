@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { FunctionReturnType } from "convex/server";
@@ -76,7 +77,7 @@ export default function BiblioHooksPage() {
   const [hideUsed, setHideUsed] = useState(false);
   const [hideDraft, setHideDraft] = useState(false);
 
-  const hooks = useQuery(api.hooks.listHooksWithUsage, {
+  const hooks = useProjectQuery(api.hooks.listHooksWithUsage, {
     search: debouncedSearch || undefined,
     mecanique:
       mecanique.size === 0
@@ -88,7 +89,7 @@ export default function BiblioHooksPage() {
     hideUsed: hideUsed || undefined,
     hideDraft: hideDraft || undefined,
   });
-  const totalCount = useQuery(api.hooks.countHooks);
+  const totalCount = useProjectQuery(api.hooks.countHooks, {});
 
   const reset = () => {
     setSearch("");
@@ -309,7 +310,7 @@ function HookVariantsPopover({
   // Cohérence biblio-hooks ↔ tracker : les verdicts des variantes suivent la
   // période d'âge globale (SnapshotAgeSelector), comme le tracker.
   const { age, customDay } = useSnapshotAge();
-  const variants = useQuery(
+  const variants = useProjectQuery(
     api.hooks.getHookVariants,
     open
       ? { hookId, mediaType, ...snapshotQueryArgs({ age, customDay }) }

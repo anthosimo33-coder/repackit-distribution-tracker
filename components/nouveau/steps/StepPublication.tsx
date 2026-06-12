@@ -3,6 +3,7 @@
 import { useMemo, type Dispatch } from "react";
 import Link from "next/link";
 import { useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -63,7 +64,7 @@ export function StepPublication({
   // afficher, quand aucun n'est sélectionnable, combien sont en warmup /
   // shadowban sur les plateformes ciblées. Le dropdown ne propose que les
   // comptes "actif" (isSelectableForPublication).
-  const comptesData = useQuery(api.comptes.listComptes, {});
+  const comptesData = useProjectQuery(api.comptes.listComptes, {});
 
   // Plateformes déjà couvertes par ce sourceId (Short). blocked = TikTok (strict
   // bloquant) ; warning = Instagram/YouTube (repost autorisé après confirmation).

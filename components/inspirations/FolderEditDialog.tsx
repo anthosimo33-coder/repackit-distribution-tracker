@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -42,7 +43,7 @@ export function FolderEditDialog({
   mode: "create" | "edit";
   folderId?: Id<"folders">;
 }) {
-  const folders = useQuery(api.folders.listFolders, {});
+  const folders = useProjectQuery(api.folders.listFolders, {});
   const folder =
     mode === "edit" && folderId !== undefined
       ? folders?.find((f) => f._id === folderId)
@@ -96,8 +97,8 @@ function FolderEditDialogForm({
   );
   const [submitting, setSubmitting] = useState(false);
 
-  const createFolder = useMutation(api.folders.createFolder);
-  const updateFolder = useMutation(api.folders.updateFolder);
+  const createFolder = useProjectMutation(api.folders.createFolder);
+  const updateFolder = useProjectMutation(api.folders.updateFolder);
 
   const trimmed = name.trim();
   const canSubmit =

@@ -29,6 +29,7 @@ import {
 } from "@/components/snapshot-age-selector/SnapshotAgeContext";
 import { SnapshotAgeSelector } from "@/components/snapshot-age-selector/SnapshotAgeSelector";
 import { cn } from "@/lib/utils";
+import { useProjectQuery } from "@/components/project/use-project-convex";
 import { FileTextIcon } from "lucide-react";
 
 type Publications = FunctionReturnType<
@@ -44,8 +45,8 @@ type Kpis = FunctionReturnType<typeof api.dashboard.dashboardKpis>;
 export default function DashboardPage() {
   const { age, customDay } = useSnapshotAge();
   const args = snapshotQueryArgs({ age, customDay });
-  const publications = useQuery(api.publications.listPublications, args);
-  const kpis = useQuery(api.dashboard.dashboardKpis, args);
+  const publications = useProjectQuery(api.publications.listPublications, args);
+  const kpis = useProjectQuery(api.dashboard.dashboardKpis, args);
 
   const today = new Date().toLocaleDateString("fr-FR", {
     day: "2-digit",

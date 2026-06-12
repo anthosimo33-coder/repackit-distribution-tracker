@@ -1,5 +1,5 @@
-import { internalMutation, type MutationCtx } from "./_generated/server";
-import { authedMutation, authedQuery, e2eMutation } from "./functions";
+import { type MutationCtx } from "./_generated/server";
+import { e2eMutation, projectMutation, projectQuery } from "./functions";
 import { v, ConvexError } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 
@@ -118,7 +118,7 @@ function readSnapshotMetric(
  * métrique par bucket de date (capturedAt), sur [dateFrom, dateTo], filtrée
  * optionnellement par mediaType. Retourne [{ date, value }] trié chronologique.
  */
-export const aggregateTimeseries = authedQuery({
+export const aggregateTimeseries = projectQuery({
   args: {
     metric: metricArg,
     dateFrom: v.number(),
@@ -135,14 +135,20 @@ export const aggregateTimeseries = authedQuery({
   handler: async (ctx, args) => {
     const snaps = await ctx.db
       .query("metricSnapshots")
-      .withIndex("by_capturedAt", (q) =>
-        q.gte("capturedAt", args.dateFrom).lte("capturedAt", args.dateTo),
+      .withIndex("by_project_capturedAt", (q) =>
+        q
+          .eq("projectId", ctx.projectId)
+          .gte("capturedAt", args.dateFrom)
+          .lte("capturedAt", args.dateTo),
       )
       .collect();
 
     let filtered = snaps;
     if (args.mediaType !== undefined) {
-      const pubs = await ctx.db.query("publications").collect();
+      const pubs = await ctx.db
+        .query("publications")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect();
       const mtById = new Map(
         pubs.map((p) => [p._id, p.mediaType ?? "carousel"]),
       );
@@ -166,9 +172,11 @@ export const aggregateTimeseries = authedQuery({
 });
 
 /** Snapshots d'une publication, triés par capturedAt desc (plus récent d'abord). */
-export const listSnapshotsByPublication = authedQuery({
+export const listSnapshotsByPublication = projectQuery({
   args: { publicationId: v.id("publications") },
   handler: async (ctx, args) => {
+    const pub = await ctx.db.get(args.publicationId);
+    if (!pub || pub.projectId !== ctx.projectId) return [];
     return await ctx.db
       .query("metricSnapshots")
       .withIndex("by_publication_and_capturedAt", (q) =>
@@ -179,7 +187,7 @@ export const listSnapshotsByPublication = authedQuery({
   },
 });
 
-export const createSnapshot = authedMutation({
+export const createSnapshot = projectMutation({
   args: {
     publicationId: v.id("publications"),
     capturedAt: v.number(),
@@ -194,7 +202,9 @@ export const createSnapshot = authedMutation({
   },
   handler: async (ctx, args) => {
     const pub = await ctx.db.get(args.publicationId);
-    if (!pub) throw new ConvexError("Publication introuvable.");
+    if (!pub || pub.projectId !== ctx.projectId) {
+      throw new ConvexError("Publication introuvable.");
+    }
 
     if (args.capturedAt < pub.datePubli) {
       throw new ConvexError(
@@ -207,6 +217,7 @@ export const createSnapshot = authedMutation({
     );
 
     const id = await ctx.db.insert("metricSnapshots", {
+      projectId: ctx.projectId,
       publicationId: args.publicationId,
       capturedAt: args.capturedAt,
       daysSincePublication,
@@ -224,7 +235,7 @@ export const createSnapshot = authedMutation({
   },
 });
 
-export const updateSnapshot = authedMutation({
+export const updateSnapshot = projectMutation({
   args: {
     id: v.id("metricSnapshots"),
     vues: v.optional(v.number()),
@@ -236,7 +247,9 @@ export const updateSnapshot = authedMutation({
   },
   handler: async (ctx, args) => {
     const snap = await ctx.db.get(args.id);
-    if (!snap) throw new ConvexError("Snapshot introuvable.");
+    if (!snap || snap.projectId !== ctx.projectId) {
+      throw new ConvexError("Snapshot introuvable.");
+    }
 
     const patch: Record<string, unknown> = {};
     if (args.vues !== undefined) patch.vues = args.vues;
@@ -266,11 +279,13 @@ export const updateSnapshot = authedMutation({
   },
 });
 
-export const deleteSnapshot = authedMutation({
+export const deleteSnapshot = projectMutation({
   args: { id: v.id("metricSnapshots") },
   handler: async (ctx, args) => {
     const snap = await ctx.db.get(args.id);
-    if (!snap) throw new ConvexError("Snapshot introuvable.");
+    if (!snap || snap.projectId !== ctx.projectId) {
+      throw new ConvexError("Snapshot introuvable.");
+    }
     const publicationId = snap.publicationId;
     await ctx.db.delete(args.id);
     await recomputeLatestMetrics(ctx, publicationId);
@@ -303,78 +318,6 @@ export const cleanupTestSnapshots = e2eMutation({
   },
 });
 
-/**
- * Migration data ONE-SHOT (internal — lancer une seule fois post-deploy via
- * `convex run --prod metricSnapshots:migrateMetricsToSnapshots`). Convertit les
- * champs legacy vuesJ1/vuesJ3/vuesJ7 (les SEULS offsets existants en base) en
- * metricSnapshots datés. Les métriques sans offset temporel (likes, saves,
- * subsGained, commentsTotal) sont rattachées au snapshot vues le plus tardif
- * (J7 > J3 > J1), best guess documenté.
- *
- * IDEMPOTENT : skip toute publication ayant déjà ≥1 snapshot. Relançable.
- * Les publications sans aucune vue legacy (drafts, jamais mesurées) ne
- * génèrent aucun snapshot.
- */
-export const migrateMetricsToSnapshots = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const pubs = await ctx.db.query("publications").collect();
-
-    let publicationsProcessed = 0;
-    let snapshotsCreated = 0;
-    let publicationsSkipped = 0;
-
-    for (const pub of pubs) {
-      const existing = await ctx.db
-        .query("metricSnapshots")
-        .withIndex("by_publication", (q) => q.eq("publicationId", pub._id))
-        .first();
-      if (existing) {
-        publicationsSkipped += 1;
-        continue;
-      }
-
-      // Offsets legacy existants uniquement (J1/J3/J7). Tableau ordonné
-      // croissant → le dernier non-null est le "primary" (J7>J3>J1).
-      const legacy: { days: number; vues: number | null }[] = [
-        { days: 1, vues: pub.vuesJ1 },
-        { days: 3, vues: pub.vuesJ3 },
-        { days: 7, vues: pub.vuesJ7 },
-      ];
-      const points = legacy.filter(
-        (p): p is { days: number; vues: number } => p.vues !== null,
-      );
-
-      if (points.length === 0) {
-        // Aucune vue mesurée → pas de snapshot (drafts, non mesurés).
-        publicationsSkipped += 1;
-        continue;
-      }
-
-      const primaryDays = points[points.length - 1].days;
-
-      for (const point of points) {
-        const isPrimary = point.days === primaryDays;
-        await ctx.db.insert("metricSnapshots", {
-          publicationId: pub._id,
-          capturedAt: pub.datePubli + point.days * DAY_MS,
-          daysSincePublication: point.days,
-          vues: point.vues,
-          // likes requis : 0 par défaut, valeur réelle sur le snapshot primary.
-          likes: isPrimary ? pub.likes ?? 0 : 0,
-          saves: isPrimary ? pub.saves ?? undefined : undefined,
-          subsGained: isPrimary ? pub.subsGained ?? undefined : undefined,
-          comments: isPrimary ? pub.commentsTotal ?? undefined : undefined,
-          createdAt: Date.now(),
-          source: "migration",
-        });
-        snapshotsCreated += 1;
-      }
-
-      await recomputeLatestMetrics(ctx, pub._id);
-      publicationsProcessed += 1;
-    }
-
-    return { publicationsProcessed, snapshotsCreated, publicationsSkipped };
-  },
-});
+// NB (P2/TD-016) : migrateMetricsToSnapshots (migration one-shot legacy
+// vuesJ1/J3/J7 → metricSnapshots) a été SUPPRIMÉE — elle a déjà tourné en
+// prod et lisait des champs désormais retirés du schéma.

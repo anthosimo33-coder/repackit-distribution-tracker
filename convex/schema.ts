@@ -2,6 +2,24 @@ import { defineSchema, defineTable } from "convex/server";
 import { authTables } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 
+/**
+ * P2 Multi-tenant — ROLLOUT EN 2 PHASES (à cause du deploy atomique TD-006 :
+ * `convex deploy` pousse le schéma AVANT toute migration data) :
+ *
+ *  Phase actuelle (ce commit) — projectId v.optional sur les 9 tables métier,
+ *  vuesJ1/J3/J7 conservés en optional. Le push réussit sur une prod non encore
+ *  backfillée. Les FONCTIONS imposent déjà projectId (projectQuery/Mutation) :
+ *  l'optional n'est qu'une fenêtre de migration, pas un relâchement de garde.
+ *  → Après déploiement, lancer UNE FOIS sur prod :
+ *      convex run migrations:setupRepackitProject --prod
+ *    (crée le projet repackit, membership admin du superadmin, backfill
+ *     projectId partout, unset vuesJ1/J3/J7).
+ *
+ *  Phase 2 (commit de suivi, une fois la prod backfillée) — resserrer
+ *  projectId en v.id("projects") (non-optional) et RETIRER vuesJ1/J3/J7 du
+ *  schéma. Ces deux changements échoueraient au push tant que des docs prod
+ *  n'ont pas projectId / portent encore vuesJ*.
+ */
 export default defineSchema({
   // ─── Remédiation sécurité — tables Convex Auth ───────────────────────────
   // authSessions / authAccounts / authRefreshTokens / authVerificationCodes /
@@ -26,7 +44,37 @@ export default defineSchema({
     .index("email", ["email"])
     .index("phone", ["phone"]),
 
+  // ─── P2 Multi-tenant — projets ───────────────────────────────────────────
+  // Un projet = un espace de distribution isolé (RepackIt, et futures apps).
+  // TOUTES les tables métier sont scopées par projectId. slug unique (imposé
+  // côté mutation). accentColor = hex pour le theming P10. payoutDay 1-28.
+  projects: defineTable({
+    name: v.string(),
+    slug: v.string(),
+    accentColor: v.string(),
+    payoutDay: v.number(),
+    status: v.union(v.literal("active"), v.literal("archived")),
+    createdAt: v.number(),
+  }).index("by_slug", ["slug"]),
+
+  // Appartenance d'un user à un projet, avec rôle par-projet. Le superadmin
+  // (users.role) a accès implicite à TOUS les projets sans membership (cf
+  // requireProjectAccess dans convex/functions.ts). La séparation admin vs
+  // creator par fonction arrive en P4+ ; ici tout membre du projet passe.
+  memberships: defineTable({
+    userId: v.id("users"),
+    // Requis (greenfield, pas de migration) — NE PAS rendre optional.
+    projectId: v.id("projects"),
+    role: v.union(v.literal("admin"), v.literal("creator")),
+  })
+    .index("by_user", ["userId"])
+    .index("by_project", ["projectId"])
+    .index("by_user_project", ["userId", "projectId"]),
+
   hooks: defineTable({
+    // P2 — projectId optional (phase migration) → resserré en required après
+    // backfill. La biblio hooks est PAR PROJET (une autre app a ses hooks).
+    projectId: v.optional(v.id("projects")),
     text: v.string(),
     mecanique: v.union(
       v.literal("Erreur"),
@@ -45,9 +93,13 @@ export default defineSchema({
   })
     .index("by_langue", ["langue"])
     .index("by_mecanique", ["mecanique"])
-    .index("by_niveau", ["niveau"]),
+    .index("by_niveau", ["niveau"])
+    .index("by_project", ["projectId"])
+    .index("by_project_langue", ["projectId", "langue"]),
 
   publications: defineTable({
+    // P2 — scope projet (optional pendant migration, resserré ensuite).
+    projectId: v.optional(v.id("projects")),
     carouselId: v.string(),
     hookId: v.union(v.id("hooks"), v.null()),
     hookText: v.string(),
@@ -127,9 +179,14 @@ export default defineSchema({
     ),
     compte: v.string(),
     datePubli: v.number(),
-    vuesJ1: v.union(v.number(), v.null()),
-    vuesJ3: v.union(v.number(), v.null()),
-    vuesJ7: v.union(v.number(), v.null()),
+    // TD-016 — vuesJ1/J3/J7 en cours de retrait. Optional ici : le backfill
+    // (setupRepackitProject) les unset, mais le RETRAIT du schéma ne peut se
+    // faire qu'au 2e deploy (après backfill prod), sinon le push échoue sur les
+    // docs prod qui les portent encore. Les nouveaux inserts ne les écrivent
+    // plus ; les métriques temporelles vivent en metricSnapshots.
+    vuesJ1: v.optional(v.union(v.number(), v.null())),
+    vuesJ3: v.optional(v.union(v.number(), v.null())),
+    vuesJ7: v.optional(v.union(v.number(), v.null())),
     saves: v.union(v.number(), v.null()),
     commentsTotal: v.union(v.number(), v.null()),
     commentsAudit: v.union(v.number(), v.null()),
@@ -188,14 +245,16 @@ export default defineSchema({
     .index("by_carouselId", ["carouselId"])
     .index("by_plateforme", ["plateforme"])
     .index("by_datePubli", ["datePubli"])
-    // by_hookId : prévu pour des lookups directs « toutes les publications
-    // d'un hook donné » (ex: depuis la fiche hook). listHooksWithUsage utilise
-    // un seul collect+groupBy en mémoire — l'index est là pour le futur.
     .index("by_hookId", ["hookId"])
-    // by_parentCarouselId : utilisé par Modif 3 (variantsCount par hook) et
-    // Modif 5 (liste des variantes d'un carrousel). Lookup direct des
-    // descendants d'un parent ancré.
-    .index("by_parentCarouselId", ["parentCarouselId"]),
+    .index("by_parentCarouselId", ["parentCarouselId"])
+    // P2 — index scopés projet (A1/A2/A3). carouselId n'est plus unique
+    // globalement → résolution (projectId, carouselId).
+    .index("by_project", ["projectId"])
+    .index("by_project_datePubli", ["projectId", "datePubli"])
+    .index("by_project_carouselId", ["projectId", "carouselId"])
+    .index("by_project_plateforme", ["projectId", "plateforme"])
+    .index("by_project_hookId", ["projectId", "hookId"])
+    .index("by_project_parentCarouselId", ["projectId", "parentCarouselId"]),
 
   // ─── Refactor métriques temporelles — historique de mesures par row ──────
   // Greenfield. 1 metricSnapshot = une relève de métriques à une date donnée
@@ -205,6 +264,10 @@ export default defineSchema({
   // subsGained (short/SR) / comments optionnels selon le format. `source`
   // distingue saisie manuelle, import, et migration one-shot (legacy J1/J3/J7).
   metricSnapshots: defineTable({
+    // P2 — scope projet dénormalisé (= projectId de la publication parente).
+    // Permet aggregateTimeseries / le chargement "tous les snapshots du projet"
+    // sans charger d'abord les publications. by_publication reste valable.
+    projectId: v.optional(v.id("projects")),
     publicationId: v.id("publications"),
     capturedAt: v.number(),
     daysSincePublication: v.number(),
@@ -222,9 +285,13 @@ export default defineSchema({
   })
     .index("by_publication", ["publicationId"])
     .index("by_publication_and_capturedAt", ["publicationId", "capturedAt"])
-    .index("by_capturedAt", ["capturedAt"]),
+    .index("by_capturedAt", ["capturedAt"])
+    .index("by_project", ["projectId"])
+    .index("by_project_capturedAt", ["projectId", "capturedAt"]),
 
   comptes: defineTable({
+    // P2 — scope projet.
+    projectId: v.optional(v.id("projects")),
     handle: v.string(),
     plateforme: v.union(
       v.literal("TikTok"),
@@ -259,31 +326,41 @@ export default defineSchema({
     personneId: v.optional(v.id("personnes")),
   })
     .index("by_plateforme", ["plateforme"])
-    // by_actif conservé (legacy, non requêté). Index sur champ optional OK côté
-    // Convex. Retrait avec le champ actif au TD-017.
-    .index("by_actif", ["actif"]),
+    .index("by_actif", ["actif"])
+    .index("by_project", ["projectId"])
+    .index("by_project_plateforme", ["projectId", "plateforme"]),
 
   // Gestionnaires de comptes (greenfield). Lien 1-to-1 optionnel depuis
   // comptes.personneId. Dedupe insensible à la casse sur le couple
   // (prenom, nom) imposé côté mutations.
   personnes: defineTable({
+    // P2 — scope projet (l'équipe peut différer d'un projet à l'autre).
+    projectId: v.optional(v.id("projects")),
     prenom: v.string(),
     nom: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_nom", ["nom"]),
+  })
+    .index("by_nom", ["nom"])
+    .index("by_project", ["projectId"])
+    .index("by_project_nom", ["projectId", "nom"]),
 
   // ICPs (Ideal Customer Profiles) — audiences ciblées par les Shorts.
   // Greenfield, admin via /comptes?view=icps. Lien Short → ICP via
   // publications.icpId (required à la création d'un Short). color = clé
   // palette FOLDER_COLORS (lib/folder-colors), pas un hex direct.
   icps: defineTable({
+    // P2 — scope projet.
+    projectId: v.optional(v.id("projects")),
     nom: v.string(),
     description: v.optional(v.string()),
     color: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_nom", ["nom"]),
+  })
+    .index("by_nom", ["nom"])
+    .index("by_project", ["projectId"])
+    .index("by_project_nom", ["projectId", "nom"]),
 
   // Presets de filtres pour le tracker. schemaVersion permet de strip les
   // anciens presets si la struct des filtres évolue (cf décision MVP : strip
@@ -296,6 +373,8 @@ export default defineSchema({
   // Ajout de mediaTypeScope au niveau preset : chaque preset appartient à
   // un format unique et n'est listé que sur sa page de référence.
   filterPresets: defineTable({
+    // P2 — scope projet (les presets de tracker sont propres à un projet).
+    projectId: v.optional(v.id("projects")),
     name: v.string(),
     schemaVersion: v.number(),
     mediaTypeScope: v.union(
@@ -327,7 +406,10 @@ export default defineSchema({
     }),
   })
     .index("by_name", ["name"])
-    .index("by_mediaTypeScope", ["mediaTypeScope"]),
+    .index("by_mediaTypeScope", ["mediaTypeScope"])
+    .index("by_project", ["projectId"])
+    .index("by_project_name", ["projectId", "name"])
+    .index("by_project_mediaTypeScope", ["projectId", "mediaTypeScope"]),
 
   // Batch F — pilier VEILLE / Inspirations. Bibliothèque manuelle d'URLs
   // (vidéos ou comptes) sur TikTok / Instagram / YouTube, organisée par
@@ -338,6 +420,8 @@ export default defineSchema({
   // thumbnail réutilise le pattern Convex storage du Batch D
   // (generateUploadUrl + getPreviewUrl).
   inspirations: defineTable({
+    // P2 — scope projet (la veille est propre à chaque app).
+    projectId: v.optional(v.id("projects")),
     url: v.string(),
     type: v.union(v.literal("video"), v.literal("account")),
     plateforme: v.union(
@@ -369,15 +453,22 @@ export default defineSchema({
     .index("by_folder", ["folderId"])
     .index("by_plateforme", ["plateforme"])
     .index("by_favorite", ["isFavorite"])
-    .index("by_createdAt", ["createdAt"]),
+    .index("by_createdAt", ["createdAt"])
+    .index("by_project", ["projectId"])
+    .index("by_project_createdAt", ["projectId", "createdAt"]),
 
   // Dossiers de classement pour les inspirations. color = clé palette
   // (lib/folder-colors.ts à créer en Batch G), pas un hex direct.
   folders: defineTable({
+    // P2 — scope projet.
+    projectId: v.optional(v.id("projects")),
     name: v.string(),
     description: v.optional(v.string()),
     color: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_name", ["name"]),
+  })
+    .index("by_name", ["name"])
+    .index("by_project", ["projectId"])
+    .index("by_project_name", ["projectId", "name"]),
 });

@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
 import { Loader2Icon } from "lucide-react";
 import { SidebarLayout } from "@/components/layout/SidebarLayout";
+import { ProjectProvider } from "@/components/project/ProjectProvider";
 
 /**
  * Remédiation sécurité — shell applicatif gaté par l'état d'auth (risque B4
@@ -33,9 +34,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <FullPageLoader />
       </Unauthenticated>
       <Authenticated>
-        <SidebarLayout>
-          <div className="container mx-auto px-6 py-8">{children}</div>
-        </SidebarLayout>
+        {/* P2 — ProjectProvider gate le rendu sur la résolution du projet
+            courant : sous cet arbre, useProjectId() est toujours défini. */}
+        <ProjectProvider>
+          <SidebarLayout>
+            <div className="container mx-auto px-6 py-8">{children}</div>
+          </SidebarLayout>
+        </ProjectProvider>
       </Authenticated>
     </>
   );

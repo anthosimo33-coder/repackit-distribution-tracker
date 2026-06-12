@@ -101,6 +101,7 @@ async function main() {
     // Get next carousel ID (will be C001, C002, C003 progressively)
     const carouselId = await client.query(
       api.publications.getNextCarouselId,
+      {},
     );
 
     const platforms = Object.keys(spec.metrics) as Plateforme[];
@@ -132,9 +133,13 @@ async function main() {
     for (const pub of newPubs) {
       const metrics = spec.metrics[pub.plateforme as Plateforme];
       if (metrics) {
-        await client.mutation(api.publications.updateMetrics, {
-          id: pub._id,
-          vuesJ7: metrics.vuesJ7,
+        // P2/TD-016 — les vues/saves passent par un metricSnapshot (J+7), plus
+        // par les champs legacy vuesJ7.
+        await client.mutation(api.metricSnapshots.createSnapshot, {
+          publicationId: pub._id,
+          capturedAt: pub.datePubli + 7 * day,
+          vues: metrics.vuesJ7,
+          likes: 0,
           saves: metrics.saves,
         });
         const rate = metrics.saves / metrics.vuesJ7;

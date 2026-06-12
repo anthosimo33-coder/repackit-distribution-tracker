@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
@@ -58,8 +59,8 @@ export function PersonneCombobox({
   const [subPrenom, setSubPrenom] = useState("");
   const [subNom, setSubNom] = useState("");
 
-  const personnes = useQuery(api.personnes.listPersonnes, {});
-  const createPersonne = useMutation(api.personnes.createPersonne);
+  const personnes = useProjectQuery(api.personnes.listPersonnes, {});
+  const createPersonne = useProjectMutation(api.personnes.createPersonne);
 
   const selected = personnes?.find((p) => p._id === value) ?? null;
   const trimmedQuery = query.trim();

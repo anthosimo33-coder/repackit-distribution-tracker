@@ -1,21 +1,23 @@
-import { authedMutation, authedQuery, e2eMutation } from "./functions";
+import { e2eMutation, projectMutation, projectQuery } from "./functions";
 import { v, ConvexError } from "convex/values";
 
 const MAX_NAME_LENGTH = 80;
 
 /**
- * Liste les personnes triées par nom asc puis prénom asc, enrichies avec
- * compteCount (nombre de comptes dont personneId === personne._id).
- *
- * Pattern N+1 mémoire : collect comptes une fois, group côté handler
- * (parallèle listFolders de convex/folders.ts). À < 50 personnes / < 100
- * comptes, O(P*C) reste négligeable.
+ * Personnes (gestionnaires de comptes) — P2 scopé par ctx.projectId.
+ * compteCount ne compte que les comptes du même projet.
  */
-export const listPersonnes = authedQuery({
+export const listPersonnes = projectQuery({
   args: {},
   handler: async (ctx) => {
-    const personnes = await ctx.db.query("personnes").collect();
-    const comptes = await ctx.db.query("comptes").collect();
+    const personnes = await ctx.db
+      .query("personnes")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const comptes = await ctx.db
+      .query("comptes")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
     const sorted = personnes.sort((a, b) => {
       const byNom = a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" });
       if (byNom !== 0) return byNom;
@@ -39,15 +41,18 @@ function validateNames(prenom: string, nom: string) {
   }
 }
 
-export const createPersonne = authedMutation({
+export const createPersonne = projectMutation({
   args: { prenom: v.string(), nom: v.string() },
   handler: async (ctx, args) => {
     const prenom = args.prenom.trim();
     const nom = args.nom.trim();
     validateNames(prenom, nom);
 
-    // Dedupe insensible à la casse sur le couple (prenom, nom).
-    const existing = await ctx.db.query("personnes").collect();
+    // Dedupe insensible à la casse sur le couple (prenom, nom) DANS le projet.
+    const existing = await ctx.db
+      .query("personnes")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
     const dup = existing.find(
       (p) =>
         p.prenom.toLowerCase() === prenom.toLowerCase() &&
@@ -59,6 +64,7 @@ export const createPersonne = authedMutation({
 
     const now = Date.now();
     return await ctx.db.insert("personnes", {
+      projectId: ctx.projectId,
       prenom,
       nom,
       createdAt: now,
@@ -68,10 +74,10 @@ export const createPersonne = authedMutation({
 });
 
 /**
- * Patch partiel (prenom et/ou nom). Dedupe case-insensitive sur le couple
- * résultant, en excluant soi-même. updatedAt bumpé toujours.
+ * Patch partiel (prenom et/ou nom). Dedupe case-insensitive DANS le projet,
+ * en excluant soi-même. updatedAt bumpé toujours.
  */
-export const updatePersonne = authedMutation({
+export const updatePersonne = projectMutation({
   args: {
     id: v.id("personnes"),
     prenom: v.optional(v.string()),
@@ -79,7 +85,7 @@ export const updatePersonne = authedMutation({
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db.get(args.id);
-    if (!existing) {
+    if (!existing || existing.projectId !== ctx.projectId) {
       throw new ConvexError("Personne introuvable.");
     }
 
@@ -92,7 +98,10 @@ export const updatePersonne = authedMutation({
       nextPrenom.toLowerCase() !== existing.prenom.toLowerCase() ||
       nextNom.toLowerCase() !== existing.nom.toLowerCase();
     if (changed) {
-      const all = await ctx.db.query("personnes").collect();
+      const all = await ctx.db
+        .query("personnes")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect();
       const dup = all.find(
         (p) =>
           p._id !== args.id &&
@@ -112,23 +121,20 @@ export const updatePersonne = authedMutation({
 });
 
 /**
- * Suppression avec cascade unset : les comptes assignés à cette personne
- * sont désassignés (personneId mis à undefined), puis la personne est
- * supprimée. Comportement non destructif côté comptes — zéro perte de data.
- *
- * Note : comptes n'a pas de champ updatedAt (cf schema.ts), donc le patch
- * se limite à { personneId: undefined } — patcher un champ hors-schéma
- * échouerait à la validation Convex.
- *
- * Atomicité Convex : si un patch échoue, le delete de la personne n'a pas
- * lieu (rollback de la mutation). Retourne { unsetCount } pour le toast UI.
+ * Suppression avec cascade unset : les comptes du projet assignés à cette
+ * personne sont désassignés (personneId → undefined), puis suppression.
  */
-export const deletePersonne = authedMutation({
+export const deletePersonne = projectMutation({
   args: { id: v.id("personnes") },
   handler: async (ctx, args) => {
     const personne = await ctx.db.get(args.id);
-    if (!personne) return { unsetCount: 0 };
-    const comptes = await ctx.db.query("comptes").collect();
+    if (!personne || personne.projectId !== ctx.projectId) {
+      return { unsetCount: 0 };
+    }
+    const comptes = await ctx.db
+      .query("comptes")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
     const assigned = comptes.filter((c) => c.personneId === args.id);
     for (const c of assigned) {
       await ctx.db.patch(c._id, { personneId: undefined });
@@ -139,11 +145,7 @@ export const deletePersonne = authedMutation({
 });
 
 /**
- * Test-only cleanup. Supprime les personnes dont le nom ou le prénom
- * commence par [E2E_TEST]. Symétrique à cleanupTestFolders /
- * cleanupTestInspirations (pas de cascade : les comptes de test sont
- * marqués + nettoyés séparément, et listComptes tolère un personneId
- * orphelin via lookup null).
+ * Test-only cleanup (project-agnostic, par marker [E2E_TEST]). Inchangé P2.
  */
 export const cleanupTestPersonnes = e2eMutation({
   args: {},

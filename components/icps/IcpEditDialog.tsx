@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -48,7 +49,7 @@ export function IcpEditDialog({
   onCreated?: (id: Id<"icps">) => void;
   initialNom?: string;
 }) {
-  const icps = useQuery(api.icps.listIcps, {});
+  const icps = useProjectQuery(api.icps.listIcps, {});
   const icp =
     mode === "edit" && icpId !== undefined
       ? icps?.find((i) => i._id === icpId)
@@ -108,8 +109,8 @@ function IcpEditDialogForm({
   );
   const [submitting, setSubmitting] = useState(false);
 
-  const createIcp = useMutation(api.icps.createIcp);
-  const updateIcp = useMutation(api.icps.updateIcp);
+  const createIcp = useProjectMutation(api.icps.createIcp);
+  const updateIcp = useProjectMutation(api.icps.updateIcp);
 
   const trimmed = nom.trim();
   const canSubmit =

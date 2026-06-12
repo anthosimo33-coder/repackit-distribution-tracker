@@ -2,6 +2,7 @@
 
 import { useMemo, type Dispatch } from "react";
 import { useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -55,7 +56,7 @@ export function StepHook({
   data: NouveauData;
   dispatch: Dispatch<NouveauAction>;
 }) {
-  const allHooks = useQuery(api.hooks.listHooks, {});
+  const allHooks = useProjectQuery(api.hooks.listHooks, {});
 
   const biblioFiltered = useMemo(
     () => allHooks?.filter((h) => h.langue === data.biblioLangue) ?? undefined,

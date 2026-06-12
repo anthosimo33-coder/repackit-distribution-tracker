@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { InspirationsHeader } from "@/components/inspirations/InspirationsHeader";
@@ -77,8 +78,8 @@ function InspirationsPageInner() {
   const isListView = viewParam === "list";
   const view: "grid" | "list" = isListView ? "list" : "grid";
 
-  const allInspirations = useQuery(api.inspirations.listInspirations, {});
-  const folders = useQuery(api.folders.listFolders, {});
+  const allInspirations = useProjectQuery(api.inspirations.listInspirations, {});
+  const folders = useProjectQuery(api.folders.listFolders, {});
 
   const validFolderIds = useMemo(
     () => new Set<string>((folders ?? []).map((f) => f._id)),
@@ -152,7 +153,7 @@ function InspirationsPageInner() {
   }, [filters, searchParams, router]);
 
   const queryArgs = useMemo(() => filtersToQueryArgs(filters), [filters]);
-  const inspirations = useQuery(api.inspirations.listInspirations, queryArgs);
+  const inspirations = useProjectQuery(api.inspirations.listInspirations, queryArgs);
 
   const folderMap = useMemo<Map<Id<"folders">, FolderRef>>(() => {
     const m = new Map<Id<"folders">, FolderRef>();

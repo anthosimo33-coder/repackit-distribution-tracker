@@ -1,20 +1,24 @@
-import { authedMutation, authedQuery, e2eMutation } from "./functions";
+import { e2eMutation, projectMutation, projectQuery } from "./functions";
 import { v, ConvexError } from "convex/values";
 
 const MAX_NAME_LENGTH = 80;
 
 /**
  * ICPs (Ideal Customer Profiles) — calque convex/personnes.ts + folders.ts.
- *
- * listIcps : triés par nom asc, enrichis avec shortsCount (publications dont
- * icpId === icp._id). N+1 mémoire acceptable au volume (< 10 ICPs, < 500
- * Shorts), pattern listFolders / listPersonnes.
+ * P2 — tout est scopé par ctx.projectId (by_project). shortsCount ne compte
+ * que les publications du même projet.
  */
-export const listIcps = authedQuery({
+export const listIcps = projectQuery({
   args: {},
   handler: async (ctx) => {
-    const icps = await ctx.db.query("icps").collect();
-    const publications = await ctx.db.query("publications").collect();
+    const icps = await ctx.db
+      .query("icps")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const publications = await ctx.db
+      .query("publications")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
     const sorted = icps.sort((a, b) =>
       a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }),
     );
@@ -25,7 +29,7 @@ export const listIcps = authedQuery({
   },
 });
 
-export const createIcp = authedMutation({
+export const createIcp = projectMutation({
   args: {
     nom: v.string(),
     description: v.optional(v.string()),
@@ -41,16 +45,18 @@ export const createIcp = authedMutation({
         `Nom d'ICP trop long (max ${MAX_NAME_LENGTH} caractères).`,
       );
     }
-    // Dedupe insensible à la casse sur le nom.
-    const existing = await ctx.db.query("icps").collect();
-    const dup = existing.find(
-      (i) => i.nom.toLowerCase() === nom.toLowerCase(),
-    );
+    // Dedupe insensible à la casse sur le nom, DANS le projet.
+    const existing = await ctx.db
+      .query("icps")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const dup = existing.find((i) => i.nom.toLowerCase() === nom.toLowerCase());
     if (dup) {
       throw new ConvexError(`ICP "${nom}" existe déjà.`);
     }
     const now = Date.now();
     return await ctx.db.insert("icps", {
+      projectId: ctx.projectId,
       nom,
       description: args.description,
       color: args.color,
@@ -62,9 +68,9 @@ export const createIcp = authedMutation({
 
 /**
  * Patch partiel (nom / description / color). Dedupe case-insensitive sur le
- * nom en excluant soi-même. updatedAt bumpé toujours.
+ * nom DANS le projet, en excluant soi-même. updatedAt bumpé toujours.
  */
-export const updateIcp = authedMutation({
+export const updateIcp = projectMutation({
   args: {
     id: v.id("icps"),
     nom: v.optional(v.string()),
@@ -73,7 +79,7 @@ export const updateIcp = authedMutation({
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db.get(args.id);
-    if (!existing) {
+    if (!existing || existing.projectId !== ctx.projectId) {
       throw new ConvexError("ICP introuvable.");
     }
 
@@ -90,7 +96,10 @@ export const updateIcp = authedMutation({
         );
       }
       if (nom.toLowerCase() !== existing.nom.toLowerCase()) {
-        const all = await ctx.db.query("icps").collect();
+        const all = await ctx.db
+          .query("icps")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect();
         const dup = all.find(
           (i) => i._id !== args.id && i.nom.toLowerCase() === nom.toLowerCase(),
         );
@@ -108,19 +117,18 @@ export const updateIcp = authedMutation({
 });
 
 /**
- * Suppression avec cascade unset : les Shorts assignés à cet ICP sont
- * désassignés (icpId mis à undefined), puis l'ICP est supprimé.
- *
- * Note : publications n'a pas de champ updatedAt (cf schema.ts), donc le
- * patch se limite à { icpId: undefined } (cohérent cascade deletePersonne).
- * Retourne { unsetCount } pour le toast UI.
+ * Suppression avec cascade unset : les Shorts du projet assignés à cet ICP
+ * sont désassignés (icpId → undefined), puis l'ICP est supprimé.
  */
-export const deleteIcp = authedMutation({
+export const deleteIcp = projectMutation({
   args: { id: v.id("icps") },
   handler: async (ctx, args) => {
     const icp = await ctx.db.get(args.id);
-    if (!icp) return { unsetCount: 0 };
-    const publications = await ctx.db.query("publications").collect();
+    if (!icp || icp.projectId !== ctx.projectId) return { unsetCount: 0 };
+    const publications = await ctx.db
+      .query("publications")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
     const assigned = publications.filter((p) => p.icpId === args.id);
     for (const p of assigned) {
       await ctx.db.patch(p._id, { icpId: undefined });
@@ -131,8 +139,7 @@ export const deleteIcp = authedMutation({
 });
 
 /**
- * Test-only cleanup. Supprime les ICPs dont le nom commence par [E2E_TEST].
- * Symétrique à cleanupTestPersonnes / cleanupTestFolders.
+ * Test-only cleanup (project-agnostic, par marker [E2E_TEST]). Inchangé P2.
  */
 export const cleanupTestIcps = e2eMutation({
   args: {},

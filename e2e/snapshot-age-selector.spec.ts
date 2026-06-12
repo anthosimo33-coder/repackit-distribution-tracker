@@ -13,7 +13,7 @@ const DAY = 86_400_000;
 async function ensureCompte(page: import("@playwright/test").Page, handle: string) {
   await page.goto("/comptes");
   if ((await page.getByRole("cell", { name: `@${handle}` }).count()) === 0) {
-    await page.getByRole("button", { name: /ajouter un compte/i }).click();
+    await page.getByRole("button", { name: /ajouter un compte/i }).first().click();
     await page.getByLabel("Handle").fill(handle);
     await page.getByRole("combobox").first().click();
     await page.getByRole("option", { name: "TikTok" }).click();

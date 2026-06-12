@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import {
@@ -100,7 +101,7 @@ export function InspirationDialog({
   inspirationId?: Id<"inspirations">;
   tagSuggestions?: string[];
 }) {
-  const inspiration = useQuery(
+  const inspiration = useProjectQuery(
     api.inspirations.getInspirationById,
     mode === "edit" && inspirationId !== undefined
       ? { id: inspirationId }
@@ -242,9 +243,9 @@ function InspirationDialogForm({
         ? initialData?.thumbnailUrl ?? null
         : liveThumbnailUrl;
 
-  const createInspiration = useMutation(api.inspirations.createInspiration);
-  const updateInspiration = useMutation(api.inspirations.updateInspiration);
-  const deleteInspiration = useMutation(api.inspirations.deleteInspiration);
+  const createInspiration = useProjectMutation(api.inspirations.createInspiration);
+  const updateInspiration = useProjectMutation(api.inspirations.updateInspiration);
+  const deleteInspiration = useProjectMutation(api.inspirations.deleteInspiration);
 
   const effectivePlateforme: Plateforme | null = manualOverride
     ? manualPlateforme

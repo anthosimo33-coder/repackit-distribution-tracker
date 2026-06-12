@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,7 +31,7 @@ export function StepRecap({
   data: NouveauData;
   dispatch: Dispatch<NouveauAction>;
 }) {
-  const allHooks = useQuery(api.hooks.listHooks, {});
+  const allHooks = useProjectQuery(api.hooks.listHooks, {});
   // Batch D — résolution image preview pour le récap ScreenRecorder.
   const imagePreview = useQuery(
     api.storage.getPreviewUrl,
@@ -67,7 +68,7 @@ export function StepRecap({
   // d'angle, ajout de l'ICP ciblé.
   const isSR = data.mediaType === "screenrecorder";
   const isShort = data.mediaType === "short";
-  const icps = useQuery(api.icps.listIcps, {});
+  const icps = useProjectQuery(api.icps.listIcps, {});
   const selectedIcp = data.icpId
     ? icps?.find((i) => i._id === data.icpId) ?? null
     : null;

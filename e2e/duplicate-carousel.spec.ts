@@ -62,7 +62,7 @@ test.describe("Tracker — Dupliquer un carrousel", () => {
           .count()) === 0
       ) {
         await page
-          .getByRole("button", { name: /ajouter un compte/i })
+          .getByRole("button", { name: /ajouter un compte/i }).first()
           .click();
         await page.getByLabel("Handle").fill(handle);
         await page.getByRole("combobox").first().click();

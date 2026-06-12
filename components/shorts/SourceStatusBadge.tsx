@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import { formatDate } from "@/lib/format";
 import { InfoIcon, TriangleAlertIcon } from "lucide-react";
@@ -17,7 +18,7 @@ import { cn } from "@/lib/utils";
  */
 export function SourceStatusBadge({ sourceId }: { sourceId: string }) {
   const trimmed = sourceId.trim();
-  const status = useQuery(
+  const status = useProjectQuery(
     api.publications.getSourceStatus,
     trimmed ? { sourceId } : "skip",
   );

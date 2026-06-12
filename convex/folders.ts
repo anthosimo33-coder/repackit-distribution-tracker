@@ -1,24 +1,23 @@
-import { authedMutation, authedQuery, e2eMutation } from "./functions";
+import { e2eMutation, projectMutation, projectQuery } from "./functions";
 import { v, ConvexError } from "convex/values";
 
 const MAX_NAME_LENGTH = 80;
 
 /**
- * Batch F → G — list folders triés par name asc, enrichi avec
- * inspirationCount (nombre d'inspirations dont folderId === folder._id).
- *
- * Pattern N+1 mémoire : collect inspirations une fois, group côté handler
- * (parallèle listHooksWithUsage de convex/hooks.ts). À 50 dossiers / 500
- * inspirations, c'est O(F*I) ≈ 25k comparaisons → < 10ms.
- *
- * Champ inspirationCount additif : ne casse pas les callers Batch F qui
- * lisent uniquement name / _id / color.
+ * Dossiers d'inspirations — P2 scopé par ctx.projectId. inspirationCount ne
+ * compte que les inspirations du même projet.
  */
-export const listFolders = authedQuery({
+export const listFolders = projectQuery({
   args: {},
   handler: async (ctx) => {
-    const folders = await ctx.db.query("folders").collect();
-    const allInspirations = await ctx.db.query("inspirations").collect();
+    const folders = await ctx.db
+      .query("folders")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const allInspirations = await ctx.db
+      .query("inspirations")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
     const sorted = folders.sort((a, b) =>
       a.name.localeCompare(b.name, "fr", { sensitivity: "base" }),
     );
@@ -30,7 +29,7 @@ export const listFolders = authedQuery({
   },
 });
 
-export const createFolder = authedMutation({
+export const createFolder = projectMutation({
   args: {
     name: v.string(),
     description: v.optional(v.string()),
@@ -46,8 +45,11 @@ export const createFolder = authedMutation({
         `Nom de dossier trop long (max ${MAX_NAME_LENGTH} caractères).`,
       );
     }
-    // Dedupe insensible à la casse (pattern createCompte de convex/comptes.ts).
-    const existing = await ctx.db.query("folders").collect();
+    // Dedupe insensible à la casse DANS le projet.
+    const existing = await ctx.db
+      .query("folders")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
     const dup = existing.find(
       (f) => f.name.toLowerCase() === trimmed.toLowerCase(),
     );
@@ -56,6 +58,7 @@ export const createFolder = authedMutation({
     }
     const now = Date.now();
     return await ctx.db.insert("folders", {
+      projectId: ctx.projectId,
       name: trimmed,
       description: args.description,
       color: args.color,
@@ -66,10 +69,10 @@ export const createFolder = authedMutation({
 });
 
 /**
- * Batch G — patch partiel d'un dossier. name vérifié (1-80 char, dedupe
- * case-insensitive en excluant soi-même). updatedAt bumpé toujours.
+ * Patch partiel d'un dossier. name vérifié (1-80 char, dedupe case-insensitive
+ * DANS le projet en excluant soi-même). updatedAt bumpé toujours.
  */
-export const updateFolder = authedMutation({
+export const updateFolder = projectMutation({
   args: {
     id: v.id("folders"),
     name: v.optional(v.string()),
@@ -78,7 +81,7 @@ export const updateFolder = authedMutation({
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db.get(args.id);
-    if (!existing) {
+    if (!existing || existing.projectId !== ctx.projectId) {
       throw new ConvexError("Dossier introuvable.");
     }
 
@@ -95,7 +98,10 @@ export const updateFolder = authedMutation({
         );
       }
       if (trimmed.toLowerCase() !== existing.name.toLowerCase()) {
-        const all = await ctx.db.query("folders").collect();
+        const all = await ctx.db
+          .query("folders")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect();
         const dup = all.find(
           (f) =>
             f._id !== args.id &&
@@ -115,21 +121,16 @@ export const updateFolder = authedMutation({
 });
 
 /**
- * Batch G — suppression avec cascade unset. Décision tranchée : on ne
- * détruit pas les inspirations contenues, on les déplace vers "Non classé"
- * (folderId mis à undefined côté DB via patch). Comportement non
- * destructif = zéro perte de data.
- *
- * Idempotent : suppression d'un id inexistant est silencieuse.
- * Retourne { unsetCount } pour info UI (toast). Atomicité Convex garantit
- * que si le patch d'une inspiration échoue, le delete du folder n'a pas
- * lieu (rollback automatique de la mutation).
+ * Suppression avec cascade unset (les inspirations du dossier passent à "Non
+ * classé"). Scope projet : on ne touche que les inspirations du même projet.
  */
-export const deleteFolder = authedMutation({
+export const deleteFolder = projectMutation({
   args: { id: v.id("folders") },
   handler: async (ctx, args) => {
     const folder = await ctx.db.get(args.id);
-    if (!folder) return { unsetCount: 0 };
+    if (!folder || folder.projectId !== ctx.projectId) {
+      return { unsetCount: 0 };
+    }
     const affected = await ctx.db
       .query("inspirations")
       .withIndex("by_folder", (q) => q.eq("folderId", args.id))
@@ -144,8 +145,7 @@ export const deleteFolder = authedMutation({
 });
 
 /**
- * Test-only cleanup. Supprime les folders dont la description commence par
- * [E2E_TEST]. Symétrique à cleanupTestInspirations.
+ * Test-only cleanup (project-agnostic, par marker [E2E_TEST]). Inchangé P2.
  */
 export const cleanupTestFolders = e2eMutation({
   args: {},

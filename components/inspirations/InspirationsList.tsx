@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -78,7 +79,7 @@ export function InspirationsList({
   folderMap: Map<Id<"folders">, FolderRef>;
   onCardClick: (id: Id<"inspirations">) => void;
 }) {
-  const updateInspiration = useMutation(api.inspirations.updateInspiration);
+  const updateInspiration = useProjectMutation(api.inspirations.updateInspiration);
 
   async function toggleFavorite(
     e: React.MouseEvent,

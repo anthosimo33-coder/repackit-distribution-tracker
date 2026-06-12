@@ -1,5 +1,5 @@
 import { internalMutation } from "./_generated/server";
-import { authedMutation, authedQuery, e2eMutation } from "./functions";
+import { e2eMutation, projectMutation, projectQuery } from "./functions";
 import { v, ConvexError } from "convex/values";
 
 const statusValidator = v.union(
@@ -23,13 +23,16 @@ function effectiveStatus(c: {
   return c.status ?? (c.actif === false ? "archived" : "actif");
 }
 
-export const listComptes = authedQuery({
+export const listComptes = projectQuery({
   args: {
     actifOnly: v.optional(v.boolean()),
     statusFilter: v.optional(statusValidator),
   },
   handler: async (ctx, args) => {
-    let results = await ctx.db.query("comptes").collect();
+    let results = await ctx.db
+      .query("comptes")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
     // Backward compat : actifOnly (legacy) est mappé sur statusFilter="actif".
     const filter: CompteStatus | undefined =
       args.statusFilter ?? (args.actifOnly ? "actif" : undefined);
@@ -37,11 +40,11 @@ export const listComptes = authedQuery({
     const sorted = results.sort((a, b) =>
       a.handle.localeCompare(b.handle, "fr", { sensitivity: "base" }),
     );
-    // Enrichissement gestionnaire côté serveur (décision : lookup serveur
-    // plutôt que client → l'UI tableau lit directement c.personne sans
-    // re-query). N+1 mémoire acceptable au volume (< 100 comptes / < 50
-    // personnes). Champ additif `personne` : ne casse aucun caller existant.
-    const personnes = await ctx.db.query("personnes").collect();
+    // Enrichissement gestionnaire (scopé projet). N+1 mémoire OK au volume.
+    const personnes = await ctx.db
+      .query("personnes")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
     const personneMap = new Map(personnes.map((p) => [p._id, p]));
     return sorted.map((c) => {
       const p = c.personneId ? personneMap.get(c.personneId) : null;
@@ -53,7 +56,7 @@ export const listComptes = authedQuery({
   },
 });
 
-export const createCompte = authedMutation({
+export const createCompte = projectMutation({
   args: {
     handle: v.string(),
     plateforme: v.union(
@@ -62,20 +65,19 @@ export const createCompte = authedMutation({
       v.literal("YouTube"),
     ),
     notes: v.string(),
-    // status optional côté API (rétro-compat des callers e2e qui créent sans
-    // status) → défaut "actif". L'exigence (warmup ⇒ date) est imposée ICI,
-    // pas au schéma — pattern repo (createPublication exige icpId/titre selon
-    // le mediaType alors que le schéma les laisse optional).
     status: v.optional(statusValidator),
     warmupStartedAt: v.optional(v.number()),
     personneId: v.optional(v.id("personnes")),
   },
   handler: async (ctx, args) => {
-    const existing = await ctx.db.query("comptes").collect();
-    const dup = existing.find(
-      (c) => c.handle === args.handle && c.plateforme === args.plateforme,
-    );
-    if (dup) {
+    // Dedup (handle, plateforme) DANS le projet (by_project_plateforme).
+    const samePlatform = await ctx.db
+      .query("comptes")
+      .withIndex("by_project_plateforme", (q) =>
+        q.eq("projectId", ctx.projectId).eq("plateforme", args.plateforme),
+      )
+      .collect();
+    if (samePlatform.some((c) => c.handle === args.handle)) {
       throw new Error(
         `Compte ${args.handle} existe déjà sur ${args.plateforme}`,
       );
@@ -90,6 +92,7 @@ export const createCompte = authedMutation({
       );
     }
     return await ctx.db.insert("comptes", {
+      projectId: ctx.projectId,
       handle: args.handle,
       plateforme: args.plateforme,
       notes: args.notes,
@@ -102,7 +105,7 @@ export const createCompte = authedMutation({
   },
 });
 
-export const updateCompte = authedMutation({
+export const updateCompte = projectMutation({
   args: {
     id: v.id("comptes"),
     handle: v.optional(v.string()),
@@ -120,16 +123,17 @@ export const updateCompte = authedMutation({
   handler: async (ctx, args) => {
     const { id } = args;
     const compte = await ctx.db.get(id);
-    if (!compte) throw new ConvexError("Compte introuvable.");
+    if (!compte || compte.projectId !== ctx.projectId) {
+      throw new ConvexError("Compte introuvable.");
+    }
 
-    // Garde-fou rename : publications.compte est une string (= handle, pas un
-    // Id). Renommer un handle déjà utilisé orphelinerait ces publications — le
-    // matching p.compte === compte.handle ne les retrouverait plus (filtre
-    // tracker, vue détail compte, garde deleteCompte). On bloque le rename
-    // tant que des publications l'utilisent. Le changement de statut reste
-    // permis car il n'altère pas le handle. Pattern cohérent avec deleteCompte.
+    // Garde-fou rename (scopé projet) : publications.compte = handle string.
+    // Bloque le rename tant que des publications du projet l'utilisent.
     if (args.handle !== undefined && args.handle !== compte.handle) {
-      const pubs = await ctx.db.query("publications").collect();
+      const pubs = await ctx.db
+        .query("publications")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect();
       const used = pubs.filter((p) => p.compte === compte.handle);
       if (used.length > 0) {
         throw new ConvexError(
@@ -187,13 +191,19 @@ export const updateCompte = authedMutation({
   },
 });
 
-export const deleteCompte = authedMutation({
+export const deleteCompte = projectMutation({
   args: { id: v.id("comptes") },
   handler: async (ctx, args) => {
     const compte = await ctx.db.get(args.id);
-    if (!compte) throw new Error("Compte not found");
+    if (!compte || compte.projectId !== ctx.projectId) {
+      throw new Error("Compte not found");
+    }
 
-    const pubs = await ctx.db.query("publications").collect();
+    // Cascade par handle SCOPÉE projet (A3).
+    const pubs = await ctx.db
+      .query("publications")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
     const used = pubs.filter((p) => p.compte === compte.handle);
     if (used.length > 0) {
       throw new Error(

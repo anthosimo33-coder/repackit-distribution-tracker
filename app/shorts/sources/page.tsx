@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "convex/react";
+import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import { Input } from "@/components/ui/input";
 import { ArrowLeftIcon } from "lucide-react";
@@ -29,7 +30,7 @@ const FILTERS: { key: CoverageFilter; label: string }[] = [
 ];
 
 export default function ShortSourcesPage() {
-  const sources = useQuery(api.publications.listSources, {});
+  const sources = useProjectQuery(api.publications.listSources, {});
   const [search, setSearch] = useState("");
   const [coverageFilter, setCoverageFilter] = useState<CoverageFilter>("all");
 

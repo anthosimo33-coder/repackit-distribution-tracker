@@ -53,6 +53,37 @@ Configuration une seule fois :
 Sans `CONVEX_DEPLOY_KEY`, le build Vercel échoue — c'est voulu : on ne peut
 plus shipper du code sans son schéma.
 
+## Multi-tenant (P2) — rollout de la migration projectId
+
+Toutes les tables métier sont scopées par `projectId` (tables `projects` +
+`memberships`). Numérotation `C###`/`S###`/`SR###` **par projet**.
+
+À cause du déploiement atomique (le `convex deploy` du build pousse le schéma
+AVANT toute migration data), le rollout est en **2 phases** :
+
+1. **Ce commit** — `projectId` est `v.optional` sur les 9 tables, `vuesJ1/J3/J7`
+   conservés. Les fonctions imposent déjà `projectId` (wrappers
+   `projectQuery`/`projectMutation`), l'optional n'est qu'une fenêtre de
+   migration. Après déploiement, lancer **une fois** sur prod :
+
+   ```bash
+   ./node_modules/.bin/convex run migrations:setupRepackitProject --prod
+   ```
+
+   → crée le projet `repackit`, donne un membership admin au superadmin,
+   backfille `projectId` partout, et unset `vuesJ1/J3/J7` (TD-016).
+   **Vérifier ensuite** que les KPIs du dashboard sont identiques à avant.
+
+2. **Commit de suivi** (une fois la prod backfillée) — resserrer `projectId` en
+   `v.id("projects")` (non-optional) et retirer `vuesJ1/J3/J7` du schéma
+   (cf bloc de tête de `convex/schema.ts`). TD-017 (`comptes.actif`) reste
+   différé : `lib/compte-status.ts` + des specs e2e le lisent encore.
+
+Côté front, le projet courant est résolu via `api.projects.getCurrentProject`
+(membership) dans `ProjectProvider` — **TODO(P3)** : remplacer par le sélecteur
+de projet. Les e2e utilisent un projet dédié `e2e-test` (créé par
+`auth.setup.ts`).
+
 ## Authentification (Convex Auth)
 
 L'app est protégée de bout en bout :

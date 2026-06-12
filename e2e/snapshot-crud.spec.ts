@@ -18,7 +18,7 @@ test.describe("CRUD snapshots via le dialog", () => {
       (await page.getByRole("cell", { name: "@test_e2e_snapcrud" }).count()) ===
       0
     ) {
-      await page.getByRole("button", { name: /ajouter un compte/i }).click();
+      await page.getByRole("button", { name: /ajouter un compte/i }).first().click();
       await page.getByLabel("Handle").fill("test_e2e_snapcrud");
       await page.getByRole("combobox").first().click();
       await page.getByRole("option", { name: "TikTok" }).click();

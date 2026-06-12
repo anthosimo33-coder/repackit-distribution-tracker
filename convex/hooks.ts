@@ -1,4 +1,4 @@
-import { authedQuery, e2eMutation } from "./functions";
+import { e2eMutation, projectQuery } from "./functions";
 import { v } from "convex/values";
 import { coerceSnapshotAge } from "./snapshotMatching";
 import {
@@ -6,16 +6,22 @@ import {
   groupSnapshotsByPublication,
 } from "./metricsDisplay";
 
-export const countHooks = authedQuery({
+export const countHooks = projectQuery({
   args: {},
   handler: async (ctx) => {
-    const all = await ctx.db.query("hooks").collect();
+    const all = await ctx.db
+      .query("hooks")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
     return all.length;
   },
 });
 
+// P2 — seed/clear e2e-gated PAR PROJET (projectId explicite : pas de session,
+// donc pas de membership ; le caller — run-seed.ts / e2e — fournit l'id).
 export const seedHooks = e2eMutation({
   args: {
+    projectId: v.id("projects"),
     hooks: v.array(
       v.object({
         text: v.string(),
@@ -37,16 +43,18 @@ export const seedHooks = e2eMutation({
     ),
   },
   handler: async (ctx, args) => {
-    const existing = await ctx.db.query("hooks").take(1);
+    const existing = await ctx.db
+      .query("hooks")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .take(1);
     if (existing.length > 0) {
-      throw new Error(
-        "Table 'hooks' already seeded. Run clearHooks first if you want to re-seed.",
-      );
+      // Idempotent : déjà seedé pour ce projet → no-op (setup e2e relançable).
+      return { inserted: 0, alreadySeeded: true };
     }
 
     let count = 0;
     for (const hook of args.hooks) {
-      await ctx.db.insert("hooks", hook);
+      await ctx.db.insert("hooks", { projectId: args.projectId, ...hook });
       count++;
     }
     return { inserted: count };
@@ -54,9 +62,12 @@ export const seedHooks = e2eMutation({
 });
 
 export const clearHooks = e2eMutation({
-  args: {},
-  handler: async (ctx) => {
-    const all = await ctx.db.query("hooks").collect();
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const all = await ctx.db
+      .query("hooks")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
     for (const h of all) {
       await ctx.db.delete(h._id);
     }
@@ -64,7 +75,7 @@ export const clearHooks = e2eMutation({
   },
 });
 
-export const listHooks = authedQuery({
+export const listHooks = projectQuery({
   args: {
     langue: v.optional(v.union(v.literal("FR"), v.literal("EN"))),
     mecanique: v.optional(
@@ -87,7 +98,10 @@ export const listHooks = authedQuery({
     search: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    let results = await ctx.db.query("hooks").collect();
+    let results = await ctx.db
+      .query("hooks")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
 
     if (args.langue) results = results.filter((h) => h.langue === args.langue);
     if (args.mecanique)
@@ -135,7 +149,7 @@ export const listHooks = authedQuery({
 // dans listHooksWithUsage qui scope désormais aux 2 formats carousel|short).
 // getHookVariants utilise le validator inline (cf args plus bas).
 
-export const listHooksWithUsage = authedQuery({
+export const listHooksWithUsage = projectQuery({
   args: {
     langue: v.optional(v.union(v.literal("FR"), v.literal("EN"))),
     // Multi-select v2 : mecanique et niveau passent en array. undefined ou
@@ -167,8 +181,14 @@ export const listHooksWithUsage = authedQuery({
     hideDraft: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const hooks = await ctx.db.query("hooks").collect();
-    const publications = await ctx.db.query("publications").collect();
+    const hooks = await ctx.db
+      .query("hooks")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const publications = await ctx.db
+      .query("publications")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
 
     // Refinement Shorts — les Shorts ne sont plus comptés dans la biblio
     // hooks (cohérent avec le retrait SR précédent). Le concept "hook" pour
@@ -304,7 +324,7 @@ export const listHooksWithUsage = authedQuery({
  * Helpers calculateSaveRate/calculateVerdict ré-implémentés inline (pas
  * d'import cross-tsconfig depuis lib/verdict.ts). Logique identique.
  */
-export const getHookVariants = authedQuery({
+export const getHookVariants = projectQuery({
   args: {
     hookId: v.id("hooks"),
     // Batch 3 Modif 6 — filtre optional par mediaType. Si défini, ne garde
@@ -329,7 +349,9 @@ export const getHookVariants = authedQuery({
     const age = coerceSnapshotAge(args.snapshotAge);
     const allPubs = await ctx.db
       .query("publications")
-      .withIndex("by_hookId", (q) => q.eq("hookId", args.hookId))
+      .withIndex("by_project_hookId", (q) =>
+        q.eq("projectId", ctx.projectId).eq("hookId", args.hookId),
+      )
       .collect();
 
     // Filtre mediaType en amont. Coercion inline (pas d'import lib/).
@@ -342,7 +364,10 @@ export const getHookVariants = authedQuery({
 
     // Snapshots des pubs du hook, groupés par publication (pour le matching
     // par période ci-dessous).
-    const allSnaps = await ctx.db.query("metricSnapshots").collect();
+    const allSnaps = await ctx.db
+      .query("metricSnapshots")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
     const snapsByPub = groupSnapshotsByPublication(allSnaps);
 
     // 1. Identifie les "groupes variantes" : parent ancré → Set des carouselIds

@@ -5,7 +5,7 @@ test.describe("Comptes CRUD", () => {
     await page.goto("/comptes");
 
     // Ajouter
-    await page.getByRole("button", { name: /ajouter un compte/i }).click();
+    await page.getByRole("button", { name: /ajouter un compte/i }).first().click();
     await page.getByLabel("Handle").fill("test_e2e_1");
     // Plateforme select (Base UI combobox)
     await page.getByRole("combobox").first().click();
