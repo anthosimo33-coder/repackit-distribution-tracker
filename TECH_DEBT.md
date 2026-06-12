@@ -57,3 +57,14 @@ Ce fichier liste les anti-patterns repérés dans la zone touchée par chaque fe
 - **Impact** : ajouter une plateforme (ex: YouTube en Batch 1) force à éditer 4 fichiers en parallèle. Risque oubli + drift entre fichiers (ex: l'un en `["TikTok", "Instagram"]`, l'autre en `["TikTok", "Instagram", "YouTube"]`).
 - **Reco** : centraliser dans `lib/platforms.ts` (ou étendre `lib/media-type.ts` qui contient déjà `ALLOWED_PLATFORMS_FOR_*`) avec une const exportée `ALL_PLATFORMS = ["TikTok", "Instagram", "YouTube"] as const` et un type `Plateforme = (typeof ALL_PLATFORMS)[number]`. Tous les callsites importent.
 - **Bénéfice** : un seul endroit à éditer pour ajouter/retirer une plateforme. Garantit la cohérence du front avec le validator Convex (qui reste la source de vérité côté serveur).
+
+---
+
+## Détectés pendant P2 (multi-tenant)
+
+### TD-018 — Déflaker 3 specs e2e qui tombent sous charge CI
+- **Specs** : `carrousel-biblio.spec.ts:30` (flow biblio → carrousel), `compte-assign-personne.spec.ts:27` (assignation gestionnaire), `compte-calendar-navigation.spec.ts:58` (navigation calendrier).
+- **Symptôme** : échecs `toBeVisible`/`toHaveURL` **sous charge CI** (run 27439582935 : 2 failed malgré `retries:2`), mais **verts en local** sur le même déploiement (laudable-viper-831) et **verts au simple rerun** (même commit). `compte-calendar-navigation` est un flake déjà connu de longue date.
+- **Cause probable** : instabilité de timing sur la DB de test partagée (re-render après mutation), amplifiée par la charge/latence du runner GitHub. PAS une régression P2 (la phase 2 ne change que le schéma, aucun comportement runtime).
+- **Reco** : stabiliser ces 3 specs (attentes explicites `waitFor` sur l'état post-mutation plutôt que sur le 1er rendu ; éventuellement isoler les données par projet e2e dédié au lieu du marker `[E2E_TEST]`). Pas urgent — un rerun suffit pour le gate vert en attendant.
+- **Trigger** : si la fréquence de flake augmente (> 1 rerun nécessaire régulièrement), prioriser.
