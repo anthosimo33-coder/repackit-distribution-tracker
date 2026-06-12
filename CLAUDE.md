@@ -11,12 +11,20 @@
 - Suite e2e complète en local seulement si le chantier touche l'infra
   de test elle-même (fixtures, auth e2e, helpers).
 
-## Rollout
-- Après push : donner le lien du run CI et du deploy dans le rapport,
-  SANS les babysitter — sauf si le chantier exige une action post-deploy
-  (ex. migration prod), auquel cas suivre jusqu'au bout.
-- Flake connu TD-018 : un rerun autorisé sans analyse si ce sont les
-  mêmes specs.
+## Rollout (flux PR obligatoire — la CI bloque le deploy)
+- Depuis P5 (de vrais créateurs sont en prod), on NE pousse PLUS jamais
+  sur `main` en direct. Flux imposé :
+  1. Travailler sur une branche, la pousser (`git push -u origin <branche>`).
+  2. Ouvrir une PR vers `main` (`gh pr create`). Le workflow E2E tourne sur
+     les PR ciblant `main` → la CI s'exécute AVANT tout merge.
+  3. Merger UNIQUEMENT après CI verte. Le deploy Vercel ne part donc que
+     d'un `main` validé (la branch protection de `main` exige le check E2E
+     et interdit le push direct).
+- Flake connu TD-018 : un rerun de la CI autorisé sans analyse si ce sont
+  les mêmes specs.
+- Après merge : donner dans le rapport le lien de la PR, du run CI et du
+  deploy, SANS les babysitter — sauf action post-deploy requise (ex.
+  migration prod), auquel cas suivre jusqu'au bout.
 - La vérification du vert CI/deploy du chantier N se fait en ouverture
   du chantier N+1.
 

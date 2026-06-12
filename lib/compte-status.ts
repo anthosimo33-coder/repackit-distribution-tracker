@@ -4,20 +4,36 @@
  * compte-status.test.ts). Les fonctions temporelles acceptent un paramètre
  * `now` (défaut Date.now()) pour des tests déterministes.
  */
+import { WARMUP_TARGET_DAYS } from "./warmup";
+
 export type CompteStatus = "warmup" | "actif" | "shadowban" | "archived";
 export type Plateforme = "TikTok" | "Instagram" | "YouTube";
 
 const DAY_MS = 86_400_000;
 
 /**
- * Durée de warmup (en jours) par plateforme. Source unique côté UI ; le
- * décompte affiché (J+X/N) en dérive directement.
+ * Durée de warmup (en jours) par plateforme. DÉRIVÉE de lib/warmup
+ * (WARMUP_TARGET_DAYS) — barème unique de toute l'app (P5). Le décompte affiché
+ * (J+X/N) en dérive directement. Un compte peut surcharger sa durée via
+ * warmupProtocol.targetDays (cf getEffectiveWarmupDuration).
  */
 export const WARMUP_DURATION_BY_PLATFORM: Record<Plateforme, number> = {
-  TikTok: 7,
-  Instagram: 14,
-  YouTube: 3,
+  TikTok: WARMUP_TARGET_DAYS.tiktok,
+  Instagram: WARMUP_TARGET_DAYS.instagram,
+  YouTube: WARMUP_TARGET_DAYS.youtube,
 };
+
+/**
+ * Durée de warmup EFFECTIVE d'un compte : surcharge admin
+ * (warmupProtocol.targetDays) sinon défaut plateforme. À utiliser partout où le
+ * décompte doit refléter le protocole réel du compte (badge, carte, colonne).
+ */
+export function getEffectiveWarmupDuration(c: {
+  plateforme: Plateforme;
+  warmupProtocol?: { targetDays?: number } | null;
+}): number {
+  return c.warmupProtocol?.targetDays ?? WARMUP_DURATION_BY_PLATFORM[c.plateforme];
+}
 
 export interface StatusConfig {
   label: string;
@@ -93,6 +109,24 @@ export function isSelectableForPublication(status: CompteStatus): boolean {
   return status === "actif";
 }
 
+/**
+ * Warmup terminé pour un compte donné, en tenant compte de la SURCHARGE
+ * targetDays (warmupProtocol) sinon du défaut plateforme. À préférer à
+ * isWarmupComplete(start, plateforme) dès qu'un compte (avec protocole) est
+ * disponible.
+ */
+export function isWarmupCompleteForCompte(
+  c: {
+    plateforme: Plateforme;
+    warmupStartedAt?: number;
+    warmupProtocol?: { targetDays?: number } | null;
+  },
+  now: number = Date.now(),
+): boolean {
+  if (c.warmupStartedAt === undefined) return false;
+  return getWarmupDaysElapsed(c.warmupStartedAt, now) >= getEffectiveWarmupDuration(c);
+}
+
 export function formatWarmupBadge(
   warmupStartedAt: number,
   plateforme: Plateforme,
@@ -127,16 +161,20 @@ export function getStatusBadge(
     actif?: boolean;
     plateforme: Plateforme;
     warmupStartedAt?: number;
+    warmupProtocol?: { targetDays?: number } | null;
   },
   now: number = Date.now(),
 ): StatusConfig {
   const status = getEffectiveStatus(c);
   if (status === "warmup" && c.warmupStartedAt !== undefined) {
-    if (isWarmupComplete(c.warmupStartedAt, c.plateforme, now)) {
+    // Durée effective = surcharge protocole sinon défaut plateforme.
+    const target = getEffectiveWarmupDuration(c);
+    const elapsed = getWarmupDaysElapsed(c.warmupStartedAt, now);
+    if (elapsed >= target) {
       return WARMUP_DONE_CONFIG;
     }
     return {
-      label: `Warmup ${formatWarmupBadge(c.warmupStartedAt, c.plateforme, now)}`,
+      label: `Warmup J+${elapsed}/${target}`,
       className: STATUS_CONFIG.warmup.className,
     };
   }

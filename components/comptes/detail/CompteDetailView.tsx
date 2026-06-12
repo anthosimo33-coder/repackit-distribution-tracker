@@ -17,10 +17,12 @@ import { PublicationEditDialog } from "@/components/PublicationEditDialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
 import type { Compte } from "@/components/comptes/CompteDialog";
+import { getEffectiveStatus } from "@/lib/compte-status";
 import { CompteDetailHeader } from "./CompteDetailHeader";
 import { CompteStatsGrid } from "./CompteStatsGrid";
 import { CompteCalendar } from "./CompteCalendar";
 import { CompteFormatLists } from "./CompteFormatLists";
+import { WarmupProtocolSection } from "./WarmupProtocolSection";
 
 /**
  * Vue détail compte. Source unique des publications : listPublications (déjà
@@ -55,6 +57,12 @@ export function CompteDetailView({ compte }: { compte: Compte }) {
   return (
     <div className="space-y-6">
       <CompteDetailHeader compte={compte} />
+
+      {/* P5 — protocole de warmup (admin) : visible tant que le compte est en
+          warmup. Indépendant des publications, rendu avant le chargement. */}
+      {getEffectiveStatus(compte) === "warmup" && (
+        <WarmupProtocolSection compte={compte} />
+      )}
 
       {allPubs === undefined ? (
         <div className="space-y-6">

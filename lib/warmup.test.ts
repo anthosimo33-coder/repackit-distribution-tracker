@@ -1,0 +1,121 @@
+import { describe, it, expect } from "vitest";
+import {
+  WARMUP_TARGET_DAYS,
+  defaultTargetDays,
+  platformKey,
+  todayKey,
+  daysElapsed,
+  warmupProgress,
+  checkedToday,
+  missedDays,
+  lastCheck,
+} from "./warmup";
+
+const DAY = 86_400_000;
+// 2023-11-14T22:13:20Z — base déterministe (UTC).
+const START = 1_700_000_000_000;
+const at = (days: number) => START + days * DAY;
+
+describe("WARMUP_TARGET_DAYS — barème unique", () => {
+  it("youtube=3, tiktok=3, instagram=14", () => {
+    expect(WARMUP_TARGET_DAYS).toEqual({
+      youtube: 3,
+      tiktok: 3,
+      instagram: 14,
+    });
+  });
+  it("defaultTargetDays mappe la plateforme capitalisée", () => {
+    expect(defaultTargetDays("TikTok")).toBe(3);
+    expect(defaultTargetDays("YouTube")).toBe(3);
+    expect(defaultTargetDays("Instagram")).toBe(14);
+  });
+  it("platformKey", () => {
+    expect(platformKey("TikTok")).toBe("tiktok");
+    expect(platformKey("Instagram")).toBe("instagram");
+    expect(platformKey("YouTube")).toBe("youtube");
+  });
+});
+
+describe("todayKey", () => {
+  it("YYYY-MM-DD UTC", () => {
+    expect(todayKey(START)).toBe("2023-11-14");
+    expect(todayKey(at(1))).toBe("2023-11-15");
+  });
+});
+
+describe("daysElapsed", () => {
+  it("floor des jours", () => {
+    expect(daysElapsed(START, START)).toBe(0);
+    expect(daysElapsed(START, START + 2 * DAY + DAY / 2)).toBe(2);
+  });
+});
+
+describe("warmupProgress", () => {
+  it("Jour 1-indexé clampé à targetDays", () => {
+    expect(warmupProgress(START, 3, at(0))).toEqual({
+      day: 1,
+      targetDays: 3,
+      complete: false,
+    });
+    expect(warmupProgress(START, 3, at(1))).toEqual({
+      day: 2,
+      targetDays: 3,
+      complete: false,
+    });
+    // J+3 = élapsed 3 ≥ 3 → complet, day clampé à 3.
+    expect(warmupProgress(START, 3, at(3))).toEqual({
+      day: 3,
+      targetDays: 3,
+      complete: true,
+    });
+    // Au-delà reste complet, day reste clampé.
+    expect(warmupProgress(START, 3, at(9))).toEqual({
+      day: 3,
+      targetDays: 3,
+      complete: true,
+    });
+  });
+  it("respecte un targetDays surchargé (override admin)", () => {
+    expect(warmupProgress(START, 5, at(2))).toEqual({
+      day: 3,
+      targetDays: 5,
+      complete: false,
+    });
+  });
+});
+
+describe("checkedToday", () => {
+  it("vrai si todayKey présent", () => {
+    expect(checkedToday(["2023-11-14"], START)).toBe(true);
+    expect(checkedToday(["2023-11-13"], START)).toBe(false);
+    expect(checkedToday([], START)).toBe(false);
+  });
+});
+
+describe("missedDays", () => {
+  it("jours pleins écoulés moins checks, capé targetDays, clampé 0", () => {
+    // J+0, aucun check → 0 (jour en cours, rien de manqué).
+    expect(missedDays(START, [], 3, at(0))).toBe(0);
+    // J+2, 0 check → 2 jours pleins manqués.
+    expect(missedDays(START, [], 3, at(2))).toBe(2);
+    // J+2, 2 checks → 0.
+    expect(missedDays(START, ["2023-11-14", "2023-11-15"], 3, at(2))).toBe(0);
+    // J+2, 1 check → 1 manqué.
+    expect(missedDays(START, ["2023-11-14"], 3, at(2))).toBe(1);
+    // Au-delà de targetDays : capé (J+10, target 3, 1 check → 3-1=2).
+    expect(missedDays(START, ["2023-11-14"], 3, at(10))).toBe(2);
+    // Plus de checks que de jours pleins → clampé 0.
+    expect(
+      missedDays(START, ["2023-11-14", "2023-11-15", "2023-11-16"], 3, at(1)),
+    ).toBe(0);
+  });
+});
+
+describe("lastCheck", () => {
+  it("dernier check chronologique ou null", () => {
+    expect(lastCheck([])).toBeNull();
+    expect(lastCheck(["2023-11-14", "2023-11-16", "2023-11-15"])).toBe(
+      "2023-11-16",
+    );
+  });
+});

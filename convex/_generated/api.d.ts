@@ -28,6 +28,7 @@ import type * as projects from "../projects.js";
 import type * as publications from "../publications.js";
 import type * as snapshotMatching from "../snapshotMatching.js";
 import type * as storage from "../storage.js";
+import type * as warmup from "../warmup.js";
 
 import type {
   ApiFromModules,
@@ -56,6 +57,7 @@ declare const fullApi: ApiFromModules<{
   publications: typeof publications;
   snapshotMatching: typeof snapshotMatching;
   storage: typeof storage;
+  warmup: typeof warmup;
 }>;
 
 /**

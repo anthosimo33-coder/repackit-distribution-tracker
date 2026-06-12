@@ -41,10 +41,11 @@ test.describe("Warmup décompte adaptatif par plateforme", () => {
     const rowIg = page.getByRole("row").filter({ hasText: ig });
     const rowYt = page.getByRole("row").filter({ hasText: yt });
 
-    // Décompte adaptatif : N varie selon la plateforme.
-    await expect(rowTk.getByText("Warmup J+4/7")).toBeVisible();
+    // Décompte adaptatif : N varie selon la plateforme (barème unifié P5 —
+    // TikTok=3, YouTube=3, Instagram=14, cf lib/warmup).
     await expect(rowIg.getByText("Warmup J+4/14")).toBeVisible();
-    // YouTube (3 jours) : J+4 dépasse la durée → "À valider".
+    // TikTok et YouTube (3 jours) : J+4 dépasse la durée → "À valider".
+    await expect(rowTk.getByText("À valider")).toBeVisible();
     await expect(rowYt.getByText("À valider")).toBeVisible();
 
     // YouTube → dialog → bouton "Passer en actif" présent.

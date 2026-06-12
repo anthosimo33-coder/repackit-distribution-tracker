@@ -32,6 +32,7 @@ import {
   type CreatorStatus,
 } from "@/lib/creator-status";
 import { CopyableLink } from "./CopyableLink";
+import { CreatorComptesSection } from "./CreatorComptesSection";
 
 type Creator = NonNullable<FunctionReturnType<typeof api.creators.getCreator>>;
 
@@ -241,9 +242,10 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
         </Button>
       </div>
 
-      {/* Chantiers suivants — emplacements réservés (cf scope). */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <FutureSection title="Comptes" />
+      {/* P5 — Comptes du créateur (alimenté). Assignments / Paiements restent
+          des emplacements réservés (chantiers suivants). */}
+      <CreatorComptesSection creatorId={creator._id} />
+      <div className="grid gap-4 sm:grid-cols-2">
         <FutureSection title="Assignments" />
         <FutureSection title="Paiements" />
       </div>

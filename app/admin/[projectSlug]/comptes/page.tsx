@@ -47,14 +47,19 @@ import {
   PlusIcon,
   UsersIcon,
   TargetIcon,
+  ChevronUpIcon,
+  ChevronDownIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
   getEffectiveStatus,
   getStatusBadge,
+  getEffectiveWarmupDuration,
   type CompteStatus,
+  type Plateforme,
 } from "@/lib/compte-status";
+import { warmupProgress, lastCheck } from "@/lib/warmup";
 import { PersonnesManagerSection } from "@/components/comptes/PersonnesManagerSection";
 import { IcpsManagerSection } from "@/components/icps/IcpsManagerSection";
 import { WarmupGuideButton } from "@/components/comptes/WarmupGuideButton";
@@ -69,6 +74,24 @@ const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: "shadowban", label: "Shadowban" },
   { value: "archived", label: "Archivés" },
 ];
+
+type PlateformeFilter = "all" | "TikTok" | "Instagram" | "YouTube";
+const PLATEFORME_FILTER_OPTIONS: { value: PlateformeFilter; label: string }[] = [
+  { value: "all", label: "Toutes" },
+  { value: "TikTok", label: "TikTok" },
+  { value: "Instagram", label: "Instagram" },
+  { value: "YouTube", label: "YouTube" },
+];
+
+// "all" | "internal" (comptes sans créateur) | <creatorId>.
+type CreatorFilter = string;
+type SortKey = "handle" | "vues" | "posts" | "dernierPost";
+type SortDir = "asc" | "desc";
+
+const nfFR = new Intl.NumberFormat("fr-FR");
+function formatDateShort(ts: number | null): string {
+  return ts === null ? "—" : new Date(ts).toLocaleDateString("fr-FR");
+}
 
 export default function ComptesPage() {
   return (
@@ -87,6 +110,11 @@ function ComptesPageInner() {
   const [editTarget, setEditTarget] = useState<Compte | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Compte | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [plateformeFilter, setPlateformeFilter] =
+    useState<PlateformeFilter>("all");
+  const [creatorFilter, setCreatorFilter] = useState<CreatorFilter>("all");
+  const [sortKey, setSortKey] = useState<SortKey>("handle");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   const viewParam = searchParams.get("view");
   const isPersonnesView = viewParam === "personnes";
@@ -107,18 +135,69 @@ function ComptesPageInner() {
     return acc;
   }, [comptes]);
 
-  // Lignes affichées : filtre statut + archivés repoussés en bas (tri stable
-  // → l'ordre alphabétique du serveur est préservé à l'intérieur d'un rang).
+  // Options du filtre créateur : créateurs distincts présents (par id + nom).
+  const creatorOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of comptes ?? []) {
+      if (c.creatorId && c.creator) map.set(c.creatorId, c.creator.name);
+    }
+    return [...map.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, "fr"));
+  }, [comptes]);
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      // Perf : tri descendant par défaut (le plus performant d'abord) ;
+      // handle : ascendant (ordre alphabétique).
+      setSortDir(key === "handle" ? "asc" : "desc");
+    }
+  }
+
+  // Filtres combinables (statut × plateforme × créateur) + tri par colonne.
   const rows = useMemo(() => {
-    const list = (comptes ?? []).filter(
-      (c) => statusFilter === "all" || getEffectiveStatus(c) === statusFilter,
-    );
-    return [...list].sort(
-      (a, b) =>
-        (getEffectiveStatus(a) === "archived" ? 1 : 0) -
-        (getEffectiveStatus(b) === "archived" ? 1 : 0),
-    );
-  }, [comptes, statusFilter]);
+    const list = (comptes ?? []).filter((c) => {
+      if (statusFilter !== "all" && getEffectiveStatus(c) !== statusFilter)
+        return false;
+      if (plateformeFilter !== "all" && c.plateforme !== plateformeFilter)
+        return false;
+      if (creatorFilter === "internal" && c.creatorId) return false;
+      if (
+        creatorFilter !== "all" &&
+        creatorFilter !== "internal" &&
+        c.creatorId !== creatorFilter
+      )
+        return false;
+      return true;
+    });
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...list].sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case "handle":
+          cmp = a.handle.localeCompare(b.handle, "fr", { sensitivity: "base" });
+          break;
+        case "vues":
+          cmp = a.perf.vuesCumulees - b.perf.vuesCumulees;
+          break;
+        case "posts":
+          cmp = a.perf.nbPublies - b.perf.nbPublies;
+          break;
+        case "dernierPost":
+          cmp = (a.perf.dernierPost ?? 0) - (b.perf.dernierPost ?? 0);
+          break;
+      }
+      // Départage stable par handle quand la métrique est à égalité.
+      if (cmp === 0 && sortKey !== "handle") {
+        cmp = a.handle.localeCompare(b.handle, "fr", { sensitivity: "base" });
+        return cmp; // toujours ascendant pour le tie-break
+      }
+      return cmp * dir;
+    });
+  }, [comptes, statusFilter, plateformeFilter, creatorFilter, sortKey, sortDir]);
 
   if (isPersonnesView) {
     return (
@@ -156,6 +235,51 @@ function ComptesPageInner() {
           <p className="text-sm text-slate-500">{subtitle}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={creatorFilter}
+            onValueChange={(v) => v !== null && setCreatorFilter(v)}
+          >
+            <SelectTrigger className="w-40" aria-label="Filtrer par créateur">
+              <SelectValue>
+                {creatorFilter === "all"
+                  ? "Tous créateurs"
+                  : creatorFilter === "internal"
+                    ? "Interne"
+                    : (creatorOptions.find((o) => o.id === creatorFilter)
+                        ?.name ?? "Créateur")}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tous créateurs</SelectItem>
+              <SelectItem value="internal">Interne</SelectItem>
+              {creatorOptions.map((o) => (
+                <SelectItem key={o.id} value={o.id}>
+                  {o.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={plateformeFilter}
+            onValueChange={(v) =>
+              v !== null && setPlateformeFilter(v as PlateformeFilter)
+            }
+          >
+            <SelectTrigger className="w-32" aria-label="Filtrer par plateforme">
+              <SelectValue>
+                {PLATEFORME_FILTER_OPTIONS.find(
+                  (o) => o.value === plateformeFilter,
+                )?.label ?? "Toutes"}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {PLATEFORME_FILTER_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Select
             value={statusFilter}
             onValueChange={(v) =>
@@ -204,21 +328,61 @@ function ComptesPageInner() {
         </Card>
       ) : (
         <Card>
-          <CardContent className="p-0">
+          <CardContent className="overflow-x-auto p-0">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Handle</TableHead>
+                  <SortHeader
+                    label="Handle"
+                    sortKey="handle"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={toggleSort}
+                  />
                   <TableHead>Plateforme</TableHead>
                   <TableHead>Statut</TableHead>
                   <TableHead>Gestionnaire</TableHead>
-                  <TableHead>Notes</TableHead>
+                  <TableHead>Créateur</TableHead>
+                  <TableHead>Warmup</TableHead>
+                  <SortHeader
+                    label="Vues"
+                    sortKey="vues"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={toggleSort}
+                    align="right"
+                  />
+                  <SortHeader
+                    label="Posts"
+                    sortKey="posts"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={toggleSort}
+                    align="right"
+                  />
+                  <SortHeader
+                    label="Dernier post"
+                    sortKey="dernierPost"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={toggleSort}
+                  />
                   <TableHead className="w-12" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rows.map((c) => {
                   const badge = getStatusBadge(c);
+                  const isWarmup = getEffectiveStatus(c) === "warmup";
+                  const target = getEffectiveWarmupDuration({
+                    plateforme: c.plateforme as Plateforme,
+                    warmupProtocol: c.warmupProtocol,
+                  });
+                  const progress =
+                    isWarmup && c.warmupStartedAt !== undefined
+                      ? warmupProgress(c.warmupStartedAt, target)
+                      : null;
+                  const last = lastCheck(c.warmupProtocol?.dailyChecks ?? []);
                   return (
                     <TableRow
                       key={c._id}
@@ -256,8 +420,37 @@ function ComptesPageInner() {
                           <span className="text-sm text-slate-400">—</span>
                         )}
                       </TableCell>
-                      <TableCell className="max-w-xs truncate text-sm text-slate-500">
-                        {c.notes || "—"}
+                      <TableCell className="text-sm">
+                        {c.creator ? (
+                          <span className="font-medium text-slate-700">
+                            {c.creator.name}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">Interne</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {progress ? (
+                          <div className="leading-tight">
+                            <span className="font-medium text-slate-700">
+                              Jour {progress.day}/{progress.targetDays}
+                            </span>
+                            <span className="block text-xs text-slate-400">
+                              {last ? `Check ${last}` : "Aucun check"}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right font-medium tabular-nums text-slate-900">
+                        {nfFR.format(c.perf.vuesCumulees)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-slate-700">
+                        {c.perf.nbPublies}
+                      </TableCell>
+                      <TableCell className="text-sm text-slate-500">
+                        {formatDateShort(c.perf.dernierPost)}
                       </TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         <RowActions
@@ -287,6 +480,46 @@ function ComptesPageInner() {
         onOpenChange={(o) => !o && setDeleteTarget(null)}
       />
     </div>
+  );
+}
+
+function SortHeader({
+  label,
+  sortKey,
+  activeKey,
+  dir,
+  onSort,
+  align = "left",
+}: {
+  label: string;
+  sortKey: SortKey;
+  activeKey: SortKey;
+  dir: SortDir;
+  onSort: (k: SortKey) => void;
+  align?: "left" | "right";
+}) {
+  const active = activeKey === sortKey;
+  return (
+    <TableHead className={align === "right" ? "text-right" : undefined}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        aria-label={`Trier par ${label}`}
+        className={cn(
+          "inline-flex items-center gap-1 hover:text-slate-900",
+          align === "right" && "flex-row-reverse",
+          active ? "text-slate-900" : "text-slate-500",
+        )}
+      >
+        {label}
+        {active &&
+          (dir === "asc" ? (
+            <ChevronUpIcon className="size-3.5" />
+          ) : (
+            <ChevronDownIcon className="size-3.5" />
+          ))}
+      </button>
+    </TableHead>
   );
 }
 

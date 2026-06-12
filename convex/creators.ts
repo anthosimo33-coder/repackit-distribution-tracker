@@ -301,10 +301,18 @@ export const getMyPortal = authedQuery({
         role: "creator" as const,
         slug: null,
         creatorName: creator?.name ?? null,
+        // P5 — projectId du créateur : le portail /app le passe aux
+        // creatorQuery (qui exigent projectId, hors ProjectProvider).
+        projectId: creator?.projectId ?? null,
       };
     }
 
-    return { role: "none" as const, slug: null, creatorName: null };
+    return {
+      role: "none" as const,
+      slug: null,
+      creatorName: null,
+      projectId: null,
+    };
   },
 });
 
