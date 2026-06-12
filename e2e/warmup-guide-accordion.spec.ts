@@ -17,7 +17,7 @@ test.describe("Guide warmup intégré", () => {
       page.getByRole("button", { name: /Règles communes/i }),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: /TikTok — 7 jours/i }),
+      page.getByRole("button", { name: /TikTok — 3 jours/i }),
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: /Instagram — 14 jours/i }),
@@ -39,7 +39,7 @@ test.describe("Guide warmup intégré", () => {
     await expect(page.getByText(/J8 minimum/i)).toBeHidden();
 
     // Expand TikTok → contenu visible.
-    await page.getByRole("button", { name: /TikTok — 7 jours/i }).click();
+    await page.getByRole("button", { name: /TikTok — 3 jours/i }).click();
     await expect(page.getByText(/J8 minimum/i)).toBeVisible();
 
     // Fermer le Sheet.

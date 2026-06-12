@@ -501,10 +501,13 @@ function SortHeader({
   const active = activeKey === sortKey;
   return (
     <TableHead className={align === "right" ? "text-right" : undefined}>
+      {/* Pas d'aria-label : le texte visible EST le nom accessible. Un
+          aria-label contenant le libellé (ex. « Handle ») collisionnerait avec
+          les nombreux specs qui font getByLabel('Handle') (match en substring)
+          dès que la table est rendue. */}
       <button
         type="button"
         onClick={() => onSort(sortKey)}
-        aria-label={`Trier par ${label}`}
         className={cn(
           "inline-flex items-center gap-1 hover:text-slate-900",
           align === "right" && "flex-row-reverse",

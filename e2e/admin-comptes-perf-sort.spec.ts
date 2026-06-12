@@ -30,8 +30,9 @@ test.describe("Admin comptes — tri performance", () => {
     await expect(row).toBeVisible({ timeout: 8000 });
 
     // Tri par chaque colonne perf → pas de crash, la row reste rendue.
+    // Les en-têtes triables sont des boutons dont le nom = le libellé visible.
     for (const col of ["Vues", "Posts", "Dernier post"]) {
-      await page.getByRole("button", { name: `Trier par ${col}` }).click();
+      await page.getByRole("button", { name: col, exact: true }).click();
       await expect(row).toBeVisible();
     }
 
