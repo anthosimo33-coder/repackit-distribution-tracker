@@ -1,6 +1,7 @@
 import { convexAuth } from "@convex-dev/auth/server";
 import { Password } from "@convex-dev/auth/providers/Password";
 import { ConvexError, type Value } from "convex/values";
+import type { MutationCtx } from "./_generated/server";
 
 /**
  * Remédiation sécurité — Convex Auth, provider Password (email + mot de
@@ -65,12 +66,60 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
         });
       }
 
-      // P4 — point de branchement invitations : valider args.profile
-      // .inviteToken contre une future table invitations, puis insérer avec
-      // role "member". Aucun token n'existe aujourd'hui → rejet systématique.
-      throw new ConvexError(
-        "Inscription fermée. Demande une invitation à un administrateur.",
-      );
+      // P1 Créateurs — onboarding par lien d'invitation à token. Le token
+      // arrive via profile.inviteToken (cf provider Password ci-dessus). Toute
+      // la transaction (user + membership creator + liaison fiche + statut +
+      // consommation du token) est atomique avec le signup : si une étape
+      // échoue (ou le compte de connexion échoue ensuite), TOUT est rollback.
+      const token = args.profile.inviteToken;
+      if (typeof token !== "string" || token.length === 0) {
+        throw new ConvexError(
+          "Inscription fermée. Demande une invitation à un administrateur.",
+        );
+      }
+      // Le ctx du callback Convex Auth est typé génériquement (ses index ne
+      // connaissent pas le schéma applicatif) → on cast vers le db typé généré
+      // pour interroger by_token et écrire dans nos tables.
+      const db = ctx.db as unknown as MutationCtx["db"];
+      const invitation = await db
+        .query("invitations")
+        .withIndex("by_token", (q) => q.eq("token", token))
+        .first();
+      const now = Date.now();
+      // Message volontairement générique (no-leak) : invalide / utilisé /
+      // expiré → même rejet, on ne révèle pas si le token a existé.
+      if (
+        !invitation ||
+        invitation.usedAt !== undefined ||
+        invitation.expiresAt < now
+      ) {
+        throw new ConvexError("Invitation invalide ou expirée.");
+      }
+      // L'email du formulaire est pré-rempli et non modifiable côté UI ; on le
+      // re-vérifie serveur contre l'invitation (un appel forgé pourrait mentir).
+      if (
+        email === undefined ||
+        email.toLowerCase() !== invitation.email.toLowerCase()
+      ) {
+        throw new ConvexError("Invitation invalide ou expirée.");
+      }
+      const creator = await db.get(invitation.creatorId);
+      if (!creator || creator.status !== "invited") {
+        throw new ConvexError("Invitation invalide ou expirée.");
+      }
+
+      const userId = await db.insert("users", { email, role: "member" });
+      await db.insert("memberships", {
+        userId,
+        projectId: invitation.projectId,
+        role: "creator",
+      });
+      await db.patch(invitation.creatorId, {
+        userId,
+        status: "onboarding",
+      });
+      await db.patch(invitation._id, { usedAt: now });
+      return userId;
     },
   },
 });

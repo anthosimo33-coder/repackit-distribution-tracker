@@ -13,6 +13,7 @@ import {
   LogOutIcon,
   MonitorIcon,
   PlaySquareIcon,
+  UserPlusIcon,
   Users2Icon,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
@@ -76,6 +77,11 @@ export function Sidebar({
       icon: Users2Icon,
       label: "Comptes",
       ...item(projectPath("/comptes")),
+    },
+    {
+      icon: UserPlusIcon,
+      label: "Créateurs",
+      ...item(projectPath("/createurs")),
     },
   ];
 

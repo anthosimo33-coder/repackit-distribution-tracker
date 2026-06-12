@@ -1,4 +1,4 @@
-import { e2eMutation, projectMutation, projectQuery } from "./functions";
+import { e2eMutation, adminMutation, adminQuery } from "./functions";
 import { v, ConvexError } from "convex/values";
 
 const plateformeValidator = v.union(
@@ -42,7 +42,7 @@ function normalizeTags(raw: string[]): string[] {
  * args optionnels (backward compat avec appel sans args). Filtrage en
  * mémoire après le collect — N+1 acceptable au volume cible (< 200 rows).
  */
-export const listInspirations = projectQuery({
+export const listInspirations = adminQuery({
   args: {
     folderIds: v.optional(v.array(v.id("folders"))),
     plateformes: v.optional(v.array(plateformeValidator)),
@@ -110,7 +110,7 @@ export const listInspirations = projectQuery({
  * Retourne null si non trouvée (idempotent côté UI). Enrichi thumbnailUrl
  * de la même façon que listInspirations.
  */
-export const getInspirationById = projectQuery({
+export const getInspirationById = adminQuery({
   args: { id: v.id("inspirations") },
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.id);
@@ -123,7 +123,7 @@ export const getInspirationById = projectQuery({
   },
 });
 
-export const createInspiration = projectMutation({
+export const createInspiration = adminMutation({
   args: {
     url: v.string(),
     type: typeValidator,
@@ -170,7 +170,7 @@ export const createInspiration = projectMutation({
  * tags : normalisés serveur (trim + lowercase + dedupe). Le client peut
  * envoyer ce qu'il veut, on garantit la cohérence en base.
  */
-export const updateInspiration = projectMutation({
+export const updateInspiration = adminMutation({
   args: {
     id: v.id("inspirations"),
     url: v.optional(v.string()),
@@ -218,7 +218,7 @@ export const updateInspiration = projectMutation({
  * (parallèle au tracker, cf TD-011 à traiter séparément). Idempotent :
  * suppression d'un id inexistant est silencieuse.
  */
-export const deleteInspiration = projectMutation({
+export const deleteInspiration = adminMutation({
   args: { id: v.id("inspirations") },
   handler: async (ctx, args) => {
     const existing = await ctx.db.get(args.id);

@@ -10,6 +10,7 @@
 
 import type * as auth from "../auth.js";
 import type * as comptes from "../comptes.js";
+import type * as creators from "../creators.js";
 import type * as dashboard from "../dashboard.js";
 import type * as filterPresets from "../filterPresets.js";
 import type * as folders from "../folders.js";
@@ -37,6 +38,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   comptes: typeof comptes;
+  creators: typeof creators;
   dashboard: typeof dashboard;
   filterPresets: typeof filterPresets;
   folders: typeof folders;

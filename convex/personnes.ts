@@ -1,4 +1,4 @@
-import { e2eMutation, projectMutation, projectQuery } from "./functions";
+import { e2eMutation, adminMutation, adminQuery } from "./functions";
 import { v, ConvexError } from "convex/values";
 
 const MAX_NAME_LENGTH = 80;
@@ -7,7 +7,7 @@ const MAX_NAME_LENGTH = 80;
  * Personnes (gestionnaires de comptes) — P2 scopé par ctx.projectId.
  * compteCount ne compte que les comptes du même projet.
  */
-export const listPersonnes = projectQuery({
+export const listPersonnes = adminQuery({
   args: {},
   handler: async (ctx) => {
     const personnes = await ctx.db
@@ -41,7 +41,7 @@ function validateNames(prenom: string, nom: string) {
   }
 }
 
-export const createPersonne = projectMutation({
+export const createPersonne = adminMutation({
   args: { prenom: v.string(), nom: v.string() },
   handler: async (ctx, args) => {
     const prenom = args.prenom.trim();
@@ -77,7 +77,7 @@ export const createPersonne = projectMutation({
  * Patch partiel (prenom et/ou nom). Dedupe case-insensitive DANS le projet,
  * en excluant soi-même. updatedAt bumpé toujours.
  */
-export const updatePersonne = projectMutation({
+export const updatePersonne = adminMutation({
   args: {
     id: v.id("personnes"),
     prenom: v.optional(v.string()),
@@ -124,7 +124,7 @@ export const updatePersonne = projectMutation({
  * Suppression avec cascade unset : les comptes du projet assignés à cette
  * personne sont désassignés (personneId → undefined), puis suppression.
  */
-export const deletePersonne = projectMutation({
+export const deletePersonne = adminMutation({
   args: { id: v.id("personnes") },
   handler: async (ctx, args) => {
     const personne = await ctx.db.get(args.id);

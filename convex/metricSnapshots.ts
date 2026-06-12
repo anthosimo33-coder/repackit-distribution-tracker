@@ -1,5 +1,5 @@
 import { type MutationCtx } from "./_generated/server";
-import { e2eMutation, projectMutation, projectQuery } from "./functions";
+import { e2eMutation, adminMutation, adminQuery } from "./functions";
 import { v, ConvexError } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 
@@ -118,7 +118,7 @@ function readSnapshotMetric(
  * métrique par bucket de date (capturedAt), sur [dateFrom, dateTo], filtrée
  * optionnellement par mediaType. Retourne [{ date, value }] trié chronologique.
  */
-export const aggregateTimeseries = projectQuery({
+export const aggregateTimeseries = adminQuery({
   args: {
     metric: metricArg,
     dateFrom: v.number(),
@@ -172,7 +172,7 @@ export const aggregateTimeseries = projectQuery({
 });
 
 /** Snapshots d'une publication, triés par capturedAt desc (plus récent d'abord). */
-export const listSnapshotsByPublication = projectQuery({
+export const listSnapshotsByPublication = adminQuery({
   args: { publicationId: v.id("publications") },
   handler: async (ctx, args) => {
     const pub = await ctx.db.get(args.publicationId);
@@ -187,7 +187,7 @@ export const listSnapshotsByPublication = projectQuery({
   },
 });
 
-export const createSnapshot = projectMutation({
+export const createSnapshot = adminMutation({
   args: {
     publicationId: v.id("publications"),
     capturedAt: v.number(),
@@ -235,7 +235,7 @@ export const createSnapshot = projectMutation({
   },
 });
 
-export const updateSnapshot = projectMutation({
+export const updateSnapshot = adminMutation({
   args: {
     id: v.id("metricSnapshots"),
     vues: v.optional(v.number()),
@@ -279,7 +279,7 @@ export const updateSnapshot = projectMutation({
   },
 });
 
-export const deleteSnapshot = projectMutation({
+export const deleteSnapshot = adminMutation({
   args: { id: v.id("metricSnapshots") },
   handler: async (ctx, args) => {
     const snap = await ctx.db.get(args.id);

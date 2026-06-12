@@ -1,8 +1,8 @@
 import {
   authedQuery,
   e2eMutation,
-  projectMutation,
-  projectQuery,
+  adminMutation,
+  adminQuery,
 } from "./functions";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -190,7 +190,7 @@ async function findExistingSourcePublications(
   return matches;
 }
 
-export const createPublication = projectMutation({
+export const createPublication = adminMutation({
   args: {
     carouselId: v.string(),
     hookId: v.union(v.id("hooks"), v.null()),
@@ -386,7 +386,7 @@ export const createPublication = projectMutation({
  * mediaType optional → default "carousel" (backward compat pour un caller
  * oublié qui n'enverrait pas l'arg). Préfixe automatique C### / S### / SR###.
  */
-export const getNextPublicationId = projectQuery({
+export const getNextPublicationId = adminQuery({
   args: { mediaType: v.optional(mediaTypeValidator) },
   handler: async (ctx, args) => {
     // A2 — compteur PAR PROJET : on ne compte que les publications du projet.
@@ -404,7 +404,7 @@ export const getNextPublicationId = projectQuery({
  * présente sur disque + specs e2e). Délègue au compteur carousel. Le nouveau
  * code (NouveauModal) utilise getNextPublicationId({ mediaType }).
  */
-export const getNextCarouselId = projectQuery({
+export const getNextCarouselId = adminQuery({
   args: {},
   handler: async (ctx) => {
     const all = await ctx.db
@@ -425,7 +425,7 @@ export const getNextCarouselId = projectQuery({
  * s'appuyer sur p.image directement pour afficher une URL — toujours
  * passer par imageUrl exposé par cette query.
  */
-export const listPublications = projectQuery({
+export const listPublications = adminQuery({
   args: {
     // Refactor multi-snapshots — période d'âge sélectionnée globalement (UI).
     // Optional → "latest" (cf coerceSnapshotAge). customDay pour age="custom".
@@ -488,7 +488,7 @@ export const listPublications = projectQuery({
  * Coercion mediaType : alignée avec lib/media-type.getMediaType côté client
  * (rows pré-Batch-1-Shorts → "carousel"). Dupliquée car cross-tsconfig.
  */
-export const getByCarouselId = projectQuery({
+export const getByCarouselId = adminQuery({
   args: {
     carouselId: v.string(),
     snapshotAge: v.optional(v.string()),
@@ -561,7 +561,7 @@ export const resolveCarouselForUser = authedQuery({
   },
 });
 
-export const updateMetrics = projectMutation({
+export const updateMetrics = adminMutation({
   args: {
     id: v.id("publications"),
     // TD-016 : vuesJ1/J3/J7 retirés (le front saisit via les snapshots).
@@ -626,7 +626,7 @@ export const updateMetrics = projectMutation({
  * Patch single-row (chaque row = 1 plateforme a son propre compte). Pas de
  * updatedAt sur publications → non patché. Pattern cohérent avec updateMetrics.
  */
-export const updatePublishedAccount = projectMutation({
+export const updatePublishedAccount = adminMutation({
   args: { id: v.id("publications"), newCompte: v.string() },
   handler: async (ctx, args) => {
     const pub = await ctx.db.get(args.id);
@@ -665,7 +665,7 @@ export const updatePublishedAccount = projectMutation({
   },
 });
 
-export const deletePublication = projectMutation({
+export const deletePublication = adminMutation({
   args: { id: v.id("publications") },
   handler: async (ctx, args) => {
     const pub = await ctx.db.get(args.id);
@@ -692,7 +692,7 @@ export const deletePublication = projectMutation({
  * Race condition sur nextCarouselId : héritée de getNextCarouselId (TD-004),
  * pas adressée ici.
  */
-export const duplicateCarousel = projectMutation({
+export const duplicateCarousel = adminMutation({
   args: {
     sourceCarouselId: v.string(),
     targetCompte: v.string(),
@@ -867,7 +867,7 @@ export const duplicateCarousel = projectMutation({
  * cohérent avec « édition au niveau carrousel »). Le UI ouvre le dialog
  * depuis une row spécifique mais propage à tout le carrousel.
  */
-export const updateDraft = projectMutation({
+export const updateDraft = adminMutation({
   args: {
     carouselId: v.string(),
     patch: v.object({
@@ -1043,7 +1043,7 @@ export const updateDraft = projectMutation({
  * 1 entrée par sourceId normalisé distinct, avec la matrice de couverture par
  * plateforme. Shorts only, scopé projet (by_project).
  */
-export const listSources = projectQuery({
+export const listSources = adminQuery({
   args: {},
   handler: async (ctx) => {
     const all = await ctx.db
@@ -1119,7 +1119,7 @@ export const listSources = projectQuery({
  * Source unique de vérité de l'UX ; la validation mutation reste le filet
  * defense-in-depth. sourceId vide/inédit → exists=false, tout disponible.
  */
-export const getSourceStatus = projectQuery({
+export const getSourceStatus = adminQuery({
   args: { sourceId: v.string() },
   handler: async (ctx, args) => {
     const normalized = normalizeSourceId(args.sourceId);
@@ -1166,7 +1166,7 @@ export const getSourceStatus = projectQuery({
  * incohérent (2 Shorts du même fichier source sur la même plateforme = le
  * risque shadowban qu'on combat). Shorts uniquement, normalisation systématique.
  */
-export const renameSourceId = projectMutation({
+export const renameSourceId = adminMutation({
   args: { oldSourceId: v.string(), newSourceId: v.string() },
   handler: async (ctx, args) => {
     const normalizedOld = normalizeSourceId(args.oldSourceId);

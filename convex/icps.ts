@@ -1,4 +1,4 @@
-import { e2eMutation, projectMutation, projectQuery } from "./functions";
+import { e2eMutation, adminMutation, adminQuery } from "./functions";
 import { v, ConvexError } from "convex/values";
 
 const MAX_NAME_LENGTH = 80;
@@ -8,7 +8,7 @@ const MAX_NAME_LENGTH = 80;
  * P2 — tout est scopé par ctx.projectId (by_project). shortsCount ne compte
  * que les publications du même projet.
  */
-export const listIcps = projectQuery({
+export const listIcps = adminQuery({
   args: {},
   handler: async (ctx) => {
     const icps = await ctx.db
@@ -29,7 +29,7 @@ export const listIcps = projectQuery({
   },
 });
 
-export const createIcp = projectMutation({
+export const createIcp = adminMutation({
   args: {
     nom: v.string(),
     description: v.optional(v.string()),
@@ -70,7 +70,7 @@ export const createIcp = projectMutation({
  * Patch partiel (nom / description / color). Dedupe case-insensitive sur le
  * nom DANS le projet, en excluant soi-même. updatedAt bumpé toujours.
  */
-export const updateIcp = projectMutation({
+export const updateIcp = adminMutation({
   args: {
     id: v.id("icps"),
     nom: v.optional(v.string()),
@@ -120,7 +120,7 @@ export const updateIcp = projectMutation({
  * Suppression avec cascade unset : les Shorts du projet assignés à cet ICP
  * sont désassignés (icpId → undefined), puis l'ICP est supprimé.
  */
-export const deleteIcp = projectMutation({
+export const deleteIcp = adminMutation({
   args: { id: v.id("icps") },
   handler: async (ctx, args) => {
     const icp = await ctx.db.get(args.id);

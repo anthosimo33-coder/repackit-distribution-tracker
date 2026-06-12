@@ -8,23 +8,26 @@ import { api } from "@/convex/_generated/api";
 import { projectPath } from "@/lib/project-path";
 
 /**
- * P3 Multi-tenant — `/` résout le projet par défaut de l'utilisateur (premier
- * projet via membership, fallback repackit pour un superadmin sans membership —
- * cf api.projects.getCurrentProject) puis redirige vers son dashboard scopé
- * `/admin/<slug>/dashboard`. Rendu sous <Authenticated> (AppShell), donc hors
- * ProjectProvider : on utilise useQuery brut (pas de projet implicite ici).
+ * Multi-tenant + P1 Créateurs — `/` route par RÔLE (api.creators.getMyPortal) :
+ *   - admin / superadmin → dashboard scopé `/admin/<slug>/dashboard` ;
+ *   - creator → portail `/app` ;
+ *   - aucun projet / rôle → état vide.
+ * Rendu sous <Authenticated> (AppShell), hors ProjectProvider : useQuery brut.
  */
 export default function RootRedirectPage() {
   const router = useRouter();
-  const project = useQuery(api.projects.getCurrentProject, {});
+  const portal = useQuery(api.creators.getMyPortal, {});
 
   useEffect(() => {
-    if (project) {
-      router.replace(projectPath(project.slug, "/dashboard"));
+    if (!portal) return;
+    if (portal.role === "creator") {
+      router.replace("/app");
+    } else if (portal.role === "admin" && portal.slug) {
+      router.replace(projectPath(portal.slug, "/dashboard"));
     }
-  }, [project, router]);
+  }, [portal, router]);
 
-  if (project === null) {
+  if (portal && portal.role === "none") {
     return (
       <div className="flex h-screen items-center justify-center px-6 text-center">
         <div className="max-w-sm space-y-2">

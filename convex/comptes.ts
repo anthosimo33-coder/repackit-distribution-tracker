@@ -1,5 +1,5 @@
 import { internalMutation } from "./_generated/server";
-import { e2eMutation, projectMutation, projectQuery } from "./functions";
+import { e2eMutation, adminMutation, adminQuery } from "./functions";
 import { v, ConvexError } from "convex/values";
 
 const statusValidator = v.union(
@@ -23,7 +23,7 @@ function effectiveStatus(c: {
   return c.status ?? (c.actif === false ? "archived" : "actif");
 }
 
-export const listComptes = projectQuery({
+export const listComptes = adminQuery({
   args: {
     actifOnly: v.optional(v.boolean()),
     statusFilter: v.optional(statusValidator),
@@ -56,7 +56,7 @@ export const listComptes = projectQuery({
   },
 });
 
-export const createCompte = projectMutation({
+export const createCompte = adminMutation({
   args: {
     handle: v.string(),
     plateforme: v.union(
@@ -105,7 +105,7 @@ export const createCompte = projectMutation({
   },
 });
 
-export const updateCompte = projectMutation({
+export const updateCompte = adminMutation({
   args: {
     id: v.id("comptes"),
     handle: v.optional(v.string()),
@@ -191,7 +191,7 @@ export const updateCompte = projectMutation({
   },
 });
 
-export const deleteCompte = projectMutation({
+export const deleteCompte = adminMutation({
   args: { id: v.id("comptes") },
   handler: async (ctx, args) => {
     const compte = await ctx.db.get(args.id);

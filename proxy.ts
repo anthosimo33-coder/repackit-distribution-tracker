@@ -22,14 +22,18 @@ import {
  * P3 Multi-tenant — un utilisateur connecté sur /login est renvoyé vers `/`
  * (resolver du projet par défaut → /admin/<slug>/dashboard), pas vers une route
  * scopée codée en dur (le projet dépend de l'utilisateur).
+ *
+ * P1 Créateurs — /join/<token> est PUBLIC (pré-session, comme /login) : un
+ * invité n'a pas encore de compte. Exclu du gating d'auth ci-dessous.
  */
 const isLoginPage = createRouteMatcher(["/login"]);
+const isPublicPage = createRouteMatcher(["/login", "/join", "/join/(.*)"]);
 
 export default convexAuthNextjsMiddleware(async (request, { convexAuth }) => {
   if (isLoginPage(request) && (await convexAuth.isAuthenticated())) {
     return nextjsMiddlewareRedirect(request, "/");
   }
-  if (!isLoginPage(request) && !(await convexAuth.isAuthenticated())) {
+  if (!isPublicPage(request) && !(await convexAuth.isAuthenticated())) {
     return nextjsMiddlewareRedirect(request, "/login");
   }
 });

@@ -86,7 +86,8 @@ export const getProjectForCurrentUser = authedQuery({
     if (project === null) return { status: "not_found" as const };
     const user = await ctx.db.get(ctx.userId);
     if (user?.role === "superadmin") {
-      return { status: "ok" as const, project };
+      // P1 — superadmin n'est jamais creator (accès admin implicite).
+      return { status: "ok" as const, project, isCreator: false };
     }
     const membership = await ctx.db
       .query("memberships")
@@ -95,7 +96,14 @@ export const getProjectForCurrentUser = authedQuery({
       )
       .first();
     if (membership === null) return { status: "forbidden" as const };
-    return { status: "ok" as const, project };
+    // P1 — un creator a accès au projet (membership) mais PAS à l'app interne :
+    // le ProjectProvider le redirige vers /app. La vraie barrière reste serveur
+    // (adminQuery/adminMutation), ce flag n'est que du confort de routage.
+    return {
+      status: "ok" as const,
+      project,
+      isCreator: membership.role === "creator",
+    };
   },
 });
 
