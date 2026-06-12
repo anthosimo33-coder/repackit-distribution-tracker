@@ -37,15 +37,18 @@ import { cn } from "@/lib/utils";
 import {
   getEffectiveStatus,
   getWarmupDuration,
-  isWarmupComplete,
+  isWarmupCompleteForCompte,
   type CompteStatus,
   type Plateforme,
 } from "@/lib/compte-status";
 import { PersonneCombobox } from "@/components/comptes/PersonneCombobox";
 
-// listComptes enrichit chaque compte avec `personne` (lookup serveur).
+// listComptes enrichit chaque compte avec `personne`, `creator` (propriétaire)
+// et `perf` (agrégat publications). Lookups/agrégation serveur (P5).
 export type Compte = Doc<"comptes"> & {
   personne: { prenom: string; nom: string } | null;
+  creator: { name: string } | null;
+  perf: { vuesCumulees: number; nbPublies: number; dernierPost: number | null };
 };
 
 const STATUS_OPTIONS: { value: CompteStatus; label: string; dot: string }[] = [
@@ -138,7 +141,7 @@ export default function CompteDialog({
     compte !== undefined &&
     getEffectiveStatus(compte) === "warmup" &&
     compte.warmupStartedAt != null &&
-    isWarmupComplete(compte.warmupStartedAt, compte.plateforme as Plateforme);
+    isWarmupCompleteForCompte(compte);
 
   async function passerEnActif() {
     if (!compte) return;

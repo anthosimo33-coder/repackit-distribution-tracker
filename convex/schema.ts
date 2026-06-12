@@ -316,11 +316,33 @@ export default defineSchema({
     // gestionnaire. Unset via patch { personneId: undefined } (cf
     // updateCompte + cascade deletePersonne) — pattern folderId d'inspirations.
     personneId: v.optional(v.id("personnes")),
+    // ─── P5 Comptes créateurs + protocole de warmup ──────────────────────
+    // Propriétaire créateur. absent = compte INTERNE (équipe RepackIt). Posé
+    // à la déclaration par le créateur (creatorMutation declareCompte). NE
+    // remplace PAS personneId (gestionnaire interne) : deux axes distincts.
+    creatorId: v.optional(v.id("creators")),
+    // URL publique du compte, saisie à la déclaration (plateforme/handle/URL).
+    url: v.optional(v.string()),
+    // Protocole de warmup défini par l'admin + checks quotidiens du créateur.
+    // Complète status/warmupStartedAt (décompte) : keywords UNIQUES par compte
+    // (imposé serveur), instructions markdown, targetDays (surcharge la durée
+    // plateforme par défaut, cf lib/warmup), dailyChecks = dates "YYYY-MM-DD"
+    // (1 max/jour, imposé serveur). Optional → aucune migration.
+    warmupProtocol: v.optional(
+      v.object({
+        keywords: v.array(v.string()),
+        instructions: v.string(),
+        targetDays: v.number(),
+        dailyChecks: v.array(v.string()),
+        updatedAt: v.number(),
+      }),
+    ),
   })
     .index("by_plateforme", ["plateforme"])
     .index("by_actif", ["actif"])
     .index("by_project", ["projectId"])
-    .index("by_project_plateforme", ["projectId", "plateforme"]),
+    .index("by_project_plateforme", ["projectId", "plateforme"])
+    .index("by_project_creator", ["projectId", "creatorId"]),
 
   // Gestionnaires de comptes (greenfield). Lien 1-to-1 optionnel depuis
   // comptes.personneId. Dedupe insensible à la casse sur le couple

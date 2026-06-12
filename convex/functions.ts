@@ -200,6 +200,55 @@ export const adminMutation = customMutation(mutation, {
 });
 
 /**
+ * P5 Comptes créateurs — exige le rôle "creator" sur le projet ET résout SA
+ * fiche `creators` (par userId, scopée projet). Retourne le creatorId, injecté
+ * dans ctx → toute donnée servie par un creatorQuery/creatorMutation est
+ * filtrée par CE creatorId côté serveur (un créateur ne voit que ses comptes).
+ */
+export async function requireCreator(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+  projectId: Id<"projects">,
+): Promise<Id<"creators">> {
+  const membership = await ctx.db
+    .query("memberships")
+    .withIndex("by_user_project", (q) =>
+      q.eq("userId", userId).eq("projectId", projectId),
+    )
+    .first();
+  if (membership === null || membership.role !== "creator") {
+    throw new ConvexError("Réservé aux créateurs du projet.");
+  }
+  const fiches = await ctx.db
+    .query("creators")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  const creator = fiches.find((c) => c.projectId === projectId);
+  if (creator === undefined) {
+    throw new ConvexError("Fiche créateur introuvable.");
+  }
+  return creator._id;
+}
+
+export const creatorQuery = customQuery(query, {
+  args: { projectId: v.id("projects") },
+  input: async (ctx, { projectId }) => {
+    const userId = await requireUserId(ctx);
+    const creatorId = await requireCreator(ctx, userId, projectId);
+    return { ctx: { userId, projectId, creatorId }, args: {} };
+  },
+});
+
+export const creatorMutation = customMutation(mutation, {
+  args: { projectId: v.id("projects") },
+  input: async (ctx, { projectId }) => {
+    const userId = await requireUserId(ctx);
+    const creatorId = await requireCreator(ctx, userId, projectId);
+    return { ctx: { userId, projectId, creatorId }, args: {} };
+  },
+});
+
+/**
  * P1 Créateurs — endpoint GENUINEMENT PUBLIC (pré-session). Réservé au flow
  * d'invitation : la page /join doit lire l'invitation par token AVANT que le
  * compte n'existe (aucune identité possible). Comme /login, pas d'auth. Seul

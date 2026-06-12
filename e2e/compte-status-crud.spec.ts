@@ -10,7 +10,7 @@ if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
 const convex = createE2eClient(convexUrl);
 
 test.describe("Compte status CRUD", () => {
-  test("warmup via dialog (badge J+0/7) puis transition shadowban", async ({
+  test("warmup via dialog (badge J+0/3) puis transition shadowban", async ({
     page,
   }) => {
     const ts = Date.now();
@@ -36,15 +36,15 @@ test.describe("Compte status CRUD", () => {
     await dialog.getByRole("combobox", { name: "Statut" }).click();
     await page.getByRole("option", { name: "Warmup", exact: true }).click();
     await expect(
-      dialog.getByText("Durée warmup pour TikTok : 7 jours"),
+      dialog.getByText("Durée warmup pour TikTok : 3 jours"),
     ).toBeVisible();
 
     // Save (date par défaut = aujourd'hui).
     await dialog.getByRole("button", { name: /^enregistrer$/i }).click();
     await expect(dialog).toBeHidden();
 
-    // Badge "Warmup J+0/7".
-    await expect(row.getByText("Warmup J+0/7")).toBeVisible();
+    // Badge "Warmup J+0/3".
+    await expect(row.getByText("Warmup J+0/3")).toBeVisible();
 
     // Réouvrir : statut warmup pré-rempli + date conservée + info durée.
     await row.getByRole("button").last().click();
@@ -54,7 +54,7 @@ test.describe("Compte status CRUD", () => {
       "Warmup",
     );
     await expect(
-      dialog.getByText("Durée warmup pour TikTok : 7 jours"),
+      dialog.getByText("Durée warmup pour TikTok : 3 jours"),
     ).toBeVisible();
 
     // Statut → Shadowban : le date picker disparaît.

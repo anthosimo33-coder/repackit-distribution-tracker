@@ -119,15 +119,33 @@ Reste différé (hors P3) : rôle `creator` + portail `/app`, theming par
 L'app est protégée de bout en bout :
 
 - **Fonctions Convex** : toutes les queries/mutations publiques passent par
-  les wrappers de `convex/functions.ts` (`authedQuery` / `authedMutation` =
-  session requise ; `superadminMutation` = rôle superadmin). C'est LA
-  barrière de sécurité — `NEXT_PUBLIC_CONVEX_URL` est publique dans le
-  bundle, protéger les pages ne suffit pas.
+  les wrappers de `convex/functions.ts`. C'est LA barrière de sécurité —
+  `NEXT_PUBLIC_CONVEX_URL` est publique dans le bundle, protéger les pages ne
+  suffit pas. Couches (de la plus large à la plus stricte) :
+  - `authedQuery` / `authedMutation` : session requise (`ctx.userId`) ;
+  - `superadminMutation` : rôle global `superadmin` ;
+  - `projectQuery` / `projectMutation` : accès au projet (membership ou
+    superadmin), tout rôle — `ctx.projectId` injecté ;
+  - `adminQuery` / `adminMutation` : membership `admin` (ou superadmin) sur le
+    projet. **Toute l'app interne** passe dessus → le rôle `creator` n'y a
+    aucun accès ;
+  - `creatorQuery` / `creatorMutation` : membership `creator`, résout SA fiche
+    `creators` et injecte `ctx.creatorId` ; la donnée servie est filtrée par
+    ce `creatorId` (portail `/app`) ;
+  - `publicQuery` : pré-session, réservé à l'aperçu d'invitation (`/join`).
 - **Pages Next** : `proxy.ts` (middleware Next 16) redirige tout visiteur
-  sans session vers `/login`.
-- **Inscription fermée** : seul le premier compte d'un deployment peut
-  s'inscrire (fenêtre bootstrap, table `users` vide → rôle `superadmin`).
-  Ensuite, création de comptes par invitation uniquement (P4, à venir).
+  sans session vers `/login` (sauf routes publiques `/login` et `/join/...`).
+  Routage par rôle : un `creator` sur `/admin/*` est renvoyé vers `/app`, un
+  `admin`/`superadmin` sur `/app` vers son `/admin`.
+- **Inscription fermée, comptes par invitation** : le premier compte d'un
+  deployment s'inscrit via la fenêtre bootstrap (table `users` vide → rôle
+  `superadmin`). Ensuite, création de comptes **uniquement par invitation** :
+  un admin invite un créateur (`/admin/[slug]/createurs`) → lien `/join/<token>`
+  (uuid, +14 j, usage unique). Le `signUp` n'est autorisé que par un token
+  valide (`convex/auth.ts` `createOrUpdateUser`) : il crée le `user` (rôle
+  `member`), le `membership` `creator`, lie la fiche et marque l'invitation
+  consommée — le tout atomiquement. Token absent/expiré/réutilisé → rejet sans
+  leak.
 - **Mutations e2e** (`seedHooks`, `clearHooks`, `cleanupTest*`,
   `wipeAllPublications`) : gated par un arg `secret` égal à la variable
   d'environnement `E2E_SECRET` du deployment. Si la variable n'est pas

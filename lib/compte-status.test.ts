@@ -8,6 +8,7 @@ import {
   isSelectableForPublication,
   formatWarmupBadge,
   getEffectiveStatus,
+  getEffectiveWarmupDuration,
   getStatusBadge,
 } from "./compte-status";
 
@@ -16,17 +17,33 @@ const START = 1_700_000_000_000; // base déterministe
 const at = (days: number) => START + days * DAY;
 
 describe("WARMUP_DURATION_BY_PLATFORM", () => {
-  it("TikTok=7, Instagram=14, YouTube=3", () => {
+  // P5 — barème unifié sur lib/warmup : TikTok aligné à 3 (était 7).
+  it("TikTok=3, Instagram=14, YouTube=3", () => {
     expect(WARMUP_DURATION_BY_PLATFORM).toEqual({
-      TikTok: 7,
+      TikTok: 3,
       Instagram: 14,
       YouTube: 3,
     });
   });
   it("getWarmupDuration reflète la map", () => {
-    expect(getWarmupDuration("TikTok")).toBe(7);
+    expect(getWarmupDuration("TikTok")).toBe(3);
     expect(getWarmupDuration("Instagram")).toBe(14);
     expect(getWarmupDuration("YouTube")).toBe(3);
+  });
+});
+
+describe("getEffectiveWarmupDuration", () => {
+  it("défaut plateforme sans protocole", () => {
+    expect(getEffectiveWarmupDuration({ plateforme: "TikTok" })).toBe(3);
+    expect(getEffectiveWarmupDuration({ plateforme: "Instagram" })).toBe(14);
+  });
+  it("surcharge admin via warmupProtocol.targetDays", () => {
+    expect(
+      getEffectiveWarmupDuration({
+        plateforme: "TikTok",
+        warmupProtocol: { targetDays: 5 },
+      }),
+    ).toBe(5);
   });
 });
 
@@ -41,8 +58,8 @@ describe("getWarmupDaysElapsed", () => {
 
 describe("getWarmupDaysRemaining", () => {
   it("décompte restant, clampé à 0", () => {
-    expect(getWarmupDaysRemaining(START, "TikTok", at(2))).toBe(5);
-    expect(getWarmupDaysRemaining(START, "TikTok", at(7))).toBe(0);
+    expect(getWarmupDaysRemaining(START, "TikTok", at(1))).toBe(2);
+    expect(getWarmupDaysRemaining(START, "TikTok", at(3))).toBe(0);
     expect(getWarmupDaysRemaining(START, "TikTok", at(10))).toBe(0);
     expect(getWarmupDaysRemaining(START, "Instagram", at(4))).toBe(10);
     expect(getWarmupDaysRemaining(START, "YouTube", at(1))).toBe(2);
@@ -50,9 +67,9 @@ describe("getWarmupDaysRemaining", () => {
 });
 
 describe("isWarmupComplete", () => {
-  it("TikTok complet à J+7", () => {
-    expect(isWarmupComplete(START, "TikTok", at(6))).toBe(false);
-    expect(isWarmupComplete(START, "TikTok", at(7))).toBe(true);
+  it("TikTok complet à J+3", () => {
+    expect(isWarmupComplete(START, "TikTok", at(2))).toBe(false);
+    expect(isWarmupComplete(START, "TikTok", at(3))).toBe(true);
   });
   it("Instagram complet à J+14", () => {
     expect(isWarmupComplete(START, "Instagram", at(13))).toBe(false);
@@ -76,10 +93,10 @@ describe("isSelectableForPublication", () => {
 
 describe("formatWarmupBadge", () => {
   it("J+X/N adaptatif par plateforme", () => {
-    expect(formatWarmupBadge(START, "TikTok", at(4))).toBe("J+4/7");
+    expect(formatWarmupBadge(START, "TikTok", at(2))).toBe("J+2/3");
     expect(formatWarmupBadge(START, "Instagram", at(4))).toBe("J+4/14");
-    expect(formatWarmupBadge(START, "YouTube", at(4))).toBe("J+4/3");
-    expect(formatWarmupBadge(START, "TikTok", at(0))).toBe("J+0/7");
+    expect(formatWarmupBadge(START, "YouTube", at(1))).toBe("J+1/3");
+    expect(formatWarmupBadge(START, "TikTok", at(0))).toBe("J+0/3");
   });
 });
 
@@ -100,11 +117,23 @@ describe("getEffectiveStatus", () => {
 describe("getStatusBadge", () => {
   it("warmup en cours → 'Warmup J+X/N' ambre", () => {
     const b = getStatusBadge(
-      { status: "warmup", plateforme: "TikTok", warmupStartedAt: START },
+      { status: "warmup", plateforme: "Instagram", warmupStartedAt: START },
       at(2),
     );
-    expect(b.label).toBe("Warmup J+2/7");
+    expect(b.label).toBe("Warmup J+2/14");
     expect(b.className).toContain("amber");
+  });
+  it("respecte targetDays surchargé (override admin)", () => {
+    const b = getStatusBadge(
+      {
+        status: "warmup",
+        plateforme: "TikTok",
+        warmupStartedAt: START,
+        warmupProtocol: { targetDays: 5 },
+      },
+      at(2),
+    );
+    expect(b.label).toBe("Warmup J+2/5");
   });
   it("warmup terminé → 'À valider' bleu", () => {
     const b = getStatusBadge(

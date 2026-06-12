@@ -16,8 +16,7 @@ import CompteDialog, { type Compte } from "@/components/comptes/CompteDialog";
 import {
   getEffectiveStatus,
   getStatusBadge,
-  isWarmupComplete,
-  type Plateforme,
+  isWarmupCompleteForCompte,
 } from "@/lib/compte-status";
 import { cn } from "@/lib/utils";
 
@@ -35,7 +34,7 @@ export function CompteDetailHeader({ compte }: { compte: Compte }) {
   const warmupComplete =
     effStatus === "warmup" &&
     compte.warmupStartedAt != null &&
-    isWarmupComplete(compte.warmupStartedAt, compte.plateforme as Plateforme);
+    isWarmupCompleteForCompte(compte);
 
   return (
     <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
