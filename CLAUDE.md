@@ -11,22 +11,26 @@
 - Suite e2e complète en local seulement si le chantier touche l'infra
   de test elle-même (fixtures, auth e2e, helpers).
 
-## Rollout (flux PR obligatoire — la CI bloque le deploy)
-- Depuis P5 (de vrais créateurs sont en prod), on NE pousse PLUS jamais
-  sur `main` en direct. Flux imposé :
-  1. Travailler sur une branche, la pousser (`git push -u origin <branche>`).
-  2. Ouvrir une PR vers `main` (`gh pr create`). Le workflow E2E tourne sur
-     les PR ciblant `main` → la CI s'exécute AVANT tout merge.
-  3. Merger UNIQUEMENT après CI verte. Le deploy Vercel ne part donc que
-     d'un `main` validé (la branch protection de `main` exige le check E2E
-     et interdit le push direct).
-- Flake connu TD-018 : un rerun de la CI autorisé sans analyse si ce sont
-  les mêmes specs.
-- Après merge : donner dans le rapport le lien de la PR, du run CI et du
-  deploy, SANS les babysitter — sauf action post-deploy requise (ex.
-  migration prod), auquel cas suivre jusqu'au bout.
-- La vérification du vert CI/deploy du chantier N se fait en ouverture
-  du chantier N+1.
+## Rollout (flux PR auto-merge — fin de session sans attendre la CI)
+- On NE pousse JAMAIS sur `main` en direct. Flux :
+  1. Travailler sur une branche, la pousser.
+  2. Ouvrir une PR vers `main` (`gh pr create`).
+  3. `gh pr merge --auto --squash` (ou merge simple selon la convention du
+     repo), puis **FIN DE SESSION immédiate, sans attendre la CI**. GitHub
+     merge tout seul une fois la CI verte ; le deploy Vercel suit.
+- Ne JAMAIS poller le deploy Vercel ni la CI, MÊME quand le chantier touche
+  le schéma — SAUF si une action post-deploy t'incombe dans la même session
+  (ex. migration prod à exécuter), auquel cas suivre jusqu'au bout.
+- L'ouverture du chantier N+1 commence par : vérifier que la PR du chantier
+  N est bien mergée (CI verte, deploy Ready). Si elle n'a pas mergé (CI
+  rouge), c'est la PREMIÈRE chose à diagnostiquer.
+- Flake connu TD-018 : si l'auto-merge est bloqué par ces specs, un
+  `gh run rerun` suffit — l'auto-merge se déclenche au vert.
+- Prérequis (sinon `--auto` ne gate pas) : « Allow auto-merge » activé sur
+  le repo + un status check requis sur `main` (branch protection). Cette
+  protection est aujourd'hui indisponible (repo privé sur plan Free) → la
+  débloquer (repo public ou GitHub Pro) est le préalable à ce flux ; tant
+  qu'elle manque, le gate « CI verte avant merge » est tenu à la main.
 
 ## Rapports
 - Denses, factuels, pas de pédagogie. Anomalies et hypothèses non
