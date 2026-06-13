@@ -599,4 +599,57 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_project", ["projectId"]),
+
+  // ─── P7 Portail créateur — assignments (1 row = 1 livrable) ───────────────
+  // « 3 posts » = 3 rows (suivi + payé à l'unité, pas de qty). rateSnapshot =
+  // COPIE du rateModel du format au moment de l'assignation (les tarifs du
+  // format peuvent changer, pas ceux d'un assignment déjà donné). Table neuve.
+  assignments: defineTable({
+    projectId: v.id("projects"),
+    creatorId: v.id("creators"),
+    formatId: v.id("formats"),
+    accountId: v.optional(v.id("comptes")),
+    dueDate: v.number(),
+    status: v.union(
+      v.literal("todo"),
+      v.literal("in_progress"),
+      v.literal("submitted"),
+      v.literal("validated"),
+      v.literal("rejected"),
+      v.literal("paid"),
+    ),
+    submittedUrl: v.optional(v.string()),
+    submittedAt: v.optional(v.number()),
+    submittedPlatform: v.optional(
+      v.union(
+        v.literal("TikTok"),
+        v.literal("Instagram"),
+        v.literal("YouTube"),
+      ),
+    ),
+    // Posé au chantier validation (matérialisation publication).
+    publicationId: v.optional(v.id("publications")),
+    adminFeedback: v.optional(v.string()),
+    rateSnapshot: v.object({
+      basePerPost: v.number(),
+      viewBonusPer1k: v.optional(v.number()),
+      bounties: v.optional(
+        v.array(v.object({ thresholdViews: v.number(), amount: v.number() })),
+      ),
+    }),
+    createdAt: v.number(),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_creator", ["creatorId"])
+    .index("by_format", ["formatId"])
+    .index("by_project_status", ["projectId", "status"]),
+
+  // ─── P7 — « Comment ça marche » (guide projet, éditable admin) ────────────
+  // Un seul guide markdown par projet (le SYSTÈME, pas un format). Lu par les
+  // créateurs (creatorQuery), édité par l'admin. Upsert (≤ 1 row/projet).
+  projectGuide: defineTable({
+    projectId: v.id("projects"),
+    content: v.string(),
+    updatedAt: v.number(),
+  }).index("by_project", ["projectId"]),
 });

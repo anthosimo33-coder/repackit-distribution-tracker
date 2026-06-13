@@ -8,7 +8,9 @@ import {
   BookOpenIcon,
   ChevronsLeftIcon,
   ChevronsRightIcon,
+  ClipboardListIcon,
   GalleryHorizontalIcon,
+  HelpCircleIcon,
   LayersIcon,
   LayoutDashboardIcon,
   LogOutIcon,
@@ -83,6 +85,16 @@ export function Sidebar({
       icon: UserPlusIcon,
       label: "Créateurs",
       ...item(projectPath("/createurs")),
+    },
+    {
+      icon: ClipboardListIcon,
+      label: "Assignments",
+      ...item(projectPath("/assignments")),
+    },
+    {
+      icon: HelpCircleIcon,
+      label: "Comment ça marche",
+      ...item(projectPath("/guide")),
     },
   ];
 

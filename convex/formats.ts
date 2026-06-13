@@ -62,7 +62,7 @@ function fileStorageIds(examples: ExampleVideo[]): Id<"_storage">[] {
  * sont renvoyés tels quels. Jamais d'URL de storage stockée en DB → toujours
  * résolue à la lecture.
  */
-async function withResolvedExamples(ctx: QueryCtx, format: Doc<"formats">) {
+export async function withResolvedExamples(ctx: QueryCtx, format: Doc<"formats">) {
   const exampleVideos = await Promise.all(
     format.exampleVideos.map(async (e) =>
       e.kind === "file"
@@ -75,15 +75,18 @@ async function withResolvedExamples(ctx: QueryCtx, format: Doc<"formats">) {
 
 /**
  * Un format est-il « référencé » (→ suppression interdite, archivage proposé) ?
- * HOOK pour les futurs assignments : aucune table d'assignment n'existe encore,
- * donc retourne false aujourd'hui. Quand les assignments arriveront, brancher
- * ici la vérification (assignments.formatId === formatId).
+ * P7 — branché sur les assignments : un format ayant au moins un assignment ne
+ * peut pas être supprimé (le brief reste nécessaire à la fiche assignment).
  */
 async function isFormatReferenced(
-  _ctx: QueryCtx | MutationCtx,
-  _formatId: Id<"formats">,
+  ctx: QueryCtx | MutationCtx,
+  formatId: Id<"formats">,
 ): Promise<boolean> {
-  return false;
+  const a = await ctx.db
+    .query("assignments")
+    .withIndex("by_format", (q) => q.eq("formatId", formatId))
+    .first();
+  return a !== null;
 }
 
 /** Un storageId est-il référencé par un AUTRE format du projet ? */

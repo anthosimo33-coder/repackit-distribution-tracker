@@ -2,9 +2,8 @@
 
 import Link from "next/link";
 import { useQuery } from "convex/react";
-import { ArrowRightIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
-import { buttonVariants } from "@/components/ui/button";
+import { useCreatorProjectId } from "@/components/portal/use-creator-project";
 import {
   Card,
   CardContent,
@@ -12,40 +11,207 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { buttonVariants } from "@/components/ui/button";
+import { ArrowRightIcon, MonitorSmartphoneIcon, WalletIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
+import {
+  ASSIGNMENT_STATUS,
+  assignmentUrgency,
+  isActionable,
+  URGENCY_BADGE,
+  type AssignmentStatus,
+} from "@/lib/assignment-status";
 
-/**
- * P5 — accueil du portail créateur. La garde par rôle + le shell vivent dans
- * app/app/layout.tsx ; cette page n'est rendue que pour un creator.
- */
-export default function CreatorHomePage() {
+const TYPE_LABELS: Record<string, string> = {
+  carousel: "Carrousel",
+  short: "Short",
+  screenrecorder: "ScreenRecorder",
+  custom: "Custom",
+};
+
+function formatDate(ts: number) {
+  return new Date(ts).toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "short",
+  });
+}
+
+export default function CreatorDashboardPage() {
   const portal = useQuery(api.creators.getMyPortal, {});
-  const name = portal?.creatorName ?? null;
+  const projectId = useCreatorProjectId();
+  const assignments = useQuery(
+    api.assignments.listMyAssignments,
+    projectId ? { projectId } : "skip",
+  );
+  const name = portal?.role === "creator" ? portal.creatorName : null;
+
+  const todo = (assignments ?? []).filter((a) =>
+    isActionable(a.status as AssignmentStatus),
+  );
+  const done = (assignments ?? []).filter(
+    (a) => !isActionable(a.status as AssignmentStatus),
+  );
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="mx-auto max-w-3xl space-y-8">
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-          Bienvenue{name ? ` ${name}` : ""}
+          Bonjour{name ? ` ${name}` : ""}
         </h1>
         <p className="text-sm text-slate-500">
-          Déclare tes comptes et suis ton protocole de warmup au quotidien.
+          Tes briefs à produire, tes gains et tes comptes.
         </p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Mes comptes</CardTitle>
-          <CardDescription>
-            Déclare un compte, suis son warmup et coche ton check du jour.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Link href="/app/comptes" className={buttonVariants()}>
-            Aller à mes comptes
-            <ArrowRightIcon className="ml-2 size-4" />
-          </Link>
-        </CardContent>
-      </Card>
+      {/* À produire */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+          À produire
+        </h2>
+        {assignments === undefined ? (
+          <Skeleton className="h-32 w-full" />
+        ) : todo.length === 0 ? (
+          <Card>
+            <CardContent className="py-10 text-center text-sm text-slate-500">
+              Rien à produire pour le moment. Tu es à jour 🎉
+            </CardContent>
+          </Card>
+        ) : (
+          <ul className="space-y-2">
+            {todo.map((a) => {
+              const urg = assignmentUrgency(
+                a.dueDate,
+                a.status as AssignmentStatus,
+              );
+              const st = ASSIGNMENT_STATUS[a.status as AssignmentStatus];
+              return (
+                <li key={a._id}>
+                  <Link
+                    href={`/app/assignments/${a._id}`}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 transition-colors hover:border-slate-300 hover:bg-slate-50"
+                  >
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate font-medium text-slate-900">
+                          {a.formatName}
+                        </span>
+                        <Badge variant="secondary" className="shrink-0">
+                          {TYPE_LABELS[a.formatType] ?? a.formatType}
+                        </Badge>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                        <span className="text-slate-500">
+                          Échéance {formatDate(a.dueDate)}
+                        </span>
+                        {a.accountHandle && (
+                          <span className="font-mono text-slate-400">
+                            · {a.accountHandle}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {urg !== "none" && urg !== "ok" && (
+                        <span
+                          className={cn(
+                            "rounded-full border px-2 py-0.5 text-xs font-semibold",
+                            URGENCY_BADGE[urg].className,
+                          )}
+                        >
+                          {URGENCY_BADGE[urg].label}
+                        </span>
+                      )}
+                      <span
+                        className={cn(
+                          "rounded-full border px-2.5 py-0.5 text-xs font-semibold",
+                          st.className,
+                        )}
+                      >
+                        {st.label}
+                      </span>
+                      <ArrowRightIcon className="size-4 text-slate-400" />
+                    </div>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      {/* Mes gains (placeholder — chantier paiements) */}
+      <section className="grid gap-4 sm:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <WalletIcon className="size-4 text-slate-400" />
+              Mes gains
+            </CardTitle>
+            <CardDescription>
+              Le suivi détaillé de tes gains arrive bientôt.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link
+              href="/app/paiements"
+              className="text-sm font-medium text-slate-900 underline underline-offset-4 hover:text-slate-700"
+            >
+              Voir mes paiements
+            </Link>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <MonitorSmartphoneIcon className="size-4 text-slate-400" />
+              Mes comptes
+            </CardTitle>
+            <CardDescription>Déclare tes comptes et suis leur warmup.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link
+              href="/app/comptes"
+              className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+            >
+              Aller à mes comptes
+            </Link>
+          </CardContent>
+        </Card>
+      </section>
+
+      {/* Soumis / terminés (compact) */}
+      {done.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+            Soumis &amp; terminés
+          </h2>
+          <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+            {done.map((a) => {
+              const st = ASSIGNMENT_STATUS[a.status as AssignmentStatus];
+              return (
+                <li key={a._id}>
+                  <Link
+                    href={`/app/assignments/${a._id}`}
+                    className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm hover:bg-slate-50"
+                  >
+                    <span className="truncate text-slate-700">{a.formatName}</span>
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-semibold",
+                        st.className,
+                      )}
+                    >
+                      {st.label}
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }

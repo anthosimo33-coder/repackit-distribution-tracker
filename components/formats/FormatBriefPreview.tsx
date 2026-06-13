@@ -1,7 +1,5 @@
 "use client";
 
-import type { FunctionReturnType } from "convex/server";
-import type { api } from "@/convex/_generated/api";
 import {
   Card,
   CardContent,
@@ -11,19 +9,27 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { CheckIcon, XIcon } from "lucide-react";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
-import { VideoExample } from "./VideoExample";
-import { rateSummary } from "@/lib/format-rate";
+import { VideoExample, type FormatExample } from "./VideoExample";
+import { rateSummary, type RateModel } from "@/lib/format-rate";
 
 /**
- * P6 — rendu du brief d'un format TEL QUE LE CRÉATEUR LE VERRA. Composant
- * PARTAGEABLE : la page détail admin l'utilise en aperçu, et le portail
- * créateur le réutilisera tel quel (chantier suivant). Aucun téléchargement,
- * jamais : on ne montre que les hooks EMBARQUÉS (pas la biblio).
+ * P6/P7 — rendu du brief d'un format TEL QUE LE CRÉATEUR LE VERRA. Composant
+ * PARTAGEABLE : page détail admin (aperçu) ET portail créateur (fiche
+ * assignment). Aucun téléchargement ; seuls les hooks EMBARQUÉS (pas la biblio).
+ *
+ * Type STRUCTUREL (pas lié à getFormat) pour être réutilisable : getFormat ET
+ * getMyAssignment.format le satisfont. `showRate` permet à la fiche assignment
+ * de masquer la grille générique (elle affiche le rateSnapshot + calculateur).
  */
-
-export type FormatForPreview = NonNullable<
-  FunctionReturnType<typeof api.formats.getFormat>
->;
+export type FormatBrief = {
+  name: string;
+  type: string;
+  brief: string;
+  hooks: string[];
+  guidelines: { do: string[]; dont: string[] };
+  exampleVideos: FormatExample[];
+  rateModel: RateModel;
+};
 
 const TYPE_LABELS: Record<string, string> = {
   carousel: "Carrousel",
@@ -32,7 +38,13 @@ const TYPE_LABELS: Record<string, string> = {
   custom: "Custom",
 };
 
-export function FormatBriefPreview({ format }: { format: FormatForPreview }) {
+export function FormatBriefPreview({
+  format,
+  showRate = true,
+}: {
+  format: FormatBrief;
+  showRate?: boolean;
+}) {
   const rate = rateSummary(format.rateModel);
   return (
     <div className="space-y-6">
@@ -135,23 +147,25 @@ export function FormatBriefPreview({ format }: { format: FormatForPreview }) {
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Rémunération</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ul className="space-y-1 text-sm text-slate-800">
-            {rate.map((line, i) => (
-              <li
-                key={i}
-                className={i === 0 ? "font-semibold text-slate-900" : ""}
-              >
-                {line}
-              </li>
-            ))}
-          </ul>
-        </CardContent>
-      </Card>
+      {showRate && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Rémunération</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-1 text-sm text-slate-800">
+              {rate.map((line, i) => (
+                <li
+                  key={i}
+                  className={i === 0 ? "font-semibold text-slate-900" : ""}
+                >
+                  {line}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

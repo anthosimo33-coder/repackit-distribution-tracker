@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { FunctionReturnType } from "convex/server";
 import { useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -27,7 +28,8 @@ import { toast } from "sonner";
 import { detectInspirationType } from "@/lib/inspiration-url";
 import { HookPicker } from "./HookPicker";
 import { VideoUploader, type UploadedVideo } from "@/components/VideoUploader";
-import type { FormatForPreview } from "./FormatBriefPreview";
+
+type FullFormat = NonNullable<FunctionReturnType<typeof api.formats.getFormat>>;
 
 type FormatType = "carousel" | "short" | "screenrecorder" | "custom";
 type Platform = "tiktok" | "youtube" | "instagram";
@@ -42,7 +44,7 @@ const TYPE_OPTIONS: { value: FormatType; label: string }[] = [
   { value: "custom", label: "Custom" },
 ];
 
-export function FormatEditor({ format }: { format: FormatForPreview }) {
+export function FormatEditor({ format }: { format: FullFormat }) {
   const update = useProjectMutation(api.formats.updateFormat);
 
   const [name, setName] = useState(format.name);

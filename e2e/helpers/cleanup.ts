@@ -58,6 +58,11 @@ export async function cleanupTestData() {
       () => client.mutation(api.personnes.cleanupTestPersonnes, { secret }),
     ],
     ["icps", () => client.mutation(api.icps.cleanupTestIcps, { secret })],
+    // Assignments AVANT formats/creators (les référencent).
+    [
+      "assignments",
+      () => client.mutation(api.assignments.cleanupTestAssignments, { secret }),
+    ],
     [
       "creators",
       () => client.mutation(api.creators.cleanupTestCreators, { secret }),

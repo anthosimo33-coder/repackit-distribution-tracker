@@ -20,10 +20,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ArrowLeftIcon, Trash2Icon } from "lucide-react";
+import { ArrowLeftIcon, Trash2Icon, UsersIcon } from "lucide-react";
 import { toast } from "sonner";
 import { FormatEditor } from "@/components/formats/FormatEditor";
 import { FormatBriefPreview } from "@/components/formats/FormatBriefPreview";
+import { AssignFormatDialog } from "@/components/admin/AssignFormatDialog";
 
 export default function FormatDetailPage({
   params,
@@ -39,6 +40,7 @@ export default function FormatDetailPage({
   const deleteFormat = useProjectMutation(api.formats.deleteFormat);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [assignOpen, setAssignOpen] = useState(false);
 
   useEffect(() => {
     if (format === null) router.replace(projectPath("/formats"));
@@ -69,17 +71,34 @@ export default function FormatDetailPage({
           Retour aux formats
         </Link>
         {format && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setDeleteOpen(true)}
-            className="text-rose-600 hover:bg-rose-50 hover:text-rose-700"
-          >
-            <Trash2Icon className="mr-1.5 size-4" />
-            Supprimer
-          </Button>
+          <div className="flex items-center gap-2">
+            {format.status !== "archived" && (
+              <Button size="sm" onClick={() => setAssignOpen(true)}>
+                <UsersIcon className="mr-1.5 size-4" />
+                Assigner
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setDeleteOpen(true)}
+              className="text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+            >
+              <Trash2Icon className="mr-1.5 size-4" />
+              Supprimer
+            </Button>
+          </div>
         )}
       </div>
+
+      {format && (
+        <AssignFormatDialog
+          formatId={format._id}
+          formatName={format.name}
+          open={assignOpen}
+          onOpenChange={setAssignOpen}
+        />
+      )}
 
       {format === undefined ? (
         <Skeleton className="h-96 w-full" />

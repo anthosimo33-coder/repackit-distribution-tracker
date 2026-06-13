@@ -64,7 +64,7 @@ test.describe("Créateurs — invitation + onboarding", () => {
 
     // 3. Redirigé vers /app avec l'accueil « Bienvenue {name} ».
     await creatorPage.waitForURL("**/app", { timeout: 20_000 });
-    const heading = creatorPage.getByRole("heading", { name: /Bienvenue/ });
+    const heading = creatorPage.getByRole("heading", { name: /Bonjour/ });
     await expect(heading).toBeVisible({ timeout: 10_000 });
     await expect(heading).toContainText(name);
 
@@ -89,7 +89,7 @@ test.describe("Créateurs — invitation + onboarding", () => {
     await creatorPage.goto(adminPath("/createurs"));
     await creatorPage.waitForURL("**/app", { timeout: 20_000 });
     await expect(
-      creatorPage.getByRole("heading", { name: /Bienvenue/ }),
+      creatorPage.getByRole("heading", { name: /Bonjour/ }),
     ).toBeVisible({ timeout: 10_000 });
 
     await creatorCtx.close();

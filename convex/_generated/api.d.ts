@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as assignments from "../assignments.js";
 import type * as auth from "../auth.js";
 import type * as comptes from "../comptes.js";
 import type * as creators from "../creators.js";
@@ -16,6 +17,7 @@ import type * as filterPresets from "../filterPresets.js";
 import type * as folders from "../folders.js";
 import type * as formats from "../formats.js";
 import type * as functions from "../functions.js";
+import type * as guide from "../guide.js";
 import type * as hooks from "../hooks.js";
 import type * as http from "../http.js";
 import type * as icps from "../icps.js";
@@ -38,6 +40,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  assignments: typeof assignments;
   auth: typeof auth;
   comptes: typeof comptes;
   creators: typeof creators;
@@ -46,6 +49,7 @@ declare const fullApi: ApiFromModules<{
   folders: typeof folders;
   formats: typeof formats;
   functions: typeof functions;
+  guide: typeof guide;
   hooks: typeof hooks;
   http: typeof http;
   icps: typeof icps;
