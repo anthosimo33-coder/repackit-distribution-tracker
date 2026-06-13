@@ -26,11 +26,11 @@
   rouge), c'est la PREMIÈRE chose à diagnostiquer.
 - Flake connu TD-018 : si l'auto-merge est bloqué par ces specs, un
   `gh run rerun` suffit — l'auto-merge se déclenche au vert.
-- Prérequis (sinon `--auto` ne gate pas) : « Allow auto-merge » activé sur
-  le repo + un status check requis sur `main` (branch protection). Cette
-  protection est aujourd'hui indisponible (repo privé sur plan Free) → la
-  débloquer (repo public ou GitHub Pro) est le préalable à ce flux ; tant
-  qu'elle manque, le gate « CI verte avant merge » est tenu à la main.
+- Prérequis EN PLACE (repo public depuis juin 2026) : « Allow auto-merge »
+  activé + branch protection sur `main` (status check requis `test`, PR
+  obligatoire, push direct interdit — y compris admin). `--auto` gate donc
+  réellement : la PR ne merge qu'au vert. NE PAS pousser sur `main` en direct
+  (refusé par la protection) ; toujours passer par une PR.
 
 ## Rapports
 - Denses, factuels, pas de pédagogie. Anomalies et hypothèses non
