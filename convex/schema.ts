@@ -685,4 +685,44 @@ export default defineSchema({
   })
     .index("by_project_period", ["projectId", "period"])
     .index("by_creator", ["creatorId"]),
+
+  // ─── S1 — Système de scripts combinatoire ─────────────────────────────────
+  // Une vidéo = 1 hook + 1 corps + 1 flux + 1 cta, posés sur un SOCLE DÉMO fixe
+  // (demoBlock). Une "campagne de scripts" regroupe la banque de bricks (hooks
+  // par tier + corps + flux + cta) + le socle démo d'un angle de test. Tables
+  // neuves → 0 migration. S1 = fondation (modèle + CRUD + assemblage) ; pas
+  // d'assignation/affichage créateur/analytics (chantiers suivants).
+  scriptCampaigns: defineTable({
+    projectId: v.id("projects"),
+    name: v.string(),
+    // Socle démo fixe (markdown) : la partie de la vidéo qui ne change jamais.
+    demoBlock: v.string(),
+    status: v.union(v.literal("active"), v.literal("archived")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_project", ["projectId"]),
+
+  // Une brique = un fragment combinable. Un seul modèle pour les 4 kinds
+  // (hook/corps/flux/cta), discriminé par `kind`. `tier` (S/A/B) UNIQUEMENT
+  // pour les hooks (undefined sinon). `active` : une brique désactivée ne sera
+  // pas combinée (préparation S2). Les hooks importés depuis la bibliothèque
+  // sont COPIÉS ici (bricks indépendants), la biblio d'origine reste intacte.
+  scriptBricks: defineTable({
+    projectId: v.id("projects"),
+    campaignId: v.id("scriptCampaigns"),
+    kind: v.union(
+      v.literal("hook"),
+      v.literal("corps"),
+      v.literal("flux"),
+      v.literal("cta"),
+    ),
+    label: v.string(),
+    content: v.string(),
+    tier: v.optional(v.union(v.literal("S"), v.literal("A"), v.literal("B"))),
+    active: v.boolean(),
+    order: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_campaign", ["campaignId"])
+    .index("by_campaign_kind", ["campaignId", "kind"]),
 });

@@ -77,6 +77,11 @@ export async function cleanupTestData() {
       "formats",
       () => client.mutation(api.formats.cleanupTestFormats, { secret }),
     ],
+    // S1 — campagnes de scripts + leurs bricks (cascade).
+    [
+      "scripts",
+      () => client.mutation(api.scripts.cleanupTestScripts, { secret }),
+    ],
   ];
 
   for (const [label, run] of steps) {

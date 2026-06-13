@@ -8,6 +8,7 @@ import {
   BookOpenIcon,
   ChevronsLeftIcon,
   ChevronsRightIcon,
+  ClapperboardIcon,
   ClipboardCheckIcon,
   ClipboardListIcon,
   GalleryHorizontalIcon,
@@ -142,6 +143,11 @@ export function Sidebar({
       icon: LayersIcon,
       label: "Formats",
       ...item(projectPath("/formats")),
+    },
+    {
+      icon: ClapperboardIcon,
+      label: "Scripts",
+      ...item(projectPath("/scripts")),
     },
   ];
 
