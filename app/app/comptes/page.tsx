@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PlusIcon, MonitorSmartphoneIcon } from "lucide-react";
 import { DeclareCompteDialog } from "@/components/creators/portal/DeclareCompteDialog";
 import { WarmupCompteCard } from "@/components/creators/portal/WarmupCompteCard";
+import { WarmupGuideButton } from "@/components/warmup/WarmupGuideButton";
 
 /**
  * P5 — portail créateur : « Mes comptes ». Hors ProjectProvider → projectId
@@ -38,12 +39,18 @@ export default function CreatorComptesPage() {
             Déclare tes comptes et suis leur warmup.
           </p>
         </div>
-        {projectId && (
-          <Button onClick={() => setDeclareOpen(true)}>
-            <PlusIcon className="mr-2 size-4" />
-            Déclarer un compte
-          </Button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Même guide warmup que l'admin (source unique : components/warmup),
+              en lecture seule. Toujours visible — consultable même sans compte
+              déclaré et indépendant du chargement de projectId. */}
+          <WarmupGuideButton />
+          {projectId && (
+            <Button onClick={() => setDeclareOpen(true)}>
+              <PlusIcon className="mr-2 size-4" />
+              Déclarer un compte
+            </Button>
+          )}
+        </div>
       </header>
 
       {loading ? (

@@ -62,7 +62,7 @@ import {
 import { warmupProgress, lastCheck } from "@/lib/warmup";
 import { PersonnesManagerSection } from "@/components/comptes/PersonnesManagerSection";
 import { IcpsManagerSection } from "@/components/icps/IcpsManagerSection";
-import { WarmupGuideButton } from "@/components/comptes/WarmupGuideButton";
+import { WarmupGuideButton } from "@/components/warmup/WarmupGuideButton";
 import CompteDialog, { type Compte } from "@/components/comptes/CompteDialog";
 
 type StatusFilter = "all" | CompteStatus;
