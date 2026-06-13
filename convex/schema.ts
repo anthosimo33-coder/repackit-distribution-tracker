@@ -535,4 +535,68 @@ export default defineSchema({
     .index("by_name", ["name"])
     .index("by_project", ["projectId"])
     .index("by_project_name", ["projectId", "name"]),
+
+  // ─── P6 Formats — bibliothèque de briefs par projet ──────────────────────
+  // Un format = brief auto-suffisant consommé par le créateur (chantier
+  // suivant) : description (markdown), hooks EMBARQUÉS (textes copiés depuis la
+  // biblio — le créateur ne voit jamais la biblio complète), do/don't, vidéos
+  // exemples regardables in-app (fichier storage NON publié OU lien embed) et
+  // grille de rémunération. Table neuve → 0 migration.
+  formats: defineTable({
+    projectId: v.id("projects"),
+    name: v.string(),
+    // Aligné sur les mediaType publications ; "custom" = format sans
+    // matérialisation publication (géré au chantier validation).
+    type: v.union(
+      v.literal("carousel"),
+      v.literal("short"),
+      v.literal("screenrecorder"),
+      v.literal("custom"),
+    ),
+    brief: v.string(), // markdown
+    // Hooks embarqués = TEXTES (auto-suffisant : pas de jointure vers `hooks`).
+    hooks: v.array(v.string()),
+    guidelines: v.object({
+      do: v.array(v.string()),
+      dont: v.array(v.string()),
+    }),
+    // Exemples vidéo : fichier (storage, jamais téléchargeable) OU lien embed.
+    // L'URL publique d'un fichier est résolue SERVEUR dans les queries (jamais
+    // exposée brute en DB), cf pattern publications → imageUrl.
+    exampleVideos: v.array(
+      v.union(
+        v.object({
+          kind: v.literal("file"),
+          storageId: v.id("_storage"),
+          title: v.string(),
+          mimeType: v.string(),
+        }),
+        v.object({
+          kind: v.literal("url"),
+          url: v.string(),
+          platform: v.union(
+            v.literal("tiktok"),
+            v.literal("youtube"),
+            v.literal("instagram"),
+          ),
+          title: v.string(),
+        }),
+      ),
+    ),
+    rateModel: v.object({
+      basePerPost: v.number(),
+      viewBonusPer1k: v.optional(v.number()),
+      bounties: v.optional(
+        v.array(
+          v.object({
+            thresholdViews: v.number(),
+            amount: v.number(),
+          }),
+        ),
+      ),
+    }),
+    status: v.union(v.literal("active"), v.literal("archived")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_project", ["projectId"]),
 });

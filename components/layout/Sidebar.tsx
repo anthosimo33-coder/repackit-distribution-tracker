@@ -9,6 +9,7 @@ import {
   ChevronsLeftIcon,
   ChevronsRightIcon,
   GalleryHorizontalIcon,
+  LayersIcon,
   LayoutDashboardIcon,
   LogOutIcon,
   MonitorIcon,
@@ -107,6 +108,11 @@ export function Sidebar({
       icon: BookOpenIcon,
       label: "Biblio Hooks",
       ...item(projectPath("/biblio-hooks")),
+    },
+    {
+      icon: LayersIcon,
+      label: "Formats",
+      ...item(projectPath("/formats")),
     },
   ];
 

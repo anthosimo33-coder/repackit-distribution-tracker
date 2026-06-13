@@ -14,6 +14,7 @@ import type * as creators from "../creators.js";
 import type * as dashboard from "../dashboard.js";
 import type * as filterPresets from "../filterPresets.js";
 import type * as folders from "../folders.js";
+import type * as formats from "../formats.js";
 import type * as functions from "../functions.js";
 import type * as hooks from "../hooks.js";
 import type * as http from "../http.js";
@@ -43,6 +44,7 @@ declare const fullApi: ApiFromModules<{
   dashboard: typeof dashboard;
   filterPresets: typeof filterPresets;
   folders: typeof folders;
+  formats: typeof formats;
   functions: typeof functions;
   hooks: typeof hooks;
   http: typeof http;
