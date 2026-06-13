@@ -4,6 +4,7 @@ import {
   adminMutation,
   adminQuery,
 } from "./functions";
+import { internalMutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
@@ -66,7 +67,8 @@ type MediaTypeServer = "carousel" | "short" | "screenrecorder";
 // Defense in depth — dupliqué côté serveur (Convex) car on ne peut pas
 // importer lib/media-type.ts depuis un module Convex (tsconfig séparé).
 // Logique alignée avec ALLOWED_PLATFORMS_FOR_* côté client.
-function isFormatAllowedOnPlatform(
+// Exporté pour la garde de soumission (P8, convex/assignments.submitAssignment).
+export function isFormatAllowedOnPlatform(
   mediaType: MediaTypeServer,
   plateforme: "TikTok" | "Instagram" | "YouTube",
 ): boolean {
@@ -378,6 +380,77 @@ export const createPublication = adminMutation({
       ids.push(id);
     }
     return { ids };
+  },
+});
+
+/**
+ * P8 — matérialise une publication À PARTIR d'un assignment validé. Insert
+ * DIRECT (PAS via createPublication, dont les validations par mediaType
+ * exigent des champs absents du flux créateur : slides/format pour un
+ * carousel, ICP/sourceId pour un short, titre/image pour un SR).
+ *
+ * Champs éditoriaux absents du flux créateur (mecanique/niveau/angleTonal/
+ * hookText/langue) → valeurs par défaut neutres. ARBITRAGE : ces défauts
+ * polluent les analytics éditoriales (regroupement par mécanique/niveau) et
+ * ne sont pas éditables a posteriori (la pub a un postUrl → updateDraft la
+ * refuse). Signalé pour décision produit.
+ *
+ * internalMutation (jamais exposée à l'API publique) appelée par
+ * assignments.validateAssignment via ctx.runMutation (MÊME transaction →
+ * atomicité : si la validation échoue ensuite, l'insert est rollback).
+ */
+export const createFromAssignment = internalMutation({
+  args: {
+    projectId: v.id("projects"),
+    mediaType: mediaTypeValidator,
+    plateforme: plateformeValidator,
+    compte: v.string(),
+    datePubli: v.number(),
+    postUrl: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Defense-in-depth : carousel interdit YouTube (la garde primaire est à la
+    // soumission, cf submitAssignment).
+    if (!isFormatAllowedOnPlatform(args.mediaType, args.plateforme)) {
+      throw new ConvexError(
+        `Format ${args.mediaType} non autorisé sur ${args.plateforme}.`,
+      );
+    }
+    // Compteur d'ID PAR PROJET, identique à getNextPublicationId.
+    const all = await ctx.db
+      .query("publications")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    const carouselId = computeNextPublicationId(all, args.mediaType);
+
+    const id = await ctx.db.insert("publications", {
+      projectId: args.projectId,
+      carouselId,
+      // Pas de hook éditorial pour un post créateur matérialisé.
+      hookId: null,
+      hookText: "",
+      // Défauts neutres (champs requis non capturés par le flux créateur).
+      mecanique: "Question",
+      niveau: "Broad-A",
+      mediaType: args.mediaType,
+      angleTonal: "Observation",
+      langue: "FR",
+      plateforme: args.plateforme,
+      compte: args.compte,
+      datePubli: args.datePubli,
+      // Métriques vides (alimentées ensuite par les snapshots J+X).
+      saves: null,
+      commentsTotal: null,
+      commentsAudit: null,
+      profileVisits: null,
+      likes: null,
+      subsGained: null,
+      notes: "",
+      // postUrl non vide → publication "publiée" de plein droit (KPIs, verdicts,
+      // snapshots s'appliquent).
+      postUrl: args.postUrl,
+    });
+    return id;
   },
 });
 

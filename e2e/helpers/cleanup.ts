@@ -58,7 +58,13 @@ export async function cleanupTestData() {
       () => client.mutation(api.personnes.cleanupTestPersonnes, { secret }),
     ],
     ["icps", () => client.mutation(api.icps.cleanupTestIcps, { secret })],
-    // Assignments AVANT formats/creators (les référencent).
+    // Paiements (P8) — liés aux créateurs de test, supprimés avant eux.
+    [
+      "payments",
+      () => client.mutation(api.payments.cleanupTestPayments, { secret }),
+    ],
+    // Assignments AVANT formats/creators (les référencent). Cascade aussi la
+    // publication matérialisée + ses snapshots (notes="" → hors cleanupTestPublications).
     [
       "assignments",
       () => client.mutation(api.assignments.cleanupTestAssignments, { secret }),

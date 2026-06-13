@@ -371,7 +371,9 @@ function PublishedView({
               {isVideoFormat ? (
                 <span className="text-slate-400">—</span>
               ) : (
-                publication.nbSlides
+                // Une publication matérialisée depuis un assignment (P8) n'a pas
+                // de slides → nbSlides undefined : afficher "—" plutôt qu'un vide.
+                (publication.nbSlides ?? <span className="text-slate-400">—</span>)
               )}
             </Field>
           </div>

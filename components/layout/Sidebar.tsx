@@ -8,6 +8,7 @@ import {
   BookOpenIcon,
   ChevronsLeftIcon,
   ChevronsRightIcon,
+  ClipboardCheckIcon,
   ClipboardListIcon,
   GalleryHorizontalIcon,
   HelpCircleIcon,
@@ -20,6 +21,7 @@ import {
   Users2Icon,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import { useProjectQuery } from "@/components/project/use-project-convex";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -55,6 +57,8 @@ export function Sidebar({
   const { signOut } = useAuthActions();
   const projectPath = useProjectPath();
   const me = useQuery(api.projects.getMe, {});
+  // P8 — compteur "submitted" pour le badge de la file de validation.
+  const submittedCount = useProjectQuery(api.assignments.countSubmitted, {});
   const collapsed = isMobileDrawer ? false : isCollapsed;
 
   // Remédiation sécurité — déconnexion Convex Auth. push /login explicite :
@@ -90,6 +94,13 @@ export function Sidebar({
       icon: ClipboardListIcon,
       label: "Assignments",
       ...item(projectPath("/assignments")),
+    },
+    {
+      icon: ClipboardCheckIcon,
+      label: "Validation",
+      // badge = nb d'assignments soumis en attente de validation (P8).
+      badge: submittedCount,
+      ...item(projectPath("/validation")),
     },
     {
       icon: HelpCircleIcon,

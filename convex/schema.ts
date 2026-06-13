@@ -652,4 +652,37 @@ export default defineSchema({
     content: v.string(),
     updatedAt: v.number(),
   }).index("by_project", ["projectId"]),
+
+  // ─── P8 — Paiements (accrual par période) ─────────────────────────────────
+  // 1 row = la rémunération d'UN créateur pour UNE période "YYYY-MM". Alimentée
+  // par la validation admin (lineItem "base" figé sur rateSnapshot.basePerPost)
+  // et par le calcul de bonus de vues (lineItem "bonus", 1 max/assignment,
+  // recalcul = remplacement). totalDue = somme des lineItems (recalculée à
+  // chaque écriture). Table neuve → 0 migration. La vue paiements complète +
+  // le portail gains créateur sont P9 (hors scope ici).
+  payments: defineTable({
+    projectId: v.id("projects"),
+    creatorId: v.id("creators"),
+    // Période d'accrual, "YYYY-MM" (UTC, cf periodOf dans convex/payments.ts).
+    period: v.string(),
+    lineItems: v.array(
+      v.object({
+        assignmentId: v.id("assignments"),
+        label: v.string(),
+        amount: v.number(),
+        kind: v.union(v.literal("base"), v.literal("bonus")),
+      }),
+    ),
+    totalDue: v.number(),
+    status: v.union(
+      v.literal("accruing"),
+      v.literal("scheduled"),
+      v.literal("paid"),
+    ),
+    scheduledDate: v.optional(v.number()),
+    paidAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_project_period", ["projectId", "period"])
+    .index("by_creator", ["creatorId"]),
 });
