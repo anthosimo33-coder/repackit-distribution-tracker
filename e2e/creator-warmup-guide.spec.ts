@@ -74,9 +74,9 @@ test.describe("Guide warmup — portail créateur", () => {
     ).toBeVisible();
 
     // Replié par défaut → contenu TikTok caché, puis expand → visible.
-    await expect(page.getByText(/J8 minimum/i)).toBeHidden();
+    await expect(page.getByText(/avant d'augmenter la cadence/i)).toBeHidden();
     await guide.getByRole("button", { name: /TikTok — 3 jours/i }).click();
-    await expect(page.getByText(/J8 minimum/i)).toBeVisible();
+    await expect(page.getByText(/avant d'augmenter la cadence/i)).toBeVisible();
 
     // Lecture seule (structurelle) : le guide est un composant statique,
     // identique pour tous les rôles — il n'expose aucun champ de saisie ni

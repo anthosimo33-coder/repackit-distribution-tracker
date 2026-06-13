@@ -61,25 +61,23 @@ type SubBlock = { subtitle: string; items: string[] };
 
 const TIKTOK_BLOCKS: SubBlock[] = [
   {
-    subtitle: "Setup",
+    subtitle: "Phase de chauffe (J1 → J3) — aucun post",
     items: [
-      "Créer le compte → laisser profil quasi-vide 3 jours",
-      "Compléter bio + PP en J4",
-    ],
-  },
-  {
-    subtitle: "Warmup quotidien (J1 → J7)",
-    items: [
+      "**Recherches quotidiennes avec TES mots-clés** dans la barre de recherche",
       "20-30 min/jour de scroll FYP dans ta niche",
-      "Watch time complet sur les vidéos (pas de scroll rapide)",
+      "Watch time complet sur les vidéos de ta niche (pas de scroll rapide)",
       '10-20 likes/jour, 2-3 commentaires authentiques (pas "🔥")',
       "5-10 follows/jour max sur des comptes de ta niche",
-      "Utilise la barre de recherche pour explorer des hashtags niche",
+      "Compléter bio + photo de profil pendant cette phase",
     ],
   },
   {
-    subtitle: "Premier post",
-    items: ["J8 minimum", "1 post/jour pendant 7-10 jours avant de monter"],
+    subtitle: "Premier post — J4 (lendemain de la chauffe)",
+    items: ["**Aucun post avant J4** : la chauffe dure 3 jours pleins"],
+  },
+  {
+    subtitle: "Montée en cadence (après le 1er post)",
+    items: ["1 post/jour pendant 7-10 jours avant d'augmenter la cadence"],
   },
 ];
 
@@ -87,68 +85,80 @@ const IG_SETUP: SubBlock[] = [
   {
     subtitle: "Setup",
     items: [
-      "Créer compte → profil vide J1-3",
-      "Compléter bio + PP + 1 highlight en J4-5",
+      "Créer le compte → profil vide au démarrage",
+      "Compléter bio + photo de profil + 1 highlight pendant la chauffe",
     ],
   },
 ];
 
+// Sous-phases de la CHAUFFE (J1 → J14, aucun post) : montée graduelle de
+// l'engagement sans jamais publier.
 const IG_PHASES: SubBlock[] = [
   {
-    subtitle: "Phase 1 — J1 à J3 : observation pure",
+    subtitle: "J1 à J3 — observation pure",
     items: [
+      "**Recherches quotidiennes avec TES mots-clés**",
       "15-20 min scroll feed + Stories",
       "5-10 likes/jour",
       "**Zéro follow, zéro commentaire**",
     ],
   },
   {
-    subtitle: "Phase 2 — J4 à J10 : engagement léger",
+    subtitle: "J4 à J10 — engagement léger",
     items: [
+      "Recherches quotidiennes avec tes mots-clés",
       "5-10 follows/jour niche",
       "15-20 likes/jour",
       "2-3 commentaires authentiques",
-      "Watch Stories quotidiennement",
+      "Like et **enregistrement** de Reels de ta niche",
     ],
   },
   {
-    subtitle: "Phase 3 — J11 à J21 : activité normale",
+    subtitle: "J11 à J14 — activité normale",
     items: [
       "15-25 likes/jour, 5-10 commentaires",
       "Saves sur posts pertinents (signal fort)",
-      "Premières Stories possibles en J14-15",
+      "Premières Stories possibles à partir de J14-15",
     ],
   },
 ];
 
 const IG_PREMIER: SubBlock[] = [
   {
-    subtitle: "Premier Reel",
-    items: ["J21 minimum", "1 Reel/jour + Stories quotidiennes"],
+    subtitle: "Premier Reel — J15 (lendemain de la chauffe)",
+    items: ["**Aucun Reel avant J15** : la chauffe dure 14 jours pleins"],
+  },
+  {
+    subtitle: "Montée en cadence (après le 1er Reel)",
+    items: ["Montée progressive vers une activité normale"],
   },
 ];
 
 const YOUTUBE_BLOCKS: SubBlock[] = [
   {
-    subtitle: "Setup channel (J1)",
+    subtitle: "Setup de la chaîne",
     items: [
-      "Banner, PP, description channel, About complet",
+      "Bannière, photo de profil, description de chaîne, À propos complet",
       "Créer 1 playlist (même vide)",
       "Lier les réseaux sociaux dans la description",
     ],
   },
   {
-    subtitle: "Warmup quotidien (J1 → J5)",
+    subtitle: "Phase de chauffe (J1 → J3) — aucun post",
     items: [
-      "Watch 5-10 Shorts/jour dans ta niche",
-      "Watch 1-2 vidéos longues/jour dans ta niche (signal fort pour YT)",
+      "**Recherches quotidiennes avec TES mots-clés**",
+      "Visionnage de 5-10 Shorts/jour dans ta niche",
+      "1-2 vidéos longues/jour dans ta niche (signal fort pour YT)",
       "Likes + 2-3 commentaires authentiques",
       "10-20 abonnements à des chaînes pertinentes",
     ],
   },
   {
-    subtitle: "Premier Short",
-    items: ["J5-6", "1 Short/jour, idéalement à la même heure"],
+    subtitle: "Premier Short — J4 (lendemain de la chauffe)",
+    items: [
+      "**Aucun Short avant J4** : la chauffe dure 3 jours pleins",
+      "Ensuite, 1 Short/jour, idéalement à la même heure",
+    ],
   },
 ];
 
@@ -321,7 +331,7 @@ export function WarmupGuideAccordion() {
           <SubSections blocks={IG_SETUP} />
           <div className="space-y-2">
             <p className="text-xs font-semibold text-slate-600">
-              Warmup par phases
+              Chauffe par phases (J1 → J14) — aucun post
             </p>
             <SubSections blocks={IG_PHASES} />
           </div>

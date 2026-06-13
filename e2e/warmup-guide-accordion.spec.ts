@@ -36,11 +36,11 @@ test.describe("Guide warmup intégré", () => {
     ).toBeVisible();
 
     // Replié par défaut : le contenu TikTok est caché.
-    await expect(page.getByText(/J8 minimum/i)).toBeHidden();
+    await expect(page.getByText(/avant d'augmenter la cadence/i)).toBeHidden();
 
     // Expand TikTok → contenu visible.
     await page.getByRole("button", { name: /TikTok — 3 jours/i }).click();
-    await expect(page.getByText(/J8 minimum/i)).toBeVisible();
+    await expect(page.getByText(/avant d'augmenter la cadence/i)).toBeVisible();
 
     // Fermer le Sheet.
     await page.keyboard.press("Escape");
