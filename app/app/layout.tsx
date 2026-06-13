@@ -23,6 +23,7 @@ const NAV = [
   { href: "/app", label: "Tableau de bord", exact: true },
   { href: "/app/comptes", label: "Mes comptes", exact: false },
   { href: "/app/paiements", label: "Mes paiements", exact: false },
+  { href: "/app/profil", label: "Profil", exact: false },
   { href: "/app/guide", label: "Comment ça marche", exact: false },
 ];
 

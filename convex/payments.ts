@@ -1,4 +1,10 @@
-import { adminQuery, e2eMutation } from "./functions";
+import {
+  adminMutation,
+  adminQuery,
+  creatorQuery,
+  e2eMutation,
+} from "./functions";
+import { ConvexError, v } from "convex/values";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 
@@ -187,9 +193,12 @@ export async function upsertBonusLineItem(
   });
 }
 
-// ─── Query (lecture minimale — la vue paiements complète est P9) ─────────────
+// ─── Queries (P9) ────────────────────────────────────────────────────────────
 
-/** Paiements du projet, enrichis du nom créateur. Triés période desc. */
+/**
+ * Paiements du projet, enrichis des infos créateur (nom + email + méthode +
+ * coordonnées de paiement, pour l'export CSV). Triés période desc.
+ */
 export const listPayments = adminQuery({
   args: {},
   handler: async (ctx) => {
@@ -201,10 +210,76 @@ export const listPayments = adminQuery({
       .query("creators")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
-    const nameById = new Map(creators.map((c) => [c._id, c.name]));
+    const byId = new Map(creators.map((c) => [c._id, c]));
     return payments
       .sort((a, b) => b.period.localeCompare(a.period))
-      .map((p) => ({ ...p, creatorName: nameById.get(p.creatorId) ?? "—" }));
+      .map((p) => {
+        const c = byId.get(p.creatorId);
+        return {
+          ...p,
+          creatorName: c?.name ?? "—",
+          creatorEmail: c?.email ?? "",
+          creatorPaymentMethod: c?.paymentMethod ?? null,
+          creatorPaymentDetails: c?.paymentDetails ?? null,
+        };
+      });
+  },
+});
+
+/**
+ * Paiements du créateur courant UNIQUEMENT (filtré serveur par ctx.creatorId).
+ * Un créateur ne voit jamais les paiements d'un autre. Triés période desc.
+ */
+export const getMyPayments = creatorQuery({
+  args: {},
+  handler: async (ctx) => {
+    const payments = (
+      await ctx.db
+        .query("payments")
+        .withIndex("by_creator", (q) => q.eq("creatorId", ctx.creatorId))
+        .collect()
+    ).filter((p) => p.projectId === ctx.projectId);
+    return payments.sort((a, b) => b.period.localeCompare(a.period));
+  },
+});
+
+// ─── Mutations admin — marquer payé (idempotent) ─────────────────────────────
+
+/** Marque UN paiement comme payé. Idempotent : re-marquer ne change pas paidAt. */
+export const markPaymentPaid = adminMutation({
+  args: { id: v.id("payments") },
+  handler: async (ctx, { id }) => {
+    const p = await ctx.db.get(id);
+    if (!p || p.projectId !== ctx.projectId) {
+      throw new ConvexError("Paiement introuvable.");
+    }
+    if (p.status === "paid") return { ok: true, alreadyPaid: true };
+    await ctx.db.patch(id, { status: "paid", paidAt: Date.now() });
+    return { ok: true, alreadyPaid: false };
+  },
+});
+
+/**
+ * Marque TOUTE une période comme payée (masse). Idempotent : saute les
+ * paiements déjà payés (leur paidAt est préservé). Retourne le nb basculé.
+ */
+export const markPeriodPaid = adminMutation({
+  args: { period: v.string() },
+  handler: async (ctx, { period }) => {
+    const payments = await ctx.db
+      .query("payments")
+      .withIndex("by_project_period", (q) =>
+        q.eq("projectId", ctx.projectId).eq("period", period),
+      )
+      .collect();
+    const now = Date.now();
+    let marked = 0;
+    for (const p of payments) {
+      if (p.status === "paid") continue;
+      await ctx.db.patch(p._id, { status: "paid", paidAt: now });
+      marked++;
+    }
+    return { marked };
   },
 });
 

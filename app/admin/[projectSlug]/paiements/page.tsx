@@ -1,0 +1,359 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import {
+  useProjectQuery,
+  useProjectMutation,
+} from "@/components/project/use-project-convex";
+import { api } from "@/convex/_generated/api";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+import { formatEuros } from "@/lib/format-rate";
+import { formatPeriod } from "@/lib/payout";
+import type { FunctionReturnType } from "convex/server";
+import {
+  ChevronRightIcon,
+  DownloadIcon,
+  Loader2Icon,
+  CheckCircle2Icon,
+} from "lucide-react";
+
+type Payment = FunctionReturnType<typeof api.payments.listPayments>[number];
+
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  sepa: "SEPA",
+  paypal: "PayPal",
+  usdt: "USDT",
+  autre: "Autre",
+};
+
+const STATUS_BADGE: Record<
+  string,
+  { label: string; className: string }
+> = {
+  accruing: {
+    label: "En cours",
+    className: "border-amber-200 bg-amber-50 text-amber-700",
+  },
+  scheduled: {
+    label: "Programmé",
+    className: "border-sky-200 bg-sky-50 text-sky-700",
+  },
+  paid: {
+    label: "Payé",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  },
+};
+
+const csvEscape = (v: string) => `"${v.replace(/"/g, '""')}"`;
+
+function downloadCsv(filename: string, rows: string[][]) {
+  const content = rows.map((r) => r.map(csvEscape).join(",")).join("\r\n");
+  // BOM pour qu'Excel ouvre l'UTF-8 correctement.
+  const blob = new Blob(["﻿" + content], {
+    type: "text/csv;charset=utf-8;",
+  });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
+}
+
+export default function PaiementsPage() {
+  const payments = useProjectQuery(api.payments.listPayments, {});
+  const [period, setPeriod] = useState<string | null>(null);
+
+  // Périodes distinctes (desc) ; sélection par défaut = la plus récente.
+  const periods = useMemo(() => {
+    const set = new Set((payments ?? []).map((p) => p.period));
+    return [...set].sort((a, b) => b.localeCompare(a));
+  }, [payments]);
+  const selected = period ?? periods[0] ?? null;
+
+  const rows = useMemo(
+    () => (payments ?? []).filter((p) => p.period === selected),
+    [payments, selected],
+  );
+
+  const periodTotal = rows.reduce((s, p) => s + p.totalDue, 0);
+  const unpaidCount = rows.filter((p) => p.status !== "paid").length;
+
+  return (
+    <div className="space-y-6">
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-1">
+          <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
+            Paiements
+          </h1>
+          <p className="text-sm text-slate-500">
+            {payments === undefined
+              ? "Chargement…"
+              : selected
+                ? `${rows.length} créateur${rows.length > 1 ? "s" : ""} · ${formatEuros(periodTotal)} dû`
+                : "Aucun paiement pour l'instant."}
+          </p>
+        </div>
+        {selected && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={selected}
+              onValueChange={(v) => v && setPeriod(v)}
+            >
+              <SelectTrigger className="w-44" aria-label="Période">
+                <SelectValue>{formatPeriod(selected)}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {periods.map((p) => (
+                  <SelectItem key={p} value={p}>
+                    {formatPeriod(p)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              onClick={() =>
+                downloadCsv(`paiements-${selected}.csv`, [
+                  [
+                    "Créateur",
+                    "Email",
+                    "Méthode",
+                    "Coordonnées",
+                    "Total dû (€)",
+                    "Période",
+                    "Statut",
+                  ],
+                  ...rows.map((p) => [
+                    p.creatorName,
+                    p.creatorEmail,
+                    p.creatorPaymentMethod
+                      ? (PAYMENT_METHOD_LABELS[p.creatorPaymentMethod] ??
+                        p.creatorPaymentMethod)
+                      : "",
+                    p.creatorPaymentDetails ?? "",
+                    String(p.totalDue),
+                    selected,
+                    p.status,
+                  ]),
+                ])
+              }
+            >
+              <DownloadIcon className="mr-2 size-4" />
+              Export CSV
+            </Button>
+            <MarkPeriodPaidButton period={selected} disabled={unpaidCount === 0} />
+          </div>
+        )}
+      </header>
+
+      {payments === undefined ? (
+        <Skeleton className="h-64 w-full" />
+      ) : !selected ? (
+        <Card>
+          <CardContent className="py-16 text-center text-sm text-slate-500">
+            Les paiements apparaîtront ici dès la validation des premiers posts.
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardContent className="overflow-x-auto p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-8" />
+                  <TableHead>Créateur</TableHead>
+                  <TableHead>Méthode</TableHead>
+                  <TableHead className="text-right">Posts</TableHead>
+                  <TableHead>Statut</TableHead>
+                  <TableHead className="text-right">Total dû</TableHead>
+                  <TableHead className="w-32" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((p) => (
+                  <PaymentRow key={p._id} p={p} />
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function MarkPeriodPaidButton({
+  period,
+  disabled,
+}: {
+  period: string;
+  disabled: boolean;
+}) {
+  const markPeriodPaid = useProjectMutation(api.payments.markPeriodPaid);
+  const [busy, setBusy] = useState(false);
+  async function onClick() {
+    setBusy(true);
+    try {
+      const r = await markPeriodPaid({ period });
+      toast.success(
+        r.marked > 0
+          ? `${r.marked} paiement${r.marked > 1 ? "s" : ""} marqué${r.marked > 1 ? "s" : ""} payé${r.marked > 1 ? "s" : ""}.`
+          : "Rien à marquer (déjà payé).",
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Button onClick={onClick} disabled={busy || disabled}>
+      {busy ? (
+        <Loader2Icon className="mr-2 size-4 animate-spin" />
+      ) : (
+        <CheckCircle2Icon className="mr-2 size-4" />
+      )}
+      Tout marquer payé
+    </Button>
+  );
+}
+
+function PaymentRow({ p }: { p: Payment }) {
+  const markPaid = useProjectMutation(api.payments.markPaymentPaid);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const baseCount = p.lineItems.filter((li) => li.kind === "base").length;
+  const badge = STATUS_BADGE[p.status] ?? STATUS_BADGE.accruing;
+
+  async function onMarkPaid() {
+    setBusy(true);
+    try {
+      await markPaid({ id: p._id });
+      toast.success(`${p.creatorName} marqué payé.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <TableRow
+        className="cursor-pointer"
+        onClick={() => setOpen((o) => !o)}
+        data-testid={`payment-${p._id}`}
+      >
+        <TableCell>
+          <ChevronRightIcon
+            className={cn(
+              "size-4 text-slate-400 transition-transform",
+              open && "rotate-90",
+            )}
+          />
+        </TableCell>
+        <TableCell className="font-medium text-slate-900">
+          {p.creatorName}
+        </TableCell>
+        <TableCell className="text-sm text-slate-600">
+          {p.creatorPaymentMethod
+            ? (PAYMENT_METHOD_LABELS[p.creatorPaymentMethod] ??
+              p.creatorPaymentMethod)
+            : "—"}
+        </TableCell>
+        <TableCell className="text-right tabular-nums text-slate-700">
+          {baseCount}
+        </TableCell>
+        <TableCell>
+          <span
+            className={cn(
+              "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold",
+              badge.className,
+            )}
+          >
+            {badge.label}
+          </span>
+        </TableCell>
+        <TableCell className="text-right font-medium tabular-nums text-slate-900">
+          {formatEuros(p.totalDue)}
+        </TableCell>
+        <TableCell
+          className="text-right"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {p.status === "paid" ? (
+            <span className="text-xs text-slate-400">Payé</span>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onMarkPaid}
+              disabled={busy}
+              data-testid={`mark-paid-${p._id}`}
+            >
+              {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+              Marquer payé
+            </Button>
+          )}
+        </TableCell>
+      </TableRow>
+      {open && (
+        <TableRow className="bg-slate-50/60">
+          <TableCell />
+          <TableCell colSpan={6} className="py-2">
+            {p.lineItems.length === 0 ? (
+              <p className="text-sm text-slate-400">Aucune ligne.</p>
+            ) : (
+              <ul className="space-y-1">
+                {p.lineItems.map((li, i) => (
+                  <li
+                    key={i}
+                    className="flex items-center justify-between gap-4 text-sm"
+                  >
+                    <span className="flex items-center gap-2 text-slate-600">
+                      <span
+                        className={cn(
+                          "inline-flex rounded px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase",
+                          li.kind === "bonus"
+                            ? "bg-indigo-50 text-indigo-600"
+                            : "bg-slate-200 text-slate-600",
+                        )}
+                      >
+                        {li.kind === "bonus" ? "Bonus" : "Base"}
+                      </span>
+                      {li.label}
+                    </span>
+                    <span className="tabular-nums text-slate-700">
+                      {formatEuros(li.amount)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </TableCell>
+        </TableRow>
+      )}
+    </>
+  );
+}

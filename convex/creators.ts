@@ -2,6 +2,8 @@ import {
   adminMutation,
   adminQuery,
   authedQuery,
+  creatorMutation,
+  creatorQuery,
   e2eMutation,
   publicQuery,
   requireProjectAdmin,
@@ -297,6 +299,13 @@ export const getMyPortal = authedQuery({
         .query("creators")
         .withIndex("by_user", (q) => q.eq("userId", ctx.userId))
         .first();
+      // P9 — payoutDay du projet : le portail créateur l'utilise pour afficher
+      // la prochaine date de paie (nextPayoutDate, calculé client).
+      let payoutDay: number | null = null;
+      if (creator?.projectId) {
+        const project = await ctx.db.get(creator.projectId);
+        payoutDay = project?.payoutDay ?? null;
+      }
       return {
         role: "creator" as const,
         slug: null,
@@ -304,6 +313,7 @@ export const getMyPortal = authedQuery({
         // P5 — projectId du créateur : le portail /app le passe aux
         // creatorQuery (qui exigent projectId, hors ProjectProvider).
         projectId: creator?.projectId ?? null,
+        payoutDay,
       };
     }
 
@@ -313,6 +323,53 @@ export const getMyPortal = authedQuery({
       creatorName: null,
       projectId: null,
     };
+  },
+});
+
+// ─── Portail créateur — profil (P9, isolé par ctx.creatorId) ─────────────────
+
+/** Profil de paiement du créateur courant (SES données uniquement). */
+export const getMyProfile = creatorQuery({
+  args: {},
+  handler: async (ctx) => {
+    const c = await ctx.db.get(ctx.creatorId);
+    if (!c) return null;
+    return {
+      name: c.name,
+      email: c.email,
+      phone: c.phone ?? null,
+      paymentMethod: c.paymentMethod ?? null,
+      paymentDetails: c.paymentDetails ?? null,
+    };
+  },
+});
+
+/**
+ * Le créateur édite SON profil de paiement (téléphone + méthode + coordonnées).
+ * Filtré serveur : patch sur ctx.creatorId (résolu par requireCreator) → un
+ * créateur ne peut écrire que sa propre fiche. name/email restent gérés admin
+ * (identité). Ces champs sont les MÊMES colonnes que la fiche admin (P4) →
+ * visibles côté admin sans duplication.
+ */
+export const updateMyProfile = creatorMutation({
+  args: {
+    phone: v.optional(v.string()),
+    paymentMethod: v.optional(PAYMENT_METHODS),
+    paymentDetails: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const patch: Partial<Doc<"creators">> = {};
+    if (args.phone !== undefined) {
+      patch.phone = args.phone.trim() || undefined;
+    }
+    if (args.paymentMethod !== undefined) {
+      patch.paymentMethod = args.paymentMethod;
+    }
+    if (args.paymentDetails !== undefined) {
+      patch.paymentDetails = args.paymentDetails.trim() || undefined;
+    }
+    await ctx.db.patch(ctx.creatorId, patch);
+    return { ok: true };
   },
 });
 

@@ -19,6 +19,7 @@ import {
   PlaySquareIcon,
   UserPlusIcon,
   Users2Icon,
+  WalletIcon,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { useProjectQuery } from "@/components/project/use-project-convex";
@@ -101,6 +102,11 @@ export function Sidebar({
       // badge = nb d'assignments soumis en attente de validation (P8).
       badge: submittedCount,
       ...item(projectPath("/validation")),
+    },
+    {
+      icon: WalletIcon,
+      label: "Paiements",
+      ...item(projectPath("/paiements")),
     },
     {
       icon: HelpCircleIcon,

@@ -16,6 +16,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { buttonVariants } from "@/components/ui/button";
 import { ArrowRightIcon, MonitorSmartphoneIcon, WalletIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatEuros } from "@/lib/format-rate";
+import { nextPayoutDate, daysUntilPayout } from "@/lib/payout";
 import {
   ASSIGNMENT_STATUS,
   assignmentUrgency,
@@ -45,7 +47,19 @@ export default function CreatorDashboardPage() {
     api.assignments.listMyAssignments,
     projectId ? { projectId } : "skip",
   );
+  const payments = useQuery(
+    api.payments.getMyPayments,
+    projectId ? { projectId } : "skip",
+  );
   const name = portal?.role === "creator" ? portal.creatorName : null;
+  const payoutDay = portal?.role === "creator" ? portal.payoutDay : null;
+
+  // Gains de la période en cours (UTC "YYYY-MM", aligné sur periodOf serveur).
+  const currentPeriod = new Date().toISOString().slice(0, 7);
+  const dueNow =
+    (payments ?? []).find((p) => p.period === currentPeriod)?.totalDue ?? 0;
+  const nextPayoutTs = payoutDay ? nextPayoutDate(payoutDay) : null;
+  const payoutDays = payoutDay ? daysUntilPayout(payoutDay) : null;
 
   const todo = (assignments ?? []).filter((a) =>
     isActionable(a.status as AssignmentStatus),
@@ -141,7 +155,7 @@ export default function CreatorDashboardPage() {
         )}
       </section>
 
-      {/* Mes gains (placeholder — chantier paiements) */}
+      {/* Mes gains (période en cours) */}
       <section className="grid gap-4 sm:grid-cols-2">
         <Card>
           <CardHeader>
@@ -149,16 +163,31 @@ export default function CreatorDashboardPage() {
               <WalletIcon className="size-4 text-slate-400" />
               Mes gains
             </CardTitle>
-            <CardDescription>
-              Le suivi détaillé de tes gains arrive bientôt.
-            </CardDescription>
+            <CardDescription>Dû pour la période en cours.</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-1">
+            {payments === undefined ? (
+              <Skeleton className="h-9 w-24" />
+            ) : (
+              <p
+                className="text-3xl font-semibold tabular-nums text-slate-900"
+                data-testid="dashboard-due"
+              >
+                {formatEuros(dueNow)}
+              </p>
+            )}
+            {nextPayoutTs !== null && payoutDays !== null && (
+              <p className="text-xs text-slate-500">
+                {dueNow > 0
+                  ? `Payé dans ${payoutDays} jour${payoutDays > 1 ? "s" : ""} (le ${formatDate(nextPayoutTs)})`
+                  : `Prochaine paie le ${formatDate(nextPayoutTs)}`}
+              </p>
+            )}
             <Link
               href="/app/paiements"
-              className="text-sm font-medium text-slate-900 underline underline-offset-4 hover:text-slate-700"
+              className="inline-block pt-1 text-sm font-medium text-slate-900 underline underline-offset-4 hover:text-slate-700"
             >
-              Voir mes paiements
+              Voir le détail
             </Link>
           </CardContent>
         </Card>
