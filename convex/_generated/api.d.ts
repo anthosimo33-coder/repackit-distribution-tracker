@@ -30,6 +30,7 @@ import type * as payments from "../payments.js";
 import type * as personnes from "../personnes.js";
 import type * as projects from "../projects.js";
 import type * as publications from "../publications.js";
+import type * as scriptSeedData from "../scriptSeedData.js";
 import type * as scripts from "../scripts.js";
 import type * as snapshotMatching from "../snapshotMatching.js";
 import type * as storage from "../storage.js";
@@ -64,6 +65,7 @@ declare const fullApi: ApiFromModules<{
   personnes: typeof personnes;
   projects: typeof projects;
   publications: typeof publications;
+  scriptSeedData: typeof scriptSeedData;
   scripts: typeof scripts;
   snapshotMatching: typeof snapshotMatching;
   storage: typeof storage;

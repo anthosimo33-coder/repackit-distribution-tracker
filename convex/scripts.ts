@@ -1,4 +1,6 @@
 import { adminMutation, adminQuery, e2eMutation } from "./functions";
+import { internalMutation } from "./_generated/server";
+import { CAMPAIGN_NAME, DEMO_BLOCK, SEED_BRICKS } from "./scriptSeedData";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -252,6 +254,69 @@ export const importHooks = adminMutation({
 });
 
 // ─── Cleanup e2e (gated E2E_SECRET) ──────────────────────────────────────────
+
+/**
+ * SEED — campagne « RepackIt — Bulk Testing » pré-remplie (contenu réel
+ * verbatim, cf convex/scriptSeedData.ts généré). internalMutation runnable via
+ * `npx convex run scripts:seedRepackitScriptCampaign` (dev ET --prod).
+ *
+ * IDEMPOTENCE STRICTE : si une campagne du même nom existe déjà sur le projet
+ * `repackit`, ne crée RIEN (ni campagne ni bricks). Relançable sans doublon.
+ */
+export const seedRepackitScriptCampaign = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_slug", (q) => q.eq("slug", "repackit"))
+      .first();
+    if (!project) {
+      throw new Error("Projet de slug 'repackit' introuvable sur ce déploiement.");
+    }
+    const projectId = project._id;
+
+    const existing = (
+      await ctx.db
+        .query("scriptCampaigns")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect()
+    ).find((c) => c.name === CAMPAIGN_NAME);
+    if (existing) {
+      return {
+        created: false,
+        reason: "déjà seedée",
+        campaignId: existing._id,
+        bricks: 0,
+      };
+    }
+
+    const now = Date.now();
+    const campaignId = await ctx.db.insert("scriptCampaigns", {
+      projectId,
+      name: CAMPAIGN_NAME,
+      demoBlock: DEMO_BLOCK,
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    let bricks = 0;
+    for (const b of SEED_BRICKS) {
+      await ctx.db.insert("scriptBricks", {
+        projectId,
+        campaignId,
+        kind: b.kind,
+        label: b.label,
+        content: b.content,
+        // Schéma : tier optional (S|A|B) — null (non-hook / non taggé) → undefined.
+        tier: b.tier ?? undefined,
+        active: b.active,
+        createdAt: now,
+      });
+      bricks++;
+    }
+    return { created: true, campaignId, bricks };
+  },
+});
 
 /** Supprime les campagnes de test ([E2E_TEST]) + leurs bricks (cascade). */
 export const cleanupTestScripts = e2eMutation({
