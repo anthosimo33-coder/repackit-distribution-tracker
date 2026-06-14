@@ -111,9 +111,12 @@ export default function CreatorDashboardPage() {
                         <span className="truncate font-medium text-slate-900">
                           {a.formatName}
                         </span>
-                        <Badge variant="secondary" className="shrink-0">
-                          {TYPE_LABELS[a.formatType] ?? a.formatType}
-                        </Badge>
+                        {/* Pas de badge de type pour un assignment script. */}
+                        {a.formatType && (
+                          <Badge variant="secondary" className="shrink-0">
+                            {TYPE_LABELS[a.formatType] ?? a.formatType}
+                          </Badge>
+                        )}
                       </div>
                       <div className="flex flex-wrap items-center gap-1.5 text-xs">
                         <span className="text-slate-500">

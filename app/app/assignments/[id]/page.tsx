@@ -12,6 +12,7 @@ import { ArrowLeftIcon } from "lucide-react";
 import { FormatBriefPreview } from "@/components/formats/FormatBriefPreview";
 import { EarningsCalculator } from "@/components/portal/EarningsCalculator";
 import { AssignmentActions } from "@/components/portal/AssignmentActions";
+import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 
 /**
  * P7 — fiche assignment côté créateur : brief complet (FormatBriefPreview,
@@ -73,8 +74,19 @@ export default function AssignmentDetailPage({
             </CardContent>
           </Card>
 
-          {/* Brief (sans la grille générique : on affiche le rateSnapshot ci-dessous) */}
-          {data.format ? (
+          {/* Script monté (assignment de script) OU brief de format. Pour un
+              script, le créateur ne voit que le texte fini — aucune brique,
+              aucun tier, aucune campagne. */}
+          {data.assembledScript ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Vidéo à tourner</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <SimpleMarkdown content={data.assembledScript} />
+              </CardContent>
+            </Card>
+          ) : data.format ? (
             <FormatBriefPreview format={data.format} showRate={false} />
           ) : (
             <Card>

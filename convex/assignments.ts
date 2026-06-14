@@ -139,33 +139,61 @@ export const listAssignments = adminQuery({
       .query("assignments")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
-    const [creators, formats, comptes] = await Promise.all([
-      ctx.db
-        .query("creators")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect(),
-      ctx.db
-        .query("formats")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect(),
-      ctx.db
-        .query("comptes")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect(),
-    ]);
+    const [creators, formats, comptes, campaigns, scriptBricks] =
+      await Promise.all([
+        ctx.db
+          .query("creators")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect(),
+        ctx.db
+          .query("formats")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect(),
+        ctx.db
+          .query("comptes")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect(),
+        ctx.db
+          .query("scriptCampaigns")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect(),
+        ctx.db
+          .query("scriptBricks")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect(),
+      ]);
     const creatorMap = new Map(creators.map((c) => [c._id, c.name]));
     const formatMap = new Map(formats.map((f) => [f._id, f.name]));
     const compteMap = new Map(comptes.map((c) => [c._id, c.handle]));
+    const campaignMap = new Map(campaigns.map((c) => [c._id, c.name]));
+    const brickMap = new Map(scriptBricks.map((b) => [b._id, b]));
     return assignments
       .sort((a, b) => b.createdAt - a.createdAt)
-      .map((a) => ({
-        ...a,
-        creatorName: creatorMap.get(a.creatorId) ?? "—",
-        formatName: formatMap.get(a.formatId) ?? "—",
-        accountHandle: a.accountId
-          ? (compteMap.get(a.accountId) ?? null)
-          : null,
-      }));
+      .map((a) => {
+        // S2 — résumé combo (ADMIN voit la décomposition ; le créateur, non).
+        let scriptCampaignName: string | null = null;
+        let comboSummary: string | null = null;
+        if (a.scriptCombo) {
+          scriptCampaignName =
+            campaignMap.get(a.scriptCombo.campaignId) ?? "—";
+          const hook = brickMap.get(a.scriptCombo.hookBrickId);
+          const corps = brickMap.get(a.scriptCombo.corpsBrickId);
+          const flux = brickMap.get(a.scriptCombo.fluxBrickId);
+          const cta = brickMap.get(a.scriptCombo.ctaBrickId);
+          comboSummary = `Tier ${hook?.tier ?? "?"} · ${corps?.label ?? "?"} · ${flux?.label ?? "?"} · ${cta?.label ?? "?"}`;
+        }
+        return {
+          ...a,
+          creatorName: creatorMap.get(a.creatorId) ?? "—",
+          formatName: a.formatId ? (formatMap.get(a.formatId) ?? "—") : null,
+          accountHandle: a.accountId
+            ? (compteMap.get(a.accountId) ?? null)
+            : null,
+          origin: (a.scriptCombo ? "script" : "format") as "script" | "format",
+          scriptCampaignName,
+          comboSummary,
+        };
+      });
   },
 });
 
@@ -226,7 +254,33 @@ export const validateAssignment = adminMutation({
     if (a.status !== "submitted") {
       throw new ConvexError("Seuls les assignments soumis peuvent être validés.");
     }
-    const format = await ctx.db.get(a.formatId);
+    const now = Date.now();
+    const dateLabel = new Date(a.submittedAt ?? now).toLocaleDateString("fr-FR", {
+      day: "2-digit",
+      month: "2-digit",
+    });
+
+    // ── Assignment SCRIPT (S2) : valide + accrue la base. La matérialisation
+    // d'une publication à partir des vraies briques est un chantier ULTÉRIEUR
+    // (hors S2) → aucune publication créée ici.
+    if (a.scriptCombo && a.formatId === undefined) {
+      await ctx.db.patch(id, { status: "validated" });
+      // ISOLATION : label NEUTRE — le créateur voit ses lineItems via
+      // getMyPayments ; ne JAMAIS y exposer le nom de campagne (signal de
+      // coordination masqué partout ailleurs côté créateur).
+      await accrueBaseLineItem(ctx, {
+        projectId: ctx.projectId,
+        creatorId: a.creatorId,
+        assignmentId: id,
+        label: `Vidéo — ${dateLabel}`,
+        amount: a.rateSnapshot.basePerPost,
+        now,
+      });
+      return { ok: true, alreadyValidated: false, publicationId: null };
+    }
+
+    // ── Assignment FORMAT (P7/P8) : matérialisation publication.
+    const format = a.formatId ? await ctx.db.get(a.formatId) : null;
     if (!format) throw new ConvexError("Format introuvable.");
 
     // 1. Matérialisation — sauf "custom" (workflow + paiement seulement) ou pub
@@ -271,11 +325,6 @@ export const validateAssignment = adminMutation({
     });
 
     // 3. Accrual de la lineItem de BASE (idempotent par assignmentId).
-    const now = Date.now();
-    const dateLabel = new Date(a.submittedAt ?? now).toLocaleDateString("fr-FR", {
-      day: "2-digit",
-      month: "2-digit",
-    });
     await accrueBaseLineItem(ctx, {
       projectId: ctx.projectId,
       creatorId: a.creatorId,
@@ -355,7 +404,7 @@ export const listValidatedForBonus = adminQuery({
         return {
           assignmentId: a._id,
           creatorName: creatorMap.get(a.creatorId) ?? "—",
-          formatName: formatMap.get(a.formatId) ?? "—",
+          formatName: a.formatId ? (formatMap.get(a.formatId) ?? "—") : "—",
           carouselId: pub?.carouselId ?? null,
           latestViews: pub?.vuesLatest ?? null,
           hasSnapshot: pub?.latestSnapshotAt !== undefined,
@@ -394,7 +443,7 @@ export const computeViewBonus = adminMutation({
     if (!Number.isFinite(views) || views < 0) {
       throw new ConvexError("Nombre de vues invalide.");
     }
-    const format = await ctx.db.get(a.formatId);
+    const format = a.formatId ? await ctx.db.get(a.formatId) : null;
     const earnings = computeEarnings(a.rateSnapshot, views);
     // bonus = part liée aux vues uniquement (la base est déjà créditée).
     const bonusAmount =
@@ -413,14 +462,34 @@ export const computeViewBonus = adminMutation({
 
 // ─── Créateur (isolé par ctx.creatorId) ──────────────────────────────────────
 
+/**
+ * Enrichit un assignment pour le CRÉATEUR. ISOLATION : on retire `scriptCombo`
+ * et `comboKey` (décomposition/brick ids/campagne) — le créateur ne reçoit
+ * QUE le script monté (`assembledScript`), jamais les briques ni le tier. Un
+ * assignment script s'affiche « Vidéo à tourner » (pas de type, pas de campagne).
+ */
 async function enrichForCreator(ctx: QueryCtx, a: Doc<"assignments">) {
-  const format = await ctx.db.get(a.formatId);
   const account = a.accountId ? await ctx.db.get(a.accountId) : null;
+  const { scriptCombo, comboKey, ...safe } = a;
+  void comboKey;
+  if (scriptCombo) {
+    return {
+      ...safe,
+      formatName: "Vidéo à tourner",
+      formatType: null as string | null,
+      accountHandle: account?.handle ?? null,
+      origin: "script" as const,
+      assembledScript: scriptCombo.assembledScript,
+    };
+  }
+  const format = a.formatId ? await ctx.db.get(a.formatId) : null;
   return {
-    ...a,
+    ...safe,
     formatName: format?.name ?? "—",
-    formatType: format?.type ?? "custom",
+    formatType: (format?.type ?? "custom") as string | null,
     accountHandle: account?.handle ?? null,
+    origin: "format" as const,
+    assembledScript: null as string | null,
   };
 }
 
@@ -439,19 +508,35 @@ export const listMyAssignments = creatorQuery({
   },
 });
 
-/** Une fiche assignment (brief complet + rateSnapshot). null si pas la mienne. */
+/**
+ * Fiche assignment côté créateur. null si pas la mienne. ISOLATION : `scriptCombo`
+ * et `comboKey` sont RETIRÉS de l'objet renvoyé — pour un assignment script, le
+ * créateur reçoit le script monté (`assembledScript`) et la rému, JAMAIS la
+ * décomposition (briques/ids/tiers/campagne).
+ */
 export const getMyAssignment = creatorQuery({
   args: { id: v.id("assignments") },
   handler: async (ctx, { id }) => {
     const a = await ctx.db.get(id);
     // Isolation : un assignment d'un autre créateur → introuvable.
     if (!a || a.creatorId !== ctx.creatorId) return null;
-    const format = await ctx.db.get(a.formatId);
     const account = a.accountId ? await ctx.db.get(a.accountId) : null;
+    const { scriptCombo, comboKey, ...safe } = a;
+    void comboKey;
+    if (scriptCombo) {
+      return {
+        assignment: safe,
+        format: null,
+        assembledScript: scriptCombo.assembledScript,
+        accountHandle: account?.handle ?? null,
+      };
+    }
+    const format = a.formatId ? await ctx.db.get(a.formatId) : null;
     const brief = format ? await withResolvedExamples(ctx, format) : null;
     return {
-      assignment: a,
+      assignment: safe,
       format: brief,
+      assembledScript: null as string | null,
       accountHandle: account?.handle ?? null,
     };
   },
@@ -494,23 +579,25 @@ export const submitAssignment = creatorMutation({
     }
     const platform = detectPlatform(trimmed);
 
-    // P8 — garde plateforme à la SOUMISSION pour les formats matérialisables
+    // P8 — garde plateforme à la SOUMISSION pour les FORMATS matérialisables
     // (non "custom") : le post deviendra une publication à la validation, donc
     // la cohérence format/plateforme doit être garantie dès ici (carrousel
-    // interdit sur YouTube ; plateforme reconnue obligatoire pour pouvoir
-    // matérialiser). Les formats "custom" (jamais matérialisés) ne sont pas
-    // gardés — n'importe quelle URL http(s) passe.
-    const format = await ctx.db.get(a.formatId);
-    if (format && format.type !== "custom") {
-      if (platform === undefined) {
-        throw new ConvexError(
-          "Plateforme du lien non reconnue (TikTok, Instagram ou YouTube attendu).",
-        );
-      }
-      if (!isFormatAllowedOnPlatform(format.type, platform)) {
-        throw new ConvexError(
-          `Le format « ${format.name} » (${format.type}) ne peut pas être publié sur ${platform}.`,
-        );
+    // interdit sur YouTube ; plateforme reconnue obligatoire). S2 — un
+    // assignment SCRIPT (sans formatId) n'est pas matérialisé → simple URL
+    // http(s), pas de garde plateforme.
+    if (a.formatId) {
+      const format = await ctx.db.get(a.formatId);
+      if (format && format.type !== "custom") {
+        if (platform === undefined) {
+          throw new ConvexError(
+            "Plateforme du lien non reconnue (TikTok, Instagram ou YouTube attendu).",
+          );
+        }
+        if (!isFormatAllowedOnPlatform(format.type, platform)) {
+          throw new ConvexError(
+            `Le format « ${format.name} » (${format.type}) ne peut pas être publié sur ${platform}.`,
+          );
+        }
       }
     }
 
@@ -559,7 +646,7 @@ export const cleanupTestAssignments = e2eMutation({
     let deleted = 0;
     for (const a of all) {
       const creator = await ctx.db.get(a.creatorId);
-      const format = await ctx.db.get(a.formatId);
+      const format = a.formatId ? await ctx.db.get(a.formatId) : null;
       const isTest =
         (creator && creator.name.startsWith("[E2E_TEST]")) ||
         (creator && creator.email.includes("e2e-creator")) ||

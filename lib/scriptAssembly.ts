@@ -30,12 +30,26 @@ export interface AssembleInput {
   demoBlock: string;
 }
 
+export interface AssembleOptions {
+  /**
+   * true (défaut) → chaque section préfixée par son titre `## Hook`/`## Corps`…
+   * (aperçu ADMIN, on veut voir la structure). false → script NATUREL, sans
+   * étiquettes de type ni titres (rendu CRÉATEUR : il lit un script, pas un
+   * document à sections nommées).
+   */
+  labels?: boolean;
+}
+
 /**
- * Monte le script final dans l'ordre hook → corps → flux → cta → socle démo,
- * en markdown lisible (un titre de section `##` par brique). C'est le rendu
- * qu'un créateur verra en S2 (script fini, sans les briques séparées visibles).
+ * Monte le script final dans l'ordre hook → corps → flux → cta → socle démo.
+ * `labels: true` (défaut) = titres de section visibles (aperçu admin). `labels:
+ * false` = enchaînement naturel des textes (ce que voit le créateur).
  */
-export function assembleScript(input: AssembleInput): string {
+export function assembleScript(
+  input: AssembleInput,
+  options: AssembleOptions = {},
+): string {
+  const labels = options.labels ?? true;
   const sections: Array<[string, string]> = [
     ["Hook", input.hook],
     ["Corps", input.corps],
@@ -43,9 +57,13 @@ export function assembleScript(input: AssembleInput): string {
     ["CTA", input.cta],
     ["Démo", input.demoBlock],
   ];
-  return sections
-    .map(([title, body]) => `## ${title}\n\n${body.trim()}`)
-    .join("\n\n");
+  if (labels) {
+    return sections
+      .map(([title, body]) => `## ${title}\n\n${body.trim()}`)
+      .join("\n\n");
+  }
+  // Script naturel : juste les textes enchaînés, aucun libellé de brique.
+  return sections.map(([, body]) => body.trim()).join("\n\n");
 }
 
 /** Forme minimale d'une brique pour le décompte (kind + activité). */

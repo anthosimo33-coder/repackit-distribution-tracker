@@ -43,6 +43,7 @@ import {
   DownloadIcon,
   EyeIcon,
   Loader2Icon,
+  SendIcon,
 } from "lucide-react";
 import {
   assembleScript,
@@ -52,6 +53,7 @@ import {
   type ScriptKind,
   type ScriptTier,
 } from "@/lib/scriptAssembly";
+import { AssignScriptCampaignDialog } from "@/components/admin/AssignScriptCampaignDialog";
 import type { FunctionReturnType } from "convex/server";
 
 type CampaignDetail = NonNullable<
@@ -69,6 +71,7 @@ export default function ScriptCampaignDetailPage() {
 
   const [importOpen, setImportOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [assignOpen, setAssignOpen] = useState(false);
 
   if (campaign === undefined) {
     return <Skeleton className="h-96 w-full" />;
@@ -126,11 +129,19 @@ export default function ScriptCampaignDetailPage() {
             Importer des hooks
           </Button>
           <Button
+            variant="outline"
             onClick={() => setPreviewOpen(true)}
             disabled={combos.total === 0}
           >
             <EyeIcon className="mr-2 size-4" />
             Aperçu d&apos;un script
+          </Button>
+          <Button
+            onClick={() => setAssignOpen(true)}
+            disabled={combos.total === 0 || campaign.status === "archived"}
+          >
+            <SendIcon className="mr-2 size-4" />
+            Assigner cette campagne
           </Button>
         </div>
       </header>
@@ -155,6 +166,12 @@ export default function ScriptCampaignDetailPage() {
         open={previewOpen}
         onOpenChange={setPreviewOpen}
         campaign={campaign}
+      />
+      <AssignScriptCampaignDialog
+        open={assignOpen}
+        onOpenChange={setAssignOpen}
+        campaignId={campaign._id}
+        campaignName={campaign.name}
       />
     </div>
   );
@@ -672,8 +689,8 @@ function PreviewDialog({
             const actives = activeByKind(kind);
             const cur = resolve(kind);
             return (
-              <div key={kind} className="space-y-1">
-                <Label className="text-xs text-slate-500">
+              <div key={kind} className="min-w-0 space-y-1">
+                <Label className="block truncate text-xs text-slate-500">
                   {KIND_LABELS[kind]}
                 </Label>
                 <Select
@@ -682,8 +699,12 @@ function PreviewDialog({
                     v && setPicks((p) => ({ ...p, [kind]: v }))
                   }
                 >
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue>{cur?.label ?? "—"}</SelectValue>
+                  <SelectTrigger className="h-8 w-full min-w-0 text-xs">
+                    <SelectValue>
+                      <span className="block truncate">
+                        {cur?.label ?? "—"}
+                      </span>
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {actives.map((b) => (

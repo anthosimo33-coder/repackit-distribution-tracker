@@ -57,7 +57,11 @@ export default function AssignmentsPage() {
   }, [assignments]);
   const formats = useMemo(() => {
     const m = new Map<string, string>();
-    for (const a of assignments ?? []) m.set(a.formatId, a.formatName);
+    // S2 — seuls les assignments FORMAT alimentent le filtre format (les
+    // assignments script n'ont pas de formatId).
+    for (const a of assignments ?? []) {
+      if (a.formatId && a.formatName) m.set(a.formatId, a.formatName);
+    }
     return [...m.entries()].sort((x, y) => x[1].localeCompare(y[1], "fr"));
   }, [assignments]);
 
@@ -186,7 +190,18 @@ export default function AssignmentsPage() {
                         {a.creatorName}
                       </TableCell>
                       <TableCell className="text-slate-700">
-                        {a.formatName}
+                        {a.origin === "script" ? (
+                          <div className="space-y-0.5">
+                            <div className="font-medium text-slate-900">
+                              {a.scriptCampaignName}
+                            </div>
+                            <div className="text-xs text-slate-500">
+                              {a.comboSummary}
+                            </div>
+                          </div>
+                        ) : (
+                          a.formatName
+                        )}
                       </TableCell>
                       <TableCell className="font-mono text-sm text-slate-500">
                         {a.accountHandle ?? "—"}

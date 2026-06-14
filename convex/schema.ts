@@ -607,7 +607,25 @@ export default defineSchema({
   assignments: defineTable({
     projectId: v.id("projects"),
     creatorId: v.id("creators"),
-    formatId: v.id("formats"),
+    // P7 : assignment "format". S2 : optional — un assignment a SOIT un formatId
+    // SOIT un scriptCombo (assignment "script"). Champ assoupli → 0 migration.
+    formatId: v.optional(v.id("formats")),
+    // S2 — combo de script CAPTURÉ à l'assignation. assembledScript FIGÉ (comme
+    // rateSnapshot) : ne bouge pas si une brick est éditée ensuite.
+    scriptCombo: v.optional(
+      v.object({
+        campaignId: v.id("scriptCampaigns"),
+        hookBrickId: v.id("scriptBricks"),
+        corpsBrickId: v.id("scriptBricks"),
+        fluxBrickId: v.id("scriptBricks"),
+        ctaBrickId: v.id("scriptBricks"),
+        assembledScript: v.string(),
+      }),
+    ),
+    // S2 — signature top-level du combo "hook:corps:flux:cta" (Convex n'indexe
+    // pas les champs imbriqués) → index by_creator_combo pour l'anti-coordination
+    // (un créateur ne reçoit jamais deux fois le même combo).
+    comboKey: v.optional(v.string()),
     accountId: v.optional(v.id("comptes")),
     dueDate: v.number(),
     status: v.union(
@@ -642,7 +660,9 @@ export default defineSchema({
     .index("by_project", ["projectId"])
     .index("by_creator", ["creatorId"])
     .index("by_format", ["formatId"])
-    .index("by_project_status", ["projectId", "status"]),
+    .index("by_project_status", ["projectId", "status"])
+    // S2 — anti-coordination : (créateur, signature de combo).
+    .index("by_creator_combo", ["creatorId", "comboKey"]),
 
   // ─── P7 — « Comment ça marche » (guide projet, éditable admin) ────────────
   // Un seul guide markdown par projet (le SYSTÈME, pas un format). Lu par les
@@ -724,5 +744,7 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_campaign", ["campaignId"])
-    .index("by_campaign_kind", ["campaignId", "kind"]),
+    .index("by_campaign_kind", ["campaignId", "kind"])
+    // S2 — résumé combo côté admin (charge les bricks du projet pour les labels).
+    .index("by_project", ["projectId"]),
 });

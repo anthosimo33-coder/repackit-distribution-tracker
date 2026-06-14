@@ -45,6 +45,100 @@ async function requireCampaign(
   return c;
 }
 
+// ─── Réplique serveur de lib/scriptCombos + lib/scriptAssembly (règle A6) ─────
+// convex/ ne peut pas importer lib/ → la génération/sélection des combos est
+// dupliquée ici pour l'anti-coordination SERVEUR. DOIT rester aligné sur lib.
+// Le créateur lit un script naturel → assemblage SANS étiquettes de section.
+type ServerCombo = {
+  hookBrickId: Id<"scriptBricks">;
+  corpsBrickId: Id<"scriptBricks">;
+  fluxBrickId: Id<"scriptBricks">;
+  ctaBrickId: Id<"scriptBricks">;
+  assembledScript: string;
+};
+
+function assembleNoLabels(p: {
+  hook: string;
+  corps: string;
+  flux: string;
+  cta: string;
+  demoBlock: string;
+}): string {
+  return [p.hook, p.corps, p.flux, p.cta, p.demoBlock]
+    .map((s) => s.trim())
+    .join("\n\n");
+}
+
+function comboKeyOf(c: {
+  hookBrickId: string;
+  corpsBrickId: string;
+  fluxBrickId: string;
+  ctaBrickId: string;
+}): string {
+  return `${c.hookBrickId}:${c.corpsBrickId}:${c.fluxBrickId}:${c.ctaBrickId}`;
+}
+
+function generateCombosServer(
+  bricks: Doc<"scriptBricks">[],
+  demoBlock: string,
+): ServerCombo[] {
+  const of = (k: string) => bricks.filter((b) => b.active && b.kind === k);
+  const out: ServerCombo[] = [];
+  for (const h of of("hook")) {
+    for (const c of of("corps")) {
+      for (const f of of("flux")) {
+        for (const t of of("cta")) {
+          out.push({
+            hookBrickId: h._id,
+            corpsBrickId: c._id,
+            fluxBrickId: f._id,
+            ctaBrickId: t._id,
+            assembledScript: assembleNoLabels({
+              hook: h.content,
+              corps: c.content,
+              flux: f.content,
+              cta: t.content,
+              demoBlock,
+            }),
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** Round-robin par hook (diversité), exclut les combos déjà reçus, ≤ n. */
+function pickCombosServer(
+  all: ServerCombo[],
+  usedKeys: Set<string>,
+  n: number,
+): ServerCombo[] {
+  if (n <= 0) return [];
+  const available = all.filter((c) => !usedKeys.has(comboKeyOf(c)));
+  const buckets = new Map<string, ServerCombo[]>();
+  for (const c of available) {
+    const b = buckets.get(c.hookBrickId);
+    if (b) b.push(c);
+    else buckets.set(c.hookBrickId, [c]);
+  }
+  const order = [...buckets.values()];
+  const picked: ServerCombo[] = [];
+  let progressed = true;
+  while (picked.length < n && progressed) {
+    progressed = false;
+    for (const bucket of order) {
+      if (picked.length >= n) break;
+      const next = bucket.shift();
+      if (next) {
+        picked.push(next);
+        progressed = true;
+      }
+    }
+  }
+  return picked;
+}
+
 // ─── Queries ─────────────────────────────────────────────────────────────────
 
 /** Campagnes du projet (actives d'abord, puis par nom). */
@@ -126,15 +220,23 @@ export const updateCampaign = adminMutation({
 });
 
 /**
- * Suppression d'une campagne (cascade ses bricks).
- * S2 : à refuser si des assignments référencent la campagne (le champ de
- * référence sera ajouté en S2). Pour l'instant aucune table ne la référence →
- * suppression autorisée. Côté UI, l'archivage reste l'action douce préférée.
+ * Suppression d'une campagne (cascade ses bricks). S2 : REFUSÉE si la campagne
+ * est référencée par des assignments (le combo figé doit rester traçable) →
+ * archiver plutôt que supprimer.
  */
 export const deleteCampaign = adminMutation({
   args: { id: v.id("scriptCampaigns") },
   handler: async (ctx, { id }) => {
     await requireCampaign(ctx, id, ctx.projectId);
+    const projectAssignments = await ctx.db
+      .query("assignments")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    if (projectAssignments.some((a) => a.scriptCombo?.campaignId === id)) {
+      throw new ConvexError(
+        "Campagne référencée par des assignments : archive-la plutôt que de la supprimer.",
+      );
+    }
     const bricks = await ctx.db
       .query("scriptBricks")
       .withIndex("by_campaign", (q) => q.eq("campaignId", id))
@@ -250,6 +352,145 @@ export const importHooks = adminMutation({
       imported++;
     }
     return { imported };
+  },
+});
+
+// ─── Assignation en masse (S2) — anti-coordination par créateur ──────────────
+
+const RATE_MODEL = v.object({
+  basePerPost: v.number(),
+  viewBonusPer1k: v.optional(v.number()),
+});
+
+/**
+ * Assigne une campagne à N créateurs × M vidéos. ANTI-COORDINATION : pour chaque
+ * créateur, on pioche M combos DISTINCTS jamais déjà reçus par CE créateur sur
+ * CETTE campagne (diversité de hook maximisée). Deux créateurs PEUVENT partager
+ * un combo (anti-coordination par-créateur, pas globale). Chaque assignment
+ * porte son scriptCombo (assembledScript FIGÉ) + rateSnapshot figé. Épuisement
+ * (créateur ayant déjà reçu tous les combos dispo) signalé via `shortages`.
+ */
+export const assignScriptCampaign = adminMutation({
+  args: {
+    campaignId: v.id("scriptCampaigns"),
+    creatorIds: v.array(v.id("creators")),
+    videosPerCreator: v.number(),
+    dueDate: v.number(),
+    rateModel: RATE_MODEL,
+    tier: v.optional(TIER),
+  },
+  handler: async (ctx, args) => {
+    const campaign = await requireCampaign(ctx, args.campaignId, ctx.projectId);
+    if (campaign.status === "archived") {
+      throw new ConvexError("Campagne archivée : réactive-la pour l'assigner.");
+    }
+    if (
+      !Number.isInteger(args.videosPerCreator) ||
+      args.videosPerCreator < 1 ||
+      args.videosPerCreator > 50
+    ) {
+      throw new ConvexError("Nombre de vidéos par créateur invalide (1–50).");
+    }
+    if (args.creatorIds.length === 0) {
+      throw new ConvexError("Sélectionne au moins un créateur.");
+    }
+    if (
+      !Number.isFinite(args.rateModel.basePerPost) ||
+      args.rateModel.basePerPost < 0
+    ) {
+      throw new ConvexError("Le tarif de base doit être un nombre ≥ 0.");
+    }
+    if (
+      args.rateModel.viewBonusPer1k !== undefined &&
+      (!Number.isFinite(args.rateModel.viewBonusPer1k) ||
+        args.rateModel.viewBonusPer1k < 0)
+    ) {
+      throw new ConvexError("Le bonus aux vues doit être un nombre ≥ 0.");
+    }
+
+    // Bricks actives de la campagne (+ filtre tier sur les hooks si demandé).
+    const allBricks = await ctx.db
+      .query("scriptBricks")
+      .withIndex("by_campaign", (q) => q.eq("campaignId", args.campaignId))
+      .collect();
+    const bricks =
+      args.tier === undefined
+        ? allBricks
+        : allBricks.filter((b) => b.kind !== "hook" || b.tier === args.tier);
+    const combos = generateCombosServer(bricks, campaign.demoBlock);
+    if (combos.length === 0) {
+      throw new ConvexError(
+        "Aucun combo disponible (un type de brique manque, ou aucun hook actif pour ce tier).",
+      );
+    }
+
+    // rateModel figé sur chaque assignment (comme rateSnapshot de format).
+    const rateSnapshot = {
+      basePerPost: args.rateModel.basePerPost,
+      viewBonusPer1k: args.rateModel.viewBonusPer1k,
+    };
+    const now = Date.now();
+    let created = 0;
+    const shortages: { name: string; requested: number; assigned: number }[] =
+      [];
+
+    for (const creatorId of args.creatorIds) {
+      const creator = await ctx.db.get(creatorId);
+      if (!creator || creator.projectId !== ctx.projectId) {
+        throw new ConvexError("Créateur introuvable dans le projet.");
+      }
+      if (
+        creator.userId === undefined ||
+        (creator.status !== "active" && creator.status !== "onboarding")
+      ) {
+        throw new ConvexError(
+          `Créateur non assignable (${creator.name} : non onboardé ou inactif).`,
+        );
+      }
+
+      // Anti-coordination : combos déjà reçus par CE créateur sur CETTE campagne.
+      const existing = await ctx.db
+        .query("assignments")
+        .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+        .collect();
+      const usedKeys = new Set(
+        existing
+          .filter(
+            (a) => a.scriptCombo?.campaignId === args.campaignId && a.comboKey,
+          )
+          .map((a) => a.comboKey as string),
+      );
+      const picked = pickCombosServer(combos, usedKeys, args.videosPerCreator);
+      if (picked.length < args.videosPerCreator) {
+        shortages.push({
+          name: creator.name,
+          requested: args.videosPerCreator,
+          assigned: picked.length,
+        });
+      }
+
+      for (const combo of picked) {
+        await ctx.db.insert("assignments", {
+          projectId: ctx.projectId,
+          creatorId,
+          scriptCombo: {
+            campaignId: args.campaignId,
+            hookBrickId: combo.hookBrickId,
+            corpsBrickId: combo.corpsBrickId,
+            fluxBrickId: combo.fluxBrickId,
+            ctaBrickId: combo.ctaBrickId,
+            assembledScript: combo.assembledScript,
+          },
+          comboKey: comboKeyOf(combo),
+          dueDate: args.dueDate,
+          status: "todo",
+          rateSnapshot,
+          createdAt: now,
+        });
+        created++;
+      }
+    }
+    return { created, shortages, totalCombos: combos.length };
   },
 });
 
