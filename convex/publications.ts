@@ -407,6 +407,18 @@ export const createFromAssignment = internalMutation({
     compte: v.string(),
     datePubli: v.number(),
     postUrl: v.string(),
+    // S3 — combo de script (posts issus d'un assignment de SCRIPT uniquement).
+    // undefined pour les assignments de FORMAT → champ absent sur la publication.
+    scriptCombo: v.optional(
+      v.object({
+        campaignId: v.id("scriptCampaigns"),
+        hookBrickId: v.id("scriptBricks"),
+        corpsBrickId: v.id("scriptBricks"),
+        fluxBrickId: v.id("scriptBricks"),
+        ctaBrickId: v.id("scriptBricks"),
+        comboKey: v.string(),
+      }),
+    ),
   },
   handler: async (ctx, args) => {
     // Defense-in-depth : carousel interdit YouTube (la garde primaire est à la
@@ -449,6 +461,8 @@ export const createFromAssignment = internalMutation({
       // postUrl non vide → publication "publiée" de plein droit (KPIs, verdicts,
       // snapshots s'appliquent).
       postUrl: args.postUrl,
+      // S3 — undefined (format) → champ omis ; objet (script) → join analytics.
+      scriptCombo: args.scriptCombo,
     });
     return id;
   },
