@@ -46,3 +46,13 @@ playwright-report/
 playwright/.cache/
 # Session e2e (storageState avec tokens Convex Auth — jamais commitée)
 e2e/.auth/
+
+# Doublons fantômes du guide warmup — RESSUSCITÉS par la synchro iCloud du
+# dossier ~/Desktop (le repo y vit). Le guide warmup a été DÉPLACÉ vers
+# components/warmup/ (chantier A) ; iCloud restaure parfois ces chemins
+# supprimés en untracked. On les ignore pour ne JAMAIS les re-committer (cela
+# annulerait silencieusement le refactor). MITIGATION — la cause racine est le
+# repo dans un dossier iCloud : le sortir de ~/Desktop/~/Documents (ou
+# désactiver « Bureau & Documents » dans iCloud) est le vrai correctif.
+/components/comptes/WarmupGuideAccordion.tsx
+/components/comptes/WarmupGuideButton.tsx
