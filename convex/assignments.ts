@@ -13,9 +13,10 @@ import {
   computeEarnings,
 } from "./payments";
 import { internal } from "./_generated/api";
+import { internalMutation } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import type { QueryCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 /**
  * P7 Portail créateur — assignments. ISOLATION serveur non négociable : toutes
@@ -212,6 +213,62 @@ export const countSubmitted = adminQuery({
 });
 
 /**
+ * S3 — Matérialise la publication d'un assignment de SCRIPT validé et y RACCORDE
+ * le combo (scriptCombo + comboKey), pour que les snapshots de vues J+X de cette
+ * publication se joignent aux briques (analytics par variable).
+ *
+ * Un script = une vidéo verticale (hook/corps/flux/cta + socle démo) → mediaType
+ * "short" (autorisé sur les 3 plateformes). Exige une plateforme détectée + une
+ * URL soumise, comme la branche FORMAT (sans plateforme, pas de tracking de vues
+ * possible). Compte = handle du compte lié, sinon nom du créateur.
+ *
+ * Type de retour ANNOTÉ (appelle ctx.runMutation(internal.*) → casse le cycle
+ * d'inférence TS7022). NE PAS retirer.
+ */
+async function materializeScriptPublication(
+  ctx: MutationCtx,
+  a: Doc<"assignments">,
+  projectId: Id<"projects">,
+): Promise<Id<"publications">> {
+  if (!a.scriptCombo || a.comboKey === undefined) {
+    throw new ConvexError("Combo de script manquant — matérialisation impossible.");
+  }
+  const plateforme = a.submittedPlatform;
+  if (plateforme === undefined) {
+    throw new ConvexError(
+      "Plateforme du post non détectée — impossible de matérialiser la publication.",
+    );
+  }
+  if (a.submittedUrl === undefined) {
+    throw new ConvexError("URL soumise manquante.");
+  }
+  let compte: string;
+  if (a.accountId) {
+    const account = await ctx.db.get(a.accountId);
+    compte = account?.handle ?? "—";
+  } else {
+    const creator = await ctx.db.get(a.creatorId);
+    compte = creator?.name ?? "—";
+  }
+  return await ctx.runMutation(internal.publications.createFromAssignment, {
+    projectId,
+    mediaType: "short",
+    plateforme,
+    compte,
+    datePubli: a.submittedAt ?? Date.now(),
+    postUrl: a.submittedUrl,
+    scriptCombo: {
+      campaignId: a.scriptCombo.campaignId,
+      hookBrickId: a.scriptCombo.hookBrickId,
+      corpsBrickId: a.scriptCombo.corpsBrickId,
+      fluxBrickId: a.scriptCombo.fluxBrickId,
+      ctaBrickId: a.scriptCombo.ctaBrickId,
+      comboKey: a.comboKey,
+    },
+  });
+}
+
+/**
  * P8 — VALIDATION (logique d'argent, IDEMPOTENTE). Valider un post soumis fait,
  * en UNE transaction :
  *   1. matérialise une publication de plein droit (sauf format "custom") via
@@ -260,11 +317,17 @@ export const validateAssignment = adminMutation({
       month: "2-digit",
     });
 
-    // ── Assignment SCRIPT (S2) : valide + accrue la base. La matérialisation
-    // d'une publication à partir des vraies briques est un chantier ULTÉRIEUR
-    // (hors S2) → aucune publication créée ici.
+    // ── Assignment SCRIPT (S2/S3) : matérialise la publication AVEC son combo
+    // (raccord analytics S3), pose publicationId + status, accrue la base.
     if (a.scriptCombo && a.formatId === undefined) {
-      await ctx.db.patch(id, { status: "validated" });
+      let publicationId: Id<"publications"> | null = a.publicationId ?? null;
+      if (publicationId === null) {
+        publicationId = await materializeScriptPublication(ctx, a, ctx.projectId);
+      }
+      await ctx.db.patch(id, {
+        status: "validated",
+        publicationId: publicationId ?? undefined,
+      });
       // ISOLATION : label NEUTRE — le créateur voit ses lineItems via
       // getMyPayments ; ne JAMAIS y exposer le nom de campagne (signal de
       // coordination masqué partout ailleurs côté créateur).
@@ -276,7 +339,7 @@ export const validateAssignment = adminMutation({
         amount: a.rateSnapshot.basePerPost,
         now,
       });
-      return { ok: true, alreadyValidated: false, publicationId: null };
+      return { ok: true, alreadyValidated: false, publicationId };
     }
 
     // ── Assignment FORMAT (P7/P8) : matérialisation publication.
@@ -335,6 +398,83 @@ export const validateAssignment = adminMutation({
     });
 
     return { ok: true, alreadyValidated: false, publicationId };
+  },
+});
+
+/**
+ * S3 — BACKFILL idempotent du raccord combo ↔ publication. À lancer une fois si
+ * des posts de SCRIPT ont été validés AVANT S3 (sous S2 : aucune publication
+ * n'était matérialisée → publicationId absent). Pour chaque assignment de script
+ * validé :
+ *   - publication absente (cas S2)  → matérialise + pose publicationId + combo ;
+ *   - publication présente sans combo → patche scriptCombo ;
+ *   - publication présente avec combo → no-op (idempotent).
+ * Un assignment non matérialisable (plateforme/URL manquante) est compté en
+ * `skipped` sans interrompre le reste.
+ *
+ * Runnable : `npx convex run assignments:backfillPublicationCombos` (dev / --prod).
+ * Type de retour ANNOTÉ (ctx.runMutation(internal.*) via le helper → TS7022).
+ */
+export const backfillPublicationCombos = internalMutation({
+  args: {},
+  handler: async (
+    ctx,
+  ): Promise<{
+    materialized: number;
+    attached: number;
+    alreadyOk: number;
+    skipped: number;
+  }> => {
+    const assignments = await ctx.db.query("assignments").collect();
+    let materialized = 0;
+    let attached = 0;
+    let alreadyOk = 0;
+    let skipped = 0;
+    for (const a of assignments) {
+      // Cible : assignments de SCRIPT validés (ou payés) uniquement.
+      if (!a.scriptCombo || a.formatId !== undefined) continue;
+      if (a.status !== "validated" && a.status !== "paid") continue;
+      if (a.comboKey === undefined) {
+        skipped++;
+        continue;
+      }
+      const combo = {
+        campaignId: a.scriptCombo.campaignId,
+        hookBrickId: a.scriptCombo.hookBrickId,
+        corpsBrickId: a.scriptCombo.corpsBrickId,
+        fluxBrickId: a.scriptCombo.fluxBrickId,
+        ctaBrickId: a.scriptCombo.ctaBrickId,
+        comboKey: a.comboKey,
+      };
+      if (a.publicationId === undefined) {
+        // Cas S2 : pas de publication. La matérialiser rétroactivement exige une
+        // plateforme + URL soumise ; sinon on skip proprement.
+        if (a.submittedPlatform === undefined || a.submittedUrl === undefined) {
+          skipped++;
+          continue;
+        }
+        const publicationId = await materializeScriptPublication(
+          ctx,
+          a,
+          a.projectId,
+        );
+        await ctx.db.patch(a._id, { publicationId });
+        materialized++;
+        continue;
+      }
+      const pub = await ctx.db.get(a.publicationId);
+      if (!pub) {
+        skipped++;
+        continue;
+      }
+      if (pub.scriptCombo !== undefined) {
+        alreadyOk++;
+        continue;
+      }
+      await ctx.db.patch(a.publicationId, { scriptCombo: combo });
+      attached++;
+    }
+    return { materialized, attached, alreadyOk, skipped };
   },
 });
 

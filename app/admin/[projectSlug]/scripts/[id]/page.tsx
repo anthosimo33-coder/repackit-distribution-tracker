@@ -11,7 +11,7 @@ import { useProjectPath } from "@/components/project/ProjectProvider";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -44,6 +44,7 @@ import {
   EyeIcon,
   Loader2Icon,
   SendIcon,
+  BarChart3Icon,
 } from "lucide-react";
 import {
   assembleScript,
@@ -124,6 +125,13 @@ export default function ScriptCampaignDetailPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={projectPath(`/scripts/${campaign._id}/analytics`)}
+            className={buttonVariants({ variant: "outline" })}
+          >
+            <BarChart3Icon className="mr-2 size-4" />
+            Analytics
+          </Link>
           <Button variant="outline" onClick={() => setImportOpen(true)}>
             <DownloadIcon className="mr-2 size-4" />
             Importer des hooks

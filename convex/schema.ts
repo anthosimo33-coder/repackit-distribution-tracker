@@ -215,6 +215,27 @@ export default defineSchema({
     // (modification possible 1 fois), true = déjà modifié une fois (lecture
     // seule désormais). Cf updatePublishedAccount.
     accountModified: v.optional(v.boolean()),
+    // ─── S3 — Raccord combo de script ↔ publication ────────────────────────
+    // Copié depuis assignment.scriptCombo + comboKey À LA MATÉRIALISATION d'un
+    // post de SCRIPT validé (validateAssignment, branche script). C'EST le lien
+    // qui permet de joindre les vues (metricSnapshots de cette publication) aux
+    // briques du combo → analytics par variable (convex/scriptAnalytics.ts).
+    // Absent sur toute publication NON issue d'un script (interne, format) →
+    // champ optionnel, 0 migration. Pas d'assembledScript ici (il reste figé
+    // sur l'assignment) : seules les ids + comboKey + campaignId servent au join.
+    // Convex n'indexe pas les champs imbriqués → le filtrage par campagne se
+    // fait en mémoire après collect by_project (cf scriptAnalytics, idiome
+    // identique à dashboard/aggregateTimeseries).
+    scriptCombo: v.optional(
+      v.object({
+        campaignId: v.id("scriptCampaigns"),
+        hookBrickId: v.id("scriptBricks"),
+        corpsBrickId: v.id("scriptBricks"),
+        fluxBrickId: v.id("scriptBricks"),
+        ctaBrickId: v.id("scriptBricks"),
+        comboKey: v.string(),
+      }),
+    ),
     // ─── Refactor multi-snapshots — valeurs dénormalisées "latest known" ───
     // Copie du snapshot le plus récent (capturedAt max) maintenue par
     // recomputeLatestMetrics à chaque create/update/delete de metricSnapshot.
