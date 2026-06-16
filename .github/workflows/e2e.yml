@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: [main]
 
+# Le déploiement Convex de test (laudable-viper-831) est PARTAGÉ entre toutes les
+# PR (pas éphémère). On SÉRIALISE les runs e2e : un seul à la fois pousse son
+# code puis teste. Sans ça, une 2e PR qui démarre écraserait le Convex déployé
+# par la 1re pendant que celle-ci teste encore (course → faux rouges).
+# cancel-in-progress: false = on ne tue pas le run en cours, le suivant attend.
+concurrency:
+  group: e2e-convex-test
+  cancel-in-progress: false
+
 jobs:
   test:
     timeout-minutes: 15
@@ -25,6 +34,18 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # Pousse schéma + fonctions Convex de LA BRANCHE sur le déploiement de TEST
+      # AVANT le build Next et Playwright → chaque PR teste SON propre code, plus
+      # un Convex périmé (fin des déploiements manuels). La deploy key détermine
+      # la cible : CONVEX_TEST_DEPLOY_KEY est scopée sur le MÊME déploiement de
+      # test (laudable-viper-831) que l'URL CONVEX_TEST_URL interrogée ensuite —
+      # surtout PAS la prod. Placé tôt (avant browsers/build) pour échouer vite
+      # si la clé manque ou si le code Convex ne compile pas.
+      - name: Deploy Convex (test)
+        run: npx convex deploy
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_TEST_DEPLOY_KEY }}
 
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
