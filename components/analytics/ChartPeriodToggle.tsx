@@ -40,7 +40,7 @@ export function ChartPeriodToggle({
           className={cn(
             "rounded px-3 py-1 text-xs font-medium transition-colors",
             value === opt.value
-              ? "bg-slate-900 text-white"
+              ? "bg-primary text-primary-foreground"
               : "text-slate-600 hover:text-slate-900",
           )}
         >

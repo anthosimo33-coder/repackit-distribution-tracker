@@ -38,21 +38,21 @@ test.describe.skip("Tracker — presets de filtres (skip jusqu'à Convex deploy 
     // a laissé un orphelin. createPreset refuse les noms dupliqués.
     const presetName = `[E2E_TEST] preset-${Date.now()}`;
 
-    // 1. Changer 2 filtres pour avoir quelque chose à sauvegarder. Batch B :
-    //    le filtre top-level Format (mediaType) disparaît — on couvre à la
-    //    place Plateforme + Mécanique (multi-select). Save/reload couvre
-    //    désormais un single-select + un multi-select sur la page format.
+    // 1. Changer 2 filtres pour avoir quelque chose à sauvegarder. P10 — le
+    //    filtre Mécanique a été retiré de l'UI ; on couvre désormais
+    //    Plateforme (single-select) + Format (multi-select), tous deux
+    //    toujours présents sur la page carrousels.
     const plateformeWrapper = plateformeLabel.locator("xpath=..");
     await plateformeWrapper.getByRole("combobox").click();
     await page.getByRole("option", { name: "TikTok" }).click();
 
-    const mecaniqueLabel = page
+    const formatLabel = page
       .locator("label")
-      .filter({ hasText: /^Mécanique$/ })
+      .filter({ hasText: /^Format$/ })
       .first();
-    const mecaniqueWrapper = mecaniqueLabel.locator("xpath=..");
-    await mecaniqueWrapper.getByRole("combobox").click();
-    await page.getByRole("option", { name: "Erreur" }).click();
+    const formatWrapper = formatLabel.locator("xpath=..");
+    await formatWrapper.getByRole("combobox").click();
+    await page.getByRole("option", { name: "A", exact: true }).click();
     // Multi-select reste ouvert volontairement — Escape pour libérer le DOM.
     await page.keyboard.press("Escape");
 
@@ -92,13 +92,11 @@ test.describe.skip("Tracker — presets de filtres (skip jusqu'à Convex deploy 
     // La popover se ferme et le trigger reflète à nouveau le preset.
     await expect(presetTrigger).toContainText(presetName);
 
-    // 7. Vérifier que les filtres Plateforme et Mécanique sont restaurés.
+    // 7. Vérifier que les filtres Plateforme et Format sont restaurés.
     await expect(plateformeWrapper.getByRole("combobox")).toContainText(
       "TikTok",
     );
-    await expect(mecaniqueWrapper.getByRole("combobox")).toContainText(
-      "Erreur",
-    );
+    await expect(formatWrapper.getByRole("combobox")).toContainText("A");
 
     // 8. Supprimer le preset via la popover (X icon).
     await presetTrigger.click();

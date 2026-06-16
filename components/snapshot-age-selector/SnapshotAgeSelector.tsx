@@ -48,7 +48,7 @@ export function SnapshotAgeSelector({ compact = false }: { compact?: boolean }) 
               "rounded font-medium transition-colors",
               compact ? "px-2 py-0.5 text-xs" : "px-2.5 py-1 text-xs",
               age === opt
-                ? "bg-slate-900 text-white"
+                ? "bg-primary text-primary-foreground"
                 : "text-slate-600 hover:text-slate-900",
             )}
           >

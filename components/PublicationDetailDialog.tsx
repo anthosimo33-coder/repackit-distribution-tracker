@@ -266,20 +266,13 @@ function PublishedView({
 
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             {/*
-              Refinement SR + Shorts — Mécanique/Niveau/Format/Angle réservés
-              au Carrousel. SR : remplacés par Appareil + Repackaging. Short :
-              remplacés par ICP ciblé. Langue conservée pour Carrousel + Short.
+              Carrousel → Format + Langue. SR : Appareil + Repackaging. Short :
+              ICP ciblé. P10 — mécanique/niveau/angle tonal (outillage éditorial
+              interne) retirés de l'affichage ; champs conservés en base.
             */}
             {!isVideoFormat && (
               <>
-                <Field label="Mécanique">
-                  <Badge variant="secondary">{publication.mecanique}</Badge>
-                </Field>
-                <Field label="Niveau">
-                  <Badge variant="outline">{publication.niveau}</Badge>
-                </Field>
                 <Field label="Format">{publication.format}</Field>
-                <Field label="Angle tonal">{publication.angleTonal}</Field>
                 <Field label="Langue">{publication.langue}</Field>
               </>
             )}

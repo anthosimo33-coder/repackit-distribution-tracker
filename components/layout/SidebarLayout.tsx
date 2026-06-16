@@ -7,6 +7,7 @@ import { Sidebar } from "./Sidebar";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { NouveauModal } from "@/components/nouveau/NouveauModal";
+import { AccentStyle } from "@/components/project/AccentStyle";
 import {
   useProject,
   useProjectPath,
@@ -76,8 +77,24 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
     setMobileOpen(false);
   }
 
+  // P10 branding — accent par projet : on injecte projects.accentColor dans
+  // --primary/--ring (et leurs variantes sidebar) sur le wrapper du shell.
+  // Tout `bg-primary` / `text-primary` / `ring-ring` sous cet arbre (sidebar
+  // ET main) suit l'accent du projet ; #FF5200 (défaut globals.css) sinon.
+  const accent = project.accentColor || "#FF5200";
+  const accentVars = {
+    "--primary": accent,
+    "--ring": accent,
+    "--sidebar-primary": accent,
+    "--sidebar-ring": accent,
+  } as React.CSSProperties;
+
   return (
-    <div className="flex h-screen flex-col lg:flex-row">
+    <div
+      className="flex h-screen flex-col lg:flex-row"
+      style={accentVars}
+    >
+      <AccentStyle accent={accent} />
       {/* Header mobile : visible uniquement < lg */}
       <header className="sticky top-0 z-40 flex h-12 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 lg:hidden">
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>

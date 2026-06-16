@@ -157,7 +157,7 @@ export function MetricChart({
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
                   isOn
-                    ? "border-slate-900 bg-slate-900 text-white"
+                    ? "border-primary bg-primary text-primary-foreground"
                     : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
                 )}
                 aria-pressed={isOn}

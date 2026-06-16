@@ -31,15 +31,10 @@ export function HookCombobox({
   hooks,
   value,
   onChange,
-  hideMechanique = false,
 }: {
   hooks: Doc<"hooks">[] | undefined;
   value: Id<"hooks"> | null;
   onChange: (id: Id<"hooks">) => void;
-  /** Refinement Shorts — masque mécanique/niveau dans le sous-titre des
-   *  options (un Short n'expose que texte + langue). Default false (carrousel
-   *  conserve l'affichage complet). */
-  hideMechanique?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const selected = hooks?.find((h) => h._id === value);
@@ -97,11 +92,9 @@ export function HookCombobox({
                       />
                       <div className="flex-1">
                         <div className="text-sm">{h.text}</div>
-                        <div className="text-xs text-slate-500">
-                          {hideMechanique
-                            ? h.langue
-                            : `${h.mecanique} · ${h.niveau} · ${h.langue}`}
-                        </div>
+                        {/* P10 — mécanique/niveau retirés de l'UI ; le
+                            sous-titre se réduit à la langue du hook. */}
+                        <div className="text-xs text-slate-500">{h.langue}</div>
                       </div>
                     </CommandItem>
                   ))}

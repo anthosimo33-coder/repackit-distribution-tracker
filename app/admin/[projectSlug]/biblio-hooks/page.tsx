@@ -22,7 +22,6 @@ import {
 } from "@/components/ui/popover";
 import { VerdictBadge, PlatformBadge } from "@/components/VerdictBadge";
 import { FilterSelect } from "@/components/filters/FilterSelect";
-import { FilterMultiSelect } from "@/components/filters/FilterMultiSelect";
 import { cn } from "@/lib/utils";
 import { formatNumber, formatPercent } from "@/lib/format";
 import {
@@ -31,19 +30,11 @@ import {
 } from "@/components/snapshot-age-selector/SnapshotAgeContext";
 import { GitBranchIcon } from "lucide-react";
 
-const MECANIQUES = [
-  "Erreur",
-  "Volume",
-  "Comparaison",
-  "Contradiction",
-  "Universalité",
-  "Question",
-] as const;
-const NIVEAUX = ["Broad-A", "Broad-B", "Niché"] as const;
+// P10 — mécanique/niveau (outillage éditorial interne) ne sont plus exposés
+// dans l'UI : ni filtres, ni regroupement, ni badges. Les champs restent en
+// base sur la table hooks ; cette page ne fait que ne plus les afficher.
 const LANGUES = ["FR", "EN"] as const;
 
-type Mecanique = (typeof MECANIQUES)[number];
-type Niveau = (typeof NIVEAUX)[number];
 type Langue = (typeof LANGUES)[number];
 
 type HookWithUsage = FunctionReturnType<
@@ -72,20 +63,12 @@ function useDebounced<T>(value: T, delay: number): T {
 export default function BiblioHooksPage() {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounced(search, 300);
-  const [mecanique, setMecanique] = useState<Set<string>>(new Set());
-  const [niveau, setNiveau] = useState<Set<string>>(new Set());
   const [langue, setLangue] = useState<string>("FR");
   const [hideUsed, setHideUsed] = useState(false);
   const [hideDraft, setHideDraft] = useState(false);
 
   const hooks = useProjectQuery(api.hooks.listHooksWithUsage, {
     search: debouncedSearch || undefined,
-    mecanique:
-      mecanique.size === 0
-        ? undefined
-        : (Array.from(mecanique) as Mecanique[]),
-    niveau:
-      niveau.size === 0 ? undefined : (Array.from(niveau) as Niveau[]),
     langue: langue === ALL ? undefined : (langue as Langue),
     hideUsed: hideUsed || undefined,
     hideDraft: hideDraft || undefined,
@@ -94,19 +77,10 @@ export default function BiblioHooksPage() {
 
   const reset = () => {
     setSearch("");
-    setMecanique(new Set());
-    setNiveau(new Set());
     setLangue("FR");
     setHideUsed(false);
     setHideDraft(false);
   };
-
-  const grouped = hooks
-    ? MECANIQUES.map((m) => ({
-        mecanique: m,
-        items: hooks.filter((h) => h.mecanique === m),
-      })).filter((g) => g.items.length > 0)
-    : [];
 
   return (
     <div className="space-y-6">
@@ -138,24 +112,6 @@ export default function BiblioHooksPage() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-
-        <FilterMultiSelect
-          label="Mécanique"
-          selectedValues={mecanique}
-          onChange={setMecanique}
-          options={MECANIQUES.map((m) => ({ value: m, label: m }))}
-          allLabel="Toutes"
-          width="w-[180px]"
-        />
-
-        <FilterMultiSelect
-          label="Niveau"
-          selectedValues={niveau}
-          onChange={setNiveau}
-          options={NIVEAUX.map((n) => ({ value: n, label: n }))}
-          allLabel="Tous"
-          width="w-[140px]"
-        />
 
         <FilterSelect
           label="Langue"
@@ -194,21 +150,10 @@ export default function BiblioHooksPage() {
       ) : hooks.length === 0 ? (
         <EmptyState onReset={reset} />
       ) : (
-        <div className="space-y-8">
-          {grouped.map((group) => (
-            <section key={group.mecanique} className="space-y-3">
-              <h2 className="text-lg font-semibold text-slate-800">
-                {group.mecanique}
-                <span className="ml-2 text-sm font-normal text-slate-500">
-                  ({group.items.length})
-                </span>
-              </h2>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                {group.items.map((h) => (
-                  <HookCard key={h._id} hook={h} />
-                ))}
-              </div>
-            </section>
+        // P10 — regroupement par mécanique retiré : liste plate des hooks.
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          {hooks.map((h) => (
+            <HookCard key={h._id} hook={h} />
           ))}
         </div>
       )}
@@ -254,8 +199,7 @@ function HookCard({ hook }: { hook: HookWithUsage }) {
         <div className="flex-1 space-y-2">
           <p className="font-medium text-slate-900">{hook.text}</p>
           <div className="flex flex-wrap gap-1.5">
-            <Badge variant="secondary">{hook.mecanique}</Badge>
-            <Badge variant="outline">{hook.niveau}</Badge>
+            {/* P10 — mécanique/niveau retirés ; on garde la langue + usage. */}
             <Badge variant="outline">{hook.langue}</Badge>
             {used && (
               <PublishedBadge carousels={hook.publishedCarouselsCount} />

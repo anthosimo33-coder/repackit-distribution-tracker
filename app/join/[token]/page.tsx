@@ -90,7 +90,7 @@ export default function JoinPage({
           <>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <span className="flex size-8 items-center justify-center rounded-md bg-slate-900 text-xs font-bold text-white">
+                <span className="flex size-8 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
                   R
                 </span>
                 {preview.projectName ?? "RepackIt"}

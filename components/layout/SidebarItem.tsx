@@ -34,8 +34,8 @@ export function SidebarItem({
     "flex items-center rounded-md text-sm transition-colors",
     isCollapsed ? "size-10 justify-center" : "h-10 gap-3 px-3",
     isActive
-      ? "bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-slate-100"
-      : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50 dark:hover:text-slate-100",
+      ? "bg-primary/10 font-medium text-primary"
+      : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",
   );
 
   const link = (

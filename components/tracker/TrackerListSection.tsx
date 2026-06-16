@@ -105,14 +105,6 @@ const ALL = "all";
 const PENDING = "Pending";
 const STATUT_PUBLISHED = "Publié";
 const STATUT_DRAFT = "À venir";
-const MECANIQUES = [
-  "Erreur",
-  "Volume",
-  "Comparaison",
-  "Contradiction",
-  "Universalité",
-  "Question",
-] as const;
 const FORMATS = ["A", "B", "C", "D", "E", "F", "G", "H"] as const;
 
 // Batch B (preset v4) — strip silencieux des presets pré-v4 côté client.
@@ -194,9 +186,7 @@ type ColumnKey =
   | "plateforme"
   | "compte"
   | "icp"
-  | "mecanique"
   | "format"
-  | "angle"
   | "vues"
   | "saves"
   | "saveRate"
@@ -207,15 +197,15 @@ type ColumnKey =
   | "isRepackaging"
   | "actions";
 
+// P10 — mécanique et angle retirés de l'UI (outillage éditorial interne) ;
+// les colonnes restent en base mais ne sont plus affichées dans le tableau.
 const CAROUSEL_COLUMNS: readonly ColumnKey[] = [
   "date",
   "carouselId",
   "hook",
   "plateforme",
   "compte",
-  "mecanique",
   "format",
-  "angle",
   "vues",
   "saves",
   "saveRate",
@@ -223,8 +213,6 @@ const CAROUSEL_COLUMNS: readonly ColumnKey[] = [
   "actions",
 ];
 
-// Refinement Shorts — Mécanique et Angle retirés (concepts hook-level non
-// pertinents pour les Shorts). Ajout de la colonne ICP (audience ciblée).
 const SHORT_COLUMNS: readonly ColumnKey[] = [
   "date",
   "carouselId",
@@ -307,7 +295,9 @@ export function TrackerListSection({
   const [plateforme, setPlateforme] = useState<string>(ALL);
   const [statutFilter, setStatutFilter] = useState<string>(ALL);
   const [compteFilter, setCompteFilter] = useState<Set<string>>(new Set());
-  const [mecanique, setMecanique] = useState<Set<string>>(new Set());
+  // P10 — le filtre Mécanique n'est plus exposé (outillage éditorial interne).
+  // currentFilters.mecanique reste à [] pour préserver le schéma des presets
+  // (filterPresets.filters.mecanique) sans migration destructive.
   const [format, setFormat] = useState<Set<string>>(new Set());
   const [verdictFilter, setVerdictFilter] = useState<Set<string>>(new Set());
   // Refinement SR — filtres SR-specific, session-only (non persistés dans
@@ -378,7 +368,8 @@ export function TrackerListSection({
       plateforme,
       statut: statutFilter,
       compte: setToSortedArray(compteFilter),
-      mecanique: setToSortedArray(mecanique),
+      // P10 — mécanique retirée de l'UI : toujours vide (compat schéma presets).
+      mecanique: [],
       format: setToSortedArray(format),
       verdict: setToSortedArray(verdictFilter),
     }),
@@ -387,7 +378,6 @@ export function TrackerListSection({
       plateforme,
       compteFilter,
       statutFilter,
-      mecanique,
       format,
       verdictFilter,
     ],
@@ -421,7 +411,8 @@ export function TrackerListSection({
     setPlateforme(p.filters.plateforme);
     setStatutFilter(p.filters.statut);
     setCompteFilter(new Set(p.filters.compte));
-    setMecanique(new Set(p.filters.mecanique));
+    // P10 — p.filters.mecanique ignoré (filtre retiré de l'UI) : on ne
+    // ré-applique pas de filtre mécanique invisible/non effaçable.
     setFormat(new Set(p.filters.format));
     setVerdictFilter(new Set(p.filters.verdict));
     setSortKey(p.sort.key);
@@ -525,8 +516,6 @@ export function TrackerListSection({
         statutFilter === STATUT_PUBLISHED ? isPublished(p) : !isPublished(p),
       );
     }
-    if (mecanique.size > 0)
-      list = list.filter((p) => mecanique.has(p.mecanique));
     if (format.size > 0) list = list.filter((p) => format.has(p.format ?? ""));
     if (verdictFilter.size > 0) {
       list = list.filter((p) => {
@@ -580,7 +569,6 @@ export function TrackerListSection({
     plateforme,
     compteFilter,
     statutFilter,
-    mecanique,
     format,
     verdictFilter,
     recordingDeviceFilter,
@@ -640,7 +628,6 @@ export function TrackerListSection({
     setPlateforme(ALL);
     setStatutFilter(ALL);
     setCompteFilter(new Set());
-    setMecanique(new Set());
     setFormat(new Set());
     setVerdictFilter(new Set());
     setRecordingDeviceFilter(new Set());
@@ -774,21 +761,8 @@ export function TrackerListSection({
           allLabel="Tous"
           width="w-[120px]"
         />
-        {/*
-          Refinement SR + Shorts — Mécanique réservée au Carrousel désormais
-          (concept hook-level retiré pour SR ET Short). Pour SR : filtres
-          Appareil + Repackaging. Pour Short : filtre ICP.
-        */}
-        {mediaType === "carousel" && (
-          <FilterMultiSelect
-            label="Mécanique"
-            selectedValues={mecanique}
-            onChange={setMecanique}
-            options={MECANIQUES.map((m) => ({ value: m, label: m }))}
-            allLabel="Toutes"
-            width="w-[160px]"
-          />
-        )}
+        {/* P10 — filtre Mécanique retiré (outillage éditorial interne). SR :
+            filtres Appareil + Repackaging. Short : filtre ICP. */}
         {mediaType === "short" && (
           <FilterMultiSelect
             label="ICP"
@@ -1148,11 +1122,7 @@ function PublicationsSection({
               )}
               {visibleColumns.has("compte") && <TableHead>Compte</TableHead>}
               {visibleColumns.has("icp") && <TableHead>ICP</TableHead>}
-              {visibleColumns.has("mecanique") && (
-                <TableHead>Mécanique</TableHead>
-              )}
               {visibleColumns.has("format") && <TableHead>Format</TableHead>}
-              {visibleColumns.has("angle") && <TableHead>Angle</TableHead>}
               {visibleColumns.has("vues") && (
                 <SortableHead
                   active={sortKey === "vues"}
@@ -1343,16 +1313,10 @@ function PublicationsSection({
                       )}
                     </TableCell>
                   )}
-                  {visibleColumns.has("mecanique") && (
-                    <TableCell className="text-xs">{p.mecanique}</TableCell>
-                  )}
                   {visibleColumns.has("format") && (
                     <TableCell className="font-mono text-xs">
                       {isShort ? NA_CELL : (p.format ?? NA_CELL)}
                     </TableCell>
-                  )}
-                  {visibleColumns.has("angle") && (
-                    <TableCell className="text-xs">{p.angleTonal}</TableCell>
                   )}
                   {visibleColumns.has("vues") && (
                     <TableCell

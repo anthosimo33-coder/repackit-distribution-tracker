@@ -139,7 +139,7 @@ export function VideoUploader({
             aria-valuemax={100}
           >
             <div
-              className="h-full rounded-full bg-slate-900 transition-[width]"
+              className="h-full rounded-full bg-primary transition-[width]"
               style={{ width: `${progress}%` }}
             />
           </div>

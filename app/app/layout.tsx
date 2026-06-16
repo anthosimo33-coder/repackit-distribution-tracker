@@ -8,6 +8,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { Loader2Icon, LogOutIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { projectPath } from "@/lib/project-path";
+import { AccentStyle } from "@/components/project/AccentStyle";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -72,13 +73,27 @@ export default function AppPortalLayout({
     router.push("/login");
   }
 
+  // P10 branding — accent par projet (orange RepackIt #FF5200 par défaut) :
+  // injecté dans --primary/--ring pour que boutons, liens actifs et focus du
+  // portail suivent l'accent du projet du créateur. Fond clair inchangé.
+  const accent =
+    portal.role === "creator" ? portal.accentColor || "#FF5200" : "#FF5200";
+  const accentVars = {
+    "--primary": accent,
+    "--ring": accent,
+  } as React.CSSProperties;
+
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50" style={accentVars}>
+      <AccentStyle accent={accent} />
       <header className="border-b border-slate-200 bg-white">
         <div className="container mx-auto flex h-14 items-center justify-between px-6">
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-2 font-semibold text-slate-900">
-              <span className="flex size-7 items-center justify-center rounded-md bg-slate-900 text-xs font-bold text-white">
+              <span
+                className="flex size-7 items-center justify-center rounded-md text-xs font-bold text-primary-foreground"
+                style={{ backgroundColor: accent }}
+              >
                 R
               </span>
               Espace créateur
@@ -95,7 +110,7 @@ export default function AppPortalLayout({
                     className={cn(
                       "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
                       active
-                        ? "bg-slate-100 text-slate-900"
+                        ? "bg-primary/10 text-primary"
                         : "text-slate-500 hover:text-slate-900",
                     )}
                   >

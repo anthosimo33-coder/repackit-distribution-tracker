@@ -37,23 +37,15 @@ test.describe("Création carrousel mode custom", () => {
       .getByLabel("Texte du hook")
       .fill("Hook custom test E2E unique");
 
-    // Selects custom : Mécanique Question, Niveau Niché, Langue inchangée FR.
-    const dialogCombos = dialog.getByRole("combobox");
-    // Ordre attendu : 0=Langue, 1=Mécanique, 2=Niveau (pas de format A-H ni
-    // angle ici — ces champs sont en step 3 Contenu).
-    await dialogCombos.nth(1).click();
-    await page.getByRole("option", { name: "Question" }).click();
-    await dialogCombos.nth(2).click();
-    await page.getByRole("option", { name: "Niché" }).click();
+    // P10 — mécanique/niveau retirés de l'UI : le hook custom se réduit à
+    // texte + langue (laissée à FR par défaut). Plus de selects à remplir.
 
     await dialog.getByRole("button", { name: /^suivant$/i }).click();
 
-    // Step 3 (Contenu carousel) : Format D + Angle Pédagogique.
+    // Step 3 (Contenu carousel) : Format D (l'angle tonal a été retiré — P10).
     const step3Combos = dialog.getByRole("combobox");
     await step3Combos.nth(0).click();
     await page.getByRole("option", { name: /^D · / }).click();
-    await step3Combos.nth(1).click();
-    await page.getByRole("option", { name: "Pédagogique" }).click();
     // Slide 1 pré-rempli via le hook custom (cf isDataDirty + pre-fill).
     // On l'écrase pour matcher le comportement de l'ancien test.
     await dialog.getByLabel("Slide 1").fill("Slide 1");

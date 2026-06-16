@@ -302,9 +302,13 @@ export const getMyPortal = authedQuery({
       // P9 — payoutDay du projet : le portail créateur l'utilise pour afficher
       // la prochaine date de paie (nextPayoutDate, calculé client).
       let payoutDay: number | null = null;
+      // P10 branding — accentColor du projet : le portail /app l'injecte dans
+      // --primary pour que l'accent suive le projet du créateur (#FF5200 sinon).
+      let accentColor: string | null = null;
       if (creator?.projectId) {
         const project = await ctx.db.get(creator.projectId);
         payoutDay = project?.payoutDay ?? null;
+        accentColor = project?.accentColor ?? null;
       }
       return {
         role: "creator" as const,
@@ -314,6 +318,7 @@ export const getMyPortal = authedQuery({
         // creatorQuery (qui exigent projectId, hors ProjectProvider).
         projectId: creator?.projectId ?? null,
         payoutDay,
+        accentColor,
       };
     }
 

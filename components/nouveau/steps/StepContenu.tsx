@@ -24,7 +24,6 @@ import {
 } from "@/lib/format-config";
 import { cn } from "@/lib/utils";
 import type {
-  Angle,
   FormatLetter,
   NouveauAction,
   NouveauData,
@@ -41,19 +40,14 @@ const FORMATS = [
   { value: "H", label: "H · Coulisses / Build in public" },
 ] as const;
 
-const ANGLES: Angle[] = [
-  "Psycho",
-  "Accusatoire",
-  "Pédagogique",
-  "Observation",
-  "Provocant",
-];
-
 /**
  * StepContenu — étape 3 du modal. Switch sur mediaType :
- *  - carousel → Format A-H + Angle + nbSlides + N Textareas slides
- *  - short → Angle + 1 Textarea script
- *  - screenrecorder (Batch D) → Titre + ImageUploader + Angle + Script
+ *  - carousel → Format A-H + nbSlides + N Textareas slides
+ *  - short → ICP ciblé + 1 Textarea script
+ *  - screenrecorder (Batch D) → Titre + ImageUploader + appareil + Script
+ *
+ * P10 — l'angle tonal (outillage éditorial interne) n'est plus exposé. Le
+ * champ reste en base (défaut "Psycho" du reducer), aucune saisie UI.
  *
  * Le pre-fill slide 1 / script depuis le hook est géré au niveau
  * NouveauModal — pas ici.
@@ -286,27 +280,6 @@ export function StepContenu({
             </Select>
           </div>
         )}
-        <div className={isShort ? "space-y-1.5 md:col-span-3" : "space-y-1.5"}>
-          <Label>Angle tonal</Label>
-          <Select
-            value={data.angleTonal}
-            onValueChange={(v) =>
-              v !== null &&
-              dispatch({ type: "SET_ANGLE", angle: v as Angle })
-            }
-          >
-            <SelectTrigger>
-              <SelectValue>{data.angleTonal}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {ANGLES.map((a) => (
-                <SelectItem key={a} value={a}>
-                  {a}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
         {isCarousel && (
           <div className="space-y-1.5">
             <Label htmlFor="nb-slides">Nombre de slides</Label>

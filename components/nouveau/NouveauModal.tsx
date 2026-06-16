@@ -576,7 +576,7 @@ function ProgressBar({
             key={s}
             className={cn(
               "h-1 flex-1 rounded-full transition-colors",
-              s <= displayedStep ? "bg-slate-900" : "bg-slate-200",
+              s <= displayedStep ? "bg-primary" : "bg-slate-200",
             )}
           />
         ))}

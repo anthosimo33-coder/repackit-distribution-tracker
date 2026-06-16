@@ -17,7 +17,9 @@ export const ASSIGNMENT_STATUS: Record<
   { label: string; className: string }
 > = {
   todo: { label: "À faire", className: "border-slate-200 bg-slate-50 text-slate-600" },
-  in_progress: { label: "En cours", className: "border-sky-200 bg-sky-50 text-sky-700" },
+  // in_progress = accent RepackIt (orange #FF5200) — suit projects.accentColor
+  // via le token --primary (cf globals.css + injection P10).
+  in_progress: { label: "En cours", className: "border-primary/30 bg-primary/10 text-primary" },
   submitted: { label: "Soumis", className: "border-amber-200 bg-amber-50 text-amber-700" },
   validated: { label: "Validé", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
   rejected: { label: "Rejeté", className: "border-rose-200 bg-rose-50 text-rose-700" },

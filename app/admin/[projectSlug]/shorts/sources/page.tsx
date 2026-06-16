@@ -106,7 +106,7 @@ export default function ShortSourcesPage() {
                 className={cn(
                   "rounded px-3 py-1 text-xs font-semibold transition-colors",
                   coverageFilter === f.key
-                    ? "bg-slate-900 text-white"
+                    ? "bg-primary text-primary-foreground"
                     : "text-slate-600 hover:text-slate-900",
                 )}
               >

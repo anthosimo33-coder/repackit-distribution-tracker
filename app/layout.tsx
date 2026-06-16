@@ -19,7 +19,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "RepackIt Distribution Tracker",
+  title: "RepackIt Distribution",
   description:
     "Tracker de distribution carrousels TikTok + Instagram pour RepackIt",
   robots: "noindex, nofollow",

@@ -22,28 +22,21 @@ import { SourceStatusBadge } from "@/components/shorts/SourceStatusBadge";
 import { cn } from "@/lib/utils";
 import type {
   Langue,
-  Mecanique,
-  Niveau,
   NouveauAction,
   NouveauData,
 } from "../useNouveauState";
 
-const MECANIQUES: Mecanique[] = [
-  "Erreur",
-  "Volume",
-  "Comparaison",
-  "Contradiction",
-  "Universalité",
-  "Question",
-];
-const NIVEAUX: Niveau[] = ["Broad-A", "Broad-B", "Niché"];
 const LANGUES: Langue[] = ["FR", "EN"];
 
 /**
  * StepHook — étape 2 du modal. Tabs Bibliothèque / Custom.
  *
  * Bibliothèque : toggle FR/EN + HookCombobox (extrait commun).
- * Custom : Textarea + Selects mécanique/niveau/langue.
+ * Custom : Textarea + Select langue.
+ *
+ * P10 — l'outillage éditorial interne (mécanique/niveau) n'est plus exposé
+ * dans l'UI. Les champs restent en base (défauts du reducer customHook), ce
+ * composant n'en propose plus la saisie ni l'affichage.
  *
  * Le pre-fill du target (slide 1 / script) avec le hook texte est géré
  * dans NouveauModal via un useEffect au state.data.hookId/customHook.text
@@ -68,9 +61,8 @@ export function StepHook({
     [allHooks, data.hookId],
   );
 
-  // Refinement Shorts — pour un Short, le hook se réduit à texte + langue.
-  // Mécanique/niveau ne sont pas exposés (sentinelles inertes côté DB), ni
-  // dans le preview biblio ni dans l'onglet custom.
+  // Short — affiche en tête le bloc Source (anti-shadowban). Le hook se réduit
+  // à texte + langue (mécanique/niveau ne sont plus exposés, cf P10).
   const isShort = data.mediaType === "short";
 
   return (
@@ -128,7 +120,7 @@ export function StepHook({
                   className={cn(
                     "rounded px-3 py-1 text-xs font-semibold transition-colors",
                     data.biblioLangue === l
-                      ? "bg-slate-900 text-white"
+                      ? "bg-primary text-primary-foreground"
                       : "text-slate-600 hover:text-slate-900",
                   )}
                 >
@@ -143,18 +135,11 @@ export function StepHook({
             onChange={(id: Id<"hooks">) =>
               dispatch({ type: "SET_HOOK_ID", hookId: id })
             }
-            hideMechanique={isShort}
           />
           {selectedHook && (
             <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
               <p className="font-medium text-slate-800">{selectedHook.text}</p>
               <div className="flex gap-1.5">
-                {!isShort && (
-                  <>
-                    <Badge variant="secondary">{selectedHook.mecanique}</Badge>
-                    <Badge variant="outline">{selectedHook.niveau}</Badge>
-                  </>
-                )}
                 <Badge variant="outline">{selectedHook.langue}</Badge>
               </div>
             </div>
@@ -201,58 +186,6 @@ export function StepHook({
               placeholder="Tape ton hook custom..."
             />
           </div>
-          {!isShort && (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label>Mécanique</Label>
-                <Select
-                  value={data.customHook.mecanique}
-                  onValueChange={(v) =>
-                    v !== null &&
-                    dispatch({
-                      type: "SET_CUSTOM_HOOK",
-                      patch: { mecanique: v as Mecanique },
-                    })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue>{data.customHook.mecanique}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MECANIQUES.map((m) => (
-                      <SelectItem key={m} value={m}>
-                        {m}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Niveau</Label>
-                <Select
-                  value={data.customHook.niveau}
-                  onValueChange={(v) =>
-                    v !== null &&
-                    dispatch({
-                      type: "SET_CUSTOM_HOOK",
-                      patch: { niveau: v as Niveau },
-                    })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue>{data.customHook.niveau}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {NIVEAUX.map((n) => (
-                      <SelectItem key={n} value={n}>
-                        {n}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          )}
         </TabsContent>
       </Tabs>
     </div>

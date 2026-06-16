@@ -45,14 +45,7 @@ export function StepRecap({
     data.hookMode === "biblio"
       ? selectedHook?.text ?? ""
       : data.customHook.text.trim();
-  const hookMecanique =
-    data.hookMode === "biblio"
-      ? selectedHook?.mecanique
-      : data.customHook.mecanique;
-  const hookNiveau =
-    data.hookMode === "biblio"
-      ? selectedHook?.niveau
-      : data.customHook.niveau;
+  // P10 — mécanique/niveau retirés du récap (outillage éditorial interne).
   const hookLangue =
     data.hookMode === "biblio"
       ? selectedHook?.langue
@@ -62,10 +55,8 @@ export function StepRecap({
     ? FORMAT_CONFIGS[data.mediaType as FormatKey]
     : null;
 
-  // Refinement SR — section Hook masquée (skip étape 2 pour SR). Angle
-  // également retiré de la section Contenu SR (concept hook-level).
-  // Refinement Shorts — pour un Short : hook sans mécanique/niveau, pas
-  // d'angle, ajout de l'ICP ciblé.
+  // Section Hook masquée pour SR (étape 2 skip). Short : section Publication
+  // affiche en plus le statut de la source (anti-shadowban).
   const isSR = data.mediaType === "screenrecorder";
   const isShort = data.mediaType === "short";
   const icps = useProjectQuery(api.icps.listIcps, {});
@@ -109,12 +100,6 @@ export function StepRecap({
             <div className="space-y-2">
               <p className="text-sm text-slate-900">{hookText}</p>
               <div className="flex gap-1.5">
-                {!isShort && hookMecanique && (
-                  <Badge variant="secondary">{hookMecanique}</Badge>
-                )}
-                {!isShort && hookNiveau && (
-                  <Badge variant="outline">{hookNiveau}</Badge>
-                )}
                 {hookLangue && <Badge variant="outline">{hookLangue}</Badge>}
                 <Badge variant="outline" className="text-slate-500">
                   {data.hookMode === "biblio" ? "Bibliothèque" : "Custom"}
@@ -132,16 +117,8 @@ export function StepRecap({
         onEdit={() => dispatch({ type: "GOTO", step: 3 as Step })}
       >
         <div className="space-y-2 text-sm">
-          {/*
-            Angle tonal masqué côté SR (concept hook-level retiré) ET côté
-            Short (Refinement Shorts). N'apparaît plus que pour les carrousels.
-          */}
-          {!isSR && !isShort && (
-            <div>
-              <span className="text-slate-500">Angle tonal :</span>{" "}
-              <span className="font-medium">{data.angleTonal}</span>
-            </div>
-          )}
+          {/* P10 — angle tonal retiré du récap (outillage éditorial interne).
+              Le champ reste en base mais n'est plus affiché. */}
           {data.mediaType === "carousel" && (
             <>
               <div>
