@@ -16,12 +16,19 @@ import {
 } from "./warmup";
 import { v, ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 const statusValidator = v.union(
   v.literal("warmup"),
   v.literal("actif"),
   v.literal("shadowban"),
   v.literal("archived"),
+);
+
+const plateformeValidator = v.union(
+  v.literal("TikTok"),
+  v.literal("Instagram"),
+  v.literal("YouTube"),
 );
 
 type CompteStatus = "warmup" | "actif" | "shadowban" | "archived";
@@ -85,6 +92,82 @@ const EMPTY_PERF: ComptePerf = {
   dernierPost: null,
 };
 
+export interface CompteUsage {
+  inUse: boolean;
+  assignments: number;
+  publications: number;
+  snapshots: number;
+  payments: number;
+}
+
+/**
+ * Chantier D — RÉFÉRENCES d'un compte (garde des mutations destructives). Un
+ * compte est UTILISÉ s'il apparaît dans une target d'assignment (ou l'accountId
+ * legacy), a ≥1 publication (rapprochée par HANDLE), ≥1 metricSnapshot sur ces
+ * publications, ou ≥1 lineItem de paiement sur un assignment le ciblant. VIERGE
+ * = aucune de ces références → seul cas où la suppression et le changement de
+ * plateforme sont permis (jamais de cascade qui orphelinerait pub/paiement).
+ */
+async function compteUsage(
+  ctx: QueryCtx | MutationCtx,
+  projectId: Id<"projects">,
+  compte: Doc<"comptes">,
+): Promise<CompteUsage> {
+  const assignments = await ctx.db
+    .query("assignments")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+  const refAssignments = assignments.filter(
+    (a) =>
+      a.accountId === compte._id ||
+      (a.targets ?? []).some((t) => t.accountId === compte._id),
+  );
+  const pubs = (
+    await ctx.db
+      .query("publications")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .collect()
+  ).filter((p) => p.compte === compte.handle);
+  let snapshots = 0;
+  for (const p of pubs) {
+    snapshots += (
+      await ctx.db
+        .query("metricSnapshots")
+        .withIndex("by_publication", (q) => q.eq("publicationId", p._id))
+        .collect()
+    ).length;
+  }
+  const refIds = new Set(refAssignments.map((a) => a._id));
+  let payments = 0;
+  if (refIds.size > 0) {
+    const pays = await ctx.db
+      .query("payments")
+      .withIndex("by_project_period", (q) => q.eq("projectId", projectId))
+      .collect();
+    for (const pay of pays) {
+      payments += pay.lineItems.filter((li) => refIds.has(li.assignmentId)).length;
+    }
+  }
+  const inUse =
+    refAssignments.length > 0 ||
+    pubs.length > 0 ||
+    snapshots > 0 ||
+    payments > 0;
+  return { inUse, assignments: refAssignments.length, publications: pubs.length, snapshots, payments };
+}
+
+/** Détail des références d'un compte (pour l'UI admin : delete vs archive). */
+export const getCompteUsage = adminQuery({
+  args: { id: v.id("comptes") },
+  handler: async (ctx, { id }) => {
+    const compte = await ctx.db.get(id);
+    if (!compte || compte.projectId !== ctx.projectId) {
+      throw new ConvexError("Compte introuvable.");
+    }
+    return compteUsage(ctx, ctx.projectId, compte);
+  },
+});
+
 export const listComptes = adminQuery({
   args: {
     actifOnly: v.optional(v.boolean()),
@@ -119,6 +202,22 @@ export const listComptes = adminQuery({
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
     const perfMap = buildPerfMap(pubs);
+    // Chantier D — `inUse` par compte (référencé par une target/accountId
+    // d'assignment OU une publication par handle). Batch : assignments chargés
+    // une fois. Garde l'UI (delete vs archive) ; les mutations re-vérifient via
+    // compteUsage (autorité serveur).
+    const assignments = await ctx.db
+      .query("assignments")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const usedCompteIds = new Set<string>();
+    for (const a of assignments) {
+      if (a.accountId) usedCompteIds.add(a.accountId);
+      for (const t of a.targets ?? []) {
+        if (t.accountId) usedCompteIds.add(t.accountId);
+      }
+    }
+    const usedHandles = new Set(pubs.map((p) => p.compte));
     return sorted.map((c) => {
       const p = c.personneId ? personneMap.get(c.personneId) : null;
       const creator = c.creatorId ? creatorMap.get(c.creatorId) : null;
@@ -127,6 +226,7 @@ export const listComptes = adminQuery({
         personne: p ? { prenom: p.prenom, nom: p.nom } : null,
         creator: creator ? { name: creator.name } : null,
         perf: perfMap.get(c.handle) ?? EMPTY_PERF,
+        inUse: usedCompteIds.has(c._id) || usedHandles.has(c.handle),
       };
     });
   },
@@ -214,6 +314,9 @@ export const updateCompte = adminMutation({
     id: v.id("comptes"),
     handle: v.optional(v.string()),
     notes: v.optional(v.string()),
+    // Chantier D — changement de plateforme : permis UNIQUEMENT si le compte est
+    // VIERGE (compteUsage). Reset du warmup sur la nouvelle durée plateforme.
+    plateforme: v.optional(plateformeValidator),
     // Legacy : conservé pour les callers e2e existants (setup/cleanup). Mappé
     // sur status quand status est absent (true → "actif", false → "archived").
     actif: v.optional(v.boolean()),
@@ -258,6 +361,44 @@ export const updateCompte = adminMutation({
         args.personneId === null ? undefined : args.personneId;
     }
 
+    // Chantier D — changement de PLATEFORME : VIERGE uniquement (sinon le
+    // tracking des publications passées serait faussé). Reset du warmup : la
+    // durée effective dépend de la plateforme → le compteur de checks repart
+    // proprement (dailyChecks vidés, targetDays = défaut de la NOUVELLE
+    // plateforme ; warmupStartedAt re-amorcé si le compte est en warmup).
+    if (args.plateforme !== undefined && args.plateforme !== compte.plateforme) {
+      const usage = await compteUsage(ctx, ctx.projectId, compte);
+      if (usage.inUse) {
+        throw new ConvexError(
+          "Impossible de changer la plateforme d'un compte déjà utilisé — archive-le et le créateur en déclare un nouveau.",
+        );
+      }
+      const finalHandle = args.handle ?? compte.handle;
+      const samePlatform = await ctx.db
+        .query("comptes")
+        .withIndex("by_project_plateforme", (q) =>
+          q.eq("projectId", ctx.projectId).eq("plateforme", args.plateforme!),
+        )
+        .collect();
+      if (samePlatform.some((c) => c._id !== id && c.handle === finalHandle)) {
+        throw new ConvexError(
+          `Le compte ${finalHandle} existe déjà sur ${args.plateforme}.`,
+        );
+      }
+      update.plateforme = args.plateforme;
+      const proto = compte.warmupProtocol;
+      update.warmupProtocol = {
+        keywords: proto?.keywords ?? [],
+        instructions: proto?.instructions ?? "",
+        targetDays: defaultTargetDays(args.plateforme),
+        dailyChecks: [],
+        updatedAt: Date.now(),
+      };
+      if (effectiveStatus(compte) === "warmup") {
+        update.warmupStartedAt = Date.now();
+      }
+    }
+
     // Statut cible : status explicite prioritaire, sinon legacy actif mappé.
     const targetStatus: CompteStatus | undefined =
       args.status ??
@@ -295,34 +436,64 @@ export const updateCompte = adminMutation({
   },
 });
 
+/**
+ * Chantier D — suppression SSI le compte est VIERGE (compteUsage = aucune
+ * référence : pas de target d'assignment, publication, snapshot, ni lineItem de
+ * paiement). Sinon REJET (archivage à la place) — jamais de cascade qui
+ * orphelinerait des publications/paiements.
+ */
 export const deleteCompte = adminMutation({
   args: { id: v.id("comptes") },
   handler: async (ctx, args) => {
     const compte = await ctx.db.get(args.id);
     if (!compte || compte.projectId !== ctx.projectId) {
-      throw new Error("Compte not found");
+      throw new ConvexError("Compte introuvable.");
     }
-
-    // Cascade par handle SCOPÉE projet (A3).
-    const pubs = await ctx.db
-      .query("publications")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
-    const used = pubs.filter((p) => p.compte === compte.handle);
-    if (used.length > 0) {
-      throw new Error(
-        `Compte utilisé par ${used.length} publication(s). Archive-le plutôt que de le supprimer.`,
+    const usage = await compteUsage(ctx, ctx.projectId, compte);
+    if (usage.inUse) {
+      throw new ConvexError(
+        `Ce compte est utilisé (${usage.assignments} assignment(s), ${usage.publications} publication(s), ${usage.payments} ligne(s) de paiement) — tu ne peux pas le supprimer, archive-le plutôt.`,
       );
     }
     await ctx.db.delete(args.id);
   },
 });
 
-const plateformeValidator = v.union(
-  v.literal("TikTok"),
-  v.literal("Instagram"),
-  v.literal("YouTube"),
-);
+/**
+ * Chantier D — archive un compte (admin). Statut "archived" → exclu des cibles
+ * d'assignment (isAccountAvailable) et de la notif warmup créateur
+ * (countMyWarmupDue) ; warmup GELÉ (warmupStartedAt unset). Données passées
+ * (publications/paiements) intactes. Toujours autorisé (vierge ou utilisé).
+ */
+export const archiveCompte = adminMutation({
+  args: { id: v.id("comptes") },
+  handler: async (ctx, { id }) => {
+    const compte = await ctx.db.get(id);
+    if (!compte || compte.projectId !== ctx.projectId) {
+      throw new ConvexError("Compte introuvable.");
+    }
+    await ctx.db.patch(id, {
+      status: "archived",
+      actif: false,
+      warmupStartedAt: undefined,
+    });
+    return { ok: true };
+  },
+});
+
+/** Réactive un compte archivé → "actif" (action ADMIN ; le créateur ne peut pas). */
+export const unarchiveCompte = adminMutation({
+  args: { id: v.id("comptes") },
+  handler: async (ctx, { id }) => {
+    const compte = await ctx.db.get(id);
+    if (!compte || compte.projectId !== ctx.projectId) {
+      throw new ConvexError("Compte introuvable.");
+    }
+    if (effectiveStatus(compte) !== "archived") return { ok: true };
+    await ctx.db.patch(id, { status: "actif", actif: true });
+    return { ok: true };
+  },
+});
 
 /** Normalise un handle : trim + préfixe @ (convention CompteDialog). */
 function normalizeHandle(h: string): string {

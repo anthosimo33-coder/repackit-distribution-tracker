@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useProjectQuery } from "@/components/project/use-project-convex";
 import { useProjectPath } from "@/components/project/ProjectProvider";
@@ -16,11 +17,14 @@ import {
   type Plateforme,
 } from "@/lib/compte-status";
 import { warmupProgress } from "@/lib/warmup";
+import CompteDialog, { type Compte } from "@/components/comptes/CompteDialog";
+import { CompteAdminActions } from "@/components/comptes/CompteAdminActions";
 
 /**
  * P5 — section « Comptes » de la fiche créateur (admin). Alimentée depuis
- * listComptes filtré par creatorId. Lien vers la fiche compte (protocole +
- * perf). Remplace l'emplacement réservé de P4.
+ * listComptes filtré par creatorId. Chantier D : actions admin par compte
+ * (Modifier — plateforme incl. si vierge —, Archiver/Réactiver, Supprimer si
+ * vierge). Comptes archivés grisés.
  */
 export function CreatorComptesSection({
   creatorId,
@@ -30,6 +34,7 @@ export function CreatorComptesSection({
   const comptes = useProjectQuery(api.comptes.listComptes, {});
   const projectPath = useProjectPath();
   const mine = (comptes ?? []).filter((c) => c.creatorId === creatorId);
+  const [editTarget, setEditTarget] = useState<Compte | null>(null);
 
   return (
     <Card>
@@ -47,7 +52,8 @@ export function CreatorComptesSection({
           <ul className="divide-y divide-slate-100">
             {mine.map((c) => {
               const badge = getStatusBadge(c);
-              const isWarmup = getEffectiveStatus(c) === "warmup";
+              const status = getEffectiveStatus(c);
+              const isWarmup = status === "warmup";
               const progress =
                 isWarmup && c.warmupStartedAt !== undefined
                   ? warmupProgress(
@@ -61,7 +67,10 @@ export function CreatorComptesSection({
               return (
                 <li
                   key={c._id}
-                  className="flex items-center justify-between gap-3 py-2.5"
+                  className={cn(
+                    "flex items-center justify-between gap-3 py-2.5",
+                    status === "archived" && "opacity-60",
+                  )}
                 >
                   <div className="flex items-center gap-2">
                     <PlatformBadge plateforme={c.plateforme} />
@@ -86,6 +95,10 @@ export function CreatorComptesSection({
                     >
                       {badge.label}
                     </span>
+                    <CompteAdminActions
+                      compte={c}
+                      onEdit={() => setEditTarget(c)}
+                    />
                   </div>
                 </li>
               );
@@ -93,6 +106,13 @@ export function CreatorComptesSection({
           </ul>
         )}
       </CardContent>
+
+      <CompteDialog
+        open={editTarget !== null}
+        onOpenChange={(o) => !o && setEditTarget(null)}
+        mode="edit"
+        compte={editTarget ?? undefined}
+      />
     </Card>
   );
 }

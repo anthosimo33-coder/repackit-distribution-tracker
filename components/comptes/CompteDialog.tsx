@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useMutation } from "convex/react";
-import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
+import { useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
@@ -49,6 +48,10 @@ export type Compte = Doc<"comptes"> & {
   personne: { prenom: string; nom: string } | null;
   creator: { name: string } | null;
   perf: { vuesCumulees: number; nbPublies: number; dernierPost: number | null };
+  // Chantier D — `true` si le compte est référencé (assignment/publication/…).
+  // Fourni par listComptes ; absent ailleurs (page détail) → plateforme reste
+  // non modifiable par prudence.
+  inUse?: boolean;
 };
 
 const STATUS_OPTIONS: { value: CompteStatus; label: string; dot: string }[] = [
@@ -135,6 +138,11 @@ export default function CompteDialog({
 
   const selectedStatus = STATUS_OPTIONS.find((o) => o.value === status);
 
+  // Chantier D — plateforme éditable à la création (add) OU en édition SI le
+  // compte est VIERGE (inUse === false). Sinon read-only (changer la plateforme
+  // d'un compte utilisé fausserait le tracking ; le serveur le refuse aussi).
+  const plateformeEditable = !isEdit || compte?.inUse === false;
+
   // Bouton "Passer en actif" : basé sur l'état PERSISTÉ (pas le select courant).
   const canPasserEnActif =
     isEdit &&
@@ -182,6 +190,11 @@ export default function CompteDialog({
           personneId,
           status,
           warmupStartedAt: status === "warmup" ? warmupStartedAt : null,
+          // Chantier D — plateforme transmise seulement si éditable (compte
+          // vierge) et réellement changée ; le serveur re-vérifie.
+          ...(plateformeEditable && plateforme !== compte.plateforme
+            ? { plateforme: plateforme as Plateforme }
+            : {}),
         });
         toast.success(`${finalHandle} mis à jour`);
       } else {
@@ -243,14 +256,14 @@ export default function CompteDialog({
               Le @ est ajouté automatiquement si tu l&apos;oublies.
             </p>
           </div>
-          {!isEdit && (
-            <div className="space-y-1.5">
-              <Label>Plateforme</Label>
+          <div className="space-y-1.5">
+            <Label>Plateforme</Label>
+            {plateformeEditable ? (
               <Select
                 value={plateforme}
                 onValueChange={(v) => v !== null && setPlateforme(v)}
               >
-                <SelectTrigger>
+                <SelectTrigger aria-label="Plateforme">
                   <SelectValue>{plateforme}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -259,8 +272,23 @@ export default function CompteDialog({
                   <SelectItem value="YouTube">YouTube</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
-          )}
+            ) : (
+              <>
+                <Input value={plateforme} disabled aria-label="Plateforme" />
+                <p className="text-xs text-slate-500">
+                  Plateforme non modifiable : ce compte est déjà utilisé
+                  (publications / assignments). Archive-le et fais-en déclarer un
+                  nouveau.
+                </p>
+              </>
+            )}
+            {isEdit && plateformeEditable && (
+              <p className="text-xs text-slate-500">
+                Changer la plateforme réinitialise le warmup (durée et compteur de
+                checks repartent sur la nouvelle plateforme).
+              </p>
+            )}
+          </div>
           <div className="space-y-1.5">
             <Label>Statut</Label>
             <Select

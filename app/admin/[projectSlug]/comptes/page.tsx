@@ -3,8 +3,7 @@
 import { Suspense, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useMutation, useQuery } from "convex/react";
-import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
+import { useProjectQuery } from "@/components/project/use-project-convex";
 import { useProjectPath } from "@/components/project/ProjectProvider";
 import { api } from "@/convex/_generated/api";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,21 +19,6 @@ import { Button } from "@/components/ui/button";
 import { PlatformBadge } from "@/components/VerdictBadge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -42,15 +26,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  MoreHorizontalIcon,
-  Loader2Icon,
   PlusIcon,
   UsersIcon,
   TargetIcon,
   ChevronUpIcon,
   ChevronDownIcon,
 } from "lucide-react";
-import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
   getEffectiveStatus,
@@ -64,6 +45,7 @@ import { PersonnesManagerSection } from "@/components/comptes/PersonnesManagerSe
 import { IcpsManagerSection } from "@/components/icps/IcpsManagerSection";
 import { WarmupGuideButton } from "@/components/warmup/WarmupGuideButton";
 import CompteDialog, { type Compte } from "@/components/comptes/CompteDialog";
+import { CompteAdminActions } from "@/components/comptes/CompteAdminActions";
 
 type StatusFilter = "all" | CompteStatus;
 
@@ -108,7 +90,6 @@ function ComptesPageInner() {
   const comptes = useProjectQuery(api.comptes.listComptes, {});
   const [addOpen, setAddOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Compte | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<Compte | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [plateformeFilter, setPlateformeFilter] =
     useState<PlateformeFilter>("all");
@@ -456,10 +437,9 @@ function ComptesPageInner() {
                         {formatDateShort(c.perf.dernierPost)}
                       </TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
-                        <RowActions
+                        <CompteAdminActions
                           compte={c}
                           onEdit={() => setEditTarget(c)}
-                          onDelete={() => setDeleteTarget(c)}
                         />
                       </TableCell>
                     </TableRow>
@@ -477,10 +457,6 @@ function ComptesPageInner() {
         onOpenChange={(o) => !o && setEditTarget(null)}
         mode="edit"
         compte={editTarget ?? undefined}
-      />
-      <DeleteDialog
-        compte={deleteTarget}
-        onOpenChange={(o) => !o && setDeleteTarget(null)}
       />
     </div>
   );
@@ -529,113 +505,6 @@ function SortHeader({
   );
 }
 
-function RowActions({
-  compte,
-  onEdit,
-  onDelete,
-}: {
-  compte: Compte;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
-  const updateCompte = useProjectMutation(api.comptes.updateCompte);
-  const isArchived = getEffectiveStatus(compte) === "archived";
-  const toggleArchive = async () => {
-    try {
-      await updateCompte({
-        id: compte._id,
-        status: isArchived ? "actif" : "archived",
-      });
-      toast.success(
-        isArchived ? `${compte.handle} réactivé` : `${compte.handle} archivé`,
-      );
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
-    }
-  };
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button variant="ghost" size="sm" className="size-8 p-0">
-            <MoreHorizontalIcon className="size-4" />
-          </Button>
-        }
-      />
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={onEdit}>Modifier</DropdownMenuItem>
-        <DropdownMenuItem onClick={toggleArchive}>
-          {isArchived ? "Réactiver" : "Archiver"}
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onClick={onDelete}
-          className="text-rose-600 focus:text-rose-700"
-        >
-          Supprimer
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function DeleteDialog({
-  compte,
-  onOpenChange,
-}: {
-  compte: Compte | null;
-  onOpenChange: (o: boolean) => void;
-}) {
-  const [submitting, setSubmitting] = useState(false);
-  const deleteCompte = useProjectMutation(api.comptes.deleteCompte);
-
-  async function confirm() {
-    if (!compte) return;
-    setSubmitting(true);
-    try {
-      await deleteCompte({ id: compte._id });
-      toast.success(`${compte.handle} supprimé`);
-      onOpenChange(false);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <Dialog open={compte !== null} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Supprimer {compte?.handle}</DialogTitle>
-          <DialogDescription>
-            Cette action est irréversible. Si le compte a déjà été utilisé pour
-            des publications, la suppression sera refusée — utilise plutôt
-            l&apos;action « Archiver ».
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={submitting}
-          >
-            Annuler
-          </Button>
-          <Button
-            variant="destructive"
-            onClick={confirm}
-            disabled={submitting}
-          >
-            {submitting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-            Supprimer
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 function EmptyState({ onAdd }: { onAdd: () => void }) {
   return (

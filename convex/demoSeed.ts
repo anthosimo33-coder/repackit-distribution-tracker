@@ -375,6 +375,20 @@ export const seedDemoCreator = internalMutation({
       creatorId,
       url: "https://www.instagram.com/antho.repackit",
     });
+    // Compte ARCHIVÉ (action admin) — visualise l'état « archivé » : grisé côté
+    // admin, EXCLU des cibles d'assignment (isAccountAvailable), warmup gelé
+    // (plus de notif créateur). Vierge → suppressible ; sert aussi à montrer le
+    // badge « Archivé ».
+    await ctx.db.insert("comptes", {
+      projectId,
+      handle: "@antho.archived",
+      plateforme: "Instagram",
+      notes: `${DEMO_MARKER} compte démo (archivé)`,
+      status: "archived",
+      actif: false,
+      creatorId,
+      url: "https://www.instagram.com/antho.archived",
+    });
 
     // ── Format démo (brief consommé par les assignments format) ──────────────
     const formatId = await ctx.db.insert("formats", {
@@ -419,7 +433,7 @@ export const seedDemoCreator = internalMutation({
     // actif, igAvailId actif). Les comptes en warmup (@antho_test_yt, @antho.test)
     // ne sont JAMAIS des cibles (contrainte de disponibilité du modèle).
     const counts: Record<string, number> = {
-      comptes: 5,
+      comptes: 6,
       assignments: 0,
       publications: 0,
       snapshots: 0,
