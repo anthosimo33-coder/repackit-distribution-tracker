@@ -52,13 +52,16 @@ export default function AssignmentDetailPage({
         </Card>
       ) : (
         <div className="space-y-6">
-          {data.accountHandle && (
-            <p className="text-sm text-slate-500">
-              Compte cible :{" "}
-              <span className="font-mono text-slate-700">
-                {data.accountHandle}
-              </span>
-            </p>
+          {data.targets.length > 0 && (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500">
+              <span>{data.targets.length > 1 ? "Cibles :" : "Cible :"}</span>
+              {data.targets.map((t) => (
+                <span key={t.platform} className="font-mono text-slate-700">
+                  {t.platform}
+                  {t.accountHandle ? ` ${t.accountHandle}` : ""}
+                </span>
+              ))}
+            </div>
           )}
 
           {/* Actions (en haut : c'est l'action attendue du créateur) */}
@@ -69,6 +72,7 @@ export default function AssignmentDetailPage({
             <CardContent>
               <AssignmentActions
                 assignment={data.assignment}
+                targets={data.targets}
                 projectId={projectId!}
                 submittedVideoUrl={data.submittedVideoUrl}
                 submittedVideoMimeType={data.submittedVideoMimeType}

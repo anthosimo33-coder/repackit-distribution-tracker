@@ -21,7 +21,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import {
   ASSIGNMENT_STATUS,
@@ -203,8 +202,26 @@ export default function AssignmentsPage() {
                           a.formatName
                         )}
                       </TableCell>
-                      <TableCell className="font-mono text-sm text-slate-500">
-                        {a.accountHandle ?? "—"}
+                      <TableCell className="text-sm text-slate-500">
+                        {a.targets.length === 0 ? (
+                          "—"
+                        ) : (
+                          <div className="space-y-0.5">
+                            {a.targets.map((t) => (
+                              <div
+                                key={t.platform}
+                                className="flex items-center gap-1.5"
+                              >
+                                <span className="text-xs text-slate-400">
+                                  {t.platform}
+                                </span>
+                                <span className="font-mono text-slate-600">
+                                  {t.accountHandle ?? "—"}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="text-sm">
                         <span className={cn(overdue && "font-semibold text-rose-700")}>

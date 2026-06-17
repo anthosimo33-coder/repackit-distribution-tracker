@@ -1,13 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
+import {
+  useProjectQuery,
+  useProjectMutation,
+} from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
@@ -28,6 +30,8 @@ import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 const NONE = "__none__";
+const PLATFORMS = ["TikTok", "YouTube", "Instagram"] as const;
+type Platform = (typeof PLATFORMS)[number];
 
 function defaultDue(): string {
   const d = new Date();
@@ -37,8 +41,10 @@ function defaultDue(): string {
 }
 
 /**
- * P7 — assignation en masse d'un format : N créateurs × P posts = N×P
- * assignments (1 row = 1 livrable). Deadline + compte cible optionnel.
+ * Chantier C — assignation d'un format à UN créateur sur 1 à 3 CIBLES (1 compte
+ * par plateforme, choisi parmi ses comptes DISPONIBLES = warmup terminé). N
+ * vidéos → N×(nb cibles) posts. Une plateforme sans compte dispo est désactivée
+ * (« en warmup »).
  */
 export function AssignFormatDialog({
   formatId,
@@ -55,33 +61,50 @@ export function AssignFormatDialog({
     api.assignments.listAssignableCreators,
     open ? {} : "skip",
   );
-  const comptes = useProjectQuery(api.comptes.listComptes, open ? {} : "skip");
+  const [creatorId, setCreatorId] = useState<string>(NONE);
+  const available = useProjectQuery(
+    api.comptes.listCreatorAvailableComptes,
+    open && creatorId !== NONE
+      ? { creatorId: creatorId as Id<"creators"> }
+      : "skip",
+  );
   const assign = useProjectMutation(api.assignments.assignFormat);
 
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [picks, setPicks] = useState<Record<Platform, string>>({
+    TikTok: NONE,
+    YouTube: NONE,
+    Instagram: NONE,
+  });
   const [posts, setPosts] = useState("1");
   const [due, setDue] = useState(defaultDue());
-  const [accountId, setAccountId] = useState<string>(NONE);
   const [submitting, setSubmitting] = useState(false);
 
-  function toggle(id: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  function changeCreator(v: string) {
+    setCreatorId(v);
+    setPicks({ TikTok: NONE, YouTube: NONE, Instagram: NONE });
   }
+
+  const optionsByPlatform = (p: Platform) =>
+    (available ?? []).filter((c) => c.plateforme === p && c.available);
+
+  const targets = PLATFORMS.filter((p) => picks[p] !== NONE).map((p) => ({
+    platform: p,
+    accountId: picks[p] as Id<"comptes">,
+  }));
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const postsPerCreator = Number(posts);
-    if (selected.size === 0) {
-      toast.error("Sélectionne au moins un créateur.");
+    if (creatorId === NONE) {
+      toast.error("Choisis un créateur.");
+      return;
+    }
+    if (targets.length === 0) {
+      toast.error("Choisis au moins un compte cible (1 plateforme).");
       return;
     }
     if (!Number.isInteger(postsPerCreator) || postsPerCreator < 1) {
-      toast.error("Nombre de posts invalide.");
+      toast.error("Nombre de vidéos invalide.");
       return;
     }
     const dueMs = new Date(`${due}T23:59:59`).getTime();
@@ -93,13 +116,15 @@ export function AssignFormatDialog({
     try {
       const { created } = await assign({
         formatId,
-        creatorIds: [...selected] as Id<"creators">[],
+        creatorId: creatorId as Id<"creators">,
+        targets,
         postsPerCreator,
         dueDate: dueMs,
-        accountId: accountId === NONE ? undefined : (accountId as Id<"comptes">),
       });
-      toast.success(`${created} assignment${created > 1 ? "s" : ""} créé${created > 1 ? "s" : ""}`);
-      setSelected(new Set());
+      toast.success(
+        `${created} vidéo${created > 1 ? "s" : ""} × ${targets.length} post${targets.length > 1 ? "s" : ""} assignée${created > 1 ? "s" : ""}`,
+      );
+      changeCreator(NONE);
       onOpenChange(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erreur");
@@ -108,51 +133,108 @@ export function AssignFormatDialog({
     }
   }
 
-  const total =
-    selected.size * (Number.isInteger(Number(posts)) ? Number(posts) : 0);
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Assigner « {formatName} »</DialogTitle>
           <DialogDescription>
-            1 post = 1 livrable. {total > 0 ? `${total} assignment(s) seront créés.` : ""}
+            1 vidéo → {targets.length || "N"} post{targets.length > 1 ? "s" : ""}.
+            Choisis le créateur, puis 1 compte par plateforme.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Créateur (un seul) */}
           <div className="space-y-1.5">
-            <Label>Créateurs</Label>
+            <Label>Créateur</Label>
             {creators === undefined ? (
-              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-9 w-full" />
             ) : creators.length === 0 ? (
               <p className="text-sm text-slate-400">
                 Aucun créateur disponible (onboardé et actif).
               </p>
             ) : (
-              <ul className="max-h-48 space-y-1 overflow-y-auto rounded-md border border-slate-200 p-2">
-                {creators.map((c) => (
-                  <li key={c._id} className="flex items-center gap-2">
-                    <Checkbox
-                      id={`cr-${c._id}`}
-                      checked={selected.has(c._id)}
-                      onCheckedChange={() => toggle(c._id)}
-                    />
-                    <label
-                      htmlFor={`cr-${c._id}`}
-                      className="flex-1 cursor-pointer text-sm text-slate-700"
-                    >
+              <Select
+                value={creatorId}
+                onValueChange={(v) => v && changeCreator(v)}
+              >
+                <SelectTrigger aria-label="Créateur">
+                  <SelectValue>
+                    {creatorId === NONE
+                      ? "Choisir un créateur…"
+                      : (creators.find((c) => c._id === creatorId)?.name ??
+                        "Créateur")}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {creators.map((c) => (
+                    <SelectItem key={c._id} value={c._id}>
                       {c.name}
-                    </label>
-                  </li>
-                ))}
-              </ul>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
           </div>
 
+          {/* Cibles : 1 compte par plateforme (comptes DISPONIBLES uniquement) */}
+          {creatorId !== NONE && (
+            <div className="space-y-2">
+              <Label>Cibles (1 compte par plateforme)</Label>
+              {available === undefined ? (
+                <Skeleton className="h-24 w-full" />
+              ) : (
+                PLATFORMS.map((p) => {
+                  const opts = optionsByPlatform(p);
+                  return (
+                    <div key={p} className="flex items-center gap-2">
+                      <span className="w-24 shrink-0 text-sm font-medium text-slate-600">
+                        {p}
+                      </span>
+                      {opts.length === 0 ? (
+                        <span className="text-xs text-slate-400">
+                          aucun compte disponible — en warmup
+                        </span>
+                      ) : (
+                        <Select
+                          value={picks[p]}
+                          onValueChange={(v) =>
+                            v && setPicks((prev) => ({ ...prev, [p]: v }))
+                          }
+                        >
+                          <SelectTrigger
+                            className="flex-1"
+                            aria-label={`Compte ${p}`}
+                          >
+                            <SelectValue>
+                              {picks[p] === NONE
+                                ? "— ne pas publier —"
+                                : (opts.find((o) => o._id === picks[p])
+                                    ?.handle ?? "Compte")}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={NONE}>
+                              — ne pas publier —
+                            </SelectItem>
+                            {opts.map((o) => (
+                              <SelectItem key={o._id} value={o._id}>
+                                {o.handle}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="posts">Posts par créateur</Label>
+              <Label htmlFor="posts">Vidéos à produire</Label>
               <Input
                 id="posts"
                 type="number"
@@ -171,28 +253,6 @@ export function AssignFormatDialog({
                 onChange={(e) => setDue(e.target.value)}
               />
             </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>Compte cible (optionnel)</Label>
-            <Select value={accountId} onValueChange={(v) => v && setAccountId(v)}>
-              <SelectTrigger aria-label="Compte cible">
-                <SelectValue>
-                  {accountId === NONE
-                    ? "Aucun"
-                    : (comptes?.find((c) => c._id === accountId)?.handle ??
-                      "Compte")}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NONE}>Aucun</SelectItem>
-                {(comptes ?? []).map((c) => (
-                  <SelectItem key={c._id} value={c._id}>
-                    {c.handle}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
 
           <DialogFooter>

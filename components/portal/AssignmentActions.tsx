@@ -33,20 +33,36 @@ import { detectInspirationType } from "@/lib/inspiration-url";
  *   todo → « Je commence » → in_progress
  *   → « Soumettre ma vidéo » (upload MP4 modal) → video_submitted (en revue)
  *   → [refus] video_rejected (feedback) → re-upload → video_submitted
- *   → [validée] to_publish → « publie + colle l'URL » → published.
- * Le PAIEMENT se déclenche à `published` (confirmPublication), pas à la revue.
+ *   → [validée] to_publish → publie sur CHAQUE plateforme + colle les URLs → published.
+ * Le PAIEMENT se déclenche à `published` (confirmPublication), 1 base PAR POST.
  */
+
+type Platform = "TikTok" | "Instagram" | "YouTube";
+type Target = {
+  platform: Platform;
+  accountHandle: string | null;
+  publishedUrl: string | null;
+  publishedAt: number | null;
+};
 
 /** Bouton d'action TACTILE : pleine largeur + 44px sur mobile, normal en desktop. */
 const ACTION_BTN = "h-11 w-full text-base sm:h-9 sm:w-auto sm:text-sm";
 
+function placeholderFor(p: Platform): string {
+  if (p === "TikTok") return "https://www.tiktok.com/@toi/video/…";
+  if (p === "YouTube") return "https://www.youtube.com/watch?v=…";
+  return "https://www.instagram.com/p/…";
+}
+
 export function AssignmentActions({
   assignment,
+  targets,
   projectId,
   submittedVideoUrl,
   submittedVideoMimeType,
 }: {
   assignment: Doc<"assignments">;
+  targets: Target[];
   projectId: Id<"projects">;
   submittedVideoUrl?: string | null;
   submittedVideoMimeType?: string | null;
@@ -56,11 +72,10 @@ export function AssignmentActions({
   const confirmPublication = useMutation(api.assignments.confirmPublication);
 
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [url, setUrl] = useState("");
+  const [urls, setUrls] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
 
   const s = assignment.status;
-  const detected = url.trim() ? detectInspirationType(url) : null;
 
   async function handleStart() {
     setBusy(true);
@@ -94,11 +109,28 @@ export function AssignmentActions({
 
   async function handleConfirm(e: React.FormEvent) {
     e.preventDefault();
+    // Garde client : chaque URL doit correspondre à SA plateforme (le serveur
+    // revalide de toute façon).
+    for (const t of targets) {
+      const val = (urls[t.platform] ?? "").trim();
+      const detected = val ? detectInspirationType(val) : null;
+      if (!detected || detected.plateforme !== t.platform) {
+        toast.error(`L'URL pour ${t.platform} ne correspond pas à cette plateforme.`);
+        return;
+      }
+    }
     setBusy(true);
     try {
-      await confirmPublication({ projectId, id: assignment._id, url: url.trim() });
+      await confirmPublication({
+        projectId,
+        id: assignment._id,
+        urls: targets.map((t) => ({
+          platform: t.platform,
+          url: (urls[t.platform] ?? "").trim(),
+        })),
+      });
       toast.success("Publication confirmée — paiement en route 🎉");
-      setUrl("");
+      setUrls({});
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erreur");
     } finally {
@@ -126,7 +158,7 @@ export function AssignmentActions({
           <DialogTitle>Soumettre ta vidéo</DialogTitle>
           <DialogDescription>
             Envoie ton MP4 (non publié). L&apos;admin la valide avant que tu la
-            publies sur ton compte.
+            publies sur {targets.length > 1 ? "tes comptes" : "ton compte"}.
           </DialogDescription>
         </DialogHeader>
         <VideoUploader
@@ -209,68 +241,92 @@ export function AssignmentActions({
     );
   }
 
-  // ── to_publish → publie + colle l'URL ──────────────────────────────────────
+  // ── to_publish → publie sur CHAQUE plateforme + colle 1 URL par plateforme ──
   if (s === "to_publish") {
+    const allFilled = targets.every(
+      (t) => (urls[t.platform] ?? "").trim().length > 0,
+    );
     return (
-      <form onSubmit={handleConfirm} className="space-y-3">
+      <form onSubmit={handleConfirm} className="space-y-4">
         <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
           <CheckCircle2Icon className="size-4 shrink-0" />
-          Ta vidéo est validée — publie-la sur ton compte, puis colle l&apos;URL
-          du post ci-dessous.
+          Ta vidéo est validée — publie-la sur {targets.length > 1
+            ? "chaque plateforme"
+            : "ton compte"}, puis colle {targets.length > 1
+            ? "les URLs"
+            : "l'URL"} ci-dessous.
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="post-url">URL du post publié</Label>
-          <Input
-            id="post-url"
-            type="url"
-            inputMode="url"
-            placeholder="https://www.tiktok.com/@toi/video/…"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            required
-            className="h-11 sm:h-9"
-          />
-          {detected && (
-            <p className="text-xs text-slate-500">
-              Plateforme détectée : {detected.plateforme}
-            </p>
+        {targets.map((t) => {
+          const val = urls[t.platform] ?? "";
+          const detected = val.trim() ? detectInspirationType(val) : null;
+          const mismatch = detected && detected.plateforme !== t.platform;
+          return (
+            <div key={t.platform} className="space-y-1.5">
+              <Label htmlFor={`url-${t.platform}`}>
+                Publie sur {t.platform}
+                {t.accountHandle ? (
+                  <span className="font-mono text-slate-500">
+                    {" "}
+                    {t.accountHandle}
+                  </span>
+                ) : null}
+              </Label>
+              <Input
+                id={`url-${t.platform}`}
+                type="url"
+                inputMode="url"
+                placeholder={placeholderFor(t.platform)}
+                value={val}
+                onChange={(e) =>
+                  setUrls((prev) => ({ ...prev, [t.platform]: e.target.value }))
+                }
+                required
+                className="h-11 sm:h-9"
+              />
+              {mismatch && (
+                <p className="text-xs text-rose-600">
+                  Ce lien n&apos;est pas un lien {t.platform}.
+                </p>
+              )}
+            </div>
+          );
+        })}
+        <Button
+          type="submit"
+          disabled={busy || !allFilled}
+          className="h-11 w-full text-base sm:h-9 sm:text-sm"
+        >
+          {busy ? (
+            <Loader2Icon className="mr-2 size-4 animate-spin" />
+          ) : (
+            <SendIcon className="mr-2 size-4" />
           )}
-          <Button
-            type="submit"
-            disabled={busy || url.trim().length === 0}
-            className="h-11 w-full text-base sm:h-9 sm:text-sm"
-          >
-            {busy ? (
-              <Loader2Icon className="mr-2 size-4 animate-spin" />
-            ) : (
-              <SendIcon className="mr-2 size-4" />
-            )}
-            Confirmer la publication
-          </Button>
-        </div>
+          Confirmer la publication
+        </Button>
       </form>
     );
   }
 
   // ── published | paid ───────────────────────────────────────────────────────
-  const publishedUrl = assignment.publishedUrl ?? assignment.submittedUrl;
+  const publishedTargets = targets.filter((t) => t.publishedUrl);
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
         <CheckCircle2Icon className="size-4 shrink-0" />
         {s === "paid" ? "Publié et payé ✓" : "Publié ✓"}
       </div>
-      {publishedUrl && (
+      {publishedTargets.map((t) => (
         <a
-          href={publishedUrl}
+          key={t.platform}
+          href={t.publishedUrl!}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
         >
-          Voir le post publié
+          Voir le post {t.platform}
           <ExternalLinkIcon className="size-3.5" />
         </a>
-      )}
+      ))}
     </div>
   );
 }

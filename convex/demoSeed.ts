@@ -41,6 +41,7 @@ import { defaultTargetDays } from "./warmup";
 
 const DAY = 86_400_000;
 const DEMO_MARKER = "[DEMO]";
+type Plateforme = "TikTok" | "Instagram" | "YouTube";
 const DEMO_CREATOR_EMAIL = "antho.test.demo@repackit.io";
 const DEMO_CREATOR_NAME = "Antho Test [DEMO]";
 
@@ -340,7 +341,7 @@ export const seedDemoCreator = internalMutation({
         updatedAt: now,
       },
     });
-    const igId = await ctx.db.insert("comptes", {
+    await ctx.db.insert("comptes", {
       projectId,
       handle: "@antho.test",
       plateforme: "Instagram",
@@ -360,6 +361,19 @@ export const seedDemoCreator = internalMutation({
         dailyChecks: [ymd(now - 4 * DAY), ymd(now - 3 * DAY)],
         updatedAt: now,
       },
+    });
+    // Instagram ACTIF (disponible) — sert de CIBLE multi-plateforme. Distinct du
+    // @antho.test ci-dessus (en warmup → jamais une cible). Permet un assignment
+    // 3-cibles (TikTok + YouTube + Instagram) côté démo.
+    const igAvailId = await ctx.db.insert("comptes", {
+      projectId,
+      handle: "@antho.repackit",
+      plateforme: "Instagram",
+      notes: `${DEMO_MARKER} compte démo`,
+      status: "actif",
+      actif: true,
+      creatorId,
+      url: "https://www.instagram.com/antho.repackit",
     });
 
     // ── Format démo (brief consommé par les assignments format) ──────────────
@@ -400,13 +414,19 @@ export const seedDemoCreator = internalMutation({
       updatedAt: now,
     });
 
-    // ── 3. Assignments (statuts variés) ──────────────────────────────────────
+    // ── 3. Assignments MULTI-CIBLES (1 vidéo → N posts), statuts variés ───────
+    // Cibles UNIQUEMENT sur des comptes DISPONIBLES (ttId warmup terminé, ytId
+    // actif, igAvailId actif). Les comptes en warmup (@antho_test_yt, @antho.test)
+    // ne sont JAMAIS des cibles (contrainte de disponibilité du modèle).
     const counts: Record<string, number> = {
-      comptes: 4,
+      comptes: 5,
       assignments: 0,
       publications: 0,
       snapshots: 0,
     };
+
+    const handleOf = (id: Id<"comptes">): string =>
+      id === ttId ? "@antho_test_tt" : id === ytId ? "@anthotest" : "@antho.repackit";
 
     type AssignmentFields = Omit<
       Partial<WithoutSystemFields<Doc<"assignments">>>,
@@ -425,57 +445,61 @@ export const seedDemoCreator = internalMutation({
       });
     };
 
-    // todo (à temps)
+    // 1 cible — todo (à temps).
     await insertAssignment({
       formatId,
-      accountId: ytId,
+      targets: [{ platform: "YouTube", accountId: ytId }],
       dueDate: now + 5 * DAY,
       status: "todo",
     });
-    // todo (EN RETARD — dueDate passée)
+    // 1 cible — todo (EN RETARD — dueDate passée).
     await insertAssignment({
       formatId,
-      accountId: ttId,
+      targets: [{ platform: "TikTok", accountId: ttId }],
       dueDate: now - 2 * DAY,
       status: "todo",
     });
-    // in_progress
+    // 2 cibles — in_progress.
     await insertAssignment({
       formatId,
-      accountId: igId,
+      targets: [
+        { platform: "TikTok", accountId: ttId },
+        { platform: "Instagram", accountId: igAvailId },
+      ],
       dueDate: now + 3 * DAY,
       status: "in_progress",
     });
-    // video_submitted (en attente de revue admin). NB : un seed ne peut pas
+    // 1 cible — video_submitted (file de revue admin). NB : un seed ne peut pas
     // uploader d'octets → pas de submittedVideoStorageId ici ; le rendu du MP4
-    // dans la file de revue se teste manuellement (un créateur uploade pour de
-    // vrai). Ce statut couvre néanmoins le badge + la file côté admin.
+    // dans la file se teste manuellement.
     await insertAssignment({
       formatId,
-      accountId: ytId,
+      targets: [{ platform: "YouTube", accountId: ytId }],
       dueDate: now - 1 * DAY,
       status: "video_submitted",
     });
-    // video_rejected (feedback admin visible créateur → re-upload).
+    // 1 cible — video_rejected (feedback admin visible créateur → re-upload).
     await insertAssignment({
       formatId,
-      accountId: ttId,
+      targets: [{ platform: "TikTok", accountId: ttId }],
       dueDate: now + 1 * DAY,
       status: "video_rejected",
       videoReviewFeedback: `${DEMO_MARKER} Hook trop long — coupe les 2 premières secondes et resoumets.`,
     });
-    // to_publish (vidéo validée → déclenche la notif « à publier » côté créateur).
+    // 2 cibles — to_publish (montre 2 champs d'URL côté créateur + notif « à publier »).
     await insertAssignment({
       formatId,
-      accountId: igId,
+      targets: [
+        { platform: "TikTok", accountId: ttId },
+        { platform: "YouTube", accountId: ytId },
+      ],
       dueDate: now + 2 * DAY,
       status: "to_publish",
     });
 
-    // Matérialise une publication [DEMO] + quelques snapshots de vues.
-    const materialize = async (args: {
-      assignmentId: Id<"assignments">;
-      plateforme: "TikTok" | "Instagram" | "YouTube";
+    // Matérialise UNE publication [DEMO] + snapshots de vues, renvoie l'id.
+    const materializePub = async (args: {
+      plateforme: Plateforme;
       compte: string;
       datePubli: number;
       postUrl: string;
@@ -504,16 +528,13 @@ export const seedDemoCreator = internalMutation({
       await ctx.db.patch(pubId, {
         notes: `${DEMO_MARKER} publication de démonstration`,
       });
-      await ctx.db.patch(args.assignmentId, { publicationId: pubId });
       counts.publications += 1;
-
       const ages = [1, 3, 7] as const;
       for (let i = 0; i < ages.length; i++) {
-        const capturedAt = args.datePubli + ages[i] * DAY;
         await ctx.db.insert("metricSnapshots", {
           projectId,
           publicationId: pubId,
-          capturedAt,
+          capturedAt: args.datePubli + ages[i] * DAY,
           daysSincePublication: ages[i],
           vues: args.views[i],
           likes: Math.round(args.views[i] * 0.06),
@@ -525,67 +546,103 @@ export const seedDemoCreator = internalMutation({
       return pubId;
     };
 
-    // published #1 (FORMAT, YouTube) → publication + snapshots + base
+    // published #1 — FORMAT, 3 CIBLES (TikTok + YouTube + Instagram) → 3 pubs +
+    // 3 lineItems BASE (paiement PAR POST = 3 × base). Le showcase « 1 vidéo → 3 posts ».
     const datePubli1 = now - 7 * DAY;
+    const pub1 = [
+      {
+        platform: "TikTok" as const,
+        accountId: ttId,
+        postUrl: "https://www.tiktok.com/@antho_test_tt/video/7300000000000010",
+        views: [3000, 12000, 41000] as [number, number, number],
+      },
+      {
+        platform: "YouTube" as const,
+        accountId: ytId,
+        postUrl: "https://www.youtube.com/watch?v=ScMzIvxBSi4",
+        views: [1200, 5400, 18900] as [number, number, number],
+      },
+      {
+        platform: "Instagram" as const,
+        accountId: igAvailId,
+        postUrl: "https://www.instagram.com/reel/Cabc123demo/",
+        views: [800, 3200, 9700] as [number, number, number],
+      },
+    ];
+    const builtTargets1: NonNullable<Doc<"assignments">["targets"]> = [];
+    for (const t of pub1) {
+      const pubId = await materializePub({
+        plateforme: t.platform,
+        compte: handleOf(t.accountId),
+        datePubli: datePubli1,
+        postUrl: t.postUrl,
+        views: t.views,
+      });
+      builtTargets1.push({
+        platform: t.platform,
+        accountId: t.accountId,
+        publishedUrl: t.postUrl,
+        publishedAt: datePubli1,
+        publicationId: pubId,
+      });
+    }
     const aVal1 = await insertAssignment({
       formatId,
-      accountId: ytId,
+      targets: builtTargets1,
       dueDate: now - 5 * DAY,
       status: "published",
-      publishedUrl: "https://www.youtube.com/watch?v=ScMzIvxBSi4",
-      publishedAt: datePubli1,
-      submittedPlatform: "YouTube",
     });
-    await materialize({
-      assignmentId: aVal1,
-      plateforme: "YouTube",
-      compte: "@anthotest",
-      datePubli: datePubli1,
-      postUrl: "https://www.youtube.com/watch?v=ScMzIvxBSi4",
-      views: [1200, 5400, 18900],
-    });
-    await accrueBaseLineItem(ctx, {
-      projectId,
-      creatorId,
-      assignmentId: aVal1,
-      label: `${DEMO_MARKER} Base — vidéo YouTube`,
-      amount: DEMO_RATE.basePerPost,
-      now,
-    });
+    for (const t of pub1) {
+      await accrueBaseLineItem(ctx, {
+        projectId,
+        creatorId,
+        assignmentId: aVal1,
+        label: `${DEMO_MARKER} Base — ${t.platform}`,
+        amount: DEMO_RATE.basePerPost,
+        now,
+        platform: t.platform,
+      });
+    }
 
-    // validated #2 (SCRIPT combo si une campagne existe, sinon FORMAT) →
-    // publication + snapshots + base + BONUS de vues.
+    // published #2 — SCRIPT combo (1 cible TikTok) → pub + base + BONUS de vues.
     const combo = await pickDemoCombo(ctx, projectId);
     const datePubli2 = now - 6 * DAY;
+    const pub2Url =
+      "https://www.tiktok.com/@antho_test_tt/video/7300000000000001";
+    const pub2Id = await materializePub({
+      plateforme: "TikTok",
+      compte: "@antho_test_tt",
+      datePubli: datePubli2,
+      postUrl: pub2Url,
+      views: [3000, 12000, 41000],
+      scriptCombo: combo?.publicationCombo,
+    });
     const aVal2 = await insertAssignment({
       formatId: combo ? undefined : formatId,
       scriptCombo: combo?.assignmentCombo,
       comboKey: combo?.comboKey,
-      accountId: ttId,
+      targets: [
+        {
+          platform: "TikTok",
+          accountId: ttId,
+          publishedUrl: pub2Url,
+          publishedAt: datePubli2,
+          publicationId: pub2Id,
+        },
+      ],
       dueDate: now - 4 * DAY,
       status: "published",
-      publishedUrl: "https://www.tiktok.com/@antho_test_tt/video/7300000000000001",
-      publishedAt: datePubli2,
-      submittedPlatform: "TikTok",
-    });
-    await materialize({
-      assignmentId: aVal2,
-      plateforme: "TikTok",
-      compte: "@antho_test_tt",
-      datePubli: datePubli2,
-      postUrl: "https://www.tiktok.com/@antho_test_tt/video/7300000000000001",
-      views: [3000, 12000, 41000],
-      scriptCombo: combo?.publicationCombo,
     });
     await accrueBaseLineItem(ctx, {
       projectId,
       creatorId,
       assignmentId: aVal2,
-      label: `${DEMO_MARKER} Base — vidéo TikTok`,
+      label: `${DEMO_MARKER} Base — TikTok`,
       amount: DEMO_RATE.basePerPost,
       now,
+      platform: "TikTok",
     });
-    // Bonus de vues : 41k vues × 1 €/1k ≈ 41 €.
+    // Bonus de vues : 41k vues × 1 €/1k ≈ 41 € (somme sur les cibles — ici 1).
     await upsertBonusLineItem(ctx, {
       projectId,
       creatorId,
@@ -595,33 +652,39 @@ export const seedDemoCreator = internalMutation({
       now,
     });
 
-    // paid (FORMAT, YouTube) → publication + snapshots + paiement PAYÉ (mois -1)
+    // paid — FORMAT, 1 cible YouTube → pub + base + paiement PAYÉ (mois -1).
     const paidMonthNow = now - 32 * DAY;
     const datePubli3 = paidMonthNow;
-    const aPaid = await insertAssignment({
-      formatId,
-      accountId: ytId,
-      dueDate: paidMonthNow - 2 * DAY,
-      status: "paid",
-      publishedUrl: "https://www.youtube.com/watch?v=9bZkp7q19f0",
-      publishedAt: datePubli3,
-      submittedPlatform: "YouTube",
-    });
-    await materialize({
-      assignmentId: aPaid,
+    const paidUrl = "https://www.youtube.com/watch?v=9bZkp7q19f0";
+    const pub3Id = await materializePub({
       plateforme: "YouTube",
       compte: "@anthotest",
       datePubli: datePubli3,
-      postUrl: "https://www.youtube.com/watch?v=9bZkp7q19f0",
+      postUrl: paidUrl,
       views: [4000, 15000, 52000],
+    });
+    const aPaid = await insertAssignment({
+      formatId,
+      targets: [
+        {
+          platform: "YouTube",
+          accountId: ytId,
+          publishedUrl: paidUrl,
+          publishedAt: datePubli3,
+          publicationId: pub3Id,
+        },
+      ],
+      dueDate: paidMonthNow - 2 * DAY,
+      status: "paid",
     });
     await accrueBaseLineItem(ctx, {
       projectId,
       creatorId,
       assignmentId: aPaid,
-      label: `${DEMO_MARKER} Base — vidéo YouTube`,
+      label: `${DEMO_MARKER} Base — YouTube`,
       amount: DEMO_RATE.basePerPost,
       now: paidMonthNow,
+      platform: "YouTube",
     });
     // Marque le paiement de la période passée comme PAYÉ.
     const pastPeriod = periodOf(paidMonthNow);

@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { createE2eClient } from "./helpers/authed-client";
 import { createCreatorSession } from "./helpers/creator-client";
+import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import type { ConvexHttpClient } from "convex/browser";
@@ -52,9 +53,16 @@ test.describe("Workflow MP4 — validation avant publication", () => {
       type: "short",
       rateModel: { basePerPost: 10, viewBonusPer1k: 2 },
     });
+    const target = await availableTarget({
+      e2eClient: admin,
+      creatorId: creator.creatorId,
+      platform: "TikTok",
+      handle: `@e2emp4${ts}`,
+    });
     await admin.mutation(api.assignments.assignFormat, {
       formatId,
-      creatorIds: [creator.creatorId],
+      creatorId: creator.creatorId,
+      targets: [target],
       postsPerCreator: 1,
       dueDate: ts + 7 * DAY,
     });
@@ -143,10 +151,10 @@ test.describe("Workflow MP4 — validation avant publication", () => {
     const postUrl = `https://www.tiktok.com/@moi/video/${ts}`;
     const pub = await creator.client.mutation(
       api.assignments.confirmPublication,
-      { projectId, id: a._id, url: postUrl },
+      { projectId, id: a._id, urls: [{ platform: "TikTok", url: postUrl }] },
     );
     expect(pub.alreadyPublished).toBe(false);
-    expect(pub.publicationId).toBeTruthy();
+    expect(pub.publicationIds.length).toBe(1);
     expect(await statusOf()).toBe("published");
 
     // Publication matérialisée (tracker).
@@ -174,7 +182,7 @@ test.describe("Workflow MP4 — validation avant publication", () => {
     // ── 6. idempotence : re-confirmer ne double rien ─────────────────────────
     const again = await creator.client.mutation(
       api.assignments.confirmPublication,
-      { projectId, id: a._id, url: postUrl },
+      { projectId, id: a._id, urls: [{ platform: "TikTok", url: postUrl }] },
     );
     expect(again.alreadyPublished).toBe(true);
     const pubCount = (

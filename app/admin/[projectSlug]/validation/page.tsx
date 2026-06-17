@@ -122,7 +122,7 @@ export default function ValidationPage() {
                     <TableHead>Créateur</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead>Publié le</TableHead>
-                    <TableHead>Post</TableHead>
+                    <TableHead>Posts</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -157,8 +157,8 @@ export default function ValidationPage() {
                   <TableRow>
                     <TableHead>Créateur</TableHead>
                     <TableHead>Format</TableHead>
-                    <TableHead>Publication</TableHead>
-                    <TableHead className="text-right">Dernières vues</TableHead>
+                    <TableHead>Posts</TableHead>
+                    <TableHead className="text-right">Vues cumulées</TableHead>
                     <TableHead className="text-right">Bonus</TableHead>
                     <TableHead className="w-40" />
                   </TableRow>
@@ -329,18 +329,34 @@ function PublishedTableRow({ p }: { p: PublishedRow }) {
         {p.publishedAt ? formatDate(p.publishedAt) : "—"}
       </TableCell>
       <TableCell>
-        {p.publishedUrl ? (
-          <a
-            href={p.publishedUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
-          >
-            {p.submittedPlatform ?? "Voir"}
-            <ExternalLinkIcon className="size-3.5" />
-          </a>
-        ) : (
+        {p.targets.length === 0 ? (
           "—"
+        ) : (
+          <div className="flex flex-col gap-1">
+            {p.targets.map((t) =>
+              t.publishedUrl ? (
+                <a
+                  key={t.platform}
+                  href={t.publishedUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+                >
+                  {t.platform}
+                  {t.accountHandle ? (
+                    <span className="font-mono text-xs text-slate-400">
+                      {t.accountHandle}
+                    </span>
+                  ) : null}
+                  <ExternalLinkIcon className="size-3.5" />
+                </a>
+              ) : (
+                <span key={t.platform} className="text-xs text-slate-400">
+                  {t.platform} —
+                </span>
+              ),
+            )}
+          </div>
         )}
       </TableCell>
     </TableRow>
@@ -382,8 +398,8 @@ function BonusRow({ r }: { r: BonusRowData }) {
         {r.creatorName}
       </TableCell>
       <TableCell className="text-slate-700">{r.formatName}</TableCell>
-      <TableCell className="font-mono text-sm text-slate-500">
-        {r.carouselId ?? "—"}
+      <TableCell className="text-sm text-slate-500">
+        {r.postCount} post{r.postCount > 1 ? "s" : ""}
       </TableCell>
       <TableCell className="text-right tabular-nums">
         {r.latestViews !== null ? (

@@ -1,6 +1,7 @@
 import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
 import { createCreatorSession } from "./helpers/creator-client";
+import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { config } from "dotenv";
@@ -34,21 +35,34 @@ test.describe("Admin — assignation + table", () => {
       rateModel: { basePerPost: 30 },
     })) as Id<"formats">;
 
-    // 1 assignment EN RETARD posé côté serveur (dueDate passée).
+    // Compte TikTok DISPONIBLE (cible) + 1 assignment EN RETARD côté serveur.
+    const tkHandle = `@e2easgui${ts}`;
+    const target = await availableTarget({
+      e2eClient: admin,
+      creatorId: C.creatorId,
+      platform: "TikTok",
+      handle: tkHandle,
+    });
     await admin.mutation(api.assignments.assignFormat, {
       formatId: fid,
-      creatorIds: [C.creatorId],
+      creatorId: C.creatorId,
+      targets: [target],
       postsPerCreator: 1,
       dueDate: ts - 3 * 86_400_000,
     });
 
-    // Modal d'assignation depuis la fiche format : 2 posts.
+    // Modal d'assignation depuis la fiche format : 1 créateur → cible TikTok → 2 vidéos.
     await page.goto(adminPath(`/formats/${fid}`));
     await page.getByRole("button", { name: /^assigner$/i }).first().click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
-    await dialog.getByText(creatorName).click(); // coche le créateur
-    await dialog.getByLabel("Posts par créateur").fill("2");
+    // Sélectionne le créateur (Select).
+    await dialog.getByLabel("Créateur").click();
+    await page.getByRole("option", { name: creatorName }).click();
+    // Sélectionne le compte TikTok cible.
+    await dialog.getByLabel("Compte TikTok").click();
+    await page.getByRole("option", { name: tkHandle }).click();
+    await dialog.getByLabel("Vidéos à produire").fill("2");
     await dialog.getByRole("button", { name: "Assigner", exact: true }).click();
     await expect(dialog).toBeHidden({ timeout: 8000 });
 

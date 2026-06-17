@@ -1,6 +1,7 @@
 import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { createCreatorSession } from "./helpers/creator-client";
+import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
 
@@ -39,9 +40,16 @@ test.describe("Accrual & matérialisation à la publication", () => {
       type: "short",
       rateModel: { basePerPost: 10, viewBonusPer1k: 2 },
     });
+    const tVal = await availableTarget({
+      e2eClient: admin,
+      creatorId: creator.creatorId,
+      platform: "TikTok",
+      handle: `@e2eval${ts}`,
+    });
     await admin.mutation(api.assignments.assignFormat, {
       formatId,
-      creatorIds: [creator.creatorId],
+      creatorId: creator.creatorId,
+      targets: [tVal],
       postsPerCreator: 2,
       dueDate: ts + 7 * DAY,
     });
@@ -63,25 +71,26 @@ test.describe("Accrual & matérialisation à la publication", () => {
     const kpiBefore = await admin.query(api.dashboard.dashboardKpis, {});
     const v1 = await creator.client.mutation(
       api.assignments.confirmPublication,
-      { projectId, id: a1._id, url: u1 },
+      { projectId, id: a1._id, urls: [{ platform: "TikTok", url: u1 }] },
     );
     expect(v1.alreadyPublished).toBe(false);
-    expect(v1.publicationId).toBeTruthy();
+    expect(v1.publicationIds.length).toBe(1);
 
     const a1Now = (await admin.query(api.assignments.listAssignments, {})).find(
       (a) => a._id === a1._id,
     )!;
     expect(a1Now.status).toBe("published");
-    expect(a1Now.publicationId).toBeTruthy();
-    expect(a1Now.publishedUrl).toBe(u1);
+    // La cible TikTok porte l'URL publiée.
+    expect(a1Now.targets[0]?.publishedUrl).toBe(u1);
 
     const pub1 = (await admin.query(api.publications.listPublications, {})).find(
-      (p) => p._id === a1Now.publicationId,
+      (p) => p.postUrl === u1,
     );
     expect(pub1).toBeTruthy();
     expect(pub1!.postUrl).toBe(u1);
     expect(pub1!.plateforme).toBe("TikTok");
     expect(pub1!.mediaType).toBe("short");
+    const pub1Id = pub1!._id;
 
     const kpiAfter = await admin.query(api.dashboard.dashboardKpis, {});
     expect(kpiAfter.totalPublished).toBe(kpiBefore.totalPublished + 1);
@@ -102,7 +111,7 @@ test.describe("Accrual & matérialisation à la publication", () => {
     // ─── 2. re-confirmer IDEMPOTENT ─────────────────────────────────────────
     const v1bis = await creator.client.mutation(
       api.assignments.confirmPublication,
-      { projectId, id: a1._id, url: u1 },
+      { projectId, id: a1._id, urls: [{ platform: "TikTok", url: u1 }] },
     );
     expect(v1bis.alreadyPublished).toBe(true);
     const pub1Count = (
@@ -122,7 +131,9 @@ test.describe("Accrual & matérialisation à la publication", () => {
     await creator.client.mutation(api.assignments.confirmPublication, {
       projectId,
       id: a2._id,
-      url: `https://www.tiktok.com/@e2e/video/${ts}2b`,
+      urls: [
+        { platform: "TikTok", url: `https://www.tiktok.com/@e2e/video/${ts}2b` },
+      ],
     });
     pay = await payOf();
     expect(pay.lineItems.filter((li) => li.kind === "base").length).toBe(2);
@@ -130,7 +141,7 @@ test.describe("Accrual & matérialisation à la publication", () => {
 
     // ─── 4. bonus de vues : calcul puis RECALCUL = remplacement ─────────────
     await admin.mutation(api.metricSnapshots.createSnapshot, {
-      publicationId: a1Now.publicationId!,
+      publicationId: pub1Id,
       capturedAt: ts + 2 * DAY,
       vues: 5000,
       likes: 100,
@@ -177,9 +188,16 @@ test.describe("Accrual & matérialisation à la publication", () => {
       type: "short",
       rateModel: { basePerPost: 5 },
     });
+    const tValUI = await availableTarget({
+      e2eClient: admin,
+      creatorId: creator.creatorId,
+      platform: "TikTok",
+      handle: `@e2evalui${ts}`,
+    });
     await admin.mutation(api.assignments.assignFormat, {
       formatId,
-      creatorIds: [creator.creatorId],
+      creatorId: creator.creatorId,
+      targets: [tValUI],
       postsPerCreator: 1,
       dueDate: ts + 7 * DAY,
     });
@@ -207,6 +225,7 @@ test.describe("Accrual & matérialisation à la publication", () => {
       (x) => x._id === a._id,
     )!;
     expect(aNow.status).toBe("to_publish");
-    expect(aNow.publicationId).toBeFalsy(); // rien de matérialisé à la validation
+    // Rien de matérialisé à la validation : aucune cible n'a d'URL publiée.
+    expect(aNow.targets.every((t) => !t.publishedUrl)).toBe(true);
   });
 });

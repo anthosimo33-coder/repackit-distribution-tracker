@@ -1,6 +1,7 @@
 import { test, expect } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { createCreatorSession } from "./helpers/creator-client";
+import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
 
@@ -61,17 +62,40 @@ test.describe("S2 — assignation anti-coordination", () => {
     const projectId = a.projectId;
     const campaignId = await makeCampaign(ts);
 
-    // Assigne 2 créateurs × 5 vidéos → 10 assignments.
-    const r1 = await admin.mutation(api.scripts.assignScriptCampaign, {
+    // Cibles TikTok disponibles (1 par créateur).
+    const tA = await availableTarget({
+      e2eClient: admin,
+      creatorId: a.creatorId,
+      platform: "TikTok",
+      handle: `@e2escA${ts}`,
+    });
+    const tB = await availableTarget({
+      e2eClient: admin,
+      creatorId: b.creatorId,
+      platform: "TikTok",
+      handle: `@e2escB${ts}`,
+    });
+    // Chantier C — 1 créateur/action : 5 vidéos à A + 5 à B → 10 assignments.
+    const r1a = await admin.mutation(api.scripts.assignScriptCampaign, {
       campaignId,
-      creatorIds: [a.creatorId, b.creatorId],
+      creatorId: a.creatorId,
+      targets: [tA],
       videosPerCreator: 5,
       dueDate: ts + 7 * DAY,
       rateModel: { basePerPost: 10 },
     });
-    expect(r1.created).toBe(10);
-    expect(r1.totalCombos).toBe(24);
-    expect(r1.shortages.length).toBe(0);
+    const r1b = await admin.mutation(api.scripts.assignScriptCampaign, {
+      campaignId,
+      creatorId: b.creatorId,
+      targets: [tB],
+      videosPerCreator: 5,
+      dueDate: ts + 7 * DAY,
+      rateModel: { basePerPost: 10 },
+    });
+    expect(r1a.created + r1b.created).toBe(10);
+    expect(r1a.totalCombos).toBe(24);
+    expect(r1a.shortages.length).toBe(0);
+    expect(r1b.shortages.length).toBe(0);
 
     const forCampaign = async (creatorId: string) =>
       (await admin.query(api.assignments.listAssignments, {})).filter(
@@ -97,7 +121,8 @@ test.describe("S2 — assignation anti-coordination", () => {
     const aKeysBefore = new Set(aRows.map((x) => x.comboKey));
     const r2 = await admin.mutation(api.scripts.assignScriptCampaign, {
       campaignId,
-      creatorIds: [a.creatorId],
+      creatorId: a.creatorId,
+      targets: [tA],
       videosPerCreator: 5,
       dueDate: ts + 7 * DAY,
       rateModel: { basePerPost: 10 },
@@ -113,7 +138,8 @@ test.describe("S2 — assignation anti-coordination", () => {
     // Épuisement : A a 10/24 ; demander 20 → 14 assignés + shortage.
     const r3 = await admin.mutation(api.scripts.assignScriptCampaign, {
       campaignId,
-      creatorIds: [a.creatorId],
+      creatorId: a.creatorId,
+      targets: [tA],
       videosPerCreator: 20,
       dueDate: ts + 7 * DAY,
       rateModel: { basePerPost: 10 },
@@ -129,7 +155,8 @@ test.describe("S2 — assignation anti-coordination", () => {
     // Au-delà du stock → 0 assigné, shortage.
     const r4 = await admin.mutation(api.scripts.assignScriptCampaign, {
       campaignId,
-      creatorIds: [a.creatorId],
+      creatorId: a.creatorId,
+      targets: [tA],
       videosPerCreator: 3,
       dueDate: ts + 7 * DAY,
       rateModel: { basePerPost: 10 },
@@ -180,7 +207,9 @@ test.describe("S2 — assignation anti-coordination", () => {
     await a.client.mutation(api.assignments.confirmPublication, {
       projectId,
       id: aSample,
-      url: `https://www.tiktok.com/@a/video/sc${ts}`,
+      urls: [
+        { platform: "TikTok", url: `https://www.tiktok.com/@a/video/sc${ts}` },
+      ],
     });
     const myPayments = await a.client.query(api.payments.getMyPayments, {
       projectId,
@@ -205,7 +234,8 @@ test.describe("S2 — assignation anti-coordination", () => {
     });
     const rFmt = await admin.mutation(api.assignments.assignFormat, {
       formatId,
-      creatorIds: [b.creatorId],
+      creatorId: b.creatorId,
+      targets: [tB],
       postsPerCreator: 1,
       dueDate: ts + 7 * DAY,
     });

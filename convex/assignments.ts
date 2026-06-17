@@ -12,6 +12,7 @@ import {
   upsertBonusLineItem,
   computeEarnings,
 } from "./payments";
+import { isAccountAvailable } from "./warmup";
 import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
@@ -27,6 +28,18 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 type Plateforme = "TikTok" | "Instagram" | "YouTube";
 
+const plateformeValidator = v.union(
+  v.literal("TikTok"),
+  v.literal("Instagram"),
+  v.literal("YouTube"),
+);
+
+/** Cible d'assignment à la création : 1 compte (du créateur) sur 1 plateforme. */
+export const targetInputValidator = v.object({
+  platform: plateformeValidator,
+  accountId: v.id("comptes"),
+});
+
 /** Détection plateforme depuis l'URL (réplique serveur minimale, règle A6 —
  *  lib/inspiration-url ne peut pas être importée dans convex/). */
 function detectPlatform(url: string): Plateforme | undefined {
@@ -35,6 +48,50 @@ function detectPlatform(url: string): Plateforme | undefined {
   if (u.includes("instagram.com")) return "Instagram";
   if (u.includes("youtube.com") || u.includes("youtu.be")) return "YouTube";
   return undefined;
+}
+
+/**
+ * Chantier C — valide les CIBLES d'un assignment à la création : 1 à 3 cibles,
+ * plateformes UNIQUES, chaque compte appartenant AU créateur (et au projet), de
+ * la BONNE plateforme, et DISPONIBLE (isAccountAvailable = warmup terminé). Un
+ * compte en warmup ne peut JAMAIS être une cible.
+ */
+export async function validateTargets(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  creatorId: Id<"creators">,
+  targets: { platform: Plateforme; accountId: Id<"comptes"> }[],
+): Promise<void> {
+  if (targets.length < 1 || targets.length > 3) {
+    throw new ConvexError("Un assignment porte 1 à 3 cibles (plateformes).");
+  }
+  const seen = new Set<Plateforme>();
+  for (const t of targets) {
+    if (seen.has(t.platform)) {
+      throw new ConvexError(
+        `Une seule cible par plateforme (${t.platform} en double).`,
+      );
+    }
+    seen.add(t.platform);
+    const compte = await ctx.db.get(t.accountId);
+    if (
+      !compte ||
+      compte.projectId !== projectId ||
+      compte.creatorId !== creatorId
+    ) {
+      throw new ConvexError("Compte cible introuvable pour ce créateur.");
+    }
+    if (compte.plateforme !== t.platform) {
+      throw new ConvexError(
+        `Le compte ${compte.handle} n'est pas un compte ${t.platform}.`,
+      );
+    }
+    if (!isAccountAvailable(compte)) {
+      throw new ConvexError(
+        `Le compte ${compte.handle} est en warmup — indisponible pour publier.`,
+      );
+    }
+  }
 }
 
 // ─── Admin ─────────────────────────────────────────────────────────────────
@@ -62,16 +119,18 @@ export const listAssignableCreators = adminQuery({
 });
 
 /**
- * Assignation en masse : 1 assignment = 1 livrable. N créateurs × P posts =
- * N×P rows en "todo". rateSnapshot = copie figée du rateModel du format.
+ * Chantier C — assignation d'un FORMAT à UN créateur, sur 1 à 3 CIBLES
+ * (1 compte par plateforme, choisi parmi ses comptes DISPONIBLES). `postsPerCreator`
+ * vidéos → autant de rows "todo", chacune portant les MÊMES cibles (1 vidéo →
+ * N posts). rateSnapshot = copie figée du rateModel (appliqué PAR post).
  */
 export const assignFormat = adminMutation({
   args: {
     formatId: v.id("formats"),
-    creatorIds: v.array(v.id("creators")),
+    creatorId: v.id("creators"),
+    targets: v.array(targetInputValidator),
     postsPerCreator: v.number(),
     dueDate: v.number(),
-    accountId: v.optional(v.id("comptes")),
   },
   handler: async (ctx, args) => {
     const format = await ctx.db.get(args.formatId);
@@ -86,47 +145,49 @@ export const assignFormat = adminMutation({
       args.postsPerCreator < 1 ||
       args.postsPerCreator > 50
     ) {
-      throw new ConvexError("Nombre de posts par créateur invalide (1–50).");
+      throw new ConvexError("Nombre de vidéos invalide (1–50).");
     }
-    if (args.creatorIds.length === 0) {
-      throw new ConvexError("Sélectionne au moins un créateur.");
+    const creator = await ctx.db.get(args.creatorId);
+    if (!creator || creator.projectId !== ctx.projectId) {
+      throw new ConvexError("Créateur introuvable dans le projet.");
     }
-    if (args.accountId) {
-      const account = await ctx.db.get(args.accountId);
-      if (!account || account.projectId !== ctx.projectId) {
-        throw new ConvexError("Compte cible introuvable.");
+    if (
+      creator.userId === undefined ||
+      (creator.status !== "active" && creator.status !== "onboarding")
+    ) {
+      throw new ConvexError(
+        `Créateur non assignable (${creator.name} : non onboardé ou inactif).`,
+      );
+    }
+    await validateTargets(ctx, ctx.projectId, args.creatorId, args.targets);
+    // Compat format/plateforme (non-custom) pour CHAQUE cible.
+    if (format.type !== "custom") {
+      for (const t of args.targets) {
+        if (!isFormatAllowedOnPlatform(format.type, t.platform)) {
+          throw new ConvexError(
+            `Le format « ${format.name} » (${format.type}) ne peut pas être publié sur ${t.platform}.`,
+          );
+        }
       }
     }
+    const targets = args.targets.map((t) => ({
+      platform: t.platform,
+      accountId: t.accountId,
+    }));
     const now = Date.now();
     let created = 0;
-    for (const creatorId of args.creatorIds) {
-      const creator = await ctx.db.get(creatorId);
-      if (!creator || creator.projectId !== ctx.projectId) {
-        throw new ConvexError("Créateur introuvable dans le projet.");
-      }
-      // Règle d'assignabilité imposée SERVEUR (pas seulement dans
-      // listAssignableCreators) : onboardé (userId) + au travail.
-      if (
-        creator.userId === undefined ||
-        (creator.status !== "active" && creator.status !== "onboarding")
-      ) {
-        throw new ConvexError(
-          `Créateur non assignable (${creator.name} : non onboardé ou inactif).`,
-        );
-      }
-      for (let i = 0; i < args.postsPerCreator; i++) {
-        await ctx.db.insert("assignments", {
-          projectId: ctx.projectId,
-          creatorId,
-          formatId: args.formatId,
-          accountId: args.accountId,
-          dueDate: args.dueDate,
-          status: "todo",
-          rateSnapshot: format.rateModel,
-          createdAt: now,
-        });
-        created++;
-      }
+    for (let i = 0; i < args.postsPerCreator; i++) {
+      await ctx.db.insert("assignments", {
+        projectId: ctx.projectId,
+        creatorId: args.creatorId,
+        formatId: args.formatId,
+        targets,
+        dueDate: args.dueDate,
+        status: "todo",
+        rateSnapshot: format.rateModel,
+        createdAt: now,
+      });
+      created++;
     }
     return { created };
   },
@@ -183,13 +244,19 @@ export const listAssignments = adminQuery({
           const cta = brickMap.get(a.scriptCombo.ctaBrickId);
           comboSummary = `Tier ${hook?.tier ?? "?"} · ${corps?.label ?? "?"} · ${flux?.label ?? "?"} · ${cta?.label ?? "?"}`;
         }
+        // Chantier C — cibles enrichies (handle + URL par plateforme).
+        const targets = (a.targets ?? []).map((t) => ({
+          platform: t.platform,
+          accountHandle: t.accountId
+            ? (compteMap.get(t.accountId) ?? null)
+            : null,
+          publishedUrl: t.publishedUrl ?? null,
+        }));
         return {
           ...a,
           creatorName: creatorMap.get(a.creatorId) ?? "—",
           formatName: a.formatId ? (formatMap.get(a.formatId) ?? "—") : null,
-          accountHandle: a.accountId
-            ? (compteMap.get(a.accountId) ?? null)
-            : null,
+          targets,
           origin: (a.scriptCombo ? "script" : "format") as "script" | "format",
           scriptCampaignName,
           comboSummary,
@@ -255,83 +322,65 @@ async function materializeScriptPublication(
 }
 
 /**
- * Cœur du nouveau modèle : à la PUBLICATION (creator confirme l'URL), en UNE
- * transaction — (1) matérialise la publication (script avec combo, ou format
- * non-custom ; custom = pas de pub), (2) accrue la lineItem de BASE. Idempotent :
- * réutilise publicationId existant + accrueBaseLineItem est idempotent par
- * assignmentId → re-confirmer ne double ni la pub ni le crédit.
+ * Chantier C — matérialise la publication d'UNE cible (1 plateforme, 1 compte)
+ * à la publication. Script → pub "short" + combo ; format non-custom → pub du
+ * type ; format custom → pas de pub (null). Compte résolu depuis target.accountId
+ * (fallback nom du créateur si legacy sans compte). Appelé en boucle sur les
+ * cibles par confirmPublication, qui gère l'accrual base PAR POST.
  *
  * Type de retour ANNOTÉ (ctx.runMutation(internal.*) → TS7022). NE PAS retirer.
  */
-async function materializeAndAccrueOnPublish(
+async function materializeTargetPublication(
   ctx: MutationCtx,
   a: Doc<"assignments">,
   projectId: Id<"projects">,
-  opts: { url: string; platform: Plateforme | undefined; publishedAt: number },
+  target: { platform: Plateforme; accountId?: Id<"comptes"> },
+  url: string,
+  datePubli: number,
 ): Promise<Id<"publications"> | null> {
-  const now = Date.now();
-  const dateLabel = new Date(opts.publishedAt).toLocaleDateString("fr-FR", {
-    day: "2-digit",
-    month: "2-digit",
-  });
-
-  let publicationId: Id<"publications"> | null = a.publicationId ?? null;
-  let label: string;
-
-  if (a.scriptCombo && a.formatId === undefined) {
-    if (publicationId === null) {
-      if (opts.platform === undefined) {
-        throw new ConvexError("Plateforme du post non détectée.");
-      }
-      publicationId = await materializeScriptPublication(ctx, a, projectId, {
-        url: opts.url,
-        platform: opts.platform,
-        datePubli: opts.publishedAt,
-      });
-    }
-    // ISOLATION : label NEUTRE — jamais le nom de campagne côté créateur.
-    label = `Vidéo — ${dateLabel}`;
+  let compte: string;
+  if (target.accountId) {
+    const account = await ctx.db.get(target.accountId);
+    compte = account?.handle ?? "—";
   } else {
-    const format = a.formatId ? await ctx.db.get(a.formatId) : null;
-    if (!format) throw new ConvexError("Format introuvable.");
-    if (format.type !== "custom" && publicationId === null) {
-      if (opts.platform === undefined) {
-        throw new ConvexError("Plateforme du post non détectée.");
-      }
-      let compte: string;
-      if (a.accountId) {
-        const account = await ctx.db.get(a.accountId);
-        compte = account?.handle ?? "—";
-      } else {
-        const creator = await ctx.db.get(a.creatorId);
-        compte = creator?.name ?? "—";
-      }
-      publicationId = await ctx.runMutation(
-        internal.publications.createFromAssignment,
-        {
-          projectId,
-          mediaType: format.type,
-          plateforme: opts.platform,
-          compte,
-          datePubli: opts.publishedAt,
-          postUrl: opts.url,
-        },
+    const creator = await ctx.db.get(a.creatorId);
+    compte = creator?.name ?? "—";
+  }
+  const isScript = a.scriptCombo !== undefined && a.formatId === undefined;
+  if (isScript) {
+    if (!a.scriptCombo || a.comboKey === undefined) {
+      throw new ConvexError(
+        "Combo de script manquant — matérialisation impossible.",
       );
     }
-    label = `${format.name} — ${dateLabel}`;
+    return await ctx.runMutation(internal.publications.createFromAssignment, {
+      projectId,
+      mediaType: "short",
+      plateforme: target.platform,
+      compte,
+      datePubli,
+      postUrl: url,
+      scriptCombo: {
+        campaignId: a.scriptCombo.campaignId,
+        hookBrickId: a.scriptCombo.hookBrickId,
+        corpsBrickId: a.scriptCombo.corpsBrickId,
+        fluxBrickId: a.scriptCombo.fluxBrickId,
+        ctaBrickId: a.scriptCombo.ctaBrickId,
+        comboKey: a.comboKey,
+      },
+    });
   }
-
-  // Accrual de la BASE (idempotent par assignmentId — pas de double crédit).
-  await accrueBaseLineItem(ctx, {
+  const format = a.formatId ? await ctx.db.get(a.formatId) : null;
+  if (!format) throw new ConvexError("Format introuvable.");
+  if (format.type === "custom") return null; // custom = pas de publication trackée.
+  return await ctx.runMutation(internal.publications.createFromAssignment, {
     projectId,
-    creatorId: a.creatorId,
-    assignmentId: a._id,
-    label,
-    amount: a.rateSnapshot.basePerPost,
-    now,
+    mediaType: format.type,
+    plateforme: target.platform,
+    compte,
+    datePubli,
+    postUrl: url,
   });
-
-  return publicationId;
 }
 
 // ─── Revue vidéo (admin) — NE crédite ni ne matérialise RIEN (cf published) ───
@@ -387,7 +436,7 @@ export const listVideoSubmitted = adminQuery({
         q.eq("projectId", ctx.projectId).eq("status", "video_submitted"),
       )
       .collect();
-    const [creators, formats, campaigns] = await Promise.all([
+    const [creators, formats, campaigns, comptes] = await Promise.all([
       ctx.db
         .query("creators")
         .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
@@ -400,10 +449,15 @@ export const listVideoSubmitted = adminQuery({
         .query("scriptCampaigns")
         .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
         .collect(),
+      ctx.db
+        .query("comptes")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
     ]);
     const creatorMap = new Map(creators.map((c) => [c._id, c.name]));
     const formatMap = new Map(formats.map((f) => [f._id, f.name]));
     const campaignMap = new Map(campaigns.map((c) => [c._id, c.name]));
+    const compteMap = new Map(comptes.map((c) => [c._id, c.handle]));
     return Promise.all(
       subs
         .sort((a, b) => a.createdAt - b.createdAt)
@@ -416,6 +470,13 @@ export const listVideoSubmitted = adminQuery({
               ? (formatMap.get(a.formatId) ?? "—")
               : "—",
           origin: (a.scriptCombo ? "script" : "format") as "script" | "format",
+          // Chantier C — cibles (plateforme + compte) : « 1 vidéo → N posts ».
+          targets: (a.targets ?? []).map((t) => ({
+            platform: t.platform,
+            accountHandle: t.accountId
+              ? (compteMap.get(t.accountId) ?? null)
+              : null,
+          })),
           dueDate: a.dueDate,
           videoStorageId: a.submittedVideoStorageId ?? null,
           videoUrl: a.submittedVideoStorageId
@@ -437,7 +498,7 @@ export const listPublished = adminQuery({
         q.eq("projectId", ctx.projectId).eq("status", "published"),
       )
       .collect();
-    const [creators, formats] = await Promise.all([
+    const [creators, formats, comptes] = await Promise.all([
       ctx.db
         .query("creators")
         .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
@@ -446,11 +507,22 @@ export const listPublished = adminQuery({
         .query("formats")
         .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
         .collect(),
+      ctx.db
+        .query("comptes")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
     ]);
     const creatorMap = new Map(creators.map((c) => [c._id, c.name]));
     const formatMap = new Map(formats.map((f) => [f._id, f.name]));
+    const compteMap = new Map(comptes.map((c) => [c._id, c.handle]));
+    // publishedAt représentatif = max des cibles (fallback legacy a.publishedAt).
+    const pubAtOf = (a: Doc<"assignments">) =>
+      Math.max(
+        a.publishedAt ?? 0,
+        ...(a.targets ?? []).map((t) => t.publishedAt ?? 0),
+      );
     return pubs
-      .sort((a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0))
+      .sort((a, b) => pubAtOf(b) - pubAtOf(a))
       .map((a) => ({
         _id: a._id,
         creatorName: creatorMap.get(a.creatorId) ?? "—",
@@ -459,9 +531,15 @@ export const listPublished = adminQuery({
           : a.formatId
             ? (formatMap.get(a.formatId) ?? "—")
             : "—",
-        publishedUrl: a.publishedUrl ?? a.submittedUrl ?? null,
-        publishedAt: a.publishedAt ?? null,
-        submittedPlatform: a.submittedPlatform ?? null,
+        publishedAt: pubAtOf(a) || null,
+        // Chantier C — N posts (1 par plateforme) avec URL + compte.
+        targets: (a.targets ?? []).map((t) => ({
+          platform: t.platform,
+          accountHandle: t.accountId
+            ? (compteMap.get(t.accountId) ?? null)
+            : null,
+          publishedUrl: t.publishedUrl ?? null,
+        })),
       }));
   },
 });
@@ -611,6 +689,55 @@ export const migrateAssignmentStatuses = internalMutation({
 });
 
 /**
+ * MIGRATION Chantier C — convertit les assignments MONO-compte (champs legacy
+ * accountId/publishedUrl/publishedAt/publicationId + submittedPlatform) vers
+ * `targets` à 1 entrée. Idempotent (skip si `targets` déjà présent). Plateforme
+ * dérivée du compte (compte.plateforme) sinon de submittedPlatform. **0 perte** :
+ * les champs legacy sont CONSERVÉS (resserrage ultérieur). Un legacy sans compte
+ * ni plateforme (todo jamais démarré, absent de la démo) est `skipped` proprement.
+ * Runnable : `npx convex run assignments:migrateAssignmentsToTargets [--prod]`.
+ */
+export const migrateAssignmentsToTargets = internalMutation({
+  args: {},
+  handler: async (
+    ctx,
+  ): Promise<{ migrated: number; skipped: number; alreadyOk: number }> => {
+    const all = await ctx.db.query("assignments").collect();
+    let migrated = 0;
+    let skipped = 0;
+    let alreadyOk = 0;
+    for (const a of all) {
+      if (a.targets !== undefined && a.targets.length > 0) {
+        alreadyOk++;
+        continue;
+      }
+      let platform = a.submittedPlatform as Plateforme | undefined;
+      if (a.accountId) {
+        const compte = await ctx.db.get(a.accountId);
+        if (compte) platform = compte.plateforme;
+      }
+      if (platform === undefined) {
+        skipped++;
+        continue;
+      }
+      await ctx.db.patch(a._id, {
+        targets: [
+          {
+            platform,
+            accountId: a.accountId,
+            publishedUrl: a.publishedUrl,
+            publishedAt: a.publishedAt,
+            publicationId: a.publicationId,
+          },
+        ],
+      });
+      migrated++;
+    }
+    return { migrated, skipped, alreadyOk };
+  },
+});
+
+/**
  * P8 — assignments PUBLIÉS (avec publication) candidats au calcul de bonus,
  * enrichis des vues du dernier snapshot (préremplissage) et du bonus déjà
  * crédité s'il existe.
@@ -625,7 +752,7 @@ export const listValidatedForBonus = adminQuery({
           q.eq("projectId", ctx.projectId).eq("status", "published"),
         )
         .collect()
-    ).filter((a) => a.publicationId !== undefined);
+    ).filter((a) => (a.targets ?? []).some((t) => t.publicationId !== undefined));
 
     const [creators, formats, payments] = await Promise.all([
       ctx.db
@@ -652,14 +779,25 @@ export const listValidatedForBonus = adminQuery({
 
     const rows = await Promise.all(
       validated.map(async (a) => {
-        const pub = a.publicationId ? await ctx.db.get(a.publicationId) : null;
+        // Chantier C — agrège les vues sur TOUTES les publications des cibles.
+        const pubIds = (a.targets ?? [])
+          .map((t) => t.publicationId)
+          .filter((p): p is Id<"publications"> => p !== undefined);
+        let latestViews = 0;
+        let hasSnapshot = false;
+        for (const pid of pubIds) {
+          const pub = await ctx.db.get(pid);
+          if (!pub) continue;
+          latestViews += pub.vuesLatest ?? 0;
+          if (pub.latestSnapshotAt !== undefined) hasSnapshot = true;
+        }
         return {
           assignmentId: a._id,
           creatorName: creatorMap.get(a.creatorId) ?? "—",
           formatName: a.formatId ? (formatMap.get(a.formatId) ?? "—") : "—",
-          carouselId: pub?.carouselId ?? null,
-          latestViews: pub?.vuesLatest ?? null,
-          hasSnapshot: pub?.latestSnapshotAt !== undefined,
+          postCount: pubIds.length,
+          latestViews: hasSnapshot ? latestViews : null,
+          hasSnapshot,
           existingBonus: bonusByAssignment.get(a._id) ?? null,
         };
       }),
@@ -687,7 +825,8 @@ export const computeViewBonus = adminMutation({
     if (a.status !== "published") {
       throw new ConvexError("Le bonus se calcule sur un assignment publié.");
     }
-    if (a.publicationId === undefined) {
+    const hasPub = (a.targets ?? []).some((t) => t.publicationId !== undefined);
+    if (!hasPub) {
       throw new ConvexError(
         "Pas de publication matérialisée (format custom ?) — bonus non applicable.",
       );
@@ -696,15 +835,17 @@ export const computeViewBonus = adminMutation({
       throw new ConvexError("Nombre de vues invalide.");
     }
     const format = a.formatId ? await ctx.db.get(a.formatId) : null;
+    // Chantier C — `views` = SOMME des vues des N plateformes (le bonus CPM
+    // s'additionne sur les cibles). UN seul bonus par assignment (remplacement).
     const earnings = computeEarnings(a.rateSnapshot, views);
-    // bonus = part liée aux vues uniquement (la base est déjà créditée).
+    // bonus = part liée aux vues uniquement (la base est déjà créditée par post).
     const bonusAmount =
       Math.round((earnings.viewBonus + earnings.bounty) * 100) / 100;
     await upsertBonusLineItem(ctx, {
       projectId: ctx.projectId,
       creatorId: a.creatorId,
       assignmentId: id,
-      label: `${format?.name ?? "Format"} — bonus (${views} vues)`,
+      label: `${format?.name ?? "Format"} — bonus (${views} vues cumulées)`,
       amount: bonusAmount,
       now: Date.now(),
     });
@@ -720,16 +861,31 @@ export const computeViewBonus = adminMutation({
  * QUE le script monté (`assembledScript`), jamais les briques ni le tier. Un
  * assignment script s'affiche « Vidéo à tourner » (pas de type, pas de campagne).
  */
+/** Cibles enrichies côté créateur : plateforme + handle de SON compte + URL. */
+async function enrichTargets(ctx: QueryCtx, a: Doc<"assignments">) {
+  return Promise.all(
+    (a.targets ?? []).map(async (t) => {
+      const account = t.accountId ? await ctx.db.get(t.accountId) : null;
+      return {
+        platform: t.platform,
+        accountHandle: account?.handle ?? null,
+        publishedUrl: t.publishedUrl ?? null,
+        publishedAt: t.publishedAt ?? null,
+      };
+    }),
+  );
+}
+
 async function enrichForCreator(ctx: QueryCtx, a: Doc<"assignments">) {
-  const account = a.accountId ? await ctx.db.get(a.accountId) : null;
+  const targets = await enrichTargets(ctx, a);
   const { scriptCombo, comboKey, ...safe } = a;
   void comboKey;
   if (scriptCombo) {
     return {
       ...safe,
+      targets,
       formatName: "Vidéo à tourner",
       formatType: null as string | null,
-      accountHandle: account?.handle ?? null,
       origin: "script" as const,
       assembledScript: scriptCombo.assembledScript,
     };
@@ -737,9 +893,9 @@ async function enrichForCreator(ctx: QueryCtx, a: Doc<"assignments">) {
   const format = a.formatId ? await ctx.db.get(a.formatId) : null;
   return {
     ...safe,
+    targets,
     formatName: format?.name ?? "—",
     formatType: (format?.type ?? "custom") as string | null,
-    accountHandle: account?.handle ?? null,
     origin: "format" as const,
     assembledScript: null as string | null,
   };
@@ -772,7 +928,7 @@ export const getMyAssignment = creatorQuery({
     const a = await ctx.db.get(id);
     // Isolation : un assignment d'un autre créateur → introuvable.
     if (!a || a.creatorId !== ctx.creatorId) return null;
-    const account = a.accountId ? await ctx.db.get(a.accountId) : null;
+    const targets = await enrichTargets(ctx, a);
     const { scriptCombo, comboKey, ...safe } = a;
     void comboKey;
     // ISOLATION : SA vidéo soumise, résolue côté serveur (URL signée). Le blob
@@ -786,7 +942,7 @@ export const getMyAssignment = creatorQuery({
         assignment: safe,
         format: null,
         assembledScript: scriptCombo.assembledScript,
-        accountHandle: account?.handle ?? null,
+        targets,
         submittedVideoUrl,
         submittedVideoMimeType,
       };
@@ -797,7 +953,7 @@ export const getMyAssignment = creatorQuery({
       assignment: safe,
       format: brief,
       assembledScript: null as string | null,
-      accountHandle: account?.handle ?? null,
+      targets,
       submittedVideoUrl,
       submittedVideoMimeType,
     };
@@ -867,79 +1023,136 @@ export const submitVideo = creatorMutation({
  * Type de retour ANNOTÉ (matérialise via ctx.runMutation(internal.*) → TS7022).
  */
 export const confirmPublication = creatorMutation({
-  args: { id: v.id("assignments"), url: v.string() },
+  args: {
+    id: v.id("assignments"),
+    urls: v.array(v.object({ platform: plateformeValidator, url: v.string() })),
+  },
   handler: async (
     ctx,
-    { id, url },
+    { id, urls },
   ): Promise<{
     ok: true;
     alreadyPublished: boolean;
-    publicationId: Id<"publications"> | null;
+    publicationIds: Id<"publications">[];
   }> => {
     const a = await ctx.db.get(id);
     if (!a || a.creatorId !== ctx.creatorId) {
       throw new ConvexError("Assignment introuvable.");
     }
     if (a.status === "published" || a.status === "paid") {
-      return {
-        ok: true,
-        alreadyPublished: true,
-        publicationId: a.publicationId ?? null,
-      };
+      const ids = (a.targets ?? [])
+        .map((t) => t.publicationId)
+        .filter((p): p is Id<"publications"> => p !== undefined);
+      return { ok: true, alreadyPublished: true, publicationIds: ids };
     }
     if (a.status !== "to_publish") {
       throw new ConvexError(
         "Publication possible seulement après validation de ta vidéo.",
       );
     }
-    const trimmed = url.trim();
-    if (!/^https?:\/\/.+/i.test(trimmed)) {
-      throw new ConvexError("URL du post invalide (lien http(s) attendu).");
+    const targets = a.targets ?? [];
+    if (targets.length === 0) {
+      throw new ConvexError("Aucune cible sur cet assignment.");
     }
-    const platform = detectPlatform(trimmed);
 
-    // Garde plateforme : un post MATÉRIALISABLE (format non-custom OU script)
-    // exige une plateforme reconnue + (format) la compatibilité format/plateforme.
-    const isScript = a.scriptCombo !== undefined && a.formatId === undefined;
+    // Index des URLs par plateforme + validation de chaque lien (format + plateforme).
+    const urlByPlatform = new Map<Plateforme, string>();
+    for (const { platform, url } of urls) {
+      const trimmed = url.trim();
+      if (!/^https?:\/\/.+/i.test(trimmed)) {
+        throw new ConvexError(
+          `URL du post invalide pour ${platform} (lien http(s) attendu).`,
+        );
+      }
+      if (detectPlatform(trimmed) !== platform) {
+        throw new ConvexError(
+          `L'URL fournie pour ${platform} ne correspond pas à cette plateforme.`,
+        );
+      }
+      urlByPlatform.set(platform, trimmed);
+    }
+
+    // TOUTES les cibles doivent avoir une URL (publication groupée, même jour).
     const format = a.formatId ? await ctx.db.get(a.formatId) : null;
-    const materializable = isScript || (format !== null && format.type !== "custom");
-    if (materializable) {
-      if (platform === undefined) {
+    for (const t of targets) {
+      if (!urlByPlatform.has(t.platform)) {
         throw new ConvexError(
-          "Plateforme du lien non reconnue (TikTok, Instagram ou YouTube attendu).",
+          `URL manquante pour ${t.platform} — toutes les plateformes sont obligatoires.`,
         );
       }
-      if (format && format.type !== "custom" && !isFormatAllowedOnPlatform(format.type, platform)) {
+      if (
+        format &&
+        format.type !== "custom" &&
+        !isFormatAllowedOnPlatform(format.type, t.platform)
+      ) {
         throw new ConvexError(
-          `Le format « ${format.name} » (${format.type}) ne peut pas être publié sur ${platform}.`,
+          `Le format « ${format.name} » (${format.type}) ne peut pas être publié sur ${t.platform}.`,
         );
       }
     }
 
-    const publishedAt = Date.now();
-    const publicationId = await materializeAndAccrueOnPublish(
-      ctx,
-      a,
-      ctx.projectId,
-      { url: trimmed, platform, publishedAt },
-    );
+    const now = Date.now();
+    const dateLabel = new Date(now).toLocaleDateString("fr-FR", {
+      day: "2-digit",
+      month: "2-digit",
+    });
+    const isScript = a.scriptCombo !== undefined && a.formatId === undefined;
 
-    // PURGE du MP4 de soumission (la vidéo non publiée n'a plus de raison d'être).
+    const publicationIds: Id<"publications">[] = [];
+    const newTargets: NonNullable<Doc<"assignments">["targets"]> = [];
+    for (const t of targets) {
+      // Idempotence défensive : cible déjà publiée → conservée telle quelle.
+      if (t.publicationId !== undefined || t.publishedUrl !== undefined) {
+        newTargets.push(t);
+        if (t.publicationId) publicationIds.push(t.publicationId);
+        continue;
+      }
+      const url = urlByPlatform.get(t.platform)!;
+      const publicationId = await materializeTargetPublication(
+        ctx,
+        a,
+        ctx.projectId,
+        t,
+        url,
+        now,
+      );
+      // BASE PAR POST (idempotent par (assignment, plateforme)). Label NEUTRE
+      // côté créateur (jamais le nom de campagne pour un script).
+      const label = isScript
+        ? `Vidéo — ${t.platform} — ${dateLabel}`
+        : `${format?.name ?? "Format"} — ${t.platform} — ${dateLabel}`;
+      await accrueBaseLineItem(ctx, {
+        projectId: ctx.projectId,
+        creatorId: a.creatorId,
+        assignmentId: a._id,
+        label,
+        amount: a.rateSnapshot.basePerPost,
+        now,
+        platform: t.platform,
+      });
+      if (publicationId) publicationIds.push(publicationId);
+      newTargets.push({
+        platform: t.platform,
+        accountId: t.accountId,
+        publishedUrl: url,
+        publishedAt: now,
+        publicationId: publicationId ?? undefined,
+      });
+    }
+
+    // PURGE du MP4 (1 vidéo pour toutes les cibles, inutile une fois publiée).
     if (a.submittedVideoStorageId) {
       await ctx.storage.delete(a.submittedVideoStorageId);
     }
 
     await ctx.db.patch(id, {
       status: "published",
-      publishedUrl: trimmed,
-      publishedAt,
-      submittedPlatform: platform,
-      publicationId: publicationId ?? undefined,
+      targets: newTargets,
       submittedVideoStorageId: undefined,
       submittedVideoMimeType: undefined,
     });
 
-    return { ok: true, alreadyPublished: false, publicationId };
+    return { ok: true, alreadyPublished: false, publicationIds };
   },
 });
 
@@ -996,10 +1209,14 @@ export const cleanupTestAssignments = e2eMutation({
         (creator && creator.email.includes("e2e-creator")) ||
         (format && format.name.startsWith("[E2E_TEST]"));
       if (isTest) {
-        // P8 — cascade : la publication matérialisée a notes="" (non captée par
-        // cleanupTestPublications) → on la supprime ici, avec ses snapshots.
-        const pubId = a.publicationId;
-        if (pubId) {
+        // P8/Chantier C — cascade : les publications matérialisées (1 par cible,
+        // + legacy a.publicationId) ont notes="" (non captées par
+        // cleanupTestPublications) → on les supprime ici, avec leurs snapshots.
+        const pubIds = [
+          ...(a.targets ?? []).map((t) => t.publicationId),
+          a.publicationId,
+        ].filter((p): p is Id<"publications"> => p !== undefined);
+        for (const pubId of pubIds) {
           const snaps = await ctx.db
             .query("metricSnapshots")
             .withIndex("by_publication", (q) => q.eq("publicationId", pubId))

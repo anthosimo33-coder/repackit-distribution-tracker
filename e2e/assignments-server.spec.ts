@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { createCreatorSession } from "./helpers/creator-client";
+import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { config } from "dotenv";
@@ -38,14 +39,35 @@ test.describe("Assignments — serveur (isolation + flux)", () => {
     });
     const due = ts + 7 * 86_400_000;
 
-    // Assignation en masse : 2 créateurs × 2 posts = 4 rows.
-    const { created } = await admin.mutation(api.assignments.assignFormat, {
+    // Chantier C — création PAR créateur (1 créateur/action), 1 cible TikTok
+    // chacun, 2 vidéos → 2 rows par créateur = 4 au total.
+    const tA = await availableTarget({
+      e2eClient: admin,
+      creatorId: A.creatorId,
+      platform: "TikTok",
+      handle: `@e2easga${ts}`,
+    });
+    const tB = await availableTarget({
+      e2eClient: admin,
+      creatorId: B.creatorId,
+      platform: "TikTok",
+      handle: `@e2easgb${ts}`,
+    });
+    const rA = await admin.mutation(api.assignments.assignFormat, {
       formatId: fid as Id<"formats">,
-      creatorIds: [A.creatorId, B.creatorId],
+      creatorId: A.creatorId,
+      targets: [tA],
       postsPerCreator: 2,
       dueDate: due,
     });
-    expect(created).toBe(4);
+    const rB = await admin.mutation(api.assignments.assignFormat, {
+      formatId: fid as Id<"formats">,
+      creatorId: B.creatorId,
+      targets: [tB],
+      postsPerCreator: 2,
+      dueDate: due,
+    });
+    expect(rA.created + rB.created).toBe(4);
 
     // Chaque créateur voit SES 2 assignments, et SEULEMENT les siens.
     const aList = await A.client.query(api.assignments.listMyAssignments, {
@@ -82,7 +104,7 @@ test.describe("Assignments — serveur (isolation + flux)", () => {
       A.client.mutation(api.assignments.confirmPublication, {
         projectId: A.projectId,
         id: aid,
-        url: "https://www.tiktok.com/@x/video/1",
+        urls: [{ platform: "TikTok", url: "https://www.tiktok.com/@x/video/1" }],
       }),
     ).rejects.toThrow(/validation|publication|impossible/i); // pas en to_publish
 
@@ -94,7 +116,11 @@ test.describe("Assignments — serveur (isolation + flux)", () => {
     });
     const published = await A.client.mutation(
       api.assignments.confirmPublication,
-      { projectId: A.projectId, id: aid, url: "https://www.tiktok.com/@moi/video/123" },
+      {
+        projectId: A.projectId,
+        id: aid,
+        urls: [{ platform: "TikTok", url: "https://www.tiktok.com/@moi/video/123" }],
+      },
     );
     expect(published.alreadyPublished).toBe(false);
     const afterPublish = await A.client.query(api.assignments.getMyAssignment, {
@@ -102,13 +128,15 @@ test.describe("Assignments — serveur (isolation + flux)", () => {
       id: aid,
     });
     expect(afterPublish?.assignment.status).toBe("published");
-    expect(afterPublish?.assignment.submittedPlatform).toBe("TikTok");
+    // La cible TikTok porte l'URL publiée.
+    expect(afterPublish?.targets[0]?.platform).toBe("TikTok");
+    expect(afterPublish?.targets[0]?.publishedUrl).toBeTruthy();
 
     // Re-confirmer une publication = IDEMPOTENT (no-op), pas une erreur.
     const again = await A.client.mutation(api.assignments.confirmPublication, {
       projectId: A.projectId,
       id: aid,
-      url: "https://www.tiktok.com/@moi/video/456",
+      urls: [{ platform: "TikTok", url: "https://www.tiktok.com/@moi/video/456" }],
     });
     expect(again.alreadyPublished).toBe(true);
 

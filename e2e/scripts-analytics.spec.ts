@@ -1,6 +1,7 @@
 import { test, expect } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { createCreatorSession } from "./helpers/creator-client";
+import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { config } from "dotenv";
@@ -69,10 +70,17 @@ test.describe("S3 — analytics par variable de script", () => {
     const projectId = creator.projectId;
     const { campaignId, tierByHook } = await makeCampaign(ts);
 
+    const tAn = await availableTarget({
+      e2eClient: admin,
+      creatorId: creator.creatorId,
+      platform: "TikTok",
+      handle: `@e2ean${ts}`,
+    });
     // 9 vidéos → round-robin par hook → 3 par tier.
     const r = await admin.mutation(api.scripts.assignScriptCampaign, {
       campaignId,
-      creatorIds: [creator.creatorId],
+      creatorId: creator.creatorId,
+      targets: [tAn],
       videosPerCreator: 9,
       dueDate: ts + 7 * DAY,
       rateModel: { basePerPost: 5 },
@@ -113,10 +121,19 @@ test.describe("S3 — analytics par variable de script", () => {
       });
       const res = await creator.client.mutation(
         api.assignments.confirmPublication,
-        { projectId, id: row._id, url: `https://www.tiktok.com/@c/video/an${ts}_${i}` },
+        {
+          projectId,
+          id: row._id,
+          urls: [
+            {
+              platform: "TikTok",
+              url: `https://www.tiktok.com/@c/video/an${ts}_${i}`,
+            },
+          ],
+        },
       );
       // La publication d'un script matérialise bien une publication.
-      expect(res.publicationId).toBeTruthy();
+      expect(res.publicationIds[0]).toBeTruthy();
       posts.push({
         tier: tierByHook[combo.hookBrickId],
         hookBrickId: combo.hookBrickId,
@@ -124,7 +141,7 @@ test.describe("S3 — analytics par variable de script", () => {
         fluxBrickId: combo.fluxBrickId,
         ctaBrickId: combo.ctaBrickId,
         comboKey: row.comboKey!,
-        publicationId: res.publicationId as Id<"publications">,
+        publicationId: res.publicationIds[0],
         vues3: 100 * (i + 1),
         vues7: 1000 * (i + 1),
       });

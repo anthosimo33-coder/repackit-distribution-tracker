@@ -63,3 +63,20 @@ export function mustCheckToday(c: WarmupCompteLike, now: number): boolean {
   if (isWarmupComplete(c)) return false;
   return !checkedToday(c.warmupProtocol?.dailyChecks ?? [], now);
 }
+
+type CompteStatusLike = "warmup" | "actif" | "shadowban" | "archived";
+
+/**
+ * Compte DISPONIBLE pour publier (réplique de lib/warmup.isAccountAvailable,
+ * chantier C) : "actif" (warmup déjà validé) OU en warmup terminé (assez de
+ * checks). shadowban / archived → indisponible. Coercion legacy du status
+ * identique à convex/comptes.effectiveStatus.
+ */
+export function isAccountAvailable(
+  c: WarmupCompteLike & { status?: CompteStatusLike; actif?: boolean },
+): boolean {
+  const status = c.status ?? (c.actif === false ? "archived" : "actif");
+  if (status === "actif") return true;
+  if (status === "warmup") return isWarmupComplete(c);
+  return false;
+}

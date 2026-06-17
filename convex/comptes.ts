@@ -12,9 +12,10 @@ import {
   checkedToday,
   isWarmupComplete,
   mustCheckToday,
+  isAccountAvailable,
 } from "./warmup";
 import { v, ConvexError } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 
 const statusValidator = v.union(
   v.literal("warmup"),
@@ -128,6 +129,34 @@ export const listComptes = adminQuery({
         perf: perfMap.get(c.handle) ?? EMPTY_PERF,
       };
     });
+  },
+});
+
+/**
+ * Chantier C — comptes d'UN créateur annotés `available` (isAccountAvailable :
+ * actif OU warmup terminé). Alimente les sélecteurs de cibles à la création
+ * d'assignment : seuls les comptes disponibles sont choisissables ; une
+ * plateforme sans compte disponible est désactivée (« en warmup »).
+ */
+export const listCreatorAvailableComptes = adminQuery({
+  args: { creatorId: v.id("creators") },
+  handler: async (ctx, { creatorId }) => {
+    const comptes = await ctx.db
+      .query("comptes")
+      .withIndex("by_project_creator", (q) =>
+        q.eq("projectId", ctx.projectId).eq("creatorId", creatorId),
+      )
+      .collect();
+    return comptes
+      .map((c) => ({
+        _id: c._id,
+        handle: c.handle,
+        plateforme: c.plateforme,
+        available: isAccountAvailable(c),
+      }))
+      .sort((a, b) =>
+        a.handle.localeCompare(b.handle, "fr", { sensitivity: "base" }),
+      );
   },
 });
 
@@ -607,5 +636,32 @@ export const e2eSetWarmupChecks = e2eMutation({
       warmupProtocol: { ...protocol, dailyChecks },
     });
     return { totalChecks: dailyChecks.length };
+  },
+});
+
+/**
+ * e2e ONLY (gated E2E_SECRET) — crée un compte ACTIF (donc DISPONIBLE) lié à un
+ * créateur, pour servir de CIBLE d'assignment dans les tests multi-plateformes
+ * (chantier C). Évite d'avoir à déclarer un compte côté créateur puis compléter
+ * son warmup. Marqué [E2E_TEST] → nettoyé par cleanupTestComptes.
+ */
+export const e2eSeedAvailableCompte = e2eMutation({
+  args: {
+    creatorId: v.id("creators"),
+    plateforme: plateformeValidator,
+    handle: v.string(),
+  },
+  handler: async (ctx, { creatorId, plateforme, handle }): Promise<Id<"comptes">> => {
+    const creator = await ctx.db.get(creatorId);
+    if (!creator) throw new ConvexError("Créateur introuvable.");
+    return ctx.db.insert("comptes", {
+      projectId: creator.projectId,
+      handle,
+      plateforme,
+      notes: "[E2E_TEST] compte cible",
+      status: "actif",
+      actif: true,
+      creatorId,
+    });
   },
 });

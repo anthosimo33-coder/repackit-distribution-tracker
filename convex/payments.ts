@@ -25,6 +25,10 @@ type LineItem = {
   label: string;
   amount: number;
   kind: "base" | "bonus";
+  // Chantier C — plateforme du post pour les lineItems "base" (paiement PAR
+  // POST : N bases/assignment, 1 par cible). Absent sur les bonus (1/assignment)
+  // et les bases legacy (mono-compte).
+  platform?: "TikTok" | "Instagram" | "YouTube";
 };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -111,6 +115,9 @@ export async function accrueBaseLineItem(
     label: string;
     amount: number;
     now: number;
+    // Chantier C — PAR POST : 1 base par (assignment, plateforme). Omis = base
+    // unique legacy (idempotence par assignment seul).
+    platform?: "TikTok" | "Instagram" | "YouTube";
   },
 ): Promise<void> {
   const period = periodOf(args.now);
@@ -120,8 +127,13 @@ export async function accrueBaseLineItem(
     period,
     now: args.now,
   });
+  // Idempotence PAR POST : une base déjà présente pour ce (assignment, plateforme)
+  // → no-op. Plateformes distinctes → N bases distinctes (N × base).
   const alreadyBilled = payment.lineItems.some(
-    (li) => li.assignmentId === args.assignmentId && li.kind === "base",
+    (li) =>
+      li.assignmentId === args.assignmentId &&
+      li.kind === "base" &&
+      li.platform === args.platform,
   );
   if (alreadyBilled) return;
   const lineItems: LineItem[] = [
@@ -131,6 +143,7 @@ export async function accrueBaseLineItem(
       label: args.label,
       amount: round2(args.amount),
       kind: "base",
+      platform: args.platform,
     },
   ];
   await ctx.db.patch(payment._id, {

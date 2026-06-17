@@ -10,7 +10,6 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
@@ -31,13 +30,16 @@ import { toast } from "sonner";
 import { Loader2Icon } from "lucide-react";
 
 /**
- * S2 — assigne une campagne de scripts à des créateurs (N créateurs × M vidéos).
- * Anti-coordination native côté serveur : chaque créateur reçoit des combos
- * distincts jamais déjà reçus. Le rateModel saisi ici est figé en rateSnapshot
- * sur chaque assignment.
+ * Chantier C — assigne une campagne de scripts à UN créateur, sur 1 à 3 CIBLES
+ * (1 compte par plateforme, parmi ses comptes DISPONIBLES). Anti-coordination
+ * native serveur (combos distincts jamais déjà reçus). Le rateModel saisi est
+ * figé en rateSnapshot sur chaque assignment (appliqué PAR post).
  */
 
 const TIER_ALL = "__all__";
+const NONE = "__none__";
+const PLATFORMS = ["TikTok", "YouTube", "Instagram"] as const;
+type Platform = (typeof PLATFORMS)[number];
 
 function defaultDue(): string {
   const d = new Date(Date.now() + 7 * 86_400_000);
@@ -59,9 +61,20 @@ export function AssignScriptCampaignDialog({
     api.assignments.listAssignableCreators,
     open ? {} : "skip",
   );
+  const [creatorId, setCreatorId] = useState<string>(NONE);
+  const available = useProjectQuery(
+    api.comptes.listCreatorAvailableComptes,
+    open && creatorId !== NONE
+      ? { creatorId: creatorId as Id<"creators"> }
+      : "skip",
+  );
   const assign = useProjectMutation(api.scripts.assignScriptCampaign);
 
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [picks, setPicks] = useState<Record<Platform, string>>({
+    TikTok: NONE,
+    YouTube: NONE,
+    Instagram: NONE,
+  });
   const [videos, setVideos] = useState("5");
   const [due, setDue] = useState(defaultDue());
   const [tier, setTier] = useState<string>(TIER_ALL);
@@ -74,7 +87,8 @@ export function AssignScriptCampaignDialog({
   if (open !== lastOpen) {
     setLastOpen(open);
     if (open) {
-      setSelected(new Set());
+      setCreatorId(NONE);
+      setPicks({ TikTok: NONE, YouTube: NONE, Instagram: NONE });
       setVideos("5");
       setDue(defaultDue());
       setTier(TIER_ALL);
@@ -83,18 +97,26 @@ export function AssignScriptCampaignDialog({
     }
   }
 
-  function toggle(id: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  function changeCreator(v: string) {
+    setCreatorId(v);
+    setPicks({ TikTok: NONE, YouTube: NONE, Instagram: NONE });
   }
 
+  const optionsByPlatform = (p: Platform) =>
+    (available ?? []).filter((c) => c.plateforme === p && c.available);
+
+  const targets = PLATFORMS.filter((p) => picks[p] !== NONE).map((p) => ({
+    platform: p,
+    accountId: picks[p] as Id<"comptes">,
+  }));
+
   async function handleSubmit() {
-    if (selected.size === 0) {
-      toast.error("Sélectionne au moins un créateur.");
+    if (creatorId === NONE) {
+      toast.error("Choisis un créateur.");
+      return;
+    }
+    if (targets.length === 0) {
+      toast.error("Choisis au moins un compte cible (1 plateforme).");
       return;
     }
     const videosPerCreator = Number(videos);
@@ -121,18 +143,19 @@ export function AssignScriptCampaignDialog({
     try {
       const res = await assign({
         campaignId,
-        creatorIds: [...selected] as Id<"creators">[],
+        creatorId: creatorId as Id<"creators">,
+        targets,
         videosPerCreator,
         dueDate: dueMs,
         rateModel: { basePerPost: base, viewBonusPer1k: vb },
         tier: tier === TIER_ALL ? undefined : (tier as "S" | "A" | "B"),
       });
       toast.success(
-        `${res.created} assignment${res.created > 1 ? "s" : ""} créé${res.created > 1 ? "s" : ""}.`,
+        `${res.created} vidéo${res.created > 1 ? "s" : ""} × ${targets.length} post${targets.length > 1 ? "s" : ""} assignée${res.created > 1 ? "s" : ""}.`,
       );
       if (res.shortages.length > 0) {
         toast.warning(
-          `${res.shortages.length} créateur(s) à court de combos : ${res.shortages
+          `À court de combos : ${res.shortages
             .map((s) => `${s.name} (${s.assigned}/${s.requested})`)
             .join(", ")}.`,
         );
@@ -145,7 +168,7 @@ export function AssignScriptCampaignDialog({
     }
   }
 
-  const total = selected.size * (Number(videos) || 0);
+  const total = (Number(videos) || 0) * targets.length;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -154,46 +177,104 @@ export function AssignScriptCampaignDialog({
           <DialogTitle>Assigner « {campaignName} »</DialogTitle>
           <DialogDescription>
             {total > 0
-              ? `${total} vidéo${total > 1 ? "s" : ""} au total — combos distincts par créateur (anti-coordination).`
-              : "Chaque créateur reçoit des combos distincts (jamais le même deux fois)."}
+              ? `${Number(videos) || 0} vidéo(s) → ${total} post(s) — combos distincts (anti-coordination).`
+              : "1 vidéo → N posts. Choisis le créateur puis 1 compte par plateforme."}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Créateurs */}
+          {/* Créateur (un seul) */}
           <div className="space-y-1.5">
-            <Label>Créateurs</Label>
+            <Label>Créateur</Label>
             {creators === undefined ? (
-              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-9 w-full" />
             ) : creators.length === 0 ? (
               <p className="text-sm text-slate-500">
                 Aucun créateur assignable (onboardé + actif).
               </p>
             ) : (
-              <ul className="max-h-48 space-y-1 overflow-y-auto rounded-md border border-slate-200 p-2">
-                {creators.map((c) => (
-                  <li key={c._id} className="flex items-center gap-2">
-                    <Checkbox
-                      id={`scr-${c._id}`}
-                      checked={selected.has(c._id)}
-                      onCheckedChange={() => toggle(c._id)}
-                    />
-                    <label
-                      htmlFor={`scr-${c._id}`}
-                      className="text-sm text-slate-700"
-                    >
+              <Select
+                value={creatorId}
+                onValueChange={(v) => v && changeCreator(v)}
+              >
+                <SelectTrigger aria-label="Créateur">
+                  <SelectValue>
+                    {creatorId === NONE
+                      ? "Choisir un créateur…"
+                      : (creators.find((c) => c._id === creatorId)?.name ??
+                        "Créateur")}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {creators.map((c) => (
+                    <SelectItem key={c._id} value={c._id}>
                       {c.name}
-                    </label>
-                  </li>
-                ))}
-              </ul>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
           </div>
+
+          {/* Cibles : 1 compte par plateforme (disponibles uniquement) */}
+          {creatorId !== NONE && (
+            <div className="space-y-2">
+              <Label>Cibles (1 compte par plateforme)</Label>
+              {available === undefined ? (
+                <Skeleton className="h-24 w-full" />
+              ) : (
+                PLATFORMS.map((p) => {
+                  const opts = optionsByPlatform(p);
+                  return (
+                    <div key={p} className="flex items-center gap-2">
+                      <span className="w-24 shrink-0 text-sm font-medium text-slate-600">
+                        {p}
+                      </span>
+                      {opts.length === 0 ? (
+                        <span className="text-xs text-slate-400">
+                          aucun compte disponible — en warmup
+                        </span>
+                      ) : (
+                        <Select
+                          value={picks[p]}
+                          onValueChange={(v) =>
+                            v && setPicks((prev) => ({ ...prev, [p]: v }))
+                          }
+                        >
+                          <SelectTrigger
+                            className="flex-1"
+                            aria-label={`Compte ${p}`}
+                          >
+                            <SelectValue>
+                              {picks[p] === NONE
+                                ? "— ne pas publier —"
+                                : (opts.find((o) => o._id === picks[p])
+                                    ?.handle ?? "Compte")}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={NONE}>
+                              — ne pas publier —
+                            </SelectItem>
+                            {opts.map((o) => (
+                              <SelectItem key={o._id} value={o._id}>
+                                {o.handle}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
 
           {/* Vidéos par créateur + deadline */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="videos">Vidéos / créateur</Label>
+              <Label htmlFor="videos">Vidéos à produire</Label>
               <Input
                 id="videos"
                 type="number"
@@ -233,7 +314,7 @@ export function AssignScriptCampaignDialog({
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="base">Tarif de base (€/vidéo)</Label>
+              <Label htmlFor="base">Tarif de base (€/post)</Label>
               <Input
                 id="base"
                 type="number"

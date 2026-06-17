@@ -1,6 +1,7 @@
 import { adminMutation, adminQuery, e2eMutation } from "./functions";
 import { internalMutation } from "./_generated/server";
 import { CAMPAIGN_NAME, DEMO_BLOCK, SEED_BRICKS } from "./scriptSeedData";
+import { targetInputValidator, validateTargets } from "./assignments";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -373,7 +374,8 @@ const RATE_MODEL = v.object({
 export const assignScriptCampaign = adminMutation({
   args: {
     campaignId: v.id("scriptCampaigns"),
-    creatorIds: v.array(v.id("creators")),
+    creatorId: v.id("creators"),
+    targets: v.array(targetInputValidator),
     videosPerCreator: v.number(),
     dueDate: v.number(),
     rateModel: RATE_MODEL,
@@ -389,10 +391,7 @@ export const assignScriptCampaign = adminMutation({
       args.videosPerCreator < 1 ||
       args.videosPerCreator > 50
     ) {
-      throw new ConvexError("Nombre de vidéos par créateur invalide (1–50).");
-    }
-    if (args.creatorIds.length === 0) {
-      throw new ConvexError("Sélectionne au moins un créateur.");
+      throw new ConvexError("Nombre de vidéos invalide (1–50).");
     }
     if (
       !Number.isFinite(args.rateModel.basePerPost) ||
@@ -407,6 +406,21 @@ export const assignScriptCampaign = adminMutation({
     ) {
       throw new ConvexError("Le bonus aux vues doit être un nombre ≥ 0.");
     }
+
+    const creator = await ctx.db.get(args.creatorId);
+    if (!creator || creator.projectId !== ctx.projectId) {
+      throw new ConvexError("Créateur introuvable dans le projet.");
+    }
+    if (
+      creator.userId === undefined ||
+      (creator.status !== "active" && creator.status !== "onboarding")
+    ) {
+      throw new ConvexError(
+        `Créateur non assignable (${creator.name} : non onboardé ou inactif).`,
+      );
+    }
+    // Chantier C — cibles multi-plateformes (1 vidéo de script → N posts).
+    await validateTargets(ctx, ctx.projectId, args.creatorId, args.targets);
 
     // Bricks actives de la campagne (+ filtre tier sur les hooks si demandé).
     const allBricks = await ctx.db
@@ -429,66 +443,56 @@ export const assignScriptCampaign = adminMutation({
       basePerPost: args.rateModel.basePerPost,
       viewBonusPer1k: args.rateModel.viewBonusPer1k,
     };
+    const targets = args.targets.map((t) => ({
+      platform: t.platform,
+      accountId: t.accountId,
+    }));
     const now = Date.now();
-    let created = 0;
     const shortages: { name: string; requested: number; assigned: number }[] =
       [];
 
-    for (const creatorId of args.creatorIds) {
-      const creator = await ctx.db.get(creatorId);
-      if (!creator || creator.projectId !== ctx.projectId) {
-        throw new ConvexError("Créateur introuvable dans le projet.");
-      }
-      if (
-        creator.userId === undefined ||
-        (creator.status !== "active" && creator.status !== "onboarding")
-      ) {
-        throw new ConvexError(
-          `Créateur non assignable (${creator.name} : non onboardé ou inactif).`,
-        );
-      }
+    // Anti-coordination : combos déjà reçus par CE créateur sur CETTE campagne.
+    const existing = await ctx.db
+      .query("assignments")
+      .withIndex("by_creator", (q) => q.eq("creatorId", args.creatorId))
+      .collect();
+    const usedKeys = new Set(
+      existing
+        .filter(
+          (a) => a.scriptCombo?.campaignId === args.campaignId && a.comboKey,
+        )
+        .map((a) => a.comboKey as string),
+    );
+    const picked = pickCombosServer(combos, usedKeys, args.videosPerCreator);
+    if (picked.length < args.videosPerCreator) {
+      shortages.push({
+        name: creator.name,
+        requested: args.videosPerCreator,
+        assigned: picked.length,
+      });
+    }
 
-      // Anti-coordination : combos déjà reçus par CE créateur sur CETTE campagne.
-      const existing = await ctx.db
-        .query("assignments")
-        .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
-        .collect();
-      const usedKeys = new Set(
-        existing
-          .filter(
-            (a) => a.scriptCombo?.campaignId === args.campaignId && a.comboKey,
-          )
-          .map((a) => a.comboKey as string),
-      );
-      const picked = pickCombosServer(combos, usedKeys, args.videosPerCreator);
-      if (picked.length < args.videosPerCreator) {
-        shortages.push({
-          name: creator.name,
-          requested: args.videosPerCreator,
-          assigned: picked.length,
-        });
-      }
-
-      for (const combo of picked) {
-        await ctx.db.insert("assignments", {
-          projectId: ctx.projectId,
-          creatorId,
-          scriptCombo: {
-            campaignId: args.campaignId,
-            hookBrickId: combo.hookBrickId,
-            corpsBrickId: combo.corpsBrickId,
-            fluxBrickId: combo.fluxBrickId,
-            ctaBrickId: combo.ctaBrickId,
-            assembledScript: combo.assembledScript,
-          },
-          comboKey: comboKeyOf(combo),
-          dueDate: args.dueDate,
-          status: "todo",
-          rateSnapshot,
-          createdAt: now,
-        });
-        created++;
-      }
+    let created = 0;
+    for (const combo of picked) {
+      await ctx.db.insert("assignments", {
+        projectId: ctx.projectId,
+        creatorId: args.creatorId,
+        scriptCombo: {
+          campaignId: args.campaignId,
+          hookBrickId: combo.hookBrickId,
+          corpsBrickId: combo.corpsBrickId,
+          fluxBrickId: combo.fluxBrickId,
+          ctaBrickId: combo.ctaBrickId,
+          assembledScript: combo.assembledScript,
+        },
+        comboKey: comboKeyOf(combo),
+        targets,
+        dueDate: args.dueDate,
+        status: "todo",
+        rateSnapshot,
+        createdAt: now,
+      });
+      created++;
     }
     return { created, shortages, totalCombos: combos.length };
   },

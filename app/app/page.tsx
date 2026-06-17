@@ -180,9 +180,9 @@ export default function CreatorDashboardPage() {
                         <span className="text-slate-500">
                           Échéance {formatDate(a.dueDate)}
                         </span>
-                        {a.accountHandle && (
+                        {a.targets.length > 0 && (
                           <span className="font-mono text-slate-400">
-                            · {a.accountHandle}
+                            · {a.targets.map((t) => t.platform).join(" · ")}
                           </span>
                         )}
                       </div>

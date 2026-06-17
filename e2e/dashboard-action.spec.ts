@@ -1,6 +1,7 @@
 import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { createCreatorSession } from "./helpers/creator-client";
+import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
 
@@ -40,9 +41,16 @@ test.describe("Dashboard — vue action", () => {
       type: "short",
       rateModel: { basePerPost: 10 },
     });
+    const target = await availableTarget({
+      e2eClient: admin,
+      creatorId: creator.creatorId,
+      platform: "TikTok",
+      handle: `@e2edash${ts}`,
+    });
     await admin.mutation(api.assignments.assignFormat, {
       formatId,
-      creatorIds: [creator.creatorId],
+      creatorId: creator.creatorId,
+      targets: [target],
       postsPerCreator: 2,
       dueDate: ts + 5 * DAY,
     });

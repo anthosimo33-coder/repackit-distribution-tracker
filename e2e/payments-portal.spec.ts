@@ -1,6 +1,7 @@
 import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { createCreatorSession } from "./helpers/creator-client";
+import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
 
@@ -41,9 +42,16 @@ test.describe("P9 — paiements & gains", () => {
       type: "short",
       rateModel: { basePerPost: 10 },
     });
+    const tA = await availableTarget({
+      e2eClient: admin,
+      creatorId: a.creatorId,
+      platform: "TikTok",
+      handle: `@e2epaya${ts}`,
+    });
     await admin.mutation(api.assignments.assignFormat, {
       formatId,
-      creatorIds: [a.creatorId],
+      creatorId: a.creatorId,
+      targets: [tA],
       postsPerCreator: 2,
       dueDate: ts + 7 * DAY,
     });
@@ -62,7 +70,9 @@ test.describe("P9 — paiements & gains", () => {
       await a.client.mutation(api.assignments.confirmPublication, {
         projectId,
         id: aAssigns[i]._id,
-        url: `https://www.tiktok.com/@a/video/${ts}${i}`,
+        urls: [
+          { platform: "TikTok", url: `https://www.tiktok.com/@a/video/${ts}${i}` },
+        ],
       });
     }
 
@@ -159,9 +169,16 @@ test.describe("P9 — paiements & gains", () => {
       type: "short",
       rateModel: { basePerPost: 15 },
     });
+    const tUI = await availableTarget({
+      e2eClient: admin,
+      creatorId,
+      platform: "TikTok",
+      handle: `@e2epayui${ts}`,
+    });
     await admin.mutation(api.assignments.assignFormat, {
       formatId,
-      creatorIds: [creatorId],
+      creatorId,
+      targets: [tUI],
       postsPerCreator: 1,
       dueDate: ts + 7 * DAY,
     });
@@ -175,7 +192,9 @@ test.describe("P9 — paiements & gains", () => {
     });
     await creatorClient.mutation(api.assignments.confirmPublication, {
       id: assignment._id,
-      url: `https://www.tiktok.com/@payui/video/${ts}`,
+      urls: [
+        { platform: "TikTok", url: `https://www.tiktok.com/@payui/video/${ts}` },
+      ],
     });
 
     // Dashboard créateur : bloc « Mes gains » montre 15 €.

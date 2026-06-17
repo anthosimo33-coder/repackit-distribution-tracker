@@ -701,6 +701,31 @@ export default defineSchema({
     ),
     // Posé à `published` (matérialisation publication).
     publicationId: v.optional(v.id("publications")),
+    // ─── Chantier C — CIBLES multi-plateformes (1 vidéo → N posts) ───────────
+    // 1 à 3 cibles FIGÉES à la création : 1 compte par plateforme, choisi parmi
+    // les comptes DISPONIBLES (warmup terminé) du créateur. Chaque cible reçoit
+    // son URL + sa publication à la publication (confirmPublication, le même
+    // jour pour toutes). Les champs legacy ci-dessus
+    // (accountId/publishedUrl/publishedAt/submittedPlatform/publicationId) sont
+    // CONSERVÉS le temps de la migration migrateAssignmentsToTargets (resserrage
+    // ultérieur documenté). `targets` optional → 0 crash de déploiement.
+    // accountId de cible optional UNIQUEMENT pour les rows legacy migrées ; la
+    // création neuve le pose toujours.
+    targets: v.optional(
+      v.array(
+        v.object({
+          platform: v.union(
+            v.literal("TikTok"),
+            v.literal("Instagram"),
+            v.literal("YouTube"),
+          ),
+          accountId: v.optional(v.id("comptes")),
+          publishedUrl: v.optional(v.string()),
+          publishedAt: v.optional(v.number()),
+          publicationId: v.optional(v.id("publications")),
+        }),
+      ),
+    ),
     adminFeedback: v.optional(v.string()),
     rateSnapshot: v.object({
       basePerPost: v.number(),
@@ -745,6 +770,16 @@ export default defineSchema({
         label: v.string(),
         amount: v.number(),
         kind: v.union(v.literal("base"), v.literal("bonus")),
+        // Chantier C — plateforme du post (paiement PAR POST : N lineItems base
+        // par assignment, 1 par cible). Optional : le bonus (1/assignment) et
+        // les lineItems legacy n'en portent pas.
+        platform: v.optional(
+          v.union(
+            v.literal("TikTok"),
+            v.literal("Instagram"),
+            v.literal("YouTube"),
+          ),
+        ),
       }),
     ),
     totalDue: v.number(),

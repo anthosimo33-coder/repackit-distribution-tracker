@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
+import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { config } from "dotenv";
@@ -58,9 +59,16 @@ test.describe("Portail créateur — boucle assignment", () => {
     await page.waitForURL("**/app", { timeout: 20_000 });
 
     // Assignment EN RETARD (dueDate passée) une fois le créateur onboardé.
+    const target = await availableTarget({
+      e2eClient: admin,
+      creatorId: creatorId as Id<"creators">,
+      platform: "TikTok",
+      handle: `@e2eboucle${ts}`,
+    });
     await admin.mutation(api.assignments.assignFormat, {
       formatId: fid,
-      creatorIds: [creatorId as Id<"creators">],
+      creatorId: creatorId as Id<"creators">,
+      targets: [target],
       postsPerCreator: 1,
       dueDate: ts - 2 * 86_400_000,
     });
