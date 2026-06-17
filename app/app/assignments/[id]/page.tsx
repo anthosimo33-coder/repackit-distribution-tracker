@@ -70,6 +70,8 @@ export default function AssignmentDetailPage({
               <AssignmentActions
                 assignment={data.assignment}
                 projectId={projectId!}
+                submittedVideoUrl={data.submittedVideoUrl}
+                submittedVideoMimeType={data.submittedVideoMimeType}
               />
             </CardContent>
           </Card>

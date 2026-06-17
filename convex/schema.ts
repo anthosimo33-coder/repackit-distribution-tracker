@@ -657,14 +657,39 @@ export default defineSchema({
     comboKey: v.optional(v.string()),
     accountId: v.optional(v.id("comptes")),
     dueDate: v.number(),
+    // Machine à états WORKFLOW MP4 (chantier vidéo-avant-publication) :
+    //   todo → in_progress → video_submitted → [reject] video_rejected →
+    //   (re-upload) video_submitted → [approve] to_publish → published → paid.
+    // Le paiement + la matérialisation se déclenchent à `published` (pas à la
+    // revue vidéo). Les littéraux LEGACY (submitted/validated/rejected) sont
+    // conservés UNIQUEMENT pour que le déploiement valide les rows antérieures ;
+    // migrateAssignmentStatuses les réécrit. Retrait = resserrage ultérieur.
     status: v.union(
       v.literal("todo"),
       v.literal("in_progress"),
+      v.literal("video_submitted"),
+      v.literal("video_rejected"),
+      v.literal("to_publish"),
+      v.literal("published"),
+      v.literal("paid"),
+      // LEGACY (migrés) :
       v.literal("submitted"),
       v.literal("validated"),
       v.literal("rejected"),
-      v.literal("paid"),
     ),
+    // MP4 soumis (NON publié) : présent de video_submitted à published, PURGÉ du
+    // storage à published. mimeType pour le <source type> de <VideoExample>.
+    submittedVideoStorageId: v.optional(v.id("_storage")),
+    submittedVideoMimeType: v.optional(v.string()),
+    // Feedback admin au REFUS d'une vidéo (visible créateur). Remplace le rôle de
+    // l'ancien adminFeedback (migré).
+    videoReviewFeedback: v.optional(v.string()),
+    // URL du post publié, fournie à l'étape `published` (= ancien submittedUrl,
+    // migré). datePubli de la publication matérialisée = publishedAt.
+    publishedUrl: v.optional(v.string()),
+    publishedAt: v.optional(v.number()),
+    // submittedPlatform RÉUTILISÉ : plateforme du post publié (détectée à
+    // publish). submittedUrl/submittedAt/adminFeedback = LEGACY (migrés).
     submittedUrl: v.optional(v.string()),
     submittedAt: v.optional(v.number()),
     submittedPlatform: v.optional(
@@ -674,7 +699,7 @@ export default defineSchema({
         v.literal("YouTube"),
       ),
     ),
-    // Posé au chantier validation (matérialisation publication).
+    // Posé à `published` (matérialisation publication).
     publicationId: v.optional(v.id("publications")),
     adminFeedback: v.optional(v.string()),
     rateSnapshot: v.object({

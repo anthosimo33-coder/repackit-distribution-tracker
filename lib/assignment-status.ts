@@ -1,14 +1,24 @@
 /**
- * P7 — libellés + urgence des assignments (pur). Urgence calculée seulement
- * pour les statuts ACTIONNABLES (todo/in_progress/rejected).
+ * Libellés + urgence des assignments (pur). Machine à états MP4 :
+ *   todo → in_progress → video_submitted → [reject] video_rejected →
+ *   video_submitted → [approve] to_publish → published → paid.
+ * Urgence calculée seulement pour les statuts ACTIONNABLES par le créateur
+ * (todo/in_progress/video_rejected/to_publish). Les littéraux LEGACY
+ * (submitted/validated/rejected) restent typés/affichables le temps de la
+ * migration (ne devraient plus apparaître ensuite).
  */
 export type AssignmentStatus =
   | "todo"
   | "in_progress"
+  | "video_submitted"
+  | "video_rejected"
+  | "to_publish"
+  | "published"
+  | "paid"
+  // LEGACY (migrés) :
   | "submitted"
   | "validated"
-  | "rejected"
-  | "paid";
+  | "rejected";
 
 const DAY = 86_400_000;
 
@@ -20,14 +30,26 @@ export const ASSIGNMENT_STATUS: Record<
   // in_progress = accent RepackIt (orange #FF5200) — suit projects.accentColor
   // via le token --primary (cf globals.css + injection P10).
   in_progress: { label: "En cours", className: "border-primary/30 bg-primary/10 text-primary" },
+  video_submitted: { label: "Vidéo en revue", className: "border-amber-200 bg-amber-50 text-amber-700" },
+  video_rejected: { label: "Vidéo à refaire", className: "border-rose-200 bg-rose-50 text-rose-700" },
+  to_publish: { label: "À publier", className: "border-primary/30 bg-primary/10 text-primary" },
+  published: { label: "Publié", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+  paid: { label: "Payé", className: "border-violet-200 bg-violet-50 text-violet-700" },
+  // LEGACY :
   submitted: { label: "Soumis", className: "border-amber-200 bg-amber-50 text-amber-700" },
   validated: { label: "Validé", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
   rejected: { label: "Rejeté", className: "border-rose-200 bg-rose-50 text-rose-700" },
-  paid: { label: "Payé", className: "border-violet-200 bg-violet-50 text-violet-700" },
 };
 
+/** Statuts où LE CRÉATEUR doit agir (≠ en attente d'admin, ≠ terminé). */
 export function isActionable(status: AssignmentStatus): boolean {
-  return status === "todo" || status === "in_progress" || status === "rejected";
+  return (
+    status === "todo" ||
+    status === "in_progress" ||
+    status === "video_rejected" ||
+    status === "to_publish" ||
+    status === "rejected" // legacy
+  );
 }
 
 export type Urgency = "overdue" | "soon" | "ok" | "none";

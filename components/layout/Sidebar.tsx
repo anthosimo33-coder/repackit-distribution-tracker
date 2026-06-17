@@ -70,8 +70,8 @@ export function Sidebar({
   const { signOut } = useAuthActions();
   const projectPath = useProjectPath();
   const me = useQuery(api.projects.getMe, {});
-  // P8 — compteur "submitted" pour le badge de la file de validation.
-  const submittedCount = useProjectQuery(api.assignments.countSubmitted, {});
+  // Badge file de validation = nb de vidéos en attente de revue (video_submitted).
+  const submittedCount = useProjectQuery(api.assignments.countVideoSubmitted, {});
   const collapsed = isMobileDrawer ? false : isCollapsed;
 
   // Repli Archives : fermé par défaut, hydraté depuis localStorage post-mount

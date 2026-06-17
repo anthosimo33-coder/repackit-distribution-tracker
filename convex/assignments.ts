@@ -198,14 +198,14 @@ export const listAssignments = adminQuery({
   },
 });
 
-/** Compteur d'assignments "submitted" — badge sidebar de la file de validation. */
-export const countSubmitted = adminQuery({
+/** Compteur d'assignments "video_submitted" — badge sidebar de la file de revue. */
+export const countVideoSubmitted = adminQuery({
   args: {},
   handler: async (ctx) => {
     const subs = await ctx.db
       .query("assignments")
       .withIndex("by_project_status", (q) =>
-        q.eq("projectId", ctx.projectId).eq("status", "submitted"),
+        q.eq("projectId", ctx.projectId).eq("status", "video_submitted"),
       )
       .collect();
     return subs.length;
@@ -213,34 +213,20 @@ export const countSubmitted = adminQuery({
 });
 
 /**
- * S3 — Matérialise la publication d'un assignment de SCRIPT validé et y RACCORDE
- * le combo (scriptCombo + comboKey), pour que les snapshots de vues J+X de cette
- * publication se joignent aux briques (analytics par variable).
+ * Matérialise la publication d'un assignment de SCRIPT et y RACCORDE le combo
+ * (analytics S3). Un script = vidéo verticale → mediaType "short". `opts` porte
+ * l'URL/plateforme/date du POST PUBLIÉ (résolus à l'étape `published`).
  *
- * Un script = une vidéo verticale (hook/corps/flux/cta + socle démo) → mediaType
- * "short" (autorisé sur les 3 plateformes). Exige une plateforme détectée + une
- * URL soumise, comme la branche FORMAT (sans plateforme, pas de tracking de vues
- * possible). Compte = handle du compte lié, sinon nom du créateur.
- *
- * Type de retour ANNOTÉ (appelle ctx.runMutation(internal.*) → casse le cycle
- * d'inférence TS7022). NE PAS retirer.
+ * Type de retour ANNOTÉ (ctx.runMutation(internal.*) → TS7022). NE PAS retirer.
  */
 async function materializeScriptPublication(
   ctx: MutationCtx,
   a: Doc<"assignments">,
   projectId: Id<"projects">,
+  opts: { url: string; platform: Plateforme; datePubli: number },
 ): Promise<Id<"publications">> {
   if (!a.scriptCombo || a.comboKey === undefined) {
     throw new ConvexError("Combo de script manquant — matérialisation impossible.");
-  }
-  const plateforme = a.submittedPlatform;
-  if (plateforme === undefined) {
-    throw new ConvexError(
-      "Plateforme du post non détectée — impossible de matérialiser la publication.",
-    );
-  }
-  if (a.submittedUrl === undefined) {
-    throw new ConvexError("URL soumise manquante.");
   }
   let compte: string;
   if (a.accountId) {
@@ -253,10 +239,10 @@ async function materializeScriptPublication(
   return await ctx.runMutation(internal.publications.createFromAssignment, {
     projectId,
     mediaType: "short",
-    plateforme,
+    plateforme: opts.platform,
     compte,
-    datePubli: a.submittedAt ?? Date.now(),
-    postUrl: a.submittedUrl,
+    datePubli: opts.datePubli,
+    postUrl: opts.url,
     scriptCombo: {
       campaignId: a.scriptCombo.campaignId,
       hookBrickId: a.scriptCombo.hookBrickId,
@@ -269,97 +255,49 @@ async function materializeScriptPublication(
 }
 
 /**
- * P8 — VALIDATION (logique d'argent, IDEMPOTENTE). Valider un post soumis fait,
- * en UNE transaction :
- *   1. matérialise une publication de plein droit (sauf format "custom") via
- *      internal.publications.createFromAssignment ;
- *   2. pose assignment.publicationId + status "validated" ;
- *   3. crédite la lineItem de BASE (rateSnapshot.basePerPost) sur le paiement
- *      de la période courante du créateur.
+ * Cœur du nouveau modèle : à la PUBLICATION (creator confirme l'URL), en UNE
+ * transaction — (1) matérialise la publication (script avec combo, ou format
+ * non-custom ; custom = pas de pub), (2) accrue la lineItem de BASE. Idempotent :
+ * réutilise publicationId existant + accrueBaseLineItem est idempotent par
+ * assignmentId → re-confirmer ne double ni la pub ni le crédit.
  *
- * Idempotence : revalider un assignment déjà "validated" est un no-op (sortie
- * anticipée). Le patch de l'assignment (étape 2) fait que deux validations
- * concurrentes (double-clic) entrent en conflit OCC sur ce doc → Convex
- * réessaie la perdante, qui relit status="validated" et sort. Jamais de double
- * publication ni de double crédit.
+ * Type de retour ANNOTÉ (ctx.runMutation(internal.*) → TS7022). NE PAS retirer.
  */
-export const validateAssignment = adminMutation({
-  args: { id: v.id("assignments") },
-  // Type de retour ANNOTÉ explicitement : le handler appelle
-  // ctx.runMutation(internal.publications.createFromAssignment), et `internal`
-  // référence (via _generated/api) le type de CE module → cycle d'inférence
-  // (TS7022). L'annotation casse le cycle. NE PAS retirer.
-  handler: async (
-    ctx,
-    { id },
-  ): Promise<{
-    ok: true;
-    alreadyValidated: boolean;
-    publicationId: Id<"publications"> | null;
-  }> => {
-    const a = await ctx.db.get(id);
-    if (!a || a.projectId !== ctx.projectId) {
-      throw new ConvexError("Assignment introuvable.");
-    }
-    if (a.status === "validated") {
-      return {
-        ok: true,
-        alreadyValidated: true,
-        publicationId: a.publicationId ?? null,
-      };
-    }
-    if (a.status !== "submitted") {
-      throw new ConvexError("Seuls les assignments soumis peuvent être validés.");
-    }
-    const now = Date.now();
-    const dateLabel = new Date(a.submittedAt ?? now).toLocaleDateString("fr-FR", {
-      day: "2-digit",
-      month: "2-digit",
-    });
+async function materializeAndAccrueOnPublish(
+  ctx: MutationCtx,
+  a: Doc<"assignments">,
+  projectId: Id<"projects">,
+  opts: { url: string; platform: Plateforme | undefined; publishedAt: number },
+): Promise<Id<"publications"> | null> {
+  const now = Date.now();
+  const dateLabel = new Date(opts.publishedAt).toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+  });
 
-    // ── Assignment SCRIPT (S2/S3) : matérialise la publication AVEC son combo
-    // (raccord analytics S3), pose publicationId + status, accrue la base.
-    if (a.scriptCombo && a.formatId === undefined) {
-      let publicationId: Id<"publications"> | null = a.publicationId ?? null;
-      if (publicationId === null) {
-        publicationId = await materializeScriptPublication(ctx, a, ctx.projectId);
+  let publicationId: Id<"publications"> | null = a.publicationId ?? null;
+  let label: string;
+
+  if (a.scriptCombo && a.formatId === undefined) {
+    if (publicationId === null) {
+      if (opts.platform === undefined) {
+        throw new ConvexError("Plateforme du post non détectée.");
       }
-      await ctx.db.patch(id, {
-        status: "validated",
-        publicationId: publicationId ?? undefined,
+      publicationId = await materializeScriptPublication(ctx, a, projectId, {
+        url: opts.url,
+        platform: opts.platform,
+        datePubli: opts.publishedAt,
       });
-      // ISOLATION : label NEUTRE — le créateur voit ses lineItems via
-      // getMyPayments ; ne JAMAIS y exposer le nom de campagne (signal de
-      // coordination masqué partout ailleurs côté créateur).
-      await accrueBaseLineItem(ctx, {
-        projectId: ctx.projectId,
-        creatorId: a.creatorId,
-        assignmentId: id,
-        label: `Vidéo — ${dateLabel}`,
-        amount: a.rateSnapshot.basePerPost,
-        now,
-      });
-      return { ok: true, alreadyValidated: false, publicationId };
     }
-
-    // ── Assignment FORMAT (P7/P8) : matérialisation publication.
+    // ISOLATION : label NEUTRE — jamais le nom de campagne côté créateur.
+    label = `Vidéo — ${dateLabel}`;
+  } else {
     const format = a.formatId ? await ctx.db.get(a.formatId) : null;
     if (!format) throw new ConvexError("Format introuvable.");
-
-    // 1. Matérialisation — sauf "custom" (workflow + paiement seulement) ou pub
-    // déjà matérialisée (défense).
-    let publicationId: Id<"publications"> | null = a.publicationId ?? null;
     if (format.type !== "custom" && publicationId === null) {
-      const plateforme = a.submittedPlatform;
-      if (plateforme === undefined) {
-        throw new ConvexError(
-          "Plateforme du post non détectée — impossible de matérialiser la publication.",
-        );
+      if (opts.platform === undefined) {
+        throw new ConvexError("Plateforme du post non détectée.");
       }
-      if (a.submittedUrl === undefined) {
-        throw new ConvexError("URL soumise manquante.");
-      }
-      // compte = handle du compte lié, sinon nom du créateur (handle libre).
       let compte: string;
       if (a.accountId) {
         const account = await ctx.db.get(a.accountId);
@@ -371,33 +309,160 @@ export const validateAssignment = adminMutation({
       publicationId = await ctx.runMutation(
         internal.publications.createFromAssignment,
         {
-          projectId: ctx.projectId,
+          projectId,
           mediaType: format.type,
-          plateforme,
+          plateforme: opts.platform,
           compte,
-          datePubli: a.submittedAt ?? Date.now(),
-          postUrl: a.submittedUrl,
+          datePubli: opts.publishedAt,
+          postUrl: opts.url,
         },
       );
     }
+    label = `${format.name} — ${dateLabel}`;
+  }
 
-    // 2. assignment.publicationId + status validated.
-    await ctx.db.patch(id, {
-      status: "validated",
-      publicationId: publicationId ?? undefined,
-    });
+  // Accrual de la BASE (idempotent par assignmentId — pas de double crédit).
+  await accrueBaseLineItem(ctx, {
+    projectId,
+    creatorId: a.creatorId,
+    assignmentId: a._id,
+    label,
+    amount: a.rateSnapshot.basePerPost,
+    now,
+  });
 
-    // 3. Accrual de la lineItem de BASE (idempotent par assignmentId).
-    await accrueBaseLineItem(ctx, {
-      projectId: ctx.projectId,
-      creatorId: a.creatorId,
-      assignmentId: id,
-      label: `${format.name} — ${dateLabel}`,
-      amount: a.rateSnapshot.basePerPost,
-      now,
-    });
+  return publicationId;
+}
 
-    return { ok: true, alreadyValidated: false, publicationId };
+// ─── Revue vidéo (admin) — NE crédite ni ne matérialise RIEN (cf published) ───
+
+/** video_submitted → to_publish. Approuve la vidéo ; le paiement attend la
+ *  publication (published). Idempotent. */
+export const reviewVideoApprove = adminMutation({
+  args: { id: v.id("assignments") },
+  handler: async (ctx, { id }) => {
+    const a = await ctx.db.get(id);
+    if (!a || a.projectId !== ctx.projectId) {
+      throw new ConvexError("Assignment introuvable.");
+    }
+    if (a.status === "to_publish") return { ok: true, alreadyApproved: true };
+    if (a.status !== "video_submitted") {
+      throw new ConvexError("Seules les vidéos en revue peuvent être validées.");
+    }
+    await ctx.db.patch(id, { status: "to_publish" });
+    return { ok: true, alreadyApproved: false };
+  },
+});
+
+/** video_submitted → video_rejected (feedback obligatoire, visible créateur). */
+export const reviewVideoReject = adminMutation({
+  args: { id: v.id("assignments"), feedback: v.string() },
+  handler: async (ctx, { id, feedback }) => {
+    const a = await ctx.db.get(id);
+    if (!a || a.projectId !== ctx.projectId) {
+      throw new ConvexError("Assignment introuvable.");
+    }
+    if (a.status !== "video_submitted") {
+      throw new ConvexError("Seules les vidéos en revue peuvent être refusées.");
+    }
+    const fb = feedback.trim();
+    if (fb.length === 0) {
+      throw new ConvexError("Un motif de refus est requis.");
+    }
+    await ctx.db.patch(id, { status: "video_rejected", videoReviewFeedback: fb });
+    return { ok: true };
+  },
+});
+
+/**
+ * File de revue vidéo : assignments en video_submitted, avec le MP4 résolu en URL
+ * signée (lecture in-app admin). Origin script → nom de campagne visible ADMIN.
+ */
+export const listVideoSubmitted = adminQuery({
+  args: {},
+  handler: async (ctx) => {
+    const subs = await ctx.db
+      .query("assignments")
+      .withIndex("by_project_status", (q) =>
+        q.eq("projectId", ctx.projectId).eq("status", "video_submitted"),
+      )
+      .collect();
+    const [creators, formats, campaigns] = await Promise.all([
+      ctx.db
+        .query("creators")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+      ctx.db
+        .query("formats")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+      ctx.db
+        .query("scriptCampaigns")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+    ]);
+    const creatorMap = new Map(creators.map((c) => [c._id, c.name]));
+    const formatMap = new Map(formats.map((f) => [f._id, f.name]));
+    const campaignMap = new Map(campaigns.map((c) => [c._id, c.name]));
+    return Promise.all(
+      subs
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .map(async (a) => ({
+          _id: a._id,
+          creatorName: creatorMap.get(a.creatorId) ?? "—",
+          label: a.scriptCombo
+            ? (campaignMap.get(a.scriptCombo.campaignId) ?? "Script")
+            : a.formatId
+              ? (formatMap.get(a.formatId) ?? "—")
+              : "—",
+          origin: (a.scriptCombo ? "script" : "format") as "script" | "format",
+          dueDate: a.dueDate,
+          videoStorageId: a.submittedVideoStorageId ?? null,
+          videoUrl: a.submittedVideoStorageId
+            ? await ctx.storage.getUrl(a.submittedVideoStorageId)
+            : null,
+          videoMimeType: a.submittedVideoMimeType ?? "video/mp4",
+        })),
+    );
+  },
+});
+
+/** « Publiées récemment » (admin) : assignments en published, URL + créateur. */
+export const listPublished = adminQuery({
+  args: {},
+  handler: async (ctx) => {
+    const pubs = await ctx.db
+      .query("assignments")
+      .withIndex("by_project_status", (q) =>
+        q.eq("projectId", ctx.projectId).eq("status", "published"),
+      )
+      .collect();
+    const [creators, formats] = await Promise.all([
+      ctx.db
+        .query("creators")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+      ctx.db
+        .query("formats")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+    ]);
+    const creatorMap = new Map(creators.map((c) => [c._id, c.name]));
+    const formatMap = new Map(formats.map((f) => [f._id, f.name]));
+    return pubs
+      .sort((a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0))
+      .map((a) => ({
+        _id: a._id,
+        creatorName: creatorMap.get(a.creatorId) ?? "—",
+        label: a.scriptCombo
+          ? "Script"
+          : a.formatId
+            ? (formatMap.get(a.formatId) ?? "—")
+            : "—",
+        publishedUrl: a.publishedUrl ?? a.submittedUrl ?? null,
+        publishedAt: a.publishedAt ?? null,
+        submittedPlatform: a.submittedPlatform ?? null,
+      }));
   },
 });
 
@@ -448,8 +513,9 @@ export const backfillPublicationCombos = internalMutation({
       };
       if (a.publicationId === undefined) {
         // Cas S2 : pas de publication. La matérialiser rétroactivement exige une
-        // plateforme + URL soumise ; sinon on skip proprement.
-        if (a.submittedPlatform === undefined || a.submittedUrl === undefined) {
+        // plateforme + URL (published ou legacy submitted) ; sinon skip propre.
+        const url = a.publishedUrl ?? a.submittedUrl;
+        if (a.submittedPlatform === undefined || url === undefined) {
           skipped++;
           continue;
         }
@@ -457,6 +523,11 @@ export const backfillPublicationCombos = internalMutation({
           ctx,
           a,
           a.projectId,
+          {
+            url,
+            platform: a.submittedPlatform,
+            datePubli: a.publishedAt ?? a.submittedAt ?? Date.now(),
+          },
         );
         await ctx.db.patch(a._id, { publicationId });
         materialized++;
@@ -478,28 +549,69 @@ export const backfillPublicationCombos = internalMutation({
   },
 });
 
-/** REJET — feedback obligatoire, visible créateur, resoumission ensuite possible. */
-export const rejectAssignment = adminMutation({
-  args: { id: v.id("assignments"), feedback: v.string() },
-  handler: async (ctx, { id, feedback }) => {
-    const a = await ctx.db.get(id);
-    if (!a || a.projectId !== ctx.projectId) {
-      throw new ConvexError("Assignment introuvable.");
+/**
+ * MIGRATION — réécrit les statuts LEGACY vers la machine MP4 (0 perte, idempotent).
+ *   submitted  → video_submitted   (en attente d'action admin)
+ *   validated  → published         (URL fournie + pub matérialisée + base créditée)
+ *   rejected   → video_rejected     (+ videoReviewFeedback = ancien adminFeedback)
+ * Aligne aussi les champs : publishedUrl/publishedAt ← submittedUrl/submittedAt
+ * pour les rows désormais published/paid. Idempotent : ne touche que les rows
+ * encore sur un statut legacy ou aux champs published manquants.
+ *
+ * CHOIX : prod n'a que la démo (pas de vrais créateurs) → on migre proprement
+ * vers la nouvelle machine. Le retrait des littéraux legacy de l'union (status)
+ * est un RESSERRAGE ultérieur, une fois la migration passée partout.
+ *
+ * Runnable : `npx convex run assignments:migrateAssignmentStatuses [--prod]`.
+ */
+export const migrateAssignmentStatuses = internalMutation({
+  args: {},
+  handler: async (
+    ctx,
+  ): Promise<{
+    submitted: number;
+    validated: number;
+    rejected: number;
+    fieldsAligned: number;
+  }> => {
+    const all = await ctx.db.query("assignments").collect();
+    let submitted = 0;
+    let validated = 0;
+    let rejected = 0;
+    let fieldsAligned = 0;
+    for (const a of all) {
+      const patch: Partial<Doc<"assignments">> = {};
+      if (a.status === "submitted") {
+        patch.status = "video_submitted";
+        submitted++;
+      } else if (a.status === "validated") {
+        patch.status = "published";
+        validated++;
+      } else if (a.status === "rejected") {
+        patch.status = "video_rejected";
+        if (a.videoReviewFeedback === undefined && a.adminFeedback !== undefined) {
+          patch.videoReviewFeedback = a.adminFeedback;
+        }
+        rejected++;
+      }
+      const nextStatus = patch.status ?? a.status;
+      if (
+        (nextStatus === "published" || nextStatus === "paid") &&
+        a.publishedUrl === undefined &&
+        a.submittedUrl !== undefined
+      ) {
+        patch.publishedUrl = a.submittedUrl;
+        patch.publishedAt = a.submittedAt ?? a.createdAt;
+        fieldsAligned++;
+      }
+      if (Object.keys(patch).length > 0) await ctx.db.patch(a._id, patch);
     }
-    if (a.status !== "submitted") {
-      throw new ConvexError("Seuls les assignments soumis peuvent être rejetés.");
-    }
-    const fb = feedback.trim();
-    if (fb.length === 0) {
-      throw new ConvexError("Un motif de rejet est requis.");
-    }
-    await ctx.db.patch(id, { status: "rejected", adminFeedback: fb });
-    return { ok: true };
+    return { submitted, validated, rejected, fieldsAligned };
   },
 });
 
 /**
- * P8 — assignments validés (avec publication) candidats au calcul de bonus,
+ * P8 — assignments PUBLIÉS (avec publication) candidats au calcul de bonus,
  * enrichis des vues du dernier snapshot (préremplissage) et du bonus déjà
  * crédité s'il existe.
  */
@@ -510,7 +622,7 @@ export const listValidatedForBonus = adminQuery({
       await ctx.db
         .query("assignments")
         .withIndex("by_project_status", (q) =>
-          q.eq("projectId", ctx.projectId).eq("status", "validated"),
+          q.eq("projectId", ctx.projectId).eq("status", "published"),
         )
         .collect()
     ).filter((a) => a.publicationId !== undefined);
@@ -572,8 +684,8 @@ export const computeViewBonus = adminMutation({
     if (!a || a.projectId !== ctx.projectId) {
       throw new ConvexError("Assignment introuvable.");
     }
-    if (a.status !== "validated") {
-      throw new ConvexError("Le bonus se calcule sur un assignment validé.");
+    if (a.status !== "published") {
+      throw new ConvexError("Le bonus se calcule sur un assignment publié.");
     }
     if (a.publicationId === undefined) {
       throw new ConvexError(
@@ -663,12 +775,20 @@ export const getMyAssignment = creatorQuery({
     const account = a.accountId ? await ctx.db.get(a.accountId) : null;
     const { scriptCombo, comboKey, ...safe } = a;
     void comboKey;
+    // ISOLATION : SA vidéo soumise, résolue côté serveur (URL signée). Le blob
+    // n'est jamais lisible que par le créateur (ici) et l'admin (listVideoSubmitted).
+    const submittedVideoUrl = a.submittedVideoStorageId
+      ? await ctx.storage.getUrl(a.submittedVideoStorageId)
+      : null;
+    const submittedVideoMimeType = a.submittedVideoMimeType ?? "video/mp4";
     if (scriptCombo) {
       return {
         assignment: safe,
         format: null,
         assembledScript: scriptCombo.assembledScript,
         accountHandle: account?.handle ?? null,
+        submittedVideoUrl,
+        submittedVideoMimeType,
       };
     }
     const format = a.formatId ? await ctx.db.get(a.formatId) : null;
@@ -678,6 +798,8 @@ export const getMyAssignment = creatorQuery({
       format: brief,
       assembledScript: null as string | null,
       accountHandle: account?.handle ?? null,
+      submittedVideoUrl,
+      submittedVideoMimeType,
     };
   },
 });
@@ -698,19 +820,76 @@ export const startAssignment = creatorMutation({
 });
 
 /**
- * Soumission par URL. Autorisée depuis "in_progress" (1re soumission) ou
- * "rejected" (resoumission UNIQUEMENT). Plateforme détectée serveur.
+ * SOUMISSION VIDÉO (MP4) — le créateur upload sa vidéo NON publiée. Le client a
+ * déjà poussé le blob (generateUploadUrl → storage) et fournit le storageId.
+ * Autorisé depuis todo / in_progress / video_rejected (re-soumission après
+ * refus). Une re-soumission PURGE l'ancien blob refusé.
  */
-export const submitAssignment = creatorMutation({
-  args: { id: v.id("assignments"), url: v.string() },
-  handler: async (ctx, { id, url }) => {
+export const submitVideo = creatorMutation({
+  args: {
+    id: v.id("assignments"),
+    storageId: v.id("_storage"),
+    mimeType: v.optional(v.string()),
+  },
+  handler: async (ctx, { id, storageId, mimeType }) => {
     const a = await ctx.db.get(id);
     if (!a || a.creatorId !== ctx.creatorId) {
       throw new ConvexError("Assignment introuvable.");
     }
-    if (a.status !== "in_progress" && a.status !== "rejected") {
+    if (
+      a.status !== "todo" &&
+      a.status !== "in_progress" &&
+      a.status !== "video_rejected"
+    ) {
+      throw new ConvexError("Soumission vidéo impossible dans cet état.");
+    }
+    // Remplacement : l'ancienne vidéo (refusée) est purgée du storage.
+    if (a.submittedVideoStorageId && a.submittedVideoStorageId !== storageId) {
+      await ctx.storage.delete(a.submittedVideoStorageId);
+    }
+    await ctx.db.patch(id, {
+      status: "video_submitted",
+      submittedVideoStorageId: storageId,
+      submittedVideoMimeType: mimeType ?? "video/mp4",
+      videoReviewFeedback: undefined,
+    });
+    return { ok: true };
+  },
+});
+
+/**
+ * PUBLICATION — le créateur fournit l'URL du post publié (étape `to_publish`).
+ * C'EST ICI le DÉCLENCHEUR : matérialise la publication (tracking de vues),
+ * accrue le paiement de BASE, et PURGE le MP4 de soumission. Plateforme détectée
+ * serveur. IDEMPOTENT : re-confirmer un assignment déjà published est un no-op
+ * (ni double pub, ni double crédit, ni re-purge).
+ *
+ * Type de retour ANNOTÉ (matérialise via ctx.runMutation(internal.*) → TS7022).
+ */
+export const confirmPublication = creatorMutation({
+  args: { id: v.id("assignments"), url: v.string() },
+  handler: async (
+    ctx,
+    { id, url },
+  ): Promise<{
+    ok: true;
+    alreadyPublished: boolean;
+    publicationId: Id<"publications"> | null;
+  }> => {
+    const a = await ctx.db.get(id);
+    if (!a || a.creatorId !== ctx.creatorId) {
+      throw new ConvexError("Assignment introuvable.");
+    }
+    if (a.status === "published" || a.status === "paid") {
+      return {
+        ok: true,
+        alreadyPublished: true,
+        publicationId: a.publicationId ?? null,
+      };
+    }
+    if (a.status !== "to_publish") {
       throw new ConvexError(
-        "Soumission impossible dans cet état (resoumission autorisée seulement après un rejet).",
+        "Publication possible seulement après validation de ta vidéo.",
       );
     }
     const trimmed = url.trim();
@@ -719,36 +898,60 @@ export const submitAssignment = creatorMutation({
     }
     const platform = detectPlatform(trimmed);
 
-    // P8 — garde plateforme à la SOUMISSION pour les FORMATS matérialisables
-    // (non "custom") : le post deviendra une publication à la validation, donc
-    // la cohérence format/plateforme doit être garantie dès ici (carrousel
-    // interdit sur YouTube ; plateforme reconnue obligatoire). S2 — un
-    // assignment SCRIPT (sans formatId) n'est pas matérialisé → simple URL
-    // http(s), pas de garde plateforme.
-    if (a.formatId) {
-      const format = await ctx.db.get(a.formatId);
-      if (format && format.type !== "custom") {
-        if (platform === undefined) {
-          throw new ConvexError(
-            "Plateforme du lien non reconnue (TikTok, Instagram ou YouTube attendu).",
-          );
-        }
-        if (!isFormatAllowedOnPlatform(format.type, platform)) {
-          throw new ConvexError(
-            `Le format « ${format.name} » (${format.type}) ne peut pas être publié sur ${platform}.`,
-          );
-        }
+    // Garde plateforme : un post MATÉRIALISABLE (format non-custom OU script)
+    // exige une plateforme reconnue + (format) la compatibilité format/plateforme.
+    const isScript = a.scriptCombo !== undefined && a.formatId === undefined;
+    const format = a.formatId ? await ctx.db.get(a.formatId) : null;
+    const materializable = isScript || (format !== null && format.type !== "custom");
+    if (materializable) {
+      if (platform === undefined) {
+        throw new ConvexError(
+          "Plateforme du lien non reconnue (TikTok, Instagram ou YouTube attendu).",
+        );
+      }
+      if (format && format.type !== "custom" && !isFormatAllowedOnPlatform(format.type, platform)) {
+        throw new ConvexError(
+          `Le format « ${format.name} » (${format.type}) ne peut pas être publié sur ${platform}.`,
+        );
       }
     }
 
+    const publishedAt = Date.now();
+    const publicationId = await materializeAndAccrueOnPublish(
+      ctx,
+      a,
+      ctx.projectId,
+      { url: trimmed, platform, publishedAt },
+    );
+
+    // PURGE du MP4 de soumission (la vidéo non publiée n'a plus de raison d'être).
+    if (a.submittedVideoStorageId) {
+      await ctx.storage.delete(a.submittedVideoStorageId);
+    }
+
     await ctx.db.patch(id, {
-      status: "submitted",
-      submittedUrl: trimmed,
-      submittedAt: Date.now(),
+      status: "published",
+      publishedUrl: trimmed,
+      publishedAt,
       submittedPlatform: platform,
-      // Purge le motif de rejet précédent lors d'une (re)soumission.
-      adminFeedback: undefined,
+      publicationId: publicationId ?? undefined,
+      submittedVideoStorageId: undefined,
+      submittedVideoMimeType: undefined,
     });
+
+    return { ok: true, alreadyPublished: false, publicationId };
+  },
+});
+
+/** Notif in-app : nb de mes assignments « à publier » (vidéo validée). */
+export const countMyToPublish = creatorQuery({
+  args: {},
+  handler: async (ctx) => {
+    const mine = await ctx.db
+      .query("assignments")
+      .withIndex("by_creator", (q) => q.eq("creatorId", ctx.creatorId))
+      .collect();
+    return mine.filter((a) => a.status === "to_publish").length;
   },
 });
 
@@ -765,15 +968,16 @@ export const e2eSetAssignmentStatus = e2eMutation({
     status: v.union(
       v.literal("todo"),
       v.literal("in_progress"),
-      v.literal("submitted"),
-      v.literal("validated"),
-      v.literal("rejected"),
+      v.literal("video_submitted"),
+      v.literal("video_rejected"),
+      v.literal("to_publish"),
+      v.literal("published"),
       v.literal("paid"),
     ),
-    adminFeedback: v.optional(v.string()),
+    videoReviewFeedback: v.optional(v.string()),
   },
-  handler: async (ctx, { id, status, adminFeedback }) => {
-    await ctx.db.patch(id, { status, adminFeedback });
+  handler: async (ctx, { id, status, videoReviewFeedback }) => {
+    await ctx.db.patch(id, { status, videoReviewFeedback });
     return { ok: true };
   },
 });

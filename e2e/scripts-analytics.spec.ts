@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/auth-fixture";
-import { createE2eClient } from "./helpers/authed-client";
+import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { createCreatorSession } from "./helpers/creator-client";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
@@ -104,19 +104,18 @@ test.describe("S3 — analytics par variable de script", () => {
     let i = 0;
     for (const row of rows) {
       const combo = row.scriptCombo!;
-      await creator.client.mutation(api.assignments.startAssignment, {
-        projectId,
+      // Machine MP4 : on saute la revue vidéo (pas d'upload en e2e) en forçant
+      // to_publish, puis le créateur PUBLIE (confirmPublication = matérialise).
+      await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
+        secret: E2E_SECRET,
         id: row._id,
+        status: "to_publish",
       });
-      await creator.client.mutation(api.assignments.submitAssignment, {
-        projectId,
-        id: row._id,
-        url: `https://www.tiktok.com/@c/video/an${ts}_${i}`,
-      });
-      const res = await admin.mutation(api.assignments.validateAssignment, {
-        id: row._id,
-      });
-      // Scope 0 — la validation d'un script matérialise bien une publication.
+      const res = await creator.client.mutation(
+        api.assignments.confirmPublication,
+        { projectId, id: row._id, url: `https://www.tiktok.com/@c/video/an${ts}_${i}` },
+      );
+      // La publication d'un script matérialise bien une publication.
       expect(res.publicationId).toBeTruthy();
       posts.push({
         tier: tierByHook[combo.hookBrickId],

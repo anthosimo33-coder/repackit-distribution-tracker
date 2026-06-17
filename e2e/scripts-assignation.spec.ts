@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/auth-fixture";
-import { createE2eClient } from "./helpers/authed-client";
+import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { createCreatorSession } from "./helpers/creator-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -172,16 +172,16 @@ test.describe("S2 — assignation anti-coordination", () => {
 
     // ISOLATION paiement : valider un script ne doit PAS exposer le nom de
     // campagne au créateur via le label de la lineItem (getMyPayments).
-    await a.client.mutation(api.assignments.startAssignment, {
-      projectId,
+    await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
+      secret: E2E_SECRET,
       id: aSample,
+      status: "to_publish",
     });
-    await a.client.mutation(api.assignments.submitAssignment, {
+    await a.client.mutation(api.assignments.confirmPublication, {
       projectId,
       id: aSample,
       url: `https://www.tiktok.com/@a/video/sc${ts}`,
     });
-    await admin.mutation(api.assignments.validateAssignment, { id: aSample });
     const myPayments = await a.client.query(api.payments.getMyPayments, {
       projectId,
     });

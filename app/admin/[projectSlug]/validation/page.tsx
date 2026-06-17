@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   useProjectQuery,
   useProjectMutation,
@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -40,25 +41,21 @@ import {
   InboxIcon,
 } from "lucide-react";
 
-type SubmittedAssignment =
-  FunctionReturnType<typeof api.assignments.listAssignments>[number];
+type VideoSubmittedRow =
+  FunctionReturnType<typeof api.assignments.listVideoSubmitted>[number];
+type PublishedRow =
+  FunctionReturnType<typeof api.assignments.listPublished>[number];
 type BonusRowData =
   FunctionReturnType<typeof api.assignments.listValidatedForBonus>[number];
 
 /**
- * P8 — File de validation admin. Deux sections :
- *  1. « À valider » : assignments soumis (preview de l'URL via VideoExample) →
- *     Valider (matérialise la publication + crédite le paiement) / Rejeter
- *     (feedback obligatoire, resoumission créateur ensuite possible).
- *  2. « Bonus de vues » : assignments validés avec snapshots → calcul (manuel)
- *     du bonus, prérempli avec les vues du dernier snapshot.
+ * File de validation admin. La REVUE VIDÉO vient AVANT publication :
+ *  1. « Vidéos à valider » : assignments en video_submitted, MP4 lisible in-app
+ *     (controlsList nodownload). Valider → to_publish (notif créateur, AUCUN
+ *     paiement ici). Refuser → feedback obligatoire → video_rejected.
+ *  2. « Publiées récemment » : assignments passés en published (URL).
+ *  3. « Bonus de vues » : assignments publiés avec snapshots → calcul du bonus.
  */
-
-const PLATFORM_MAP: Record<string, "tiktok" | "youtube" | "instagram"> = {
-  TikTok: "tiktok",
-  Instagram: "instagram",
-  YouTube: "youtube",
-};
 
 const nf = new Intl.NumberFormat("fr-FR");
 const eur = (n: number) =>
@@ -68,16 +65,9 @@ const eur = (n: number) =>
 const formatDate = (ts: number) => new Date(ts).toLocaleDateString("fr-FR");
 
 export default function ValidationPage() {
-  const assignments = useProjectQuery(api.assignments.listAssignments, {});
+  const toReview = useProjectQuery(api.assignments.listVideoSubmitted, {});
+  const published = useProjectQuery(api.assignments.listPublished, {});
   const bonusRows = useProjectQuery(api.assignments.listValidatedForBonus, {});
-
-  const submitted = useMemo(
-    () =>
-      (assignments ?? [])
-        .filter((a) => a.status === "submitted")
-        .sort((a, b) => (a.submittedAt ?? 0) - (b.submittedAt ?? 0)),
-    [assignments],
-  );
 
   return (
     <div className="space-y-8">
@@ -86,39 +76,67 @@ export default function ValidationPage() {
           Validation
         </h1>
         <p className="text-sm text-slate-500">
-          {assignments === undefined
+          {toReview === undefined
             ? "Chargement…"
-            : `${submitted.length} post${submitted.length > 1 ? "s" : ""} en attente de validation`}
+            : `${toReview.length} vidéo${toReview.length > 1 ? "s" : ""} en attente de revue`}
         </p>
       </header>
 
-      {/* ─── À valider ─────────────────────────────────────────────────── */}
+      {/* ─── Vidéos à valider ──────────────────────────────────────────────── */}
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-          À valider
+          Vidéos à valider
         </h2>
-        {assignments === undefined ? (
+        {toReview === undefined ? (
           <Skeleton className="h-48 w-full" />
-        ) : submitted.length === 0 ? (
+        ) : toReview.length === 0 ? (
           <Card>
             <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
               <InboxIcon className="size-10 text-slate-300" strokeWidth={1.5} />
               <p className="text-sm text-slate-500">
-                Aucun post en attente. Les soumissions des créateurs
+                Aucune vidéo en attente. Les soumissions des créateurs
                 apparaîtront ici.
               </p>
             </CardContent>
           </Card>
         ) : (
           <div className="grid gap-4 lg:grid-cols-2">
-            {submitted.map((a) => (
-              <SubmittedCard key={a._id} a={a} />
+            {toReview.map((a) => (
+              <VideoReviewCard key={a._id} a={a} />
             ))}
           </div>
         )}
       </section>
 
-      {/* ─── Bonus de vues ─────────────────────────────────────────────── */}
+      {/* ─── Publiées récemment ────────────────────────────────────────────── */}
+      {published !== undefined && published.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
+            Publiées récemment
+          </h2>
+          <Card>
+            <CardContent className="overflow-x-auto p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Créateur</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Publié le</TableHead>
+                    <TableHead>Post</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {published.map((p) => (
+                    <PublishedTableRow key={p._id} p={p} />
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </section>
+      )}
+
+      {/* ─── Bonus de vues ─────────────────────────────────────────────────── */}
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
           Bonus de vues
@@ -128,7 +146,7 @@ export default function ValidationPage() {
         ) : bonusRows.length === 0 ? (
           <Card>
             <CardContent className="py-10 text-center text-sm text-slate-500">
-              Aucun post validé pour l&apos;instant.
+              Aucun post publié pour l&apos;instant.
             </CardContent>
           </Card>
         ) : (
@@ -159,25 +177,21 @@ export default function ValidationPage() {
   );
 }
 
-function SubmittedCard({ a }: { a: SubmittedAssignment }) {
-  const validate = useProjectMutation(api.assignments.validateAssignment);
-  const reject = useProjectMutation(api.assignments.rejectAssignment);
+function VideoReviewCard({ a }: { a: VideoSubmittedRow }) {
+  const approve = useProjectMutation(api.assignments.reviewVideoApprove);
+  const reject = useProjectMutation(api.assignments.reviewVideoReject);
   const [busy, setBusy] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [feedback, setFeedback] = useState("");
 
-  const platform = a.submittedPlatform
-    ? PLATFORM_MAP[a.submittedPlatform]
-    : null;
-
-  async function onValidate() {
+  async function onApprove() {
     setBusy(true);
     try {
-      const r = await validate({ id: a._id });
+      const r = await approve({ id: a._id });
       toast.success(
-        r.alreadyValidated
-          ? "Déjà validé."
-          : "Validé — publication créée et paiement crédité.",
+        r.alreadyApproved
+          ? "Déjà validée."
+          : "Vidéo validée — le créateur peut publier.",
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur");
@@ -188,13 +202,13 @@ function SubmittedCard({ a }: { a: SubmittedAssignment }) {
 
   async function onReject() {
     if (feedback.trim().length === 0) {
-      toast.error("Un motif de rejet est requis.");
+      toast.error("Un motif de refus est requis.");
       return;
     }
     setBusy(true);
     try {
       await reject({ id: a._id, feedback });
-      toast.success("Rejeté — le créateur peut resoumettre.");
+      toast.success("Refusée — le créateur peut re-soumettre.");
       setRejectOpen(false);
       setFeedback("");
     } catch (e) {
@@ -210,48 +224,49 @@ function SubmittedCard({ a }: { a: SubmittedAssignment }) {
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-0.5">
             <div className="font-medium text-slate-900">{a.creatorName}</div>
-            <div className="text-sm text-slate-500">{a.formatName}</div>
+            <div className="flex items-center gap-2 text-sm text-slate-500">
+              {a.label}
+              {a.origin === "script" && (
+                <Badge variant="secondary" className="text-[10px]">
+                  Script
+                </Badge>
+              )}
+            </div>
           </div>
           <div className="text-right text-xs text-slate-400">
-            <div>Échéance {formatDate(a.dueDate)}</div>
-            {a.submittedAt && <div>Soumis {formatDate(a.submittedAt)}</div>}
+            Échéance {formatDate(a.dueDate)}
           </div>
         </div>
 
-        {a.submittedUrl && platform ? (
+        {a.videoUrl && a.videoStorageId ? (
           <VideoExample
             example={{
-              kind: "url",
-              url: a.submittedUrl,
-              platform,
+              kind: "file",
+              storageId: a.videoStorageId,
               title: "",
+              mimeType: a.videoMimeType,
+              url: a.videoUrl,
             }}
           />
-        ) : a.submittedUrl ? (
-          <a
-            href={a.submittedUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
-          >
-            Voir le post soumis
-            <ExternalLinkIcon className="size-3.5" />
-          </a>
-        ) : null}
+        ) : (
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-400">
+            Vidéo indisponible.
+          </div>
+        )}
 
         <div className="flex gap-2 pt-1">
           <Button
-            onClick={onValidate}
+            onClick={onApprove}
             disabled={busy}
             className="flex-1"
-            data-testid={`validate-${a._id}`}
+            data-testid={`approve-${a._id}`}
           >
             {busy ? (
               <Loader2Icon className="mr-2 size-4 animate-spin" />
             ) : (
               <CheckIcon className="mr-2 size-4" />
             )}
-            Valider
+            Valider la vidéo
           </Button>
           <Button
             variant="outline"
@@ -260,7 +275,7 @@ function SubmittedCard({ a }: { a: SubmittedAssignment }) {
             className="flex-1"
           >
             <XIcon className="mr-2 size-4" />
-            Rejeter
+            Refuser
           </Button>
         </div>
       </CardContent>
@@ -268,19 +283,19 @@ function SubmittedCard({ a }: { a: SubmittedAssignment }) {
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Rejeter — {a.creatorName}</DialogTitle>
+            <DialogTitle>Refuser — {a.creatorName}</DialogTitle>
             <DialogDescription>
               Le motif est visible par le créateur, qui pourra corriger et
-              resoumettre.
+              re-soumettre une vidéo.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <Label htmlFor="reject-feedback">Motif du rejet</Label>
+            <Label htmlFor="reject-feedback">Motif du refus</Label>
             <Textarea
               id="reject-feedback"
               value={feedback}
               onChange={(e) => setFeedback(e.target.value)}
-              placeholder="Ex. mauvais format, hook hors brief, vidéo coupée…"
+              placeholder="Ex. hook hors brief, cadrage, sous-titres manquants…"
               rows={4}
             />
           </div>
@@ -294,12 +309,41 @@ function SubmittedCard({ a }: { a: SubmittedAssignment }) {
             </Button>
             <Button variant="destructive" onClick={onReject} disabled={busy}>
               {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-              Rejeter
+              Refuser
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </Card>
+  );
+}
+
+function PublishedTableRow({ p }: { p: PublishedRow }) {
+  return (
+    <TableRow>
+      <TableCell className="font-medium text-slate-900">
+        {p.creatorName}
+      </TableCell>
+      <TableCell className="text-slate-700">{p.label}</TableCell>
+      <TableCell className="text-slate-500">
+        {p.publishedAt ? formatDate(p.publishedAt) : "—"}
+      </TableCell>
+      <TableCell>
+        {p.publishedUrl ? (
+          <a
+            href={p.publishedUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+          >
+            {p.submittedPlatform ?? "Voir"}
+            <ExternalLinkIcon className="size-3.5" />
+          </a>
+        ) : (
+          "—"
+        )}
+      </TableCell>
+    </TableRow>
   );
 }
 

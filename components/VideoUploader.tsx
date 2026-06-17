@@ -31,9 +31,12 @@ export type UploadedVideo = {
 export function VideoUploader({
   onUploaded,
   disabled,
+  title = "Glisse une vidéo exemple ici",
 }: {
   onUploaded: (v: UploadedVideo) => void;
   disabled?: boolean;
+  /** Intitulé de la zone de dépôt (admin = « exemple », créateur = « ta vidéo »). */
+  title?: string;
 }) {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -148,9 +151,7 @@ export function VideoUploader({
         <>
           <UploadIcon className="size-6 text-slate-400" />
           <div>
-            <p className="text-sm font-medium text-slate-700">
-              Glisse une vidéo exemple ici
-            </p>
+            <p className="text-sm font-medium text-slate-700">{title}</p>
             <p className="text-xs text-slate-500">MP4, MOV ou WebM — 300 Mo max</p>
           </div>
           <Button

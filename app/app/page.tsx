@@ -14,7 +14,12 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { buttonVariants } from "@/components/ui/button";
-import { ArrowRightIcon, MonitorSmartphoneIcon, WalletIcon } from "lucide-react";
+import {
+  ArrowRightIcon,
+  MonitorSmartphoneIcon,
+  WalletIcon,
+  CheckCircle2Icon,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatEuros } from "@/lib/format-rate";
 import { nextPayoutDate, daysUntilPayout } from "@/lib/payout";
@@ -67,6 +72,8 @@ export default function CreatorDashboardPage() {
   const done = (assignments ?? []).filter(
     (a) => !isActionable(a.status as AssignmentStatus),
   );
+  // Notif in-app : vidéos validées en attente de publication.
+  const toPublish = (assignments ?? []).filter((a) => a.status === "to_publish");
 
   return (
     <div className="mx-auto max-w-3xl space-y-8">
@@ -78,6 +85,28 @@ export default function CreatorDashboardPage() {
           Tes briefs à produire, tes gains et tes comptes.
         </p>
       </div>
+
+      {/* Notif : vidéo(s) validée(s) à publier */}
+      {toPublish.length > 0 && (
+        <Link
+          href={`/app/assignments/${toPublish[0]._id}`}
+          className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 transition-colors hover:bg-emerald-100/70"
+          data-testid="to-publish-notif"
+        >
+          <CheckCircle2Icon className="size-5 shrink-0 text-emerald-600" />
+          <div className="min-w-0 flex-1 text-sm">
+            <p className="font-semibold text-emerald-900">
+              {toPublish.length} vidéo{toPublish.length > 1 ? "s" : ""} validée
+              {toPublish.length > 1 ? "s" : ""} — à publier
+            </p>
+            <p className="text-emerald-700">
+              Publie{toPublish.length > 1 ? "-les" : "-la"} sur ton compte et
+              colle l&apos;URL pour déclencher ton paiement.
+            </p>
+          </div>
+          <ArrowRightIcon className="size-4 shrink-0 text-emerald-600" />
+        </Link>
+      )}
 
       {/* À produire */}
       <section className="space-y-3">

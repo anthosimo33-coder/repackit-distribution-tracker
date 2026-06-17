@@ -1,5 +1,5 @@
 import { test, expect, adminPath } from "./fixtures/auth-fixture";
-import { createE2eClient } from "./helpers/authed-client";
+import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { createCreatorSession } from "./helpers/creator-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -52,19 +52,17 @@ test.describe("P9 — paiements & gains", () => {
     ).filter((x) => x.formatId === formatId && x.creatorId === a.creatorId);
     expect(aAssigns.length).toBe(2);
 
-    // A soumet, l'admin valide → accrual.
+    // Vidéo validée (to_publish) puis A PUBLIE → accrual à la publication.
     for (let i = 0; i < 2; i++) {
-      await a.client.mutation(api.assignments.startAssignment, {
-        projectId,
+      await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
+        secret: E2E_SECRET,
         id: aAssigns[i]._id,
+        status: "to_publish",
       });
-      await a.client.mutation(api.assignments.submitAssignment, {
+      await a.client.mutation(api.assignments.confirmPublication, {
         projectId,
         id: aAssigns[i]._id,
         url: `https://www.tiktok.com/@a/video/${ts}${i}`,
-      });
-      await admin.mutation(api.assignments.validateAssignment, {
-        id: aAssigns[i]._id,
       });
     }
 
@@ -170,15 +168,14 @@ test.describe("P9 — paiements & gains", () => {
     const assignment = (
       await admin.query(api.assignments.listAssignments, {})
     ).find((x) => x.formatId === formatId && x.creatorId === creatorId)!;
-    await creatorClient.mutation(api.assignments.startAssignment, {
+    await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
+      secret: E2E_SECRET,
       id: assignment._id,
+      status: "to_publish",
     });
-    await creatorClient.mutation(api.assignments.submitAssignment, {
+    await creatorClient.mutation(api.assignments.confirmPublication, {
       id: assignment._id,
       url: `https://www.tiktok.com/@payui/video/${ts}`,
-    });
-    await admin.mutation(api.assignments.validateAssignment, {
-      id: assignment._id,
     });
 
     // Dashboard créateur : bloc « Mes gains » montre 15 €.

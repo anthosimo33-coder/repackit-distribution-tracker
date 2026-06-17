@@ -1,5 +1,5 @@
 import { test, expect, adminPath } from "./fixtures/auth-fixture";
-import { createE2eClient } from "./helpers/authed-client";
+import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { createCreatorSession } from "./helpers/creator-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -13,17 +13,17 @@ const admin = createE2eClient(url);
 const DAY = 86_400_000;
 
 /**
- * P8 — validation + accrual + matérialisation (logique d'argent). Prouvé au
- * niveau SERVEUR (mutations via clients admin/créateur) pour un test
- * déterministe de l'idempotence :
- *   1. submit → validate → publication matérialisée (visible tracker) + lineItem
- *      base + total corrects ;
- *   2. double-validation = IDEMPOTENTE (une seule pub, une seule lineItem) ;
- *   3. reject → feedback → resoumission → revalidation OK (2e base) ;
- *   4. bonus calculé puis recalculé = REMPLACEMENT de la ligne (pas d'ajout).
+ * Accrual + matérialisation au DÉCLENCHEUR `published` (le créateur fournit
+ * l'URL après validation de sa vidéo). Test SERVEUR déterministe :
+ *   1. to_publish → confirmPublication → publication matérialisée (tracker) +
+ *      lineItem base + total ;
+ *   2. re-confirmer = IDEMPOTENT (une seule pub, une seule lineItem) ;
+ *   3. un 2e post publié → 2e base ;
+ *   4. bonus calculé puis recalculé = REMPLACEMENT.
+ * Le cycle revue vidéo (upload/refus/re-upload) est couvert par mp4-workflow.
  */
-test.describe("P8 — validation, accrual, matérialisation", () => {
-  test("submit→validate idempotent, reject→resubmit, bonus replace", async () => {
+test.describe("Accrual & matérialisation à la publication", () => {
+  test("publish idempotent, 2e base, bonus replace", async () => {
     test.setTimeout(120_000);
     const ts = Date.now();
     const creator = await createCreatorSession(url, {
@@ -34,7 +34,6 @@ test.describe("P8 — validation, accrual, matérialisation", () => {
     const projectId = creator.projectId;
     const u1 = `https://www.tiktok.com/@e2e/video/${ts}1`;
 
-    // Admin : format short (base 10 €, bonus 2 €/1k vues) + 2 assignments.
     const formatId = await admin.mutation(api.formats.createFormat, {
       name: `[E2E_TEST] Format Val ${ts}`,
       type: "short",
@@ -52,32 +51,30 @@ test.describe("P8 — validation, accrual, matérialisation", () => {
     expect(mine.length).toBe(2);
     const [a1, a2] = mine;
 
-    // ─── 1. submit → validate (matérialise + crédite) ───────────────────────
-    await creator.client.mutation(api.assignments.startAssignment, {
-      projectId,
-      id: a1._id,
-    });
-    await creator.client.mutation(api.assignments.submitAssignment, {
-      projectId,
-      id: a1._id,
-      url: u1,
-    });
-    // KPI dashboard AVANT validation (workers:1 serial → le delta = notre seule
-    // matérialisation).
+    const setToPublish = (id: typeof a1._id) =>
+      admin.mutation(api.assignments.e2eSetAssignmentStatus, {
+        secret: E2E_SECRET,
+        id,
+        status: "to_publish",
+      });
+
+    // ─── 1. to_publish → confirmPublication (matérialise + crédite) ──────────
+    await setToPublish(a1._id);
     const kpiBefore = await admin.query(api.dashboard.dashboardKpis, {});
-    const v1 = await admin.mutation(api.assignments.validateAssignment, {
-      id: a1._id,
-    });
-    expect(v1.alreadyValidated).toBe(false);
+    const v1 = await creator.client.mutation(
+      api.assignments.confirmPublication,
+      { projectId, id: a1._id, url: u1 },
+    );
+    expect(v1.alreadyPublished).toBe(false);
     expect(v1.publicationId).toBeTruthy();
 
     const a1Now = (await admin.query(api.assignments.listAssignments, {})).find(
       (a) => a._id === a1._id,
     )!;
-    expect(a1Now.status).toBe("validated");
+    expect(a1Now.status).toBe("published");
     expect(a1Now.publicationId).toBeTruthy();
+    expect(a1Now.publishedUrl).toBe(u1);
 
-    // Publication matérialisée VISIBLE dans le tracker, postUrl = URL soumise.
     const pub1 = (await admin.query(api.publications.listPublications, {})).find(
       (p) => p._id === a1Now.publicationId,
     );
@@ -86,11 +83,9 @@ test.describe("P8 — validation, accrual, matérialisation", () => {
     expect(pub1!.plateforme).toBe("TikTok");
     expect(pub1!.mediaType).toBe("short");
 
-    // KPI dashboard : le post matérialisé est compté comme publié (+1).
     const kpiAfter = await admin.query(api.dashboard.dashboardKpis, {});
     expect(kpiAfter.totalPublished).toBe(kpiBefore.totalPublished + 1);
 
-    // Paiement : 1 lineItem base = 10, total = 10.
     const payOf = async () =>
       (await admin.query(api.payments.listPayments, {})).find(
         (p) => p.creatorId === creator.creatorId,
@@ -104,11 +99,12 @@ test.describe("P8 — validation, accrual, matérialisation", () => {
     ).toBe(1);
     expect(pay.totalDue).toBe(10);
 
-    // ─── 2. double-validation IDEMPOTENTE ───────────────────────────────────
-    const v1bis = await admin.mutation(api.assignments.validateAssignment, {
-      id: a1._id,
-    });
-    expect(v1bis.alreadyValidated).toBe(true);
+    // ─── 2. re-confirmer IDEMPOTENT ─────────────────────────────────────────
+    const v1bis = await creator.client.mutation(
+      api.assignments.confirmPublication,
+      { projectId, id: a1._id, url: u1 },
+    );
+    expect(v1bis.alreadyPublished).toBe(true);
     const pub1Count = (
       await admin.query(api.publications.listPublications, {})
     ).filter((p) => p.postUrl === u1).length;
@@ -119,42 +115,15 @@ test.describe("P8 — validation, accrual, matérialisation", () => {
         (li) => li.kind === "base" && li.assignmentId === a1._id,
       ).length,
     ).toBe(1); // pas de 2e lineItem
-    expect(pay.totalDue).toBe(10); // total inchangé
+    expect(pay.totalDue).toBe(10);
 
-    // ─── 3. reject → feedback → resoumission → revalidation ─────────────────
-    await creator.client.mutation(api.assignments.startAssignment, {
-      projectId,
-      id: a2._id,
-    });
-    await creator.client.mutation(api.assignments.submitAssignment, {
-      projectId,
-      id: a2._id,
-      url: `https://www.tiktok.com/@e2e/video/${ts}2a`,
-    });
-    await admin.mutation(api.assignments.rejectAssignment, {
-      id: a2._id,
-      feedback: "Hook hors brief, refais.",
-    });
-    let a2Now = (await admin.query(api.assignments.listAssignments, {})).find(
-      (a) => a._id === a2._id,
-    )!;
-    expect(a2Now.status).toBe("rejected");
-    expect(a2Now.adminFeedback).toBe("Hook hors brief, refais.");
-
-    // Resoumission (depuis rejected) → feedback purgé.
-    await creator.client.mutation(api.assignments.submitAssignment, {
+    // ─── 3. un 2e post publié → 2e base, total = 20 ─────────────────────────
+    await setToPublish(a2._id);
+    await creator.client.mutation(api.assignments.confirmPublication, {
       projectId,
       id: a2._id,
       url: `https://www.tiktok.com/@e2e/video/${ts}2b`,
     });
-    a2Now = (await admin.query(api.assignments.listAssignments, {})).find(
-      (a) => a._id === a2._id,
-    )!;
-    expect(a2Now.status).toBe("submitted");
-    expect(a2Now.adminFeedback ?? null).toBeNull();
-
-    // Revalidation → 2e lineItem base, total = 20.
-    await admin.mutation(api.assignments.validateAssignment, { id: a2._id });
     pay = await payOf();
     expect(pay.lineItems.filter((li) => li.kind === "base").length).toBe(2);
     expect(pay.totalDue).toBe(20);
@@ -179,7 +148,6 @@ test.describe("P8 — validation, accrual, matérialisation", () => {
     ).toBe(1);
     expect(pay.totalDue).toBe(30); // base 10 + base 10 + bonus 10
 
-    // Recalcul avec 10000 vues → 20, REMPLACE (toujours 1 seule ligne bonus).
     const b2 = await admin.mutation(api.assignments.computeViewBonus, {
       id: a1._id,
       views: 10000,
@@ -194,11 +162,9 @@ test.describe("P8 — validation, accrual, matérialisation", () => {
     expect(pay.totalDue).toBe(40); // base 10 + base 10 + bonus 20
   });
 
-  // Câblage UI : l'admin valide depuis /validation (le bouton appelle bien la
-  // mutation). Le reste de la logique d'argent est prouvé par le test serveur.
-  test("UI : l'admin valide un post soumis depuis /validation", async ({
-    page,
-  }) => {
+  // Câblage UI : l'admin valide une vidéo depuis /validation (le bouton appelle
+  // bien reviewVideoApprove). Le reste de la logique d'argent est prouvé au-dessus.
+  test("UI : l'admin valide une vidéo depuis /validation", async ({ page }) => {
     test.setTimeout(90_000);
     const ts = Date.now();
     const creator = await createCreatorSession(url, {
@@ -206,7 +172,6 @@ test.describe("P8 — validation, accrual, matérialisation", () => {
       email: `e2e-creator-validation-ui-${ts}@repackit.test`,
       password: "creator-validation-ui-123",
     });
-    const projectId = creator.projectId;
     const formatId = await admin.mutation(api.formats.createFormat, {
       name: `[E2E_TEST] Format ValUI ${ts}`,
       type: "short",
@@ -221,31 +186,27 @@ test.describe("P8 — validation, accrual, matérialisation", () => {
     const a = (await admin.query(api.assignments.listAssignments, {})).find(
       (x) => x.formatId === formatId && x.creatorId === creator.creatorId,
     )!;
-    await creator.client.mutation(api.assignments.startAssignment, {
-      projectId,
+    // Vidéo en attente de revue (sans MP4 : la carte rend quand même le bouton).
+    await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
+      secret: E2E_SECRET,
       id: a._id,
-    });
-    await creator.client.mutation(api.assignments.submitAssignment, {
-      projectId,
-      id: a._id,
-      url: `https://www.tiktok.com/@e2eui/video/${ts}`,
+      status: "video_submitted",
     });
 
     await page.goto(adminPath("/validation"));
-    // Le post soumis apparaît (carte avec son bouton Valider ciblé par testid).
-    const validateBtn = page.getByTestId(`validate-${a._id}`);
-    await expect(validateBtn).toBeVisible({ timeout: 15_000 });
+    const approveBtn = page.getByTestId(`approve-${a._id}`);
+    await expect(approveBtn).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(`[E2E_TEST] ValidUI ${ts}`)).toBeVisible();
 
-    await validateBtn.click();
+    await approveBtn.click();
     // Après validation, la carte « à valider » disparaît (query réactive).
-    await expect(validateBtn).toBeHidden({ timeout: 10_000 });
+    await expect(approveBtn).toBeHidden({ timeout: 10_000 });
 
-    // Vérif serveur : assignment validé + publication matérialisée.
+    // Vérif serveur : la vidéo est validée → to_publish (paiement PAS encore).
     const aNow = (await admin.query(api.assignments.listAssignments, {})).find(
       (x) => x._id === a._id,
     )!;
-    expect(aNow.status).toBe("validated");
-    expect(aNow.publicationId).toBeTruthy();
+    expect(aNow.status).toBe("to_publish");
+    expect(aNow.publicationId).toBeFalsy(); // rien de matérialisé à la validation
   });
 });

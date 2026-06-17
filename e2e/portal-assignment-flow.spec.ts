@@ -84,24 +84,19 @@ test.describe("Portail créateur — boucle assignment", () => {
     // Calculateur : 10k vues × (50 base + 2€/1k) = 70 € par défaut.
     await expect(page.getByTestId("earnings-total")).toContainText("70");
 
-    // Je commence → champ URL → soumission.
+    // Je commence → in_progress → l'action devient « Soumettre ma vidéo »
+    // (upload MP4). Le parcours complet upload→publication est couvert par
+    // mp4-workflow ; ici on prouve le câblage brief + démarrage.
     await page.getByRole("button", { name: /je commence/i }).click();
-    const urlField = page.getByLabel("URL du post publié");
-    await expect(urlField).toBeVisible({ timeout: 8000 });
-    await urlField.fill("https://www.tiktok.com/@moi/video/999");
-    await page.getByRole("button", { name: /^soumettre$/i }).click();
-    // Confirmation INLINE (le toast dit aussi « Post soumis » → on cible le
-    // texte propre à l'encart : « … par l'admin »).
     await expect(
-      page.getByText(/en attente de validation par l/i),
+      page.getByRole("button", { name: /soumettre ma vidéo/i }),
     ).toBeVisible({ timeout: 8000 });
 
-    // Côté admin : statut submitted.
+    // Côté admin : statut in_progress.
     const list = await admin.query(api.assignments.listAssignments, {});
     const mine = list.filter((a) => a.formatId === fid);
     expect(mine.length).toBe(1);
-    expect(mine[0].status).toBe("submitted");
-    expect(mine[0].submittedPlatform).toBe("TikTok");
+    expect(mine[0].status).toBe("in_progress");
 
     await ctx.close();
   });

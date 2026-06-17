@@ -1,5 +1,5 @@
 import { test, expect, adminPath } from "./fixtures/auth-fixture";
-import { createE2eClient } from "./helpers/authed-client";
+import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { createCreatorSession } from "./helpers/creator-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
@@ -52,16 +52,12 @@ test.describe("Dashboard — vue action", () => {
       (a) => a.formatId === formatId && a.creatorId === creator.creatorId,
     );
     expect(mine.length).toBe(2);
-    // Le créateur soumet le 1er → status "submitted" (carte À valider +
-    // worklist). Le 2e reste "todo" avec une deadline à 5 j (carte Deadlines).
-    await creator.client.mutation(api.assignments.startAssignment, {
-      projectId: creator.projectId,
+    // Le 1er passe en video_submitted (carte À valider + worklist). Le 2e reste
+    // "todo" avec une deadline à 5 j (carte Deadlines).
+    await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
+      secret: E2E_SECRET,
       id: mine[0]._id,
-    });
-    await creator.client.mutation(api.assignments.submitAssignment, {
-      projectId: creator.projectId,
-      id: mine[0]._id,
-      url: `https://www.tiktok.com/@e2e/video/${ts}`,
+      status: "video_submitted",
     });
 
     // ─── Vue action (arrivée par défaut) ─────────────────────────────────────

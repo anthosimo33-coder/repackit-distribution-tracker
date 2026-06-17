@@ -257,15 +257,30 @@ export const seedDemoCreator = internalMutation({
       dueDate: now + 3 * DAY,
       status: "in_progress",
     });
-    // submitted (vraie URL YouTube publique, en attente de validation)
+    // video_submitted (en attente de revue admin). NB : un seed ne peut pas
+    // uploader d'octets → pas de submittedVideoStorageId ici ; le rendu du MP4
+    // dans la file de revue se teste manuellement (un créateur uploade pour de
+    // vrai). Ce statut couvre néanmoins le badge + la file côté admin.
     await insertAssignment({
       formatId,
       accountId: ytId,
       dueDate: now - 1 * DAY,
-      status: "submitted",
-      submittedUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-      submittedAt: now - 1 * DAY,
-      submittedPlatform: "YouTube",
+      status: "video_submitted",
+    });
+    // video_rejected (feedback admin visible créateur → re-upload).
+    await insertAssignment({
+      formatId,
+      accountId: ttId,
+      dueDate: now + 1 * DAY,
+      status: "video_rejected",
+      videoReviewFeedback: `${DEMO_MARKER} Hook trop long — coupe les 2 premières secondes et resoumets.`,
+    });
+    // to_publish (vidéo validée → déclenche la notif « à publier » côté créateur).
+    await insertAssignment({
+      formatId,
+      accountId: igId,
+      dueDate: now + 2 * DAY,
+      status: "to_publish",
     });
 
     // Matérialise une publication [DEMO] + quelques snapshots de vues.
@@ -321,15 +336,15 @@ export const seedDemoCreator = internalMutation({
       return pubId;
     };
 
-    // validated #1 (FORMAT, YouTube) → publication + snapshots + base
+    // published #1 (FORMAT, YouTube) → publication + snapshots + base
     const datePubli1 = now - 7 * DAY;
     const aVal1 = await insertAssignment({
       formatId,
       accountId: ytId,
       dueDate: now - 5 * DAY,
-      status: "validated",
-      submittedUrl: "https://www.youtube.com/watch?v=ScMzIvxBSi4",
-      submittedAt: datePubli1,
+      status: "published",
+      publishedUrl: "https://www.youtube.com/watch?v=ScMzIvxBSi4",
+      publishedAt: datePubli1,
       submittedPlatform: "YouTube",
     });
     await materialize({
@@ -359,9 +374,9 @@ export const seedDemoCreator = internalMutation({
       comboKey: combo?.comboKey,
       accountId: ttId,
       dueDate: now - 4 * DAY,
-      status: "validated",
-      submittedUrl: "https://www.tiktok.com/@antho_test_tt/video/7300000000000001",
-      submittedAt: datePubli2,
+      status: "published",
+      publishedUrl: "https://www.tiktok.com/@antho_test_tt/video/7300000000000001",
+      publishedAt: datePubli2,
       submittedPlatform: "TikTok",
     });
     await materialize({
@@ -399,8 +414,8 @@ export const seedDemoCreator = internalMutation({
       accountId: ytId,
       dueDate: paidMonthNow - 2 * DAY,
       status: "paid",
-      submittedUrl: "https://www.youtube.com/watch?v=9bZkp7q19f0",
-      submittedAt: datePubli3,
+      publishedUrl: "https://www.youtube.com/watch?v=9bZkp7q19f0",
+      publishedAt: datePubli3,
       submittedPlatform: "YouTube",
     });
     await materialize({

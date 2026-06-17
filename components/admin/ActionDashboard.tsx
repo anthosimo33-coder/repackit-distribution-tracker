@@ -82,13 +82,10 @@ export function ActionDashboard() {
     }
     const period = currentPeriod(now);
 
-    // Carte 1 + worklist — soumissions en attente (plus anciennes en tête).
+    // Carte 1 + worklist — vidéos en attente de revue (plus anciennes en tête).
     const submitted = assignments
-      .filter((a) => a.status === "submitted")
-      .sort(
-        (a, b) =>
-          (a.submittedAt ?? a.createdAt) - (b.submittedAt ?? b.createdAt),
-      );
+      .filter((a) => a.status === "video_submitted")
+      .sort((a, b) => a.createdAt - b.createdAt);
 
     // Carte 2 — comptes en warmup avec des jours manqués (lib/warmup).
     const warmupLate = comptes.filter((c) => {
@@ -253,7 +250,7 @@ export function ActionDashboard() {
                     <div className="truncate text-xs text-slate-500">
                       {a.formatName ?? (a.origin === "script" ? "Script" : "Format")}
                       {" · "}
-                      {a.submittedAt ? relativeAge(a.submittedAt, now) : "—"}
+                      {relativeAge(a.createdAt, now)}
                     </div>
                   </div>
                   <Link

@@ -18,7 +18,7 @@ const RATE = {
 };
 
 test.describe("Assignments — serveur (isolation + flux)", () => {
-  test("assignation en masse, isolation, soumission, garde resoumission", async () => {
+  test("assignation en masse, isolation, publication, idempotence", async () => {
     test.setTimeout(90_000);
     const ts = Date.now();
     const fid = await admin.mutation(api.formats.createFormat, {
@@ -76,64 +76,47 @@ test.describe("Assignments — serveur (isolation + flux)", () => {
     expect(own?.assignment.rateSnapshot.basePerPost).toBe(50);
     expect(own?.format?.name).toContain("[E2E_TEST] Assign");
 
-    // Flux : todo → in_progress → submitted (URL TikTok).
+    // Flux machine MP4 : confirmPublication n'est possible qu'en to_publish.
     const aid = aList[0]._id;
     await expect(
-      A.client.mutation(api.assignments.submitAssignment, {
+      A.client.mutation(api.assignments.confirmPublication, {
         projectId: A.projectId,
         id: aid,
         url: "https://www.tiktok.com/@x/video/1",
       }),
-    ).rejects.toThrow(/impossible|resoumission/i); // pas encore démarré (todo)
+    ).rejects.toThrow(/validation|publication|impossible/i); // pas en to_publish
 
-    await A.client.mutation(api.assignments.startAssignment, {
-      projectId: A.projectId,
-      id: aid,
-    });
-    await A.client.mutation(api.assignments.submitAssignment, {
-      projectId: A.projectId,
-      id: aid,
-      url: "https://www.tiktok.com/@moi/video/123",
-    });
-    const afterSubmit = await A.client.query(api.assignments.getMyAssignment, {
-      projectId: A.projectId,
-      id: aid,
-    });
-    expect(afterSubmit?.assignment.status).toBe("submitted");
-    expect(afterSubmit?.assignment.submittedPlatform).toBe("TikTok");
-
-    // Garde : resoumettre quand "submitted" → refusé.
-    await expect(
-      A.client.mutation(api.assignments.submitAssignment, {
-        projectId: A.projectId,
-        id: aid,
-        url: "https://www.tiktok.com/@moi/video/456",
-      }),
-    ).rejects.toThrow(/resoumission|impossible/i);
-
-    // Forcer "rejected" (helper e2e) → resoumission AUTORISÉE.
+    // Vidéo validée (on saute l'upload) → to_publish, puis le créateur PUBLIE.
     await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
       secret: E2E_SECRET,
       id: aid,
-      status: "rejected",
-      adminFeedback: "Refais le hook",
+      status: "to_publish",
     });
-    await A.client.mutation(api.assignments.submitAssignment, {
+    const published = await A.client.mutation(
+      api.assignments.confirmPublication,
+      { projectId: A.projectId, id: aid, url: "https://www.tiktok.com/@moi/video/123" },
+    );
+    expect(published.alreadyPublished).toBe(false);
+    const afterPublish = await A.client.query(api.assignments.getMyAssignment, {
       projectId: A.projectId,
       id: aid,
-      url: "https://www.tiktok.com/@moi/video/789",
     });
-    const afterResubmit = await A.client.query(api.assignments.getMyAssignment, {
-      projectId: A.projectId,
-      id: aid,
-    });
-    expect(afterResubmit?.assignment.status).toBe("submitted");
+    expect(afterPublish?.assignment.status).toBe("published");
+    expect(afterPublish?.assignment.submittedPlatform).toBe("TikTok");
 
-    // Admin voit les 4 (dont le soumis).
+    // Re-confirmer une publication = IDEMPOTENT (no-op), pas une erreur.
+    const again = await A.client.mutation(api.assignments.confirmPublication, {
+      projectId: A.projectId,
+      id: aid,
+      url: "https://www.tiktok.com/@moi/video/456",
+    });
+    expect(again.alreadyPublished).toBe(true);
+
+    // Admin voit les 4 (dont le publié).
     const adminList = await admin.query(api.assignments.listAssignments, {});
     const mine = adminList.filter((a) => a.formatId === fid);
     expect(mine.length).toBe(4);
-    expect(mine.some((a) => a.status === "submitted")).toBe(true);
+    expect(mine.some((a) => a.status === "published")).toBe(true);
 
     // Cleanup
     for (const a of mine) {
