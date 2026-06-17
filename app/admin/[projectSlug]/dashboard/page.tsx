@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/table";
 import { PlatformBadge } from "@/components/VerdictBadge";
 import { ActionDashboard } from "@/components/admin/ActionDashboard";
+import { YouTubeSyncButton } from "@/components/admin/YouTubeSyncButton";
 import { getTopHooks, getTopHooksShorts } from "@/lib/dashboard-stats";
 import { formatNumber, formatPercent } from "@/lib/format";
 import { isPublished } from "@/lib/publication-status";
@@ -72,6 +73,7 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {view === "tracker" && <YouTubeSyncButton />}
           {view === "tracker" && <SnapshotAgeSelector />}
           <ViewToggle value={view} onChange={setView} />
         </div>

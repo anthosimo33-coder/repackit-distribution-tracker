@@ -63,6 +63,7 @@ import {
   ExternalLinkIcon,
   Loader2Icon,
   PencilIcon,
+  RefreshCwIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -231,6 +232,14 @@ function PublishedView({
               <span className="break-all">{publication.postUrl}</span>
               <ExternalLinkIcon className="size-3.5 shrink-0" />
             </a>
+            {publication.plateforme === "YouTube" &&
+              publication.lastYouTubeSyncAt !== undefined && (
+                <p className="mt-2 flex items-center gap-1.5 text-xs text-emerald-700">
+                  <RefreshCwIcon className="size-3 shrink-0" />
+                  Vues synchronisées auto · dernier relevé le{" "}
+                  {formatDate(publication.lastYouTubeSyncAt)}
+                </p>
+              )}
           </div>
 
           {/* Batch D — Section ScreenRecorder : image preview large +

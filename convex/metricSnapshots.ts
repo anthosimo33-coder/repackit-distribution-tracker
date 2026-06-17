@@ -9,6 +9,7 @@ const sourceValidator = v.union(
   v.literal("manual"),
   v.literal("import"),
   v.literal("migration"),
+  v.literal("youtube"),
 );
 
 /**
@@ -21,7 +22,7 @@ const sourceValidator = v.union(
  * qu'une valeur devenue obsolète (ex: saves présent dans l'ancien latest mais
  * absent du nouveau) soit bien purgée.
  */
-async function recomputeLatestMetrics(
+export async function recomputeLatestMetrics(
   ctx: MutationCtx,
   publicationId: Id<"publications">,
 ): Promise<void> {
