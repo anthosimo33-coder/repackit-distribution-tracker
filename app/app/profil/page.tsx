@@ -172,7 +172,11 @@ export default function CreatorProfilPage() {
                 />
               </div>
               <div className="flex justify-end">
-                <Button onClick={onSave} disabled={busy}>
+                <Button
+                  onClick={onSave}
+                  disabled={busy}
+                  className="h-11 w-full text-base sm:h-9 sm:w-auto sm:text-sm"
+                >
                   {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
                   Enregistrer
                 </Button>

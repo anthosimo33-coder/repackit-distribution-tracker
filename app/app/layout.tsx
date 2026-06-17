@@ -9,6 +9,7 @@ import { Loader2Icon, LogOutIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { projectPath } from "@/lib/project-path";
 import { AccentStyle } from "@/components/project/AccentStyle";
+import { CreatorBottomNav } from "@/components/portal/CreatorBottomNav";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -83,11 +84,14 @@ export default function AppPortalLayout({
     "--ring": accent,
   } as React.CSSProperties;
 
+  const creatorProjectId =
+    portal.role === "creator" ? portal.projectId : null;
+
   return (
     <div className="min-h-screen bg-slate-50" style={accentVars}>
       <AccentStyle accent={accent} />
       <header className="border-b border-slate-200 bg-white">
-        <div className="container mx-auto flex h-14 items-center justify-between px-6">
+        <div className="container mx-auto flex h-14 items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-2 font-semibold text-slate-900">
               <span
@@ -98,7 +102,9 @@ export default function AppPortalLayout({
               </span>
               Espace créateur
             </span>
-            <nav className="flex items-center gap-1">
+            {/* Nav desktop : la barre d'onglets mobile (CreatorBottomNav) prend
+                le relais sous md. */}
+            <nav className="hidden items-center gap-1 md:flex">
               {NAV.map((n) => {
                 const active = n.exact
                   ? pathname === n.href
@@ -124,14 +130,20 @@ export default function AppPortalLayout({
             variant="ghost"
             size="sm"
             onClick={handleSignOut}
+            aria-label="Se déconnecter"
             className="gap-2 text-slate-600 hover:text-slate-900"
           >
             <LogOutIcon className="size-4" />
-            Se déconnecter
+            <span className="hidden sm:inline">Se déconnecter</span>
           </Button>
         </div>
       </header>
-      <main className="container mx-auto px-6 py-8">{children}</main>
+      {/* pb-24 sur mobile : marge sous le contenu pour ne pas être masqué par la
+          bottom tab bar (h-16 + safe-area). */}
+      <main className="container mx-auto px-4 py-6 pb-24 sm:px-6 sm:py-8 md:pb-8">
+        {children}
+      </main>
+      <CreatorBottomNav projectId={creatorProjectId} />
     </div>
   );
 }

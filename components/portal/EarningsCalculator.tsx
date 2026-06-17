@@ -32,7 +32,7 @@ export function EarningsCalculator({ rate }: { rate: RateSnapshot }) {
         step={1}
         value={idx}
         onChange={(ev) => setIdx(Number(ev.target.value))}
-        className="w-full accent-slate-900"
+        className="h-6 w-full cursor-pointer accent-primary"
         aria-label="Nombre de vues estimé"
       />
       <ul className="space-y-1 text-sm text-slate-600">

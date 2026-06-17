@@ -157,9 +157,9 @@ export function VideoUploader({
           <Button
             type="button"
             variant="outline"
-            size="sm"
             disabled={disabled}
             onClick={() => inputRef.current?.click()}
+            className="h-11 w-full text-base sm:h-8 sm:w-auto sm:text-sm"
           >
             Parcourir
           </Button>

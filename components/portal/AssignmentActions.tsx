@@ -36,6 +36,10 @@ import { detectInspirationType } from "@/lib/inspiration-url";
  *   → [validée] to_publish → « publie + colle l'URL » → published.
  * Le PAIEMENT se déclenche à `published` (confirmPublication), pas à la revue.
  */
+
+/** Bouton d'action TACTILE : pleine largeur + 44px sur mobile, normal en desktop. */
+const ACTION_BTN = "h-11 w-full text-base sm:h-9 sm:w-auto sm:text-sm";
+
 export function AssignmentActions({
   assignment,
   projectId,
@@ -137,7 +141,7 @@ export function AssignmentActions({
   // ── todo ───────────────────────────────────────────────────────────────────
   if (s === "todo") {
     return (
-      <Button onClick={handleStart} disabled={busy}>
+      <Button onClick={handleStart} disabled={busy} className={ACTION_BTN}>
         {busy ? (
           <Loader2Icon className="mr-2 size-4 animate-spin" />
         ) : (
@@ -155,7 +159,11 @@ export function AssignmentActions({
         <p className="text-sm text-slate-600">
           Tourne ta vidéo selon le brief, puis envoie-la pour validation.
         </p>
-        <Button onClick={() => setUploadOpen(true)} disabled={busy}>
+        <Button
+          onClick={() => setUploadOpen(true)}
+          disabled={busy}
+          className={ACTION_BTN}
+        >
           <UploadIcon className="mr-2 size-4" />
           Soumettre ma vidéo
         </Button>
@@ -188,7 +196,11 @@ export function AssignmentActions({
           </div>
         )}
         {myVideoPreview}
-        <Button onClick={() => setUploadOpen(true)} disabled={busy}>
+        <Button
+          onClick={() => setUploadOpen(true)}
+          disabled={busy}
+          className={ACTION_BTN}
+        >
           <UploadIcon className="mr-2 size-4" />
           Re-soumettre une vidéo
         </Button>
@@ -206,31 +218,35 @@ export function AssignmentActions({
           Ta vidéo est validée — publie-la sur ton compte, puis colle l&apos;URL
           du post ci-dessous.
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <Label htmlFor="post-url">URL du post publié</Label>
-          <div className="flex gap-2">
-            <Input
-              id="post-url"
-              type="url"
-              placeholder="https://www.tiktok.com/@toi/video/…"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              required
-            />
-            <Button type="submit" disabled={busy || url.trim().length === 0}>
-              {busy ? (
-                <Loader2Icon className="mr-2 size-4 animate-spin" />
-              ) : (
-                <SendIcon className="mr-2 size-4" />
-              )}
-              Confirmer la publication
-            </Button>
-          </div>
+          <Input
+            id="post-url"
+            type="url"
+            inputMode="url"
+            placeholder="https://www.tiktok.com/@toi/video/…"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            required
+            className="h-11 sm:h-9"
+          />
           {detected && (
             <p className="text-xs text-slate-500">
               Plateforme détectée : {detected.plateforme}
             </p>
           )}
+          <Button
+            type="submit"
+            disabled={busy || url.trim().length === 0}
+            className="h-11 w-full text-base sm:h-9 sm:text-sm"
+          >
+            {busy ? (
+              <Loader2Icon className="mr-2 size-4 animate-spin" />
+            ) : (
+              <SendIcon className="mr-2 size-4" />
+            )}
+            Confirmer la publication
+          </Button>
         </div>
       </form>
     );

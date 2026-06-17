@@ -100,8 +100,9 @@ export default function CreatorDashboardPage() {
               {toPublish.length > 1 ? "s" : ""} — à publier
             </p>
             <p className="text-emerald-700">
-              Publie{toPublish.length > 1 ? "-les" : "-la"} sur ton compte et
-              colle l&apos;URL pour déclencher ton paiement.
+              Publie{toPublish.length > 1 ? "-les" : "-la"}
+              {" "}sur ton compte et colle l&apos;URL pour déclencher ton
+              paiement.
             </p>
           </div>
           <ArrowRightIcon className="size-4 shrink-0 text-emerald-600" />
