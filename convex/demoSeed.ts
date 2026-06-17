@@ -187,7 +187,24 @@ export const seedDemoCreator = internalMutation({
         do: ["Sous-titres lisibles", "Hook dans les 2 premières secondes"],
         dont: ["Watermark d'une autre app", "Musique sous copyright"],
       },
-      exampleVideos: [],
+      // Exemples vidéo LISIBLES in-app côté créateur (section « Vidéos exemples »
+      // du brief). Liens (kind "url") plutôt qu'un MP4 : un seed ne peut pas
+      // uploader d'octets dans le storage. Pour tester le rendu d'un FICHIER
+      // (MP4/MOV), l'admin en attache un à la main au format.
+      exampleVideos: [
+        {
+          kind: "url",
+          url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+          platform: "youtube",
+          title: `${DEMO_MARKER} Exemple YouTube`,
+        },
+        {
+          kind: "url",
+          url: "https://www.tiktok.com/@scout2015/video/6718335390845095173",
+          platform: "tiktok",
+          title: `${DEMO_MARKER} Exemple TikTok`,
+        },
+      ],
       rateModel: DEMO_RATE,
       status: "active",
       createdAt: now,

@@ -75,9 +75,11 @@ test.describe("Portail créateur — boucle assignment", () => {
     await page.getByText(`${formatName}`).first().click();
     await page.waitForURL(/\/app\/assignments\/[a-z0-9]+$/i, { timeout: 10_000 });
 
-    // Brief rendu (FormatBriefPreview) : texte + hook + vidéo YouTube + calc.
+    // Brief rendu (FormatBriefPreview) : texte + hook + section vidéos exemples
+    // (lisible in-app côté créateur) + calc.
     await expect(page.getByText(`Brief E2E ${ts}`)).toBeVisible();
     await expect(page.getByText(`Hook E2E ${ts}`)).toBeVisible();
+    await expect(page.getByText("Vidéos exemples")).toBeVisible();
     await expect(page.getByTestId("youtube-embed")).toBeVisible();
     // Calculateur : 10k vues × (50 base + 2€/1k) = 70 € par défaut.
     await expect(page.getByTestId("earnings-total")).toContainText("70");
