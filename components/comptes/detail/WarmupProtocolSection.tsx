@@ -46,7 +46,7 @@ export function WarmupProtocolSection({ compte }: { compte: Compte }) {
   const target = Number(targetDays) || targetDefault;
   const progress =
     compte.warmupStartedAt !== undefined
-      ? warmupProgress(compte.warmupStartedAt, target)
+      ? warmupProgress(dailyChecks.length, target)
       : null;
   const missed =
     compte.warmupStartedAt !== undefined

@@ -285,7 +285,12 @@ export const seedDemoCreator = internalMutation({
       });
     }
 
-    // ── 2. Comptes (variété de plateformes/statuts) ──────────────────────────
+    // ── 2. Comptes (variété de plateformes/statuts + ÉTATS DE WARMUP variés
+    //   pour voir la notif « à faire aujourd'hui » et le rattrapage) :
+    //   - TikTok @antho_test_tt : warmup TERMINÉ (3/3 checks) → badge « À valider ».
+    //   - YouTube @antho_test_yt : warmup À JOUR, coché AUJOURD'HUI (1/3).
+    //   - Instagram @antho.test : warmup EN RETARD à rattraper (2/14, dernier
+    //     check il y a 3 j, RIEN aujourd'hui) → compte « à faire aujourd'hui ».
     const ttId = await ctx.db.insert("comptes", {
       projectId,
       handle: "@antho_test_tt",
@@ -341,7 +346,10 @@ export const seedDemoCreator = internalMutation({
       plateforme: "Instagram",
       notes: `${DEMO_MARKER} compte démo`,
       status: "warmup",
-      warmupStartedAt: now - 1 * DAY,
+      // EN RETARD : démarré il y a 4 j, mais seulement 2 checks (J-4, J-3), puis
+      // 2 jours sautés et RIEN aujourd'hui → 2/14, « à faire aujourd'hui » +
+      // 2 jours manqués côté admin. Le compteur n'a pas avancé sur les jours ratés.
+      warmupStartedAt: now - 4 * DAY,
       actif: false,
       creatorId,
       url: "https://www.instagram.com/antho.test",
@@ -349,7 +357,7 @@ export const seedDemoCreator = internalMutation({
         keywords: ["repack", "ugc", "growth"],
         instructions: `${DEMO_MARKER} Engage 15 min/jour sur la niche.`,
         targetDays: defaultTargetDays("Instagram"),
-        dailyChecks: [ymd(now)],
+        dailyChecks: [ymd(now - 4 * DAY), ymd(now - 3 * DAY)],
         updatedAt: now,
       },
     });

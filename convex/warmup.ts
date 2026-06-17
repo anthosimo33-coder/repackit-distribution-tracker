@@ -35,3 +35,31 @@ export function todayKey(now: number): string {
 export function checkedToday(dailyChecks: string[], now: number): boolean {
   return dailyChecks.includes(todayKey(now));
 }
+
+// ─── Chantier B — progression par CHECKS RÉELS (réplique de lib/warmup) ───────
+
+type WarmupCompteLike = {
+  plateforme: Plateforme;
+  warmupProtocol?: { targetDays?: number; dailyChecks?: string[] } | null;
+};
+
+/** Durée effective : surcharge protocole sinon barème plateforme. */
+export function effectiveTargetDays(c: WarmupCompteLike): number {
+  return c.warmupProtocol?.targetDays ?? defaultTargetDays(c.plateforme);
+}
+
+/** Nb de checks distincts réellement posés. */
+export function checksCompleted(c: WarmupCompteLike): number {
+  return c.warmupProtocol?.dailyChecks?.length ?? 0;
+}
+
+/** Warmup terminé = N checks réels atteints (≠ calendaire). */
+export function isWarmupComplete(c: WarmupCompteLike): boolean {
+  return checksCompleted(c) >= effectiveTargetDays(c);
+}
+
+/** Check dû aujourd'hui : warmup non terminé ET pas coché aujourd'hui (UTC). */
+export function mustCheckToday(c: WarmupCompteLike, now: number): boolean {
+  if (isWarmupComplete(c)) return false;
+  return !checkedToday(c.warmupProtocol?.dailyChecks ?? [], now);
+}

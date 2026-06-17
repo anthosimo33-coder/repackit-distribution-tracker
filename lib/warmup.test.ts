@@ -9,6 +9,11 @@ import {
   checkedToday,
   missedDays,
   lastCheck,
+  effectiveTargetDays,
+  checksCompleted,
+  isWarmupComplete,
+  isAccountAvailable,
+  mustCheckToday,
 } from "./warmup";
 
 const DAY = 86_400_000;
@@ -50,37 +55,159 @@ describe("daysElapsed", () => {
   });
 });
 
-describe("warmupProgress", () => {
-  it("Jour 1-indexé clampé à targetDays", () => {
-    expect(warmupProgress(START, 3, at(0))).toEqual({
+describe("warmupProgress (fondé sur les CHECKS réels)", () => {
+  it("day = checksDone+1 clampé à targetDays ; complete à N checks", () => {
+    expect(warmupProgress(0, 3)).toEqual({
       day: 1,
       targetDays: 3,
       complete: false,
     });
-    expect(warmupProgress(START, 3, at(1))).toEqual({
+    expect(warmupProgress(1, 3)).toEqual({
       day: 2,
       targetDays: 3,
       complete: false,
     });
-    // J+3 = élapsed 3 ≥ 3 → complet, day clampé à 3.
-    expect(warmupProgress(START, 3, at(3))).toEqual({
+    // 3 checks ≥ 3 → complet, day clampé à 3.
+    expect(warmupProgress(3, 3)).toEqual({
       day: 3,
       targetDays: 3,
       complete: true,
     });
     // Au-delà reste complet, day reste clampé.
-    expect(warmupProgress(START, 3, at(9))).toEqual({
+    expect(warmupProgress(9, 3)).toEqual({
       day: 3,
       targetDays: 3,
       complete: true,
     });
   });
   it("respecte un targetDays surchargé (override admin)", () => {
-    expect(warmupProgress(START, 5, at(2))).toEqual({
+    expect(warmupProgress(2, 5)).toEqual({
       day: 3,
       targetDays: 5,
       complete: false,
     });
+  });
+});
+
+describe("effectiveTargetDays / checksCompleted", () => {
+  it("durée = surcharge protocole sinon barème plateforme", () => {
+    expect(effectiveTargetDays({ plateforme: "TikTok" })).toBe(3);
+    expect(effectiveTargetDays({ plateforme: "Instagram" })).toBe(14);
+    expect(
+      effectiveTargetDays({
+        plateforme: "TikTok",
+        warmupProtocol: { targetDays: 5 },
+      }),
+    ).toBe(5);
+  });
+  it("checksCompleted = nb de checks distincts", () => {
+    expect(checksCompleted({ plateforme: "TikTok" })).toBe(0);
+    expect(
+      checksCompleted({
+        plateforme: "TikTok",
+        warmupProtocol: { dailyChecks: ["2023-11-14", "2023-11-16"] },
+      }),
+    ).toBe(2);
+  });
+});
+
+describe("isWarmupComplete (par checks réels, pas calendaire)", () => {
+  it("TikTok : 2/3 pas terminé, 3/3 terminé", () => {
+    const c = (n: number) => ({
+      plateforme: "TikTok" as const,
+      warmupProtocol: { dailyChecks: Array.from({ length: n }, (_, i) => `d${i}`) },
+    });
+    expect(isWarmupComplete(c(2))).toBe(false);
+    expect(isWarmupComplete(c(3))).toBe(true);
+    expect(isWarmupComplete(c(4))).toBe(true);
+  });
+  it("Instagram terminé à 14 checks", () => {
+    const checks = (n: number) =>
+      Array.from({ length: n }, (_, i) => `d${i}`);
+    expect(
+      isWarmupComplete({
+        plateforme: "Instagram",
+        warmupProtocol: { dailyChecks: checks(13) },
+      }),
+    ).toBe(false);
+    expect(
+      isWarmupComplete({
+        plateforme: "Instagram",
+        warmupProtocol: { dailyChecks: checks(14) },
+      }),
+    ).toBe(true);
+  });
+  it("rater un jour n'avance pas : J1 puis (saut) J3 = 2 checks, pas terminé", () => {
+    // 2 checks à des dates non consécutives → checksCompleted=2 < 3.
+    expect(
+      isWarmupComplete({
+        plateforme: "TikTok",
+        warmupProtocol: { dailyChecks: ["2023-11-14", "2023-11-16"] },
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("isAccountAvailable", () => {
+  it("actif → disponible ; legacy actif=true → disponible", () => {
+    expect(isAccountAvailable({ plateforme: "TikTok", status: "actif" })).toBe(
+      true,
+    );
+    expect(isAccountAvailable({ plateforme: "TikTok", actif: true })).toBe(true);
+  });
+  it("warmup → disponible seulement si terminé (checks)", () => {
+    const warm = (n: number) => ({
+      plateforme: "TikTok" as const,
+      status: "warmup" as const,
+      warmupProtocol: { dailyChecks: Array.from({ length: n }, (_, i) => `d${i}`) },
+    });
+    expect(isAccountAvailable(warm(2))).toBe(false);
+    expect(isAccountAvailable(warm(3))).toBe(true);
+  });
+  it("shadowban / archived → indisponible", () => {
+    expect(
+      isAccountAvailable({ plateforme: "TikTok", status: "shadowban" }),
+    ).toBe(false);
+    expect(isAccountAvailable({ plateforme: "TikTok", actif: false })).toBe(
+      false,
+    );
+  });
+});
+
+describe("mustCheckToday", () => {
+  const TODAY = todayKey(START); // "2023-11-14"
+  it("dû si warmup non terminé ET pas coché aujourd'hui", () => {
+    expect(
+      mustCheckToday({ plateforme: "TikTok", warmupProtocol: { dailyChecks: [] } }, START),
+    ).toBe(true);
+  });
+  it("non dû si déjà coché aujourd'hui", () => {
+    expect(
+      mustCheckToday(
+        { plateforme: "TikTok", warmupProtocol: { dailyChecks: [TODAY] } },
+        START,
+      ),
+    ).toBe(false);
+  });
+  it("dû à nouveau le lendemain si pas terminé (jour manqué reste à faire)", () => {
+    // Coché hier seulement, pas terminé (1/3) → dû aujourd'hui.
+    expect(
+      mustCheckToday(
+        { plateforme: "TikTok", warmupProtocol: { dailyChecks: ["2023-11-13"] } },
+        START,
+      ),
+    ).toBe(true);
+  });
+  it("non dû si warmup terminé (même sans check aujourd'hui)", () => {
+    expect(
+      mustCheckToday(
+        {
+          plateforme: "TikTok",
+          warmupProtocol: { dailyChecks: ["d0", "d1", "d2"] },
+        },
+        START,
+      ),
+    ).toBe(false);
   });
 });
 

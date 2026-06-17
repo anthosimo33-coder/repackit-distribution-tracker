@@ -19,6 +19,7 @@ import {
   MonitorSmartphoneIcon,
   WalletIcon,
   CheckCircle2Icon,
+  FlameIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatEuros } from "@/lib/format-rate";
@@ -56,6 +57,12 @@ export default function CreatorDashboardPage() {
     api.payments.getMyPayments,
     projectId ? { projectId } : "skip",
   );
+  // Notif in-app : warmups à faire/rattraper aujourd'hui (compteur dérivé).
+  const warmupDue =
+    useQuery(
+      api.comptes.countMyWarmupDue,
+      projectId ? { projectId } : "skip",
+    ) ?? 0;
   const name = portal?.role === "creator" ? portal.creatorName : null;
   const payoutDay = portal?.role === "creator" ? portal.payoutDay : null;
 
@@ -106,6 +113,27 @@ export default function CreatorDashboardPage() {
             </p>
           </div>
           <ArrowRightIcon className="size-4 shrink-0 text-emerald-600" />
+        </Link>
+      )}
+
+      {/* Notif : warmup(s) à faire / rattraper aujourd'hui */}
+      {warmupDue > 0 && (
+        <Link
+          href="/app/comptes"
+          className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 transition-colors hover:bg-amber-100/70"
+          data-testid="warmup-due-notif"
+        >
+          <FlameIcon className="size-5 shrink-0 text-amber-600" />
+          <div className="min-w-0 flex-1 text-sm">
+            <p className="font-semibold text-amber-900">
+              {warmupDue} warmup{warmupDue > 1 ? "s" : ""} à faire aujourd&apos;hui
+            </p>
+            <p className="text-amber-700">
+              Coche{warmupDue > 1 ? "-les" : "-le"} pour faire avancer le warmup
+              de {warmupDue > 1 ? "tes comptes" : "ton compte"}.
+            </p>
+          </div>
+          <ArrowRightIcon className="size-4 shrink-0 text-amber-600" />
         </Link>
       )}
 

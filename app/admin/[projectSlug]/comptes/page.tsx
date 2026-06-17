@@ -380,7 +380,10 @@ function ComptesPageInner() {
                   });
                   const progress =
                     isWarmup && c.warmupStartedAt !== undefined
-                      ? warmupProgress(c.warmupStartedAt, target)
+                      ? warmupProgress(
+                          c.warmupProtocol?.dailyChecks?.length ?? 0,
+                          target,
+                        )
                       : null;
                   const last = lastCheck(c.warmupProtocol?.dailyChecks ?? []);
                   return (

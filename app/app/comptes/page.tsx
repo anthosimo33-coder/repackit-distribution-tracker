@@ -6,10 +6,12 @@ import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { PlusIcon, MonitorSmartphoneIcon } from "lucide-react";
+import { PlusIcon, MonitorSmartphoneIcon, FlameIcon } from "lucide-react";
 import { DeclareCompteDialog } from "@/components/creators/portal/DeclareCompteDialog";
 import { WarmupCompteCard } from "@/components/creators/portal/WarmupCompteCard";
 import { WarmupGuideButton } from "@/components/warmup/WarmupGuideButton";
+import { getEffectiveStatus } from "@/lib/compte-status";
+import { mustCheckToday } from "@/lib/warmup";
 
 /**
  * P5 — portail créateur : « Mes comptes ». Hors ProjectProvider → projectId
@@ -27,6 +29,12 @@ export default function CreatorComptesPage() {
   const [declareOpen, setDeclareOpen] = useState(false);
 
   const loading = portal === undefined || comptes === undefined;
+
+  // Notif in-app : comptes en warmup à faire/rattraper aujourd'hui (compteur
+  // dérivé des comptes déjà chargés — même logique que countMyWarmupDue serveur).
+  const dueToday = (comptes ?? []).filter(
+    (c) => getEffectiveStatus(c) === "warmup" && mustCheckToday(c),
+  );
 
   return (
     <div className="space-y-6">
@@ -52,6 +60,20 @@ export default function CreatorComptesPage() {
           )}
         </div>
       </header>
+
+      {dueToday.length > 0 && (
+        <div
+          className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4"
+          data-testid="warmup-due-notif"
+        >
+          <FlameIcon className="size-5 shrink-0 text-amber-600" />
+          <p className="text-sm font-medium text-amber-900">
+            Tu as {dueToday.length} warmup{dueToday.length > 1 ? "s" : ""} à
+            faire aujourd&apos;hui — coche
+            {dueToday.length > 1 ? "-les" : "-le"} ci-dessous.
+          </p>
+        </div>
+      )}
 
       {loading ? (
         <div className="grid gap-4 sm:grid-cols-2">

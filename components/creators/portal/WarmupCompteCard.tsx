@@ -18,7 +18,7 @@ import {
   getEffectiveWarmupDuration,
   type Plateforme,
 } from "@/lib/compte-status";
-import { warmupProgress, checkedToday } from "@/lib/warmup";
+import { warmupProgress, checkedToday, mustCheckToday } from "@/lib/warmup";
 
 /**
  * P5 — carte d'un compte côté portail créateur. En warmup : mots-clés,
@@ -47,9 +47,12 @@ export function WarmupCompteCard({
   });
   const progress =
     isWarmup && compte.warmupStartedAt !== undefined
-      ? warmupProgress(compte.warmupStartedAt, targetDays)
+      ? warmupProgress(dailyChecks.length, targetDays)
       : null;
   const doneToday = checkedToday(dailyChecks);
+  // Warmup à faire/rattraper aujourd'hui (non terminé ET pas coché aujourd'hui).
+  const dueToday = isWarmup && mustCheckToday(compte);
+  const warmupDone = progress?.complete ?? false;
 
   async function handleCheck() {
     setSubmitting(true);
@@ -64,7 +67,11 @@ export function WarmupCompteCard({
   }
 
   return (
-    <Card>
+    <Card
+      className={cn(
+        dueToday && "border-amber-300 ring-1 ring-amber-200",
+      )}
+    >
       <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
         <div className="flex items-center gap-2">
           <PlatformBadge plateforme={compte.plateforme} />
@@ -86,13 +93,21 @@ export function WarmupCompteCard({
         <CardContent className="space-y-4">
           {progress && (
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center justify-between gap-2 text-sm">
                 <span className="font-medium text-slate-700">
                   Jour {progress.day} / {progress.targetDays}
                 </span>
-                {progress.complete && (
+                {warmupDone ? (
                   <span className="text-xs font-medium text-blue-600">
                     Warmup terminé — en attente de validation admin
+                  </span>
+                ) : dueToday ? (
+                  <span className="text-xs font-semibold text-amber-600">
+                    À faire aujourd&apos;hui
+                  </span>
+                ) : (
+                  <span className="text-xs font-medium text-emerald-600">
+                    Fait aujourd&apos;hui ✓
                   </span>
                 )}
               </div>
@@ -101,7 +116,9 @@ export function WarmupCompteCard({
                   className="h-full rounded-full bg-amber-400"
                   style={{
                     width: `${Math.round(
-                      (progress.day / progress.targetDays) * 100,
+                      (Math.min(dailyChecks.length, progress.targetDays) /
+                        progress.targetDays) *
+                        100,
                     )}%`,
                   }}
                 />
@@ -137,18 +154,22 @@ export function WarmupCompteCard({
             </div>
           )}
 
-          <Button
-            onClick={handleCheck}
-            disabled={submitting || doneToday}
-            className="w-full"
-          >
-            {submitting ? (
-              <Loader2Icon className="mr-2 size-4 animate-spin" />
-            ) : (
-              <CheckCircle2Icon className="mr-2 size-4" />
-            )}
-            {doneToday ? "Warmup du jour fait ✓" : "Warmup du jour fait"}
-          </Button>
+          {/* Bouton du check quotidien — masqué une fois le warmup terminé
+              (plus de check à poser ; markWarmupCheck refuse de toute façon). */}
+          {!warmupDone && (
+            <Button
+              onClick={handleCheck}
+              disabled={submitting || doneToday}
+              className="w-full"
+            >
+              {submitting ? (
+                <Loader2Icon className="mr-2 size-4 animate-spin" />
+              ) : (
+                <CheckCircle2Icon className="mr-2 size-4" />
+              )}
+              {doneToday ? "Warmup du jour fait ✓" : "Warmup du jour fait"}
+            </Button>
+          )}
         </CardContent>
       ) : (
         <CardContent>

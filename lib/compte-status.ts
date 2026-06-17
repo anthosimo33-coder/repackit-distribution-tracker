@@ -4,12 +4,10 @@
  * compte-status.test.ts). Les fonctions temporelles acceptent un paramètre
  * `now` (défaut Date.now()) pour des tests déterministes.
  */
-import { WARMUP_TARGET_DAYS } from "./warmup";
+import { WARMUP_TARGET_DAYS, isWarmupComplete } from "./warmup";
 
 export type CompteStatus = "warmup" | "actif" | "shadowban" | "archived";
 export type Plateforme = "TikTok" | "Instagram" | "YouTube";
-
-const DAY_MS = 86_400_000;
 
 /**
  * Durée de warmup (en jours) par plateforme. DÉRIVÉE de lib/warmup
@@ -77,63 +75,23 @@ export function getWarmupDuration(plateforme: Plateforme): number {
   return WARMUP_DURATION_BY_PLATFORM[plateforme];
 }
 
-export function getWarmupDaysElapsed(
-  warmupStartedAt: number,
-  now: number = Date.now(),
-): number {
-  return Math.floor((now - warmupStartedAt) / DAY_MS);
-}
-
-export function getWarmupDaysRemaining(
-  warmupStartedAt: number,
-  plateforme: Plateforme,
-  now: number = Date.now(),
-): number {
-  return Math.max(
-    0,
-    getWarmupDuration(plateforme) - getWarmupDaysElapsed(warmupStartedAt, now),
-  );
-}
-
-export function isWarmupComplete(
-  warmupStartedAt: number,
-  plateforme: Plateforme,
-  now: number = Date.now(),
-): boolean {
-  return (
-    getWarmupDaysElapsed(warmupStartedAt, now) >= getWarmupDuration(plateforme)
-  );
-}
-
 export function isSelectableForPublication(status: CompteStatus): boolean {
   return status === "actif";
 }
 
 /**
- * Warmup terminé pour un compte donné, en tenant compte de la SURCHARGE
- * targetDays (warmupProtocol) sinon du défaut plateforme. À préférer à
- * isWarmupComplete(start, plateforme) dès qu'un compte (avec protocole) est
- * disponible.
+ * Warmup terminé pour un compte donné. ⚠️ Chantier B — fondé sur les CHECKS
+ * RÉELS (délègue à lib/warmup.isWarmupComplete), plus sur le calendaire. Gère la
+ * surcharge targetDays via la durée effective. Garde-fou : un compte sans
+ * warmupStartedAt n'est pas considéré en warmup.
  */
-export function isWarmupCompleteForCompte(
-  c: {
-    plateforme: Plateforme;
-    warmupStartedAt?: number;
-    warmupProtocol?: { targetDays?: number } | null;
-  },
-  now: number = Date.now(),
-): boolean {
+export function isWarmupCompleteForCompte(c: {
+  plateforme: Plateforme;
+  warmupStartedAt?: number;
+  warmupProtocol?: { targetDays?: number; dailyChecks?: string[] } | null;
+}): boolean {
   if (c.warmupStartedAt === undefined) return false;
-  return getWarmupDaysElapsed(c.warmupStartedAt, now) >= getEffectiveWarmupDuration(c);
-}
-
-export function formatWarmupBadge(
-  warmupStartedAt: number,
-  plateforme: Plateforme,
-  now: number = Date.now(),
-): string {
-  const elapsed = getWarmupDaysElapsed(warmupStartedAt, now);
-  return `J+${elapsed}/${getWarmupDuration(plateforme)}`;
+  return isWarmupComplete(c);
 }
 
 /**
@@ -155,26 +113,24 @@ export function getEffectiveStatus(c: {
  * pour que le JSX reste trivial dans /comptes ET la vue détail — pas de
  * duplication de cette décision d'affichage.
  */
-export function getStatusBadge(
-  c: {
-    status?: CompteStatus;
-    actif?: boolean;
-    plateforme: Plateforme;
-    warmupStartedAt?: number;
-    warmupProtocol?: { targetDays?: number } | null;
-  },
-  now: number = Date.now(),
-): StatusConfig {
+export function getStatusBadge(c: {
+  status?: CompteStatus;
+  actif?: boolean;
+  plateforme: Plateforme;
+  warmupStartedAt?: number;
+  warmupProtocol?: { targetDays?: number; dailyChecks?: string[] } | null;
+}): StatusConfig {
   const status = getEffectiveStatus(c);
   if (status === "warmup" && c.warmupStartedAt !== undefined) {
+    // ⚠️ Chantier B — décompte fondé sur les CHECKS RÉELS (pas le calendaire).
     // Durée effective = surcharge protocole sinon défaut plateforme.
     const target = getEffectiveWarmupDuration(c);
-    const elapsed = getWarmupDaysElapsed(c.warmupStartedAt, now);
-    if (elapsed >= target) {
+    const done = c.warmupProtocol?.dailyChecks?.length ?? 0;
+    if (done >= target) {
       return WARMUP_DONE_CONFIG;
     }
     return {
-      label: `Warmup J+${elapsed}/${target}`,
+      label: `Warmup J+${done}/${target}`,
       className: STATUS_CONFIG.warmup.className,
     };
   }

@@ -8,6 +8,13 @@
  *
  * lib/compte-status.ts DÉRIVE WARMUP_DURATION_BY_PLATFORM de cette constante —
  * un seul barème dans toute l'app (décision du chantier P5).
+ *
+ * ⚠️ Chantier B — la PROGRESSION se compte en NOMBRE DE CHECKS RÉELLEMENT POSÉS
+ * (dailyChecks.length), PAS en jours calendaires. Un compte n'est "chaud"
+ * (isWarmupComplete) qu'après N checks effectifs ; rater un jour ne fait JAMAIS
+ * avancer le compteur, la fin du warmup se décale d'autant. `daysElapsed` /
+ * `missedDays` restent calendaires mais servent uniquement à la COMPLIANCE admin
+ * (jours manqués), jamais à la complétion.
  */
 
 /** Durée de warmup (jours) par plateforme. Clés en minuscules (canonique). */
@@ -57,24 +64,27 @@ export function daysElapsed(
 }
 
 export interface WarmupProgress {
-  /** Jour courant 1-indexé, clampé à targetDays (« Jour X / N »). */
+  /** Jour courant 1-indexé = prochain check à faire, clampé à targetDays. */
   day: number;
   targetDays: number;
-  /** true quand la durée cible est atteinte (warmup à valider/terminé). */
+  /** true quand assez de checks réels ont été posés (warmup à valider/terminé). */
   complete: boolean;
 }
 
-/** Progression « Jour X / N » + complétion, avec targetDays (override admin). */
+/**
+ * Progression « Jour X / N » fondée sur les CHECKS RÉELS (chantier B, ≠ calendaire) :
+ * `checksDone` = nb de jours distincts cochés (dailyChecks.length). day = prochain
+ * check à faire (checksDone + 1, plafonné à targetDays) ; complete dès que
+ * checksDone atteint targetDays. Rater un jour calendaire n'avance PAS checksDone.
+ */
 export function warmupProgress(
-  warmupStartedAt: number,
+  checksDone: number,
   targetDays: number,
-  now: number = Date.now(),
 ): WarmupProgress {
-  const elapsed = daysElapsed(warmupStartedAt, now);
   return {
-    day: Math.min(elapsed + 1, targetDays),
+    day: Math.min(checksDone + 1, targetDays),
     targetDays,
-    complete: elapsed >= targetDays,
+    complete: checksDone >= targetDays,
   };
 }
 
@@ -106,4 +116,68 @@ export function missedDays(
 export function lastCheck(dailyChecks: string[]): string | null {
   if (dailyChecks.length === 0) return null;
   return [...dailyChecks].sort().at(-1) ?? null;
+}
+
+// ─── Chantier B — modèle "compteur de checks réels" (fonctions PURES) ─────────
+
+type CompteStatusLike = "warmup" | "actif" | "shadowban" | "archived";
+type WarmupProtocolLike =
+  | { targetDays?: number; dailyChecks?: string[] }
+  | null
+  | undefined;
+
+/** Forme minimale d'un compte pour les helpers de warmup (chantier B/C). */
+export interface WarmupCompteLike {
+  plateforme: Plateforme;
+  warmupProtocol?: WarmupProtocolLike;
+}
+
+/**
+ * Durée de warmup EFFECTIVE : surcharge admin (warmupProtocol.targetDays) sinon
+ * barème plateforme. Source unique des durées — lib/compte-status délègue ici.
+ */
+export function effectiveTargetDays(c: WarmupCompteLike): number {
+  return c.warmupProtocol?.targetDays ?? defaultTargetDays(c.plateforme);
+}
+
+/** Nb de checks distincts réellement posés = PROGRESSION réelle du warmup. */
+export function checksCompleted(c: WarmupCompteLike): number {
+  return c.warmupProtocol?.dailyChecks?.length ?? 0;
+}
+
+/**
+ * Warmup TERMINÉ = N checks réels atteints (checksCompleted ≥ durée effective).
+ * PUR et indépendant du calendrier : rater un jour ne le fait jamais basculer à
+ * true. Réutilisé par le chantier C (multi-plateforme).
+ */
+export function isWarmupComplete(c: WarmupCompteLike): boolean {
+  return checksCompleted(c) >= effectiveTargetDays(c);
+}
+
+/**
+ * Compte DISPONIBLE pour publier (chantier C) : "actif" (warmup déjà validé) OU
+ * en warmup dont le warmup est terminé (assez de checks). shadowban / archived →
+ * indisponible. Coercion legacy du status identique à
+ * lib/compte-status.getEffectiveStatus / convex/comptes.effectiveStatus.
+ */
+export function isAccountAvailable(
+  c: WarmupCompteLike & { status?: CompteStatusLike; actif?: boolean },
+): boolean {
+  const status = c.status ?? (c.actif === false ? "archived" : "actif");
+  if (status === "actif") return true;
+  if (status === "warmup") return isWarmupComplete(c);
+  return false;
+}
+
+/**
+ * Check DÛ aujourd'hui ? = warmup non terminé ET pas encore coché aujourd'hui
+ * (jour UTC courant). Un jour manqué ne disparaît pas : tant que le warmup n'est
+ * pas terminé, il reste un check à faire chaque jour jusqu'à atteindre N.
+ */
+export function mustCheckToday(
+  c: WarmupCompteLike,
+  now: number = Date.now(),
+): boolean {
+  if (isWarmupComplete(c)) return false;
+  return !checkedToday(c.warmupProtocol?.dailyChecks ?? [], now);
 }

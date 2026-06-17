@@ -6,7 +6,13 @@ import {
   creatorMutation,
   creatorQuery,
 } from "./functions";
-import { defaultTargetDays, todayKey, checkedToday } from "./warmup";
+import {
+  defaultTargetDays,
+  todayKey,
+  checkedToday,
+  isWarmupComplete,
+  mustCheckToday,
+} from "./warmup";
 import { v, ConvexError } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 
@@ -472,6 +478,12 @@ export const markWarmupCheck = creatorMutation({
       dailyChecks: [],
       updatedAt: now,
     };
+    // Chantier B — le warmup progresse par checks RÉELS : une fois N checks
+    // atteints, le warmup est terminé (à valider par l'admin), plus de check à
+    // poser. Garde côté serveur, pas seulement dans l'UI.
+    if (isWarmupComplete({ plateforme: compte.plateforme, warmupProtocol: protocol })) {
+      throw new ConvexError("Warmup déjà terminé — en attente de validation admin.");
+    }
     if (checkedToday(protocol.dailyChecks, now)) {
       throw new ConvexError("Le check du jour est déjà fait.");
     }
@@ -480,6 +492,28 @@ export const markWarmupCheck = creatorMutation({
       warmupProtocol: { ...protocol, dailyChecks },
     });
     return { totalChecks: dailyChecks.length };
+  },
+});
+
+/**
+ * Notif in-app créateur : nb de MES comptes ayant un warmup à faire/rattraper
+ * AUJOURD'HUI (en warmup, non terminé par les checks, pas encore coché
+ * aujourd'hui). Filtré serveur par creatorId. Compteur DÉRIVÉ (pas de table
+ * notifications), pattern countMyToPublish.
+ */
+export const countMyWarmupDue = creatorQuery({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const comptes = await ctx.db
+      .query("comptes")
+      .withIndex("by_project_creator", (q) =>
+        q.eq("projectId", ctx.projectId).eq("creatorId", ctx.creatorId),
+      )
+      .collect();
+    return comptes.filter(
+      (c) => effectiveStatus(c) === "warmup" && mustCheckToday(c, now),
+    ).length;
   },
 });
 
@@ -547,5 +581,31 @@ export const cleanupTestComptes = e2eMutation({
       }
     }
     return { deleted, archived };
+  },
+});
+
+/**
+ * e2e ONLY (gated E2E_SECRET) — pose un historique de checks de warmup arbitraire
+ * sur un compte. markWarmupCheck est limité à 1 check/jour (Date.now non
+ * injectable) ; ce helper permet aux tests de simuler des jours cochés/manqués
+ * (rattrapage, warmup terminé) de façon déterministe. Initialise un protocole par
+ * défaut si absent.
+ */
+export const e2eSetWarmupChecks = e2eMutation({
+  args: { id: v.id("comptes"), dailyChecks: v.array(v.string()) },
+  handler: async (ctx, { id, dailyChecks }) => {
+    const compte = await ctx.db.get(id);
+    if (!compte) throw new ConvexError("Compte introuvable.");
+    const protocol = compte.warmupProtocol ?? {
+      keywords: [],
+      instructions: "",
+      targetDays: defaultTargetDays(compte.plateforme),
+      dailyChecks: [],
+      updatedAt: Date.now(),
+    };
+    await ctx.db.patch(id, {
+      warmupProtocol: { ...protocol, dailyChecks },
+    });
+    return { totalChecks: dailyChecks.length };
   },
 });

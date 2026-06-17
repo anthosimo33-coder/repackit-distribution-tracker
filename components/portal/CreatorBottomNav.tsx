@@ -18,12 +18,20 @@ import {
 /**
  * Barre d'onglets MOBILE du portail créateur (style app native, au pouce).
  * Visible < md uniquement (le desktop garde la nav du header). Onglet actif en
- * accent orange ; badge sur « Accueil » = nb de vidéos « à publier » (to_publish,
- * réutilise countMyToPublish). Fixe en bas, safe-area iOS gérée.
+ * accent orange ; badges dérivés : « Accueil » = vidéos « à publier »
+ * (countMyToPublish), « Comptes » = warmups à faire/rattraper aujourd'hui
+ * (countMyWarmupDue). Fixe en bas, safe-area iOS gérée.
  */
-const TABS: { href: string; label: string; icon: LucideIcon; exact: boolean; badge?: boolean }[] = [
-  { href: "/app", label: "Accueil", icon: HomeIcon, exact: true, badge: true },
-  { href: "/app/comptes", label: "Comptes", icon: AtSignIcon, exact: false },
+type BadgeKey = "toPublish" | "warmupDue";
+const TABS: {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  exact: boolean;
+  badgeKey?: BadgeKey;
+}[] = [
+  { href: "/app", label: "Accueil", icon: HomeIcon, exact: true, badgeKey: "toPublish" },
+  { href: "/app/comptes", label: "Comptes", icon: AtSignIcon, exact: false, badgeKey: "warmupDue" },
   { href: "/app/paiements", label: "Gains", icon: WalletIcon, exact: false },
   { href: "/app/profil", label: "Profil", icon: UserIcon, exact: false },
   { href: "/app/guide", label: "Guide", icon: HelpCircleIcon, exact: false },
@@ -40,6 +48,15 @@ export function CreatorBottomNav({
       api.assignments.countMyToPublish,
       projectId ? { projectId } : "skip",
     ) ?? 0;
+  const warmupDue =
+    useQuery(
+      api.comptes.countMyWarmupDue,
+      projectId ? { projectId } : "skip",
+    ) ?? 0;
+  const badgeCount: Record<BadgeKey, number> = {
+    toPublish,
+    warmupDue,
+  };
 
   return (
     <nav
@@ -53,7 +70,8 @@ export function CreatorBottomNav({
             ? pathname === t.href
             : pathname.startsWith(t.href);
           const Icon = t.icon;
-          const showBadge = t.badge && toPublish > 0;
+          const count = t.badgeKey ? badgeCount[t.badgeKey] : 0;
+          const showBadge = count > 0;
           return (
             <li key={t.href}>
               <Link
@@ -68,7 +86,7 @@ export function CreatorBottomNav({
                   <Icon className="size-6" strokeWidth={active ? 2.4 : 2} />
                   {showBadge && (
                     <span className="absolute -right-2 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold leading-none text-primary-foreground">
-                      {toPublish}
+                      {count}
                     </span>
                   )}
                 </span>
