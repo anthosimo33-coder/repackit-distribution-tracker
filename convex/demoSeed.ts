@@ -9,6 +9,7 @@ import type { WithoutSystemFields } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { REPACKIT_SLUG } from "./projects";
 import { accrueBaseLineItem, upsertBonusLineItem, periodOf } from "./payments";
+import { defaultTargetDays } from "./warmup";
 
 /**
  * Seed de DÉMO RÉVERSIBLE — peuple le projet repackit d'un créateur de test
@@ -298,7 +299,7 @@ export const seedDemoCreator = internalMutation({
       warmupProtocol: {
         keywords: ["repackit", "carrousel", "faceless"],
         instructions: `${DEMO_MARKER} Like 10 vidéos, commente 3, 15 min de scroll par jour.`,
-        targetDays: 14,
+        targetDays: defaultTargetDays("TikTok"),
         dailyChecks: [ymd(now - 2 * DAY), ymd(now - 1 * DAY), ymd(now)],
         updatedAt: now,
       },
@@ -313,6 +314,27 @@ export const seedDemoCreator = internalMutation({
       creatorId,
       url: "https://www.youtube.com/@anthotest",
     });
+    // YouTube en WARMUP (distinct du compte YouTube actif ci-dessus, qui porte
+    // les publications) — expose le décompte /3 du barème côté YouTube dans la
+    // démo. Pas d'assignment dessus (un compte en warmup n'est pas publiable).
+    await ctx.db.insert("comptes", {
+      projectId,
+      handle: "@antho_test_yt",
+      plateforme: "YouTube",
+      notes: `${DEMO_MARKER} compte démo`,
+      status: "warmup",
+      warmupStartedAt: now - 1 * DAY,
+      actif: false,
+      creatorId,
+      url: "https://www.youtube.com/@antho_test_yt",
+      warmupProtocol: {
+        keywords: ["repackit", "shorts", "faceless"],
+        instructions: `${DEMO_MARKER} Regarde 10 Shorts, like 5, commente 2 par jour.`,
+        targetDays: defaultTargetDays("YouTube"),
+        dailyChecks: [ymd(now)],
+        updatedAt: now,
+      },
+    });
     const igId = await ctx.db.insert("comptes", {
       projectId,
       handle: "@antho.test",
@@ -326,7 +348,7 @@ export const seedDemoCreator = internalMutation({
       warmupProtocol: {
         keywords: ["repack", "ugc", "growth"],
         instructions: `${DEMO_MARKER} Engage 15 min/jour sur la niche.`,
-        targetDays: 21,
+        targetDays: defaultTargetDays("Instagram"),
         dailyChecks: [ymd(now)],
         updatedAt: now,
       },
@@ -372,7 +394,7 @@ export const seedDemoCreator = internalMutation({
 
     // ── 3. Assignments (statuts variés) ──────────────────────────────────────
     const counts: Record<string, number> = {
-      comptes: 3,
+      comptes: 4,
       assignments: 0,
       publications: 0,
       snapshots: 0,
