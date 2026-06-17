@@ -14,6 +14,7 @@ import type * as comptes from "../comptes.js";
 import type * as creators from "../creators.js";
 import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
+import type * as demoSeed from "../demoSeed.js";
 import type * as filterPresets from "../filterPresets.js";
 import type * as folders from "../folders.js";
 import type * as formats from "../formats.js";
@@ -54,6 +55,7 @@ declare const fullApi: ApiFromModules<{
   creators: typeof creators;
   crons: typeof crons;
   dashboard: typeof dashboard;
+  demoSeed: typeof demoSeed;
   filterPresets: typeof filterPresets;
   folders: typeof folders;
   formats: typeof formats;
