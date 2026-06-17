@@ -78,8 +78,10 @@ test.describe("Projets — création + switcher + isolation UI", () => {
         new RegExp(`/admin/${newSlug}/dashboard`),
         { timeout: 10000 },
       );
+      // Refonte dashboard : l'arrivée par défaut est la vue ACTION ; un projet
+      // neuf (0 créateur, 0 soumission) affiche l'état d'accueil vide.
       await expect(
-        page.getByText("Aucune publication pour l'instant"),
+        page.getByText("Invite tes premiers créateurs pour commencer"),
       ).toBeVisible({ timeout: 10000 });
 
       // Isolation : la pub d'e2e-test n'apparaît PAS dans le nouveau projet.

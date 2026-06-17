@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
@@ -19,6 +20,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { PlatformBadge } from "@/components/VerdictBadge";
+import { ActionDashboard } from "@/components/admin/ActionDashboard";
 import { getTopHooks, getTopHooksShorts } from "@/lib/dashboard-stats";
 import { formatNumber, formatPercent } from "@/lib/format";
 import { isPublished } from "@/lib/publication-status";
@@ -37,16 +39,18 @@ type Publications = FunctionReturnType<
 >;
 type Kpis = FunctionReturnType<typeof api.dashboard.dashboardKpis>;
 
+type DashboardView = "action" | "tracker";
+
 /**
- * Dashboard cross-format. KPIs calculés serveur (dashboardKpis) selon la
- * période d'âge globale (SnapshotAgeSelector). Top hooks re-triés selon le
- * snapshot affiché (getTopHooks lit displayMetrics).
+ * Dashboard d'accueil admin. Deux vues :
+ *  - "action" (par DÉFAUT) : ce qui demande l'attention (validations, warmups
+ *    en retard, paie due, deadlines) + worklist + activité créateurs. Agrège
+ *    des queries existantes côté client (cf ActionDashboard).
+ *  - "tracker" : la vue historique héritée (KPIs de vues, top hooks) — gardée
+ *    accessible derrière le toggle, plus l'arrivée par défaut.
  */
 export default function DashboardPage() {
-  const { age, customDay } = useSnapshotAge();
-  const args = snapshotQueryArgs({ age, customDay });
-  const publications = useProjectQuery(api.publications.listPublications, args);
-  const kpis = useProjectQuery(api.dashboard.dashboardKpis, args);
+  const [view, setView] = useState<DashboardView>("action");
 
   const today = new Date().toLocaleDateString("fr-FR", {
     day: "2-digit",
@@ -59,24 +63,77 @@ export default function DashboardPage() {
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
           <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-            Dashboard
+            {view === "action" ? "Bonjour" : "Vue tracker"}
           </h1>
           <p className="text-sm text-slate-500">
-            {today} — vue d&apos;ensemble cross-format
+            {view === "action"
+              ? "Voici ce qui demande ton attention."
+              : `${today} — vue d'ensemble cross-format`}
           </p>
         </div>
-        <SnapshotAgeSelector />
+        <div className="flex items-center gap-3">
+          {view === "tracker" && <SnapshotAgeSelector />}
+          <ViewToggle value={view} onChange={setView} />
+        </div>
       </header>
 
-      {publications === undefined || kpis === undefined ? (
-        <LoadingState />
-      ) : publications.length === 0 ? (
-        <EmptyState />
-      ) : (
-        <DashboardContent publications={publications} kpis={kpis} />
-      )}
+      {view === "action" ? <ActionDashboard /> : <TrackerDashboard />}
     </div>
   );
+}
+
+function ViewToggle({
+  value,
+  onChange,
+}: {
+  value: DashboardView;
+  onChange: (v: DashboardView) => void;
+}) {
+  const options: { value: DashboardView; label: string }[] = [
+    { value: "action", label: "Action" },
+    { value: "tracker", label: "Tracker" },
+  ];
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Vue du dashboard"
+      className="inline-flex rounded-md border border-slate-200 bg-white p-0.5"
+    >
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          role="radio"
+          aria-checked={value === opt.value}
+          onClick={() => onChange(opt.value)}
+          className={cn(
+            "rounded px-3 py-1 text-xs font-medium transition-colors",
+            value === opt.value
+              ? "bg-primary text-primary-foreground"
+              : "text-slate-600 hover:text-slate-900",
+          )}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Vue tracker historique cross-format. KPIs calculés serveur (dashboardKpis)
+ * selon la période d'âge globale (SnapshotAgeSelector, dans le header). Top
+ * hooks re-triés selon le snapshot affiché.
+ */
+function TrackerDashboard() {
+  const { age, customDay } = useSnapshotAge();
+  const args = snapshotQueryArgs({ age, customDay });
+  const publications = useProjectQuery(api.publications.listPublications, args);
+  const kpis = useProjectQuery(api.dashboard.dashboardKpis, args);
+
+  if (publications === undefined || kpis === undefined) return <LoadingState />;
+  if (publications.length === 0) return <EmptyState />;
+  return <DashboardContent publications={publications} kpis={kpis} />;
 }
 
 function DashboardContent({

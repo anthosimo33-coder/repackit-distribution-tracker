@@ -1,11 +1,14 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import {
+  ArchiveIcon,
   BookmarkIcon,
   BookOpenIcon,
+  ChevronDownIcon,
   ChevronsLeftIcon,
   ChevronsRightIcon,
   ClapperboardIcon,
@@ -46,8 +49,16 @@ type SidebarProps = {
   isMobileDrawer?: boolean;
 };
 
+// Repli Archives — état mémorisé en localStorage (comme sidebar-collapsed).
+const ARCHIVES_STORAGE_KEY = "sidebar-archives-open";
+
 // P3 — items de nav scopés au projet courant (préfixe /admin/<slug>). Les hrefs
 // sont construits via useProjectPath ; l'état actif compare le pathname scopé.
+//
+// Nav regroupée par fréquence d'usage (refonte) : PILOTAGE (quotidien) /
+// CRÉATEURS / CONTENU, puis un repli « Archives » (fermé par défaut) pour les
+// 4 vues legacy du tracker interne, et « Comment ça marche » (config) en bas.
+// Les ROUTES sont inchangées — seul l'affichage est réorganisé.
 export function Sidebar({
   isCollapsed,
   onToggle,
@@ -63,6 +74,34 @@ export function Sidebar({
   const submittedCount = useProjectQuery(api.assignments.countSubmitted, {});
   const collapsed = isMobileDrawer ? false : isCollapsed;
 
+  // Repli Archives : fermé par défaut, hydraté depuis localStorage post-mount
+  // (même pattern que sidebar-collapsed dans SidebarLayout). Indépendant du
+  // repli global de la sidebar (collapsed) : les deux ne se chevauchent pas.
+  const [archivesOpen, setArchivesOpen] = useState(false);
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(ARCHIVES_STORAGE_KEY);
+      // Hydratation post-mount depuis localStorage (même pattern que
+      // sidebar-collapsed dans SidebarLayout) — flicker bref accepté.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (stored === "true") setArchivesOpen(true);
+    } catch {
+      // localStorage indispo → garde le défaut (fermé).
+    }
+  }, []);
+
+  function toggleArchives() {
+    setArchivesOpen((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(ARCHIVES_STORAGE_KEY, String(next));
+      } catch {
+        // Best-effort.
+      }
+      return next;
+    });
+  }
+
   // Remédiation sécurité — déconnexion Convex Auth. push /login explicite :
   // le proxy redirigerait de toute façon à la prochaine navigation, mais on
   // évite l'état Unauthenticated transitoire (loader plein écran d'AppShell).
@@ -76,26 +115,12 @@ export function Sidebar({
     isActive: pathname.startsWith(href),
   });
 
-  const generalItems = [
+  // PILOTAGE — le quotidien : piloter validations, assignations et paie.
+  const pilotageItems = [
     {
       icon: LayoutDashboardIcon,
       label: "Dashboard",
       ...item(projectPath("/dashboard")),
-    },
-    {
-      icon: Users2Icon,
-      label: "Comptes",
-      ...item(projectPath("/comptes")),
-    },
-    {
-      icon: UserPlusIcon,
-      label: "Créateurs",
-      ...item(projectPath("/createurs")),
-    },
-    {
-      icon: ClipboardListIcon,
-      label: "Assignments",
-      ...item(projectPath("/assignments")),
     },
     {
       icon: ClipboardCheckIcon,
@@ -105,20 +130,52 @@ export function Sidebar({
       ...item(projectPath("/validation")),
     },
     {
+      icon: ClipboardListIcon,
+      label: "Assignments",
+      ...item(projectPath("/assignments")),
+    },
+    {
       icon: WalletIcon,
       label: "Paiements",
       ...item(projectPath("/paiements")),
     },
+  ];
+
+  // CRÉATEURS — gestion des créateurs et de leurs comptes.
+  const creatorsItems = [
     {
-      icon: HelpCircleIcon,
-      label: "Comment ça marche",
-      ...item(projectPath("/guide")),
+      icon: UserPlusIcon,
+      label: "Créateurs",
+      ...item(projectPath("/createurs")),
+    },
+    {
+      icon: Users2Icon,
+      label: "Comptes",
+      ...item(projectPath("/comptes")),
     },
   ];
 
-  // Batch D — ScreenRecorder activé. Position entre Shorts et Biblio Hooks
-  // pour respecter l'ordre formats puis ressources.
+  // CONTENU — ressources de production.
   const contenuItems = [
+    {
+      icon: ClapperboardIcon,
+      label: "Scripts",
+      ...item(projectPath("/scripts")),
+    },
+    {
+      icon: LayersIcon,
+      label: "Formats",
+      ...item(projectPath("/formats")),
+    },
+    {
+      icon: BookmarkIcon,
+      label: "Inspirations",
+      ...item(projectPath("/inspirations")),
+    },
+  ];
+
+  // ARCHIVES — vues legacy du tracker interne, rangées (replié par défaut).
+  const archiveItems = [
     {
       icon: GalleryHorizontalIcon,
       label: "Carrousels",
@@ -139,26 +196,27 @@ export function Sidebar({
       label: "Biblio Hooks",
       ...item(projectPath("/biblio-hooks")),
     },
-    {
-      icon: LayersIcon,
-      label: "Formats",
-      ...item(projectPath("/formats")),
-    },
-    {
-      icon: ClapperboardIcon,
-      label: "Scripts",
-      ...item(projectPath("/scripts")),
-    },
   ];
 
-  // Batch F — pilier VEILLE / Inspirations.
-  const veilleItems = [
-    {
-      icon: BookmarkIcon,
-      label: "Inspirations",
-      ...item(projectPath("/inspirations")),
-    },
-  ];
+  const guideItem = {
+    icon: HelpCircleIcon,
+    label: "Comment ça marche",
+    ...item(projectPath("/guide")),
+  };
+
+  // Si l'utilisateur est sur une route archivée, on déplie pour que l'item
+  // actif reste visible (évite « où suis-je ? » quand Archives est replié).
+  const anyArchiveActive = archiveItems.some((it) => it.isActive);
+  const showArchiveItems = archivesOpen || anyArchiveActive;
+
+  const renderItem = (it: (typeof pilotageItems)[number]) => (
+    <SidebarItem
+      key={it.href}
+      {...it}
+      isCollapsed={collapsed}
+      onNavigate={onNavigate}
+    />
+  );
 
   return (
     <aside
@@ -185,36 +243,52 @@ export function Sidebar({
 
       {/* Sections nav */}
       <nav className="flex-1 space-y-6 overflow-y-auto px-3 pb-3">
-        <SidebarSection collapsed={collapsed} label="Général">
-          {generalItems.map((it) => (
-            <SidebarItem
-              key={it.href}
-              {...it}
-              isCollapsed={collapsed}
-              onNavigate={onNavigate}
-            />
-          ))}
+        <SidebarSection collapsed={collapsed} label="Pilotage">
+          {pilotageItems.map(renderItem)}
+        </SidebarSection>
+        <SidebarSection collapsed={collapsed} label="Créateurs">
+          {creatorsItems.map(renderItem)}
         </SidebarSection>
         <SidebarSection collapsed={collapsed} label="Contenu">
-          {contenuItems.map((it) => (
-            <SidebarItem
-              key={it.href}
-              {...it}
-              isCollapsed={collapsed}
-              onNavigate={onNavigate}
-            />
-          ))}
+          {contenuItems.map(renderItem)}
         </SidebarSection>
-        <SidebarSection collapsed={collapsed} label="Veille">
-          {veilleItems.map((it) => (
-            <SidebarItem
-              key={it.href}
-              {...it}
-              isCollapsed={collapsed}
-              onNavigate={onNavigate}
-            />
-          ))}
-        </SidebarSection>
+
+        {/* Archives — repli en mode expanded ; en mode collapsed, les items
+            s'affichent en icônes (séparateur en tête), le repli n'a pas de
+            sens sans label. */}
+        {collapsed ? (
+          <div className="space-y-1 border-t border-slate-200 pt-4">
+            {archiveItems.map(renderItem)}
+          </div>
+        ) : (
+          <div>
+            <button
+              type="button"
+              onClick={toggleArchives}
+              aria-expanded={showArchiveItems}
+              className="mb-1 flex w-full items-center justify-between rounded-md px-2 py-1 text-xs font-semibold uppercase tracking-wider text-slate-400 transition-colors hover:text-slate-600"
+            >
+              <span className="flex items-center gap-1.5">
+                <ArchiveIcon className="size-3.5" />
+                Archives
+              </span>
+              <ChevronDownIcon
+                className={cn(
+                  "size-3.5 transition-transform",
+                  showArchiveItems ? "" : "-rotate-90",
+                )}
+              />
+            </button>
+            {showArchiveItems && (
+              <div className="space-y-1">{archiveItems.map(renderItem)}</div>
+            )}
+          </div>
+        )}
+
+        {/* Comment ça marche — config, en bas de la nav. */}
+        <div className={cn(!collapsed && "border-t border-slate-200 pt-4")}>
+          {renderItem(guideItem)}
+        </div>
       </nav>
 
       {/* Footer : email user + déconnexion + toggle collapse (desktop) */}

@@ -72,9 +72,11 @@ setup("authentifie le user e2e", async ({ page }) => {
   await ensureE2eProject(convexUrl);
 
   // Reload pour que ProjectProvider re-résolve le projet (e2e désormais).
+  // Le dashboard d'accueil par défaut = vue ACTION, dont le titre est
+  // « Bonjour » (refonte sidebar/dashboard). On gate sur ce heading.
   await page.goto(adminPath("/dashboard"));
   await expect(
-    page.getByRole("heading", { name: "Dashboard" }),
+    page.getByRole("heading", { name: "Bonjour" }),
   ).toBeVisible({ timeout: 15_000 });
 
   await page.context().storageState({ path: STORAGE_STATE });
