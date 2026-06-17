@@ -1,4 +1,8 @@
-import { internalMutation, type MutationCtx } from "./_generated/server";
+import {
+  internalMutation,
+  internalQuery,
+  type MutationCtx,
+} from "./_generated/server";
 import { internal } from "./_generated/api";
 import { ConvexError } from "convex/values";
 import type { WithoutSystemFields } from "convex/server";
@@ -18,12 +22,17 @@ import { accrueBaseLineItem, upsertBonusLineItem, periodOf } from "./payments";
  *   npx convex run demoSeed:seedDemoCreator --prod      # peupler
  *   npx convex run demoSeed:cleanupDemoData --prod      # tout effacer
  *
- * Portail créateur : le seed crée le créateur en statut "invited" + une
- * invitation. Le résultat de la commande imprime le lien /join/<token> ; Serge
- * l'ouvre, choisit un mot de passe (l'email est pré-rempli, DEMO_CREATOR_EMAIL)
- * → son login créateur est créé et lié à la fiche. Il voit alors SA vue portail.
- * (auth.ts exige status "invited" pour consommer le token — d'où ce statut ;
- * passe à "onboarding" à l'acceptation, ajustable en "active" côté admin.)
+ * Portail créateur — DEUX cas :
+ *  - Aucun login démo existant → fiche "invited" + invitation. Le résultat
+ *    imprime /join/<token> ; Serge l'ouvre, choisit un mot de passe (email
+ *    pré-rempli DEMO_CREATOR_EMAIL) → son login est créé et lié (auth.ts exige
+ *    status "invited" pour consommer le token ; passe à "onboarding" à l'accept).
+ *  - Un login démo existe déjà (orphelin laissé par un essai précédent) → la
+ *    fiche est RELIÉE dessus (status "onboarding", linkedToLogin true) :
+ *    connexion DIRECTE avec l'email démo + le mot de passe existant, sans /join.
+ *
+ * cleanupDemoData efface AUSSI ce login (cascade Convex Auth) → cleanup → seed
+ * repart toujours d'un état vierge.
  *
  * ⚠️ TS7022 — seedDemoCreator appelle ctx.runMutation(internal.*) : type de
  * retour ANNOTÉ.
@@ -48,6 +57,124 @@ function ymd(ts: number): string {
   const day = String(d.getUTCDate()).padStart(2, "0");
   return `${d.getUTCFullYear()}-${m}-${day}`;
 }
+
+// ─── Login démo : détection / cascade Convex Auth ────────────────────────────
+
+/** Le login démo (users par email démo), s'il existe (orphelin ou lié). */
+async function findDemoLoginUser(
+  ctx: MutationCtx,
+): Promise<Id<"users"> | null> {
+  const u = await ctx.db
+    .query("users")
+    .withIndex("email", (q) => q.eq("email", DEMO_CREATOR_EMAIL))
+    .first();
+  return u?._id ?? null;
+}
+
+/** Garantit un membership "creator" (userId, repackit) — idempotent. */
+async function ensureCreatorMembership(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  projectId: Id<"projects">,
+): Promise<void> {
+  const existing = await ctx.db
+    .query("memberships")
+    .withIndex("by_user_project", (q) =>
+      q.eq("userId", userId).eq("projectId", projectId),
+    )
+    .first();
+  if (!existing) {
+    await ctx.db.insert("memberships", { userId, projectId, role: "creator" });
+  }
+}
+
+/**
+ * Efface COMPLÈTEMENT un login démo (cascade Convex Auth) : memberships,
+ * authSessions (+ authRefreshTokens enfants), authAccounts (+
+ * authVerificationCodes enfants), puis la row users. Appelé UNIQUEMENT pour le
+ * login démo (creator.userId du démo OU users d'email DEMO_CREATOR_EMAIL) →
+ * strictement scopé démo, zéro risque sur un vrai compte. Idempotent.
+ */
+async function deleteDemoLogin(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  counts: Record<string, number>,
+): Promise<void> {
+  for (const m of await ctx.db
+    .query("memberships")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect()) {
+    await ctx.db.delete(m._id);
+    counts.memberships += 1;
+  }
+  for (const s of await ctx.db
+    .query("authSessions")
+    .withIndex("userId", (q) => q.eq("userId", userId))
+    .collect()) {
+    for (const rt of await ctx.db
+      .query("authRefreshTokens")
+      .withIndex("sessionId", (q) => q.eq("sessionId", s._id))
+      .collect()) {
+      await ctx.db.delete(rt._id);
+      counts.authRefreshTokens += 1;
+    }
+    await ctx.db.delete(s._id);
+    counts.authSessions += 1;
+  }
+  for (const acc of await ctx.db
+    .query("authAccounts")
+    .withIndex("userIdAndProvider", (q) => q.eq("userId", userId))
+    .collect()) {
+    for (const code of await ctx.db
+      .query("authVerificationCodes")
+      .withIndex("accountId", (q) => q.eq("accountId", acc._id))
+      .collect()) {
+      await ctx.db.delete(code._id);
+      counts.authVerificationCodes += 1;
+    }
+    await ctx.db.delete(acc._id);
+    counts.authAccounts += 1;
+  }
+  const user = await ctx.db.get(userId);
+  if (user) {
+    await ctx.db.delete(userId);
+    counts.users += 1;
+  }
+}
+
+/** Diagnostic : combien de logins démo (orphelins ou non) restent. Pour vérifier
+ *  qu'un cycle cleanup→seed repart bien d'un état vierge. Lecture seule. */
+export const inspectDemoLogin = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const users = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", DEMO_CREATOR_EMAIL))
+      .collect();
+    let authAccounts = 0;
+    let authSessions = 0;
+    for (const u of users) {
+      authAccounts += (
+        await ctx.db
+          .query("authAccounts")
+          .withIndex("userIdAndProvider", (q) => q.eq("userId", u._id))
+          .collect()
+      ).length;
+      authSessions += (
+        await ctx.db
+          .query("authSessions")
+          .withIndex("userId", (q) => q.eq("userId", u._id))
+          .collect()
+      ).length;
+    }
+    return {
+      demoEmail: DEMO_CREATOR_EMAIL,
+      users: users.length,
+      authAccounts,
+      authSessions,
+    };
+  },
+});
 
 export interface SeedResult {
   ok: boolean;
@@ -85,6 +212,29 @@ export const seedDemoCreator = internalMutation({
         .collect()
     ).find((c) => c.email === DEMO_CREATOR_EMAIL);
     if (existing) {
+      // ROBUSTESSE : fiche non reliée + login orphelin d'email démo → on les
+      // relie (Serge se connecte directement avec son mot de passe existant).
+      if (existing.userId === undefined) {
+        const orphanId = await findDemoLoginUser(ctx);
+        if (orphanId) {
+          await ctx.db.patch(existing._id, {
+            userId: orphanId,
+            status: "onboarding",
+          });
+          await ensureCreatorMembership(ctx, orphanId, projectId);
+          return {
+            ok: true,
+            skipped: true,
+            message:
+              "Démo déjà présente : fiche reliée au login existant — connecte-toi directement avec l'email démo + ton mot de passe.",
+            creatorId: existing._id,
+            demoEmail: DEMO_CREATOR_EMAIL,
+            joinPath: null,
+            joinToken: null,
+            linkedToLogin: true,
+          };
+        }
+      }
       const inv = (
         await ctx.db
           .query("invitations")
@@ -104,26 +254,35 @@ export const seedDemoCreator = internalMutation({
       };
     }
 
-    // ── 1. Créateur (status "invited" pour permettre le login portail) ───────
+    // ── 1. Créateur. Si un login orphelin d'email démo existe, on RELIE la fiche
+    //   dessus (status "onboarding") → connexion DIRECTE, pas de /join. Sinon
+    //   fiche "invited" + invitation (Serge ouvre /join pour créer son login). ─
+    const orphanLoginId = await findDemoLoginUser(ctx);
     const creatorId = await ctx.db.insert("creators", {
       projectId,
       name: DEMO_CREATOR_NAME,
       email: DEMO_CREATOR_EMAIL,
-      status: "invited",
+      status: orphanLoginId ? "onboarding" : "invited",
       paymentMethod: "paypal",
       paymentDetails: "antho.test@paypal.me (démo)",
       adminNotes: `${DEMO_MARKER} Créateur de démonstration — effaçable via cleanupDemoData.`,
       createdAt: now,
+      ...(orphanLoginId ? { userId: orphanLoginId } : {}),
     });
 
-    const token = crypto.randomUUID();
-    await ctx.db.insert("invitations", {
-      token,
-      creatorId,
-      projectId,
-      email: DEMO_CREATOR_EMAIL,
-      expiresAt: now + 365 * DAY, // long, c'est de la démo
-    });
+    let token: string | null = null;
+    if (orphanLoginId) {
+      await ensureCreatorMembership(ctx, orphanLoginId, projectId);
+    } else {
+      token = crypto.randomUUID();
+      await ctx.db.insert("invitations", {
+        token,
+        creatorId,
+        projectId,
+        email: DEMO_CREATOR_EMAIL,
+        expiresAt: now + 365 * DAY, // long, c'est de la démo
+      });
+    }
 
     // ── 2. Comptes (variété de plateformes/statuts) ──────────────────────────
     const ttId = await ctx.db.insert("comptes", {
@@ -453,13 +612,14 @@ export const seedDemoCreator = internalMutation({
     return {
       ok: true,
       skipped: false,
-      message:
-        "Démo créée. Ouvre le lien d'invitation pour accéder au portail créateur.",
+      message: token
+        ? "Démo créée. Ouvre le lien d'invitation pour accéder au portail créateur."
+        : "Démo créée et reliée au login existant — connecte-toi directement avec l'email démo + ton mot de passe.",
       creatorId,
       demoEmail: DEMO_CREATOR_EMAIL,
-      joinPath: `/join/${token}`,
+      joinPath: token ? `/join/${token}` : null,
       joinToken: token,
-      linkedToLogin: false,
+      linkedToLogin: token === null,
       counts,
     };
   },
@@ -471,11 +631,12 @@ export interface CleanupResult {
 }
 
 /**
- * Efface TOUT le démo (et RIEN d'autre) : cible le marqueur [DEMO] et la fiche
- * créateur démo (par email), puis cascade. Idempotent (relançable). NE touche
- * pas aux tables Convex Auth (users/authAccounts) : le membership "creator" du
- * login démo est retiré (plus d'accès projet) ; le compte de login lui-même
- * reste inerte côté auth (suppression hors scope, sans risque).
+ * Efface TOUT le démo (et RIEN d'autre) : cible le marqueur [DEMO] / l'email démo,
+ * puis cascade — Y COMPRIS le LOGIN démo (users + authAccounts + authSessions +
+ * authRefreshTokens + authVerificationCodes + memberships), pour qu'un cycle
+ * cleanup → seed reparte TOUJOURS d'un état vierge (sans login orphelin que le
+ * re-seed ne pourrait ni réutiliser ni relier). Strictement scopé au démo
+ * (email DEMO_CREATOR_EMAIL), zéro risque sur un vrai compte. Idempotent.
  */
 export const cleanupDemoData = internalMutation({
   args: {},
@@ -498,7 +659,15 @@ export const cleanupDemoData = internalMutation({
       invitations: 0,
       formats: 0,
       memberships: 0,
+      users: 0,
+      authAccounts: 0,
+      authSessions: 0,
+      authRefreshTokens: 0,
+      authVerificationCodes: 0,
     };
+    // Logins démo à purger : ceux liés aux fiches démo + tout login orphelin
+    // d'email démo (laissé par un ancien cleanup buggé).
+    const demoUserIds = new Set<Id<"users">>();
 
     const demoCreators = (
       await ctx.db
@@ -554,21 +723,7 @@ export const cleanupDemoData = internalMutation({
         counts.invitations += 1;
       }
 
-      const uid = creator.userId;
-      if (uid) {
-        const memberships = await ctx.db
-          .query("memberships")
-          .withIndex("by_user_project", (q) =>
-            q.eq("userId", uid).eq("projectId", projectId),
-          )
-          .collect();
-        for (const m of memberships) {
-          if (m.role === "creator") {
-            await ctx.db.delete(m._id);
-            counts.memberships += 1;
-          }
-        }
-      }
+      if (creator.userId) demoUserIds.add(creator.userId);
 
       await ctx.db.delete(creator._id);
       counts.creators += 1;
@@ -609,6 +764,18 @@ export const cleanupDemoData = internalMutation({
     for (const f of demoFormats) {
       await ctx.db.delete(f._id);
       counts.formats += 1;
+    }
+
+    // PURGE des logins démo : ceux liés aux fiches + tout login orphelin
+    // d'email démo. Cascade Convex Auth → aucun login orphelin ne survit.
+    for (const u of await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", DEMO_CREATOR_EMAIL))
+      .collect()) {
+      demoUserIds.add(u._id);
+    }
+    for (const userId of demoUserIds) {
+      await deleteDemoLogin(ctx, userId, counts);
     }
 
     return { ok: true, counts };
