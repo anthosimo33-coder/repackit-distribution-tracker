@@ -31,7 +31,7 @@ type DataStatus = "en_test" | "jugeable";
 function statusForCount(postCount: number): DataStatus {
   return postCount >= JUGEABLE_THRESHOLD ? "jugeable" : "en_test";
 }
-function median(values: readonly number[]): number | null {
+export function median(values: readonly number[]): number | null {
   if (values.length === 0) return null;
   const s = [...values].sort((a, b) => a - b);
   const mid = Math.floor(s.length / 2);
@@ -79,8 +79,8 @@ const WINDOW = v.union(
   v.literal("j30"),
 );
 
-const TIERS = ["S", "A", "B"] as const;
-type Tier = (typeof TIERS)[number];
+export const TIERS = ["S", "A", "B"] as const;
+export type Tier = (typeof TIERS)[number];
 const KIND_ORDER: Record<string, number> = { hook: 0, corps: 1, flux: 2, cta: 3 };
 
 /** Un échantillon = une publication de script ayant une vue résolue à la fenêtre. */
@@ -93,7 +93,7 @@ interface ViewSample {
   views: number;
 }
 
-interface CampaignViews {
+export interface CampaignViews {
   found: boolean;
   bricksById: Map<string, Doc<"scriptBricks">>;
   activeBricks: Doc<"scriptBricks">[];
@@ -101,10 +101,11 @@ interface CampaignViews {
 }
 
 /**
- * Cœur partagé des 3 queries : résout, pour chaque publication de la campagne,
- * sa vue à la fenêtre choisie, et renvoie les échantillons + les briques.
+ * Cœur partagé des queries analytics ET décision (S4 compose dessus) : résout,
+ * pour chaque publication de la campagne, sa vue à la fenêtre choisie, et
+ * renvoie les échantillons + les briques. Appelé UNE fois par query.
  */
-async function gatherCampaignViews(
+export async function gatherCampaignViews(
   ctx: QueryCtx,
   projectId: Id<"projects">,
   campaignId: Id<"scriptCampaigns">,
@@ -196,36 +197,37 @@ export interface BrickPerf extends Distribution {
 }
 
 /**
- * perfByBrick — pour CHAQUE brique active de la campagne, distribution des vues
- * des publications dont le combo contient cette brique. Trié par kind puis
- * médiane décroissante (nulls en dernier).
+ * Pour CHAQUE brique active de la campagne, distribution des vues des
+ * publications dont le combo contient cette brique. Trié par kind puis médiane
+ * décroissante (nulls en dernier). Pur sur un CampaignViews déjà chargé.
  */
+export function aggregateByBrick(views: CampaignViews): BrickPerf[] {
+  const { activeBricks, samples } = views;
+  const out: BrickPerf[] = activeBricks.map((b) => {
+    const values = samples
+      .filter((s) => slotOf(s, b.kind) === b._id)
+      .map((s) => s.views);
+    return {
+      brickId: b._id,
+      kind: b.kind,
+      label: b.label,
+      tier: (b.tier as Tier | undefined) ?? null,
+      ...summarize(values),
+    };
+  });
+  return out.sort((a, b) => {
+    if (a.kind !== b.kind) return KIND_ORDER[a.kind] - KIND_ORDER[b.kind];
+    return (b.viewsMedian ?? -1) - (a.viewsMedian ?? -1);
+  });
+}
+
+/** perfByBrick — cf aggregateByBrick. */
 export const perfByBrick = adminQuery({
   args: { campaignId: v.id("scriptCampaigns"), window: WINDOW },
-  handler: async (ctx, { campaignId, window }): Promise<BrickPerf[]> => {
-    const { activeBricks, samples } = await gatherCampaignViews(
-      ctx,
-      ctx.projectId,
-      campaignId,
-      window,
-    );
-    const out: BrickPerf[] = activeBricks.map((b) => {
-      const values = samples
-        .filter((s) => slotOf(s, b.kind) === b._id)
-        .map((s) => s.views);
-      return {
-        brickId: b._id,
-        kind: b.kind,
-        label: b.label,
-        tier: (b.tier as Tier | undefined) ?? null,
-        ...summarize(values),
-      };
-    });
-    return out.sort((a, b) => {
-      if (a.kind !== b.kind) return KIND_ORDER[a.kind] - KIND_ORDER[b.kind];
-      return (b.viewsMedian ?? -1) - (a.viewsMedian ?? -1);
-    });
-  },
+  handler: async (ctx, { campaignId, window }): Promise<BrickPerf[]> =>
+    aggregateByBrick(
+      await gatherCampaignViews(ctx, ctx.projectId, campaignId, window),
+    ),
 });
 
 export interface TierPerf extends Distribution {
@@ -233,27 +235,29 @@ export interface TierPerf extends Distribution {
 }
 
 /**
- * perfByTier — vues agrégées par tier de hook (S/A/B). Renvoie TOUJOURS les 3
- * tiers (postCount 0 → en_test) pour un rendu stable. Le tier d'une publication
- * = tier du hook de son combo (même si la brique a été désactivée depuis).
+ * Vues agrégées par tier de hook (S/A/B). Renvoie TOUJOURS les 3 tiers
+ * (postCount 0 → en_test) pour un rendu stable. Le tier d'une publication = tier
+ * du hook de son combo (même si la brique a été désactivée depuis). Pur sur un
+ * CampaignViews déjà chargé.
  */
+export function aggregateByTier(views: CampaignViews): TierPerf[] {
+  const { bricksById, samples } = views;
+  const byTier = new Map<Tier, number[]>(TIERS.map((t) => [t, []]));
+  for (const s of samples) {
+    const hook = bricksById.get(s.hookBrickId as string);
+    const tier = hook?.tier as Tier | undefined;
+    if (tier && byTier.has(tier)) byTier.get(tier)!.push(s.views);
+  }
+  return TIERS.map((tier) => ({ tier, ...summarize(byTier.get(tier)!) }));
+}
+
+/** perfByTier — cf aggregateByTier. */
 export const perfByTier = adminQuery({
   args: { campaignId: v.id("scriptCampaigns"), window: WINDOW },
-  handler: async (ctx, { campaignId, window }): Promise<TierPerf[]> => {
-    const { bricksById, samples } = await gatherCampaignViews(
-      ctx,
-      ctx.projectId,
-      campaignId,
-      window,
-    );
-    const byTier = new Map<Tier, number[]>(TIERS.map((t) => [t, []]));
-    for (const s of samples) {
-      const hook = bricksById.get(s.hookBrickId as string);
-      const tier = hook?.tier as Tier | undefined;
-      if (tier && byTier.has(tier)) byTier.get(tier)!.push(s.views);
-    }
-    return TIERS.map((tier) => ({ tier, ...summarize(byTier.get(tier)!) }));
-  },
+  handler: async (ctx, { campaignId, window }): Promise<TierPerf[]> =>
+    aggregateByTier(
+      await gatherCampaignViews(ctx, ctx.projectId, campaignId, window),
+    ),
 });
 
 export interface ComboPerf extends Distribution {
@@ -267,52 +271,59 @@ export interface ComboPerf extends Distribution {
   signal: boolean;
 }
 
+/** Médiane GLOBALE de campagne (toutes publications de script confondues, à la
+ *  fenêtre). Référence du `signal` perfByCombo ET de detectStrongSignals (S4). */
+export function campaignMedianOf(views: CampaignViews): number | null {
+  return median(views.samples.map((s) => s.views));
+}
+
 /**
- * perfByCombo — distribution par comboKey complet (la plupart sous le seuil →
- * "en test"). Trié par médiane décroissante. `signal` = jugeable ET médiane
- * au-dessus de la médiane globale de la campagne (toutes publications confondues).
+ * Distribution par comboKey complet (la plupart sous le seuil → "en test"). Trié
+ * par médiane décroissante. `signal` = jugeable ET médiane au-dessus de la
+ * médiane globale de la campagne. Pur sur un CampaignViews déjà chargé.
  */
+export function aggregateByCombo(views: CampaignViews): ComboPerf[] {
+  const { bricksById, samples } = views;
+  const campaignMedian = campaignMedianOf(views);
+
+  const byCombo = new Map<string, ViewSample[]>();
+  for (const s of samples) {
+    const arr = byCombo.get(s.comboKey);
+    if (arr) arr.push(s);
+    else byCombo.set(s.comboKey, [s]);
+  }
+
+  const label = (id: Id<"scriptBricks">) =>
+    bricksById.get(id as string)?.label ?? "—";
+
+  const out: ComboPerf[] = [...byCombo.values()].map((group) => {
+    const head = group[0];
+    const dist = summarize(group.map((s) => s.views));
+    const hook = bricksById.get(head.hookBrickId as string);
+    const signal =
+      dist.status === "jugeable" &&
+      dist.viewsMedian !== null &&
+      campaignMedian !== null &&
+      dist.viewsMedian > campaignMedian;
+    return {
+      comboKey: head.comboKey,
+      tier: (hook?.tier as Tier | undefined) ?? null,
+      hookLabel: label(head.hookBrickId),
+      corpsLabel: label(head.corpsBrickId),
+      fluxLabel: label(head.fluxBrickId),
+      ctaLabel: label(head.ctaBrickId),
+      signal,
+      ...dist,
+    };
+  });
+  return out.sort((a, b) => (b.viewsMedian ?? -1) - (a.viewsMedian ?? -1));
+}
+
+/** perfByCombo — cf aggregateByCombo. */
 export const perfByCombo = adminQuery({
   args: { campaignId: v.id("scriptCampaigns"), window: WINDOW },
-  handler: async (ctx, { campaignId, window }): Promise<ComboPerf[]> => {
-    const { bricksById, samples } = await gatherCampaignViews(
-      ctx,
-      ctx.projectId,
-      campaignId,
-      window,
-    );
-    const campaignMedian = median(samples.map((s) => s.views));
-
-    const byCombo = new Map<string, ViewSample[]>();
-    for (const s of samples) {
-      const arr = byCombo.get(s.comboKey);
-      if (arr) arr.push(s);
-      else byCombo.set(s.comboKey, [s]);
-    }
-
-    const label = (id: Id<"scriptBricks">) =>
-      bricksById.get(id as string)?.label ?? "—";
-
-    const out: ComboPerf[] = [...byCombo.values()].map((group) => {
-      const head = group[0];
-      const dist = summarize(group.map((s) => s.views));
-      const hook = bricksById.get(head.hookBrickId as string);
-      const signal =
-        dist.status === "jugeable" &&
-        dist.viewsMedian !== null &&
-        campaignMedian !== null &&
-        dist.viewsMedian > campaignMedian;
-      return {
-        comboKey: head.comboKey,
-        tier: (hook?.tier as Tier | undefined) ?? null,
-        hookLabel: label(head.hookBrickId),
-        corpsLabel: label(head.corpsBrickId),
-        fluxLabel: label(head.fluxBrickId),
-        ctaLabel: label(head.ctaBrickId),
-        signal,
-        ...dist,
-      };
-    });
-    return out.sort((a, b) => (b.viewsMedian ?? -1) - (a.viewsMedian ?? -1));
-  },
+  handler: async (ctx, { campaignId, window }): Promise<ComboPerf[]> =>
+    aggregateByCombo(
+      await gatherCampaignViews(ctx, ctx.projectId, campaignId, window),
+    ),
 });

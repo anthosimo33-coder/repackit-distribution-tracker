@@ -20,6 +20,10 @@ import {
   TrophyIcon,
   ChevronDownIcon,
   SparklesIcon,
+  TrendingUpIcon,
+  TrendingDownIcon,
+  FlameIcon,
+  MinusIcon,
 } from "lucide-react";
 
 type Window = "j3" | "j7" | "j14" | "j30";
@@ -33,12 +37,23 @@ const WINDOWS: { key: Window; label: string }[] = [
 type BrickPerf = FunctionReturnType<typeof api.scriptAnalytics.perfByBrick>[number];
 type TierPerf = FunctionReturnType<typeof api.scriptAnalytics.perfByTier>[number];
 type ComboPerf = FunctionReturnType<typeof api.scriptAnalytics.perfByCombo>[number];
+type Decisions = FunctionReturnType<typeof api.scriptDecision.campaignDecisions>;
+type Dimension = Decisions["dimensions"][number];
+type BrickDecision = Dimension["decisions"][number];
+type StrongSignal = Decisions["strongSignals"][number];
 
 const KIND_LABEL: Record<string, string> = {
   flux: "Flux",
   cta: "CTA",
   corps: "Corps",
   hook: "Hook",
+};
+
+const DIMENSION_LABEL: Record<string, string> = {
+  tier: "Tiers de hook",
+  corps: "Corps",
+  flux: "Flux",
+  cta: "CTA",
 };
 
 export default function ScriptAnalyticsPage() {
@@ -60,9 +75,17 @@ export default function ScriptAnalyticsPage() {
     campaignId,
     window,
   });
+  const decisions = useProjectQuery(api.scriptDecision.campaignDecisions, {
+    campaignId,
+    window,
+  });
 
   const loading =
-    tiers === undefined || bricks === undefined || combos === undefined;
+    tiers === undefined ||
+    bricks === undefined ||
+    combos === undefined ||
+    decisions === undefined;
+  const windowLabel = WINDOWS.find((w) => w.key === window)?.label ?? "";
 
   return (
     <div className="space-y-6">
@@ -93,31 +116,34 @@ export default function ScriptAnalyticsPage() {
           <Skeleton className="h-48 w-full" />
           <Skeleton className="h-48 w-full" />
         </div>
-      ) : combos.length === 0 ? (
-        <Card>
-          <CardContent className="py-16 text-center">
-            <p className="text-sm font-medium text-slate-900">
-              Pas encore assez de posts validés pour analyser.
-            </p>
-            <p className="mt-1 text-sm text-slate-500">
-              Les verdicts apparaissent à partir de {JUGEABLE_THRESHOLD} posts
-              par brique. Aucune publication de script n&apos;a de vue mesurée à{" "}
-              {WINDOWS.find((w) => w.key === window)?.label} — essaie une autre
-              fenêtre.
-            </p>
-          </CardContent>
-        </Card>
       ) : (
-        <div className="space-y-8">
-          <TierSection tiers={tiers} />
-          {(["flux", "cta", "corps"] as const).map((kind) => (
-            <BrickSection
-              key={kind}
-              kind={kind}
-              bricks={bricks.filter((b) => b.kind === kind)}
-            />
-          ))}
-          <ComboSection combos={combos} />
+        <div className="space-y-10">
+          {/* S4 — l'ACTIONNABLE en haut : verdicts + signaux à valider. */}
+          <DecisionsSection decisions={decisions} windowLabel={windowLabel} />
+
+          {/* S3 — chiffres bruts, inchangés, sous les décisions. */}
+          {combos.length > 0 && (
+            <div className="space-y-8">
+              <div className="border-t border-slate-200 pt-6">
+                <h2 className="text-base font-semibold text-slate-900">
+                  Détail des chiffres
+                </h2>
+                <p className="text-sm text-slate-500">
+                  Médianes brutes par variable et par combo. Les décisions
+                  ci-dessus en sont tirées.
+                </p>
+              </div>
+              <TierSection tiers={tiers} />
+              {(["flux", "cta", "corps"] as const).map((kind) => (
+                <BrickSection
+                  key={kind}
+                  kind={kind}
+                  bricks={bricks.filter((b) => b.kind === kind)}
+                />
+              ))}
+              <ComboSection combos={combos} />
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -154,6 +180,261 @@ function WindowSelector({
         </button>
       ))}
     </div>
+  );
+}
+
+// ─── S4 : Décisions (verdicts + signaux forts) ───────────────────────────────
+
+const VERDICT_ORDER: Record<string, number> = {
+  a_pousser: 0,
+  a_couper: 1,
+  neutre: 2,
+  en_test: 3,
+};
+
+/** Écart signé en % (ex. "+30 %", "−40 %"), aligné sur le moteur. */
+function signedPct(fraction: number): string {
+  const sign = fraction >= 0 ? "+" : "−";
+  return `${sign}${Math.round(Math.abs(fraction) * 100)} %`;
+}
+
+/** Ratio médiane/pairs (ex. "×2,3"), null si non calculable. */
+function ratioText(median: number | null, peerMedian: number | null): string | null {
+  if (median === null || peerMedian === null || peerMedian <= 0) return null;
+  return `×${(median / peerMedian).toFixed(1).replace(".", ",")}`;
+}
+
+function VerdictBadge({ verdict }: { verdict: BrickDecision["verdict"] }) {
+  switch (verdict) {
+    case "a_pousser":
+      return (
+        <Badge className="shrink-0 gap-1 bg-emerald-600 text-white hover:bg-emerald-600">
+          <TrendingUpIcon className="size-3" />À pousser
+        </Badge>
+      );
+    case "a_couper":
+      return (
+        <Badge className="shrink-0 gap-1 bg-rose-600 text-white hover:bg-rose-600">
+          <TrendingDownIcon className="size-3" />À couper
+        </Badge>
+      );
+    case "neutre":
+      return (
+        <Badge variant="secondary" className="shrink-0 gap-1">
+          <MinusIcon className="size-3" />
+          Neutre
+        </Badge>
+      );
+    default:
+      return (
+        <Badge
+          variant="outline"
+          className="shrink-0 border-amber-300 text-amber-700"
+        >
+          en test
+        </Badge>
+      );
+  }
+}
+
+/** Phrase de reco prête à lire (verbe d'action en tête). */
+function decisionHeadline(d: BrickDecision): string {
+  const r = ratioText(d.viewsMedian, d.peerMedian);
+  switch (d.verdict) {
+    case "a_pousser":
+      return `Pousse ${d.label}${r ? ` — médiane ${r} vs pairs` : ""}, sur ${d.postCount} posts.`;
+    case "a_couper":
+      return `Coupe ${d.label}${
+        d.deltaVsPeerMedian !== null
+          ? ` — médiane ${signedPct(d.deltaVsPeerMedian)} sous les pairs`
+          : ""
+      }, sur ${d.postCount} posts.`;
+    case "neutre":
+      return `${d.label} — dans la moyenne${
+        d.deltaVsPeerMedian !== null ? ` (${signedPct(d.deltaVsPeerMedian)})` : ""
+      }, garder en rotation. ${d.postCount} posts.`;
+    default:
+      return `${d.label} — en test, ${d.postCount}/${JUGEABLE_THRESHOLD} posts.`;
+  }
+}
+
+function DecisionRow({ d }: { d: BrickDecision }) {
+  const actionable = d.verdict === "a_pousser" || d.verdict === "a_couper";
+  return (
+    <div
+      className={cn(
+        "flex items-start justify-between gap-3 rounded-lg border p-3",
+        d.verdict === "a_pousser" && "border-emerald-300 bg-emerald-50/60",
+        d.verdict === "a_couper" && "border-rose-300 bg-rose-50/60",
+        !actionable && "border-slate-200 bg-white",
+      )}
+    >
+      <div className="flex min-w-0 items-start gap-2">
+        <div className="pt-0.5">
+          <VerdictBadge verdict={d.verdict} />
+        </div>
+        <p
+          className={cn(
+            "min-w-0 text-sm",
+            actionable ? "font-medium text-slate-900" : "text-slate-600",
+          )}
+        >
+          {decisionHeadline(d)}
+        </p>
+      </div>
+      <span className="shrink-0 pt-0.5 tabular-nums text-sm font-semibold text-slate-900">
+        {formatNumber(d.viewsMedian)}
+      </span>
+    </div>
+  );
+}
+
+function DimensionBlock({ dimension }: { dimension: Dimension }) {
+  if (dimension.decisions.length === 0) return null;
+  const sorted = [...dimension.decisions].sort(
+    (a, b) =>
+      (VERDICT_ORDER[a.verdict] ?? 9) - (VERDICT_ORDER[b.verdict] ?? 9) ||
+      (b.viewsMedian ?? -1) - (a.viewsMedian ?? -1),
+  );
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+        {DIMENSION_LABEL[dimension.kind] ?? dimension.kind}
+      </h3>
+      <div className="space-y-2">
+        {sorted.map((d) => (
+          <DecisionRow key={d.key} d={d} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** État « pas encore jugeable » — message de collecte + brique la plus avancée. */
+function CollectState({
+  decisions,
+  windowLabel,
+}: {
+  decisions: Decisions;
+  windowLabel: string;
+}) {
+  if (decisions.totalPosts === 0) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center">
+          <p className="text-sm font-medium text-slate-900">
+            Aucune publication de script mesurée à {windowLabel}.
+          </p>
+          <p className="mt-1 text-sm text-slate-500">
+            Essaie une autre fenêtre, ou reviens quand des posts auront des vues
+            à cette échéance.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Brique la plus avancée vers le seuil (encouragement / repère).
+  let lead: BrickDecision | null = null;
+  for (const dim of decisions.dimensions) {
+    for (const d of dim.decisions) {
+      if (d.postCount > (lead?.postCount ?? -1)) lead = d;
+    }
+  }
+
+  return (
+    <Card>
+      <CardContent className="py-12 text-center">
+        <p className="text-sm font-medium text-slate-900">
+          Encore en collecte de données.
+        </p>
+        <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
+          Les recommandations apparaîtront dès qu&apos;une brique atteint{" "}
+          {JUGEABLE_THRESHOLD} posts publiés. (Le bulk testing a besoin de volume
+          pour décider.)
+        </p>
+        {lead && lead.postCount > 0 && (
+          <p className="mt-3 text-xs text-slate-400">
+            Brique la plus avancée : {lead.label} — {lead.postCount}/
+            {JUGEABLE_THRESHOLD}.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function StrongSignalsBlock({ signals }: { signals: StrongSignal[] }) {
+  return (
+    <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50/50 p-4">
+      <div className="flex items-center gap-2">
+        <FlameIcon className="size-4 text-amber-600" />
+        <h3 className="text-sm font-semibold text-amber-900">
+          Signaux forts à valider
+        </h3>
+      </div>
+      <p className="text-xs text-amber-700">
+        Briques/combos qui explosent la médiane de campagne avant d&apos;être
+        jugeables. À confirmer manuellement — aucune action automatique (un seul
+        carton peut être un accident).
+      </p>
+      <div className="space-y-2 pt-1">
+        {signals.map((s) => (
+          <div
+            key={s.key}
+            className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-white p-3"
+          >
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-slate-900">
+                {s.label}
+              </p>
+              <p className="text-xs text-slate-500">
+                ×{s.multipleOfGlobal.toFixed(1).replace(".", ",")} la médiane de
+                campagne · {s.postCount} posts · à confirmer manuellement
+              </p>
+            </div>
+            <span className="shrink-0 tabular-nums text-sm font-semibold text-slate-900">
+              {formatNumber(s.viewsMedian)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DecisionsSection({
+  decisions,
+  windowLabel,
+}: {
+  decisions: Decisions;
+  windowLabel: string;
+}) {
+  return (
+    <section className="space-y-5">
+      <div className="space-y-1">
+        <h2 className="text-lg font-semibold text-slate-900">Décisions</h2>
+        <p className="text-sm text-slate-500">
+          Recommandations de bulk testing à {windowLabel}. « À pousser » = à
+          assigner davantage ; « à couper » = arrêter d&apos;assigner. Le système
+          recommande, il ne ré-assigne jamais tout seul.
+        </p>
+      </div>
+
+      {decisions.anyJudgeable ? (
+        <div className="space-y-5">
+          {decisions.dimensions.map((dim) => (
+            <DimensionBlock key={dim.kind} dimension={dim} />
+          ))}
+        </div>
+      ) : (
+        <CollectState decisions={decisions} windowLabel={windowLabel} />
+      )}
+
+      {decisions.strongSignals.length > 0 && (
+        <StrongSignalsBlock signals={decisions.strongSignals} />
+      )}
+    </section>
   );
 }
 
