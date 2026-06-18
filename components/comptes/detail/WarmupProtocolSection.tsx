@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { CheckIcon, Loader2Icon, XIcon } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 import type { Compte } from "@/components/comptes/CompteDialog";
 import {
   getEffectiveWarmupDuration,
@@ -85,7 +86,7 @@ export function WarmupProtocolSection({ compte }: { compte: Compte }) {
       });
       toast.success("Protocole enregistré");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Erreur"));
     } finally {
       setSaving(false);
     }
@@ -101,7 +102,7 @@ export function WarmupProtocolSection({ compte }: { compte: Compte }) {
       });
       toast.success(`${compte.handle} passé en actif`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Erreur"));
     } finally {
       setActivating(false);
     }
@@ -142,7 +143,7 @@ export function WarmupProtocolSection({ compte }: { compte: Compte }) {
 
         {/* Keywords */}
         <div className="space-y-2">
-          <Label>Mots-clés (uniques par compte)</Label>
+          <Label>Mots-clés</Label>
           <div className="flex flex-wrap gap-1.5">
             {keywords.length === 0 && (
               <span className="text-sm text-slate-400">Aucun mot-clé.</span>

@@ -27,6 +27,7 @@ import {
   UsersIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 
 /**
  * Page admin des personnes (gestionnaires), accessible via
@@ -80,7 +81,7 @@ export function PersonnesManagerSection({ onBack }: { onBack: () => void }) {
       );
       setDeleteTarget(null);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Erreur"));
     } finally {
       setDeleting(false);
     }

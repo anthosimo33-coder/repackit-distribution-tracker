@@ -30,6 +30,7 @@ import {
   UserXIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 
 /**
  * Combobox de sélection d'un gestionnaire (personne), adapté de
@@ -91,7 +92,7 @@ export function PersonneCombobox({
       setOpen(false);
       setQuery("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Erreur"));
     } finally {
       setCreating(false);
     }

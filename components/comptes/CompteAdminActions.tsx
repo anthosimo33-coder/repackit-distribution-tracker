@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MoreHorizontalIcon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 import { getEffectiveStatus } from "@/lib/compte-status";
 import type { Compte } from "@/components/comptes/CompteDialog";
 
@@ -55,7 +56,7 @@ export function CompteAdminActions({
         toast.success(`${compte.handle} archivé`);
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Erreur"));
     }
   }
 
@@ -66,7 +67,7 @@ export function CompteAdminActions({
       toast.success(`${compte.handle} supprimé`);
       setConfirmOpen(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Erreur"));
     } finally {
       setSubmitting(false);
     }

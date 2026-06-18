@@ -282,7 +282,7 @@ export const createCompte = adminMutation({
       )
       .collect();
     if (samePlatform.some((c) => c.handle === args.handle)) {
-      throw new Error(
+      throw new ConvexError(
         `Compte ${args.handle} existe déjà sur ${args.plateforme}`,
       );
     }
@@ -506,9 +506,11 @@ function normalizeHandle(h: string): string {
 
 /**
  * Édite le protocole de warmup d'un compte (keywords / instructions /
- * targetDays). Préserve dailyChecks. Les KEYWORDS sont UNIQUES par compte dans
- * le projet (deux comptes ne doivent pas taper les mêmes recherches : pattern
- * détectable) — rejet si collision avec un autre compte.
+ * targetDays). Préserve dailyChecks. Les keywords sont trim + dédupliqués DANS
+ * le compte (insensible à la casse, garde la 1re forme). AUCUNE contrainte
+ * d'unicité inter-comptes : un même mot-clé peut être partagé entre plusieurs
+ * comptes (la règle « unique par compte dans le projet » a été retirée — elle
+ * bloquait l'admin qui assigne des niches communes aux comptes d'un créateur).
  */
 export const updateWarmupProtocol = adminMutation({
   args: {
@@ -533,6 +535,7 @@ export const updateWarmupProtocol = adminMutation({
     let keywords = current.keywords;
     if (args.keywords !== undefined) {
       // Trim + dedupe intra-compte (insensible à la casse, garde la 1re forme).
+      // Pas d'unicité inter-comptes : un mot-clé peut servir sur plusieurs comptes.
       const seen = new Set<string>();
       const cleaned: string[] = [];
       for (const raw of args.keywords) {
@@ -542,26 +545,6 @@ export const updateWarmupProtocol = adminMutation({
         if (seen.has(low)) continue;
         seen.add(low);
         cleaned.push(k);
-      }
-      // Unicité INTER-comptes du projet.
-      const others = await ctx.db
-        .query("comptes")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect();
-      const usedBy = new Map<string, string>();
-      for (const o of others) {
-        if (o._id === args.id) continue;
-        for (const k of o.warmupProtocol?.keywords ?? []) {
-          usedBy.set(k.toLowerCase(), o.handle);
-        }
-      }
-      for (const k of cleaned) {
-        const owner = usedBy.get(k.toLowerCase());
-        if (owner) {
-          throw new ConvexError(
-            `Mot-clé « ${k} » déjà utilisé par ${owner}. Les mots-clés doivent être uniques par compte.`,
-          );
-        }
       }
       keywords = cleaned;
     }

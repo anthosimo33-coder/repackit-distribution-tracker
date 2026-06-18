@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 
 const MAX_NAME_LENGTH = 80;
 
@@ -142,7 +143,7 @@ function PersonneEditDialogForm({
       }
       onClose();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Erreur"));
     } finally {
       setSubmitting(false);
     }

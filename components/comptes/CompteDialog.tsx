@@ -32,6 +32,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { fr } from "date-fns/locale";
 import { CalendarIcon, CheckIcon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
 import {
   getEffectiveStatus,
@@ -163,7 +164,7 @@ export default function CompteDialog({
       toast.success(`${compte.handle} passé en actif`);
       onOpenChange(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Erreur"));
     } finally {
       setSubmitting(false);
     }
@@ -216,7 +217,7 @@ export default function CompteDialog({
       setStatus("actif");
       setWarmupStartedAt(null);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Erreur"));
     } finally {
       setSubmitting(false);
     }
