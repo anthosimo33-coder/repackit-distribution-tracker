@@ -23,6 +23,7 @@ import type * as guide from "../guide.js";
 import type * as hooks from "../hooks.js";
 import type * as http from "../http.js";
 import type * as icps from "../icps.js";
+import type * as inspirationThumbnails from "../inspirationThumbnails.js";
 import type * as inspirations from "../inspirations.js";
 import type * as maintenance from "../maintenance.js";
 import type * as metricSnapshots from "../metricSnapshots.js";
@@ -64,6 +65,7 @@ declare const fullApi: ApiFromModules<{
   hooks: typeof hooks;
   http: typeof http;
   icps: typeof icps;
+  inspirationThumbnails: typeof inspirationThumbnails;
   inspirations: typeof inspirations;
   maintenance: typeof maintenance;
   metricSnapshots: typeof metricSnapshots;

@@ -1,13 +1,14 @@
 "use client";
 
-import { useMutation } from "convex/react";
-import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
+import { useState } from "react";
+import { useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
-import { GalleryHorizontalIcon, StarIcon, UserIcon } from "lucide-react";
+import { StarIcon } from "lucide-react";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { PlatformBadge } from "@/components/VerdictBadge";
 import { cn } from "@/lib/utils";
 import { getFolderColor } from "@/lib/folder-colors";
+import { ThumbnailFallback } from "./ThumbnailFallback";
 import { toast } from "sonner";
 
 type InspirationCardData = Doc<"inspirations"> & {
@@ -25,12 +26,6 @@ const TYPE_LABELS: Record<"video" | "account", string> = {
   account: "Compte",
 };
 
-const PLATFORM_GRADIENTS: Record<string, string> = {
-  TikTok: "from-slate-800 to-slate-950",
-  Instagram: "from-pink-400 to-fuchsia-600",
-  YouTube: "from-red-500 to-red-700",
-};
-
 export function InspirationCard({
   inspiration,
   folder,
@@ -41,11 +36,9 @@ export function InspirationCard({
   onClick: () => void;
 }) {
   const typeLabel = TYPE_LABELS[inspiration.type];
-  const gradient =
-    PLATFORM_GRADIENTS[inspiration.plateforme] ?? "from-slate-400 to-slate-600";
-  const PlaceholderIcon =
-    inspiration.type === "account" ? UserIcon : GalleryHorizontalIcon;
   const folderColor = getFolderColor(folder?.color);
+  // L'URL de vignette peut casser (lien mort) → onError bascule sur le fallback.
+  const [imgError, setImgError] = useState(false);
 
   const updateInspiration = useProjectMutation(api.inspirations.updateInspiration);
 
@@ -81,22 +74,21 @@ export function InspirationCard({
       className="group flex cursor-pointer flex-col overflow-hidden rounded-lg border border-slate-200 bg-white text-left shadow-sm transition-all duration-150 hover:scale-[1.02] hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2"
     >
       <div className="relative aspect-square w-full overflow-hidden bg-slate-50">
-        {inspiration.thumbnailUrl ? (
+        {inspiration.thumbnailUrl && !imgError ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={inspiration.thumbnailUrl}
             alt={inspiration.titre ?? "Inspiration"}
+            loading="lazy"
+            onError={() => setImgError(true)}
             className="size-full object-cover"
           />
         ) : (
-          <div
-            className={cn(
-              "flex size-full items-center justify-center bg-gradient-to-br",
-              gradient,
-            )}
-          >
-            <PlaceholderIcon className="size-12 text-white/50" />
-          </div>
+          <ThumbnailFallback
+            plateforme={inspiration.plateforme}
+            type={inspiration.type}
+            iconClassName="size-12"
+          />
         )}
         <button
           type="button"

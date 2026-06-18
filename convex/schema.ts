@@ -473,6 +473,15 @@ export default defineSchema({
       v.literal("YouTube"),
     ),
     thumbnail: v.optional(v.id("_storage")),
+    // Vignette AUTO récupérée à la création (YouTube img.* / TikTok oEmbed /
+    // Insta oEmbed) et mise en CACHE ici — URL externe, pas un blob storage.
+    // Le `thumbnail` (upload manuel) prime à l'affichage ; autoThumbnailUrl
+    // sert de fallback. Status évite de re-fetcher en boucle un échec.
+    autoThumbnailUrl: v.optional(v.string()),
+    thumbnailFetchedAt: v.optional(v.number()),
+    thumbnailStatus: v.optional(
+      v.union(v.literal("ok"), v.literal("failed")),
+    ),
     titre: v.optional(v.string()),
     notes: v.optional(v.string()),
     // Stats manuelles capturées au moment de la saisie. Toutes optional —
