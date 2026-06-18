@@ -1,4 +1,5 @@
 import { e2eMutation, adminMutation, adminQuery } from "./functions";
+import { internal } from "./_generated/api";
 import { v, ConvexError } from "convex/values";
 
 const plateformeValidator = v.union(
@@ -95,10 +96,12 @@ export const listInspirations = adminQuery({
 
     return await Promise.all(
       rows.map(async (i) => {
-        const thumbnailUrl =
+        // Upload manuel (storage) prioritaire ; sinon vignette auto en cache.
+        const storageUrl =
           i.thumbnail !== undefined && i.thumbnail !== null
             ? await ctx.storage.getUrl(i.thumbnail)
             : null;
+        const thumbnailUrl = storageUrl ?? i.autoThumbnailUrl ?? null;
         return { ...i, thumbnailUrl };
       }),
     );
@@ -115,10 +118,11 @@ export const getInspirationById = adminQuery({
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.id);
     if (!row || row.projectId !== ctx.projectId) return null;
-    const thumbnailUrl =
+    const storageUrl =
       row.thumbnail !== undefined && row.thumbnail !== null
         ? await ctx.storage.getUrl(row.thumbnail)
         : null;
+    const thumbnailUrl = storageUrl ?? row.autoThumbnailUrl ?? null;
     return { ...row, thumbnailUrl };
   },
 });
@@ -141,7 +145,7 @@ export const createInspiration = adminMutation({
       throw new ConvexError("URL requise.");
     }
     const now = Date.now();
-    return await ctx.db.insert("inspirations", {
+    const id = await ctx.db.insert("inspirations", {
       projectId: ctx.projectId,
       url: args.url,
       type: args.type,
@@ -156,6 +160,20 @@ export const createInspiration = adminMutation({
       createdAt: now,
       updatedAt: now,
     });
+
+    // Vignette AUTO : on déclenche la récupération hors du chemin critique
+    // (scheduler.runAfter → la création reste instantanée, la vignette se
+    // remplit juste après). Uniquement pour les vidéos sans vignette manuelle
+    // (un compte n'a pas de vignette source ; un upload manuel prime déjà).
+    if (args.type === "video" && args.thumbnail === undefined) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.inspirationThumbnails.resolveThumbnail,
+        { inspirationId: id, url: args.url, platform: args.plateforme },
+      );
+    }
+
+    return id;
   },
 });
 

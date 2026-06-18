@@ -1,7 +1,7 @@
 "use client";
 
-import { useMutation } from "convex/react";
-import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
+import { useState } from "react";
+import { useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -21,11 +21,8 @@ import type {
   FolderRef,
   InspirationCardData,
 } from "./InspirationCard";
-import {
-  GalleryHorizontalIcon,
-  StarIcon,
-  UserIcon,
-} from "lucide-react";
+import { StarIcon } from "lucide-react";
+import { ThumbnailFallback } from "./ThumbnailFallback";
 import { toast } from "sonner";
 
 const TYPE_LABELS: Record<"video" | "account", string> = {
@@ -33,11 +30,33 @@ const TYPE_LABELS: Record<"video" | "account", string> = {
   account: "Compte",
 };
 
-const PLATFORM_GRADIENTS: Record<string, string> = {
-  TikTok: "from-slate-800 to-slate-950",
-  Instagram: "from-pink-400 to-fuchsia-600",
-  YouTube: "from-red-500 to-red-700",
-};
+/**
+ * Vignette d'une ligne : image si dispo (onError → fallback), sinon fallback
+ * propre icône-plateforme. Sous-composant pour porter l'état d'erreur par row.
+ */
+function ThumbnailCell({ inspiration }: { inspiration: InspirationCardData }) {
+  const [imgError, setImgError] = useState(false);
+  if (inspiration.thumbnailUrl && !imgError) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={inspiration.thumbnailUrl}
+        alt={inspiration.titre ?? "Inspiration"}
+        loading="lazy"
+        onError={() => setImgError(true)}
+        className="size-10 rounded-md object-cover"
+      />
+    );
+  }
+  return (
+    <ThumbnailFallback
+      plateforme={inspiration.plateforme}
+      type={inspiration.type}
+      iconClassName="size-4"
+      className="size-10 rounded-md"
+    />
+  );
+}
 
 function StatsCell({
   stats,
@@ -113,10 +132,6 @@ export function InspirationsList({
           {inspirations.map((i) => {
             const folder = i.folderId ? folderMap.get(i.folderId) : undefined;
             const folderColor = getFolderColor(folder?.color);
-            const gradient =
-              PLATFORM_GRADIENTS[i.plateforme] ?? "from-slate-400 to-slate-600";
-            const PlaceholderIcon =
-              i.type === "account" ? UserIcon : GalleryHorizontalIcon;
             return (
               <TableRow
                 key={i._id}
@@ -124,23 +139,7 @@ export function InspirationsList({
                 className="cursor-pointer"
               >
                 <TableCell>
-                  {i.thumbnailUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={i.thumbnailUrl}
-                      alt={i.titre ?? "Inspiration"}
-                      className="size-10 rounded-md object-cover"
-                    />
-                  ) : (
-                    <div
-                      className={cn(
-                        "flex size-10 items-center justify-center rounded-md bg-gradient-to-br",
-                        gradient,
-                      )}
-                    >
-                      <PlaceholderIcon className="size-4 text-white/70" />
-                    </div>
-                  )}
+                  <ThumbnailCell inspiration={i} />
                 </TableCell>
                 <TableCell>
                   <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-600">
