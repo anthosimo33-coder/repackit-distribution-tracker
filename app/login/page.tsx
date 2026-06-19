@@ -70,7 +70,7 @@ export default function LoginPage() {
           </CardTitle>
           <CardDescription>
             {flow === "signIn"
-              ? "Connecte-toi pour accéder au tracker."
+              ? "Connecte-toi à ton espace (admin ou créateur)."
               : "Création du compte initial (premier démarrage uniquement)."}
           </CardDescription>
         </CardHeader>

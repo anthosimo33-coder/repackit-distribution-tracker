@@ -1,12 +1,13 @@
 "use client";
 
 import { use, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { ConvexError } from "convex/values";
 import { api } from "@/convex/_generated/api";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -81,10 +82,23 @@ export default function JoinPage({
             <CardHeader>
               <CardTitle>Lien invalide</CardTitle>
               <CardDescription>
-                Ce lien d&apos;invitation est invalide ou a expiré. Demande un
-                nouveau lien à ton administrateur.
+                Ce lien d&apos;invitation est invalide, a expiré ou a déjà été
+                utilisé.
               </CardDescription>
             </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-slate-600">
+                Si tu as déjà créé ton compte, connecte-toi avec ton email et
+                ton mot de passe.
+              </p>
+              <Link href="/login" className={buttonVariants({ className: "w-full" })}>
+                Se connecter
+              </Link>
+              <p className="text-xs text-slate-500">
+                Sinon, demande un nouveau lien d&apos;invitation à ton
+                administrateur.
+              </p>
+            </CardContent>
           </>
         ) : (
           <>
