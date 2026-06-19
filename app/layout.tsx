@@ -19,9 +19,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "RepackIt Distribution",
-  description:
-    "Tracker de distribution carrousels TikTok + Instagram pour RepackIt",
+  title: "Jarvis Creator Studio",
+  description: "Jarvis Creator Studio — studio de distribution de contenu",
   robots: "noindex, nofollow",
 };
 

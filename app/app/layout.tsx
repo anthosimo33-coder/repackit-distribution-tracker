@@ -10,6 +10,7 @@ import { api } from "@/convex/_generated/api";
 import { projectPath } from "@/lib/project-path";
 import { AccentStyle } from "@/components/project/AccentStyle";
 import { CreatorBottomNav } from "@/components/portal/CreatorBottomNav";
+import { BrandMark } from "@/components/brand/BrandMark";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -94,12 +95,7 @@ export default function AppPortalLayout({
         <div className="container mx-auto flex h-14 items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-2 font-semibold text-slate-900">
-              <span
-                className="flex size-7 items-center justify-center rounded-md text-xs font-bold text-primary-foreground"
-                style={{ backgroundColor: accent }}
-              >
-                R
-              </span>
+              <BrandMark size={28} />
               Espace créateur
             </span>
             {/* Nav desktop : la barre d'onglets mobile (CreatorBottomNav) prend

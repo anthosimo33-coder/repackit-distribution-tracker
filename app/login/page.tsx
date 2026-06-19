@@ -15,6 +15,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Loader2Icon } from "lucide-react";
+import { BrandMark } from "@/components/brand/BrandMark";
 
 /**
  * Remédiation sécurité — page de connexion (email + mot de passe, Convex
@@ -63,10 +64,8 @@ export default function LoginPage() {
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <span className="flex size-8 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
-              R
-            </span>
-            RepackIt Distribution
+            <BrandMark size={32} />
+            Jarvis Creator Studio
           </CardTitle>
           <CardDescription>
             {flow === "signIn"
