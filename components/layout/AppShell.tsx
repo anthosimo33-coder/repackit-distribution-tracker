@@ -25,7 +25,13 @@ import { Loader2Icon } from "lucide-react";
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
-  if (pathname === "/login" || pathname.startsWith("/join")) {
+  // Pages publiques rendues nues (sans gating d'auth) : /login générique,
+  // /[slug]/login brandé par projet, et /join/<token> (onboarding créateur).
+  if (
+    pathname === "/login" ||
+    pathname.endsWith("/login") ||
+    pathname.startsWith("/join")
+  ) {
     return <>{children}</>;
   }
 

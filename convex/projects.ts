@@ -1,9 +1,11 @@
 import {
   authedQuery,
   e2eMutation,
+  publicQuery,
   requireProjectAccess,
   superadminMutation,
 } from "./functions";
+import { internalMutation } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import type { QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
@@ -104,6 +106,44 @@ export const getProjectForCurrentUser = authedQuery({
       project,
       isCreator: membership.role === "creator",
     };
+  },
+});
+
+/**
+ * PUBLIC (pré-session) — branding minimal d'UN SEUL projet, désigné par son
+ * slug, pour la page de login brandée `/[slug]/login`. Le visiteur connaît
+ * déjà ce slug (c'est le lien qu'on lui a donné) ; on ne lui révèle que le NOM
+ * et l'ACCENT du projet pour l'habillage.
+ *
+ * ⚠️ ANTI-FUITE : ne renvoie JAMAIS la liste des projets ni aucune donnée
+ * sensible — uniquement { name, accentColor } du projet du slug, ou null si le
+ * slug est inconnu. Il n'existe aucun endpoint public listant les projets.
+ */
+export const getProjectBrandingBySlug = publicQuery({
+  args: { slug: v.string() },
+  handler: async (ctx, { slug }) => {
+    const project = await getProjectBySlug(ctx, slug);
+    if (project === null) return null;
+    return { name: project.name, accentColor: project.accentColor };
+  },
+});
+
+/**
+ * Renommage one-shot d'un projet par slug (interne, via `convex run`). Sert au
+ * rebranding « RepackIt » → « RepackIt Creator » sans toucher au slug ni au
+ * routing. Idempotent. Lancement prod :
+ *   npx convex run projects:renameProjectBySlug '{"slug":"repackit","name":"RepackIt Creator"}' --prod
+ */
+export const renameProjectBySlug = internalMutation({
+  args: { slug: v.string(), name: v.string() },
+  handler: async (
+    ctx,
+    { slug, name },
+  ): Promise<{ updated: boolean }> => {
+    const project = await getProjectBySlug(ctx, slug);
+    if (project === null) return { updated: false };
+    await ctx.db.patch(project._id, { name });
+    return { updated: true };
   },
 });
 

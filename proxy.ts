@@ -26,8 +26,15 @@ import {
  * P1 Créateurs — /join/<token> est PUBLIC (pré-session, comme /login) : un
  * invité n'a pas encore de compte. Exclu du gating d'auth ci-dessous.
  */
-const isLoginPage = createRouteMatcher(["/login"]);
-const isPublicPage = createRouteMatcher(["/login", "/join", "/join/(.*)"]);
+// `/:slug/login` = login brandé par projet (public, comme /login). Deux
+// segments → ne capture pas le /login générique (un seul segment).
+const isLoginPage = createRouteMatcher(["/login", "/:slug/login"]);
+const isPublicPage = createRouteMatcher([
+  "/login",
+  "/:slug/login",
+  "/join",
+  "/join/(.*)",
+]);
 
 export default convexAuthNextjsMiddleware(async (request, { convexAuth }) => {
   if (isLoginPage(request) && (await convexAuth.isAuthenticated())) {
