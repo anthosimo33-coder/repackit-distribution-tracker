@@ -26,11 +26,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   // Pages publiques rendues nues (sans gating d'auth) : /login générique,
-  // /[slug]/login brandé par projet, et /join/<token> (onboarding créateur).
+  // /[slug]/login brandé par projet, /join/<token> (onboarding créateur) et
+  // /reset-password/<token> (reset mot de passe admin, Voie B).
   if (
     pathname === "/login" ||
     pathname.endsWith("/login") ||
-    pathname.startsWith("/join")
+    pathname.startsWith("/join") ||
+    pathname.startsWith("/reset-password")
   ) {
     return <>{children}</>;
   }

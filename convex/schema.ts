@@ -564,6 +564,23 @@ export default defineSchema({
     .index("by_project", ["projectId"])
     .index("by_user", ["userId"]),
 
+  // ─── Reset mot de passe admin (Voie B) — lien à usage unique sans email ────
+  // Un admin génère un lien /reset-password/<token> qu'il transmet au créateur
+  // (WhatsApp). Pas de flux self-service "mot de passe oublié" (aucun service
+  // email). Token aléatoire long, à usage unique (usedAt), expiration courte.
+  // Lié au userId (compte déjà finalisé) + projectId (scope + branding page).
+  // Stratégie : générer un nouveau lien SUPPRIME les anciens du même user
+  // (un seul lien actif à la fois). Cf convex/passwordReset.ts.
+  passwordResetTokens: defineTable({
+    token: v.string(),
+    userId: v.id("users"),
+    projectId: v.id("projects"),
+    expiresAt: v.number(),
+    usedAt: v.optional(v.number()),
+  })
+    .index("by_token", ["token"])
+    .index("by_user", ["userId"]),
+
   // Invitations à token (uuid). Une invitation = un lien /join/<token> à usage
   // unique, lié à un créateur. expiresAt défaut +14 j ; usedAt posé à la
   // consommation (la mutation de signup la marque). by_token = résolution du

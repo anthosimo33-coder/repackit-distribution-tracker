@@ -30,6 +30,7 @@ import type * as maintenance from "../maintenance.js";
 import type * as metricSnapshots from "../metricSnapshots.js";
 import type * as metricsDisplay from "../metricsDisplay.js";
 import type * as migrations from "../migrations.js";
+import type * as passwordReset from "../passwordReset.js";
 import type * as payments from "../payments.js";
 import type * as personnes from "../personnes.js";
 import type * as projects from "../projects.js";
@@ -73,6 +74,7 @@ declare const fullApi: ApiFromModules<{
   metricSnapshots: typeof metricSnapshots;
   metricsDisplay: typeof metricsDisplay;
   migrations: typeof migrations;
+  passwordReset: typeof passwordReset;
   payments: typeof payments;
   personnes: typeof personnes;
   projects: typeof projects;
