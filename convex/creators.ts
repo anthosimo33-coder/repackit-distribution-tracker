@@ -446,6 +446,12 @@ export const cleanupTestCreators = e2eMutation({
           .withIndex("by_user", (q) => q.eq("userId", userId))
           .collect();
         for (const m of ms) await ctx.db.delete(m._id);
+        // Tokens de reset mot de passe liés à ce user (Voie B).
+        const resets = await ctx.db
+          .query("passwordResetTokens")
+          .withIndex("by_user", (q) => q.eq("userId", userId))
+          .collect();
+        for (const r of resets) await ctx.db.delete(r._id);
         const u = await ctx.db.get(userId);
         if (u) await ctx.db.delete(u._id);
       }

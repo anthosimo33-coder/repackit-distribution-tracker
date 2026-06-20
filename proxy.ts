@@ -34,6 +34,9 @@ const isPublicPage = createRouteMatcher([
   "/:slug/login",
   "/join",
   "/join/(.*)",
+  // Reset mot de passe (Voie B) : lien à usage unique, pré-session comme /join.
+  "/reset-password",
+  "/reset-password/(.*)",
 ]);
 
 export default convexAuthNextjsMiddleware(async (request, { convexAuth }) => {

@@ -22,7 +22,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2Icon } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { KeyRoundIcon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -43,6 +50,9 @@ const NONE = "__none__";
 export function CreatorDetailView({ creator }: { creator: Creator }) {
   const update = useProjectMutation(api.creators.updateCreator);
   const regenerate = useProjectMutation(api.creators.regenerateInvitation);
+  const generateResetLink = useProjectMutation(
+    api.passwordReset.generatePasswordResetLink,
+  );
 
   const [name, setName] = useState(creator.name);
   const [phone, setPhone] = useState(creator.phone ?? "");
@@ -55,6 +65,9 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
   );
   const [adminNotes, setAdminNotes] = useState(creator.adminNotes ?? "");
   const [saving, setSaving] = useState(false);
+  // Lien de reset généré (affiché dans un dialog à copier). null = dialog fermé.
+  const [resetToken, setResetToken] = useState<string | null>(null);
+  const [generatingReset, setGeneratingReset] = useState(false);
 
   async function handleSave() {
     setSaving(true);
@@ -85,6 +98,18 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
       toast.success("Nouveau lien généré — l'ancien est désactivé");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur");
+    }
+  }
+
+  async function handleGenerateReset() {
+    setGeneratingReset(true);
+    try {
+      const { token } = await generateResetLink({ creatorId: creator._id });
+      setResetToken(token);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setGeneratingReset(false);
     }
   }
 
@@ -128,6 +153,59 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
           </CardContent>
         </Card>
       )}
+
+      {/* Reset mot de passe — uniquement pour un compte DÉJÀ finalisé (userId
+          posé). Pour un compte encore "invited", c'est le lien d'activation
+          ci-dessus qui s'applique. Les deux sont des actions de récupération
+          d'accès mais distinctes. */}
+      {creator.userId && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Mot de passe</CardTitle>
+            <CardDescription>
+              Le créateur a perdu son mot de passe ? Génère un lien de
+              réinitialisation à usage unique (valable 48 h) et envoie-le lui
+              (WhatsApp). Tu ne vois jamais son mot de passe.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              variant="outline"
+              onClick={handleGenerateReset}
+              disabled={generatingReset}
+            >
+              {generatingReset ? (
+                <Loader2Icon className="mr-2 size-4 animate-spin" />
+              ) : (
+                <KeyRoundIcon className="mr-2 size-4" />
+              )}
+              Réinitialiser le mot de passe
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      <Dialog
+        open={resetToken !== null}
+        onOpenChange={(open) => !open && setResetToken(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Lien de réinitialisation</DialogTitle>
+            <DialogDescription>
+              Envoie ce lien au créateur (WhatsApp). Il est valable 48 h, à
+              usage unique : une fois utilisé, il cesse de fonctionner.
+            </DialogDescription>
+          </DialogHeader>
+          {resetToken && (
+            <CopyableLink
+              token={resetToken}
+              segment="reset-password"
+              ariaLabel="Lien de réinitialisation"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Card>
         <CardHeader>

@@ -20,12 +20,20 @@ export function joinUrl(token: string): string {
 export function CopyableLink({
   token,
   className,
+  // Segment de route du lien : "join" (invitation, défaut) ou "reset-password"
+  // (reset mot de passe admin). On ne stocke jamais l'URL complète en base.
+  segment = "join",
+  ariaLabel = "Lien d'invitation",
 }: {
   token: string;
   className?: string;
+  segment?: "join" | "reset-password";
+  ariaLabel?: string;
 }) {
   const [copied, setCopied] = useState(false);
-  const url = joinUrl(token);
+  const origin =
+    typeof window !== "undefined" ? window.location.origin : "";
+  const url = `${origin}/${segment}/${token}`;
 
   async function copy() {
     try {
@@ -44,7 +52,7 @@ export function CopyableLink({
         value={url}
         onFocus={(e) => e.currentTarget.select()}
         className="font-mono text-xs"
-        aria-label="Lien d'invitation"
+        aria-label={ariaLabel}
       />
       <Button
         type="button"
