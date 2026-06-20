@@ -66,10 +66,10 @@ function PastPeriod({ p }: { p: Payment }) {
         onClick={() => setOpen((o) => !o)}
         className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
       >
-        <span className="flex items-center gap-2">
+        <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <ChevronRightIcon
             className={cn(
-              "size-4 text-slate-400 transition-transform",
+              "size-4 shrink-0 text-slate-400 transition-transform",
               open && "rotate-90",
             )}
           />
@@ -86,7 +86,7 @@ function PastPeriod({ p }: { p: Payment }) {
             </span>
           )}
         </span>
-        <span className="tabular-nums font-medium text-slate-900">
+        <span className="shrink-0 tabular-nums font-medium text-slate-900">
           {formatEuros(p.totalDue)}
         </span>
       </button>
