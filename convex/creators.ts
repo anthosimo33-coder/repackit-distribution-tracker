@@ -378,7 +378,214 @@ export const updateMyProfile = creatorMutation({
   },
 });
 
+// ─── Multi-projets créateur — un compte, N memberships ──────────────────────
+//
+// MODÈLE : aucun changement de schéma. Un créateur multi-projets = 1 user +
+// N memberships (role "creator") + N fiches `creators` (une par projet, qui
+// PORTE les données par-projet : statut, paiement, nom affiché). requireCreator
+// (convex/functions.ts) résout DÉJÀ la fiche par (userId, projectId) → toutes
+// les creatorQuery/creatorMutation sont isolées par le projet courant SANS
+// modification. Les créateurs actuels (1 fiche + 1 membership) sont déjà ce
+// modèle avec N=1 : 0 migration, 0 perte.
+
+/**
+ * Projets du créateur courant (pour le switcher du portail /app). Liste les
+ * projets où l'utilisateur a un membership "creator", avec le branding par
+ * projet (nom, accent, logo) + payoutDay + le nom de SA fiche sur ce projet.
+ * Vide si l'utilisateur n'est creator nulle part. N'expose JAMAIS un projet où
+ * il n'est pas membre.
+ */
+export const getMyCreatorProjects = authedQuery({
+  args: {},
+  handler: async (ctx) => {
+    const memberships = await ctx.db
+      .query("memberships")
+      .withIndex("by_user", (q) => q.eq("userId", ctx.userId))
+      .collect();
+    const fiches = await ctx.db
+      .query("creators")
+      .withIndex("by_user", (q) => q.eq("userId", ctx.userId))
+      .collect();
+    const out: {
+      projectId: Id<"projects">;
+      slug: string;
+      name: string;
+      accentColor: string;
+      logoUrl: string | null;
+      payoutDay: number;
+      creatorName: string | null;
+    }[] = [];
+    for (const m of memberships) {
+      if (m.role !== "creator") continue;
+      const project = await ctx.db.get(m.projectId);
+      if (!project) continue;
+      const fiche = fiches.find((c) => c.projectId === m.projectId);
+      out.push({
+        projectId: project._id,
+        slug: project.slug,
+        name: project.name,
+        accentColor: project.accentColor,
+        logoUrl: project.logoUrl ?? null,
+        payoutDay: project.payoutDay,
+        creatorName: fiche?.name ?? null,
+      });
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  },
+});
+
+/**
+ * ADMIN — projets vers lesquels l'admin courant peut rattacher CE créateur :
+ * les projets dont l'admin a les droits (superadmin → tous ; sinon ses
+ * memberships "admin") MOINS ceux où le créateur est déjà membre. Alimente le
+ * sélecteur du bouton « Ajouter à un autre projet ». Renvoie [] pour un non-
+ * admin (aucun projet admin) → aucun leak.
+ */
+export const listAddableProjectsForCreator = authedQuery({
+  args: { creatorUserId: v.id("users") },
+  handler: async (ctx, { creatorUserId }) => {
+    const me = await ctx.db.get(ctx.userId);
+    let adminProjects: Doc<"projects">[];
+    if (me?.role === "superadmin") {
+      adminProjects = await ctx.db.query("projects").collect();
+    } else {
+      const myMemberships = await ctx.db
+        .query("memberships")
+        .withIndex("by_user", (q) => q.eq("userId", ctx.userId))
+        .collect();
+      adminProjects = [];
+      for (const m of myMemberships) {
+        if (m.role !== "admin") continue;
+        const p = await ctx.db.get(m.projectId);
+        if (p) adminProjects.push(p);
+      }
+    }
+    const creatorMemberships = await ctx.db
+      .query("memberships")
+      .withIndex("by_user", (q) => q.eq("userId", creatorUserId))
+      .collect();
+    const memberOf = new Set(creatorMemberships.map((m) => m.projectId));
+    return adminProjects
+      .filter((p) => p.status === "active" && !memberOf.has(p._id))
+      .map((p) => ({ projectId: p._id, name: p.name, slug: p.slug }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  },
+});
+
+/**
+ * ADMIN — rattache un créateur DÉJÀ inscrit (compte existant, identifié par son
+ * userId) au projet courant (= projet cible, sur lequel l'adminMutation vérifie
+ * les droits de l'appelant). Crée une nouvelle fiche `creators` + un membership
+ * "creator" pour ce compte sur ce projet. NE touche NI au login NI au mot de
+ * passe (même compte). Identité (nom/email/téléphone) copiée depuis une fiche
+ * existante du créateur ; statut initial "onboarding" (il configure ses comptes
+ * pour ce projet). Garde-fous : compte existant requis, pas de doublon.
+ *
+ * Pour un créateur JAMAIS inscrit (aucun compte), ce bouton ne s'applique pas :
+ * c'est /join (invitation à token) qui crée un nouveau compte.
+ */
+export const addCreatorToProject = adminMutation({
+  args: { creatorUserId: v.id("users") },
+  handler: async (ctx, { creatorUserId }): Promise<{ creatorId: Id<"creators"> }> => {
+    const user = await ctx.db.get(creatorUserId);
+    if (!user) {
+      throw new ConvexError("Compte créateur introuvable.");
+    }
+    // Identité de référence : une fiche existante de ce créateur (n'importe quel
+    // projet). Sans fiche, ce compte n'est pas un créateur → refus.
+    const fiches = await ctx.db
+      .query("creators")
+      .withIndex("by_user", (q) => q.eq("userId", creatorUserId))
+      .collect();
+    const source = fiches[0];
+    if (!source) {
+      throw new ConvexError("Ce compte n'est pas un créateur.");
+    }
+    // Pas de doublon : déjà rattaché (quel que soit le rôle) au projet cible.
+    const existing = await ctx.db
+      .query("memberships")
+      .withIndex("by_user_project", (q) =>
+        q.eq("userId", creatorUserId).eq("projectId", ctx.projectId),
+      )
+      .first();
+    if (existing) {
+      throw new ConvexError("Ce créateur est déjà rattaché à ce projet.");
+    }
+    const now = Date.now();
+    const creatorId = await ctx.db.insert("creators", {
+      projectId: ctx.projectId,
+      userId: creatorUserId,
+      name: source.name,
+      email: source.email,
+      phone: source.phone,
+      status: "onboarding",
+      createdAt: now,
+    });
+    await ctx.db.insert("memberships", {
+      userId: creatorUserId,
+      projectId: ctx.projectId,
+      role: "creator",
+    });
+    return { creatorId };
+  },
+});
+
 // ─── Helpers e2e (gated E2E_SECRET) ──────────────────────────────────────────
+
+/**
+ * Rattache (idempotent) un créateur existant (par email) à un projet — setup
+ * du test multi-projets sans passer par l'UI admin. Crée la fiche + le
+ * membership "creator" si absents. Retourne le creatorId.
+ */
+export const e2eAddCreatorToProject = e2eMutation({
+  args: { email: v.string(), projectId: v.id("projects") },
+  handler: async (ctx, { email, projectId }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", email))
+      .first();
+    if (user === null) throw new ConvexError(`Compte introuvable: ${email}`);
+    const fiches = await ctx.db
+      .query("creators")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .collect();
+    const source = fiches[0];
+    if (!source) throw new ConvexError("Ce compte n'est pas un créateur.");
+    const existingFiche = fiches.find((c) => c.projectId === projectId);
+    if (existingFiche) {
+      // Idempotent : s'assure que le membership existe aussi.
+      const m = await ctx.db
+        .query("memberships")
+        .withIndex("by_user_project", (q) =>
+          q.eq("userId", user._id).eq("projectId", projectId),
+        )
+        .first();
+      if (!m) {
+        await ctx.db.insert("memberships", {
+          userId: user._id,
+          projectId,
+          role: "creator",
+        });
+      }
+      return { creatorId: existingFiche._id };
+    }
+    const creatorId = await ctx.db.insert("creators", {
+      projectId,
+      userId: user._id,
+      name: source.name,
+      email: source.email,
+      phone: source.phone,
+      status: "onboarding",
+      createdAt: Date.now(),
+    });
+    await ctx.db.insert("memberships", {
+      userId: user._id,
+      projectId,
+      role: "creator",
+    });
+    return { creatorId };
+  },
+});
 
 /**
  * Exécute requireProjectAdmin pour le user (par email) sur projectId et
