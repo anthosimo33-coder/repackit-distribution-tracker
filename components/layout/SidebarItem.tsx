@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { LucideIcon } from "lucide-react";
+import { ExternalLinkIcon, type LucideIcon } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -19,6 +19,10 @@ export type SidebarItemProps = {
   // un compteur de drafts par page format.
   badge?: number;
   onNavigate?: () => void;
+  // Lien externe (sidebarLinks par projet) : rendu via <a target="_blank">
+  // plutôt que <Link> Next, jamais marqué actif (route hors app). Affiche une
+  // petite icône "ouvre dans un nouvel onglet" à droite en mode expanded.
+  external?: boolean;
 };
 
 export function SidebarItem({
@@ -29,6 +33,7 @@ export function SidebarItem({
   isCollapsed,
   badge,
   onNavigate,
+  external,
 }: SidebarItemProps) {
   const linkClass = cn(
     "flex items-center rounded-md text-sm transition-colors",
@@ -38,8 +43,8 @@ export function SidebarItem({
       : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",
   );
 
-  const link = (
-    <Link href={href} className={linkClass} onClick={onNavigate}>
+  const inner = (
+    <>
       <Icon className="size-4 shrink-0" />
       {!isCollapsed && <span className="flex-1 truncate">{label}</span>}
       {!isCollapsed && badge !== undefined && badge > 0 && (
@@ -47,6 +52,25 @@ export function SidebarItem({
           {badge}
         </span>
       )}
+      {!isCollapsed && external && (
+        <ExternalLinkIcon className="size-3.5 shrink-0 text-slate-300" />
+      )}
+    </>
+  );
+
+  const link = external ? (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={linkClass}
+      onClick={onNavigate}
+    >
+      {inner}
+    </a>
+  ) : (
+    <Link href={href} className={linkClass} onClick={onNavigate}>
+      {inner}
     </Link>
   );
 

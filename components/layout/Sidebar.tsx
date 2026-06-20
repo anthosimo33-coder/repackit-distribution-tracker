@@ -26,7 +26,9 @@ import {
   WalletIcon,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import { useProject } from "@/components/project/ProjectProvider";
 import { useProjectQuery } from "@/components/project/use-project-convex";
+import { resolveSidebarLinkIcon } from "@/lib/sidebar-link-icon";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -69,6 +71,7 @@ export function Sidebar({
   const router = useRouter();
   const { signOut } = useAuthActions();
   const projectPath = useProjectPath();
+  const { project } = useProject();
   const me = useQuery(api.projects.getMe, {});
   // Badge file de validation = nb de vidéos en attente de revue (video_submitted).
   const submittedCount = useProjectQuery(api.assignments.countVideoSubmitted, {});
@@ -204,6 +207,18 @@ export function Sidebar({
     ...item(projectPath("/guide")),
   };
 
+  // OUTILS — liens externes configurés PAR PROJET (project.sidebarLinks). Vide
+  // pour les projets qui n'en ont pas (ex. RepackIt) → la section ne s'affiche
+  // pas. Chaque lien ouvre son URL dans un nouvel onglet. href = URL externe
+  // (clé de rendu = url, stable). icon résolu depuis le nom lucide configuré.
+  const externalLinkItems = (project.sidebarLinks ?? []).map((link) => ({
+    icon: resolveSidebarLinkIcon(link.icon),
+    label: link.label,
+    href: link.url,
+    isActive: false,
+    external: true as const,
+  }));
+
   // Si l'utilisateur est sur une route archivée, on déplie pour que l'item
   // actif reste visible (évite « où suis-je ? » quand Archives est replié).
   const anyArchiveActive = archiveItems.some((it) => it.isActive);
@@ -252,6 +267,21 @@ export function Sidebar({
         <SidebarSection collapsed={collapsed} label="Contenu">
           {contenuItems.map(renderItem)}
         </SidebarSection>
+
+        {/* Outils — liens externes propres au projet (configurable). Masqué
+            quand le projet n'en a aucun. */}
+        {externalLinkItems.length > 0 && (
+          <SidebarSection collapsed={collapsed} label="Outils">
+            {externalLinkItems.map((it) => (
+              <SidebarItem
+                key={it.href}
+                {...it}
+                isCollapsed={collapsed}
+                onNavigate={onNavigate}
+              />
+            ))}
+          </SidebarSection>
+        )}
 
         {/* Archives — repli en mode expanded ; en mode collapsed, les items
             s'affichent en icônes (séparateur en tête), le repli n'a pas de

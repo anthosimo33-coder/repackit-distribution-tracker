@@ -52,9 +52,6 @@ export function ProjectSwitcher({
     }
   }
 
-  const accent = project.accentColor || "#FF5200";
-  const initial = project.name.charAt(0).toUpperCase() || "?";
-
   const trigger = (
     <button
       type="button"
@@ -64,12 +61,11 @@ export function ProjectSwitcher({
       )}
       aria-label="Changer de projet"
     >
-      <span
-        className="flex size-7 shrink-0 items-center justify-center rounded-md text-xs font-bold text-white"
-        style={{ backgroundColor: accent }}
-      >
-        {initial}
-      </span>
+      <ProjectAvatar
+        name={project.name}
+        accentColor={project.accentColor}
+        logoUrl={project.logoUrl}
+      />
       {!isCollapsed && (
         <>
           <span className="min-w-0 flex-1">
@@ -119,10 +115,19 @@ export function ProjectSwitcher({
                   onClick={() => switchTo(p.slug)}
                   className="gap-2"
                 >
-                  <span
-                    className="size-3 shrink-0 rounded-full"
-                    style={{ backgroundColor: p.accentColor || "#FF5200" }}
-                  />
+                  {p.logoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={p.logoUrl}
+                      alt=""
+                      className="size-4 shrink-0 rounded object-cover"
+                    />
+                  ) : (
+                    <span
+                      className="size-3 shrink-0 rounded-full"
+                      style={{ backgroundColor: p.accentColor || "#FF5200" }}
+                    />
+                  )}
                   <span className="min-w-0 flex-1 truncate">{p.name}</span>
                   {p.slug === project.slug && (
                     <CheckIcon className="size-4 shrink-0 text-slate-500" />
@@ -153,5 +158,42 @@ export function ProjectSwitcher({
         <CreateProjectDialog open={createOpen} onOpenChange={setCreateOpen} />
       )}
     </>
+  );
+}
+
+/**
+ * Identité visuelle du projet : logo (image carrée arrondie, object-cover) si
+ * le projet a un `logoUrl` configuré ; sinon fallback initiale du nom sur un
+ * carré de l'accentColor (comportement historique inchangé). Même gabarit dans
+ * les deux cas (size-7) pour ne pas décaler la mise en page du switcher.
+ */
+function ProjectAvatar({
+  name,
+  accentColor,
+  logoUrl,
+}: {
+  name: string;
+  accentColor: string;
+  logoUrl?: string;
+}) {
+  if (logoUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={logoUrl}
+        alt={name}
+        className="size-7 shrink-0 rounded-md object-cover"
+      />
+    );
+  }
+  const accent = accentColor || "#FF5200";
+  const initial = name.charAt(0).toUpperCase() || "?";
+  return (
+    <span
+      className="flex size-7 shrink-0 items-center justify-center rounded-md text-xs font-bold text-white"
+      style={{ backgroundColor: accent }}
+    >
+      {initial}
+    </span>
   );
 }

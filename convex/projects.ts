@@ -148,6 +148,53 @@ export const renameProjectBySlug = internalMutation({
 });
 
 /**
+ * Validateur partagé du shape `sidebarLinks` (aligné sur schema.ts). icon =
+ * nom lucide optionnel résolu côté UI (lib/sidebar-link-icon.ts).
+ */
+const sidebarLinksValidator = v.array(
+  v.object({
+    label: v.string(),
+    url: v.string(),
+    icon: v.optional(v.string()),
+  }),
+);
+
+/**
+ * Configuration du BRANDING d'un projet (interne, via `convex run`) :
+ * logo affiché dans le switcher + liens externes de sidebar. CONFIGURABLE PAR
+ * PROJET (désigné par slug) — aucun hardcode. Patch partiel :
+ *   - champ omis        → inchangé ;
+ *   - logoUrl: ""       → retire le logo (fallback initiale + accent) ;
+ *   - sidebarLinks: []  → retire tous les liens (la section "Outils" disparaît).
+ *
+ * Exemple — configurer le projet "snytch" (logo œil + lien Carrousel Studio) :
+ *   npx convex run projects:setProjectBranding '{"slug":"snytch","logoUrl":"/brand/snytch-logo.jpeg","sidebarLinks":[{"label":"Carrousel Studio","url":"https://carrouselstudio.vercel.app/","icon":"carousel"}]}' --prod
+ */
+export const setProjectBranding = internalMutation({
+  args: {
+    slug: v.string(),
+    logoUrl: v.optional(v.string()),
+    sidebarLinks: v.optional(sidebarLinksValidator),
+  },
+  handler: async (
+    ctx,
+    { slug, logoUrl, sidebarLinks },
+  ): Promise<{ updated: boolean }> => {
+    const project = await getProjectBySlug(ctx, slug);
+    if (project === null) return { updated: false };
+    const patch: Partial<Doc<"projects">> = {};
+    if (logoUrl !== undefined) {
+      patch.logoUrl = logoUrl === "" ? undefined : logoUrl;
+    }
+    if (sidebarLinks !== undefined) {
+      patch.sidebarLinks = sidebarLinks.length === 0 ? undefined : sidebarLinks;
+    }
+    await ctx.db.patch(project._id, patch);
+    return { updated: true };
+  },
+});
+
+/**
  * P3 — projets accessibles par l'utilisateur courant (switcher de projet).
  * superadmin → tous les projets ; sinon → ceux liés par un membership. Triés
  * par nom pour un ordre stable dans le menu.
@@ -362,6 +409,31 @@ export const e2eAssertAccess = e2eMutation({
         error: e instanceof ConvexError ? String(e.data) : "error",
       };
     }
+  },
+});
+
+/**
+ * Pose le branding (logoUrl + sidebarLinks) d'un projet par slug — exerce la
+ * VRAIE logique de setProjectBranding pour la spec e2e branding. Gated E2E.
+ */
+export const e2eSetProjectBranding = e2eMutation({
+  args: {
+    slug: v.string(),
+    logoUrl: v.optional(v.string()),
+    sidebarLinks: v.optional(sidebarLinksValidator),
+  },
+  handler: async (ctx, { slug, logoUrl, sidebarLinks }) => {
+    const project = await getProjectBySlug(ctx, slug);
+    if (project === null) return { updated: false };
+    const patch: Partial<Doc<"projects">> = {};
+    if (logoUrl !== undefined) {
+      patch.logoUrl = logoUrl === "" ? undefined : logoUrl;
+    }
+    if (sidebarLinks !== undefined) {
+      patch.sidebarLinks = sidebarLinks.length === 0 ? undefined : sidebarLinks;
+    }
+    await ctx.db.patch(project._id, patch);
+    return { updated: true };
   },
 });
 

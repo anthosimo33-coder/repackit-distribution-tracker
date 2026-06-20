@@ -53,6 +53,26 @@ export default defineSchema({
     payoutDay: v.number(),
     status: v.union(v.literal("active"), v.literal("archived")),
     createdAt: v.number(),
+    // Branding configurable PAR PROJET (aucun hardcode slug). Tout optionnel →
+    // 0 migration ; un projet sans ces champs garde le comportement actuel
+    // (initiale colorée dans le switcher, aucune section "Outils").
+    //
+    // logoUrl : image affichée à la place de l'initiale+accent dans le
+    // ProjectSwitcher (URL publique, ex. /brand/snytch-logo.jpeg ou une URL
+    // externe). Absent ⇒ fallback initiale + accentColor.
+    logoUrl: v.optional(v.string()),
+    // sidebarLinks : liens externes propres au projet, rendus dans la sidebar
+    // (section "Outils") et ouverts dans un nouvel onglet. icon = nom optionnel
+    // d'icône lucide (cf lib/sidebar-link-icon.ts), fallback "lien externe".
+    sidebarLinks: v.optional(
+      v.array(
+        v.object({
+          label: v.string(),
+          url: v.string(),
+          icon: v.optional(v.string()),
+        }),
+      ),
+    ),
   }).index("by_slug", ["slug"]),
 
   // Appartenance d'un user à un projet, avec rôle par-projet. Le superadmin
