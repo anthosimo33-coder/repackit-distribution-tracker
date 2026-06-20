@@ -15,6 +15,11 @@ const convex = createE2eClient(convexUrl);
  *  lien de reset (UI) → /reset-password en navigation privée → nouveau mot de
  *  passe → redirection /login → connexion OK avec le NOUVEAU mot de passe →
  *  lien rejoué rejeté (usage unique) → lien expiré rejeté.
+ *
+ * NB orchestration : le dialog du lien de reset est MODAL (backdrop plein
+ * écran). Il DOIT être refermé (Escape) après lecture du lien, sinon le clic
+ * suivant sur le bouton « Réinitialiser » est intercepté par le backdrop et
+ * part en timeout. generateResetToken() encapsule ouvrir → lire → refermer.
  */
 test.describe("Reset mot de passe admin (Voie B)", () => {
   test("générer → reset → login → usage unique → expiration", async ({
@@ -28,32 +33,38 @@ test.describe("Reset mot de passe admin (Voie B)", () => {
     const oldPassword = "old-pass-12345";
     const newPassword = "new-pass-67890";
 
-    // ── Setup : inviter + finaliser le créateur (compte + mot de passe). ──
+    // ── Setup : inviter (UI) puis finaliser le compte via l'action signUp ──
+    // (équivalent serveur de /join, sans contexte navigateur supplémentaire).
     await page.goto(adminPath("/createurs"));
     await page
       .getByRole("button", { name: /inviter un créateur/i })
       .first()
       .click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible();
-    await dialog.getByLabel("Nom *", { exact: true }).fill(name);
-    await dialog.getByLabel("Email *", { exact: true }).fill(email);
-    await dialog.getByRole("button", { name: "Inviter", exact: true }).click();
-    const joinInput = dialog.getByLabel("Lien d'invitation");
+    const inviteDialog = page.getByRole("dialog");
+    await expect(inviteDialog).toBeVisible();
+    await inviteDialog.getByLabel("Nom *", { exact: true }).fill(name);
+    await inviteDialog.getByLabel("Email *", { exact: true }).fill(email);
+    await inviteDialog
+      .getByRole("button", { name: "Inviter", exact: true })
+      .click();
+    const joinInput = inviteDialog.getByLabel("Lien d'invitation");
     await expect(joinInput).toBeVisible({ timeout: 10_000 });
     const joinToken = (await joinInput.inputValue()).split("/join/")[1];
 
-    const joinCtx = await browser.newContext({
-      storageState: { cookies: [], origins: [] },
+    // Finalise le compte (user + mot de passe + membership creator) comme le
+    // ferait la page /join. Le dialog d'invitation encore ouvert est de toute
+    // façon jeté par le page.goto qui suit.
+    await convex.action(api.auth.signIn, {
+      provider: "password",
+      params: {
+        email,
+        password: oldPassword,
+        flow: "signUp",
+        inviteToken: joinToken,
+      },
     });
-    const joinPage = await joinCtx.newPage();
-    await joinPage.goto(`/join/${joinToken}`);
-    await joinPage.getByLabel("Mot de passe").fill(oldPassword);
-    await joinPage.getByRole("button", { name: /activer mon compte/i }).click();
-    await joinPage.waitForURL("**/app", { timeout: 20_000 });
-    await joinCtx.close();
 
-    // ── Admin : ouvrir la fiche créateur → générer le lien de reset. ──
+    // ── Admin : ouvrir la fiche créateur. ──
     await page.goto(adminPath("/createurs"));
     // Le nom contient des crochets (métachars regex) → on cible la portion
     // bracket-free « Reset <ts> », unique au run.
@@ -63,19 +74,26 @@ test.describe("Reset mot de passe admin (Voie B)", () => {
       .click();
     await page.waitForURL(/\/createurs\/.+/, { timeout: 10_000 });
 
-    await page
-      .getByRole("button", { name: /réinitialiser le mot de passe/i })
-      .click();
-    const resetDialog = page.getByRole("dialog");
-    await expect(resetDialog).toBeVisible();
-    const resetInput = resetDialog.getByLabel("Lien de réinitialisation");
-    await expect(resetInput).toBeVisible({ timeout: 10_000 });
-    const resetUrl = await resetInput.inputValue();
-    expect(resetUrl).toContain("/reset-password/");
-    const resetToken = resetUrl.split("/reset-password/")[1];
-    expect(resetToken.length).toBeGreaterThan(0);
+    // Génère un lien de reset via l'UI, renvoie le token, et REFERME le dialog
+    // modal (sinon le backdrop bloque les interactions suivantes).
+    async function generateResetToken(): Promise<string> {
+      await page
+        .getByRole("button", { name: /réinitialiser le mot de passe/i })
+        .click();
+      const dialog = page.getByRole("dialog");
+      const input = dialog.getByLabel("Lien de réinitialisation");
+      await expect(input).toBeVisible({ timeout: 10_000 });
+      const url = await input.inputValue();
+      expect(url).toContain("/reset-password/");
+      const token = url.split("/reset-password/")[1];
+      expect(token.length).toBeGreaterThan(0);
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+      return token;
+    }
 
-    // ── Créateur : ouvrir le lien (contexte vierge) → nouveau mot de passe. ──
+    // ── 1. Génération + reset + login avec le NOUVEAU mot de passe. ──
+    const resetToken = await generateResetToken();
     const resetCtx = await browser.newContext({
       storageState: { cookies: [], origins: [] },
     });
@@ -86,18 +104,16 @@ test.describe("Reset mot de passe admin (Voie B)", () => {
     await resetPage
       .getByRole("button", { name: /réinitialiser le mot de passe/i })
       .click();
-    // Redirection /login après succès.
     await resetPage.waitForURL("**/login", { timeout: 20_000 });
     await resetCtx.close();
 
-    // ── Connexion avec le NOUVEAU mot de passe (via l'action signIn). ──
     const signedIn = await convex.action(api.auth.signIn, {
       provider: "password",
       params: { email, password: newPassword, flow: "signIn" },
     });
     expect(signedIn.tokens?.token).toBeTruthy();
 
-    // ── Usage unique : rejouer le même lien → invalide, pas de formulaire. ──
+    // ── 2. Usage unique : rejouer le même lien → invalide, pas de formulaire. ──
     const replayCtx = await browser.newContext({
       storageState: { cookies: [], origins: [] },
     });
@@ -106,30 +122,20 @@ test.describe("Reset mot de passe admin (Voie B)", () => {
     await expect(replayPage.getByText(/lien invalide/i)).toBeVisible({
       timeout: 10_000,
     });
-    await expect(
-      replayPage.getByLabel("Nouveau mot de passe"),
-    ).toHaveCount(0);
+    await expect(replayPage.getByLabel("Nouveau mot de passe")).toHaveCount(0);
     await replayCtx.close();
 
-    // ── Expiration : générer un nouveau lien, l'expirer, vérifier le rejet. ──
-    await page
-      .getByRole("button", { name: /réinitialiser le mot de passe/i })
-      .click();
-    const dialog2 = page.getByRole("dialog");
-    const input2 = dialog2.getByLabel("Lien de réinitialisation");
-    await expect(input2).toBeVisible({ timeout: 10_000 });
-    const token2 = (await input2.inputValue()).split("/reset-password/")[1];
-
+    // ── 3. Expiration : nouveau lien, expiré côté serveur, puis rejet. ──
+    const expiredToken = await generateResetToken();
     await convex.mutation(api.passwordReset.e2eExpirePasswordResetToken, {
       secret: E2E_SECRET,
-      token: token2,
+      token: expiredToken,
     });
-
     const expiredCtx = await browser.newContext({
       storageState: { cookies: [], origins: [] },
     });
     const expiredPage = await expiredCtx.newPage();
-    await expiredPage.goto(`/reset-password/${token2}`);
+    await expiredPage.goto(`/reset-password/${expiredToken}`);
     await expect(expiredPage.getByText(/lien invalide/i)).toBeVisible({
       timeout: 10_000,
     });
