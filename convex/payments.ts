@@ -4,7 +4,11 @@ import {
   creatorQuery,
   e2eMutation,
 } from "./functions";
-import { computeLivePricingBreakdown, type MonthlyPayout } from "./pricing";
+import {
+  computeLivePricingBreakdown,
+  syncBonusUnlocks,
+  type PricingBreakdown,
+} from "./pricing";
 import { ConvexError, v } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -22,11 +26,12 @@ import type { Doc, Id } from "./_generated/dataModel";
  */
 
 type LineItem = {
-  assignmentId: Id<"assignments">;
+  // Optionnel : un palier bonus cumulé (bonus_tier) n'a pas d'assignment.
+  assignmentId?: Id<"assignments">;
   label: string;
   amount: number;
-  // base/bonus = LEGACY ; fixed/cpm = pricing GELÉ au paiement (cf schema).
-  kind: "base" | "bonus" | "fixed" | "cpm";
+  // base/bonus = LEGACY ; fixed/cpm + bonus_tier = pricing GELÉ au paiement.
+  kind: "base" | "bonus" | "fixed" | "cpm" | "bonus_tier";
   // Chantier C — plateforme du post pour les lineItems "base" (paiement PAR
   // POST : N bases/assignment, 1 par cible). Absent sur les bonus (1/assignment)
   // et les bases legacy (mono-compte).
@@ -222,15 +227,21 @@ export async function upsertBonusLineItem(
 function legacyAssignmentIds(p: Doc<"payments">): Set<string> {
   return new Set(
     p.lineItems
-      .filter((li) => li.kind === "base" || li.kind === "bonus")
-      .map((li) => li.assignmentId),
+      .filter(
+        (li) =>
+          (li.kind === "base" || li.kind === "bonus") &&
+          li.assignmentId !== undefined,
+      )
+      .map((li) => li.assignmentId as string),
   );
 }
 
 /**
- * Construit les lineItems PRICING GELÉES (fixed/cpm/bonus) à partir de la paie
- * live de la période. Utilisé au paiement (markPaid) → fige le montant pricing
- * dans la row (lecture verbatim ensuite, jamais recalculée).
+ * Construit les lineItems PRICING GELÉES (fixed/cpm + bonus_tier cash) à partir
+ * de la paie live de la période. Utilisé au paiement (markPaid) → fige le
+ * montant pricing dans la row (lecture verbatim ensuite, jamais recalculée).
+ * Le bonus de PALIER (cumul) est gelé en `bonus_tier` (DISJOINT du `bonus`
+ * legacy par vidéo).
  */
 async function frozenPricingLineItems(
   ctx: MutationCtx,
@@ -247,9 +258,8 @@ async function frozenPricingLineItems(
   for (const g of breakdown.perPricing) {
     if (g.fixed <= 0) continue;
     const rep = breakdown.perAssignment.find((a) => a.pricingId === g.pricingId);
-    if (!rep) continue;
     out.push({
-      assignmentId: rep.assignmentId as Id<"assignments">,
+      assignmentId: rep?.assignmentId as Id<"assignments"> | undefined,
       label: `Fixe — ${g.videoCount} vidéo${g.videoCount > 1 ? "s" : ""} publiée${g.videoCount > 1 ? "s" : ""}`,
       amount: g.fixed,
       kind: "fixed",
@@ -264,34 +274,33 @@ async function frozenPricingLineItems(
         kind: "cpm",
       });
     }
-    if (a.bonus > 0) {
-      out.push({
-        assignmentId: a.assignmentId as Id<"assignments">,
-        label: "Bonus seuil de vues",
-        amount: a.bonus,
-        kind: "bonus",
-      });
-    }
+  }
+  // Bonus de paliers CASH attribués à cette période (1 lineItem agrégée).
+  if (breakdown.bonusTierCashTotal > 0) {
+    out.push({
+      label: "Bonus paliers (cumul de vues)",
+      amount: breakdown.bonusTierCashTotal,
+      kind: "bonus_tier",
+    });
   }
   return out;
 }
 
 /** Breakdown pricing dérivé de lineItems GELÉES (période payée). */
-function frozenBreakdownOf(p: Doc<"payments">): MonthlyPayout {
+function frozenBreakdownOf(p: Doc<"payments">): PricingBreakdown {
   const sumKind = (k: LineItem["kind"]) =>
     round2(
       p.lineItems.filter((li) => li.kind === k).reduce((s, li) => s + li.amount, 0),
     );
   const fixedTotal = sumKind("fixed");
   const cpmTotal = sumKind("cpm");
-  // Période payée : le bonus pricing est gelé en kind "bonus" (peut coexister
-  // avec un éventuel bonus legacy → on affiche le total bonus de la row figée).
-  const bonusTotal = sumKind("bonus");
+  // bonus_tier = bonus de PALIER cash (v2), DISJOINT du "bonus" legacy par vidéo.
+  const bonusTierCashTotal = sumKind("bonus_tier");
   return {
     fixedTotal,
     cpmTotal,
-    bonusTotal,
-    total: round2(fixedTotal + cpmTotal + bonusTotal),
+    bonusTierCashTotal,
+    total: round2(fixedTotal + cpmTotal + bonusTierCashTotal),
     perPricing: [],
     perAssignment: [],
   };
@@ -299,14 +308,13 @@ function frozenBreakdownOf(p: Doc<"payments">): MonthlyPayout {
 
 /**
  * Enrichit une row de paiement pour la LECTURE : ajoute `pricingBreakdown`
- * (fixe/CPM/bonus) — LIVE (calculé sur les vues du moment) si la période n'est
- * pas payée, FIGÉ (depuis les lineItems gelées) si payée. `totalDue` reflète
- * legacy + pricing (sans écrire la row : la lecture ne mute pas).
+ * (fixe/CPM + bonus paliers cash de la période) — LIVE si non payée, FIGÉ si
+ * payée. `totalDue` reflète legacy + pricing (la lecture ne mute pas).
  */
 async function enrichPaymentForRead(
   ctx: QueryCtx | MutationCtx,
   p: Doc<"payments">,
-): Promise<Doc<"payments"> & { pricingBreakdown: MonthlyPayout }> {
+): Promise<Doc<"payments"> & { pricingBreakdown: PricingBreakdown }> {
   if (p.status === "paid") {
     return { ...p, pricingBreakdown: frozenBreakdownOf(p) };
   }
@@ -391,9 +399,11 @@ export const markPaymentPaid = adminMutation({
       throw new ConvexError("Paiement introuvable.");
     }
     if (p.status === "paid") return { ok: true, alreadyPaid: true };
-    // GEL au paiement : fige le montant PRICING (fixe/CPM/bonus live) dans la
-    // row → lecture verbatim ensuite, jamais recalculée (Hole 4 : une vidéo
-    // publiée après ce gel n'entre plus dans cette période payée).
+    // Matérialise les paliers franchis AVANT le gel (Guard A intra-période :
+    // un palier juste franchi de cette période est attribué puis gelé).
+    await syncBonusUnlocks(ctx, p.projectId, p.creatorId);
+    // GEL au paiement : fige le montant PRICING (fixe/CPM + bonus paliers cash)
+    // dans la row → lecture verbatim ensuite, jamais recalculée.
     const frozen = await frozenPricingLineItems(ctx, p);
     const lineItems = [...p.lineItems, ...frozen];
     await ctx.db.patch(id, {
@@ -423,6 +433,7 @@ export const markPeriodPaid = adminMutation({
     let marked = 0;
     for (const p of payments) {
       if (p.status === "paid") continue;
+      await syncBonusUnlocks(ctx, p.projectId, p.creatorId);
       const frozen = await frozenPricingLineItems(ctx, p);
       const lineItems = [...p.lineItems, ...frozen];
       await ctx.db.patch(p._id, {

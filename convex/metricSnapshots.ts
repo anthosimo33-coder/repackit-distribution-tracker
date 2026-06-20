@@ -1,5 +1,6 @@
 import { type MutationCtx } from "./_generated/server";
 import { e2eMutation, adminMutation, adminQuery } from "./functions";
+import { syncBonusForPublication } from "./pricing";
 import { v, ConvexError } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 
@@ -232,6 +233,8 @@ export const createSnapshot = adminMutation({
     });
 
     await recomputeLatestMetrics(ctx, args.publicationId);
+    // Vues mises à jour → paliers de bonus du créateur (idempotent).
+    await syncBonusForPublication(ctx, args.publicationId);
     return { id };
   },
 });
@@ -276,6 +279,7 @@ export const updateSnapshot = adminMutation({
     await ctx.db.patch(args.id, patch);
     // Le latest a pu changer (capturedAt modifié ou valeurs du latest éditées).
     await recomputeLatestMetrics(ctx, snap.publicationId);
+    await syncBonusForPublication(ctx, snap.publicationId);
     return { ok: true };
   },
 });
@@ -290,6 +294,7 @@ export const deleteSnapshot = adminMutation({
     const publicationId = snap.publicationId;
     await ctx.db.delete(args.id);
     await recomputeLatestMetrics(ctx, publicationId);
+    await syncBonusForPublication(ctx, publicationId);
     return { ok: true };
   },
 });

@@ -2,7 +2,11 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { useProjectMutation } from "@/components/project/use-project-convex";
+import {
+  useProjectMutation,
+  useProjectQuery,
+} from "@/components/project/use-project-convex";
+import { formatEuros } from "@/lib/format-rate";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { FunctionReturnType } from "convex/server";
@@ -416,6 +420,11 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
 
       {/* P5 — Comptes du créateur (alimenté). Assignments / Paiements restent
           des emplacements réservés (chantiers suivants). */}
+      <BonusGridSection
+        creatorId={creator._id}
+        current={creator.bonusPricingId ?? null}
+      />
+
       <CreatorComptesSection creatorId={creator._id} />
       <div className="grid gap-4 sm:grid-cols-2">
         <FutureSection title="Assignments" />
@@ -432,6 +441,110 @@ function FutureSection({ title }: { title: string }) {
         <CardTitle className="text-base text-slate-500">{title}</CardTitle>
         <CardDescription>Bientôt disponible.</CardDescription>
       </CardHeader>
+    </Card>
+  );
+}
+
+const NO_GRID = "__nogrid__";
+
+/**
+ * Grille de paliers de bonus du créateur (cumul de vues). L'admin choisit un
+ * pricing dont les paliers s'appliquent ; voit le cumul + les paliers débloqués
+ * (cash comptés, nature = récompenses dues).
+ */
+function BonusGridSection({
+  creatorId,
+  current,
+}: {
+  creatorId: Id<"creators">;
+  current: Id<"pricings"> | null;
+}) {
+  const pricings = useProjectQuery(api.pricing.listPricings, {});
+  const bonus = useProjectQuery(api.pricing.getCreatorBonusStatus, { creatorId });
+  const update = useProjectMutation(api.creators.updateCreator);
+  const [saving, setSaving] = useState(false);
+
+  async function setGrid(value: string) {
+    setSaving(true);
+    try {
+      await update({
+        id: creatorId,
+        bonusPricingId: value === NO_GRID ? null : (value as Id<"pricings">),
+      });
+      toast.success("Grille de bonus mise à jour");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Bonus (paliers sur cumul de vues)</CardTitle>
+        <CardDescription>
+          Les paliers du pricing choisi se débloquent sur le CUMUL total des vues
+          de ce créateur (à vie). Cash = compté ; nature = récompense à remettre.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-1.5">
+          <Label>Grille de paliers</Label>
+          <Select
+            value={current ?? NO_GRID}
+            onValueChange={(v) => v && !saving && setGrid(v)}
+          >
+            <SelectTrigger aria-label="Grille de bonus">
+              <SelectValue>
+                {current
+                  ? ((pricings ?? []).find((p) => p._id === current)?.name ??
+                    "Pricing")
+                  : "Aucune"}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_GRID}>Aucune</SelectItem>
+              {(pricings ?? []).map((p) => (
+                <SelectItem key={p._id} value={p._id}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {bonus && bonus.tiers.length > 0 && (
+          <div className="space-y-1 text-sm">
+            <p className="text-slate-600">
+              Cumul :{" "}
+              <span className="font-semibold tabular-nums">
+                {bonus.cumulViews.toLocaleString("fr-FR")} vues
+              </span>
+            </p>
+            {bonus.cashUnlockedTotal > 0 && (
+              <p className="text-emerald-700">
+                Cash débloqué : {formatEuros(bonus.cashUnlockedTotal)}
+              </p>
+            )}
+            {bonus.natureUnlocked.length > 0 && (
+              <p className="text-violet-700">
+                Récompenses nature dues :{" "}
+                {bonus.natureUnlocked.map((r) => r.libelle).join(", ")}
+              </p>
+            )}
+            {bonus.nextTier && (
+              <p className="text-slate-500">
+                Prochain palier dans{" "}
+                {(bonus.viewsToNext ?? 0).toLocaleString("fr-FR")} vues (
+                {bonus.nextTier.rewardType === "cash"
+                  ? formatEuros(bonus.nextTier.montant ?? 0)
+                  : bonus.nextTier.libelle}
+                ).
+              </p>
+            )}
+          </div>
+        )}
+      </CardContent>
     </Card>
   );
 }

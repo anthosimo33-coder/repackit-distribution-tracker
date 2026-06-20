@@ -10,6 +10,7 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { extractYouTubeId, fetchYouTubeViews } from "./youtubeApi";
 import { recomputeLatestMetrics } from "./metricSnapshots";
+import { syncBonusForPublication } from "./pricing";
 
 /**
  * S — Tracking AUTO des vues YouTube. Un cron quotidien (convex/crons.ts) relève
@@ -101,6 +102,7 @@ async function upsertYouTubeSnapshot(
       daysSincePublication,
     });
     await recomputeLatestMetrics(ctx, args.publicationId);
+    await syncBonusForPublication(ctx, args.publicationId);
     await ctx.db.patch(args.publicationId, {
       lastYouTubeSyncAt: args.capturedAt,
     });
@@ -118,6 +120,7 @@ async function upsertYouTubeSnapshot(
     source: "youtube",
   });
   await recomputeLatestMetrics(ctx, args.publicationId);
+  await syncBonusForPublication(ctx, args.publicationId);
   await ctx.db.patch(args.publicationId, {
     lastYouTubeSyncAt: args.capturedAt,
   });

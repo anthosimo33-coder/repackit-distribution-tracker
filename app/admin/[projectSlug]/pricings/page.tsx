@@ -24,6 +24,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Loader2Icon, PlusIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -32,13 +39,18 @@ import type { FunctionReturnType } from "convex/server";
 
 type Pricing = FunctionReturnType<typeof api.pricing.listPricings>[number];
 
+type TierForm = {
+  seuilVues: string;
+  rewardType: "cash" | "nature";
+  montant: string;
+  libelle: string;
+};
+
 const EMPTY = {
   name: "",
   montantFixe: "",
   nbVideosCible: "",
   tauxCPM: "",
-  seuilBonusVues: "",
-  montantBonus: "",
 };
 
 /**
@@ -58,11 +70,13 @@ export default function PricingsPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Pricing | null>(null);
   const [form, setForm] = useState({ ...EMPTY });
+  const [tiers, setTiers] = useState<TierForm[]>([]);
   const [busy, setBusy] = useState(false);
 
   function openCreate() {
     setEditing(null);
     setForm({ ...EMPTY });
+    setTiers([]);
     setOpen(true);
   }
   function openEdit(p: Pricing) {
@@ -72,21 +86,45 @@ export default function PricingsPage() {
       montantFixe: String(p.montantFixe),
       nbVideosCible: String(p.nbVideosCible),
       tauxCPM: String(p.tauxCPM),
-      seuilBonusVues: String(p.seuilBonusVues),
-      montantBonus: String(p.montantBonus),
     });
+    setTiers(
+      (p.bonusTiers ?? []).map((t) => ({
+        seuilVues: String(t.seuilVues),
+        rewardType: t.rewardType,
+        montant: t.montant != null ? String(t.montant) : "",
+        libelle: t.libelle ?? "",
+      })),
+    );
     setOpen(true);
+  }
+
+  function addTier() {
+    setTiers((ts) => [
+      ...ts,
+      { seuilVues: "", rewardType: "cash", montant: "", libelle: "" },
+    ]);
+  }
+  function updateTier(i: number, patch: Partial<TierForm>) {
+    setTiers((ts) => ts.map((t, j) => (j === i ? { ...t, ...patch } : t)));
+  }
+  function removeTier(i: number) {
+    setTiers((ts) => ts.filter((_, j) => j !== i));
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const bonusTiers = tiers.map((t) => ({
+      seuilVues: Number(t.seuilVues),
+      rewardType: t.rewardType,
+      montant: t.rewardType === "cash" ? Number(t.montant) : undefined,
+      libelle: t.rewardType === "nature" ? t.libelle.trim() : undefined,
+    }));
     const args = {
       name: form.name.trim(),
       montantFixe: Number(form.montantFixe),
       nbVideosCible: Number(form.nbVideosCible),
       tauxCPM: Number(form.tauxCPM),
-      seuilBonusVues: Number(form.seuilBonusVues),
-      montantBonus: Number(form.montantBonus),
+      bonusTiers,
     };
     setBusy(true);
     try {
@@ -172,9 +210,22 @@ export default function PricingsPage() {
                 </div>
                 <CardDescription>
                   Fixe {formatEuros(p.montantFixe)} pour {p.nbVideosCible} vidéos
-                  {" · "}CPM {formatEuros(p.tauxCPM)}/1000 vues{" · "}Bonus{" "}
-                  {formatEuros(p.montantBonus)} au-delà de{" "}
-                  {p.seuilBonusVues.toLocaleString("fr-FR")} vues
+                  {" · "}CPM {formatEuros(p.tauxCPM)}/1000 vues
+                  {(p.bonusTiers ?? []).length > 0 && (
+                    <>
+                      {" · "}
+                      {(p.bonusTiers ?? [])
+                        .map(
+                          (t) =>
+                            `${t.seuilVues.toLocaleString("fr-FR")} → ${
+                              t.rewardType === "cash"
+                                ? formatEuros(t.montant ?? 0)
+                                : (t.libelle ?? "récompense")
+                            }`,
+                        )
+                        .join(" · ")}
+                    </>
+                  )}
                 </CardDescription>
               </CardHeader>
             </Card>
@@ -241,31 +292,87 @@ export default function PricingsPage() {
                   required
                 />
               </Field>
-              <Field label="Seuil bonus (vues)" id="seuilBonusVues">
-                <Input
-                  id="seuilBonusVues"
-                  type="number"
-                  min={0}
-                  value={form.seuilBonusVues}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, seuilBonusVues: e.target.value }))
-                  }
-                  required
-                />
-              </Field>
-              <Field label="Montant bonus (€)" id="montantBonus">
-                <Input
-                  id="montantBonus"
-                  type="number"
-                  step="0.01"
-                  min={0}
-                  value={form.montantBonus}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, montantBonus: e.target.value }))
-                  }
-                  required
-                />
-              </Field>
+            </div>
+
+            {/* Paliers de bonus (cumul de vues À VIE du créateur) */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Paliers de bonus (cumul de vues)</Label>
+                <Button type="button" variant="outline" size="sm" onClick={addTier}>
+                  + Palier
+                </Button>
+              </div>
+              {tiers.length === 0 && (
+                <p className="text-xs text-slate-400">
+                  Aucun palier. Ajoute des paliers cash (€) ou nature (iPhone…).
+                </p>
+              )}
+              {tiers.map((t, i) => (
+                <div key={i} className="flex flex-wrap items-end gap-2 rounded-md border border-slate-200 p-2">
+                  <div className="min-w-[7rem] flex-1 space-y-1">
+                    <Label className="text-xs">Seuil de vues</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={t.seuilVues}
+                      onChange={(e) => updateTier(i, { seuilVues: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Type</Label>
+                    <Select
+                      value={t.rewardType}
+                      onValueChange={(v) =>
+                        v && updateTier(i, { rewardType: v as "cash" | "nature" })
+                      }
+                    >
+                      <SelectTrigger aria-label="Type de récompense" className="w-28">
+                        <SelectValue>
+                          {t.rewardType === "cash" ? "Cash €" : "Nature"}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cash">Cash €</SelectItem>
+                        <SelectItem value="nature">Nature</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="min-w-[8rem] flex-1 space-y-1">
+                    {t.rewardType === "cash" ? (
+                      <>
+                        <Label className="text-xs">Montant (€)</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min={0}
+                          value={t.montant}
+                          onChange={(e) => updateTier(i, { montant: e.target.value })}
+                          required
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <Label className="text-xs">Libellé</Label>
+                        <Input
+                          placeholder="iPhone 15"
+                          value={t.libelle}
+                          onChange={(e) => updateTier(i, { libelle: e.target.value })}
+                          required
+                        />
+                      </>
+                    )}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeTier(i)}
+                  >
+                    Retirer
+                  </Button>
+                </div>
+              ))}
             </div>
             <DialogFooter>
               <Button

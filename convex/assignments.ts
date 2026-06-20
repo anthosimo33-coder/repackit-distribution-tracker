@@ -14,7 +14,7 @@ import {
   getOrCreatePayment,
   periodOf,
 } from "./payments";
-import { buildPricingSnapshot } from "./pricing";
+import { buildPricingSnapshot, syncBonusUnlocks } from "./pricing";
 import { isAccountAvailable } from "./warmup";
 import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
@@ -783,7 +783,8 @@ export const listValidatedForBonus = adminQuery({
     const bonusByAssignment = new Map<string, number>();
     for (const p of payments) {
       for (const li of p.lineItems) {
-        if (li.kind === "bonus") bonusByAssignment.set(li.assignmentId, li.amount);
+        if (li.kind === "bonus" && li.assignmentId)
+          bonusByAssignment.set(li.assignmentId, li.amount);
       }
     }
 
@@ -1169,6 +1170,8 @@ export const confirmPublication = creatorMutation({
         period: periodOf(now),
         now,
       });
+      // Nouvelle vidéo publiée → recalcule les paliers de bonus du créateur.
+      await syncBonusUnlocks(ctx, ctx.projectId, a.creatorId);
     }
 
     // PURGE du MP4 (1 vidéo pour toutes les cibles, inutile une fois publiée).
