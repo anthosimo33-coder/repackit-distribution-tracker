@@ -9,6 +9,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
@@ -67,20 +68,22 @@ export function CreatorProjectSwitcher() {
         }
       />
       <DropdownMenuContent align="start" className="w-60" sideOffset={6}>
-        <DropdownMenuLabel>Mes projets</DropdownMenuLabel>
-        {projects.map((p) => (
-          <DropdownMenuItem
-            key={p.projectId}
-            onClick={() => switchTo(p)}
-            className="gap-2 py-2.5"
-          >
-            <ProjectAvatar project={p} size="sm" />
-            <span className="min-w-0 flex-1 truncate">{p.name}</span>
-            {p.projectId === current.projectId && (
-              <CheckIcon className="size-4 shrink-0 text-slate-500" />
-            )}
-          </DropdownMenuItem>
-        ))}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Mes projets</DropdownMenuLabel>
+          {projects.map((p) => (
+            <DropdownMenuItem
+              key={p.projectId}
+              onClick={() => switchTo(p)}
+              className="gap-2 py-2.5"
+            >
+              <ProjectAvatar project={p} size="sm" />
+              <span className="min-w-0 flex-1 truncate">{p.name}</span>
+              {p.projectId === current.projectId && (
+                <CheckIcon className="size-4 shrink-0 text-slate-500" />
+              )}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   );
