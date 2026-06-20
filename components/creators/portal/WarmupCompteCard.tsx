@@ -73,15 +73,17 @@ export function WarmupCompteCard({
       )}
     >
       <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
-        <div className="flex items-center gap-2">
-          <PlatformBadge plateforme={compte.plateforme} />
-          <span className="font-mono font-medium text-slate-900">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="shrink-0">
+            <PlatformBadge plateforme={compte.plateforme} />
+          </span>
+          <span className="truncate font-mono font-medium text-slate-900">
             {compte.handle}
           </span>
         </div>
         <span
           className={cn(
-            "inline-flex items-center rounded-full border px-3 py-0.5 text-xs font-semibold",
+            "inline-flex shrink-0 items-center rounded-full border px-3 py-0.5 text-xs font-semibold",
             badge.className,
           )}
         >
@@ -93,8 +95,8 @@ export function WarmupCompteCard({
         <CardContent className="space-y-4">
           {progress && (
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between gap-2 text-sm">
-                <span className="font-medium text-slate-700">
+              <div className="flex flex-col gap-1 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+                <span className="shrink-0 font-medium text-slate-700">
                   Jour {progress.day} / {progress.targetDays}
                 </span>
                 {warmupDone ? (

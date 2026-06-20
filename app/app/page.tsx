@@ -165,7 +165,7 @@ export default function CreatorDashboardPage() {
                     className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 transition-colors hover:border-slate-300 hover:bg-slate-50"
                   >
                     <div className="min-w-0 space-y-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex min-w-0 items-center gap-2">
                         <span className="truncate font-medium text-slate-900">
                           {a.formatName}
                         </span>
