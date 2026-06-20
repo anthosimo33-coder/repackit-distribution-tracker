@@ -89,7 +89,13 @@ export function CreatorProjectSwitcher() {
   );
 }
 
-/** Logo du projet si configuré, sinon initiale sur carré d'accent. */
+/**
+ * Logo du projet si configuré, sinon initiale sur carré d'accent. DÉCORATIF :
+ * `aria-hidden` pour que l'initiale (fallback) ne pollue PAS le nom accessible
+ * de l'item de menu (le label du projet, à côté, suffit). Sans ça, un item
+ * « Snytch » serait lu « S Snytch » et son accessible name deviendrait
+ * « SSnytch » (cassait aussi les sélecteurs e2e par nom exact).
+ */
 function ProjectAvatar({
   project,
   size = "md",
@@ -104,12 +110,14 @@ function ProjectAvatar({
       <img
         src={project.logoUrl}
         alt=""
+        aria-hidden
         className={cn(cls, "shrink-0 rounded-md object-cover")}
       />
     );
   }
   return (
     <span
+      aria-hidden
       className={cn(
         cls,
         "flex shrink-0 items-center justify-center rounded-md text-xs font-bold text-white",

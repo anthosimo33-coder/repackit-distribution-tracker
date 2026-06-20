@@ -107,7 +107,7 @@ test.describe("Créateurs — multi-projets + switcher + isolation", () => {
     // du tri alphabétique, on ne s'y fie pas.
     await switcher.click();
     await creatorPage
-      .getByRole("menuitem", { name: "E2E Test", exact: true })
+      .getByRole("menuitem", { name: "E2E Test" })
       .click();
     await creatorPage.waitForURL("**/app", { timeout: 10_000 });
 
@@ -129,7 +129,7 @@ test.describe("Créateurs — multi-projets + switcher + isolation", () => {
     // 8. ISOLATION : bascule sur le projet B → le compte de A n'y est PAS.
     await creatorPage.getByRole("button", { name: "Changer de projet" }).click();
     await creatorPage
-      .getByRole("menuitem", { name: nameB, exact: true })
+      .getByRole("menuitem", { name: nameB })
       .click();
     await creatorPage.waitForURL("**/app", { timeout: 10_000 });
     await creatorPage.goto("/app/comptes");
@@ -141,7 +141,7 @@ test.describe("Créateurs — multi-projets + switcher + isolation", () => {
     // 9. Retour sur A → le compte est de nouveau là (données par projet).
     await creatorPage.getByRole("button", { name: "Changer de projet" }).click();
     await creatorPage
-      .getByRole("menuitem", { name: "E2E Test", exact: true })
+      .getByRole("menuitem", { name: "E2E Test" })
       .click();
     await creatorPage.waitForURL("**/app", { timeout: 10_000 });
     await creatorPage.goto("/app/comptes");
