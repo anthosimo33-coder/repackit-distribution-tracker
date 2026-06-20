@@ -38,6 +38,28 @@ import {
 
 type Payment = FunctionReturnType<typeof api.payments.listPayments>[number];
 
+const KIND_LABEL: Record<string, string> = {
+  base: "Base",
+  bonus: "Bonus",
+  fixed: "Fixe",
+  cpm: "CPM",
+};
+const KIND_BADGE: Record<string, string> = {
+  base: "bg-slate-200 text-slate-600",
+  bonus: "bg-indigo-50 text-indigo-600",
+  fixed: "bg-emerald-50 text-emerald-600",
+  cpm: "bg-sky-50 text-sky-600",
+};
+
+function BreakdownLine({ label, amount }: { label: string; amount: number }) {
+  return (
+    <li className="flex items-center justify-between gap-4 text-slate-600">
+      <span>{label}</span>
+      <span className="tabular-nums text-slate-700">{formatEuros(amount)}</span>
+    </li>
+  );
+}
+
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   sepa: "SEPA",
   paypal: "PayPal",
@@ -321,10 +343,16 @@ function PaymentRow({ p }: { p: Payment }) {
       {open && (
         <TableRow className="bg-slate-50/60">
           <TableCell />
-          <TableCell colSpan={6} className="py-2">
-            {p.lineItems.length === 0 ? (
-              <p className="text-sm text-slate-400">Aucune ligne.</p>
-            ) : (
+          <TableCell colSpan={6} className="space-y-2 py-2">
+            {/* Modèle PRICING (live ou gelé) : fixe / CPM / bonus. */}
+            {p.pricingBreakdown.total > 0 && (
+              <ul className="space-y-1 text-sm">
+                <BreakdownLine label="Fixe (vidéos publiées)" amount={p.pricingBreakdown.fixedTotal} />
+                <BreakdownLine label="CPM (vues cumulées)" amount={p.pricingBreakdown.cpmTotal} />
+                <BreakdownLine label="Bonus seuil" amount={p.pricingBreakdown.bonusTotal} />
+              </ul>
+            )}
+            {p.lineItems.length > 0 && (
               <ul className="space-y-1">
                 {p.lineItems.map((li, i) => (
                   <li
@@ -335,12 +363,10 @@ function PaymentRow({ p }: { p: Payment }) {
                       <span
                         className={cn(
                           "inline-flex rounded px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase",
-                          li.kind === "bonus"
-                            ? "bg-indigo-50 text-indigo-600"
-                            : "bg-slate-200 text-slate-600",
+                          KIND_BADGE[li.kind] ?? KIND_BADGE.base,
                         )}
                       >
-                        {li.kind === "bonus" ? "Bonus" : "Base"}
+                        {KIND_LABEL[li.kind] ?? "Base"}
                       </span>
                       {li.label}
                     </span>
@@ -350,6 +376,9 @@ function PaymentRow({ p }: { p: Payment }) {
                   </li>
                 ))}
               </ul>
+            )}
+            {p.lineItems.length === 0 && p.pricingBreakdown.total <= 0 && (
+              <p className="text-sm text-slate-400">Aucune ligne.</p>
             )}
           </TableCell>
         </TableRow>

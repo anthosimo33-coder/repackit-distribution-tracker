@@ -4,8 +4,9 @@ import {
   creatorQuery,
   e2eMutation,
 } from "./functions";
+import { computeLivePricingBreakdown, type MonthlyPayout } from "./pricing";
 import { ConvexError, v } from "convex/values";
-import type { MutationCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 
 /**
@@ -24,7 +25,8 @@ type LineItem = {
   assignmentId: Id<"assignments">;
   label: string;
   amount: number;
-  kind: "base" | "bonus";
+  // base/bonus = LEGACY ; fixed/cpm = pricing GELÉ au paiement (cf schema).
+  kind: "base" | "bonus" | "fixed" | "cpm";
   // Chantier C — plateforme du post pour les lineItems "base" (paiement PAR
   // POST : N bases/assignment, 1 par cible). Absent sur les bonus (1/assignment)
   // et les bases legacy (mono-compte).
@@ -73,7 +75,7 @@ const recomputeTotal = (lineItems: LineItem[]): number =>
   round2(lineItems.reduce((s, li) => s + li.amount, 0));
 
 /** Le paiement (projectId, creatorId, period) — créé s'il n'existe pas. */
-async function getOrCreatePayment(
+export async function getOrCreatePayment(
   ctx: MutationCtx,
   args: {
     projectId: Id<"projects">;
@@ -120,6 +122,11 @@ export async function accrueBaseLineItem(
     platform?: "TikTok" | "Instagram" | "YouTube";
   },
 ): Promise<void> {
+  // Guard C — un assignment à pricingSnapshot relève du NOUVEAU modèle (paie
+  // calculée à la lecture + gelée au paiement) : JAMAIS de lineItem legacy, même
+  // si un futur appelant nous invoque par erreur (anti double paiement).
+  const a = await ctx.db.get(args.assignmentId);
+  if (a?.pricingSnapshot !== undefined) return;
   const period = periodOf(args.now);
   const payment = await getOrCreatePayment(ctx, {
     projectId: args.projectId,
@@ -169,6 +176,9 @@ export async function upsertBonusLineItem(
     now: number;
   },
 ): Promise<void> {
+  // Guard C (cf accrueBaseLineItem) — pricingSnapshot ⇒ bonus dérivé du moteur.
+  const a = await ctx.db.get(args.assignmentId);
+  if (a?.pricingSnapshot !== undefined) return;
   const creatorPayments = (
     await ctx.db
       .query("payments")
@@ -206,6 +216,115 @@ export async function upsertBonusLineItem(
   });
 }
 
+// ─── Modèle PRICING — gel au paiement + enrichissement à la lecture ──────────
+
+/** assignmentIds déjà couverts par des lineItems LEGACY (Guard B — disjonction). */
+function legacyAssignmentIds(p: Doc<"payments">): Set<string> {
+  return new Set(
+    p.lineItems
+      .filter((li) => li.kind === "base" || li.kind === "bonus")
+      .map((li) => li.assignmentId),
+  );
+}
+
+/**
+ * Construit les lineItems PRICING GELÉES (fixed/cpm/bonus) à partir de la paie
+ * live de la période. Utilisé au paiement (markPaid) → fige le montant pricing
+ * dans la row (lecture verbatim ensuite, jamais recalculée).
+ */
+async function frozenPricingLineItems(
+  ctx: MutationCtx,
+  p: Doc<"payments">,
+): Promise<LineItem[]> {
+  const breakdown = await computeLivePricingBreakdown(
+    ctx,
+    p.projectId,
+    p.creatorId,
+    p.period,
+    legacyAssignmentIds(p),
+  );
+  const out: LineItem[] = [];
+  for (const g of breakdown.perPricing) {
+    if (g.fixed <= 0) continue;
+    const rep = breakdown.perAssignment.find((a) => a.pricingId === g.pricingId);
+    if (!rep) continue;
+    out.push({
+      assignmentId: rep.assignmentId as Id<"assignments">,
+      label: `Fixe — ${g.videoCount} vidéo${g.videoCount > 1 ? "s" : ""} publiée${g.videoCount > 1 ? "s" : ""}`,
+      amount: g.fixed,
+      kind: "fixed",
+    });
+  }
+  for (const a of breakdown.perAssignment) {
+    if (a.cpm > 0) {
+      out.push({
+        assignmentId: a.assignmentId as Id<"assignments">,
+        label: `CPM — ${a.totalViews} vues`,
+        amount: a.cpm,
+        kind: "cpm",
+      });
+    }
+    if (a.bonus > 0) {
+      out.push({
+        assignmentId: a.assignmentId as Id<"assignments">,
+        label: "Bonus seuil de vues",
+        amount: a.bonus,
+        kind: "bonus",
+      });
+    }
+  }
+  return out;
+}
+
+/** Breakdown pricing dérivé de lineItems GELÉES (période payée). */
+function frozenBreakdownOf(p: Doc<"payments">): MonthlyPayout {
+  const sumKind = (k: LineItem["kind"]) =>
+    round2(
+      p.lineItems.filter((li) => li.kind === k).reduce((s, li) => s + li.amount, 0),
+    );
+  const fixedTotal = sumKind("fixed");
+  const cpmTotal = sumKind("cpm");
+  // Période payée : le bonus pricing est gelé en kind "bonus" (peut coexister
+  // avec un éventuel bonus legacy → on affiche le total bonus de la row figée).
+  const bonusTotal = sumKind("bonus");
+  return {
+    fixedTotal,
+    cpmTotal,
+    bonusTotal,
+    total: round2(fixedTotal + cpmTotal + bonusTotal),
+    perPricing: [],
+    perAssignment: [],
+  };
+}
+
+/**
+ * Enrichit une row de paiement pour la LECTURE : ajoute `pricingBreakdown`
+ * (fixe/CPM/bonus) — LIVE (calculé sur les vues du moment) si la période n'est
+ * pas payée, FIGÉ (depuis les lineItems gelées) si payée. `totalDue` reflète
+ * legacy + pricing (sans écrire la row : la lecture ne mute pas).
+ */
+async function enrichPaymentForRead(
+  ctx: QueryCtx | MutationCtx,
+  p: Doc<"payments">,
+): Promise<Doc<"payments"> & { pricingBreakdown: MonthlyPayout }> {
+  if (p.status === "paid") {
+    return { ...p, pricingBreakdown: frozenBreakdownOf(p) };
+  }
+  const breakdown = await computeLivePricingBreakdown(
+    ctx,
+    p.projectId,
+    p.creatorId,
+    p.period,
+    legacyAssignmentIds(p),
+  );
+  const legacyTotal = recomputeTotal(p.lineItems);
+  return {
+    ...p,
+    totalDue: round2(legacyTotal + breakdown.total),
+    pricingBreakdown: breakdown,
+  };
+}
+
 // ─── Queries (P9) ────────────────────────────────────────────────────────────
 
 /**
@@ -224,18 +343,20 @@ export const listPayments = adminQuery({
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
     const byId = new Map(creators.map((c) => [c._id, c]));
-    return payments
-      .sort((a, b) => b.period.localeCompare(a.period))
-      .map((p) => {
+    const enriched = await Promise.all(
+      payments.map(async (p) => {
+        const e = await enrichPaymentForRead(ctx, p);
         const c = byId.get(p.creatorId);
         return {
-          ...p,
+          ...e,
           creatorName: c?.name ?? "—",
           creatorEmail: c?.email ?? "",
           creatorPaymentMethod: c?.paymentMethod ?? null,
           creatorPaymentDetails: c?.paymentDetails ?? null,
         };
-      });
+      }),
+    );
+    return enriched.sort((a, b) => b.period.localeCompare(a.period));
   },
 });
 
@@ -252,7 +373,10 @@ export const getMyPayments = creatorQuery({
         .withIndex("by_creator", (q) => q.eq("creatorId", ctx.creatorId))
         .collect()
     ).filter((p) => p.projectId === ctx.projectId);
-    return payments.sort((a, b) => b.period.localeCompare(a.period));
+    const enriched = await Promise.all(
+      payments.map((p) => enrichPaymentForRead(ctx, p)),
+    );
+    return enriched.sort((a, b) => b.period.localeCompare(a.period));
   },
 });
 
@@ -267,7 +391,17 @@ export const markPaymentPaid = adminMutation({
       throw new ConvexError("Paiement introuvable.");
     }
     if (p.status === "paid") return { ok: true, alreadyPaid: true };
-    await ctx.db.patch(id, { status: "paid", paidAt: Date.now() });
+    // GEL au paiement : fige le montant PRICING (fixe/CPM/bonus live) dans la
+    // row → lecture verbatim ensuite, jamais recalculée (Hole 4 : une vidéo
+    // publiée après ce gel n'entre plus dans cette période payée).
+    const frozen = await frozenPricingLineItems(ctx, p);
+    const lineItems = [...p.lineItems, ...frozen];
+    await ctx.db.patch(id, {
+      status: "paid",
+      paidAt: Date.now(),
+      lineItems,
+      totalDue: recomputeTotal(lineItems),
+    });
     return { ok: true, alreadyPaid: false };
   },
 });
@@ -289,7 +423,14 @@ export const markPeriodPaid = adminMutation({
     let marked = 0;
     for (const p of payments) {
       if (p.status === "paid") continue;
-      await ctx.db.patch(p._id, { status: "paid", paidAt: now });
+      const frozen = await frozenPricingLineItems(ctx, p);
+      const lineItems = [...p.lineItems, ...frozen];
+      await ctx.db.patch(p._id, {
+        status: "paid",
+        paidAt: now,
+        lineItems,
+        totalDue: recomputeTotal(lineItems),
+      });
       marked++;
     }
     return { marked };

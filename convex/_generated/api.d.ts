@@ -34,6 +34,7 @@ import type * as migrations from "../migrations.js";
 import type * as passwordReset from "../passwordReset.js";
 import type * as payments from "../payments.js";
 import type * as personnes from "../personnes.js";
+import type * as pricing from "../pricing.js";
 import type * as projects from "../projects.js";
 import type * as publications from "../publications.js";
 import type * as scriptAnalytics from "../scriptAnalytics.js";
@@ -79,6 +80,7 @@ declare const fullApi: ApiFromModules<{
   passwordReset: typeof passwordReset;
   payments: typeof payments;
   personnes: typeof personnes;
+  pricing: typeof pricing;
   projects: typeof projects;
   publications: typeof publications;
   scriptAnalytics: typeof scriptAnalytics;

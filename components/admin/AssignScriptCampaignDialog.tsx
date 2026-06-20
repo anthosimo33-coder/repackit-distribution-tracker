@@ -69,6 +69,7 @@ export function AssignScriptCampaignDialog({
       : "skip",
   );
   const assign = useProjectMutation(api.scripts.assignScriptCampaign);
+  const pricings = useProjectQuery(api.pricing.listPricings, open ? {} : "skip");
 
   const [picks, setPicks] = useState<Record<Platform, string>>({
     TikTok: NONE,
@@ -80,6 +81,7 @@ export function AssignScriptCampaignDialog({
   const [tier, setTier] = useState<string>(TIER_ALL);
   const [basePerPost, setBasePerPost] = useState("");
   const [viewBonus, setViewBonus] = useState("");
+  const [pricingId, setPricingId] = useState<string>(NONE);
   const [submitting, setSubmitting] = useState(false);
 
   // Reset à l'ouverture.
@@ -94,6 +96,7 @@ export function AssignScriptCampaignDialog({
       setTier(TIER_ALL);
       setBasePerPost("");
       setViewBonus("");
+      setPricingId(NONE);
     }
   }
 
@@ -149,6 +152,8 @@ export function AssignScriptCampaignDialog({
         dueDate: dueMs,
         rateModel: { basePerPost: base, viewBonusPer1k: vb },
         tier: tier === TIER_ALL ? undefined : (tier as "S" | "A" | "B"),
+        pricingId:
+          pricingId === NONE ? undefined : (pricingId as Id<"pricings">),
       });
       toast.success(
         `${res.created} vidéo${res.created > 1 ? "s" : ""} × ${targets.length} post${targets.length > 1 ? "s" : ""} assignée${res.created > 1 ? "s" : ""}.`,
@@ -339,6 +344,28 @@ export function AssignScriptCampaignDialog({
               placeholder="Ex. 2"
             />
           </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Pricing (barème de paie)</Label>
+          <Select value={pricingId} onValueChange={(v) => v && setPricingId(v)}>
+            <SelectTrigger aria-label="Pricing">
+              <SelectValue>
+                {pricingId === NONE
+                  ? "Aucun (ancien modèle)"
+                  : ((pricings ?? []).find((p) => p._id === pricingId)?.name ??
+                    "Pricing")}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE}>Aucun (ancien modèle)</SelectItem>
+              {(pricings ?? []).map((p) => (
+                <SelectItem key={p._id} value={p._id}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <DialogFooter>

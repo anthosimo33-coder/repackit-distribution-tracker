@@ -2,6 +2,7 @@ import { adminMutation, adminQuery, e2eMutation } from "./functions";
 import { internalMutation } from "./_generated/server";
 import { CAMPAIGN_NAME, DEMO_BLOCK, SEED_BRICKS } from "./scriptSeedData";
 import { targetInputValidator, validateTargets } from "./assignments";
+import { buildPricingSnapshot } from "./pricing";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -380,6 +381,9 @@ export const assignScriptCampaign = adminMutation({
     dueDate: v.number(),
     rateModel: RATE_MODEL,
     tier: v.optional(TIER),
+    // Nouveau modèle de paie : pricing FIGÉ à l'attribution (Guard A). Optionnel
+    // → absent = ancien modèle (rateSnapshot legacy), dual-mode.
+    pricingId: v.optional(v.id("pricings")),
   },
   handler: async (ctx, args) => {
     const campaign = await requireCampaign(ctx, args.campaignId, ctx.projectId);
@@ -443,6 +447,9 @@ export const assignScriptCampaign = adminMutation({
       basePerPost: args.rateModel.basePerPost,
       viewBonusPer1k: args.rateModel.viewBonusPer1k,
     };
+    const pricingSnapshot = args.pricingId
+      ? await buildPricingSnapshot(ctx, ctx.projectId, args.pricingId)
+      : undefined;
     const targets = args.targets.map((t) => ({
       platform: t.platform,
       accountId: t.accountId,
@@ -490,6 +497,7 @@ export const assignScriptCampaign = adminMutation({
         dueDate: args.dueDate,
         status: "todo",
         rateSnapshot,
+        pricingSnapshot,
         createdAt: now,
       });
       created++;

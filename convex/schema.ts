@@ -780,6 +780,24 @@ export default defineSchema({
         v.array(v.object({ thresholdViews: v.number(), amount: v.number() })),
       ),
     }),
+    // ─── Pricing — barème FIGÉ à l'attribution (snapshot, jamais réécrit) ─────
+    // Présent ⇔ l'assignment relève du NOUVEAU modèle de paie (fixe mensuel/vidéo
+    // unique + CPM multi-plateforme + bonus seuil, cf lib/pricing-engine.ts).
+    // Absent ⇔ legacy (rateSnapshot + lineItems base/bonus accruées à l'écriture).
+    // Les deux populations sont DISJOINTES (Guard A/B/C) → 0 double paiement.
+    // Optionnel → 0 migration. Modifier un pricing n'affecte QUE les futures
+    // attributions ; supprimer/archiver un pricing ne casse pas les vidéos déjà
+    // attribuées (elles ont leur snapshot).
+    pricingSnapshot: v.optional(
+      v.object({
+        pricingId: v.id("pricings"),
+        montantFixe: v.number(),
+        nbVideosCible: v.number(),
+        tauxCPM: v.number(),
+        seuilBonusVues: v.number(),
+        montantBonus: v.number(),
+      }),
+    ),
     createdAt: v.number(),
   })
     .index("by_project", ["projectId"])
@@ -796,6 +814,26 @@ export default defineSchema({
     projectId: v.id("projects"),
     content: v.string(),
     updatedAt: v.number(),
+  }).index("by_project", ["projectId"]),
+
+  // ─── Pricing — barèmes de rémunération réutilisables (scopés projet) ───────
+  // Un pricing = un barème nommé attribuable à des vidéos (assignments). Modèle
+  // à 3 composantes (cf lib/pricing-engine.ts) : FIXE mensuel (montantFixe pour
+  // nbVideosCible vidéos uniques publiées, proratisé/plafonné), CPM (tauxCPM €
+  // par 1000 vues, toutes plateformes sommées), BONUS (montantBonus au-delà de
+  // seuilBonusVues, par vidéo). À l'attribution les valeurs sont FIGÉES sur
+  // l'assignment (pricingSnapshot) → modifier/archiver un pricing n'affecte que
+  // les futures attributions. deletePricing si non utilisé, sinon archivePricing.
+  pricings: defineTable({
+    projectId: v.id("projects"),
+    name: v.string(),
+    montantFixe: v.number(),
+    nbVideosCible: v.number(), // >= 1 (imposé serveur, anti division par zéro)
+    tauxCPM: v.number(), // € par 1000 vues
+    seuilBonusVues: v.number(),
+    montantBonus: v.number(),
+    status: v.union(v.literal("active"), v.literal("archived")),
+    createdAt: v.number(),
   }).index("by_project", ["projectId"]),
 
   // ─── P8 — Paiements (accrual par période) ─────────────────────────────────
@@ -815,7 +853,15 @@ export default defineSchema({
         assignmentId: v.id("assignments"),
         label: v.string(),
         amount: v.number(),
-        kind: v.union(v.literal("base"), v.literal("bonus")),
+        // base/bonus = LEGACY (accrual à l'écriture). fixed/cpm = nouveau modèle
+        // PRICING, GELÉS dans la row au paiement (markPaid) — avant paiement la
+        // paie pricing est calculée à la lecture (temps réel sur les vues).
+        kind: v.union(
+          v.literal("base"),
+          v.literal("bonus"),
+          v.literal("fixed"),
+          v.literal("cpm"),
+        ),
         // Chantier C — plateforme du post (paiement PAR POST : N lineItems base
         // par assignment, 1 par cible). Optional : le bonus (1/assignment) et
         // les lineItems legacy n'en portent pas.
