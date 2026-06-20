@@ -14,6 +14,7 @@ import {
   ClapperboardIcon,
   ClipboardCheckIcon,
   ClipboardListIcon,
+  CoinsIcon,
   GalleryHorizontalIcon,
   HelpCircleIcon,
   LayersIcon,
@@ -136,6 +137,11 @@ export function Sidebar({
       icon: ClipboardListIcon,
       label: "Assignments",
       ...item(projectPath("/assignments")),
+    },
+    {
+      icon: CoinsIcon,
+      label: "Pricings",
+      ...item(projectPath("/pricings")),
     },
     {
       icon: WalletIcon,

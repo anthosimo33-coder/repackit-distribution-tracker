@@ -18,18 +18,79 @@ type Payment = FunctionReturnType<typeof api.payments.getMyPayments>[number];
 /** Période d'accrual courante "YYYY-MM" (UTC, aligné sur periodOf serveur). */
 const currentPeriod = () => new Date().toISOString().slice(0, 7);
 
-function KindTag({ kind }: { kind: "base" | "bonus" }) {
+const KIND_TAG: Record<string, { label: string; className: string }> = {
+  base: { label: "Base", className: "bg-slate-200 text-slate-600" },
+  bonus: { label: "Bonus", className: "bg-indigo-50 text-indigo-600" },
+  fixed: { label: "Fixe", className: "bg-emerald-50 text-emerald-600" },
+  cpm: { label: "CPM", className: "bg-sky-50 text-sky-600" },
+};
+
+function KindTag({ kind }: { kind: "base" | "bonus" | "fixed" | "cpm" }) {
+  const t = KIND_TAG[kind] ?? KIND_TAG.base;
   return (
     <span
       className={cn(
         "inline-flex shrink-0 rounded px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase",
-        kind === "bonus"
-          ? "bg-indigo-50 text-indigo-600"
-          : "bg-slate-200 text-slate-600",
+        t.className,
       )}
     >
-      {kind === "bonus" ? "Bonus" : "Base"}
+      {t.label}
     </span>
+  );
+}
+
+/**
+ * Aperçu PRICING temps réel d'une période non payée : fixe acquis (X/cible
+ * vidéos → Y€ sur montantFixe), CPM accumulé (sur les vues), bonus, total.
+ */
+function PricingBreakdown({ b }: { b: Payment["pricingBreakdown"] }) {
+  if (b.total <= 0 && b.perPricing.length === 0) return null;
+  const g = b.perPricing[0];
+  return (
+    <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+        Détail (temps réel)
+      </p>
+      <Row
+        label={
+          g
+            ? `Fixe — ${g.videoCount}/${g.nbVideosCible} vidéos publiées`
+            : "Fixe"
+        }
+        sub={g ? `sur ${formatEuros(g.montantFixe)}` : undefined}
+        amount={b.fixedTotal}
+      />
+      <Row label="CPM accumulé (sur tes vues)" amount={b.cpmTotal} />
+      <Row label="Bonus seuil de vues" amount={b.bonusTotal} />
+      <div className="flex items-center justify-between border-t border-slate-100 pt-2 text-sm font-semibold">
+        <span>Sous-total pricing</span>
+        <span className="tabular-nums" data-testid="pricing-total">
+          {formatEuros(b.total)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function Row({
+  label,
+  sub,
+  amount,
+}: {
+  label: string;
+  sub?: string;
+  amount: number;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 text-sm">
+      <span className="min-w-0 text-slate-600">
+        {label}
+        {sub ? <span className="text-slate-400"> {sub}</span> : null}
+      </span>
+      <span className="shrink-0 tabular-nums text-slate-900">
+        {formatEuros(amount)}
+      </span>
+    </div>
   );
 }
 
@@ -149,23 +210,31 @@ export default function CreatorPaiementsPage() {
             </CardContent>
           </Card>
 
-          {/* Détail ligne par ligne — période en cours */}
+          {/* Détail — période en cours : aperçu pricing temps réel (nouveau
+              modèle) + lineItems legacy éventuelles. */}
           <section className="space-y-2">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
               Détail du mois
             </h2>
-            {!current || current.lineItems.length === 0 ? (
+            {!current ||
+            (current.lineItems.length === 0 &&
+              current.pricingBreakdown.total <= 0) ? (
               <Card>
                 <CardContent className="py-8 text-center text-sm text-slate-500">
-                  Aucun post validé ce mois-ci pour l&apos;instant.
+                  Aucune vidéo publiée ce mois-ci pour l&apos;instant.
                 </CardContent>
               </Card>
             ) : (
-              <Card>
-                <CardContent className="p-0">
-                  <LineItems p={current} />
-                </CardContent>
-              </Card>
+              <div className="space-y-2">
+                <PricingBreakdown b={current.pricingBreakdown} />
+                {current.lineItems.length > 0 && (
+                  <Card>
+                    <CardContent className="p-0">
+                      <LineItems p={current} />
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
             )}
           </section>
 

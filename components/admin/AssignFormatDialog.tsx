@@ -69,12 +69,17 @@ export function AssignFormatDialog({
       : "skip",
   );
   const assign = useProjectMutation(api.assignments.assignFormat);
+  const pricings = useProjectQuery(
+    api.pricing.listPricings,
+    open ? {} : "skip",
+  );
 
   const [picks, setPicks] = useState<Record<Platform, string>>({
     TikTok: NONE,
     YouTube: NONE,
     Instagram: NONE,
   });
+  const [pricingId, setPricingId] = useState<string>(NONE);
   const [posts, setPosts] = useState("1");
   const [due, setDue] = useState(defaultDue());
   const [submitting, setSubmitting] = useState(false);
@@ -120,11 +125,14 @@ export function AssignFormatDialog({
         targets,
         postsPerCreator,
         dueDate: dueMs,
+        pricingId:
+          pricingId === NONE ? undefined : (pricingId as Id<"pricings">),
       });
       toast.success(
         `${created} vidéo${created > 1 ? "s" : ""} × ${targets.length} post${targets.length > 1 ? "s" : ""} assignée${created > 1 ? "s" : ""}`,
       );
       changeCreator(NONE);
+      setPricingId(NONE);
       onOpenChange(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erreur");
@@ -231,6 +239,32 @@ export function AssignFormatDialog({
               )}
             </div>
           )}
+
+          {/* Pricing (barème de paie) — optionnel : si absent, ancien modèle. */}
+          <div className="space-y-1.5">
+            <Label>Pricing (barème de paie)</Label>
+            <Select
+              value={pricingId}
+              onValueChange={(v) => v && setPricingId(v)}
+            >
+              <SelectTrigger aria-label="Pricing">
+                <SelectValue>
+                  {pricingId === NONE
+                    ? "Aucun (ancien modèle)"
+                    : ((pricings ?? []).find((p) => p._id === pricingId)?.name ??
+                      "Pricing")}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>Aucun (ancien modèle)</SelectItem>
+                {(pricings ?? []).map((p) => (
+                  <SelectItem key={p._id} value={p._id}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">

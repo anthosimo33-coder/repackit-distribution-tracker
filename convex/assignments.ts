@@ -11,7 +11,10 @@ import {
   accrueBaseLineItem,
   upsertBonusLineItem,
   computeEarnings,
+  getOrCreatePayment,
+  periodOf,
 } from "./payments";
+import { buildPricingSnapshot } from "./pricing";
 import { isAccountAvailable } from "./warmup";
 import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
@@ -131,6 +134,9 @@ export const assignFormat = adminMutation({
     targets: v.array(targetInputValidator),
     postsPerCreator: v.number(),
     dueDate: v.number(),
+    // Nouveau modèle de paie : pricing FIGÉ à l'attribution (Guard A). Optionnel
+    // → absent = ancien modèle (rateSnapshot legacy), dual-mode.
+    pricingId: v.optional(v.id("pricings")),
   },
   handler: async (ctx, args) => {
     const format = await ctx.db.get(args.formatId);
@@ -174,6 +180,9 @@ export const assignFormat = adminMutation({
       platform: t.platform,
       accountId: t.accountId,
     }));
+    const pricingSnapshot = args.pricingId
+      ? await buildPricingSnapshot(ctx, ctx.projectId, args.pricingId)
+      : undefined;
     const now = Date.now();
     let created = 0;
     for (let i = 0; i < args.postsPerCreator; i++) {
@@ -185,6 +194,7 @@ export const assignFormat = adminMutation({
         dueDate: args.dueDate,
         status: "todo",
         rateSnapshot: format.rateModel,
+        pricingSnapshot,
         createdAt: now,
       });
       created++;
@@ -825,6 +835,11 @@ export const computeViewBonus = adminMutation({
     if (a.status !== "published") {
       throw new ConvexError("Le bonus se calcule sur un assignment publié.");
     }
+    if (a.pricingSnapshot !== undefined) {
+      throw new ConvexError(
+        "Bonus dérivé automatiquement du pricing (CPM + seuil) — non applicable manuellement.",
+      );
+    }
     const hasPub = (a.targets ?? []).some((t) => t.publicationId !== undefined);
     if (!hasPub) {
       throw new ConvexError(
@@ -1116,20 +1131,24 @@ export const confirmPublication = creatorMutation({
         url,
         now,
       );
-      // BASE PAR POST (idempotent par (assignment, plateforme)). Label NEUTRE
-      // côté créateur (jamais le nom de campagne pour un script).
-      const label = isScript
-        ? `Vidéo — ${t.platform} — ${dateLabel}`
-        : `${format?.name ?? "Format"} — ${t.platform} — ${dateLabel}`;
-      await accrueBaseLineItem(ctx, {
-        projectId: ctx.projectId,
-        creatorId: a.creatorId,
-        assignmentId: a._id,
-        label,
-        amount: a.rateSnapshot.basePerPost,
-        now,
-        platform: t.platform,
-      });
+      // Modèle PRICING (pricingSnapshot présent) : AUCUNE lineItem base écrite
+      // ici — la paie (fixe/CPM/bonus) est calculée à la lecture, en temps réel
+      // sur les vues, et GELÉE au paiement (Guard A/B/C, 0 double paiement).
+      // Modèle LEGACY (pas de snapshot) : base PAR POST inchangée.
+      if (a.pricingSnapshot === undefined) {
+        const label = isScript
+          ? `Vidéo — ${t.platform} — ${dateLabel}`
+          : `${format?.name ?? "Format"} — ${t.platform} — ${dateLabel}`;
+        await accrueBaseLineItem(ctx, {
+          projectId: ctx.projectId,
+          creatorId: a.creatorId,
+          assignmentId: a._id,
+          label,
+          amount: a.rateSnapshot.basePerPost,
+          now,
+          platform: t.platform,
+        });
+      }
       if (publicationId) publicationIds.push(publicationId);
       newTargets.push({
         platform: t.platform,
@@ -1137,6 +1156,18 @@ export const confirmPublication = creatorMutation({
         publishedUrl: url,
         publishedAt: now,
         publicationId: publicationId ?? undefined,
+      });
+    }
+
+    // Modèle PRICING : pas de lineItem écrite, mais on GARANTIT une row de
+    // paiement pour la période → l'admin a une période à marquer payée (le
+    // montant pricing est calculé live jusqu'au gel au paiement).
+    if (a.pricingSnapshot !== undefined) {
+      await getOrCreatePayment(ctx, {
+        projectId: ctx.projectId,
+        creatorId: a.creatorId,
+        period: periodOf(now),
+        now,
       });
     }
 
