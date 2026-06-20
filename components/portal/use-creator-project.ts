@@ -1,15 +1,14 @@
 "use client";
 
-import { useQuery } from "convex/react";
-import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
 
 /**
- * P7 — projectId du créateur courant (portail /app, hors ProjectProvider).
- * Résolu via getMyPortal ; null tant que non chargé ou non-creator. Sert à
- * passer projectId aux creatorQuery/creatorMutation (qui l'exigent).
+ * projectId du PROJET COURANT du créateur (portail /app), résolu par le
+ * CreatorProjectProvider (switcher multi-projets). Toujours défini sous le
+ * provider — toutes les creatorQuery/creatorMutation le passent pour s'isoler
+ * sur le projet courant.
  */
-export function useCreatorProjectId(): Id<"projects"> | null {
-  const portal = useQuery(api.creators.getMyPortal, {});
-  return portal?.role === "creator" ? portal.projectId : null;
+export function useCreatorProjectId(): Id<"projects"> {
+  return useCreatorProject().current.projectId;
 }

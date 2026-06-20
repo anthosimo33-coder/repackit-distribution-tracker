@@ -38,7 +38,12 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: "pnpm dev",
+    // En CI : on sert le BUILD existant (`pnpm build` tourne juste avant dans
+    // le workflow) via `next start` au lieu de `next dev`. Évite la compilation
+    // à la volée par route (payée à chaque 1er hit, sur ~85 specs) → phase de
+    // tests nettement plus courte. En local : `pnpm dev` (HMR, pas de build).
+    // `next start` écoute sur le même port 3000 → url/health-check inchangés.
+    command: isCI ? "pnpm start" : "pnpm dev",
     url: "http://localhost:3000",
     reuseExistingServer: !isCI,
     timeout: 120 * 1000,

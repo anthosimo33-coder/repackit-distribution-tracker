@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { useCreatorProjectId } from "@/components/portal/use-creator-project";
 import {
   Card,
   CardContent,
@@ -41,12 +42,8 @@ const DETAILS_PLACEHOLDER: Record<PaymentMethod, string> = {
 };
 
 export default function CreatorProfilPage() {
-  const portal = useQuery(api.creators.getMyPortal, {});
-  const projectId = portal?.role === "creator" ? portal.projectId : null;
-  const profile = useQuery(
-    api.creators.getMyProfile,
-    projectId ? { projectId } : "skip",
-  );
+  const projectId = useCreatorProjectId();
+  const profile = useQuery(api.creators.getMyProfile, { projectId });
   const updateProfile = useMutation(api.creators.updateMyProfile);
 
   // Valeurs éditées (null = pas encore touché → on affiche la valeur serveur).
@@ -63,7 +60,6 @@ export default function CreatorProfilPage() {
   const details = detailsEdit ?? profile?.paymentDetails ?? "";
 
   async function onSave() {
-    if (!projectId) return;
     setBusy(true);
     try {
       await updateProfile({
@@ -80,7 +76,7 @@ export default function CreatorProfilPage() {
     }
   }
 
-  const loading = portal === undefined || profile === undefined;
+  const loading = profile === undefined;
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">

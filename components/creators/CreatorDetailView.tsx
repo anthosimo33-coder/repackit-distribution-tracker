@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { useMutation, useQuery } from "convex/react";
 import { useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import type { FunctionReturnType } from "convex/server";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,7 +31,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { KeyRoundIcon, Loader2Icon } from "lucide-react";
+import { FolderPlusIcon, KeyRoundIcon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -68,6 +70,34 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
   // Lien de reset généré (affiché dans un dialog à copier). null = dialog fermé.
   const [resetToken, setResetToken] = useState<string | null>(null);
   const [generatingReset, setGeneratingReset] = useState(false);
+
+  // Rattachement multi-projets : projets vers lesquels l'admin peut ajouter CE
+  // créateur (ses projets admin, hors ceux où le créateur est déjà membre).
+  // Réservé à un compte DÉJÀ finalisé (userId posé) — sinon c'est /join.
+  const addableProjects = useQuery(
+    api.creators.listAddableProjectsForCreator,
+    creator.userId ? { creatorUserId: creator.userId } : "skip",
+  );
+  const addToProject = useMutation(api.creators.addCreatorToProject);
+  const [addTarget, setAddTarget] = useState<string>("");
+  const [adding, setAdding] = useState(false);
+
+  async function handleAddToProject() {
+    if (!creator.userId || !addTarget) return;
+    setAdding(true);
+    try {
+      await addToProject({
+        projectId: addTarget as Id<"projects">,
+        creatorUserId: creator.userId,
+      });
+      toast.success("Créateur rattaché au projet.");
+      setAddTarget("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setAdding(false);
+    }
+  }
 
   async function handleSave() {
     setSaving(true);
@@ -206,6 +236,70 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Multi-projets — rattacher CE compte créateur à un autre projet (même
+          login). Uniquement pour un compte DÉJÀ finalisé (userId posé) : pour un
+          créateur jamais inscrit, c'est le lien d'invitation /join qui crée le
+          compte. */}
+      {creator.userId && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Autres projets</CardTitle>
+            <CardDescription>
+              Rattache ce créateur (même compte, même login) à un autre de tes
+              projets. Ses comptes, assignments et gains y seront distincts.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {addableProjects === undefined ? (
+              <p className="text-sm text-slate-400">Chargement…</p>
+            ) : addableProjects.length === 0 ? (
+              <p className="text-sm text-slate-500">
+                Aucun autre projet disponible (déjà membre de tous tes projets).
+              </p>
+            ) : (
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <div className="flex-1 space-y-1.5">
+                  <Label htmlFor="add-project">Projet</Label>
+                  <Select
+                    value={addTarget}
+                    onValueChange={(v) => v && setAddTarget(v)}
+                  >
+                    <SelectTrigger id="add-project" aria-label="Projet cible">
+                      <SelectValue placeholder="Choisir un projet…">
+                        {addTarget
+                          ? addableProjects.find(
+                              (p) => p.projectId === addTarget,
+                            )?.name
+                          : "Choisir un projet…"}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {addableProjects.map((p) => (
+                        <SelectItem key={p.projectId} value={p.projectId}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  onClick={handleAddToProject}
+                  disabled={adding || !addTarget}
+                  className="shrink-0"
+                >
+                  {adding ? (
+                    <Loader2Icon className="mr-2 size-4 animate-spin" />
+                  ) : (
+                    <FolderPlusIcon className="mr-2 size-4" />
+                  )}
+                  Ajouter au projet
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

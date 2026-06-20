@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { useCreatorProjectId } from "@/components/portal/use-creator-project";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,20 +16,16 @@ import { mustCheckToday } from "@/lib/warmup";
 
 /**
  * P5 — portail créateur : « Mes comptes ». Hors ProjectProvider → projectId
- * résolu via getMyPortal puis passé explicitement aux creatorQuery/Mutation.
+ * résolu via le CreatorProjectProvider (projet courant) puis passé explicitement
+ * aux creatorQuery/Mutation.
  * Le serveur ne sert QUE les comptes du créateur (filtrage par creatorId).
  */
 export default function CreatorComptesPage() {
-  const portal = useQuery(api.creators.getMyPortal, {});
-  const projectId =
-    portal?.role === "creator" ? portal.projectId : null;
-  const comptes = useQuery(
-    api.comptes.listMyComptes,
-    projectId ? { projectId } : "skip",
-  );
+  const projectId = useCreatorProjectId();
+  const comptes = useQuery(api.comptes.listMyComptes, { projectId });
   const [declareOpen, setDeclareOpen] = useState(false);
 
-  const loading = portal === undefined || comptes === undefined;
+  const loading = comptes === undefined;
 
   // Notif in-app : comptes en warmup à faire/rattraper aujourd'hui (compteur
   // dérivé des comptes déjà chargés — même logique que countMyWarmupDue serveur).

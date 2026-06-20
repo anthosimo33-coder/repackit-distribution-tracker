@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -100,15 +101,13 @@ function PastPeriod({ p }: { p: Payment }) {
 }
 
 export default function CreatorPaiementsPage() {
-  const portal = useQuery(api.creators.getMyPortal, {});
-  const projectId = portal?.role === "creator" ? portal.projectId : null;
-  const payoutDay = portal?.role === "creator" ? portal.payoutDay : null;
-  const payments = useQuery(
-    api.payments.getMyPayments,
-    projectId ? { projectId } : "skip",
-  );
+  const { current: currentProject } = useCreatorProject();
+  const payoutDay = currentProject.payoutDay;
+  const payments = useQuery(api.payments.getMyPayments, {
+    projectId: currentProject.projectId,
+  });
 
-  const loading = portal === undefined || payments === undefined;
+  const loading = payments === undefined;
   const period = currentPeriod();
   const current = (payments ?? []).find((p) => p.period === period) ?? null;
   const past = (payments ?? [])

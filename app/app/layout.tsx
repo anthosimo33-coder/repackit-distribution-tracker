@@ -10,14 +10,18 @@ import { api } from "@/convex/_generated/api";
 import { projectPath } from "@/lib/project-path";
 import { AccentStyle } from "@/components/project/AccentStyle";
 import { CreatorBottomNav } from "@/components/portal/CreatorBottomNav";
-import { BrandMark } from "@/components/brand/BrandMark";
+import {
+  CreatorProjectProvider,
+  useCreatorProject,
+} from "@/components/portal/CreatorProjectProvider";
+import { CreatorProjectSwitcher } from "@/components/portal/CreatorProjectSwitcher";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /**
  * P5 — shell du portail créateur (/app/*). Garde par rôle centralisée :
- *   - creator → rend le shell (header + nav Accueil / Mes comptes + déconnexion)
- *     et les pages enfants ;
+ *   - creator → rend le shell (header + switcher de projet + nav + déconnexion)
+ *     et les pages enfants, sous CreatorProjectProvider (projet courant) ;
  *   - admin / superadmin → redirigé vers son /admin (l'app interne) ;
  *   - none → état vide.
  * Rendu sous <Authenticated> (AppShell), hors ProjectProvider.
@@ -37,8 +41,6 @@ export default function AppPortalLayout({
 }) {
   const portal = useQuery(api.creators.getMyPortal, {});
   const router = useRouter();
-  const pathname = usePathname();
-  const { signOut } = useAuthActions();
 
   useEffect(() => {
     if (portal?.role === "admin" && portal.slug) {
@@ -70,36 +72,45 @@ export default function AppPortalLayout({
     );
   }
 
+  // role creator : projet courant + switcher gérés par le provider.
+  return (
+    <CreatorProjectProvider>
+      <CreatorShell>{children}</CreatorShell>
+    </CreatorProjectProvider>
+  );
+}
+
+/**
+ * Shell interne (sous CreatorProjectProvider) : applique l'accent du PROJET
+ * COURANT, rend le header (switcher + nav desktop + déconnexion), le contenu et
+ * la bottom tab bar mobile, tous scopés sur le projet courant.
+ */
+function CreatorShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const { signOut } = useAuthActions();
+  const { current } = useCreatorProject();
+
   async function handleSignOut() {
     await signOut();
     router.push("/login");
   }
 
-  // P10 branding — accent par projet (orange RepackIt #FF5200 par défaut) :
-  // injecté dans --primary/--ring pour que boutons, liens actifs et focus du
-  // portail suivent l'accent du projet du créateur. Fond clair inchangé.
-  const accent =
-    portal.role === "creator" ? portal.accentColor || "#FF5200" : "#FF5200";
+  // P10 branding — accent du projet COURANT injecté dans --primary/--ring.
+  const accent = current.accentColor || "#FF5200";
   const accentVars = {
     "--primary": accent,
     "--ring": accent,
   } as React.CSSProperties;
 
-  const creatorProjectId =
-    portal.role === "creator" ? portal.projectId : null;
-
   return (
     <div className="min-h-screen bg-slate-50" style={accentVars}>
       <AccentStyle accent={accent} />
       <header className="border-b border-slate-200 bg-white">
-        <div className="container mx-auto flex h-14 items-center justify-between px-4 sm:px-6">
-          <div className="flex items-center gap-4">
-            <span className="flex items-center gap-2 font-semibold text-slate-900">
-              <BrandMark size={28} />
-              Espace créateur
-            </span>
-            {/* Nav desktop : la barre d'onglets mobile (CreatorBottomNav) prend
-                le relais sous md. */}
+        <div className="container mx-auto flex h-14 items-center justify-between gap-2 px-4 sm:px-6">
+          <div className="flex min-w-0 items-center gap-4">
+            <CreatorProjectSwitcher />
+            {/* Nav desktop : la bottom tab bar mobile prend le relais sous md. */}
             <nav className="hidden items-center gap-1 md:flex">
               {NAV.map((n) => {
                 const active = n.exact
@@ -127,7 +138,7 @@ export default function AppPortalLayout({
             size="sm"
             onClick={handleSignOut}
             aria-label="Se déconnecter"
-            className="gap-2 text-slate-600 hover:text-slate-900"
+            className="shrink-0 gap-2 text-slate-600 hover:text-slate-900"
           >
             <LogOutIcon className="size-4" />
             <span className="hidden sm:inline">Se déconnecter</span>
@@ -139,7 +150,7 @@ export default function AppPortalLayout({
       <main className="container mx-auto px-4 py-6 pb-24 sm:px-6 sm:py-8 md:pb-8">
         {children}
       </main>
-      <CreatorBottomNav projectId={creatorProjectId} />
+      <CreatorBottomNav projectId={current.projectId} />
     </div>
   );
 }

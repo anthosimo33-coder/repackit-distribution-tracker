@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { useCreatorProjectId } from "@/components/portal/use-creator-project";
+import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
 import {
   Card,
   CardContent,
@@ -47,8 +47,8 @@ function formatDate(ts: number) {
 }
 
 export default function CreatorDashboardPage() {
-  const portal = useQuery(api.creators.getMyPortal, {});
-  const projectId = useCreatorProjectId();
+  const { current } = useCreatorProject();
+  const projectId = current.projectId;
   const assignments = useQuery(
     api.assignments.listMyAssignments,
     projectId ? { projectId } : "skip",
@@ -63,8 +63,8 @@ export default function CreatorDashboardPage() {
       api.comptes.countMyWarmupDue,
       projectId ? { projectId } : "skip",
     ) ?? 0;
-  const name = portal?.role === "creator" ? portal.creatorName : null;
-  const payoutDay = portal?.role === "creator" ? portal.payoutDay : null;
+  const name = current.creatorName;
+  const payoutDay = current.payoutDay;
 
   // Gains de la période en cours (UTC "YYYY-MM", aligné sur periodOf serveur).
   const currentPeriod = new Date().toISOString().slice(0, 7);
