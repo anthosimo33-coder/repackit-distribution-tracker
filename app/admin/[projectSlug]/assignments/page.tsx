@@ -23,11 +23,17 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import { ClapperboardIcon, FileTextIcon, PencilIcon } from "lucide-react";
+import {
+  ClapperboardIcon,
+  FileTextIcon,
+  ImagesIcon,
+  PencilIcon,
+} from "lucide-react";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AssignmentModelVideosDialog } from "@/components/admin/AssignmentModelVideosDialog";
 import { AssignmentScriptDialog } from "@/components/admin/AssignmentScriptDialog";
 import { EditScriptComboDialog } from "@/components/admin/EditScriptComboDialog";
+import { LinkAssetFolderDialog } from "@/components/admin/LinkAssetFolderDialog";
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
 import {
   ASSIGNMENT_STATUS,
@@ -70,6 +76,11 @@ export default function AssignmentsPage() {
   const [editId, setEditId] = useState<Id<"assignments"> | null>(null);
   const editRow = editId
     ? ((assignments ?? []).find((a) => a._id === editId) ?? null)
+    : null;
+  // Lier un dossier d'assets (images à télécharger) — row dérivée live.
+  const [assetLinkId, setAssetLinkId] = useState<Id<"assignments"> | null>(null);
+  const assetLinkRow = assetLinkId
+    ? ((assignments ?? []).find((a) => a._id === assetLinkId) ?? null)
     : null;
 
   const creators = useMemo(() => {
@@ -196,6 +207,7 @@ export default function AssignmentsPage() {
                   <TableHead>Statut</TableHead>
                   <TableHead>Soumis</TableHead>
                   <TableHead>Modèles</TableHead>
+                  <TableHead>Assets</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -313,6 +325,20 @@ export default function AssignmentsPage() {
                             : "+"}
                         </Button>
                       </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 gap-1.5 px-2 text-slate-600"
+                          onClick={() => setAssetLinkId(a._id)}
+                          aria-label="Lier un dossier d'assets"
+                        >
+                          <ImagesIcon className="size-4" />
+                          {a.assetFolderId
+                            ? (a.assetFolderCount ?? 0)
+                            : "+"}
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   );
                 })}
@@ -355,6 +381,16 @@ export default function AssignmentsPage() {
             ctaBrickId: editRow.scriptCombo.ctaBrickId,
           }}
           creatorName={editRow.creatorName}
+        />
+      )}
+
+      {assetLinkRow && (
+        <LinkAssetFolderDialog
+          open
+          onOpenChange={(o) => !o && setAssetLinkId(null)}
+          assignmentId={assetLinkRow._id}
+          currentFolderId={assetLinkRow.assetFolderId ?? null}
+          creatorName={assetLinkRow.creatorName}
         />
       )}
     </div>

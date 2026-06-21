@@ -821,6 +821,11 @@ export default defineSchema({
         }),
       ),
     ),
+    // ─── Assets — UN dossier d'IMAGES lié (à télécharger par le créateur) ──────
+    // Lien simple vers un assetFolders (≠ modelVideos qui sont des liens vidéo à
+    // reproduire). UN seul dossier par assignment, modifiable/retirable (pas de
+    // verrou). optional → 0 migration. Les images vivent en Convex file storage.
+    assetFolderId: v.optional(v.id("assetFolders")),
     rateSnapshot: v.object({
       basePerPost: v.number(),
       viewBonusPer1k: v.optional(v.number()),
@@ -1024,5 +1029,32 @@ export default defineSchema({
     .index("by_campaign", ["campaignId"])
     .index("by_campaign_kind", ["campaignId", "kind"])
     // S2 — résumé combo côté admin (charge les bricks du projet pour les labels).
+    .index("by_project", ["projectId"]),
+
+  // ─── Assets — bibliothèque d'IMAGES en dossiers (matériel à télécharger) ────
+  // IMAGES UNIQUEMENT (jpg/png/webp), hébergées en Convex file storage. Un
+  // dossier (assetFolders) regroupe des images (assets) ; on lie UN dossier à un
+  // assignment (assignments.assetFolderId) pour que le créateur les télécharge.
+  // Scopé projet. ≠ inspirations (liens de veille) et ≠ modelVideos (liens vidéo
+  // à reproduire) : ici ce sont de VRAIS FICHIERS images.
+  assetFolders: defineTable({
+    projectId: v.id("projects"),
+    name: v.string(),
+    createdAt: v.number(),
+  }).index("by_project", ["projectId"]),
+
+  assets: defineTable({
+    projectId: v.id("projects"),
+    folderId: v.id("assetFolders"),
+    // Référence Convex file storage (le blob image). Résolu en URL signée
+    // SERVEUR (ctx.storage.getUrl) — le client ne manipule jamais le storageId.
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    // contentType/size validés (image jpg/png/webp, ≤ max) à la création.
+    contentType: v.string(),
+    size: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_folder", ["folderId"])
     .index("by_project", ["projectId"]),
 });

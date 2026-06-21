@@ -53,6 +53,8 @@ export async function cleanupTestData() {
         client.mutation(api.inspirations.cleanupTestInspirations, { secret }),
     ],
     ["folders", () => client.mutation(api.folders.cleanupTestFolders, { secret })],
+    // Assets (dossiers d'images [E2E_TEST] + blobs storage).
+    ["assets", () => client.mutation(api.assets.cleanupTestAssets, { secret })],
     [
       "personnes",
       () => client.mutation(api.personnes.cleanupTestPersonnes, { secret }),

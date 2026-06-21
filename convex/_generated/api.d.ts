@@ -11,6 +11,7 @@
 import type * as adminRecovery from "../adminRecovery.js";
 import type * as apifyApi from "../apifyApi.js";
 import type * as apifySync from "../apifySync.js";
+import type * as assets from "../assets.js";
 import type * as assignments from "../assignments.js";
 import type * as auth from "../auth.js";
 import type * as comptes from "../comptes.js";
@@ -59,6 +60,7 @@ declare const fullApi: ApiFromModules<{
   adminRecovery: typeof adminRecovery;
   apifyApi: typeof apifyApi;
   apifySync: typeof apifySync;
+  assets: typeof assets;
   assignments: typeof assignments;
   auth: typeof auth;
   comptes: typeof comptes;
