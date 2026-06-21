@@ -10,41 +10,95 @@ import { Loader2Icon, UploadIcon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { convexErrorMessage } from "@/lib/convex-error";
-import { ASSET_ACCEPTED_TYPES, validateAssetFile } from "@/lib/asset-file";
+import {
+  ASSET_ACCEPTED_TYPES,
+  resolveAssetContentType,
+  validateAssetFile,
+} from "@/lib/asset-file";
+
+// Accept = types MIME + extensions (certains OS ne renseignent pas le MIME des
+// .mp4/.mov dans le picker → l'extension garantit qu'ils restent sélectionnables).
+const ACCEPT_ATTR = [
+  ...ASSET_ACCEPTED_TYPES,
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".mp4",
+  ".mov",
+  ".webm",
+].join(",");
+
+/**
+ * POST direct du blob vers l'URL signée Convex via XHR (progression d'upload +
+ * timeout). Résout/rejette TOUJOURS (load/error/timeout) → l'appelant ne reste
+ * jamais bloqué. Le File est envoyé tel quel (pas de lecture mémoire).
+ */
+function putBlob(
+  url: string,
+  file: File,
+  contentType: string,
+  onProgress: (pct: number) => void,
+): Promise<Id<"_storage">> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    xhr.setRequestHeader("Content-Type", contentType);
+    xhr.timeout = 5 * 60 * 1000; // 5 min (large pour ~100 Mo)
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const { storageId } = JSON.parse(xhr.responseText) as {
+            storageId: Id<"_storage">;
+          };
+          resolve(storageId);
+        } catch {
+          reject(new Error("Réponse d'upload invalide."));
+        }
+      } else {
+        reject(new Error(`Upload échoué (HTTP ${xhr.status}).`));
+      }
+    };
+    xhr.onerror = () => reject(new Error("Erreur réseau pendant l'upload."));
+    xhr.ontimeout = () => reject(new Error("Upload expiré — réessaie."));
+    xhr.send(file);
+  });
+}
 
 /**
  * Upload MULTI de fichiers vers un dossier d'assets (Convex storage) : IMAGES
- * (≤ 10 Mo) ET VIDÉOS courtes (≤ 100 Mo). Pour chaque fichier : validation
- * client (lib/asset-file, limite PAR type) → generateUploadUrl → POST →
- * createAsset (qui RE-VALIDE serveur). Les types non supportés / trop gros sont
- * rejetés des deux côtés.
+ * (≤ 10 Mo) ET VIDÉOS courtes (≤ 100 Mo). Pour chaque fichier : résolution du
+ * type (MIME ou EXTENSION en fallback) → validation (lib/asset-file) →
+ * generateUploadUrl → POST (XHR, progression) → createAsset (re-valide serveur).
+ * L'UI ne reste JAMAIS bloquée : toute issue remet la zone à l'état normal.
  */
 export function AssetUploader({ folderId }: { folderId: Id<"assetFolders"> }) {
   const generateUploadUrl = useMutation(api.storage.generateUploadUrl);
   const createAsset = useProjectMutation(api.assets.createAsset);
   const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  async function uploadOne(file: File) {
-    const check = validateAssetFile({ contentType: file.type, size: file.size });
+  async function uploadOne(file: File): Promise<boolean> {
+    // Type effectif : MIME s'il est accepté, sinon déduit de l'extension.
+    const contentType = resolveAssetContentType(file) ?? file.type;
+    const check = validateAssetFile({ contentType, size: file.size });
     if (!check.ok) {
-      toast.error(check.error ?? "Fichier invalide.");
+      toast.error(`${file.name} : ${check.error ?? "fichier invalide."}`);
       return false;
     }
     const uploadUrl = await generateUploadUrl();
-    const res = await fetch(uploadUrl, {
-      method: "POST",
-      headers: { "Content-Type": file.type },
-      body: file,
-    });
-    if (!res.ok) throw new Error(`Upload échoué (HTTP ${res.status}).`);
-    const { storageId } = (await res.json()) as { storageId: Id<"_storage"> };
+    setProgress(0);
+    const storageId = await putBlob(uploadUrl, file, contentType, setProgress);
     await createAsset({
       folderId,
       storageId,
       fileName: file.name,
-      contentType: file.type,
+      contentType,
       size: file.size,
     });
     return true;
@@ -54,6 +108,7 @@ export function AssetUploader({ folderId }: { folderId: Id<"assetFolders"> }) {
     const arr = Array.from(files);
     if (arr.length === 0) return;
     setUploading(true);
+    setProgress(null);
     let ok = 0;
     try {
       for (const f of arr) {
@@ -69,10 +124,14 @@ export function AssetUploader({ folderId }: { folderId: Id<"assetFolders"> }) {
         }
       }
       if (ok > 0) {
-        toast.success(`${ok} image${ok > 1 ? "s" : ""} ajoutée${ok > 1 ? "s" : ""}.`);
+        toast.success(
+          `${ok} fichier${ok > 1 ? "s" : ""} ajouté${ok > 1 ? "s" : ""}.`,
+        );
       }
     } finally {
+      // Quoi qu'il arrive (succès, rejet, exception), on débloque la zone.
       setUploading(false);
+      setProgress(null);
     }
   }
 
@@ -99,7 +158,11 @@ export function AssetUploader({ folderId }: { folderId: Id<"assetFolders"> }) {
       {uploading ? (
         <>
           <Loader2Icon className="size-6 animate-spin text-slate-400" />
-          <p className="text-sm text-slate-500">Upload en cours…</p>
+          <p className="text-sm text-slate-500">
+            {progress === null
+              ? "Préparation…"
+              : `Upload en cours… ${progress}%`}
+          </p>
         </>
       ) : (
         <>
@@ -126,9 +189,9 @@ export function AssetUploader({ folderId }: { folderId: Id<"assetFolders"> }) {
         ref={inputRef}
         type="file"
         multiple
-        accept={ASSET_ACCEPTED_TYPES.join(",")}
+        accept={ACCEPT_ATTR}
         className="hidden"
-        aria-label="Sélectionner des images"
+        aria-label="Sélectionner des images ou vidéos"
         onChange={(e) => {
           if (e.target.files) handleFiles(e.target.files);
           e.target.value = "";

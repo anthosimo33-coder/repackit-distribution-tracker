@@ -54,7 +54,8 @@ export default function AssetsPage() {
             Assets
           </h1>
           <p className="text-sm text-slate-500">
-            Bibliothèque d&apos;images en dossiers, à lier aux assignments pour
+            Bibliothèque d&apos;images et vidéos en dossiers, à lier aux
+            assignments pour
             téléchargement par les créateurs.
           </p>
         </div>
@@ -71,7 +72,8 @@ export default function AssetsPage() {
           <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
             <ImagesIcon className="size-12 text-slate-300" strokeWidth={1.5} />
             <p className="text-sm text-slate-500">
-              Aucun dossier. Crée un dossier pour y uploader des images.
+              Aucun dossier. Crée un dossier pour y uploader des images et
+              vidéos.
             </p>
           </CardContent>
         </Card>
@@ -90,7 +92,7 @@ export default function AssetsPage() {
                       {f.name}
                     </p>
                     <p className="text-xs text-slate-500">
-                      {f.assetCount} image{f.assetCount > 1 ? "s" : ""}
+                      {f.assetCount} fichier{f.assetCount > 1 ? "s" : ""}
                     </p>
                   </div>
                 </Link>
@@ -205,7 +207,7 @@ function FolderDialog({
             {isEdit ? "Renommer le dossier" : "Nouveau dossier"}
           </DialogTitle>
           <DialogDescription>
-            Un dossier regroupe des images à fournir aux créateurs.
+            Un dossier regroupe des images et vidéos à fournir aux créateurs.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-1.5">

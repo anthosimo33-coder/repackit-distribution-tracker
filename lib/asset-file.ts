@@ -40,6 +40,39 @@ export function isAcceptedAssetType(contentType: string): boolean {
   return assetKind(contentType) !== null;
 }
 
+/** Extension → contentType (fallback quand File.type est vide/inattendu). */
+const EXT_TO_TYPE: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  mp4: "video/mp4",
+  mov: "video/quicktime",
+  webm: "video/webm",
+};
+
+/** Déduit le contentType depuis l'extension du nom de fichier, ou null. */
+export function inferContentTypeFromName(name: string): string | null {
+  const ext = name.includes(".")
+    ? name.split(".").pop()?.toLowerCase()
+    : undefined;
+  return ext ? (EXT_TO_TYPE[ext] ?? null) : null;
+}
+
+/**
+ * Type EFFECTIF d'un fichier : son MIME s'il est déjà accepté, sinon déduit de
+ * l'EXTENSION. Certains OS donnent un `File.type` vide ou inattendu pour .mp4/
+ * .mov → sans ce fallback la vidéo serait rejetée à tort avant tout upload.
+ * null si ni le MIME ni l'extension ne correspondent à un type supporté.
+ */
+export function resolveAssetContentType(file: {
+  type: string;
+  name: string;
+}): string | null {
+  if (isAcceptedAssetType(file.type)) return file.type;
+  return inferContentTypeFromName(file.name);
+}
+
 /** Taille max autorisée pour ce type, ou null si type non supporté. */
 export function maxBytesForType(contentType: string): number | null {
   const kind = assetKind(contentType);

@@ -4,6 +4,8 @@ import {
   isAcceptedAssetType,
   maxBytesForType,
   validateAssetFile,
+  inferContentTypeFromName,
+  resolveAssetContentType,
   ASSET_IMAGE_MAX_BYTES,
   ASSET_VIDEO_MAX_BYTES,
 } from "./asset-file";
@@ -91,5 +93,41 @@ describe("validateAssetFile", () => {
       validateAssetFile({ contentType: "video/webm", size: ASSET_VIDEO_MAX_BYTES })
         .ok,
     ).toBe(true);
+  });
+});
+
+describe("inferContentTypeFromName", () => {
+  it("déduit le type depuis l'extension (insensible à la casse)", () => {
+    expect(inferContentTypeFromName("clip.mp4")).toBe("video/mp4");
+    expect(inferContentTypeFromName("Clip.MOV")).toBe("video/quicktime");
+    expect(inferContentTypeFromName("a.webm")).toBe("video/webm");
+    expect(inferContentTypeFromName("logo.PNG")).toBe("image/png");
+    expect(inferContentTypeFromName("p.jpeg")).toBe("image/jpeg");
+  });
+
+  it("null si extension inconnue ou absente", () => {
+    expect(inferContentTypeFromName("archive.zip")).toBeNull();
+    expect(inferContentTypeFromName("noext")).toBeNull();
+  });
+});
+
+describe("resolveAssetContentType (fix MIME vide pour .mp4/.mov)", () => {
+  it("garde le MIME quand il est déjà accepté", () => {
+    expect(
+      resolveAssetContentType({ type: "video/mp4", name: "x.mp4" }),
+    ).toBe("video/mp4");
+  });
+
+  it("fallback extension quand le MIME est vide (cas du bug vidéo)", () => {
+    expect(resolveAssetContentType({ type: "", name: "clip.mp4" })).toBe(
+      "video/mp4",
+    );
+    expect(
+      resolveAssetContentType({ type: "application/octet-stream", name: "a.mov" }),
+    ).toBe("video/quicktime");
+  });
+
+  it("null si ni MIME ni extension supportés", () => {
+    expect(resolveAssetContentType({ type: "", name: "doc.pdf" })).toBeNull();
   });
 });
