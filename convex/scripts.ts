@@ -485,6 +485,100 @@ export const assignScriptCampaign = adminMutation({
   },
 });
 
+// ─── Correction d'UNE brique du combo (une seule fois, avant publication) ─────
+// Réplique de lib/script-combo-edit (règle A6) : statuts pré-soumission. Dès
+// qu'une vidéo est soumise/publiée, le combo est verrouillé (le script affiché
+// doit rester ce qui a été produit/publié).
+const COMBO_EDITABLE_STATUSES = ["todo", "in_progress"];
+const SLOT = v.union(v.literal("hook"), v.literal("flux"), v.literal("cta"));
+
+/**
+ * Remplace UNE brique (hook | flux | cta) du combo d'un assignment de script,
+ * UNE SEULE FOIS, et UNIQUEMENT si l'assignment n'est pas encore soumis/publié.
+ * Re-fige assembledScript + comboKey via le MÊME chemin que l'assignation
+ * (assembleNoLabels → rendu créateur labels:false). pricingSnapshot INCHANGÉ.
+ *
+ * Sécurité analytics : l'édition n'est permise qu'en todo/in_progress → AUCUNE
+ * publication/snapshot n'est encore rattachée (matérialisées à la publication),
+ * donc re-figer n'altère aucune donnée de perf historique.
+ */
+export const editScriptCombo = adminMutation({
+  args: {
+    id: v.id("assignments"),
+    slot: SLOT,
+    newBrickId: v.id("scriptBricks"),
+  },
+  handler: async (ctx, args) => {
+    const a = await ctx.db.get(args.id);
+    if (!a || a.projectId !== ctx.projectId) {
+      throw new ConvexError("Assignment introuvable.");
+    }
+    const combo = a.scriptCombo;
+    if (!combo) {
+      throw new ConvexError("Cet assignment n'est pas un script.");
+    }
+    if (!COMBO_EDITABLE_STATUSES.includes(a.status)) {
+      throw new ConvexError(
+        "Le combo ne peut plus être modifié après publication.",
+      );
+    }
+    if (combo.editedOnce) {
+      throw new ConvexError("Le combo a déjà été modifié une fois.");
+    }
+    // Nouvelle brique : même projet + même campagne + bon kind + active.
+    const newBrick = await ctx.db.get(args.newBrickId);
+    if (
+      !newBrick ||
+      newBrick.projectId !== ctx.projectId ||
+      newBrick.campaignId !== combo.campaignId
+    ) {
+      throw new ConvexError("Brique introuvable dans la campagne.");
+    }
+    if (newBrick.kind !== args.slot) {
+      throw new ConvexError(`La brique doit être de type « ${args.slot} ».`);
+    }
+    if (!newBrick.active) {
+      throw new ConvexError("La brique choisie est désactivée.");
+    }
+
+    const hookBrickId =
+      args.slot === "hook" ? newBrick._id : combo.hookBrickId;
+    const fluxBrickId =
+      args.slot === "flux" ? newBrick._id : combo.fluxBrickId;
+    const ctaBrickId = args.slot === "cta" ? newBrick._id : combo.ctaBrickId;
+
+    const [hook, flux, cta] = await Promise.all([
+      ctx.db.get(hookBrickId),
+      ctx.db.get(fluxBrickId),
+      ctx.db.get(ctaBrickId),
+    ]);
+    if (!hook || !flux || !cta) {
+      throw new ConvexError("Brique du combo introuvable.");
+    }
+    const assembledScript = assembleNoLabels({
+      hook: hook.content,
+      flux: flux.content,
+      cta: cta.content,
+    });
+    const comboKey = comboKeyOf({ hookBrickId, fluxBrickId, ctaBrickId });
+
+    await ctx.db.patch(args.id, {
+      // Combo RE-FIGÉ (3 kinds, sans corpsBrickId legacy) + verrou une seule fois.
+      scriptCombo: {
+        campaignId: combo.campaignId,
+        hookBrickId,
+        fluxBrickId,
+        ctaBrickId,
+        assembledScript,
+        editedOnce: true,
+      },
+      comboKey,
+      // pricingSnapshot, rateSnapshot, status… : STRICTEMENT inchangés.
+    });
+    return { ok: true, comboKey };
+  },
+});
+
 // ─── Cleanup e2e (gated E2E_SECRET) ──────────────────────────────────────────
 
 /**
