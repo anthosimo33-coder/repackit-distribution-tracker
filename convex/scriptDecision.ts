@@ -187,7 +187,7 @@ const WINDOW = v.union(
   v.literal("j30"),
 );
 
-export type DecisionDimensionKind = "tier" | "corps" | "flux" | "cta";
+export type DecisionDimensionKind = "tier" | "flux" | "cta";
 
 export interface DecisionDimension {
   kind: DecisionDimensionKind;
@@ -236,13 +236,13 @@ function buildDecisions(views: CampaignViews): CampaignDecisions {
     viewsMedian: t.viewsMedian,
   }));
 
-  const corps = bricks.filter((b) => b.kind === "corps");
+  // Refonte 3 briques : dimensions tier / flux / cta (la dimension corps a
+  // disparu — les ex-corps sont des hooks, jugés via la dimension tier).
   const flux = bricks.filter((b) => b.kind === "flux");
   const cta = bricks.filter((b) => b.kind === "cta");
 
   const dimensions: DecisionDimension[] = [
     { kind: "tier", decisions: decideKind(tierInputs) },
-    { kind: "corps", decisions: decideKind(brickInputs(corps, "corps")) },
     { kind: "flux", decisions: decideKind(brickInputs(flux, "flux")) },
     { kind: "cta", decisions: decideKind(brickInputs(cta, "cta")) },
   ];
@@ -251,7 +251,7 @@ function buildDecisions(views: CampaignViews): CampaignDecisions {
   // seuil haut sous 50 posts. Le combo donne le grain le plus fin.
   const comboSignals: SignalInput[] = combos.map((c) => ({
     key: c.comboKey,
-    label: `Tier ${c.tier ?? "?"} · ${c.corpsLabel} · ${c.fluxLabel} · ${c.ctaLabel}`,
+    label: `Tier ${c.tier ?? "?"} · ${c.fluxLabel} · ${c.ctaLabel}`,
     kind: "combo",
     postCount: c.postCount,
     viewsMedian: c.viewsMedian,

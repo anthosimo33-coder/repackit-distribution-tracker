@@ -22,14 +22,13 @@ function median(values: number[]): number | null {
   return s.length % 2 === 0 ? (s[mid - 1] + s[mid]) / 2 : s[mid];
 }
 
-/** Campagne 3 hooks (S/A/B) × 3 corps × 2 flux × 2 cta. */
+/** Campagne 3 hooks (S/A/B) × 2 flux × 2 cta (refonte 3 briques). */
 async function makeCampaign(ts: number) {
   const campaignId = await admin.mutation(api.scripts.createCampaign, {
     name: `[E2E_TEST] Decision ${ts}`,
-    demoBlock: "SOCLE DEMO DECISION",
   });
   const add = (
-    kind: "hook" | "corps" | "flux" | "cta",
+    kind: "hook" | "flux" | "cta",
     label: string,
     tier?: "S" | "A" | "B",
   ) =>
@@ -43,9 +42,6 @@ async function makeCampaign(ts: number) {
   const hookS = await add("hook", "H-S", "S");
   const hookA = await add("hook", "H-A", "A");
   const hookB = await add("hook", "H-B", "B");
-  await add("corps", "C1");
-  await add("corps", "C2");
-  await add("corps", "C3");
   await add("flux", "F1");
   await add("flux", "F2");
   await add("cta", "T1");
@@ -101,7 +97,6 @@ test.describe("S4 — moteur de décision (campaignDecisions)", () => {
     type Post = {
       tier: "S" | "A" | "B";
       hookBrickId: string;
-      corpsBrickId: string;
       fluxBrickId: string;
       ctaBrickId: string;
       publicationId: Id<"publications">;
@@ -136,7 +131,6 @@ test.describe("S4 — moteur de décision (campaignDecisions)", () => {
       posts.push({
         tier: tierByHook[combo.hookBrickId],
         hookBrickId: combo.hookBrickId,
-        corpsBrickId: combo.corpsBrickId,
         fluxBrickId: combo.fluxBrickId,
         ctaBrickId: combo.ctaBrickId,
         publicationId: res.publicationIds[0],
@@ -171,12 +165,7 @@ test.describe("S4 — moteur de décision (campaignDecisions)", () => {
     expect(dec7.totalPosts).toBe(9);
     // 9 < 50 → AUCUN verdict, tout en_test, rien de jugeable.
     expect(dec7.anyJudgeable).toBe(false);
-    expect(dec7.dimensions.map((d) => d.kind)).toEqual([
-      "tier",
-      "corps",
-      "flux",
-      "cta",
-    ]);
+    expect(dec7.dimensions.map((d) => d.kind)).toEqual(["tier", "flux", "cta"]);
     for (const dim of dec7.dimensions) {
       for (const d of dim.decisions) {
         expect(d.verdict).toBe("en_test");
@@ -208,7 +197,7 @@ test.describe("S4 — moteur de décision (campaignDecisions)", () => {
       campaignId,
       window: "j7",
     });
-    for (const kind of ["corps", "flux", "cta"] as const) {
+    for (const kind of ["flux", "cta"] as const) {
       const dim = dec7.dimensions.find((d) => d.kind === kind)!;
       expect(dim.decisions.length).toBeGreaterThan(0);
       for (const dec of dim.decisions) {

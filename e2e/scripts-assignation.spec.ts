@@ -13,15 +13,14 @@ const admin = createE2eClient(url);
 
 const DAY = 86_400_000;
 
-/** Crée une campagne de test avec 3 hooks (S/A/B) + 2 corps + 2 flux + 2 cta
- *  → 24 combos. Retourne campaignId. */
+/** Crée une campagne de test avec 3 hooks (S/A/B) + 2 flux + 2 cta
+ *  → 3×2×2 = 12 combos (refonte 3 briques). Retourne campaignId. */
 async function makeCampaign(ts: number) {
   const campaignId = await admin.mutation(api.scripts.createCampaign, {
     name: `[E2E_TEST] Assign ${ts}`,
-    demoBlock: "SOCLE DEMO ASSIGN",
   });
   const add = (
-    kind: "hook" | "corps" | "flux" | "cta",
+    kind: "hook" | "flux" | "cta",
     label: string,
     content: string,
     tier?: "S" | "A" | "B",
@@ -36,8 +35,6 @@ async function makeCampaign(ts: number) {
   await add("hook", "H-S", "Hook S contenu", "S");
   await add("hook", "H-A", "Hook A contenu", "A");
   await add("hook", "H-B", "Hook B contenu", "B");
-  await add("corps", "C1", "Corps 1");
-  await add("corps", "C2", "Corps 2");
   await add("flux", "F1", "Flux 1");
   await add("flux", "F2", "Flux 2");
   await add("cta", "T1", "Cta 1");
@@ -93,7 +90,7 @@ test.describe("S2 — assignation anti-coordination", () => {
       rateModel: { basePerPost: 10 },
     });
     expect(r1a.created + r1b.created).toBe(10);
-    expect(r1a.totalCombos).toBe(24);
+    expect(r1a.totalCombos).toBe(12);
     expect(r1a.shortages.length).toBe(0);
     expect(r1b.shortages.length).toBe(0);
 
@@ -109,9 +106,10 @@ test.describe("S2 — assignation anti-coordination", () => {
     // Combos DISTINCTS par créateur (anti-coordination par-créateur).
     expect(new Set(aRows.map((x) => x.comboKey)).size).toBe(5);
     expect(new Set(bRows.map((x) => x.comboKey)).size).toBe(5);
-    // assembledScript figé + rateSnapshot figé + status todo.
+    // assembledScript figé (hook+flux+cta, sans démo) + rateSnapshot + status.
     for (const x of aRows) {
-      expect(x.scriptCombo?.assembledScript).toContain("SOCLE DEMO ASSIGN");
+      expect(x.scriptCombo?.assembledScript).toMatch(/Flux [12]/);
+      expect(x.scriptCombo?.assembledScript).not.toContain("## ");
       expect(x.rateSnapshot.basePerPost).toBe(10);
       expect(x.status).toBe("todo");
       expect(x.formatId ?? null).toBeNull();
@@ -135,7 +133,7 @@ test.describe("S2 — assignation anti-coordination", () => {
     const aNew = aRows.filter((x) => !aKeysBefore.has(x.comboKey));
     expect(aNew.length).toBe(5);
 
-    // Épuisement : A a 10/24 ; demander 20 → 14 assignés + shortage.
+    // Épuisement : A a 10/12 ; demander 20 → 2 assignés + shortage.
     const r3 = await admin.mutation(api.scripts.assignScriptCampaign, {
       campaignId,
       creatorId: a.creatorId,
@@ -144,13 +142,13 @@ test.describe("S2 — assignation anti-coordination", () => {
       dueDate: ts + 7 * DAY,
       rateModel: { basePerPost: 10 },
     });
-    expect(r3.created).toBe(14);
+    expect(r3.created).toBe(2);
     expect(r3.shortages).toEqual([
-      { name: `[E2E_TEST] AssignA ${ts}`, requested: 20, assigned: 14 },
+      { name: `[E2E_TEST] AssignA ${ts}`, requested: 20, assigned: 2 },
     ]);
     aRows = await forCampaign(a.creatorId);
-    expect(aRows.length).toBe(24); // tous les combos épuisés
-    expect(new Set(aRows.map((x) => x.comboKey)).size).toBe(24);
+    expect(aRows.length).toBe(12); // tous les combos épuisés
+    expect(new Set(aRows.map((x) => x.comboKey)).size).toBe(12);
 
     // Au-delà du stock → 0 assigné, shortage.
     const r4 = await admin.mutation(api.scripts.assignScriptCampaign, {

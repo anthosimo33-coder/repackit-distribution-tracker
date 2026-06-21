@@ -22,60 +22,56 @@ function bricks(
 }
 
 describe("generateCombos", () => {
-  it("produit le cartésien des actifs (2×2×2×2 = 16)", () => {
-    const all = [
-      ...bricks("hook", 2),
-      ...bricks("corps", 2),
-      ...bricks("flux", 2),
-      ...bricks("cta", 2),
-    ];
-    const combos = generateCombos(all, "DEMO");
-    expect(combos.length).toBe(16);
-    // Chaque combo a un assembledScript figé, SANS étiquette de section.
+  it("produit le cartésien des actifs (2×2×2 = 8)", () => {
+    const all = [...bricks("hook", 2), ...bricks("flux", 2), ...bricks("cta", 2)];
+    const combos = generateCombos(all);
+    expect(combos.length).toBe(8);
+    // assembledScript figé, SANS étiquette de section ni socle démo.
     expect(combos[0].assembledScript).not.toContain("## Hook");
-    expect(combos[0].assembledScript).toContain("DEMO");
+    expect(combos[0].assembledScript).toContain("hook 0");
+    expect(combos[0].assembledScript).toContain("flux 0");
+    expect(combos[0].assembledScript).toContain("cta 0");
   });
 
-  it("reproduit 192 (campagne seedée : 24 hooks × 2 × 2 × 2)", () => {
+  it("reproduit 104 (campagne seedée : 26 hooks × 2 flux × 2 cta)", () => {
     const all = [
-      ...bricks("hook", 24),
-      ...bricks("corps", 2),
+      ...bricks("hook", 26),
       ...bricks("flux", 2),
       ...bricks("cta", 2),
     ];
-    expect(generateCombos(all, "DEMO").length).toBe(192);
+    expect(generateCombos(all).length).toBe(104);
   });
 
   it("0 combo si un kind n'a aucune brick active", () => {
     const all = [
       ...bricks("hook", 3),
-      ...bricks("corps", 2),
       ...bricks("flux", 2),
       // pas de cta
     ];
-    expect(generateCombos(all, "DEMO").length).toBe(0);
+    expect(generateCombos(all).length).toBe(0);
   });
 
   it("ignore les bricks inactives", () => {
     const all = [
       ...bricks("hook", 2),
-      ...bricks("corps", 2),
       ...bricks("flux", 2),
       ...bricks("cta", 1),
       ...bricks("cta", 1, false, "ctaOff"), // inactif → ignoré
     ];
-    expect(generateCombos(all, "DEMO").length).toBe(8); // 2×2×2×1
+    expect(generateCombos(all).length).toBe(4); // 2×2×1
+  });
+
+  it("comboKey = hook:flux:cta (3 segments)", () => {
+    const all = [...bricks("hook", 1), ...bricks("flux", 1), ...bricks("cta", 1)];
+    const key = comboKeyOf(generateCombos(all)[0]);
+    expect(key.split(":")).toHaveLength(3);
+    expect(key).toBe("hook0:flux0:cta0");
   });
 });
 
 describe("pickCombosForCreator", () => {
-  const all = [
-    ...bricks("hook", 24),
-    ...bricks("corps", 2),
-    ...bricks("flux", 2),
-    ...bricks("cta", 2),
-  ];
-  const combos = generateCombos(all, "DEMO"); // 192
+  const all = [...bricks("hook", 26), ...bricks("flux", 2), ...bricks("cta", 2)];
+  const combos = generateCombos(all); // 104
 
   it("renvoie n combos DISTINCTS", () => {
     const picked = pickCombosForCreator(combos, new Set(), 5);
@@ -100,7 +96,7 @@ describe("pickCombosForCreator", () => {
   });
 
   it("épuisement : renvoie au plus le stock disponible", () => {
-    const usedKeys = new Set(combos.slice(0, 190).map(comboKeyOf));
+    const usedKeys = new Set(combos.slice(0, 102).map(comboKeyOf));
     const picked = pickCombosForCreator(combos, usedKeys, 5);
     expect(picked.length).toBe(2); // seulement 2 restants
   });

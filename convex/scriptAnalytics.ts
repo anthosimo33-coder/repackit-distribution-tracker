@@ -81,13 +81,13 @@ const WINDOW = v.union(
 
 export const TIERS = ["S", "A", "B"] as const;
 export type Tier = (typeof TIERS)[number];
-const KIND_ORDER: Record<string, number> = { hook: 0, corps: 1, flux: 2, cta: 3 };
+// Refonte 3 briques. Un kind inconnu (corps legacy) retombe en fin via `?? 99`.
+const KIND_ORDER: Record<string, number> = { hook: 0, flux: 1, cta: 2 };
 
 /** Un échantillon = une publication de script ayant une vue résolue à la fenêtre. */
 interface ViewSample {
   comboKey: string;
   hookBrickId: Id<"scriptBricks">;
-  corpsBrickId: Id<"scriptBricks">;
   fluxBrickId: Id<"scriptBricks">;
   ctaBrickId: Id<"scriptBricks">;
   views: number;
@@ -124,7 +124,8 @@ export async function gatherCampaignViews(
   const activeBricks = bricks
     .filter((b) => b.active)
     .sort((a, b) => {
-      if (a.kind !== b.kind) return KIND_ORDER[a.kind] - KIND_ORDER[b.kind];
+      if (a.kind !== b.kind)
+        return (KIND_ORDER[a.kind] ?? 99) - (KIND_ORDER[b.kind] ?? 99);
       return (a.order ?? a.createdAt) - (b.order ?? b.createdAt);
     });
 
@@ -163,7 +164,6 @@ export async function gatherCampaignViews(
     samples.push({
       comboKey: combo.comboKey,
       hookBrickId: combo.hookBrickId,
-      corpsBrickId: combo.corpsBrickId,
       fluxBrickId: combo.fluxBrickId,
       ctaBrickId: combo.ctaBrickId,
       views: match.vues,
@@ -178,8 +178,6 @@ function slotOf(s: ViewSample, kind: string): Id<"scriptBricks"> {
   switch (kind) {
     case "hook":
       return s.hookBrickId;
-    case "corps":
-      return s.corpsBrickId;
     case "flux":
       return s.fluxBrickId;
     default:
@@ -191,7 +189,7 @@ function slotOf(s: ViewSample, kind: string): Id<"scriptBricks"> {
 
 export interface BrickPerf extends Distribution {
   brickId: Id<"scriptBricks">;
-  kind: "hook" | "corps" | "flux" | "cta";
+  kind: "hook" | "flux" | "cta";
   label: string;
   tier: Tier | null;
 }
@@ -200,23 +198,30 @@ export interface BrickPerf extends Distribution {
  * Pour CHAQUE brique active de la campagne, distribution des vues des
  * publications dont le combo contient cette brique. Trié par kind puis médiane
  * décroissante (nulls en dernier). Pur sur un CampaignViews déjà chargé.
+ *
+ * Refonte 3 briques : la dimension "corps" a disparu. Une brique legacy
+ * kind="corps" pas encore reclassée est exclue (perte assumée — pas de slot).
  */
 export function aggregateByBrick(views: CampaignViews): BrickPerf[] {
   const { activeBricks, samples } = views;
-  const out: BrickPerf[] = activeBricks.map((b) => {
-    const values = samples
-      .filter((s) => slotOf(s, b.kind) === b._id)
-      .map((s) => s.views);
-    return {
-      brickId: b._id,
-      kind: b.kind,
-      label: b.label,
-      tier: (b.tier as Tier | undefined) ?? null,
-      ...summarize(values),
-    };
-  });
+  const out: BrickPerf[] = activeBricks
+    .filter((b) => b.kind !== "corps")
+    .map((b) => {
+      const kind = b.kind as "hook" | "flux" | "cta";
+      const values = samples
+        .filter((s) => slotOf(s, kind) === b._id)
+        .map((s) => s.views);
+      return {
+        brickId: b._id,
+        kind,
+        label: b.label,
+        tier: (b.tier as Tier | undefined) ?? null,
+        ...summarize(values),
+      };
+    });
   return out.sort((a, b) => {
-    if (a.kind !== b.kind) return KIND_ORDER[a.kind] - KIND_ORDER[b.kind];
+    if (a.kind !== b.kind)
+      return (KIND_ORDER[a.kind] ?? 99) - (KIND_ORDER[b.kind] ?? 99);
     return (b.viewsMedian ?? -1) - (a.viewsMedian ?? -1);
   });
 }
@@ -264,7 +269,6 @@ export interface ComboPerf extends Distribution {
   comboKey: string;
   tier: Tier | null;
   hookLabel: string;
-  corpsLabel: string;
   fluxLabel: string;
   ctaLabel: string;
   /** Jugeable ET surperforme la médiane de campagne. */
@@ -309,7 +313,6 @@ export function aggregateByCombo(views: CampaignViews): ComboPerf[] {
       comboKey: head.comboKey,
       tier: (hook?.tier as Tier | undefined) ?? null,
       hookLabel: label(head.hookBrickId),
-      corpsLabel: label(head.corpsBrickId),
       fluxLabel: label(head.fluxBrickId),
       ctaLabel: label(head.ctaBrickId),
       signal,

@@ -521,7 +521,6 @@ export const seedDemoCreator = internalMutation({
       scriptCombo?: {
         campaignId: Id<"scriptCampaigns">;
         hookBrickId: Id<"scriptBricks">;
-        corpsBrickId: Id<"scriptBricks">;
         fluxBrickId: Id<"scriptBricks">;
         ctaBrickId: Id<"scriptBricks">;
         comboKey: string;
@@ -891,9 +890,11 @@ export const cleanupDemoData = internalMutation({
 
 /**
  * Cherche une campagne de scripts avec au moins une brick active de chaque kind
- * et en compose un combo pour l'assignment + la publication démo (raccord
- * analytics S3/S4). `null` si aucune campagne exploitable → l'appelant retombe
- * sur un assignment de FORMAT.
+ * (hook/flux/cta) et en compose un combo pour l'assignment + la publication démo
+ * (raccord analytics S3/S4). `null` si aucune campagne exploitable → l'appelant
+ * retombe sur un assignment de FORMAT.
+ *
+ * Refonte 3 briques : combo hook/flux/cta, comboKey 3 segments, aucun socle démo.
  */
 async function pickDemoCombo(
   ctx: MutationCtx,
@@ -903,7 +904,6 @@ async function pickDemoCombo(
   assignmentCombo: {
     campaignId: Id<"scriptCampaigns">;
     hookBrickId: Id<"scriptBricks">;
-    corpsBrickId: Id<"scriptBricks">;
     fluxBrickId: Id<"scriptBricks">;
     ctaBrickId: Id<"scriptBricks">;
     assembledScript: string;
@@ -911,7 +911,6 @@ async function pickDemoCombo(
   publicationCombo: {
     campaignId: Id<"scriptCampaigns">;
     hookBrickId: Id<"scriptBricks">;
-    corpsBrickId: Id<"scriptBricks">;
     fluxBrickId: Id<"scriptBricks">;
     ctaBrickId: Id<"scriptBricks">;
     comboKey: string;
@@ -928,25 +927,19 @@ async function pickDemoCombo(
       .collect();
     const pick = (kind: string) => bricks.find((b) => b.active && b.kind === kind);
     const hook = pick("hook");
-    const corps = pick("corps");
     const flux = pick("flux");
     const cta = pick("cta");
-    if (!hook || !corps || !flux || !cta) continue;
-    const comboKey = `${hook._id}:${corps._id}:${flux._id}:${cta._id}`;
+    if (!hook || !flux || !cta) continue;
+    const comboKey = `${hook._id}:${flux._id}:${cta._id}`;
     const ids = {
       campaignId: campaign._id,
       hookBrickId: hook._id,
-      corpsBrickId: corps._id,
       fluxBrickId: flux._id,
       ctaBrickId: cta._id,
     };
-    const assembledScript = [
-      hook.content,
-      corps.content,
-      flux.content,
-      cta.content,
-      campaign.demoBlock,
-    ].join("\n\n");
+    const assembledScript = [hook.content, flux.content, cta.content].join(
+      "\n\n",
+    );
     return {
       comboKey,
       assignmentCombo: { ...ids, assembledScript },

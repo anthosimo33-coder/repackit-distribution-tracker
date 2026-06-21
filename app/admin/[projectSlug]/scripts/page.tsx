@@ -13,7 +13,6 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -63,8 +62,7 @@ export default function ScriptsPage() {
             Scripts
           </h1>
           <p className="text-sm text-slate-500">
-            Campagnes combinatoires : hook + corps + flux + cta sur un socle
-            démo.
+            Campagnes combinatoires : hook + flux + cta.
           </p>
         </div>
         <Button onClick={() => setCreateOpen(true)}>
@@ -223,7 +221,6 @@ function CampaignDialog({
   const update = useProjectMutation(api.scripts.updateCampaign);
   const isEdit = campaign !== null;
   const [name, setName] = useState("");
-  const [demoBlock, setDemoBlock] = useState("");
   const [busy, setBusy] = useState(false);
 
   // Réinitialise les champs à l'ouverture (key force le remount via `open`).
@@ -232,7 +229,6 @@ function CampaignDialog({
     setLastOpen(open);
     if (open) {
       setName(campaign?.name ?? "");
-      setDemoBlock(campaign?.demoBlock ?? "");
     }
   }
 
@@ -244,10 +240,10 @@ function CampaignDialog({
     setBusy(true);
     try {
       if (isEdit) {
-        await update({ id: campaign._id, name, demoBlock });
+        await update({ id: campaign._id, name });
         toast.success("Campagne mise à jour");
       } else {
-        await create({ name, demoBlock });
+        await create({ name });
         toast.success("Campagne créée");
       }
       onOpenChange(false);
@@ -266,7 +262,7 @@ function CampaignDialog({
             {isEdit ? "Modifier la campagne" : "Nouvelle campagne"}
           </DialogTitle>
           <DialogDescription>
-            Le socle démo est la partie de la vidéo qui ne change jamais.
+            Une campagne regroupe les hooks, flux et CTA d&apos;un angle de test.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
@@ -277,16 +273,6 @@ function CampaignDialog({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Ex. Angle « gain de temps »"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="campaign-demo">Socle démo (markdown)</Label>
-            <Textarea
-              id="campaign-demo"
-              value={demoBlock}
-              onChange={(e) => setDemoBlock(e.target.value)}
-              placeholder="La démo produit fixe montée à la fin de chaque vidéo…"
-              rows={6}
             />
           </div>
         </div>

@@ -22,14 +22,13 @@ function median(values: number[]): number | null {
   return s.length % 2 === 0 ? (s[mid - 1] + s[mid]) / 2 : s[mid];
 }
 
-/** Campagne 3 hooks (S/A/B) × 3 corps × 2 flux × 2 cta = 36 combos. */
+/** Campagne 3 hooks (S/A/B) × 2 flux × 2 cta = 12 combos (refonte 3 briques). */
 async function makeCampaign(ts: number) {
   const campaignId = await admin.mutation(api.scripts.createCampaign, {
     name: `[E2E_TEST] Analytics ${ts}`,
-    demoBlock: "SOCLE DEMO ANALYTICS",
   });
   const add = (
-    kind: "hook" | "corps" | "flux" | "cta",
+    kind: "hook" | "flux" | "cta",
     label: string,
     tier?: "S" | "A" | "B",
   ) =>
@@ -43,9 +42,6 @@ async function makeCampaign(ts: number) {
   const hookS = await add("hook", "H-S", "S");
   const hookA = await add("hook", "H-A", "A");
   const hookB = await add("hook", "H-B", "B");
-  await add("corps", "C1");
-  await add("corps", "C2");
-  await add("corps", "C3");
   await add("flux", "F1");
   await add("flux", "F2");
   await add("cta", "T1");
@@ -100,7 +96,6 @@ test.describe("S3 — analytics par variable de script", () => {
     type Post = {
       tier: "S" | "A" | "B";
       hookBrickId: string;
-      corpsBrickId: string;
       fluxBrickId: string;
       ctaBrickId: string;
       comboKey: string;
@@ -137,7 +132,6 @@ test.describe("S3 — analytics par variable de script", () => {
       posts.push({
         tier: tierByHook[combo.hookBrickId],
         hookBrickId: combo.hookBrickId,
-        corpsBrickId: combo.corpsBrickId,
         fluxBrickId: combo.fluxBrickId,
         ctaBrickId: combo.ctaBrickId,
         comboKey: row.comboKey!,

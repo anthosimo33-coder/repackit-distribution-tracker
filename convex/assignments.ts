@@ -249,10 +249,9 @@ export const listAssignments = adminQuery({
           scriptCampaignName =
             campaignMap.get(a.scriptCombo.campaignId) ?? "—";
           const hook = brickMap.get(a.scriptCombo.hookBrickId);
-          const corps = brickMap.get(a.scriptCombo.corpsBrickId);
           const flux = brickMap.get(a.scriptCombo.fluxBrickId);
           const cta = brickMap.get(a.scriptCombo.ctaBrickId);
-          comboSummary = `Tier ${hook?.tier ?? "?"} · ${corps?.label ?? "?"} · ${flux?.label ?? "?"} · ${cta?.label ?? "?"}`;
+          comboSummary = `Tier ${hook?.tier ?? "?"} · ${flux?.label ?? "?"} · ${cta?.label ?? "?"}`;
         }
         // Chantier C — cibles enrichies (handle + URL par plateforme).
         const targets = (a.targets ?? []).map((t) => ({

@@ -119,8 +119,8 @@ export default function ScriptCampaignDetailPage() {
             {combos.total > 1 ? "s" : ""}
             <span className="text-slate-400">
               {" "}
-              ({combos.byKind.hook} hooks × {combos.byKind.corps} corps ×{" "}
-              {combos.byKind.flux} flux × {combos.byKind.cta} cta)
+              ({combos.byKind.hook} hooks × {combos.byKind.flux} flux ×{" "}
+              {combos.byKind.cta} cta)
             </span>
           </p>
         </div>
@@ -154,8 +154,6 @@ export default function ScriptCampaignDetailPage() {
         </div>
       </header>
 
-      <DemoEditor campaign={campaign} />
-
       {SCRIPT_KINDS.map((kind) => (
         <BrickSection
           key={kind}
@@ -182,52 +180,6 @@ export default function ScriptCampaignDetailPage() {
         campaignName={campaign.name}
       />
     </div>
-  );
-}
-
-function DemoEditor({ campaign }: { campaign: CampaignDetail }) {
-  const update = useProjectMutation(api.scripts.updateCampaign);
-  const [edit, setEdit] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const value = edit ?? campaign.demoBlock;
-  const dirty = edit !== null && edit !== campaign.demoBlock;
-
-  async function onSave() {
-    setBusy(true);
-    try {
-      await update({ id: campaign._id, demoBlock: value });
-      toast.success("Socle démo enregistré");
-      setEdit(null);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Card>
-      <CardContent className="space-y-3 p-4">
-        <div className="flex items-center justify-between">
-          <Label htmlFor="demo-block" className="text-sm font-semibold">
-            Socle démo (fixe)
-          </Label>
-          {dirty && (
-            <Button size="sm" onClick={onSave} disabled={busy}>
-              {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-              Enregistrer
-            </Button>
-          )}
-        </div>
-        <Textarea
-          id="demo-block"
-          value={value}
-          onChange={(e) => setEdit(e.target.value)}
-          placeholder="La démo produit montée à la fin de chaque vidéo (markdown)…"
-          rows={5}
-        />
-      </CardContent>
-    </Card>
   );
 }
 
@@ -651,7 +603,6 @@ function PreviewDialog({
 
   const [picks, setPicks] = useState<Record<ScriptKind, string | null>>({
     hook: null,
-    corps: null,
     flux: null,
     cta: null,
   });
@@ -666,18 +617,15 @@ function PreviewDialog({
   }
 
   const hook = resolve("hook");
-  const corps = resolve("corps");
   const flux = resolve("flux");
   const cta = resolve("cta");
-  const ready = hook && corps && flux && cta;
+  const ready = hook && flux && cta;
 
   const assembled = ready
     ? assembleScript({
         hook: hook.content,
-        corps: corps.content,
         flux: flux.content,
         cta: cta.content,
-        demoBlock: campaign.demoBlock,
       })
     : "";
 

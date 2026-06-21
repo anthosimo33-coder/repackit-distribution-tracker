@@ -1,35 +1,24 @@
 /* AUTO-GÉNÉRÉ par scripts/gen-bulk-seed.ts depuis
    scripts/systeme-scripts-bulk-testing.md — NE PAS ÉDITER À LA MAIN.
-   Contenu (hooks/corps/flux/démo) VERBATIM du doc. Régénérer :
-   npx tsx scripts/gen-bulk-seed.ts */
+   Refonte 3 briques : les CORPS du doc sont seedés comme hooks (tier A) et le
+   socle démo n'est plus monté (DEMO_BLOCK = ""). Contenu VERBATIM du doc.
+   Régénérer : npx tsx scripts/gen-bulk-seed.ts */
 
 export const CAMPAIGN_NAME = "RepackIt — Bulk Testing";
 
 export type SeedBrick = {
-  kind: "hook" | "corps" | "flux" | "cta";
+  kind: "hook" | "flux" | "cta";
   label: string;
   content: string;
   tier: "S" | "A" | "B" | null;
   active: boolean;
 };
 
-export const DEMO_BLOCK = "1. Aller sur RepackIt.io (ou coller l'URL dans le scanner).\n2. Déposer sa vidéo / la décrire / coller l'URL d'une vidéo performante.\n3. Le système analyse et compare aux vidéos les plus performantes du moment sur YouTube.\n4. Il sort 3 titres + 1 miniature, calés sur ce qui performe.\n5. Télécharger la miniature, copier le titre, uploader.\n6. Regarder le CTR / les vues monter après publication.";
+// LEGACY (refonte 3 briques) — socle démo retiré du montage. Vide pour les
+// nouveaux seeds ; le champ scriptCampaigns.demoBlock reste (required, défaut "").
+export const DEMO_BLOCK = "";
 
 export const SEED_BRICKS: SeedBrick[] = [
-  {
-    "kind": "corps",
-    "label": "Corps A — Aspirationnel",
-    "content": "Cette vidéo, c'est un pote qui l'a faite. Elle a fait +[X vues] grâce à YouTube et sur sa chaîne monétisée ça lui fait +[X€] d'AdSense [dashboard en b-roll]. Il n'a aucune compétence en design, le packaging lui a pris 1 minute, alors voilà exactement comment tu peux faire pareil.",
-    "tier": null,
-    "active": true
-  },
-  {
-    "kind": "corps",
-    "label": "Corps B — Mécanique",
-    "content": "Les chaînes YouTube qui cartonnent, c'est pas le contenu qui fait la différence, c'est leur packaging. [b-roll : compare 2 miniatures, ou un dashboard réel] Elles ont un meilleur combo titre, miniature et contenu, donc elles ont plus de clics, plus de vues et plus d'AdSense. Alors voilà exactement comment faire.",
-    "tier": null,
-    "active": true
-  },
   {
     "kind": "flux",
     "label": "Flux 1 — Upload",
@@ -224,6 +213,20 @@ export const SEED_BRICKS: SeedBrick[] = [
     "label": "Ouvre ton ordinateur. Va sur YouTube et trouve une chaîne po",
     "content": "Ouvre ton ordinateur. Va sur YouTube et trouve une chaîne populaire en ce moment, celle-là par exemple a +[X]M d'abonnés et cette vidéo de leur chaîne a fait [X]M de vues, ils ont fait entre [X] et [X]€ de revenus via cette seule vidéo.",
     "tier": "B",
+    "active": true
+  },
+  {
+    "kind": "hook",
+    "label": "Corps A — Aspirationnel",
+    "content": "Cette vidéo, c'est un pote qui l'a faite. Elle a fait +[X vues] grâce à YouTube et sur sa chaîne monétisée ça lui fait +[X€] d'AdSense [dashboard en b-roll]. Il n'a aucune compétence en design, le packaging lui a pris 1 minute, alors voilà exactement comment tu peux faire pareil.",
+    "tier": "A",
+    "active": true
+  },
+  {
+    "kind": "hook",
+    "label": "Corps B — Mécanique",
+    "content": "Les chaînes YouTube qui cartonnent, c'est pas le contenu qui fait la différence, c'est leur packaging. [b-roll : compare 2 miniatures, ou un dashboard réel] Elles ont un meilleur combo titre, miniature et contenu, donc elles ont plus de clics, plus de vues et plus d'AdSense. Alors voilà exactement comment faire.",
+    "tier": "A",
     "active": true
   },
   {
