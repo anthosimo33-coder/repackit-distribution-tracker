@@ -203,6 +203,80 @@ export const assignFormat = adminMutation({
   },
 });
 
+// ─── Vidéos modèles (liens à reproduire) — gérées par l'admin, vues créateur ──
+// Liens vers des vidéos existantes que le créateur doit reproduire avec son
+// script. Ajout/suppression à l'unité APRÈS l'assignation. PAS de fichiers
+// (l'hébergement d'assets est un autre chantier). La plateforme est dérivée de
+// l'URL CÔTÉ UI (lib/inspiration-url) — non stockée ici.
+
+const MAX_MODEL_VIDEOS = 20;
+
+/** Réplique de lib/model-videos.normalizeModelVideoUrl (règle A6). */
+function normalizeModelVideoUrlServer(raw: string): string | null {
+  const url = raw.trim();
+  if (url.length === 0) return null;
+  if (!/^https?:\/\/\S+/i.test(url)) return null;
+  return url;
+}
+
+/** Récupère un assignment du projet courant ou rejette (isolation projet). */
+async function requireProjectAssignment(
+  ctx: MutationCtx,
+  id: Id<"assignments">,
+  projectId: Id<"projects">,
+): Promise<Doc<"assignments">> {
+  const a = await ctx.db.get(id);
+  if (!a || a.projectId !== projectId) {
+    throw new ConvexError("Assignment introuvable.");
+  }
+  return a;
+}
+
+/** Attache une vidéo modèle (lien) à un assignment. Admin only, scopé projet. */
+export const addModelVideoToAssignment = adminMutation({
+  args: {
+    id: v.id("assignments"),
+    url: v.string(),
+    title: v.optional(v.string()),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const a = await requireProjectAssignment(ctx, args.id, ctx.projectId);
+    const url = normalizeModelVideoUrlServer(args.url);
+    if (!url) {
+      throw new ConvexError(
+        "L'URL de la vidéo modèle est invalide (lien http(s) attendu).",
+      );
+    }
+    const existing = a.modelVideos ?? [];
+    if (existing.length >= MAX_MODEL_VIDEOS) {
+      throw new ConvexError(`Trop de vidéos modèles (max ${MAX_MODEL_VIDEOS}).`);
+    }
+    const title = args.title?.trim();
+    const note = args.note?.trim();
+    const item = {
+      id: crypto.randomUUID(),
+      url,
+      ...(title ? { title } : {}),
+      ...(note ? { note } : {}),
+      addedAt: Date.now(),
+    };
+    await ctx.db.patch(args.id, { modelVideos: [...existing, item] });
+    return { id: item.id };
+  },
+});
+
+/** Retire une vidéo modèle d'un assignment (à l'unité). Admin only, scopé projet. */
+export const removeModelVideoFromAssignment = adminMutation({
+  args: { id: v.id("assignments"), videoId: v.string() },
+  handler: async (ctx, args) => {
+    const a = await requireProjectAssignment(ctx, args.id, ctx.projectId);
+    const next = (a.modelVideos ?? []).filter((mv) => mv.id !== args.videoId);
+    await ctx.db.patch(args.id, { modelVideos: next });
+    return { ok: true };
+  },
+});
+
 /** Table admin : tous les assignments du projet, enrichis. */
 export const listAssignments = adminQuery({
   args: {},

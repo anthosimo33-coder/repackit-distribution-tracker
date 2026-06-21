@@ -795,6 +795,27 @@ export default defineSchema({
       ),
     ),
     adminFeedback: v.optional(v.string()),
+    // ─── Vidéos MODÈLES (liens) à reproduire ──────────────────────────────────
+    // Liste de LIENS (pas de fichiers — l'hébergement d'assets est un autre
+    // chantier) vers des vidéos existantes (TikTok/YouTube/Instagram) que le
+    // créateur doit reproduire avec le script donné. Ajoutables/supprimables à
+    // l'unité APRÈS l'assignation (addModelVideoToAssignment/removeModel…).
+    // Array embarqué (pas de table dédiée) : petite liste bornée appartenant à
+    // UN assignment, comme `targets` — patch unique, 0 jointure, exposée telle
+    // quelle au créateur. `id` = clé stable (crypto.randomUUID) pour le retrait
+    // à l'unité. La plateforme est dérivée de l'URL CÔTÉ UI (lib/inspiration-url)
+    // → pas stockée. Optional → 0 migration.
+    modelVideos: v.optional(
+      v.array(
+        v.object({
+          id: v.string(),
+          url: v.string(),
+          title: v.optional(v.string()),
+          note: v.optional(v.string()),
+          addedAt: v.number(),
+        }),
+      ),
+    ),
     rateSnapshot: v.object({
       basePerPost: v.number(),
       viewBonusPer1k: v.optional(v.number()),

@@ -8,7 +8,8 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { useCreatorProjectId } from "@/components/portal/use-creator-project";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeftIcon } from "lucide-react";
+import { ArrowLeftIcon, ExternalLinkIcon } from "lucide-react";
+import { detectInspirationType } from "@/lib/inspiration-url";
 import { FormatBriefPreview } from "@/components/formats/FormatBriefPreview";
 import { EarningsCalculator } from "@/components/portal/EarningsCalculator";
 import { AssignmentActions } from "@/components/portal/AssignmentActions";
@@ -101,6 +102,51 @@ export default function AssignmentDetailPage({
               </CardContent>
             </Card>
           )}
+
+          {/* Vidéos à reproduire (liens modèles attachés par l'admin). Masqué
+              si aucune. Mobile-first : cartes pleine largeur, lien nouvel onglet. */}
+          {data.assignment.modelVideos &&
+            data.assignment.modelVideos.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">
+                    Vidéos à reproduire
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {data.assignment.modelVideos.map((mv) => {
+                    const platform =
+                      detectInspirationType(mv.url)?.plateforme ?? "Lien";
+                    return (
+                      <a
+                        key={mv.id}
+                        href={mv.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-start gap-3 rounded-lg border border-slate-200 p-3 transition-colors hover:border-primary hover:bg-primary/5"
+                      >
+                        <span className="mt-0.5 shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-600">
+                          {platform}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1 text-sm font-medium text-slate-900">
+                            <span className="truncate">
+                              {mv.title ?? mv.url}
+                            </span>
+                            <ExternalLinkIcon className="size-3.5 shrink-0 text-slate-400" />
+                          </div>
+                          {mv.note && (
+                            <p className="mt-0.5 text-sm text-slate-500">
+                              {mv.note}
+                            </p>
+                          )}
+                        </div>
+                      </a>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            )}
 
           {/* Rémunération figée (rateSnapshot) + calculateur */}
           <Card>

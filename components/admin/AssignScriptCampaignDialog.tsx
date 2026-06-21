@@ -166,7 +166,7 @@ export function AssignScriptCampaignDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Assigner « {campaignName} »</DialogTitle>
           <DialogDescription>
@@ -176,7 +176,7 @@ export function AssignScriptCampaignDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="space-y-5 py-1">
           {/* Créateur (un seul) */}
           <div className="space-y-1.5">
             <Label>Créateur</Label>
@@ -266,7 +266,7 @@ export function AssignScriptCampaignDialog({
           )}
 
           {/* Vidéos par créateur + deadline */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="videos">Vidéos à produire</Label>
               <Input
@@ -290,7 +290,7 @@ export function AssignScriptCampaignDialog({
           </div>
 
           {/* Filtre tier de hook + barème de paie (pricing OBLIGATOIRE) */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="tier">Tier de hook</Label>
               <Select value={tier} onValueChange={(v) => v && setTier(v)}>
