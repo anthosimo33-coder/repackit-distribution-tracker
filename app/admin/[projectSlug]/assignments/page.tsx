@@ -23,9 +23,10 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import { ClapperboardIcon } from "lucide-react";
+import { ClapperboardIcon, FileTextIcon } from "lucide-react";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AssignmentModelVideosDialog } from "@/components/admin/AssignmentModelVideosDialog";
+import { AssignmentScriptDialog } from "@/components/admin/AssignmentScriptDialog";
 import {
   ASSIGNMENT_STATUS,
   assignmentUrgency,
@@ -57,6 +58,11 @@ export default function AssignmentsPage() {
   const [manageId, setManageId] = useState<Id<"assignments"> | null>(null);
   const manageRow = manageId
     ? ((assignments ?? []).find((a) => a._id === manageId) ?? null)
+    : null;
+  // Voir le script monté (lecture seule) — assembledScript FIGÉ, non re-dérivé.
+  const [scriptId, setScriptId] = useState<Id<"assignments"> | null>(null);
+  const scriptRow = scriptId
+    ? ((assignments ?? []).find((a) => a._id === scriptId) ?? null)
     : null;
 
   const creators = useMemo(() => {
@@ -201,13 +207,24 @@ export default function AssignmentsPage() {
                       </TableCell>
                       <TableCell className="text-slate-700">
                         {a.origin === "script" ? (
-                          <div className="space-y-0.5">
+                          <div className="space-y-1">
                             <div className="font-medium text-slate-900">
                               {a.scriptCampaignName}
                             </div>
                             <div className="text-xs text-slate-500">
                               {a.comboSummary}
                             </div>
+                            {a.scriptCombo?.assembledScript && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 gap-1.5 px-2 text-xs text-primary"
+                                onClick={() => setScriptId(a._id)}
+                              >
+                                <FileTextIcon className="size-3.5" />
+                                Voir le script
+                              </Button>
+                            )}
                           </div>
                         ) : (
                           a.formatName
@@ -287,6 +304,17 @@ export default function AssignmentsPage() {
           assignmentId={manageRow._id}
           creatorName={manageRow.creatorName}
           modelVideos={manageRow.modelVideos ?? []}
+        />
+      )}
+
+      {scriptRow?.scriptCombo?.assembledScript && (
+        <AssignmentScriptDialog
+          open
+          onOpenChange={(o) => !o && setScriptId(null)}
+          script={scriptRow.scriptCombo.assembledScript}
+          comboSummary={scriptRow.comboSummary}
+          creatorName={scriptRow.creatorName}
+          platforms={scriptRow.targets.map((t) => t.platform)}
         />
       )}
     </div>
