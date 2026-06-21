@@ -281,6 +281,31 @@ export const removeModelVideoFromAssignment = adminMutation({
   },
 });
 
+/**
+ * Lie (ou délie) UN dossier d'assets (images à télécharger) à un assignment.
+ * Lien simple, MODIFIABLE et retirable (≠ verrou du combo). Admin only, scopé
+ * projet. folderId null → délie.
+ */
+export const linkAssetFolder = adminMutation({
+  args: {
+    id: v.id("assignments"),
+    folderId: v.union(v.id("assetFolders"), v.null()),
+  },
+  handler: async (ctx, args) => {
+    await requireProjectAssignment(ctx, args.id, ctx.projectId);
+    if (args.folderId !== null) {
+      const folder = await ctx.db.get(args.folderId);
+      if (!folder || folder.projectId !== ctx.projectId) {
+        throw new ConvexError("Dossier d'assets introuvable.");
+      }
+    }
+    await ctx.db.patch(args.id, {
+      assetFolderId: args.folderId === null ? undefined : args.folderId,
+    });
+    return { ok: true };
+  },
+});
+
 /** Table admin : tous les assignments du projet, enrichis. */
 export const listAssignments = adminQuery({
   args: {},
@@ -289,8 +314,15 @@ export const listAssignments = adminQuery({
       .query("assignments")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
-    const [creators, formats, comptes, campaigns, scriptBricks] =
-      await Promise.all([
+    const [
+      creators,
+      formats,
+      comptes,
+      campaigns,
+      scriptBricks,
+      assetFolders,
+      assets,
+    ] = await Promise.all([
         ctx.db
           .query("creators")
           .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
@@ -311,12 +343,28 @@ export const listAssignments = adminQuery({
           .query("scriptBricks")
           .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
           .collect(),
+        ctx.db
+          .query("assetFolders")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect(),
+        ctx.db
+          .query("assets")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect(),
       ]);
     const creatorMap = new Map(creators.map((c) => [c._id, c.name]));
     const formatMap = new Map(formats.map((f) => [f._id, f.name]));
     const compteMap = new Map(comptes.map((c) => [c._id, c.handle]));
     const campaignMap = new Map(campaigns.map((c) => [c._id, c.name]));
     const brickMap = new Map(scriptBricks.map((b) => [b._id, b]));
+    const assetFolderMap = new Map(assetFolders.map((f) => [f._id, f.name]));
+    const assetCountByFolder = new Map<string, number>();
+    for (const a of assets) {
+      assetCountByFolder.set(
+        a.folderId,
+        (assetCountByFolder.get(a.folderId) ?? 0) + 1,
+      );
+    }
     return assignments
       .sort((a, b) => b.createdAt - a.createdAt)
       .map((a) => {
@@ -347,6 +395,13 @@ export const listAssignments = adminQuery({
           origin: (a.scriptCombo ? "script" : "format") as "script" | "format",
           scriptCampaignName,
           comboSummary,
+          // Assets — dossier d'images lié (badge admin).
+          assetFolderName: a.assetFolderId
+            ? (assetFolderMap.get(a.assetFolderId) ?? null)
+            : null,
+          assetFolderCount: a.assetFolderId
+            ? (assetCountByFolder.get(a.assetFolderId) ?? 0)
+            : 0,
         };
       });
   },
@@ -969,6 +1024,44 @@ async function enrichTargets(ctx: QueryCtx, a: Doc<"assignments">) {
   );
 }
 
+/**
+ * ISOLATION assets — le créateur ne voit QUE le dossier d'images lié à SON
+ * assignment (a.assetFolderId), du MÊME projet. Résout les URLs signées de
+ * téléchargement. null si aucun dossier lié ou dossier vide/introuvable.
+ */
+async function resolveAssignmentAssets(
+  ctx: QueryCtx,
+  a: Doc<"assignments">,
+): Promise<{
+  folderName: string;
+  items: {
+    id: Id<"assets">;
+    fileName: string;
+    contentType: string;
+    url: string | null;
+  }[];
+} | null> {
+  if (!a.assetFolderId) return null;
+  const folder = await ctx.db.get(a.assetFolderId);
+  if (!folder || folder.projectId !== a.projectId) return null;
+  const assets = await ctx.db
+    .query("assets")
+    .withIndex("by_folder", (q) => q.eq("folderId", a.assetFolderId!))
+    .collect();
+  if (assets.length === 0) return null;
+  const items = await Promise.all(
+    assets
+      .sort((x, y) => x.createdAt - y.createdAt)
+      .map(async (asset) => ({
+        id: asset._id,
+        fileName: asset.fileName,
+        contentType: asset.contentType,
+        url: await ctx.storage.getUrl(asset.storageId),
+      })),
+  );
+  return { folderName: folder.name, items };
+}
+
 async function enrichForCreator(ctx: QueryCtx, a: Doc<"assignments">) {
   const targets = await enrichTargets(ctx, a);
   const { scriptCombo, comboKey, ...safe } = a;
@@ -1030,6 +1123,8 @@ export const getMyAssignment = creatorQuery({
       ? await ctx.storage.getUrl(a.submittedVideoStorageId)
       : null;
     const submittedVideoMimeType = a.submittedVideoMimeType ?? "video/mp4";
+    // Assets liés (images à télécharger) — dossier de SON assignment uniquement.
+    const assets = await resolveAssignmentAssets(ctx, a);
     if (scriptCombo) {
       return {
         assignment: safe,
@@ -1038,6 +1133,7 @@ export const getMyAssignment = creatorQuery({
         targets,
         submittedVideoUrl,
         submittedVideoMimeType,
+        assets,
       };
     }
     const format = a.formatId ? await ctx.db.get(a.formatId) : null;
@@ -1049,6 +1145,7 @@ export const getMyAssignment = creatorQuery({
       targets,
       submittedVideoUrl,
       submittedVideoMimeType,
+      assets,
     };
   },
 });

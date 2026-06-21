@@ -8,6 +8,7 @@ import {
   ArchiveIcon,
   BookmarkIcon,
   BookOpenIcon,
+  ImagesIcon,
   ChevronDownIcon,
   ChevronsLeftIcon,
   ChevronsRightIcon,
@@ -180,6 +181,11 @@ export function Sidebar({
       icon: BookmarkIcon,
       label: "Inspirations",
       ...item(projectPath("/inspirations")),
+    },
+    {
+      icon: ImagesIcon,
+      label: "Assets",
+      ...item(projectPath("/assets")),
     },
   ];
 

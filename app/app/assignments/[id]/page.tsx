@@ -8,7 +8,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { useCreatorProjectId } from "@/components/portal/use-creator-project";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeftIcon, ExternalLinkIcon } from "lucide-react";
+import { ArrowLeftIcon, DownloadIcon, ExternalLinkIcon } from "lucide-react";
 import { detectInspirationType } from "@/lib/inspiration-url";
 import { FormatBriefPreview } from "@/components/formats/FormatBriefPreview";
 import { EarningsCalculator } from "@/components/portal/EarningsCalculator";
@@ -147,6 +147,46 @@ export default function AssignmentDetailPage({
                 </CardContent>
               </Card>
             )}
+
+          {/* Assets à utiliser (dossier d'images lié par l'admin). Le créateur
+              ne voit QUE le dossier de SON assignment. Masqué si aucun/vide. */}
+          {data.assets && data.assets.items.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Assets à utiliser</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {data.assets.items.map((img) => (
+                    <div key={img.id} className="space-y-1.5">
+                      <div className="aspect-square overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                        {img.url && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={img.url}
+                            alt={img.fileName}
+                            className="size-full object-cover"
+                          />
+                        )}
+                      </div>
+                      {img.url && (
+                        <a
+                          href={img.url}
+                          download={img.fileName}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-slate-200 px-2 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                        >
+                          <DownloadIcon className="size-3.5" />
+                          Télécharger
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Rémunération figée (rateSnapshot) + calculateur */}
           <Card>
