@@ -13,6 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -22,6 +23,9 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
+import { ClapperboardIcon } from "lucide-react";
+import type { Id } from "@/convex/_generated/dataModel";
+import { AssignmentModelVideosDialog } from "@/components/admin/AssignmentModelVideosDialog";
 import {
   ASSIGNMENT_STATUS,
   assignmentUrgency,
@@ -48,6 +52,12 @@ export default function AssignmentsPage() {
   const [formatFilter, setFormatFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [overdueOnly, setOverdueOnly] = useState(false);
+  // Vidéos modèles : gestion à chaud d'un assignment (dialog). On dérive la row
+  // LIVE depuis `assignments` (réactif) → la liste se rafraîchit après ajout/retrait.
+  const [manageId, setManageId] = useState<Id<"assignments"> | null>(null);
+  const manageRow = manageId
+    ? ((assignments ?? []).find((a) => a._id === manageId) ?? null)
+    : null;
 
   const creators = useMemo(() => {
     const m = new Map<string, string>();
@@ -172,6 +182,7 @@ export default function AssignmentsPage() {
                   <TableHead>Échéance</TableHead>
                   <TableHead>Statut</TableHead>
                   <TableHead>Soumis</TableHead>
+                  <TableHead>Modèles</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -246,6 +257,20 @@ export default function AssignmentsPage() {
                       <TableCell className="text-sm text-slate-500">
                         {a.submittedAt ? formatDate(a.submittedAt) : "—"}
                       </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 gap-1.5 px-2 text-slate-600"
+                          onClick={() => setManageId(a._id)}
+                          aria-label="Gérer les vidéos modèles"
+                        >
+                          <ClapperboardIcon className="size-4" />
+                          {a.modelVideos && a.modelVideos.length > 0
+                            ? a.modelVideos.length
+                            : "+"}
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   );
                 })}
@@ -253,6 +278,16 @@ export default function AssignmentsPage() {
             </Table>
           </CardContent>
         </Card>
+      )}
+
+      {manageRow && (
+        <AssignmentModelVideosDialog
+          open
+          onOpenChange={(o) => !o && setManageId(null)}
+          assignmentId={manageRow._id}
+          creatorName={manageRow.creatorName}
+          modelVideos={manageRow.modelVideos ?? []}
+        />
       )}
     </div>
   );
