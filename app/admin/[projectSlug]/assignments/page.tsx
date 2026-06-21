@@ -28,11 +28,13 @@ import {
   FileTextIcon,
   ImagesIcon,
   PencilIcon,
+  TypeIcon,
 } from "lucide-react";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AssignmentModelVideosDialog } from "@/components/admin/AssignmentModelVideosDialog";
 import { AssignmentScriptDialog } from "@/components/admin/AssignmentScriptDialog";
 import { EditScriptComboDialog } from "@/components/admin/EditScriptComboDialog";
+import { EditBrickTextDialog } from "@/components/admin/EditBrickTextDialog";
 import { LinkAssetFolderDialog } from "@/components/admin/LinkAssetFolderDialog";
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
 import {
@@ -76,6 +78,11 @@ export default function AssignmentsPage() {
   const [editId, setEditId] = useState<Id<"assignments"> | null>(null);
   const editRow = editId
     ? ((assignments ?? []).find((a) => a._id === editId) ?? null)
+    : null;
+  // Éditer le texte d'une brique (fork) — MÊME verrou que "Modifier le combo".
+  const [textEditId, setTextEditId] = useState<Id<"assignments"> | null>(null);
+  const textEditRow = textEditId
+    ? ((assignments ?? []).find((a) => a._id === textEditId) ?? null)
     : null;
   // Lier un dossier d'assets (images à télécharger) — row dérivée live.
   const [assetLinkId, setAssetLinkId] = useState<Id<"assignments"> | null>(null);
@@ -250,15 +257,26 @@ export default function AssignmentsPage() {
                                     editedOnce:
                                       a.scriptCombo.editedOnce ?? false,
                                   }) && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-7 gap-1.5 px-2 text-xs text-slate-600"
-                                      onClick={() => setEditId(a._id)}
-                                    >
-                                      <PencilIcon className="size-3.5" />
-                                      Modifier le combo
-                                    </Button>
+                                    <>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 gap-1.5 px-2 text-xs text-slate-600"
+                                        onClick={() => setEditId(a._id)}
+                                      >
+                                        <PencilIcon className="size-3.5" />
+                                        Modifier le combo
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 gap-1.5 px-2 text-xs text-slate-600"
+                                        onClick={() => setTextEditId(a._id)}
+                                      >
+                                        <TypeIcon className="size-3.5" />
+                                        Éditer le texte
+                                      </Button>
+                                    </>
                                   )}
                               </div>
                             )}
@@ -381,6 +399,21 @@ export default function AssignmentsPage() {
             ctaBrickId: editRow.scriptCombo.ctaBrickId,
           }}
           creatorName={editRow.creatorName}
+        />
+      )}
+
+      {textEditRow?.scriptCombo && (
+        <EditBrickTextDialog
+          open
+          onOpenChange={(o) => !o && setTextEditId(null)}
+          assignmentId={textEditRow._id}
+          campaignId={textEditRow.scriptCombo.campaignId}
+          combo={{
+            hookBrickId: textEditRow.scriptCombo.hookBrickId,
+            fluxBrickId: textEditRow.scriptCombo.fluxBrickId,
+            ctaBrickId: textEditRow.scriptCombo.ctaBrickId,
+          }}
+          creatorName={textEditRow.creatorName}
         />
       )}
 
