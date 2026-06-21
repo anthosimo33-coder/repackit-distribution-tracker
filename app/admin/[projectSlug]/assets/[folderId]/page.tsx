@@ -30,7 +30,7 @@ export default function AssetFolderDetailPage() {
   async function onDelete(id: Id<"assets">) {
     try {
       await removeAsset({ id });
-      toast.success("Image supprimée.");
+      toast.success("Fichier supprimé.");
     } catch (e) {
       toast.error(convexErrorMessage(e));
     }
@@ -51,8 +51,8 @@ export default function AssetFolderDetailPage() {
           {folders === undefined ? "…" : (folder?.name ?? "Dossier introuvable")}
         </h1>
         <p className="text-sm text-slate-500">
-          Images JPG / PNG / WebP (10 Mo max). Lie ce dossier à un assignment
-          depuis la page Assignments.
+          Images JPG/PNG/WebP (10 Mo) · Vidéos MP4/MOV/WebM (100 Mo). Lie ce
+          dossier à un assignment depuis la page Assignments.
         </p>
       </header>
 
@@ -63,7 +63,7 @@ export default function AssetFolderDetailPage() {
       ) : assets.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-sm text-slate-400">
-            Aucune image dans ce dossier.
+            Aucun fichier dans ce dossier.
           </CardContent>
         </Card>
       ) : (
