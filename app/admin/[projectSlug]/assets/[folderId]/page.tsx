@@ -71,13 +71,26 @@ export default function AssetFolderDetailPage() {
           {assets.map((a) => (
             <Card key={a._id} className="overflow-hidden">
               <div className="relative aspect-square bg-slate-50">
-                {a.url && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={a.url}
-                    alt={a.fileName}
-                    className="size-full object-cover"
-                  />
+                {a.url &&
+                  (a.contentType.startsWith("video/") ? (
+                    <video
+                      src={a.url}
+                      controls
+                      preload="metadata"
+                      className="size-full object-cover"
+                    />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={a.url}
+                      alt={a.fileName}
+                      className="size-full object-cover"
+                    />
+                  ))}
+                {a.contentType.startsWith("video/") && (
+                  <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                    Vidéo
+                  </span>
                 )}
                 <Button
                   variant="ghost"

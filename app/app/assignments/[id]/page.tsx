@@ -148,8 +148,8 @@ export default function AssignmentDetailPage({
               </Card>
             )}
 
-          {/* Assets à utiliser (dossier d'images lié par l'admin). Le créateur
-              ne voit QUE le dossier de SON assignment. Masqué si aucun/vide. */}
+          {/* Assets à utiliser (dossier d'images/vidéos lié par l'admin). Le
+              créateur ne voit QUE le dossier de SON assignment. Masqué si vide. */}
           {data.assets && data.assets.items.length > 0 && (
             <Card>
               <CardHeader>
@@ -157,22 +157,30 @@ export default function AssignmentDetailPage({
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                  {data.assets.items.map((img) => (
-                    <div key={img.id} className="space-y-1.5">
+                  {data.assets.items.map((asset) => (
+                    <div key={asset.id} className="space-y-1.5">
                       <div className="aspect-square overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
-                        {img.url && (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={img.url}
-                            alt={img.fileName}
-                            className="size-full object-cover"
-                          />
-                        )}
+                        {asset.url &&
+                          (asset.contentType.startsWith("video/") ? (
+                            <video
+                              src={asset.url}
+                              controls
+                              preload="metadata"
+                              className="size-full object-cover"
+                            />
+                          ) : (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={asset.url}
+                              alt={asset.fileName}
+                              className="size-full object-cover"
+                            />
+                          ))}
                       </div>
-                      {img.url && (
+                      {asset.url && (
                         <a
-                          href={img.url}
-                          download={img.fileName}
+                          href={asset.url}
+                          download={asset.fileName}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-slate-200 px-2 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"

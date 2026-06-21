@@ -2,19 +2,26 @@ import { adminMutation, adminQuery, e2eMutation } from "./functions";
 import { ConvexError, v } from "convex/values";
 
 /**
- * Assets — bibliothèque d'IMAGES en dossiers (matériel à télécharger par le
- * créateur). IMAGES UNIQUEMENT (jpg/png/webp) en Convex file storage. TOUT passe
- * par adminQuery/adminMutation (le créateur lit via assignments.getMyAssignment).
- * Scopé projet (assetFolders/assets portent projectId).
+ * Assets — bibliothèque de FICHIERS en dossiers (matériel à télécharger par le
+ * créateur) : IMAGES (jpg/png/webp ≤ 10 Mo) ET VIDÉOS courtes (mp4/mov/webm ≤
+ * 100 Mo), en Convex file storage. TOUT passe par adminQuery/adminMutation (le
+ * créateur lit via assignments.getMyAssignment). Scopé projet.
  *
- * ⚠️ A6 — la validation type/taille image est RÉPLIQUÉE de lib/asset-image.ts
- * (où vivent les tests Vitest). Toute évolution doit l'être des deux côtés.
+ * ⚠️ A6 — la validation type/taille est RÉPLIQUÉE de lib/asset-file.ts (où
+ * vivent les tests Vitest). Toute évolution doit l'être des deux côtés.
  */
 
 const MAX_NAME_LENGTH = 80;
-// Réplique de lib/asset-image (règle A6).
-const ASSET_ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"];
-const ASSET_MAX_SIZE_BYTES = 10 * 1024 * 1024;
+// Réplique de lib/asset-file (règle A6) : images + vidéos, limite PAR type.
+const ASSET_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const ASSET_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"];
+const ASSET_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+const ASSET_VIDEO_MAX_BYTES = 100 * 1024 * 1024;
+function maxBytesForAssetType(contentType: string): number | null {
+  if (ASSET_IMAGE_TYPES.includes(contentType)) return ASSET_IMAGE_MAX_BYTES;
+  if (ASSET_VIDEO_TYPES.includes(contentType)) return ASSET_VIDEO_MAX_BYTES;
+  return null;
+}
 
 // ─── Dossiers ─────────────────────────────────────────────────────────────────
 
@@ -145,9 +152,10 @@ export const listAssets = adminQuery({
 });
 
 /**
- * Enregistre une image uploadée (storageId obtenu via generateUploadUrl). VALIDE
- * SERVEUR le type (image jpg/png/webp) + la taille ≤ max ; rejette sinon en
- * supprimant le blob orphelin. Le créateur n'uploade jamais — admin only.
+ * Enregistre un fichier uploadé (storageId obtenu via generateUploadUrl). VALIDE
+ * SERVEUR le type (image jpg/png/webp OU vidéo mp4/mov/webm) + la taille ≤ max
+ * SELON le type (image 10 Mo / vidéo 100 Mo) ; rejette sinon en supprimant le
+ * blob orphelin. Le créateur n'uploade jamais — admin only.
  */
 export const createAsset = adminMutation({
   args: {
@@ -164,18 +172,19 @@ export const createAsset = adminMutation({
       await ctx.storage.delete(args.storageId);
       throw new ConvexError("Dossier introuvable.");
     }
+    const max = maxBytesForAssetType(args.contentType);
     const invalid =
-      !ASSET_ACCEPTED_TYPES.includes(args.contentType) ||
+      max === null ||
       !Number.isFinite(args.size) ||
       args.size <= 0 ||
-      args.size > ASSET_MAX_SIZE_BYTES;
+      args.size > max;
     if (invalid) {
       await ctx.storage.delete(args.storageId);
       throw new ConvexError(
-        "Fichier refusé : images JPG/PNG/WebP de 10 Mo max uniquement.",
+        "Fichier refusé : images JPG/PNG/WebP (10 Mo) ou vidéos MP4/MOV/WebM (100 Mo).",
       );
     }
-    const fileName = args.fileName.trim() || "image";
+    const fileName = args.fileName.trim() || "fichier";
     return await ctx.db.insert("assets", {
       projectId: ctx.projectId,
       folderId: args.folderId,

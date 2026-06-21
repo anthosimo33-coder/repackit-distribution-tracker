@@ -10,13 +10,14 @@ import { Loader2Icon, UploadIcon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { convexErrorMessage } from "@/lib/convex-error";
-import { ASSET_ACCEPTED_TYPES, validateAssetFile } from "@/lib/asset-image";
+import { ASSET_ACCEPTED_TYPES, validateAssetFile } from "@/lib/asset-file";
 
 /**
- * Upload MULTI d'images vers un dossier d'assets (Convex storage). Pour chaque
- * fichier : validation client (lib/asset-image, images only ≤ 10 Mo) →
- * generateUploadUrl → POST → createAsset (qui RE-VALIDE serveur). Les non-images
- * sont rejetées des deux côtés.
+ * Upload MULTI de fichiers vers un dossier d'assets (Convex storage) : IMAGES
+ * (≤ 10 Mo) ET VIDÉOS courtes (≤ 100 Mo). Pour chaque fichier : validation
+ * client (lib/asset-file, limite PAR type) → generateUploadUrl → POST →
+ * createAsset (qui RE-VALIDE serveur). Les types non supportés / trop gros sont
+ * rejetés des deux côtés.
  */
 export function AssetUploader({ folderId }: { folderId: Id<"assetFolders"> }) {
   const generateUploadUrl = useMutation(api.storage.generateUploadUrl);
@@ -105,9 +106,11 @@ export function AssetUploader({ folderId }: { folderId: Id<"assetFolders"> }) {
           <UploadIcon className="size-6 text-slate-400" />
           <div>
             <p className="text-sm font-medium text-slate-700">
-              Glisse des images ici
+              Glisse des images ou vidéos ici
             </p>
-            <p className="text-xs text-slate-500">JPG, PNG ou WebP — 10 Mo max</p>
+            <p className="text-xs text-slate-500">
+              Images JPG/PNG/WebP (10 Mo) · Vidéos MP4/MOV/WebM (100 Mo, ~1 min)
+            </p>
           </div>
           <Button
             type="button"
