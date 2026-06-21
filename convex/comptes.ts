@@ -145,7 +145,9 @@ async function compteUsage(
       .withIndex("by_project_period", (q) => q.eq("projectId", projectId))
       .collect();
     for (const pay of pays) {
-      payments += pay.lineItems.filter((li) => refIds.has(li.assignmentId)).length;
+      payments += pay.lineItems.filter(
+        (li) => li.assignmentId !== undefined && refIds.has(li.assignmentId),
+      ).length;
     }
   }
   const inUse =

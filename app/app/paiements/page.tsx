@@ -12,20 +12,106 @@ import { formatDate } from "@/lib/format";
 import { nextPayoutDate, daysUntilPayout, formatPeriod } from "@/lib/payout";
 import { ChevronRightIcon } from "lucide-react";
 import type { FunctionReturnType } from "convex/server";
+import type { Id } from "@/convex/_generated/dataModel";
 
 type Payment = FunctionReturnType<typeof api.payments.getMyPayments>[number];
 
 /** Période d'accrual courante "YYYY-MM" (UTC, aligné sur periodOf serveur). */
 const currentPeriod = () => new Date().toISOString().slice(0, 7);
 
+const fmtViews = (n: number) => n.toLocaleString("fr-FR");
+
+/**
+ * Paliers de bonus (cumul de vues À VIE) — motivant : cumul, jauge vers le
+ * prochain palier, et mur des récompenses débloquées (cash + nature).
+ */
+function BonusTierPanel({ projectId }: { projectId: Id<"projects"> }) {
+  const status = useQuery(api.pricing.getMyBonusStatus, { projectId });
+  if (!status || (status.tiers.length === 0 && status.natureUnlocked.length === 0))
+    return null;
+  const next = status.nextTier;
+  const prevSeuil = [...status.crossed]
+    .map((t) => t.seuilVues)
+    .sort((a, b) => b - a)[0] ?? 0;
+  const span = next ? next.seuilVues - prevSeuil : 1;
+  const done = next ? status.cumulViews - prevSeuil : 1;
+  const pct = next ? Math.max(0, Math.min(100, Math.round((done / span) * 100))) : 100;
+  return (
+    <Card className="border-amber-200 bg-amber-50/40">
+      <CardContent className="space-y-3 py-5">
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-sm font-semibold text-amber-900">
+            🏆 Paliers de récompense
+          </span>
+          <span
+            className="text-sm font-medium tabular-nums text-amber-800"
+            data-testid="cumul-views"
+          >
+            {fmtViews(status.cumulViews)} vues cumulées
+          </span>
+        </div>
+        {next ? (
+          <div className="space-y-1">
+            <div className="h-2 w-full overflow-hidden rounded-full bg-amber-100">
+              <div
+                className="h-full rounded-full bg-amber-400"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <p className="text-xs text-amber-800">
+              Plus que{" "}
+              <span className="font-semibold tabular-nums">
+                {fmtViews(status.viewsToNext ?? 0)}
+              </span>{" "}
+              vues avant{" "}
+              <span className="font-semibold">
+                {next.rewardType === "cash"
+                  ? `${formatEuros(next.montant ?? 0)}`
+                  : next.libelle}
+              </span>
+              .
+            </p>
+          </div>
+        ) : (
+          <p className="text-xs text-amber-800">
+            Tous les paliers sont débloqués 🎉
+          </p>
+        )}
+        {(status.cashUnlockedTotal > 0 || status.natureUnlocked.length > 0) && (
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {status.cashUnlockedTotal > 0 && (
+              <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
+                + {formatEuros(status.cashUnlockedTotal)} débloqués
+              </span>
+            )}
+            {status.natureUnlocked.map((r, i) => (
+              <span
+                key={i}
+                className="rounded-full bg-violet-100 px-2.5 py-0.5 text-xs font-semibold text-violet-700"
+              >
+                🎁 {r.libelle}
+              </span>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 const KIND_TAG: Record<string, { label: string; className: string }> = {
   base: { label: "Base", className: "bg-slate-200 text-slate-600" },
   bonus: { label: "Bonus", className: "bg-indigo-50 text-indigo-600" },
   fixed: { label: "Fixe", className: "bg-emerald-50 text-emerald-600" },
   cpm: { label: "CPM", className: "bg-sky-50 text-sky-600" },
+  bonus_tier: { label: "Palier", className: "bg-amber-50 text-amber-600" },
 };
 
-function KindTag({ kind }: { kind: "base" | "bonus" | "fixed" | "cpm" }) {
+function KindTag({
+  kind,
+}: {
+  kind: "base" | "bonus" | "fixed" | "cpm" | "bonus_tier";
+}) {
   const t = KIND_TAG[kind] ?? KIND_TAG.base;
   return (
     <span
@@ -61,7 +147,9 @@ function PricingBreakdown({ b }: { b: Payment["pricingBreakdown"] }) {
         amount={b.fixedTotal}
       />
       <Row label="CPM accumulé (sur tes vues)" amount={b.cpmTotal} />
-      <Row label="Bonus seuil de vues" amount={b.bonusTotal} />
+      {b.bonusTierCashTotal > 0 && (
+        <Row label="Bonus paliers (cumul de vues)" amount={b.bonusTierCashTotal} />
+      )}
       <div className="flex items-center justify-between border-t border-slate-100 pt-2 text-sm font-semibold">
         <span>Sous-total pricing</span>
         <span className="tabular-nums" data-testid="pricing-total">
@@ -183,6 +271,8 @@ export default function CreatorPaiementsPage() {
       <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
         Mes paiements
       </h1>
+
+      <BonusTierPanel projectId={currentProject.projectId} />
 
       {loading ? (
         <Skeleton className="h-40 w-full" />

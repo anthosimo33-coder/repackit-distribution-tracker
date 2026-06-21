@@ -9,6 +9,7 @@ import {
   requireProjectAdmin,
 } from "./functions";
 import { getProjectBySlug, REPACKIT_SLUG } from "./projects";
+import { syncBonusUnlocks } from "./pricing";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -198,6 +199,8 @@ export const updateCreator = adminMutation({
     paymentMethod: v.optional(PAYMENT_METHODS),
     paymentDetails: v.optional(v.string()),
     adminNotes: v.optional(v.string()),
+    // Grille de paliers de bonus du créateur (cumul). null = détacher.
+    bonusPricingId: v.optional(v.union(v.id("pricings"), v.null())),
   },
   handler: async (ctx, args) => {
     const creator = await ctx.db.get(args.id);
@@ -205,6 +208,17 @@ export const updateCreator = adminMutation({
       throw new ConvexError("Créateur introuvable.");
     }
     const patch: Partial<Doc<"creators">> = {};
+    if (args.bonusPricingId !== undefined) {
+      if (args.bonusPricingId === null) {
+        patch.bonusPricingId = undefined;
+      } else {
+        const pricing = await ctx.db.get(args.bonusPricingId);
+        if (!pricing || pricing.projectId !== ctx.projectId) {
+          throw new ConvexError("Pricing de bonus introuvable dans le projet.");
+        }
+        patch.bonusPricingId = args.bonusPricingId;
+      }
+    }
     if (args.name !== undefined) {
       const name = args.name.trim();
       if (name.length === 0) throw new ConvexError("Le nom est requis.");
@@ -220,6 +234,11 @@ export const updateCreator = adminMutation({
       patch.adminNotes = args.adminNotes.trim() || undefined;
     }
     await ctx.db.patch(args.id, patch);
+    // Changer la grille de bonus → matérialise immédiatement les paliers déjà
+    // atteints par le cumul (idempotent).
+    if (args.bonusPricingId !== undefined) {
+      await syncBonusUnlocks(ctx, ctx.projectId, args.id);
+    }
   },
 });
 
@@ -662,6 +681,12 @@ export const cleanupTestCreators = e2eMutation({
         const u = await ctx.db.get(userId);
         if (u) await ctx.db.delete(u._id);
       }
+      // Paliers de bonus débloqués de ce créateur (pricing v2).
+      const unlocks = await ctx.db
+        .query("bonusUnlocks")
+        .withIndex("by_creator", (q) => q.eq("creatorId", c._id))
+        .collect();
+      for (const u of unlocks) await ctx.db.delete(u._id);
       await ctx.db.delete(c._id);
       deleted++;
     }

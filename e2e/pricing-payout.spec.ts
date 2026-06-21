@@ -38,8 +38,6 @@ test.describe("Pricing — calcul de paie (fixe + CPM + bonus, snapshot)", () =>
       montantFixe: 100,
       nbVideosCible: 60,
       tauxCPM: 2,
-      seuilBonusVues: 100_000,
-      montantBonus: 50,
     });
 
     // 2. Format + cible dispo + attribution AVEC pricing (snapshot figé).
@@ -101,10 +99,12 @@ test.describe("Pricing — calcul de paie (fixe + CPM + bonus, snapshot)", () =>
     });
     const cur = payments.find((p) => p.period === period);
     expect(cur).toBeTruthy();
+    // v2 : fixe + CPM (le bonus par vidéo de v1 est retiré ; les paliers cumulés
+    // sont testés dans pricing-bonus-tiers.spec). 1,67 + 240 = 241,67.
     expect(cur!.pricingBreakdown.fixedTotal).toBe(1.67);
     expect(cur!.pricingBreakdown.cpmTotal).toBe(240);
-    expect(cur!.pricingBreakdown.bonusTotal).toBe(50);
-    expect(cur!.pricingBreakdown.total).toBe(291.67);
+    expect(cur!.pricingBreakdown.bonusTierCashTotal).toBe(0);
+    expect(cur!.pricingBreakdown.total).toBe(241.67);
 
     // 5. SNAPSHOT FIGÉ : modifier le pricing (montantFixe 200) ne change PAS la
     //    vidéo déjà attribuée → le fixe reste 1,67 (100/60), pas 3,33 (200/60).
@@ -114,8 +114,6 @@ test.describe("Pricing — calcul de paie (fixe + CPM + bonus, snapshot)", () =>
       montantFixe: 200,
       nbVideosCible: 60,
       tauxCPM: 2,
-      seuilBonusVues: 100_000,
-      montantBonus: 50,
     });
     const after = (
       await creator.client.query(api.payments.getMyPayments, { projectId })

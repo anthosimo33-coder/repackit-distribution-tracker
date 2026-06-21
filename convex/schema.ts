@@ -559,6 +559,11 @@ export default defineSchema({
     ),
     paymentDetails: v.optional(v.string()),
     adminNotes: v.optional(v.string()),
+    // Pricing v2 — grille de paliers de bonus du créateur (son "deal"). Les
+    // paliers (tiers du pricing désigné) s'évaluent sur le CUMUL de ses vues.
+    // FIXE/CPM restent par vidéo (pricingSnapshot par assignment) ; les paliers
+    // sont créateur-niveau. undefined = aucun palier pour ce créateur.
+    bonusPricingId: v.optional(v.id("pricings")),
     createdAt: v.number(),
   })
     .index("by_project", ["projectId"])
@@ -830,11 +835,52 @@ export default defineSchema({
     montantFixe: v.number(),
     nbVideosCible: v.number(), // >= 1 (imposé serveur, anti division par zéro)
     tauxCPM: v.number(), // € par 1000 vues
-    seuilBonusVues: v.number(),
-    montantBonus: v.number(),
+    // LEGACY (pricing v1, seuil de bonus UNIQUE par vidéo) — conservés en
+    // lecture pour les pricings/snapshots existants ; `tiersOf()` les convertit
+    // en 1 palier cash. 0 migration.
+    seuilBonusVues: v.optional(v.number()),
+    montantBonus: v.optional(v.number()),
+    // Pricing v2 — PALIERS de bonus (0..N), évalués sur le CUMUL TOTAL À VIE des
+    // vues du créateur (cf lib/pricing-engine.ts). Chaque palier récompense en
+    // CASH (montant €, compté dans le total) ou en NATURE (libelle, ex.
+    // "iPhone" — hors total €, suivi comme récompense due).
+    bonusTiers: v.optional(
+      v.array(
+        v.object({
+          seuilVues: v.number(),
+          rewardType: v.union(v.literal("cash"), v.literal("nature")),
+          montant: v.optional(v.number()),
+          libelle: v.optional(v.string()),
+        }),
+      ),
+    ),
     status: v.union(v.literal("active"), v.literal("archived")),
     createdAt: v.number(),
   }).index("by_project", ["projectId"]),
+
+  // ─── Pricing v2 — paliers de bonus DÉBLOQUÉS (cumul de vues créateur) ───────
+  // 1 row = UN palier débloqué par UN créateur, IMMUABLE. La récompense est
+  // FIGÉE au déblocage (rewardType/montant/libelle) → éditer la grille n'altère
+  // pas les unlocks passés. `attributionPeriod` est figée à la sync (avec
+  // rollover si la période d'origine est déjà payée → la récompense cash n'est
+  // jamais perdue). Idempotence : (creatorId, pricingId, seuilVues) unique.
+  bonusUnlocks: defineTable({
+    projectId: v.id("projects"),
+    creatorId: v.id("creators"),
+    pricingId: v.id("pricings"),
+    seuilVues: v.number(),
+    rewardType: v.union(v.literal("cash"), v.literal("nature")),
+    montant: v.optional(v.number()),
+    libelle: v.optional(v.string()),
+    unlockedAt: v.number(),
+    cumulAtUnlock: v.number(),
+    // "YYYY-MM" — période où la récompense cash compte (cf periodOf). Jamais une
+    // période déjà payée (rollover sur la période ouverte courante).
+    attributionPeriod: v.string(),
+  })
+    .index("by_creator", ["creatorId"])
+    .index("by_project", ["projectId"])
+    .index("by_creator_pricing_seuil", ["creatorId", "pricingId", "seuilVues"]),
 
   // ─── P8 — Paiements (accrual par période) ─────────────────────────────────
   // 1 row = la rémunération d'UN créateur pour UNE période "YYYY-MM". Alimentée
@@ -850,17 +896,21 @@ export default defineSchema({
     period: v.string(),
     lineItems: v.array(
       v.object({
-        assignmentId: v.id("assignments"),
+        // Optionnel : un palier de bonus CUMULÉ (bonus_tier) n'est lié à aucun
+        // assignment précis (récompense créateur-niveau).
+        assignmentId: v.optional(v.id("assignments")),
         label: v.string(),
         amount: v.number(),
-        // base/bonus = LEGACY (accrual à l'écriture). fixed/cpm = nouveau modèle
-        // PRICING, GELÉS dans la row au paiement (markPaid) — avant paiement la
-        // paie pricing est calculée à la lecture (temps réel sur les vues).
+        // base/bonus = LEGACY (accrual à l'écriture ; bonus = bonus PAR VIDÉO v1).
+        // fixed/cpm = pricing par vidéo, GELÉS au paiement. bonus_tier = palier
+        // de bonus CASH sur cumul (v2), GELÉ au paiement — DISJOINT de `bonus`
+        // (aucune période ne peut double-compter les deux).
         kind: v.union(
           v.literal("base"),
           v.literal("bonus"),
           v.literal("fixed"),
           v.literal("cpm"),
+          v.literal("bonus_tier"),
         ),
         // Chantier C — plateforme du post (paiement PAR POST : N lineItems base
         // par assignment, 1 par cible). Optional : le bonus (1/assignment) et

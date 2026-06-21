@@ -43,12 +43,14 @@ const KIND_LABEL: Record<string, string> = {
   bonus: "Bonus",
   fixed: "Fixe",
   cpm: "CPM",
+  bonus_tier: "Palier",
 };
 const KIND_BADGE: Record<string, string> = {
   base: "bg-slate-200 text-slate-600",
   bonus: "bg-indigo-50 text-indigo-600",
   fixed: "bg-emerald-50 text-emerald-600",
   cpm: "bg-sky-50 text-sky-600",
+  bonus_tier: "bg-amber-50 text-amber-600",
 };
 
 function BreakdownLine({ label, amount }: { label: string; amount: number }) {
@@ -349,7 +351,9 @@ function PaymentRow({ p }: { p: Payment }) {
               <ul className="space-y-1 text-sm">
                 <BreakdownLine label="Fixe (vidéos publiées)" amount={p.pricingBreakdown.fixedTotal} />
                 <BreakdownLine label="CPM (vues cumulées)" amount={p.pricingBreakdown.cpmTotal} />
-                <BreakdownLine label="Bonus seuil" amount={p.pricingBreakdown.bonusTotal} />
+                {p.pricingBreakdown.bonusTierCashTotal > 0 && (
+                  <BreakdownLine label="Bonus paliers (cash)" amount={p.pricingBreakdown.bonusTierCashTotal} />
+                )}
               </ul>
             )}
             {p.lineItems.length > 0 && (

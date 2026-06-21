@@ -1,17 +1,25 @@
-import { adminMutation, adminQuery, e2eMutation } from "./functions";
+import {
+  adminMutation,
+  adminQuery,
+  creatorQuery,
+  e2eMutation,
+} from "./functions";
 import { ConvexError, v } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { periodOf } from "./payments";
 
 /**
- * Pricing — barèmes de rémunération + MOTEUR de paie (réplique serveur).
+ * Pricing v2 — barèmes + MOTEUR de paie (réplique serveur).
  *
- * ⚠️ ARGENT. computeMonthlyPayout / assignmentCpm / assignmentBonus DOIVENT
- * rester IDENTIQUES à lib/pricing-engine.ts (testé Vitest ; règle A6 — un module
- * convex/ ne peut pas importer lib/). Toute évolution = des DEUX côtés.
+ * ⚠️ ARGENT. computeMonthlyPayout / assignmentCpm / tiersOf / evaluateBonusTiers
+ * DOIVENT rester IDENTIQUES à lib/pricing-engine.ts (testé Vitest ; règle A6 —
+ * un module convex/ ne peut pas importer lib/). Toute évolution = des DEUX côtés.
  *
- * ⚠️ TS7022 — computeLivePricingBreakdown est annoté (consommé par payments.ts).
+ * v2 : le bonus PAR VIDÉO de v1 est RETIRÉ du moteur ; le bonus est désormais à
+ * PALIERS sur le cumul de vues du créateur (cf bonusUnlocks + computeLive…).
+ *
+ * ⚠️ TS7022 — computeLivePricingBreakdown / syncBonusUnlocks sont annotés.
  */
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -21,6 +29,7 @@ export type PricingSnapshot = {
   montantFixe: number;
   nbVideosCible: number;
   tauxCPM: number;
+  // legacy v1 (ignorés par le moteur v2 ; conservés sur les snapshots existants).
   seuilBonusVues: number;
   montantBonus: number;
 };
@@ -39,13 +48,11 @@ export type PerPricing = {
   fixePerVideo: number;
   fixed: number;
   cpm: number;
-  bonus: number;
 };
 
 export interface MonthlyPayout {
   fixedTotal: number;
   cpmTotal: number;
-  bonusTotal: number;
   total: number;
   perPricing: PerPricing[];
   perAssignment: {
@@ -53,18 +60,12 @@ export interface MonthlyPayout {
     pricingId: string;
     totalViews: number;
     cpm: number;
-    bonus: number;
   }[];
 }
 
 export function assignmentCpm(snapshot: PricingSnapshot, totalViews: number): number {
   const v = Math.max(0, totalViews);
   return round2((v / 1000) * snapshot.tauxCPM);
-}
-
-export function assignmentBonus(snapshot: PricingSnapshot, totalViews: number): number {
-  const v = Math.max(0, totalViews);
-  return v >= snapshot.seuilBonusVues ? round2(snapshot.montantBonus) : 0;
 }
 
 function fixePerVideo(snapshot: PricingSnapshot): number {
@@ -84,25 +85,20 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
   const perAssignment: MonthlyPayout["perAssignment"] = [];
   let fixedTotal = 0;
   let cpmTotal = 0;
-  let bonusTotal = 0;
   for (const [pricingId, groupItems] of groups) {
     const snapshot = groupItems[0].snapshot;
     const perVideo = fixePerVideo(snapshot);
     const videoCount = groupItems.length;
     const fixed = round2(Math.min(videoCount * perVideo, snapshot.montantFixe));
     let groupCpm = 0;
-    let groupBonus = 0;
     for (const it of groupItems) {
       const cpm = assignmentCpm(it.snapshot, it.totalViews);
-      const bonus = assignmentBonus(it.snapshot, it.totalViews);
       groupCpm = round2(groupCpm + cpm);
-      groupBonus = round2(groupBonus + bonus);
       perAssignment.push({
         assignmentId: it.assignmentId,
         pricingId: it.snapshot.pricingId,
         totalViews: Math.max(0, it.totalViews),
         cpm,
-        bonus,
       });
     }
     perPricing.push({
@@ -113,19 +109,76 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
       fixePerVideo: round2(perVideo),
       fixed,
       cpm: groupCpm,
-      bonus: groupBonus,
     });
     fixedTotal = round2(fixedTotal + fixed);
     cpmTotal = round2(cpmTotal + groupCpm);
-    bonusTotal = round2(bonusTotal + groupBonus);
   }
   return {
     fixedTotal,
     cpmTotal,
-    bonusTotal,
-    total: round2(fixedTotal + cpmTotal + bonusTotal),
+    total: round2(fixedTotal + cpmTotal),
     perPricing,
     perAssignment,
+  };
+}
+
+// ─── Paliers de bonus (RÉPLIQUE de lib/pricing-engine — DOIT rester identique) ─
+
+export type BonusTier = {
+  seuilVues: number;
+  rewardType: "cash" | "nature";
+  montant?: number;
+  libelle?: string;
+};
+
+export function tiersOf(pricing: {
+  bonusTiers?: BonusTier[];
+  seuilBonusVues?: number;
+  montantBonus?: number;
+}): BonusTier[] {
+  if (pricing.bonusTiers && pricing.bonusTiers.length > 0) {
+    return pricing.bonusTiers;
+  }
+  if ((pricing.seuilBonusVues ?? 0) > 0 && (pricing.montantBonus ?? 0) > 0) {
+    return [
+      {
+        seuilVues: pricing.seuilBonusVues!,
+        rewardType: "cash",
+        montant: pricing.montantBonus!,
+      },
+    ];
+  }
+  return [];
+}
+
+export interface BonusTierEvaluation {
+  crossed: BonusTier[];
+  cashCrossedTotal: number;
+  natureCrossed: BonusTier[];
+  nextTier: BonusTier | null;
+  viewsToNext: number | null;
+}
+
+export function evaluateBonusTiers(
+  cumulViews: number,
+  tiers: BonusTier[],
+): BonusTierEvaluation {
+  const cumul = Math.max(0, cumulViews);
+  const sorted = [...tiers].sort((a, b) => a.seuilVues - b.seuilVues);
+  const crossed = sorted.filter((t) => cumul >= t.seuilVues);
+  const cashCrossedTotal = round2(
+    crossed
+      .filter((t) => t.rewardType === "cash")
+      .reduce((s, t) => s + (t.montant ?? 0), 0),
+  );
+  const natureCrossed = crossed.filter((t) => t.rewardType === "nature");
+  const nextTier = sorted.find((t) => cumul < t.seuilVues) ?? null;
+  return {
+    crossed,
+    cashCrossedTotal,
+    natureCrossed,
+    nextTier,
+    viewsToNext: nextTier ? Math.max(0, nextTier.seuilVues - cumul) : null,
   };
 }
 
@@ -161,13 +214,151 @@ async function assignmentTotalViews(
   return total;
 }
 
+/** "YYYY-MM" → mois suivant ("YYYY-MM"), UTC (rollover Guard A). */
+function nextPeriod(period: string): string {
+  const [y, m] = period.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m, 1)); // m (1-based) → mois suivant (0-based+1)
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${mm}`;
+}
+
+/**
+ * CUMUL TOTAL À VIE des vues du créateur sur le projet (Guard D) : somme des
+ * `assignmentTotalViews` de TOUTES ses vidéos publiées/payées à pricingSnapshot,
+ * SANS filtre de période (≠ du fixe/CPM qui sont mensuels). Même base de vues
+ * que le CPM → jauge et CPM cohérents.
+ */
+export async function creatorCumulViews(
+  ctx: QueryCtx | MutationCtx,
+  projectId: Id<"projects">,
+  creatorId: Id<"creators">,
+): Promise<number> {
+  const assignments = (
+    await ctx.db
+      .query("assignments")
+      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+      .collect()
+  ).filter(
+    (a) =>
+      a.projectId === projectId &&
+      a.pricingSnapshot !== undefined &&
+      (a.status === "published" || a.status === "paid"),
+  );
+  let cumul = 0;
+  for (const a of assignments) cumul += await assignmentTotalViews(ctx, a);
+  return cumul;
+}
+
+/** Grille de paliers du créateur (son bonusPricingId) — [] si aucune. */
+export async function creatorBonusTiers(
+  ctx: QueryCtx | MutationCtx,
+  creator: Doc<"creators">,
+): Promise<BonusTier[]> {
+  if (!creator.bonusPricingId) return [];
+  const pricing = await ctx.db.get(creator.bonusPricingId);
+  if (!pricing || pricing.projectId !== creator.projectId) return [];
+  return tiersOf(pricing);
+}
+
+/**
+ * SYNC IDEMPOTENTE des paliers débloqués d'un créateur. Calcule le cumul, lit sa
+ * grille, et pour chaque palier franchi SANS row d'unlock existante (Guard E —
+ * clé (creatorId, pricingId, seuilVues)), INSÈRE un unlock IMMUABLE : récompense
+ * FIGÉE + `attributionPeriod` (Guard A : période courante ; rollover si déjà
+ * payée → période ouverte courante, jamais perdu). Sans effet si rien de neuf.
+ */
+export async function syncBonusUnlocks(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  creatorId: Id<"creators">,
+): Promise<{ unlocked: number }> {
+  const creator = await ctx.db.get(creatorId);
+  if (!creator || creator.projectId !== projectId) return { unlocked: 0 };
+  const tiers = await creatorBonusTiers(ctx, creator);
+  if (tiers.length === 0) return { unlocked: 0 };
+  const pricingId = creator.bonusPricingId!;
+  const cumul = await creatorCumulViews(ctx, projectId, creatorId);
+  const now = Date.now();
+  let unlocked = 0;
+  for (const tier of tiers) {
+    if (cumul < tier.seuilVues) continue;
+    const existing = await ctx.db
+      .query("bonusUnlocks")
+      .withIndex("by_creator_pricing_seuil", (q) =>
+        q
+          .eq("creatorId", creatorId)
+          .eq("pricingId", pricingId)
+          .eq("seuilVues", tier.seuilVues),
+      )
+      .first();
+    if (existing) continue; // Guard E — immuable, jamais redéclenché.
+    // Guard A — attribution : période du déblocage ; si DÉJÀ payée pour ce
+    // créateur, on roule au mois suivant (période ouverte) → cash jamais perdu.
+    let attributionPeriod = periodOf(now);
+    const paidNow = (
+      await ctx.db
+        .query("payments")
+        .withIndex("by_project_period", (q) =>
+          q.eq("projectId", projectId).eq("period", attributionPeriod),
+        )
+        .collect()
+    ).find((p) => p.creatorId === creatorId && p.status === "paid");
+    if (paidNow) attributionPeriod = nextPeriod(attributionPeriod);
+    await ctx.db.insert("bonusUnlocks", {
+      projectId,
+      creatorId,
+      pricingId,
+      seuilVues: tier.seuilVues,
+      rewardType: tier.rewardType,
+      montant: tier.montant,
+      libelle: tier.libelle,
+      unlockedAt: now,
+      cumulAtUnlock: cumul,
+      attributionPeriod,
+    });
+    unlocked += 1;
+  }
+  return { unlocked };
+}
+
+/**
+ * Sync des paliers du créateur PROPRIÉTAIRE d'une publication (après mise à jour
+ * de ses vues). Résout l'assignment (scan by_project → target.publicationId) →
+ * creatorId → syncBonusUnlocks. No-op si non trouvé. Appelé depuis les écritures
+ * de snapshots (manuel + cron).
+ */
+export async function syncBonusForPublication(
+  ctx: MutationCtx,
+  publicationId: Id<"publications">,
+): Promise<void> {
+  const pub = await ctx.db.get(publicationId);
+  if (!pub) return;
+  const assignments = await ctx.db
+    .query("assignments")
+    .withIndex("by_project", (q) => q.eq("projectId", pub.projectId))
+    .collect();
+  const a = assignments.find(
+    (x) =>
+      (x.targets ?? []).some((t) => t.publicationId === publicationId) ||
+      x.publicationId === publicationId,
+  );
+  if (!a) return;
+  await syncBonusUnlocks(ctx, pub.projectId, a.creatorId);
+}
+
+export interface PricingBreakdown extends MonthlyPayout {
+  /** Bonus cash des paliers débloqués ATTRIBUÉS à cette période (persistés). */
+  bonusTierCashTotal: number;
+}
+
 /**
  * Paie PRICING (live) d'un (créateur, projet, mois) — SOURCE UNIQUE consommée
- * par la lecture (getMyPayments/listPayments) ET le gel au paiement. Collecte
- * les assignments PUBLIÉS/PAYÉS portant un pricingSnapshot dont le mois de
- * publication = `period`, somme leurs vues, et applique le moteur. Guard B :
- * exclut tout assignment qui porterait déjà une lineItem legacy (base/bonus) de
- * la période → les deux modèles restent disjoints (0 double paiement).
+ * par la lecture (getMyPayments/listPayments) ET le gel au paiement. FIXE/CPM :
+ * assignments publiés/payés à pricingSnapshot dont le mois de publication =
+ * `period`. BONUS CASH : Σ des bonusUnlocks CASH PERSISTÉS dont
+ * `attributionPeriod === period` (Guard B — JAMAIS ré-évalué live ; le €
+ * d'une période vient uniquement des unlocks persistés). Guard B (legacy) :
+ * exclut les assignments déjà couverts par une lineItem legacy.
  */
 export async function computeLivePricingBreakdown(
   ctx: QueryCtx | MutationCtx,
@@ -175,7 +366,7 @@ export async function computeLivePricingBreakdown(
   creatorId: Id<"creators">,
   period: string,
   legacyAssignmentIds: Set<string>,
-): Promise<MonthlyPayout> {
+): Promise<PricingBreakdown> {
   const assignments = (
     await ctx.db
       .query("assignments")
@@ -197,7 +388,26 @@ export async function computeLivePricingBreakdown(
       totalViews: await assignmentTotalViews(ctx, a),
     });
   }
-  return computeMonthlyPayout(items);
+  const base = computeMonthlyPayout(items);
+  const cashUnlocks = (
+    await ctx.db
+      .query("bonusUnlocks")
+      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+      .collect()
+  ).filter(
+    (u) =>
+      u.projectId === projectId &&
+      u.rewardType === "cash" &&
+      u.attributionPeriod === period,
+  );
+  const bonusTierCashTotal = round2(
+    cashUnlocks.reduce((s, u) => s + (u.montant ?? 0), 0),
+  );
+  return {
+    ...base,
+    bonusTierCashTotal,
+    total: round2(base.total + bonusTierCashTotal),
+  };
 }
 
 /**
@@ -222,28 +432,23 @@ export async function buildPricingSnapshot(
     montantFixe: pricing.montantFixe,
     nbVideosCible: pricing.nbVideosCible,
     tauxCPM: pricing.tauxCPM,
-    seuilBonusVues: pricing.seuilBonusVues,
-    montantBonus: pricing.montantBonus,
+    // legacy v1 sur le snapshot (ignorés par le moteur v2) — défaut 0.
+    seuilBonusVues: pricing.seuilBonusVues ?? 0,
+    montantBonus: pricing.montantBonus ?? 0,
   };
 }
 
 // ─── CRUD admin (scopé projet) ───────────────────────────────────────────────
 
-function validatePricingFields(args: {
+type PricingInput = {
   name: string;
   montantFixe: number;
   nbVideosCible: number;
   tauxCPM: number;
-  seuilBonusVues: number;
-  montantBonus: number;
-}): {
-  name: string;
-  montantFixe: number;
-  nbVideosCible: number;
-  tauxCPM: number;
-  seuilBonusVues: number;
-  montantBonus: number;
-} {
+  bonusTiers?: BonusTier[];
+};
+
+function validatePricingFields(args: PricingInput): PricingInput {
   const name = args.name.trim();
   if (name.length === 0) throw new ConvexError("Le nom du pricing est requis.");
   if (!Number.isInteger(args.nbVideosCible) || args.nbVideosCible < 1) {
@@ -252,11 +457,21 @@ function validatePricingFields(args: {
   for (const [label, val] of [
     ["montantFixe", args.montantFixe],
     ["tauxCPM", args.tauxCPM],
-    ["seuilBonusVues", args.seuilBonusVues],
-    ["montantBonus", args.montantBonus],
   ] as const) {
     if (!Number.isFinite(val) || val < 0) {
       throw new ConvexError(`${label} doit être un nombre ≥ 0.`);
+    }
+  }
+  for (const t of args.bonusTiers ?? []) {
+    if (!Number.isFinite(t.seuilVues) || t.seuilVues < 0) {
+      throw new ConvexError("Le seuil de vues d'un palier doit être ≥ 0.");
+    }
+    if (t.rewardType === "cash") {
+      if (!Number.isFinite(t.montant ?? NaN) || (t.montant ?? -1) < 0) {
+        throw new ConvexError("Un palier cash exige un montant € ≥ 0.");
+      }
+    } else if (!(t.libelle ?? "").trim()) {
+      throw new ConvexError("Un palier nature exige un libellé (ex. iPhone).");
     }
   }
   return { ...args, name };
@@ -275,13 +490,19 @@ async function pricingInUse(
   return assignments.some((a) => a.pricingSnapshot?.pricingId === pricingId);
 }
 
+const BONUS_TIER_VALIDATOR = v.object({
+  seuilVues: v.number(),
+  rewardType: v.union(v.literal("cash"), v.literal("nature")),
+  montant: v.optional(v.number()),
+  libelle: v.optional(v.string()),
+});
+
 const PRICING_ARGS = {
   name: v.string(),
   montantFixe: v.number(),
   nbVideosCible: v.number(),
   tauxCPM: v.number(),
-  seuilBonusVues: v.number(),
-  montantBonus: v.number(),
+  bonusTiers: v.optional(v.array(BONUS_TIER_VALIDATOR)),
 };
 
 export const createPricing = adminMutation({
@@ -354,6 +575,75 @@ export const listPricings = adminQuery({
       ? all
       : all.filter((p) => p.status === "active");
     return rows.sort((a, b) => a.name.localeCompare(b.name));
+  },
+});
+
+// ─── Statut des paliers de bonus (cumul + jauge + récompenses) ───────────────
+
+/**
+ * Statut bonus d'un créateur (cumul + grille + récompenses débloquées). Le €
+ * cash DÉBLOQUÉ (lifetime) vient des unlocks PERSISTÉS ; la jauge (prochain
+ * palier) est calculée live sur le cumul courant. ISOLATION par creatorId.
+ */
+async function bonusStatusFor(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  creator: Doc<"creators">,
+): Promise<{
+  cumulViews: number;
+  tiers: BonusTier[];
+  crossed: BonusTier[];
+  nextTier: BonusTier | null;
+  viewsToNext: number | null;
+  cashUnlockedTotal: number;
+  natureUnlocked: { libelle: string; unlockedAt: number }[];
+}> {
+  const tiers = await creatorBonusTiers(ctx, creator);
+  const cumulViews = await creatorCumulViews(ctx, projectId, creator._id);
+  const ev = evaluateBonusTiers(cumulViews, tiers);
+  const unlocks = (
+    await ctx.db
+      .query("bonusUnlocks")
+      .withIndex("by_creator", (q) => q.eq("creatorId", creator._id))
+      .collect()
+  ).filter((u) => u.projectId === projectId);
+  const cashUnlockedTotal = round2(
+    unlocks
+      .filter((u) => u.rewardType === "cash")
+      .reduce((s, u) => s + (u.montant ?? 0), 0),
+  );
+  const natureUnlocked = unlocks
+    .filter((u) => u.rewardType === "nature")
+    .map((u) => ({ libelle: u.libelle ?? "Récompense", unlockedAt: u.unlockedAt }))
+    .sort((a, b) => a.unlockedAt - b.unlockedAt);
+  return {
+    cumulViews,
+    tiers,
+    crossed: ev.crossed,
+    nextTier: ev.nextTier,
+    viewsToNext: ev.viewsToNext,
+    cashUnlockedTotal,
+    natureUnlocked,
+  };
+}
+
+/** CRÉATEUR — son statut bonus sur le projet courant (jauge + récompenses). */
+export const getMyBonusStatus = creatorQuery({
+  args: {},
+  handler: async (ctx) => {
+    const creator = await ctx.db.get(ctx.creatorId);
+    if (!creator) return null;
+    return bonusStatusFor(ctx, ctx.projectId, creator);
+  },
+});
+
+/** ADMIN — statut bonus d'UN créateur du projet (panneau récompenses). */
+export const getCreatorBonusStatus = adminQuery({
+  args: { creatorId: v.id("creators") },
+  handler: async (ctx, { creatorId }) => {
+    const creator = await ctx.db.get(creatorId);
+    if (!creator || creator.projectId !== ctx.projectId) return null;
+    return bonusStatusFor(ctx, ctx.projectId, creator);
   },
 });
 
