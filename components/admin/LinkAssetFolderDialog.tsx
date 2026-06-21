@@ -8,15 +8,8 @@ import {
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -29,48 +22,60 @@ import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { Loader2Icon } from "lucide-react";
 
-const NONE = "__none__";
-
 /**
- * Lie (ou délie) UN dossier d'assets à un assignment. Lien simple, modifiable.
- * Le créateur pourra télécharger les images du dossier lié dans son brief.
+ * Lie UN OU PLUSIEURS dossiers d'assets à un assignment (multi-select). Le
+ * créateur pourra télécharger les fichiers de TOUS les dossiers liés dans son
+ * brief. Lien simple, modifiable (cocher/décocher + enregistrer).
  */
 export function LinkAssetFolderDialog({
   open,
   onOpenChange,
   assignmentId,
-  currentFolderId,
+  currentFolderIds,
   creatorName,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   assignmentId: Id<"assignments">;
-  currentFolderId: Id<"assetFolders"> | null;
+  currentFolderIds: Id<"assetFolders">[];
   creatorName: string;
 }) {
   const folders = useProjectQuery(
     api.assets.listAssetFolders,
     open ? {} : "skip",
   );
-  const link = useProjectMutation(api.assignments.linkAssetFolder);
-  const [selected, setSelected] = useState<string>(currentFolderId ?? NONE);
+  const setFolders = useProjectMutation(api.assignments.setAssetFolders);
+  const [selected, setSelected] = useState<Set<string>>(
+    new Set(currentFolderIds),
+  );
   const [busy, setBusy] = useState(false);
 
   const [lastOpen, setLastOpen] = useState(false);
   if (open !== lastOpen) {
     setLastOpen(open);
-    if (open) setSelected(currentFolderId ?? NONE);
+    if (open) setSelected(new Set(currentFolderIds));
   }
 
-  async function onConfirm() {
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function onSave() {
     setBusy(true);
     try {
-      await link({
+      await setFolders({
         id: assignmentId,
-        folderId: selected === NONE ? null : (selected as Id<"assetFolders">),
+        folderIds: [...selected] as Id<"assetFolders">[],
       });
       toast.success(
-        selected === NONE ? "Dossier délié." : "Dossier d'assets lié.",
+        selected.size === 0
+          ? "Dossiers déliés."
+          : `${selected.size} dossier${selected.size > 1 ? "s" : ""} lié${selected.size > 1 ? "s" : ""}.`,
       );
       onOpenChange(false);
     } catch (e) {
@@ -82,45 +87,42 @@ export function LinkAssetFolderDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Dossier d&apos;assets — {creatorName}</DialogTitle>
+          <DialogTitle>Dossiers d&apos;assets — {creatorName}</DialogTitle>
           <DialogDescription>
-            Lie UN dossier d&apos;images à cet assignment. Le créateur pourra les
-            télécharger depuis son brief.
+            Lie un ou plusieurs dossiers à cet assignment. Le créateur pourra
+            télécharger leurs fichiers depuis son brief.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="asset-folder">Dossier lié</Label>
-          {folders === undefined ? (
-            <Skeleton className="h-9 w-full" />
-          ) : (
-            <Select value={selected} onValueChange={(v) => v && setSelected(v)}>
-              <SelectTrigger id="asset-folder" aria-label="Dossier d'assets">
-                <SelectValue>
-                  {selected === NONE
-                    ? "Aucun (délié)"
-                    : (folders.find((f) => f._id === selected)?.name ??
-                      "Dossier")}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NONE}>Aucun (délié)</SelectItem>
-                {folders.map((f) => (
-                  <SelectItem key={f._id} value={f._id}>
-                    {f.name} ({f.assetCount})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          {folders !== undefined && folders.length === 0 && (
-            <p className="text-xs text-slate-400">
-              Aucun dossier d&apos;assets — crées-en un dans Assets.
-            </p>
-          )}
-        </div>
+        {folders === undefined ? (
+          <Skeleton className="h-32 w-full" />
+        ) : folders.length === 0 ? (
+          <p className="py-6 text-center text-sm text-slate-400">
+            Aucun dossier d&apos;assets — crées-en un dans Assets.
+          </p>
+        ) : (
+          <div className="max-h-[50vh] space-y-1.5 overflow-y-auto">
+            {folders.map((f) => (
+              <label
+                key={f._id}
+                className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-200 p-2.5 hover:bg-slate-50"
+              >
+                <Checkbox
+                  checked={selected.has(f._id)}
+                  onCheckedChange={() => toggle(f._id)}
+                />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-900">
+                  {f.name}
+                </span>
+                <span className="shrink-0 text-xs text-slate-400">
+                  {f.assetCount} fichier{f.assetCount > 1 ? "s" : ""}
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
 
         <DialogFooter>
           <Button
@@ -130,7 +132,7 @@ export function LinkAssetFolderDialog({
           >
             Annuler
           </Button>
-          <Button onClick={onConfirm} disabled={busy}>
+          <Button onClick={onSave} disabled={busy}>
             {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
             Enregistrer
           </Button>

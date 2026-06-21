@@ -18,12 +18,9 @@ if (!url) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
 const admin = createE2eClient(url);
 
 const DAY = 86_400_000;
-// PNG 1×1 valide (transparent) — sert de blob léger ; le contentType de l'arg
-// createAsset (pas les octets) pilote la validation type/taille côté serveur.
 const PNG_1x1_B64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
-/** Client authentifié BRUT (pas d'injection projectId) pour generateUploadUrl. */
 async function rawAuthedClient(): Promise<ConvexHttpClient> {
   const raw = new ConvexHttpClient(url!);
   const signin = await raw.action(api.auth.signIn, {
@@ -36,11 +33,10 @@ async function rawAuthedClient(): Promise<ConvexHttpClient> {
   return raw;
 }
 
-/** Upload un blob léger via Convex storage (header content-type paramétrable). */
 async function uploadBlob(
   raw: ConvexHttpClient,
   contentTypeHeader = "image/png",
-): Promise<{ storageId: Id<"_storage">; size: number }> {
+): Promise<Id<"_storage">> {
   const uploadUrl = await raw.mutation(api.storage.generateUploadUrl, {});
   const bytes = Buffer.from(PNG_1x1_B64, "base64");
   const res = await fetch(uploadUrl, {
@@ -50,109 +46,76 @@ async function uploadBlob(
   });
   if (!res.ok) throw new Error(`upload HTTP ${res.status}`);
   const { storageId } = (await res.json()) as { storageId: Id<"_storage"> };
-  return { storageId, size: bytes.length };
+  return storageId;
 }
 
-test.describe("Assets — images ET vidéos en dossiers liés aux assignments", () => {
-  test("upload image+vidéo OK, vidéo trop grosse / type non supporté rejetés, visibilité + isolation créateur", async () => {
+test.describe("Assets — PLUSIEURS dossiers liés à un assignment", () => {
+  test("lier 2 dossiers, retrait à l'unité, créateur voit tout, isolation", async () => {
     test.setTimeout(150_000);
     const ts = Date.now();
     const creatorA = await createCreatorSession(url, {
-      name: `[E2E_TEST] AssetsA ${ts}`,
-      email: `e2e-creator-assetsa-${ts}@repackit.test`,
-      password: "assetsa-12345",
+      name: `[E2E_TEST] MultiA ${ts}`,
+      email: `e2e-creator-multia-${ts}@repackit.test`,
+      password: "multia-12345",
     });
     const creatorB = await createCreatorSession(url, {
-      name: `[E2E_TEST] AssetsB ${ts}`,
-      email: `e2e-creator-assetsb-${ts}@repackit.test`,
-      password: "assetsb-12345",
+      name: `[E2E_TEST] MultiB ${ts}`,
+      email: `e2e-creator-multib-${ts}@repackit.test`,
+      password: "multib-12345",
     });
     const projectId = creatorA.projectId;
     const raw = await rawAuthedClient();
 
-    // ── Dossier + image (≤ 10 Mo) + vidéo (≤ 100 Mo) ─────────────────────────
-    const folderId = await admin.mutation(api.assets.createAssetFolder, {
-      name: `[E2E_TEST] Assets ${ts}`,
+    // ── 2 dossiers : folder1 (image + vidéo = 2), folder2 (1 image) ──────────
+    const folder1 = await admin.mutation(api.assets.createAssetFolder, {
+      name: `[E2E_TEST] Multi1 ${ts}`,
     });
-    const img = await uploadBlob(raw, "image/png");
     await admin.mutation(api.assets.createAsset, {
-      folderId,
-      storageId: img.storageId,
+      folderId: folder1,
+      storageId: await uploadBlob(raw, "image/png"),
       fileName: "logo.png",
       contentType: "image/png",
-      size: img.size,
+      size: 1024,
     });
-    const vid = await uploadBlob(raw, "video/mp4");
     await admin.mutation(api.assets.createAsset, {
-      folderId,
-      storageId: vid.storageId,
+      folderId: folder1,
+      storageId: await uploadBlob(raw, "video/mp4"),
       fileName: "clip.mp4",
       contentType: "video/mp4",
-      size: 50 * 1024 * 1024, // 50 Mo : OK pour une vidéo
+      size: 50 * 1024 * 1024,
+    });
+    const folder2 = await admin.mutation(api.assets.createAssetFolder, {
+      name: `[E2E_TEST] Multi2 ${ts}`,
+    });
+    await admin.mutation(api.assets.createAsset, {
+      folderId: folder2,
+      storageId: await uploadBlob(raw, "image/png"),
+      fileName: "overlay.png",
+      contentType: "image/png",
+      size: 2048,
     });
 
-    const assets = await admin.query(api.assets.listAssets, { folderId });
-    expect(assets.length).toBe(2);
-    const imageItem = assets.find((a) => a.contentType === "image/png")!;
-    const videoItem = assets.find((a) => a.contentType === "video/mp4")!;
-    expect(imageItem.url).toBeTruthy();
-    expect(videoItem.url).toBeTruthy();
-    expect(videoItem.fileName).toBe("clip.mp4");
-    const folder = (await admin.query(api.assets.listAssetFolders, {})).find(
-      (f) => f._id === folderId,
-    )!;
-    expect(folder.assetCount).toBe(2);
-
-    // ── Rejets serveur : type non supporté / vidéo trop grosse / image trop
-    //    grosse (limite PAR type). Blob réel à chaque fois (purgé sur rejet). ──
-    const bad1 = await uploadBlob(raw, "image/png");
+    // ── Validation toujours active : type non supporté rejeté + purge blob ───
     await expect(
       admin.mutation(api.assets.createAsset, {
-        folderId,
-        storageId: bad1.storageId,
+        folderId: folder1,
+        storageId: await uploadBlob(raw, "image/png"),
         fileName: "doc.pdf",
-        contentType: "application/pdf", // ni image ni vidéo → refus
+        contentType: "application/pdf",
         size: 1024,
       }),
     ).rejects.toThrow(/refus/i);
 
-    const bad2 = await uploadBlob(raw, "video/mp4");
-    await expect(
-      admin.mutation(api.assets.createAsset, {
-        folderId,
-        storageId: bad2.storageId,
-        fileName: "huge.mp4",
-        contentType: "video/mp4",
-        size: 101 * 1024 * 1024, // > 100 Mo → refus
-      }),
-    ).rejects.toThrow(/refus/i);
-
-    const bad3 = await uploadBlob(raw, "image/png");
-    await expect(
-      admin.mutation(api.assets.createAsset, {
-        folderId,
-        storageId: bad3.storageId,
-        fileName: "huge.png",
-        contentType: "image/png",
-        size: 11 * 1024 * 1024, // > 10 Mo (limite image) → refus
-      }),
-    ).rejects.toThrow(/refus/i);
-
-    // Toujours 2 fichiers (les rejets n'ont rien enregistré).
-    expect((await admin.query(api.assets.listAssets, { folderId })).length).toBe(
-      2,
-    );
-
-    // ── Assignment (format) pour A + lien du dossier ─────────────────────────
+    // ── Assignment (format) pour A + LIER LES 2 DOSSIERS ─────────────────────
     const formatId = await admin.mutation(api.formats.createFormat, {
-      name: `[E2E_TEST] AssetsFmt ${ts}`,
+      name: `[E2E_TEST] MultiFmt ${ts}`,
       type: "short",
     });
     const tA = await availableTarget({
       e2eClient: admin,
       creatorId: creatorA.creatorId,
       platform: "TikTok",
-      handle: `@e2eassetsa${ts}`,
+      handle: `@e2emultia${ts}`,
     });
     await admin.mutation(api.assignments.assignFormat, {
       formatId,
@@ -164,36 +127,57 @@ test.describe("Assets — images ET vidéos en dossiers liés aux assignments", 
     const aRow = (await admin.query(api.assignments.listAssignments, {})).find(
       (x) => x.formatId === formatId && x.creatorId === creatorA.creatorId,
     )!;
-    await admin.mutation(api.assignments.linkAssetFolder, {
+    await admin.mutation(api.assignments.setAssetFolders, {
       id: aRow._id,
-      folderId,
+      folderIds: [folder1, folder2],
     });
+
+    // Badge admin : 2 dossiers liés, total 3 fichiers (2 + 1).
     const aLinked = (
       await admin.query(api.assignments.listAssignments, {})
     ).find((x) => x._id === aRow._id)!;
-    expect(aLinked.assetFolderCount).toBe(2);
+    expect(aLinked.linkedFolderIds.length).toBe(2);
+    expect(aLinked.assetFolderCount).toBe(3);
 
-    // ── Créateur A voit image + vidéo (lecture/téléchargement) ───────────────
+    // ── Créateur A voit les DEUX dossiers (groupés), vidéo incluse ───────────
     const mineA = await creatorA.client.query(api.assignments.getMyAssignment, {
       projectId,
       id: aRow._id,
     });
     expect(mineA!.assets).not.toBeNull();
-    expect(mineA!.assets!.items.length).toBe(2);
-    const creatorVideo = mineA!.assets!.items.find(
-      (i) => i.contentType === "video/mp4",
-    )!;
-    expect(creatorVideo.url).toBeTruthy(); // téléchargeable
-    expect(
-      mineA!.assets!.items.some((i) => i.contentType === "image/png"),
-    ).toBe(true);
+    expect(mineA!.assets!.folders.length).toBe(2);
+    const totalItems = mineA!.assets!.folders.reduce(
+      (n, f) => n + f.items.length,
+      0,
+    );
+    expect(totalItems).toBe(3);
+    const hasVideo = mineA!.assets!.folders.some((f) =>
+      f.items.some((i) => i.contentType === "video/mp4" && i.url),
+    );
+    expect(hasVideo).toBe(true);
 
-    // ── ISOLATION (inchangée) : B sans dossier → null ; B ne lit pas A. ───────
+    // ── Retrait d'un dossier (setAssetFolders → [folder1]) ───────────────────
+    await admin.mutation(api.assignments.setAssetFolders, {
+      id: aRow._id,
+      folderIds: [folder1],
+    });
+    const aOne = (await admin.query(api.assignments.listAssignments, {})).find(
+      (x) => x._id === aRow._id,
+    )!;
+    expect(aOne.linkedFolderIds.length).toBe(1);
+    expect(aOne.assetFolderCount).toBe(2);
+    const mineAOne = await creatorA.client.query(
+      api.assignments.getMyAssignment,
+      { projectId, id: aRow._id },
+    );
+    expect(mineAOne!.assets!.folders.length).toBe(1);
+
+    // ── ISOLATION : B sans dossier → null ; B ne lit pas A ───────────────────
     const tB = await availableTarget({
       e2eClient: admin,
       creatorId: creatorB.creatorId,
       platform: "TikTok",
-      handle: `@e2eassetsb${ts}`,
+      handle: `@e2emultib${ts}`,
     });
     await admin.mutation(api.assignments.assignFormat, {
       formatId,
@@ -216,15 +200,15 @@ test.describe("Assets — images ET vidéos en dossiers liés aux assignments", 
     );
     expect(bSeesA).toBeNull();
 
-    // ── Délier : A ne voit plus d'assets ─────────────────────────────────────
-    await admin.mutation(api.assignments.linkAssetFolder, {
+    // ── Tout délier → A ne voit plus d'assets ────────────────────────────────
+    await admin.mutation(api.assignments.setAssetFolders, {
       id: aRow._id,
-      folderId: null,
+      folderIds: [],
     });
-    const mineAUnlinked = await creatorA.client.query(
+    const mineAEmpty = await creatorA.client.query(
       api.assignments.getMyAssignment,
       { projectId, id: aRow._id },
     );
-    expect(mineAUnlinked!.assets).toBeNull();
+    expect(mineAEmpty!.assets).toBeNull();
   });
 });

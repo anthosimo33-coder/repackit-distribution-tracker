@@ -821,10 +821,15 @@ export default defineSchema({
         }),
       ),
     ),
-    // ─── Assets — UN dossier d'IMAGES lié (à télécharger par le créateur) ──────
-    // Lien simple vers un assetFolders (≠ modelVideos qui sont des liens vidéo à
-    // reproduire). UN seul dossier par assignment, modifiable/retirable (pas de
-    // verrou). optional → 0 migration. Les images vivent en Convex file storage.
+    // ─── Assets — N dossiers d'images/vidéos liés (à télécharger par le créateur)
+    // assetFolderIds = lien MULTI (≠ modelVideos = liens vidéo à reproduire).
+    // Modifiable/retirable (pas de verrou). Les fichiers vivent en Convex file
+    // storage. Lecture DUAL : assetFolderIds prime ; sinon fallback sur le legacy
+    // assetFolderId (single) tant que migrateAssetFolderToArray n'a pas tourné.
+    assetFolderIds: v.optional(v.array(v.id("assetFolders"))),
+    // LEGACY (single) — conservé optional le temps de la migration single→array
+    // (deploy atomique : le schéma vit avant la migration data). Unset par
+    // migrateAssetFolderToArray + setAssetFolders. Retrait = resserrage ultérieur.
     assetFolderId: v.optional(v.id("assetFolders")),
     rateSnapshot: v.object({
       basePerPost: v.number(),
@@ -1031,12 +1036,12 @@ export default defineSchema({
     // S2 — résumé combo côté admin (charge les bricks du projet pour les labels).
     .index("by_project", ["projectId"]),
 
-  // ─── Assets — bibliothèque d'IMAGES en dossiers (matériel à télécharger) ────
-  // IMAGES UNIQUEMENT (jpg/png/webp), hébergées en Convex file storage. Un
-  // dossier (assetFolders) regroupe des images (assets) ; on lie UN dossier à un
-  // assignment (assignments.assetFolderId) pour que le créateur les télécharge.
-  // Scopé projet. ≠ inspirations (liens de veille) et ≠ modelVideos (liens vidéo
-  // à reproduire) : ici ce sont de VRAIS FICHIERS images.
+  // ─── Assets — bibliothèque de FICHIERS en dossiers (matériel à télécharger) ──
+  // IMAGES (jpg/png/webp) + VIDÉOS courtes (mp4/mov/webm), hébergées en Convex
+  // file storage. Un dossier (assetFolders) regroupe des fichiers (assets) ; on
+  // lie UN OU PLUSIEURS dossiers à un assignment (assignments.assetFolderIds)
+  // pour que le créateur les télécharge. Scopé projet. ≠ inspirations (veille) et
+  // ≠ modelVideos (liens vidéo à reproduire) : ici ce sont de VRAIS FICHIERS.
   assetFolders: defineTable({
     projectId: v.id("projects"),
     name: v.string(),

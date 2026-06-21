@@ -282,27 +282,70 @@ export const removeModelVideoFromAssignment = adminMutation({
 });
 
 /**
- * Lie (ou délie) UN dossier d'assets (images à télécharger) à un assignment.
- * Lien simple, MODIFIABLE et retirable (≠ verrou du combo). Admin only, scopé
- * projet. folderId null → délie.
+ * Dossiers d'assets liés à un assignment — lecture DUAL (migration single→array).
+ * `assetFolderIds` (nouveau, multi) prime ; sinon fallback sur le legacy
+ * `assetFolderId` (single). Source UNIQUE pour toutes les lectures (admin +
+ * créateur) → les liens existants restent valides avant la migration.
+ * Réplique de lib/asset-folders.resolveLinkedFolderIds (règle A6 ; tests Vitest).
  */
-export const linkAssetFolder = adminMutation({
+function effectiveAssetFolderIds(a: Doc<"assignments">): Id<"assetFolders">[] {
+  if (a.assetFolderIds !== undefined) return a.assetFolderIds;
+  return a.assetFolderId ? [a.assetFolderId] : [];
+}
+
+/**
+ * Définit l'ensemble des dossiers d'assets liés à un assignment (MULTI). Remplace
+ * toute la liste (le multi-select admin soumet l'ensemble) ; [] = délié. Admin
+ * only, scopé projet : chaque dossier doit appartenir au projet de l'assignment.
+ * Dédoublonne et UNSET le legacy assetFolderId (la source devient assetFolderIds).
+ */
+export const setAssetFolders = adminMutation({
   args: {
     id: v.id("assignments"),
-    folderId: v.union(v.id("assetFolders"), v.null()),
+    folderIds: v.array(v.id("assetFolders")),
   },
   handler: async (ctx, args) => {
     await requireProjectAssignment(ctx, args.id, ctx.projectId);
-    if (args.folderId !== null) {
-      const folder = await ctx.db.get(args.folderId);
+    const seen = new Set<string>();
+    const valid: Id<"assetFolders">[] = [];
+    for (const fid of args.folderIds) {
+      if (seen.has(fid)) continue;
+      seen.add(fid);
+      const folder = await ctx.db.get(fid);
       if (!folder || folder.projectId !== ctx.projectId) {
         throw new ConvexError("Dossier d'assets introuvable.");
       }
+      valid.push(fid);
     }
     await ctx.db.patch(args.id, {
-      assetFolderId: args.folderId === null ? undefined : args.folderId,
+      assetFolderIds: valid,
+      assetFolderId: undefined, // la source unique devient assetFolderIds
     });
-    return { ok: true };
+    return { ok: true, count: valid.length };
+  },
+});
+
+/**
+ * MIGRATION single→array : convertit assetFolderId (legacy) en assetFolderIds:
+ * [id] + unset le legacy. IDEMPOTENTE (saute les rows déjà migrées / sans lien).
+ * Tourne sur TOUS les projets. À lancer après le deploy du code dual-read :
+ *   npx convex run assignments:migrateAssetFolderToArray --prod
+ */
+export const migrateAssetFolderToArray = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const all = await ctx.db.query("assignments").collect();
+    let migrated = 0;
+    for (const a of all) {
+      if (a.assetFolderIds !== undefined) continue; // déjà migré
+      if (!a.assetFolderId) continue; // aucun lien à convertir
+      await ctx.db.patch(a._id, {
+        assetFolderIds: [a.assetFolderId],
+        assetFolderId: undefined,
+      });
+      migrated++;
+    }
+    return { migrated };
   },
 });
 
@@ -387,6 +430,7 @@ export const listAssignments = adminQuery({
             : null,
           publishedUrl: t.publishedUrl ?? null,
         }));
+        const linkedAssetFolderIds = effectiveAssetFolderIds(a);
         return {
           ...a,
           creatorName: creatorMap.get(a.creatorId) ?? "—",
@@ -395,13 +439,17 @@ export const listAssignments = adminQuery({
           origin: (a.scriptCombo ? "script" : "format") as "script" | "format",
           scriptCampaignName,
           comboSummary,
-          // Assets — dossier d'images lié (badge admin).
-          assetFolderName: a.assetFolderId
-            ? (assetFolderMap.get(a.assetFolderId) ?? null)
-            : null,
-          assetFolderCount: a.assetFolderId
-            ? (assetCountByFolder.get(a.assetFolderId) ?? 0)
-            : 0,
+          // Assets — N dossiers liés (badge admin). linkedFolderIds = source
+          // résolue (dual-read) pour pré-cocher la modale ; total = somme des
+          // fichiers across dossiers liés.
+          linkedFolderIds: linkedAssetFolderIds,
+          assetFolderNames: linkedAssetFolderIds
+            .map((id) => assetFolderMap.get(id))
+            .filter((n): n is string => n !== undefined),
+          assetFolderCount: linkedAssetFolderIds.reduce(
+            (sum, id) => sum + (assetCountByFolder.get(id) ?? 0),
+            0,
+          ),
         };
       });
   },
@@ -1025,41 +1073,61 @@ async function enrichTargets(ctx: QueryCtx, a: Doc<"assignments">) {
 }
 
 /**
- * ISOLATION assets — le créateur ne voit QUE le dossier d'images lié à SON
- * assignment (a.assetFolderId), du MÊME projet. Résout les URLs signées de
- * téléchargement. null si aucun dossier lié ou dossier vide/introuvable.
+ * ISOLATION assets — le créateur ne voit QUE les dossiers liés à SON assignment
+ * (dual-read assetFolderIds/legacy), TOUS dans son projet (chaque dossier
+ * re-vérifié `projectId === a.projectId`). Résout les URLs signées, GROUPÉ par
+ * dossier (ordre des liens). null si aucun dossier lié ou tous vides/introuvables.
  */
 async function resolveAssignmentAssets(
   ctx: QueryCtx,
   a: Doc<"assignments">,
 ): Promise<{
-  folderName: string;
-  items: {
-    id: Id<"assets">;
-    fileName: string;
-    contentType: string;
-    url: string | null;
+  folders: {
+    folderId: Id<"assetFolders">;
+    name: string;
+    items: {
+      id: Id<"assets">;
+      fileName: string;
+      contentType: string;
+      url: string | null;
+    }[];
   }[];
 } | null> {
-  if (!a.assetFolderId) return null;
-  const folder = await ctx.db.get(a.assetFolderId);
-  if (!folder || folder.projectId !== a.projectId) return null;
-  const assets = await ctx.db
-    .query("assets")
-    .withIndex("by_folder", (q) => q.eq("folderId", a.assetFolderId!))
-    .collect();
-  if (assets.length === 0) return null;
-  const items = await Promise.all(
-    assets
-      .sort((x, y) => x.createdAt - y.createdAt)
-      .map(async (asset) => ({
-        id: asset._id,
-        fileName: asset.fileName,
-        contentType: asset.contentType,
-        url: await ctx.storage.getUrl(asset.storageId),
-      })),
-  );
-  return { folderName: folder.name, items };
+  const ids = effectiveAssetFolderIds(a);
+  if (ids.length === 0) return null;
+  const folders: {
+    folderId: Id<"assetFolders">;
+    name: string;
+    items: {
+      id: Id<"assets">;
+      fileName: string;
+      contentType: string;
+      url: string | null;
+    }[];
+  }[] = [];
+  for (const fid of ids) {
+    const folder = await ctx.db.get(fid);
+    // ISOLATION : ignore tout dossier hors du projet de l'assignment.
+    if (!folder || folder.projectId !== a.projectId) continue;
+    const assets = await ctx.db
+      .query("assets")
+      .withIndex("by_folder", (q) => q.eq("folderId", fid))
+      .collect();
+    if (assets.length === 0) continue;
+    const items = await Promise.all(
+      assets
+        .sort((x, y) => x.createdAt - y.createdAt)
+        .map(async (asset) => ({
+          id: asset._id,
+          fileName: asset.fileName,
+          contentType: asset.contentType,
+          url: await ctx.storage.getUrl(asset.storageId),
+        })),
+    );
+    folders.push({ folderId: fid, name: folder.name, items });
+  }
+  if (folders.length === 0) return null;
+  return { folders };
 }
 
 async function enrichForCreator(ctx: QueryCtx, a: Doc<"assignments">) {
