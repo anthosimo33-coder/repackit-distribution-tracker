@@ -93,16 +93,21 @@ test.describe("Voir le script monté + vidéo modèle depuis inspiration", () =>
     );
 
     // PART B — inspiration VIDÉO du projet (scopée) piochable comme modèle.
+    // Marquée [E2E_TEST] (notes + titre) → ramassée par cleanupTestInspirations
+    // (sinon la row persiste sur le deployment de test partagé et casse
+    // l'empty-state de inspirations-create.spec).
+    const inspTitre = `[E2E_TEST] Insp Modèle ${ts}`;
     await admin.mutation(api.inspirations.createInspiration, {
       url: `https://www.tiktok.com/@insp/video/${ts}`,
       type: "video",
       plateforme: "TikTok",
-      titre: "Insp Modèle",
+      titre: inspTitre,
+      notes: "[E2E_TEST] inspiration modèle e2e",
     });
     const inspsVideo = await admin.query(api.inspirations.listInspirations, {
       types: ["video"],
     });
-    const insp = inspsVideo.find((i) => i.titre === "Insp Modèle")!;
+    const insp = inspsVideo.find((i) => i.titre === inspTitre)!;
     expect(insp).toBeTruthy(); // scopée projet → visible côté admin
 
     // Voie INSPIRATION : reprend url + titre de l'inspiration.
@@ -127,7 +132,7 @@ test.describe("Voir le script monté + vidéo modèle depuis inspiration", () =>
     const row2 = await findRow();
     expect(row2.modelVideos ?? []).toHaveLength(2);
     const fromInsp = row2.modelVideos!.find((m) => m.url === insp.url)!;
-    expect(fromInsp.title).toBe("Insp Modèle");
+    expect(fromInsp.title).toBe(inspTitre);
 
     // Visibilité créateur : les 2 vidéos à reproduire.
     const mine = await creator.client.query(api.assignments.getMyAssignment, {

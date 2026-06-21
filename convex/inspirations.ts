@@ -246,9 +246,11 @@ export const deleteInspiration = adminMutation({
 });
 
 /**
- * Test-only cleanup. Mirrors le pattern clearHooks de convex/hooks.ts :
- * supprime les rows dont les notes commencent par le marker [E2E_TEST]
- * (cf e2e/helpers/cleanup.ts).
+ * Test-only cleanup. Supprime les rows de test : marker [E2E_TEST] dans les
+ * notes OU le titre (les deux voies de marquage des specs). Inclut un nettoyage
+ * one-shot des inspirations modèles laissées par assignment-script-and-inspiration
+ * (titre « Insp Modèle » sans marker, url @insp/video) sur le deployment de test
+ * PARTAGÉ — retirable une fois la prod de test purgée. Cf e2e/helpers/cleanup.ts.
  */
 export const cleanupTestInspirations = e2eMutation({
   args: {},
@@ -256,7 +258,11 @@ export const cleanupTestInspirations = e2eMutation({
     const all = await ctx.db.query("inspirations").collect();
     let deleted = 0;
     for (const i of all) {
-      if ((i.notes ?? "").startsWith("[E2E_TEST]")) {
+      const isTest =
+        (i.notes ?? "").startsWith("[E2E_TEST]") ||
+        (i.titre ?? "").startsWith("[E2E_TEST]") ||
+        i.url.includes("tiktok.com/@insp/video");
+      if (isTest) {
         await ctx.db.delete(i._id);
         deleted++;
       }
