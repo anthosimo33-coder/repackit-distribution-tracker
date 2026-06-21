@@ -716,6 +716,11 @@ export default defineSchema({
         fluxBrickId: v.id("scriptBricks"),
         ctaBrickId: v.id("scriptBricks"),
         assembledScript: v.string(),
+        // Verrou "une seule correction" : posé par editScriptCombo après le
+        // remplacement d'UNE brique (avant publication). Une fois true, le combo
+        // est définitivement verrouillé. Optional → 0 migration (absent = jamais
+        // édité = encore corrigeable si le statut le permet).
+        editedOnce: v.optional(v.boolean()),
       }),
     ),
     // S2 — signature top-level du combo. Refonte : "hook:flux:cta" (3 segments)

@@ -23,10 +23,12 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import { ClapperboardIcon, FileTextIcon } from "lucide-react";
+import { ClapperboardIcon, FileTextIcon, PencilIcon } from "lucide-react";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AssignmentModelVideosDialog } from "@/components/admin/AssignmentModelVideosDialog";
 import { AssignmentScriptDialog } from "@/components/admin/AssignmentScriptDialog";
+import { EditScriptComboDialog } from "@/components/admin/EditScriptComboDialog";
+import { canEditScriptCombo } from "@/lib/script-combo-edit";
 import {
   ASSIGNMENT_STATUS,
   assignmentUrgency,
@@ -63,6 +65,11 @@ export default function AssignmentsPage() {
   const [scriptId, setScriptId] = useState<Id<"assignments"> | null>(null);
   const scriptRow = scriptId
     ? ((assignments ?? []).find((a) => a._id === scriptId) ?? null)
+    : null;
+  // Modifier le combo (1 brique, 1 fois, avant publication) — row dérivée live.
+  const [editId, setEditId] = useState<Id<"assignments"> | null>(null);
+  const editRow = editId
+    ? ((assignments ?? []).find((a) => a._id === editId) ?? null)
     : null;
 
   const creators = useMemo(() => {
@@ -215,15 +222,33 @@ export default function AssignmentsPage() {
                               {a.comboSummary}
                             </div>
                             {a.scriptCombo?.assembledScript && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 gap-1.5 px-2 text-xs text-primary"
-                                onClick={() => setScriptId(a._id)}
-                              >
-                                <FileTextIcon className="size-3.5" />
-                                Voir le script
-                              </Button>
+                              <div className="flex flex-wrap gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 gap-1.5 px-2 text-xs text-primary"
+                                  onClick={() => setScriptId(a._id)}
+                                >
+                                  <FileTextIcon className="size-3.5" />
+                                  Voir le script
+                                </Button>
+                                {a.scriptCombo &&
+                                  canEditScriptCombo({
+                                    status: a.status,
+                                    editedOnce:
+                                      a.scriptCombo.editedOnce ?? false,
+                                  }) && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 gap-1.5 px-2 text-xs text-slate-600"
+                                      onClick={() => setEditId(a._id)}
+                                    >
+                                      <PencilIcon className="size-3.5" />
+                                      Modifier le combo
+                                    </Button>
+                                  )}
+                              </div>
                             )}
                           </div>
                         ) : (
@@ -315,6 +340,21 @@ export default function AssignmentsPage() {
           comboSummary={scriptRow.comboSummary}
           creatorName={scriptRow.creatorName}
           platforms={scriptRow.targets.map((t) => t.platform)}
+        />
+      )}
+
+      {editRow?.scriptCombo && (
+        <EditScriptComboDialog
+          open
+          onOpenChange={(o) => !o && setEditId(null)}
+          assignmentId={editRow._id}
+          campaignId={editRow.scriptCombo.campaignId}
+          combo={{
+            hookBrickId: editRow.scriptCombo.hookBrickId,
+            fluxBrickId: editRow.scriptCombo.fluxBrickId,
+            ctaBrickId: editRow.scriptCombo.ctaBrickId,
+          }}
+          creatorName={editRow.creatorName}
         />
       )}
     </div>
