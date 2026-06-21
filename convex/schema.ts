@@ -272,8 +272,12 @@ export default defineSchema({
     // Tracking auto YouTube — horodatage du dernier relevé réussi par le cron
     // (API Data v3). Présent ⇒ publication YouTube synchronisée automatiquement
     // (indicateur admin "vues synchronisées auto"). undefined pour TikTok/Insta
-    // (saisie manuelle) et les pubs YouTube jamais encore relevées.
+    // et les pubs YouTube jamais encore relevées.
     lastYouTubeSyncAt: v.optional(v.number()),
+    // Tracking auto TikTok/Instagram — horodatage du dernier relevé réussi par le
+    // cron Apify. Pendant Apify de lastYouTubeSyncAt. undefined tant qu'aucun
+    // relevé Apify n'a abouti (post non rapprochable, image Insta, token absent).
+    lastApifySyncAt: v.optional(v.number()),
     // LEGACY (vuesJ1/J3/J7 ci-dessus + saves/likes/subsGained/commentsTotal/
     // commentsAudit/profileVisits) : conservés temporairement. Les vues J1/J3/J7
     // sont migrées en metricSnapshots puis supprimées dans un commit séparé
@@ -320,8 +324,12 @@ export default defineSchema({
       v.literal("import"),
       v.literal("migration"),
       // Relevé AUTO via le cron YouTube (API Data v3). Distingue les snapshots
-      // synchronisés des saisies manuelles TikTok/Insta. Cf convex/youtubeSync.
+      // synchronisés des saisies manuelles. Cf convex/youtubeSync.
       v.literal("youtube"),
+      // Relevés AUTO via le cron Apify (TikTok/Instagram). Un par plateforme
+      // pour distinguer/dédupliquer le snapshot du jour. Cf convex/apifySync.
+      v.literal("tiktok"),
+      v.literal("instagram"),
     ),
   })
     .index("by_publication", ["publicationId"])

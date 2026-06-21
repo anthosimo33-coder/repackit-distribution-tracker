@@ -23,4 +23,15 @@ crons.daily(
   {},
 );
 
+// Tracking auto TikTok/Instagram via Apify (calqué sur YouTube). DÉCALÉ à 08:00
+// UTC (1h après YouTube) pour ne pas lancer tous les relevés en même temps —
+// Apify est payant/limité, on étale la charge. Même robustesse de bord de jour
+// (bucketisation UTC dans upsertApifySnapshot). Cf convex/apifySync.ts.
+crons.daily(
+  "daily-tiktok-insta-views",
+  { hourUTC: 8, minuteUTC: 0 },
+  internal.apifySync.runDailySync,
+  {},
+);
+
 export default crons;
