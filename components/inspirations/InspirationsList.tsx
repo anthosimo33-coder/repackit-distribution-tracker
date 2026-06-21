@@ -12,7 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { PlatformBadge } from "@/components/VerdictBadge";
 import { cn } from "@/lib/utils";
 import { formatDate, formatNumber } from "@/lib/format";
@@ -21,7 +21,7 @@ import type {
   FolderRef,
   InspirationCardData,
 } from "./InspirationCard";
-import { StarIcon } from "lucide-react";
+import { ExternalLinkIcon, StarIcon } from "lucide-react";
 import { ThumbnailFallback } from "./ThumbnailFallback";
 import { toast } from "sonner";
 
@@ -124,7 +124,7 @@ export function InspirationsList({
             <TableHead>Titre</TableHead>
             <TableHead className="w-[140px]">Dossier</TableHead>
             <TableHead className="w-[180px]">Stats</TableHead>
-            <TableHead className="w-[50px]" aria-label="Favori" />
+            <TableHead className="w-[88px]" aria-label="Actions" />
             <TableHead className="w-[90px]">Date</TableHead>
           </TableRow>
         </TableHeader>
@@ -180,24 +180,42 @@ export function InspirationsList({
                   <StatsCell stats={i.stats} type={i.type} />
                 </TableCell>
                 <TableCell>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={
-                      i.isFavorite ? "Retirer des favoris" : "Ajouter aux favoris"
-                    }
-                    onClick={(e) => toggleFavorite(e, i._id, i.isFavorite)}
-                  >
-                    <StarIcon
-                      className={cn(
-                        "size-4",
-                        i.isFavorite
-                          ? "fill-amber-400 stroke-amber-500"
-                          : "stroke-slate-400",
-                      )}
-                    />
-                  </Button>
+                  <div className="flex items-center justify-end gap-0.5">
+                    {i.url.trim().length > 0 && (
+                      // Lien externe isolé du click row (stopPropagation) pour
+                      // ne pas ouvrir le Dialog edit.
+                      <a
+                        href={i.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label="Ouvrir la publication"
+                        onClick={(e) => e.stopPropagation()}
+                        className={cn(
+                          buttonVariants({ variant: "ghost", size: "icon-sm" }),
+                        )}
+                      >
+                        <ExternalLinkIcon className="size-4 stroke-slate-400" />
+                      </a>
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={
+                        i.isFavorite ? "Retirer des favoris" : "Ajouter aux favoris"
+                      }
+                      onClick={(e) => toggleFavorite(e, i._id, i.isFavorite)}
+                    >
+                      <StarIcon
+                        className={cn(
+                          "size-4",
+                          i.isFavorite
+                            ? "fill-amber-400 stroke-amber-500"
+                            : "stroke-slate-400",
+                        )}
+                      />
+                    </Button>
+                  </div>
                 </TableCell>
                 <TableCell>
                   <span className="text-xs tabular-nums text-slate-500">

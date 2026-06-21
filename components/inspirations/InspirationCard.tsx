@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
-import { StarIcon } from "lucide-react";
+import { ExternalLinkIcon, StarIcon } from "lucide-react";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { PlatformBadge } from "@/components/VerdictBadge";
 import { cn } from "@/lib/utils";
@@ -37,6 +37,8 @@ export function InspirationCard({
 }) {
   const typeLabel = TYPE_LABELS[inspiration.type];
   const folderColor = getFolderColor(folder?.color);
+  // Bouton "Ouvrir" seulement si l'inspiration a une URL exploitable.
+  const hasUrl = inspiration.url.trim().length > 0;
   // L'URL de vignette peut casser (lien mort) → onError bascule sur le fallback.
   const [imgError, setImgError] = useState(false);
 
@@ -114,6 +116,21 @@ export function InspirationCard({
             )}
           />
         </button>
+        {hasUrl && (
+          // Lien externe : toujours visible (mobile sans hover) et isolé du
+          // click carte (stopPropagation) pour ne pas ouvrir le Dialog edit.
+          <a
+            href={inspiration.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Ouvrir la publication"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+            className="absolute top-2 left-2 rounded-full bg-white/90 p-1.5 text-slate-600 shadow-sm transition-colors hover:bg-white hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
+          >
+            <ExternalLinkIcon className="size-4" />
+          </a>
+        )}
       </div>
 
       <div className="flex flex-1 flex-col gap-2 p-3">
