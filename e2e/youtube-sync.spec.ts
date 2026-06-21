@@ -58,7 +58,12 @@ test.describe("Tracking auto des vues YouTube", () => {
     });
 
     // ── Idempotence — relevé du jour ─────────────────────────────────────────
-    const capturedAt = ts;
+    // ANCRÉ à MIDI UTC du jour courant : +HOUR reste le MÊME jour UTC (→ MAJ) et
+    // +DAY tombe le lendemain (→ nouveau point), QUELLE QUE SOIT l'heure
+    // d'exécution. Sans cet ancrage, un run dans la dernière heure UTC (ex. CI à
+    // 23:40) ferait basculer ts+HOUR au jour suivant → faux "inserted" (flake de
+    // bord de jour, indépendant du tracking lui-même).
+    const capturedAt = Math.floor(ts / DAY) * DAY + 12 * HOUR;
     const r1 = await admin.mutation(api.youtubeSync.e2eRecordYouTubeSnapshot, {
       secret: E2E_SECRET,
       publicationId: pubId,
