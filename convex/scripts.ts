@@ -346,18 +346,17 @@ export const importHooks = adminMutation({
 
 // ─── Assignation en masse (S2) — anti-coordination par créateur ──────────────
 
-const RATE_MODEL = v.object({
-  basePerPost: v.number(),
-  viewBonusPer1k: v.optional(v.number()),
-});
-
 /**
  * Assigne une campagne à N créateurs × M vidéos. ANTI-COORDINATION : pour chaque
  * créateur, on pioche M combos DISTINCTS jamais déjà reçus par CE créateur sur
  * CETTE campagne (diversité de hook maximisée). Deux créateurs PEUVENT partager
  * un combo (anti-coordination par-créateur, pas globale). Chaque assignment
- * porte son scriptCombo (assembledScript FIGÉ) + rateSnapshot figé. Épuisement
+ * porte son scriptCombo (assembledScript FIGÉ) + pricingSnapshot figé. Épuisement
  * (créateur ayant déjà reçu tous les combos dispo) signalé via `shortages`.
+ *
+ * PRICING OBLIGATOIRE : le barème de paie (fixe/CPM/paliers) vient EXCLUSIVEMENT
+ * du pricing choisi, figé en pricingSnapshot. Les anciens champs tarif de base /
+ * bonus aux vues (rateModel legacy) sont RETIRÉS de l'assignation.
  */
 export const assignScriptCampaign = adminMutation({
   args: {
@@ -366,10 +365,10 @@ export const assignScriptCampaign = adminMutation({
     targets: v.array(targetInputValidator),
     videosPerCreator: v.number(),
     dueDate: v.number(),
-    rateModel: RATE_MODEL,
     tier: v.optional(TIER),
-    // Nouveau modèle de paie : pricing FIGÉ à l'attribution (Guard A). Optionnel
-    // → absent = ancien modèle (rateSnapshot legacy), dual-mode.
+    // Pricing OBLIGATOIRE (barème de paie). Validator `optional` UNIQUEMENT pour
+    // émettre un ConvexError lisible si absent (sinon erreur validator brute) ;
+    // le handler le rend requis. Plus aucun mode "sans pricing" (legacy retiré).
     pricingId: v.optional(v.id("pricings")),
   },
   handler: async (ctx, args) => {
@@ -384,18 +383,8 @@ export const assignScriptCampaign = adminMutation({
     ) {
       throw new ConvexError("Nombre de vidéos invalide (1–50).");
     }
-    if (
-      !Number.isFinite(args.rateModel.basePerPost) ||
-      args.rateModel.basePerPost < 0
-    ) {
-      throw new ConvexError("Le tarif de base doit être un nombre ≥ 0.");
-    }
-    if (
-      args.rateModel.viewBonusPer1k !== undefined &&
-      (!Number.isFinite(args.rateModel.viewBonusPer1k) ||
-        args.rateModel.viewBonusPer1k < 0)
-    ) {
-      throw new ConvexError("Le bonus aux vues doit être un nombre ≥ 0.");
+    if (!args.pricingId) {
+      throw new ConvexError("Un barème de paie est requis.");
     }
 
     const creator = await ctx.db.get(args.creatorId);
@@ -429,14 +418,18 @@ export const assignScriptCampaign = adminMutation({
       );
     }
 
-    // rateModel figé sur chaque assignment (comme rateSnapshot de format).
-    const rateSnapshot = {
-      basePerPost: args.rateModel.basePerPost,
-      viewBonusPer1k: args.rateModel.viewBonusPer1k,
-    };
-    const pricingSnapshot = args.pricingId
-      ? await buildPricingSnapshot(ctx, ctx.projectId, args.pricingId)
-      : undefined;
+    // Pricing OBLIGATOIRE = source unique du barème (fixe/CPM/paliers), figé à
+    // l'attribution. rateSnapshot devient un placeholder neutre : le schéma le
+    // requiert (assignments.rateSnapshot), mais Guard C (pricingSnapshot présent)
+    // garantit qu'il n'est JAMAIS lu pour la paie (cf accrueBaseLineItem /
+    // confirmPublication). buildPricingSnapshot rejette un pricing introuvable
+    // ou archivé (ConvexError lisible).
+    const pricingSnapshot = await buildPricingSnapshot(
+      ctx,
+      ctx.projectId,
+      args.pricingId,
+    );
+    const rateSnapshot = { basePerPost: 0 };
     const targets = args.targets.map((t) => ({
       platform: t.platform,
       accountId: t.accountId,
