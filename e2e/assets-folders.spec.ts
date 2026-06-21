@@ -18,12 +18,12 @@ if (!url) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
 const admin = createE2eClient(url);
 
 const DAY = 86_400_000;
-// PNG 1×1 valide (transparent).
+// PNG 1×1 valide (transparent) — sert de blob léger ; le contentType de l'arg
+// createAsset (pas les octets) pilote la validation type/taille côté serveur.
 const PNG_1x1_B64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
-/** Client authentifié BRUT (pas d'injection projectId) pour generateUploadUrl
- *  (authedMutation à args vides — l'injection projectId la ferait rejeter). */
+/** Client authentifié BRUT (pas d'injection projectId) pour generateUploadUrl. */
 async function rawAuthedClient(): Promise<ConvexHttpClient> {
   const raw = new ConvexHttpClient(url!);
   const signin = await raw.action(api.auth.signIn, {
@@ -36,8 +36,8 @@ async function rawAuthedClient(): Promise<ConvexHttpClient> {
   return raw;
 }
 
-/** Upload un blob image via le flow Convex (generateUploadUrl → POST). */
-async function uploadImageBlob(
+/** Upload un blob léger via Convex storage (header content-type paramétrable). */
+async function uploadBlob(
   raw: ConvexHttpClient,
   contentTypeHeader = "image/png",
 ): Promise<{ storageId: Id<"_storage">; size: number }> {
@@ -53,8 +53,8 @@ async function uploadImageBlob(
   return { storageId, size: bytes.length };
 }
 
-test.describe("Assets — dossiers d'images liés aux assignments", () => {
-  test("upload image OK, non-image/trop gros rejetés, lien + visibilité + isolation créateur", async () => {
+test.describe("Assets — images ET vidéos en dossiers liés aux assignments", () => {
+  test("upload image+vidéo OK, vidéo trop grosse / type non supporté rejetés, visibilité + isolation créateur", async () => {
     test.setTimeout(150_000);
     const ts = Date.now();
     const creatorA = await createCreatorSession(url, {
@@ -70,54 +70,77 @@ test.describe("Assets — dossiers d'images liés aux assignments", () => {
     const projectId = creatorA.projectId;
     const raw = await rawAuthedClient();
 
-    // ── Dossier + upload image (réel blob) ───────────────────────────────────
+    // ── Dossier + image (≤ 10 Mo) + vidéo (≤ 100 Mo) ─────────────────────────
     const folderId = await admin.mutation(api.assets.createAssetFolder, {
       name: `[E2E_TEST] Assets ${ts}`,
     });
-    const okBlob = await uploadImageBlob(raw, "image/png");
+    const img = await uploadBlob(raw, "image/png");
     await admin.mutation(api.assets.createAsset, {
       folderId,
-      storageId: okBlob.storageId,
+      storageId: img.storageId,
       fileName: "logo.png",
       contentType: "image/png",
-      size: okBlob.size,
+      size: img.size,
+    });
+    const vid = await uploadBlob(raw, "video/mp4");
+    await admin.mutation(api.assets.createAsset, {
+      folderId,
+      storageId: vid.storageId,
+      fileName: "clip.mp4",
+      contentType: "video/mp4",
+      size: 50 * 1024 * 1024, // 50 Mo : OK pour une vidéo
     });
 
-    // Liste (scopée projet) : dossier + 1 image avec URL signée.
-    const folders = await admin.query(api.assets.listAssetFolders, {});
-    const folder = folders.find((f) => f._id === folderId)!;
-    expect(folder.assetCount).toBe(1);
     const assets = await admin.query(api.assets.listAssets, { folderId });
-    expect(assets.length).toBe(1);
-    expect(assets[0].url).toBeTruthy();
-    expect(assets[0].fileName).toBe("logo.png");
+    expect(assets.length).toBe(2);
+    const imageItem = assets.find((a) => a.contentType === "image/png")!;
+    const videoItem = assets.find((a) => a.contentType === "video/mp4")!;
+    expect(imageItem.url).toBeTruthy();
+    expect(videoItem.url).toBeTruthy();
+    expect(videoItem.fileName).toBe("clip.mp4");
+    const folder = (await admin.query(api.assets.listAssetFolders, {})).find(
+      (f) => f._id === folderId,
+    )!;
+    expect(folder.assetCount).toBe(2);
 
-    // ── Rejets serveur : non-image + trop gros ───────────────────────────────
-    const badType = await uploadImageBlob(raw, "image/png");
+    // ── Rejets serveur : type non supporté / vidéo trop grosse / image trop
+    //    grosse (limite PAR type). Blob réel à chaque fois (purgé sur rejet). ──
+    const bad1 = await uploadBlob(raw, "image/png");
     await expect(
       admin.mutation(api.assets.createAsset, {
         folderId,
-        storageId: badType.storageId,
-        fileName: "clip.mp4",
-        contentType: "video/mp4", // pas une image → refus
-        size: badType.size,
+        storageId: bad1.storageId,
+        fileName: "doc.pdf",
+        contentType: "application/pdf", // ni image ni vidéo → refus
+        size: 1024,
       }),
-    ).rejects.toThrow(/images|refus/i);
+    ).rejects.toThrow(/refus/i);
 
-    const tooBig = await uploadImageBlob(raw, "image/png");
+    const bad2 = await uploadBlob(raw, "video/mp4");
     await expect(
       admin.mutation(api.assets.createAsset, {
         folderId,
-        storageId: tooBig.storageId,
+        storageId: bad2.storageId,
+        fileName: "huge.mp4",
+        contentType: "video/mp4",
+        size: 101 * 1024 * 1024, // > 100 Mo → refus
+      }),
+    ).rejects.toThrow(/refus/i);
+
+    const bad3 = await uploadBlob(raw, "image/png");
+    await expect(
+      admin.mutation(api.assets.createAsset, {
+        folderId,
+        storageId: bad3.storageId,
         fileName: "huge.png",
         contentType: "image/png",
-        size: 11 * 1024 * 1024, // > 10 Mo → refus
+        size: 11 * 1024 * 1024, // > 10 Mo (limite image) → refus
       }),
-    ).rejects.toThrow(/images|refus|Mo/i);
+    ).rejects.toThrow(/refus/i);
 
-    // Toujours 1 seule image (les rejets n'ont rien enregistré).
+    // Toujours 2 fichiers (les rejets n'ont rien enregistré).
     expect((await admin.query(api.assets.listAssets, { folderId })).length).toBe(
-      1,
+      2,
     );
 
     // ── Assignment (format) pour A + lien du dossier ─────────────────────────
@@ -145,24 +168,27 @@ test.describe("Assets — dossiers d'images liés aux assignments", () => {
       id: aRow._id,
       folderId,
     });
-    // Badge admin : dossier lié + compteur.
     const aLinked = (
       await admin.query(api.assignments.listAssignments, {})
     ).find((x) => x._id === aRow._id)!;
-    expect(aLinked.assetFolderName).toBe(`[E2E_TEST] Assets ${ts}`);
-    expect(aLinked.assetFolderCount).toBe(1);
+    expect(aLinked.assetFolderCount).toBe(2);
 
-    // ── Créateur A voit les assets (téléchargeables) ─────────────────────────
+    // ── Créateur A voit image + vidéo (lecture/téléchargement) ───────────────
     const mineA = await creatorA.client.query(api.assignments.getMyAssignment, {
       projectId,
       id: aRow._id,
     });
     expect(mineA!.assets).not.toBeNull();
-    expect(mineA!.assets!.items.length).toBe(1);
-    expect(mineA!.assets!.items[0].url).toBeTruthy();
+    expect(mineA!.assets!.items.length).toBe(2);
+    const creatorVideo = mineA!.assets!.items.find(
+      (i) => i.contentType === "video/mp4",
+    )!;
+    expect(creatorVideo.url).toBeTruthy(); // téléchargeable
+    expect(
+      mineA!.assets!.items.some((i) => i.contentType === "image/png"),
+    ).toBe(true);
 
-    // ── ISOLATION : B a son propre assignment SANS dossier → assets null ;
-    //    B ne peut pas lire l'assignment de A. ─────────────────────────────────
+    // ── ISOLATION (inchangée) : B sans dossier → null ; B ne lit pas A. ───────
     const tB = await availableTarget({
       e2eClient: admin,
       creatorId: creatorB.creatorId,
@@ -183,8 +209,7 @@ test.describe("Assets — dossiers d'images liés aux assignments", () => {
       projectId,
       id: bRow._id,
     });
-    expect(mineB!.assets).toBeNull(); // B n'a aucun dossier lié
-    // B ne voit pas l'assignment (ni les assets) de A.
+    expect(mineB!.assets).toBeNull();
     const bSeesA = await creatorB.client.query(
       api.assignments.getMyAssignment,
       { projectId, id: aRow._id },
