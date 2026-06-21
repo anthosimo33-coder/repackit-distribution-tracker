@@ -249,6 +249,10 @@ export const addModelVideoToAssignment = adminMutation({
       );
     }
     const existing = a.modelVideos ?? [];
+    // Dédoublonnage par URL (les 2 voies UI — URL libre + inspiration — peuvent
+    // viser le même lien) : no-op idempotent, on renvoie l'entrée existante.
+    const dup = existing.find((mv) => mv.url === url);
+    if (dup) return { id: dup.id, duplicate: true };
     if (existing.length >= MAX_MODEL_VIDEOS) {
       throw new ConvexError(`Trop de vidéos modèles (max ${MAX_MODEL_VIDEOS}).`);
     }
@@ -262,7 +266,7 @@ export const addModelVideoToAssignment = adminMutation({
       addedAt: Date.now(),
     };
     await ctx.db.patch(args.id, { modelVideos: [...existing, item] });
-    return { id: item.id };
+    return { id: item.id, duplicate: false };
   },
 });
 

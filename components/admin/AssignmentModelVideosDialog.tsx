@@ -1,13 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { useProjectMutation } from "@/components/project/use-project-convex";
+import {
+  useProjectMutation,
+  useProjectQuery,
+} from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -19,7 +23,18 @@ import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { detectInspirationType } from "@/lib/inspiration-url";
 import type { ModelVideo } from "@/lib/model-videos";
-import { ExternalLinkIcon, Loader2Icon, PlusIcon, Trash2Icon } from "lucide-react";
+import type { FunctionReturnType } from "convex/server";
+import {
+  ExternalLinkIcon,
+  Loader2Icon,
+  PlusIcon,
+  Trash2Icon,
+  VideoIcon,
+} from "lucide-react";
+
+type VideoInspiration = FunctionReturnType<
+  typeof api.inspirations.listInspirations
+>[number];
 
 /**
  * Gère les VIDÉOS MODÈLES (liens à reproduire) d'un assignment, à chaud APRÈS
@@ -44,10 +59,21 @@ export function AssignmentModelVideosDialog({
   const remove = useProjectMutation(
     api.assignments.removeModelVideoFromAssignment,
   );
+  // Inspirations VIDÉO du projet (scopées projet côté serveur) — 2e voie d'ajout.
+  const inspirations = useProjectQuery(
+    api.inspirations.listInspirations,
+    open ? { types: ["video"] } : "skip",
+  );
   const [url, setUrl] = useState("");
   const [title, setTitle] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // Masque les inspirations déjà attachées (dédoublonnage par URL côté serveur).
+  const addedUrls = new Set(modelVideos.map((mv) => mv.url));
+  const pickableInspirations = (inspirations ?? []).filter(
+    (i) => !addedUrls.has(i.url),
+  );
 
   async function onAdd() {
     if (url.trim().length === 0) {
@@ -56,7 +82,7 @@ export function AssignmentModelVideosDialog({
     }
     setBusy(true);
     try {
-      await add({
+      const res = await add({
         id: assignmentId,
         url,
         title: title.trim() || undefined,
@@ -65,7 +91,27 @@ export function AssignmentModelVideosDialog({
       setUrl("");
       setTitle("");
       setNote("");
-      toast.success("Vidéo modèle ajoutée.");
+      toast.success(
+        res.duplicate ? "Déjà dans les modèles." : "Vidéo modèle ajoutée.",
+      );
+    } catch (e) {
+      toast.error(convexErrorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onAddFromInspiration(insp: VideoInspiration) {
+    setBusy(true);
+    try {
+      const res = await add({
+        id: assignmentId,
+        url: insp.url,
+        title: insp.titre || undefined,
+      });
+      toast.success(
+        res.duplicate ? "Déjà dans les modèles." : "Vidéo modèle ajoutée.",
+      );
     } catch (e) {
       toast.error(convexErrorMessage(e));
     } finally {
@@ -181,6 +227,50 @@ export function AssignmentModelVideosDialog({
               )}
               Ajouter la vidéo modèle
             </Button>
+          </div>
+
+          {/* 2e voie : piocher une inspiration existante (scopée projet). */}
+          <div className="space-y-2 border-t border-slate-200 pt-4">
+            <Label>Ou choisir depuis mes inspirations</Label>
+            {inspirations === undefined ? (
+              <Skeleton className="h-24 w-full" />
+            ) : pickableInspirations.length === 0 ? (
+              <p className="text-sm text-slate-400">
+                Aucune inspiration vidéo disponible.
+              </p>
+            ) : (
+              <div className="max-h-52 space-y-1.5 overflow-y-auto">
+                {pickableInspirations.map((insp) => (
+                  <button
+                    key={insp._id}
+                    type="button"
+                    onClick={() => onAddFromInspiration(insp)}
+                    disabled={busy}
+                    className="flex w-full items-center gap-2 rounded-lg border border-slate-200 p-2 text-left transition-colors hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {insp.thumbnailUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={insp.thumbnailUrl}
+                        alt=""
+                        className="size-10 shrink-0 rounded object-cover"
+                      />
+                    ) : (
+                      <div className="grid size-10 shrink-0 place-items-center rounded bg-slate-100">
+                        <VideoIcon className="size-4 text-slate-400" />
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-slate-900">
+                        {insp.titre ?? insp.url}
+                      </p>
+                      <p className="text-xs text-slate-400">{insp.plateforme}</p>
+                    </div>
+                    <PlusIcon className="size-4 shrink-0 text-slate-400" />
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </DialogContent>
