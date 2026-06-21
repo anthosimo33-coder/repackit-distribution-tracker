@@ -2,7 +2,9 @@ import { internalMutation, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { accrueBaseLineItem, upsertBonusLineItem, periodOf } from "./payments";
+import { getOrCreatePayment, periodOf } from "./payments";
+import { buildPricingSnapshot, syncBonusUnlocks } from "./pricing";
+import { recomputeLatestMetrics } from "./metricSnapshots";
 import { defaultTargetDays } from "./warmup";
 
 /**
@@ -50,8 +52,12 @@ function emptyCounts(): Counts {
     snapshots: 0,
     payments: 0,
     formats: 0,
+    pricings: 0,
+    bonusUnlocks: 0,
   };
 }
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /** Fiches créateur (par projet) du user, indexées par projectId. */
 async function creatorFichesByProject(
@@ -90,6 +96,30 @@ async function cleanupProjectDemo(
       .filter((f) => f.name.startsWith(MP))
       .map((f) => f._id),
   );
+
+  // Pricings démo du projet (pour purger snapshots de paliers + grille créateur).
+  const demoPricings = (
+    await ctx.db
+      .query("pricings")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .collect()
+  ).filter((p) => p.name.startsWith(MP));
+  const demoPricingIds = new Set<string>(demoPricings.map((p) => p._id));
+
+  // Paliers de bonus débloqués de cette fiche liés à un pricing démo.
+  for (const u of await ctx.db
+    .query("bonusUnlocks")
+    .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+    .collect()) {
+    if (u.projectId !== projectId || !demoPricingIds.has(u.pricingId)) continue;
+    await ctx.db.delete(u._id);
+    counts.bonusUnlocks += 1;
+  }
+  // Détache la grille de bonus du créateur si elle pointe un pricing démo.
+  const creator = await ctx.db.get(creatorId);
+  if (creator?.bonusPricingId && demoPricingIds.has(creator.bonusPricingId)) {
+    await ctx.db.patch(creatorId, { bonusPricingId: undefined });
+  }
 
   const pubIds = new Set<Id<"publications">>();
 
@@ -148,12 +178,15 @@ async function cleanupProjectDemo(
     .query("payments")
     .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
     .collect()) {
+    if (pay.projectId !== projectId) continue;
     const remaining = pay.lineItems.filter((li) => !li.label.startsWith(MP));
-    if (remaining.length === pay.lineItems.length) continue;
+    // remaining vide ⇒ row entièrement démo OU row "live" vide (période courante
+    // créée par getOrCreatePayment) → on la supprime. Sinon on retire juste les
+    // lineItems démo et on recalcule (préserve tout lineItem réel).
     if (remaining.length === 0) {
       await ctx.db.delete(pay._id);
       counts.payments += 1;
-    } else {
+    } else if (remaining.length !== pay.lineItems.length) {
       const totalDue =
         Math.round(remaining.reduce((s, li) => s + li.amount, 0) * 100) / 100;
       await ctx.db.patch(pay._id, { lineItems: remaining, totalDue });
@@ -165,17 +198,22 @@ async function cleanupProjectDemo(
     await ctx.db.delete(fid as Id<"formats">);
     counts.formats += 1;
   }
+  // Pricings démo (après détachement de la grille créateur + unlocks).
+  for (const p of demoPricings) {
+    await ctx.db.delete(p._id);
+    counts.pricings += 1;
+  }
 }
 
 /** Variante de données par projet (rang `i`) → tout est DIFFÉRENT par projet. */
 function variantFor(i: number) {
   const vk = i + 1;
   return {
-    rate: {
-      basePerPost: 5 + i * 3, // 5, 8, 11 €…
-      viewBonusPer1k: 1,
-      bounties: [{ thresholdViews: 50_000, amount: 20 }],
-    },
+    // Barème PRICING démo (distinct par projet) : fixe mensuel / nbVideosCible,
+    // CPM, + paliers de bonus sur le CUMUL des vues.
+    montantFixe: 100 + i * 50, // 100, 150, 200 €
+    nbVideosCible: 60, // fixe/vidéo = montantFixe/60
+    tauxCPM: 2 + i, // 2, 3, 4 €/1000 vues
     produceTodos: 1 + i, // 1, 2, 3… vidéos à produire
     tkViews: [3_000 * vk, 12_000 * vk, 41_000 * vk] as [number, number, number],
     ytViews: [1_200 * vk, 5_400 * vk, 18_900 * vk] as [number, number, number],
@@ -201,7 +239,6 @@ async function seedProject(
 
   const sfx = (slug.replace(/[^a-z0-9]/gi, "").slice(0, 8) || `p${index}`).toLowerCase();
   const variant = variantFor(index);
-  const rate = variant.rate;
 
   // ── Comptes (états de warmup variés) ──────────────────────────────────────
   // cActif (YouTube, actif) + cDone (TikTok, warmup TERMINÉ) = cibles DISPONIBLES.
@@ -296,12 +333,37 @@ async function seedProject(
         title: `${MP} Exemple YouTube`,
       },
     ],
-    rateModel: rate,
+    rateModel: { basePerPost: 0 }, // legacy (la paie vient du pricing v2)
     status: "active",
     createdAt: now,
     updatedAt: now,
   });
   counts.formats += 1;
+
+  // ── Barème PRICING démo + attribution au créateur ─────────────────────────
+  // C'EST le chemin testé : un pricing attribué (pricingSnapshot) → le moteur
+  // calcule FIXE (unique par vidéo) + CPM (vues totales), pas de base-par-post.
+  // bonusPricingId = grille de paliers sur le cumul des vues du créateur.
+  const pricingId = await ctx.db.insert("pricings", {
+    projectId,
+    name: `${MP} Barème démo`,
+    montantFixe: variant.montantFixe,
+    nbVideosCible: variant.nbVideosCible,
+    tauxCPM: variant.tauxCPM,
+    bonusTiers: [
+      { seuilVues: 50_000, rewardType: "cash", montant: 50 },
+      { seuilVues: 200_000, rewardType: "nature", libelle: "iPhone 15" },
+      { seuilVues: 1_000_000, rewardType: "cash", montant: 300 },
+    ],
+    status: "active",
+    createdAt: now,
+  });
+  counts.pricings += 1;
+  const snapshot = await buildPricingSnapshot(ctx, projectId, pricingId);
+  // rateSnapshot legacy figé (champ requis ; ignoré par le moteur v2).
+  const rate = { basePerPost: 0 };
+  // Grille de paliers (cumul) du créateur sur ce projet.
+  await ctx.db.patch(creatorId, { bonusPricingId: pricingId });
 
   const insertAssignment = async (fields: {
     targets: { platform: Plateforme; accountId: Id<"comptes">; publishedUrl?: string; publishedAt?: number; publicationId?: Id<"publications"> }[];
@@ -322,6 +384,7 @@ async function seedProject(
       creatorId,
       formatId,
       rateSnapshot: rate,
+      pricingSnapshot: snapshot,
       createdAt: now,
       ...fields,
     });
@@ -394,11 +457,19 @@ async function seedProject(
       });
       counts.snapshots += 1;
     }
+    // Dénormalise vuesLatest (le plus récent J+7) → indispensable au CPM et au
+    // cumul de paliers (qui lisent publications.vuesLatest).
+    await recomputeLatestMetrics(ctx, pubId);
     return pubId;
   };
 
   // ── Bloc 5 (gains du mois) : 1 publié, 2 cibles → 2 pubs + 2 bases + bonus ─
-  const datePubli = now - 6 * DAY;
+  // Publié DANS LE MOIS COURANT (borné au début du mois UTC) pour que la page
+  // « mois en cours » montre toujours le détail pricing, même si le seed tourne
+  // en début de mois (sinon now-6j tomberait sur le mois précédent).
+  const d = new Date(now);
+  const monthStart = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
+  const datePubli = Math.max(monthStart, now - 6 * DAY);
   const tkUrl = `https://www.tiktok.com/@antho_${sfx}_tt/video/73000000000${index}01`;
   const ytUrl = `https://www.youtube.com/watch?v=DEMOMP${index}a`;
   const tkPub = await materializePub({
@@ -435,41 +506,19 @@ async function seedProject(
     dueDate: now - 5 * DAY,
     status: "published",
   });
-  await accrueBaseLineItem(ctx, {
+  void published;
+  // Modèle PRICING : AUCUNE lineItem écrite. Le moteur calcule live la paie de
+  // la période = FIXE UNIQUE (1 vidéo, multi-plateforme = 1) + CPM (vues
+  // totales). On garantit juste une row de paiement pour la période.
+  await getOrCreatePayment(ctx, {
     projectId,
     creatorId,
-    assignmentId: published,
-    label: `${MP} Base — TikTok`,
-    amount: rate.basePerPost,
-    now,
-    platform: "TikTok",
-  });
-  await accrueBaseLineItem(ctx, {
-    projectId,
-    creatorId,
-    assignmentId: published,
-    label: `${MP} Base — YouTube`,
-    amount: rate.basePerPost,
-    now,
-    platform: "YouTube",
-  });
-  // Bonus CPM : Σ (vues J+7 / 1000 × tarif) + prime de palier si une cible dépasse.
-  const views7 = [variant.tkViews[2], variant.ytViews[2]];
-  const bonus =
-    Math.round(
-      views7.reduce((s, v7) => s + (v7 / 1000) * rate.viewBonusPer1k, 0),
-    ) +
-    (views7.some((v7) => v7 >= rate.bounties[0].thresholdViews)
-      ? rate.bounties[0].amount
-      : 0);
-  await upsertBonusLineItem(ctx, {
-    projectId,
-    creatorId,
-    assignmentId: published,
-    label: `${MP} Bonus vues`,
-    amount: bonus,
+    period: periodOf(datePubli),
     now,
   });
+  // Cumul des vues (publications + vuesLatest) → débloque les paliers atteints
+  // (cash compté ; nature = récompense due). Attribué à la période courante.
+  await syncBonusUnlocks(ctx, projectId, creatorId);
 
   // ── 1 PAYÉ (mois précédent) — peuple l'historique + « payé le … ». ─────────
   const paidMonth = now - 32 * DAY;
@@ -494,29 +543,39 @@ async function seedProject(
     dueDate: paidMonth - 2 * DAY,
     status: "paid",
   });
-  await accrueBaseLineItem(ctx, {
+  // Période PAYÉE (mois -1) : on GÈLE le détail pricing dans la row, comme le
+  // ferait markPaid (FIXE unique + CPM des vues). 1 vidéo (1 cible YouTube).
+  const fixePerVideo = round2(variant.montantFixe / variant.nbVideosCible);
+  const paidFixed = round2(Math.min(fixePerVideo, variant.montantFixe));
+  const paidCpm = round2((variant.paidViews[2] / 1000) * variant.tauxCPM);
+  const paidLineItems = [
+    {
+      assignmentId: paid,
+      label: `${MP} Fixe — 1 vidéo publiée`,
+      amount: paidFixed,
+      kind: "fixed" as const,
+    },
+    {
+      assignmentId: paid,
+      label: `${MP} CPM — ${variant.paidViews[2]} vues`,
+      amount: paidCpm,
+      kind: "cpm" as const,
+    },
+  ];
+  const pastPeriod = periodOf(paidMonth);
+  const pastPayment = await getOrCreatePayment(ctx, {
     projectId,
     creatorId,
-    assignmentId: paid,
-    label: `${MP} Base — YouTube`,
-    amount: rate.basePerPost,
+    period: pastPeriod,
     now: paidMonth,
-    platform: "YouTube",
   });
-  const pastPeriod = periodOf(paidMonth);
-  const pastPayment = (
-    await ctx.db
-      .query("payments")
-      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
-      .collect()
-  ).find((p) => p.period === pastPeriod);
-  if (pastPayment) {
-    await ctx.db.patch(pastPayment._id, {
-      status: "paid",
-      scheduledDate: paidMonth + 3 * DAY,
-      paidAt: paidMonth + 5 * DAY,
-    });
-  }
+  await ctx.db.patch(pastPayment._id, {
+    lineItems: paidLineItems,
+    totalDue: round2(paidFixed + paidCpm),
+    status: "paid",
+    scheduledDate: paidMonth + 3 * DAY,
+    paidAt: paidMonth + 5 * DAY,
+  });
 }
 
 type SeedResult = {
