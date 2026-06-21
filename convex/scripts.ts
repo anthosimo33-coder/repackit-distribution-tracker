@@ -8,30 +8,29 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 /**
- * S1 — Système de scripts combinatoire (fondation). Une vidéo = 1 hook + 1
- * corps + 1 flux + 1 cta posés sur un socle démo fixe. CRUD admin des campagnes
- * et de leurs bricks + import (COPIE) de hooks depuis la bibliothèque. TOUT
- * passe par adminQuery/adminMutation → le rôle creator n'a aucun accès. Pas
- * d'assignation/affichage créateur/analytics ici (chantiers suivants).
+ * S1 — Système de scripts combinatoire (fondation). Refonte 3 briques : une
+ * vidéo = 1 hook + 1 flux + 1 cta (le kind "corps" et le socle démo ont été
+ * retirés du montage). CRUD admin des campagnes et de leurs bricks + import
+ * (COPIE) de hooks depuis la bibliothèque. TOUT passe par adminQuery/
+ * adminMutation → le rôle creator n'a aucun accès.
  *
  * L'assemblage (assembleScript) et le décompte (countCombinations) vivent dans
- * lib/scriptAssembly.ts (pur, testé) et sont consommés CÔTÉ CLIENT — aucune
- * réplique convex nécessaire (règle A6 non déclenchée).
+ * lib/scriptAssembly.ts (pur, testé) et sont consommés CÔTÉ CLIENT. La
+ * génération/sélection des combos est RÉPLIQUÉE ci-dessous (règle A6 : convex/
+ * ne peut pas importer lib/) pour l'anti-coordination serveur.
  */
 
-const KIND = v.union(
-  v.literal("hook"),
-  v.literal("corps"),
-  v.literal("flux"),
-  v.literal("cta"),
-);
+// Kinds créables : refonte → hook/flux/cta. "corps" n'est plus créable (les
+// corps existants sont reclassés en hook par migrateCorpsToHooks).
+const KIND = v.union(v.literal("hook"), v.literal("flux"), v.literal("cta"));
 const TIER = v.union(v.literal("S"), v.literal("A"), v.literal("B"));
 
+// Ordre d'affichage. Un kind inconnu (ex. "corps" legacy pas encore migré)
+// retombe en fin de liste via `?? 99` côté tri.
 const KIND_ORDER: Record<string, number> = {
   hook: 0,
-  corps: 1,
-  flux: 2,
-  cta: 3,
+  flux: 1,
+  cta: 2,
 };
 
 /** Récupère une campagne du projet courant ou rejette. */
@@ -50,10 +49,10 @@ async function requireCampaign(
 // ─── Réplique serveur de lib/scriptCombos + lib/scriptAssembly (règle A6) ─────
 // convex/ ne peut pas importer lib/ → la génération/sélection des combos est
 // dupliquée ici pour l'anti-coordination SERVEUR. DOIT rester aligné sur lib.
-// Le créateur lit un script naturel → assemblage SANS étiquettes de section.
+// Refonte 3 briques : combo = hook × flux × cta, comboKey 3 segments, aucun
+// socle démo. Le créateur lit un script naturel → assemblage SANS étiquettes.
 type ServerCombo = {
   hookBrickId: Id<"scriptBricks">;
-  corpsBrickId: Id<"scriptBricks">;
   fluxBrickId: Id<"scriptBricks">;
   ctaBrickId: Id<"scriptBricks">;
   assembledScript: string;
@@ -61,49 +60,36 @@ type ServerCombo = {
 
 function assembleNoLabels(p: {
   hook: string;
-  corps: string;
   flux: string;
   cta: string;
-  demoBlock: string;
 }): string {
-  return [p.hook, p.corps, p.flux, p.cta, p.demoBlock]
-    .map((s) => s.trim())
-    .join("\n\n");
+  return [p.hook, p.flux, p.cta].map((s) => s.trim()).join("\n\n");
 }
 
 function comboKeyOf(c: {
   hookBrickId: string;
-  corpsBrickId: string;
   fluxBrickId: string;
   ctaBrickId: string;
 }): string {
-  return `${c.hookBrickId}:${c.corpsBrickId}:${c.fluxBrickId}:${c.ctaBrickId}`;
+  return `${c.hookBrickId}:${c.fluxBrickId}:${c.ctaBrickId}`;
 }
 
-function generateCombosServer(
-  bricks: Doc<"scriptBricks">[],
-  demoBlock: string,
-): ServerCombo[] {
+function generateCombosServer(bricks: Doc<"scriptBricks">[]): ServerCombo[] {
   const of = (k: string) => bricks.filter((b) => b.active && b.kind === k);
   const out: ServerCombo[] = [];
   for (const h of of("hook")) {
-    for (const c of of("corps")) {
-      for (const f of of("flux")) {
-        for (const t of of("cta")) {
-          out.push({
-            hookBrickId: h._id,
-            corpsBrickId: c._id,
-            fluxBrickId: f._id,
-            ctaBrickId: t._id,
-            assembledScript: assembleNoLabels({
-              hook: h.content,
-              corps: c.content,
-              flux: f.content,
-              cta: t.content,
-              demoBlock,
-            }),
-          });
-        }
+    for (const f of of("flux")) {
+      for (const t of of("cta")) {
+        out.push({
+          hookBrickId: h._id,
+          fluxBrickId: f._id,
+          ctaBrickId: t._id,
+          assembledScript: assembleNoLabels({
+            hook: h.content,
+            flux: f.content,
+            cta: t.content,
+          }),
+        });
       }
     }
   }
@@ -171,7 +157,8 @@ export const getCampaign = adminQuery({
       .withIndex("by_campaign", (q) => q.eq("campaignId", id))
       .collect();
     bricks.sort((a, b) => {
-      if (a.kind !== b.kind) return KIND_ORDER[a.kind] - KIND_ORDER[b.kind];
+      if (a.kind !== b.kind)
+        return (KIND_ORDER[a.kind] ?? 99) - (KIND_ORDER[b.kind] ?? 99);
       return (a.order ?? a.createdAt) - (b.order ?? b.createdAt);
     });
     return { ...campaign, bricks };
@@ -435,7 +422,7 @@ export const assignScriptCampaign = adminMutation({
       args.tier === undefined
         ? allBricks
         : allBricks.filter((b) => b.kind !== "hook" || b.tier === args.tier);
-    const combos = generateCombosServer(bricks, campaign.demoBlock);
+    const combos = generateCombosServer(bricks);
     if (combos.length === 0) {
       throw new ConvexError(
         "Aucun combo disponible (un type de brique manque, ou aucun hook actif pour ce tier).",
@@ -487,7 +474,6 @@ export const assignScriptCampaign = adminMutation({
         scriptCombo: {
           campaignId: args.campaignId,
           hookBrickId: combo.hookBrickId,
-          corpsBrickId: combo.corpsBrickId,
           fluxBrickId: combo.fluxBrickId,
           ctaBrickId: combo.ctaBrickId,
           assembledScript: combo.assembledScript,
@@ -568,6 +554,33 @@ export const seedRepackitScriptCampaign = internalMutation({
       bricks++;
     }
     return { created: true, campaignId, bricks };
+  },
+});
+
+/**
+ * REFONTE 3 briques — migration data : reclasse TOUTES les briques kind="corps"
+ * en kind="hook" tier "A" (l'audit confirme que les corps sont des hooks). PATCH
+ * uniquement (même _id), JAMAIS de delete → 0 perte d'historique. Les combos
+ * figés (assignments.scriptCombo.assembledScript) sont du TEXTE autonome : ils
+ * ne bougent pas. Les publications.scriptCombo.corpsBrickId historiques pointent
+ * toujours vers la brique (désormais un hook) — leur _id ne change pas.
+ *
+ * IDEMPOTENTE : relançable sans effet (no-op s'il ne reste aucun corps). Tourne
+ * sur TOUS les projets (internalMutation, pas de ctx.projectId). À lancer après
+ * le deploy du code 3-kinds (même PR) :
+ *   npx convex run scripts:migrateCorpsToHooks --prod
+ */
+export const migrateCorpsToHooks = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const all = await ctx.db.query("scriptBricks").collect();
+    let migrated = 0;
+    for (const b of all) {
+      if (b.kind !== "corps") continue;
+      await ctx.db.patch(b._id, { kind: "hook", tier: "A" });
+      migrated++;
+    }
+    return { migrated };
   },
 });
 

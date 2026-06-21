@@ -45,13 +45,11 @@ type StrongSignal = Decisions["strongSignals"][number];
 const KIND_LABEL: Record<string, string> = {
   flux: "Flux",
   cta: "CTA",
-  corps: "Corps",
   hook: "Hook",
 };
 
 const DIMENSION_LABEL: Record<string, string> = {
   tier: "Tiers de hook",
-  corps: "Corps",
   flux: "Flux",
   cta: "CTA",
 };
@@ -134,7 +132,7 @@ export default function ScriptAnalyticsPage() {
                 </p>
               </div>
               <TierSection tiers={tiers} />
-              {(["flux", "cta", "corps"] as const).map((kind) => (
+              {(["flux", "cta"] as const).map((kind) => (
                 <BrickSection
                   key={kind}
                   kind={kind}
@@ -655,8 +653,7 @@ function ComboSection({ combos }: { combos: ComboPerf[] }) {
             >
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-slate-900">
-                  Tier {c.tier ?? "?"} · {c.corpsLabel} · {c.fluxLabel} ·{" "}
-                  {c.ctaLabel}
+                  Tier {c.tier ?? "?"} · {c.fluxLabel} · {c.ctaLabel}
                 </p>
                 <p className="truncate text-xs text-slate-400">{c.hookLabel}</p>
               </div>

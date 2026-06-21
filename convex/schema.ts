@@ -250,7 +250,11 @@ export default defineSchema({
       v.object({
         campaignId: v.id("scriptCampaigns"),
         hookBrickId: v.id("scriptBricks"),
-        corpsBrickId: v.id("scriptBricks"),
+        // Refonte 3 briques — corpsBrickId LEGACY, optional : présent sur les
+        // pubs figées AVANT la refonte (combo 4 kinds), absent après (combo
+        // hook/flux/cta). Conservé en lecture pour ne pas casser l'historique
+        // (les analytics ne le lisent plus). Resserrage = suppression ultérieure.
+        corpsBrickId: v.optional(v.id("scriptBricks")),
         fluxBrickId: v.id("scriptBricks"),
         ctaBrickId: v.id("scriptBricks"),
         comboKey: v.string(),
@@ -704,14 +708,19 @@ export default defineSchema({
       v.object({
         campaignId: v.id("scriptCampaigns"),
         hookBrickId: v.id("scriptBricks"),
-        corpsBrickId: v.id("scriptBricks"),
+        // Refonte 3 briques — corpsBrickId LEGACY, optional : présent sur les
+        // assignments figés AVANT la refonte (combo 4 kinds), absent après.
+        // assembledScript reste du TEXTE autonome (corps + démo déjà cuits
+        // dedans) → l'historique livré aux créateurs est intact.
+        corpsBrickId: v.optional(v.id("scriptBricks")),
         fluxBrickId: v.id("scriptBricks"),
         ctaBrickId: v.id("scriptBricks"),
         assembledScript: v.string(),
       }),
     ),
-    // S2 — signature top-level du combo "hook:corps:flux:cta" (Convex n'indexe
-    // pas les champs imbriqués) → index by_creator_combo pour l'anti-coordination
+    // S2 — signature top-level du combo. Refonte : "hook:flux:cta" (3 segments)
+    // pour les nouveaux ; "hook:corps:flux:cta" (4 segments) pour l'historique.
+    // Espaces de clés DISJOINTS → index by_creator_combo pour l'anti-coordination
     // (un créateur ne reçoit jamais deux fois le même combo).
     comboKey: v.optional(v.string()),
     accountId: v.optional(v.id("comptes")),
@@ -946,32 +955,36 @@ export default defineSchema({
     .index("by_creator", ["creatorId"]),
 
   // ─── S1 — Système de scripts combinatoire ─────────────────────────────────
-  // Une vidéo = 1 hook + 1 corps + 1 flux + 1 cta, posés sur un SOCLE DÉMO fixe
-  // (demoBlock). Une "campagne de scripts" regroupe la banque de bricks (hooks
-  // par tier + corps + flux + cta) + le socle démo d'un angle de test. Tables
-  // neuves → 0 migration. S1 = fondation (modèle + CRUD + assemblage) ; pas
-  // d'assignation/affichage créateur/analytics (chantiers suivants).
+  // Refonte 3 briques — une vidéo = 1 hook + 1 flux + 1 cta. Une "campagne de
+  // scripts" regroupe la banque de bricks (hooks par tier + flux + cta) d'un
+  // angle de test. Le kind "corps" et le socle DÉMO ont été retirés du montage
+  // (corps reclassés en hooks ; démo = répétition du flux). Tables neuves.
   scriptCampaigns: defineTable({
     projectId: v.id("projects"),
     name: v.string(),
-    // Socle démo fixe (markdown) : la partie de la vidéo qui ne change jamais.
+    // LEGACY (refonte 3 briques) — socle démo, plus monté ni édité côté UI.
+    // Conservé (required, défaut "") pour 0 migration sur scriptCampaigns ;
+    // suppression = resserrage ultérieur.
     demoBlock: v.string(),
     status: v.union(v.literal("active"), v.literal("archived")),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_project", ["projectId"]),
 
-  // Une brique = un fragment combinable. Un seul modèle pour les 4 kinds
-  // (hook/corps/flux/cta), discriminé par `kind`. `tier` (S/A/B) UNIQUEMENT
-  // pour les hooks (undefined sinon). `active` : une brique désactivée ne sera
-  // pas combinée (préparation S2). Les hooks importés depuis la bibliothèque
-  // sont COPIÉS ici (bricks indépendants), la biblio d'origine reste intacte.
+  // Une brique = un fragment combinable, discriminé par `kind`. Refonte : les
+  // kinds COMBINABLES sont hook/flux/cta. "corps" est LEGACY — gardé dans
+  // l'union pour que les rows pré-migration valident le schéma ; la mutation
+  // migrateCorpsToHooks les reclasse en hook (tier A) et le CRUD ne crée plus
+  // de corps. Resserrage (retrait de "corps") une fois la migration confirmée.
+  // `tier` (S/A/B) UNIQUEMENT pour les hooks (undefined sinon). `active` : une
+  // brique désactivée ne sera pas combinée. Les hooks importés depuis la
+  // bibliothèque sont COPIÉS ici (bricks indépendants), la biblio reste intacte.
   scriptBricks: defineTable({
     projectId: v.id("projects"),
     campaignId: v.id("scriptCampaigns"),
     kind: v.union(
       v.literal("hook"),
-      v.literal("corps"),
+      v.literal("corps"), // LEGACY — reclassé en "hook" par migrateCorpsToHooks
       v.literal("flux"),
       v.literal("cta"),
     ),

@@ -1,13 +1,18 @@
 /**
  * S2 — génération + sélection des combos d'une campagne (pur, testé Vitest).
- * Aucune dépendance Convex/React. Le combo = 1 hook + 1 corps + 1 flux + 1 cta
- * (bricks ACTIVES uniquement). assembledScript figé via assembleScript (labels
- * OFF : le créateur lit un script naturel). RIEN n'est matérialisé en base —
- * c'est calculé à la volée pour l'assignation.
+ * Aucune dépendance Convex/React. Le combo = 1 hook + 1 flux + 1 cta (bricks
+ * ACTIVES uniquement). assembledScript figé via assembleScript (labels OFF : le
+ * créateur lit un script naturel). RIEN n'est matérialisé en base — c'est
+ * calculé à la volée pour l'assignation.
  *
  * ⚠️ Règle A6 — convex/ ne peut pas importer lib/. La logique est RÉPLIQUÉE
  * côté serveur (convex/scripts.ts) pour l'anti-coordination ; toute évolution
  * ici doit l'être là-bas. Les tests vivent ici.
+ *
+ * Refonte 3 briques : le kind "corps" et le socle démo ont disparu du montage.
+ * `comboKey` est désormais "hook:flux:cta" (3 segments). Les combos figés
+ * historiques gardent leur clé 4 segments — espaces de clés DISJOINTS, donc
+ * aucune collision sur l'index anti-coordination by_creator_combo.
  */
 import { assembleScript, type ScriptKind, type ScriptTier } from "./scriptAssembly";
 
@@ -21,59 +26,44 @@ export interface ComboBrick {
 
 export interface Combo {
   hookBrickId: string;
-  corpsBrickId: string;
   fluxBrickId: string;
   ctaBrickId: string;
   assembledScript: string;
 }
 
-/** Signature stable d'un combo (hook:corps:flux:cta) pour l'anti-coordination. */
+/** Signature stable d'un combo (hook:flux:cta) pour l'anti-coordination. */
 export function comboKeyOf(c: {
   hookBrickId: string;
-  corpsBrickId: string;
   fluxBrickId: string;
   ctaBrickId: string;
 }): string {
-  return `${c.hookBrickId}:${c.corpsBrickId}:${c.fluxBrickId}:${c.ctaBrickId}`;
+  return `${c.hookBrickId}:${c.fluxBrickId}:${c.ctaBrickId}`;
 }
 
 /**
- * Produit cartésien des bricks ACTIVES (hooks × corps × flux × cta). Chaque
- * combo porte son assembledScript (labels OFF). 0 combo si un kind n'a aucune
- * brick active. Ordre déterministe (ordre des bricks fournis).
+ * Produit cartésien des bricks ACTIVES (hooks × flux × cta). Chaque combo porte
+ * son assembledScript (labels OFF). 0 combo si un kind n'a aucune brick active.
+ * Ordre déterministe (ordre des bricks fournis).
  */
-export function generateCombos(
-  bricks: ComboBrick[],
-  demoBlock: string,
-): Combo[] {
+export function generateCombos(bricks: ComboBrick[]): Combo[] {
   const of = (k: ScriptKind) => bricks.filter((b) => b.active && b.kind === k);
   const hooks = of("hook");
-  const corps = of("corps");
   const flux = of("flux");
   const cta = of("cta");
 
   const out: Combo[] = [];
   for (const h of hooks) {
-    for (const c of corps) {
-      for (const f of flux) {
-        for (const t of cta) {
-          out.push({
-            hookBrickId: h._id,
-            corpsBrickId: c._id,
-            fluxBrickId: f._id,
-            ctaBrickId: t._id,
-            assembledScript: assembleScript(
-              {
-                hook: h.content,
-                corps: c.content,
-                flux: f.content,
-                cta: t.content,
-                demoBlock,
-              },
-              { labels: false },
-            ),
-          });
-        }
+    for (const f of flux) {
+      for (const t of cta) {
+        out.push({
+          hookBrickId: h._id,
+          fluxBrickId: f._id,
+          ctaBrickId: t._id,
+          assembledScript: assembleScript(
+            { hook: h.content, flux: f.content, cta: t.content },
+            { labels: false },
+          ),
+        });
       }
     }
   }
@@ -104,7 +94,7 @@ export function pickCombosForCreator(
   const order = [...buckets.values()];
 
   // Round-robin : 1 combo de chaque hook à tour de rôle → diversité de hook
-  // maximale. À l'intérieur d'un hook, l'ordre varie corps/flux/cta.
+  // maximale. À l'intérieur d'un hook, l'ordre varie flux/cta.
   const picked: Combo[] = [];
   let progressed = true;
   while (picked.length < n && progressed) {

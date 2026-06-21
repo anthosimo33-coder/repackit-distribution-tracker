@@ -413,7 +413,8 @@ export const createFromAssignment = internalMutation({
       v.object({
         campaignId: v.id("scriptCampaigns"),
         hookBrickId: v.id("scriptBricks"),
-        corpsBrickId: v.id("scriptBricks"),
+        // Refonte 3 briques — corpsBrickId LEGACY/optional (cf schema).
+        corpsBrickId: v.optional(v.id("scriptBricks")),
         fluxBrickId: v.id("scriptBricks"),
         ctaBrickId: v.id("scriptBricks"),
         comboKey: v.string(),

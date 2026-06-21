@@ -8,33 +8,35 @@ import {
 describe("assembleScript", () => {
   const input = {
     hook: "Tu perds 2h par jour sur ça.",
-    corps: "Voici pourquoi.",
     flux: "Scan, clone, publie.",
     cta: "Lien en bio.",
-    demoBlock: "Démo produit fixe.",
   };
 
-  it("monte dans l'ordre hook → corps → flux → cta → démo", () => {
+  it("monte dans l'ordre hook → flux → cta", () => {
     const out = assembleScript(input);
     const iHook = out.indexOf("Tu perds 2h");
-    const iCorps = out.indexOf("Voici pourquoi");
     const iFlux = out.indexOf("Scan, clone");
     const iCta = out.indexOf("Lien en bio");
-    const iDemo = out.indexOf("Démo produit fixe");
     expect(iHook).toBeGreaterThanOrEqual(0);
-    expect(iHook).toBeLessThan(iCorps);
-    expect(iCorps).toBeLessThan(iFlux);
+    expect(iHook).toBeLessThan(iFlux);
     expect(iFlux).toBeLessThan(iCta);
-    expect(iCta).toBeLessThan(iDemo);
   });
 
-  it("inclut les 5 titres de section markdown", () => {
+  it("inclut les 3 titres de section markdown, sans Corps ni Démo", () => {
     const out = assembleScript(input);
     expect(out).toContain("## Hook");
-    expect(out).toContain("## Corps");
     expect(out).toContain("## Flux");
     expect(out).toContain("## CTA");
-    expect(out).toContain("## Démo");
+    expect(out).not.toContain("## Corps");
+    expect(out).not.toContain("## Démo");
+  });
+
+  it("labels OFF → enchaînement naturel sans titres (rendu créateur)", () => {
+    const out = assembleScript(input, { labels: false });
+    expect(out).not.toContain("## ");
+    expect(out).toBe(
+      "Tu perds 2h par jour sur ça.\n\nScan, clone, publie.\n\nLien en bio.",
+    );
   });
 
   it("trim le contenu de chaque brique", () => {
@@ -46,11 +48,11 @@ describe("assembleScript", () => {
 
 describe("countCombinations", () => {
   const make = (
-    counts: Partial<Record<BrickLike["kind"], number>>,
+    counts: Partial<Record<"hook" | "flux" | "cta", number>>,
     activeAll = true,
   ): BrickLike[] => {
     const out: BrickLike[] = [];
-    for (const kind of ["hook", "corps", "flux", "cta"] as const) {
+    for (const kind of ["hook", "flux", "cta"] as const) {
       for (let i = 0; i < (counts[kind] ?? 0); i++) {
         out.push({ kind, active: activeAll });
       }
@@ -58,25 +60,24 @@ describe("countCombinations", () => {
     return out;
   };
 
-  it("2×2×2×2 actifs = 16", () => {
-    const bricks = make({ hook: 2, corps: 2, flux: 2, cta: 2 });
+  it("2×2×2 actifs = 8", () => {
+    const bricks = make({ hook: 2, flux: 2, cta: 2 });
     const r = countCombinations(bricks);
-    expect(r.total).toBe(16);
-    expect(r.byKind).toEqual({ hook: 2, corps: 2, flux: 2, cta: 2 });
+    expect(r.total).toBe(8);
+    expect(r.byKind).toEqual({ hook: 2, flux: 2, cta: 2 });
   });
 
-  it("désactiver un flux fait passer 16 → 8", () => {
-    const bricks = make({ hook: 2, corps: 2, flux: 2, cta: 2 });
-    // Désactive une brique flux.
+  it("désactiver un flux fait passer 8 → 4", () => {
+    const bricks = make({ hook: 2, flux: 2, cta: 2 });
     const fluxIdx = bricks.findIndex((b) => b.kind === "flux");
     bricks[fluxIdx].active = false;
     const r = countCombinations(bricks);
     expect(r.byKind.flux).toBe(1);
-    expect(r.total).toBe(8);
+    expect(r.total).toBe(4);
   });
 
   it("un kind sans brique active → 0 combo", () => {
-    const bricks = make({ hook: 3, corps: 2, flux: 2 }); // pas de cta
+    const bricks = make({ hook: 3, flux: 2 }); // pas de cta
     const r = countCombinations(bricks);
     expect(r.byKind.cta).toBe(0);
     expect(r.total).toBe(0);
@@ -87,5 +88,19 @@ describe("countCombinations", () => {
     const r = countCombinations(bricks);
     expect(r.byKind.hook).toBe(0);
     expect(r.total).toBe(0);
+  });
+
+  it("ignore une brique legacy 'corps' (kind hors hook/flux/cta)", () => {
+    // Garde de la fenêtre de migration : un corps pas encore reclassé ne casse
+    // pas le décompte (il est simplement ignoré), il ne fait pas tomber à 0.
+    const bricks: BrickLike[] = [
+      { kind: "hook", active: true },
+      { kind: "flux", active: true },
+      { kind: "cta", active: true },
+      { kind: "corps", active: true },
+    ];
+    const r = countCombinations(bricks);
+    expect(r.total).toBe(1);
+    expect(r.byKind).toEqual({ hook: 1, flux: 1, cta: 1 });
   });
 });
