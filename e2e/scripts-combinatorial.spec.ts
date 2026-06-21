@@ -79,20 +79,31 @@ test.describe("S1 — campagnes & bricks combinatoires", () => {
         .every((b) => b.tier === undefined),
     ).toBe(true);
 
-    // Aperçu : assemble la 1re brique active de chaque kind, ordre hook→flux→cta.
+    // Aperçu ADMIN (labels ON, défaut) : titres de section + ordre hook→flux→cta.
     const pick = (k: "hook" | "flux" | "cta") =>
       camp.bricks.find((b) => b.kind === k && b.active)!;
-    const assembled = assembleScript({
+    const input = {
       hook: pick("hook").content,
       flux: pick("flux").content,
       cta: pick("cta").content,
-    });
-    expect(assembled).not.toContain("## ");
-    expect(assembled.indexOf("Hook un")).toBeLessThan(
-      assembled.indexOf("Flux un"),
+    };
+    const adminPreview = assembleScript(input);
+    expect(adminPreview).toContain("## Hook");
+    expect(adminPreview.indexOf("Hook un")).toBeLessThan(
+      adminPreview.indexOf("Flux un"),
     );
-    expect(assembled.indexOf("Flux un")).toBeLessThan(
-      assembled.indexOf("Cta un"),
+    expect(adminPreview.indexOf("Flux un")).toBeLessThan(
+      adminPreview.indexOf("Cta un"),
+    );
+
+    // Rendu CRÉATEUR (labels OFF) : QUE les textes enchaînés, AUCUN titre markdown.
+    const creatorScript = assembleScript(input, { labels: false });
+    expect(creatorScript).not.toContain("## ");
+    expect(creatorScript.indexOf("Hook un")).toBeLessThan(
+      creatorScript.indexOf("Flux un"),
+    );
+    expect(creatorScript.indexOf("Flux un")).toBeLessThan(
+      creatorScript.indexOf("Cta un"),
     );
 
     // Désactiver UN flux → 2×1×2 = 4.
