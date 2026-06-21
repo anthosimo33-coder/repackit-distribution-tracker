@@ -59,6 +59,14 @@ test.describe("S2 — assignation anti-coordination", () => {
     const projectId = a.projectId;
     const campaignId = await makeCampaign(ts);
 
+    // Pricing OBLIGATOIRE : barème de paie figé à l'attribution.
+    const { pricingId } = await admin.mutation(api.pricing.createPricing, {
+      name: `[E2E_TEST] Pricing ${ts}`,
+      montantFixe: 100,
+      nbVideosCible: 10,
+      tauxCPM: 2,
+    });
+
     // Cibles TikTok disponibles (1 par créateur).
     const tA = await availableTarget({
       e2eClient: admin,
@@ -72,6 +80,17 @@ test.describe("S2 — assignation anti-coordination", () => {
       platform: "TikTok",
       handle: `@e2escB${ts}`,
     });
+    // PRICING OBLIGATOIRE : sans pricing → rejet serveur clair.
+    await expect(
+      admin.mutation(api.scripts.assignScriptCampaign, {
+        campaignId,
+        creatorId: a.creatorId,
+        targets: [tA],
+        videosPerCreator: 1,
+        dueDate: ts + 7 * DAY,
+      }),
+    ).rejects.toThrow(/barème de paie est requis/);
+
     // Chantier C — 1 créateur/action : 5 vidéos à A + 5 à B → 10 assignments.
     const r1a = await admin.mutation(api.scripts.assignScriptCampaign, {
       campaignId,
@@ -79,7 +98,7 @@ test.describe("S2 — assignation anti-coordination", () => {
       targets: [tA],
       videosPerCreator: 5,
       dueDate: ts + 7 * DAY,
-      rateModel: { basePerPost: 10 },
+      pricingId,
     });
     const r1b = await admin.mutation(api.scripts.assignScriptCampaign, {
       campaignId,
@@ -87,7 +106,7 @@ test.describe("S2 — assignation anti-coordination", () => {
       targets: [tB],
       videosPerCreator: 5,
       dueDate: ts + 7 * DAY,
-      rateModel: { basePerPost: 10 },
+      pricingId,
     });
     expect(r1a.created + r1b.created).toBe(10);
     expect(r1a.totalCombos).toBe(12);
@@ -106,11 +125,13 @@ test.describe("S2 — assignation anti-coordination", () => {
     // Combos DISTINCTS par créateur (anti-coordination par-créateur).
     expect(new Set(aRows.map((x) => x.comboKey)).size).toBe(5);
     expect(new Set(bRows.map((x) => x.comboKey)).size).toBe(5);
-    // assembledScript figé (hook+flux+cta, sans démo) + rateSnapshot + status.
+    // assembledScript figé (hook+flux+cta, sans démo) + pricingSnapshot figé.
     for (const x of aRows) {
       expect(x.scriptCombo?.assembledScript).toMatch(/Flux [12]/);
       expect(x.scriptCombo?.assembledScript).not.toContain("## ");
-      expect(x.rateSnapshot.basePerPost).toBe(10);
+      // Pricing = source de paie ; rateSnapshot = placeholder neutre (jamais lu).
+      expect(x.pricingSnapshot?.pricingId).toBe(pricingId);
+      expect(x.rateSnapshot.basePerPost).toBe(0);
       expect(x.status).toBe("todo");
       expect(x.formatId ?? null).toBeNull();
     }
@@ -123,7 +144,7 @@ test.describe("S2 — assignation anti-coordination", () => {
       targets: [tA],
       videosPerCreator: 5,
       dueDate: ts + 7 * DAY,
-      rateModel: { basePerPost: 10 },
+      pricingId,
     });
     expect(r2.created).toBe(5);
     aRows = await forCampaign(a.creatorId);
@@ -140,7 +161,7 @@ test.describe("S2 — assignation anti-coordination", () => {
       targets: [tA],
       videosPerCreator: 20,
       dueDate: ts + 7 * DAY,
-      rateModel: { basePerPost: 10 },
+      pricingId,
     });
     expect(r3.created).toBe(2);
     expect(r3.shortages).toEqual([
@@ -157,7 +178,7 @@ test.describe("S2 — assignation anti-coordination", () => {
       targets: [tA],
       videosPerCreator: 3,
       dueDate: ts + 7 * DAY,
-      rateModel: { basePerPost: 10 },
+      pricingId,
     });
     expect(r4.created).toBe(0);
     expect(r4.shortages[0].assigned).toBe(0);
@@ -195,8 +216,9 @@ test.describe("S2 — assignation anti-coordination", () => {
     });
     expect(bSeesA).toBeNull();
 
-    // ISOLATION paiement : valider un script ne doit PAS exposer le nom de
-    // campagne au créateur via le label de la lineItem (getMyPayments).
+    // PRICING + ISOLATION paiement : publier un script crée une période de paie
+    // PRICING (fixe/CPM via le barème figé), JAMAIS la voie legacy "Vidéo —", et
+    // ne fuite PAS le nom de campagne au créateur.
     await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
       secret: E2E_SECRET,
       id: aSample,
@@ -212,12 +234,14 @@ test.describe("S2 — assignation anti-coordination", () => {
     const myPayments = await a.client.query(api.payments.getMyPayments, {
       projectId,
     });
+    // Le barème pilote la paie : une période avec un FIXE > 0 (pricing choisi).
+    expect(myPayments.length).toBeGreaterThan(0);
+    expect(myPayments.some((p) => p.pricingBreakdown.fixedTotal > 0)).toBe(true);
+    // Plus aucune lineItem legacy "Vidéo —" (modèle pricing, pas base-par-post).
     const labels = myPayments.flatMap((p) => p.lineItems.map((li) => li.label));
-    expect(labels.length).toBeGreaterThan(0);
-    for (const lbl of labels) {
-      expect(lbl).not.toContain(`[E2E_TEST] Assign ${ts}`); // pas de campagne
-    }
-    expect(labels.some((l) => l.startsWith("Vidéo —"))).toBe(true);
+    expect(labels.some((l) => l.startsWith("Vidéo —"))).toBe(false);
+    // Isolation : le nom de campagne ne fuite NULLE PART côté créateur.
+    expect(JSON.stringify(myPayments)).not.toContain(`[E2E_TEST] Assign ${ts}`);
 
     // ADMIN : la décomposition du combo est visible (résumé).
     const adminRows = await forCampaign(a.creatorId);

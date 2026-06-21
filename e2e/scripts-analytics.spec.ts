@@ -65,6 +65,12 @@ test.describe("S3 — analytics par variable de script", () => {
     });
     const projectId = creator.projectId;
     const { campaignId, tierByHook } = await makeCampaign(ts);
+    const { pricingId } = await admin.mutation(api.pricing.createPricing, {
+      name: `[E2E_TEST] Pricing ${ts}`,
+      montantFixe: 100,
+      nbVideosCible: 10,
+      tauxCPM: 2,
+    });
 
     const tAn = await availableTarget({
       e2eClient: admin,
@@ -79,7 +85,7 @@ test.describe("S3 — analytics par variable de script", () => {
       targets: [tAn],
       videosPerCreator: 9,
       dueDate: ts + 7 * DAY,
-      rateModel: { basePerPost: 5 },
+      pricingId,
     });
     expect(r.created).toBe(9);
 

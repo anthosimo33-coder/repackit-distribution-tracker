@@ -32,8 +32,9 @@ import { Loader2Icon } from "lucide-react";
 /**
  * Chantier C — assigne une campagne de scripts à UN créateur, sur 1 à 3 CIBLES
  * (1 compte par plateforme, parmi ses comptes DISPONIBLES). Anti-coordination
- * native serveur (combos distincts jamais déjà reçus). Le rateModel saisi est
- * figé en rateSnapshot sur chaque assignment (appliqué PAR post).
+ * native serveur (combos distincts jamais déjà reçus). Le barème de paie vient
+ * EXCLUSIVEMENT du pricing OBLIGATOIRE (fixe/CPM/paliers), figé en
+ * pricingSnapshot ; les anciens champs tarif de base / bonus aux vues sont retirés.
  */
 
 const TIER_ALL = "__all__";
@@ -79,8 +80,6 @@ export function AssignScriptCampaignDialog({
   const [videos, setVideos] = useState("5");
   const [due, setDue] = useState(defaultDue());
   const [tier, setTier] = useState<string>(TIER_ALL);
-  const [basePerPost, setBasePerPost] = useState("");
-  const [viewBonus, setViewBonus] = useState("");
   const [pricingId, setPricingId] = useState<string>(NONE);
   const [submitting, setSubmitting] = useState(false);
 
@@ -94,8 +93,6 @@ export function AssignScriptCampaignDialog({
       setVideos("5");
       setDue(defaultDue());
       setTier(TIER_ALL);
-      setBasePerPost("");
-      setViewBonus("");
       setPricingId(NONE);
     }
   }
@@ -127,19 +124,13 @@ export function AssignScriptCampaignDialog({
       toast.error("Nombre de vidéos invalide.");
       return;
     }
-    const base = Number(basePerPost);
-    if (!Number.isFinite(base) || base < 0) {
-      toast.error("Tarif de base invalide.");
-      return;
-    }
     const dueMs = new Date(`${due}T23:59:59`).getTime();
     if (!Number.isFinite(dueMs)) {
       toast.error("Échéance invalide.");
       return;
     }
-    const vb = viewBonus.trim() === "" ? undefined : Number(viewBonus);
-    if (vb !== undefined && (!Number.isFinite(vb) || vb < 0)) {
-      toast.error("Bonus aux vues invalide.");
+    if (pricingId === NONE) {
+      toast.error("Le barème de paie est requis.");
       return;
     }
     setSubmitting(true);
@@ -150,10 +141,8 @@ export function AssignScriptCampaignDialog({
         targets,
         videosPerCreator,
         dueDate: dueMs,
-        rateModel: { basePerPost: base, viewBonusPer1k: vb },
         tier: tier === TIER_ALL ? undefined : (tier as "S" | "A" | "B"),
-        pricingId:
-          pricingId === NONE ? undefined : (pricingId as Id<"pricings">),
+        pricingId: pricingId as Id<"pricings">,
       });
       toast.success(
         `${res.created} vidéo${res.created > 1 ? "s" : ""} × ${targets.length} post${targets.length > 1 ? "s" : ""} assignée${res.created > 1 ? "s" : ""}.`,
@@ -300,7 +289,7 @@ export function AssignScriptCampaignDialog({
             </div>
           </div>
 
-          {/* Filtre tier + tarif */}
+          {/* Filtre tier de hook + barème de paie (pricing OBLIGATOIRE) */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="tier">Tier de hook</Label>
@@ -319,53 +308,40 @@ export function AssignScriptCampaignDialog({
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="base">Tarif de base (€/post)</Label>
-              <Input
-                id="base"
-                type="number"
-                min={0}
-                step="0.01"
-                value={basePerPost}
-                onChange={(e) => setBasePerPost(e.target.value)}
-                placeholder="Ex. 10"
-              />
+              <Label htmlFor="pricing">Pricing (barème de paie)</Label>
+              <Select
+                value={pricingId}
+                onValueChange={(v) => v && setPricingId(v)}
+              >
+                <SelectTrigger id="pricing" aria-label="Pricing">
+                  <SelectValue>
+                    {pricingId === NONE
+                      ? "Choisis un barème"
+                      : ((pricings ?? []).find((p) => p._id === pricingId)
+                          ?.name ?? "Pricing")}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {(pricings ?? []).map((p) => (
+                    <SelectItem key={p._id} value={p._id}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {pricings !== undefined && pricings.length === 0 ? (
+                <p className="text-xs text-amber-600">
+                  Aucun barème de paie — crées-en un dans Pricing d&apos;abord.
+                </p>
+              ) : (
+                pricingId === NONE && (
+                  <p className="text-xs text-amber-600">
+                    Le barème de paie est requis.
+                  </p>
+                )
+              )}
             </div>
           </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="vb">Bonus aux vues (€ / 1 000 vues, optionnel)</Label>
-            <Input
-              id="vb"
-              type="number"
-              min={0}
-              step="0.01"
-              value={viewBonus}
-              onChange={(e) => setViewBonus(e.target.value)}
-              placeholder="Ex. 2"
-            />
-          </div>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label>Pricing (barème de paie)</Label>
-          <Select value={pricingId} onValueChange={(v) => v && setPricingId(v)}>
-            <SelectTrigger aria-label="Pricing">
-              <SelectValue>
-                {pricingId === NONE
-                  ? "Aucun (ancien modèle)"
-                  : ((pricings ?? []).find((p) => p._id === pricingId)?.name ??
-                    "Pricing")}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NONE}>Aucun (ancien modèle)</SelectItem>
-              {(pricings ?? []).map((p) => (
-                <SelectItem key={p._id} value={p._id}>
-                  {p.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
 
         <DialogFooter>
@@ -376,7 +352,10 @@ export function AssignScriptCampaignDialog({
           >
             Annuler
           </Button>
-          <Button onClick={handleSubmit} disabled={submitting}>
+          <Button
+            onClick={handleSubmit}
+            disabled={submitting || pricingId === NONE}
+          >
             {submitting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
             Assigner
           </Button>
