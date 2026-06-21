@@ -11,6 +11,8 @@ const sourceValidator = v.union(
   v.literal("import"),
   v.literal("migration"),
   v.literal("youtube"),
+  v.literal("tiktok"),
+  v.literal("instagram"),
 );
 
 /**
