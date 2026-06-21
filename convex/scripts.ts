@@ -579,6 +579,109 @@ export const editScriptCombo = adminMutation({
   },
 });
 
+const MAX_BRICK_TEXT = 2000;
+
+/**
+ * Édite le TEXTE d'UNE brique (hook | flux | cta) sur un assignment : FORKE une
+ * NOUVELLE brique en bibliothèque (même kind + tier, texte modifié, active,
+ * même campagne) et l'applique au combo. La brique d'origine reste INTACTE.
+ *
+ * MÊMES gardes + MÊME verrou que editScriptCombo (#48 — flag editedOnce partagé) :
+ * UNE SEULE édition par assignment (remplacement OU édition de texte), et
+ * UNIQUEMENT avant soumission/publication. Re-fige assembledScript + comboKey
+ * (assembleNoLabels → rendu créateur labels:false). pricingSnapshot INCHANGÉ.
+ * La brique forkée démarre vierge côté analytics (nouvelle brique).
+ */
+export const editScriptBrickText = adminMutation({
+  args: {
+    id: v.id("assignments"),
+    slot: SLOT,
+    newText: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const a = await ctx.db.get(args.id);
+    if (!a || a.projectId !== ctx.projectId) {
+      throw new ConvexError("Assignment introuvable.");
+    }
+    const combo = a.scriptCombo;
+    if (!combo) {
+      throw new ConvexError("Cet assignment n'est pas un script.");
+    }
+    if (!COMBO_EDITABLE_STATUSES.includes(a.status)) {
+      throw new ConvexError(
+        "Le combo ne peut plus être modifié après publication.",
+      );
+    }
+    if (combo.editedOnce) {
+      throw new ConvexError("Le combo a déjà été modifié une fois.");
+    }
+    const text = args.newText.trim();
+    if (text.length === 0) {
+      throw new ConvexError("Le texte de la brique est requis.");
+    }
+    if (text.length > MAX_BRICK_TEXT) {
+      throw new ConvexError(`Texte trop long (max ${MAX_BRICK_TEXT} caractères).`);
+    }
+
+    // Brique d'origine du slot → on en HÉRITE kind + tier (jamais écrasée).
+    const currentId =
+      args.slot === "hook"
+        ? combo.hookBrickId
+        : args.slot === "flux"
+          ? combo.fluxBrickId
+          : combo.ctaBrickId;
+    const orig = await ctx.db.get(currentId);
+    if (!orig) {
+      throw new ConvexError("Brique d'origine introuvable.");
+    }
+
+    // FORK : nouvelle brique en bibliothèque (même kind + tier, texte modifié).
+    const forkedId = await ctx.db.insert("scriptBricks", {
+      projectId: ctx.projectId,
+      campaignId: combo.campaignId,
+      kind: orig.kind,
+      label: `${orig.label} (variante)`,
+      content: text,
+      tier: orig.tier, // hérite (undefined si non-hook)
+      active: true,
+      createdAt: Date.now(),
+    });
+
+    const hookBrickId = args.slot === "hook" ? forkedId : combo.hookBrickId;
+    const fluxBrickId = args.slot === "flux" ? forkedId : combo.fluxBrickId;
+    const ctaBrickId = args.slot === "cta" ? forkedId : combo.ctaBrickId;
+
+    const [hook, flux, cta] = await Promise.all([
+      ctx.db.get(hookBrickId),
+      ctx.db.get(fluxBrickId),
+      ctx.db.get(ctaBrickId),
+    ]);
+    if (!hook || !flux || !cta) {
+      throw new ConvexError("Brique du combo introuvable.");
+    }
+    const assembledScript = assembleNoLabels({
+      hook: hook.content,
+      flux: flux.content,
+      cta: cta.content,
+    });
+    const comboKey = comboKeyOf({ hookBrickId, fluxBrickId, ctaBrickId });
+
+    await ctx.db.patch(args.id, {
+      scriptCombo: {
+        campaignId: combo.campaignId,
+        hookBrickId,
+        fluxBrickId,
+        ctaBrickId,
+        assembledScript,
+        editedOnce: true, // verrou PARTAGÉ avec editScriptCombo (#48)
+      },
+      comboKey,
+      // pricingSnapshot, rateSnapshot, status… : STRICTEMENT inchangés.
+    });
+    return { ok: true, forkedBrickId: forkedId, comboKey };
+  },
+});
+
 // ─── Cleanup e2e (gated E2E_SECRET) ──────────────────────────────────────────
 
 /**
