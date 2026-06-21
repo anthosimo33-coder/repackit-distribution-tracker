@@ -331,11 +331,11 @@ export default function AssignmentsPage() {
                           size="sm"
                           className="h-8 gap-1.5 px-2 text-slate-600"
                           onClick={() => setAssetLinkId(a._id)}
-                          aria-label="Lier un dossier d'assets"
+                          aria-label="Lier des dossiers d'assets"
                         >
                           <ImagesIcon className="size-4" />
-                          {a.assetFolderId
-                            ? (a.assetFolderCount ?? 0)
+                          {a.linkedFolderIds.length > 0
+                            ? a.assetFolderCount
                             : "+"}
                         </Button>
                       </TableCell>
@@ -389,7 +389,7 @@ export default function AssignmentsPage() {
           open
           onOpenChange={(o) => !o && setAssetLinkId(null)}
           assignmentId={assetLinkRow._id}
-          currentFolderId={assetLinkRow.assetFolderId ?? null}
+          currentFolderIds={assetLinkRow.linkedFolderIds}
           creatorName={assetLinkRow.creatorName}
         />
       )}

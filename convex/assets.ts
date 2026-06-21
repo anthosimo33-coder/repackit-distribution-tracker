@@ -98,8 +98,9 @@ export const renameAssetFolder = adminMutation({
 });
 
 /**
- * Supprime un dossier : cascade ses images (blobs storage + rows) et DÉLIE les
- * assignments qui le référençaient (assetFolderId unset). Scopé projet.
+ * Supprime un dossier : cascade ses fichiers (blobs storage + rows) et DÉLIE les
+ * assignments qui le référençaient (retiré de assetFolderIds + legacy). Scopé
+ * projet.
  */
 export const deleteAssetFolder = adminMutation({
   args: { id: v.id("assetFolders") },
@@ -116,15 +117,19 @@ export const deleteAssetFolder = adminMutation({
       await ctx.storage.delete(a.storageId);
       await ctx.db.delete(a._id);
     }
-    // Délie les assignments du projet qui pointaient ce dossier.
+    // Délie les assignments du projet qui pointaient ce dossier — dans le array
+    // assetFolderIds (multi) ET le legacy single assetFolderId.
     const assignments = await ctx.db
       .query("assignments")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
     for (const asg of assignments) {
-      if (asg.assetFolderId === args.id) {
-        await ctx.db.patch(asg._id, { assetFolderId: undefined });
+      const patch: Record<string, unknown> = {};
+      if (asg.assetFolderIds?.includes(args.id)) {
+        patch.assetFolderIds = asg.assetFolderIds.filter((f) => f !== args.id);
       }
+      if (asg.assetFolderId === args.id) patch.assetFolderId = undefined;
+      if (Object.keys(patch).length > 0) await ctx.db.patch(asg._id, patch);
     }
     await ctx.db.delete(args.id);
     return { deletedAssets: assets.length };

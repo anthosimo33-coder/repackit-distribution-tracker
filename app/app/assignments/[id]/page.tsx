@@ -148,50 +148,60 @@ export default function AssignmentDetailPage({
               </Card>
             )}
 
-          {/* Assets à utiliser (dossier d'images/vidéos lié par l'admin). Le
-              créateur ne voit QUE le dossier de SON assignment. Masqué si vide. */}
-          {data.assets && data.assets.items.length > 0 && (
+          {/* Assets à utiliser : fichiers de TOUS les dossiers liés par l'admin
+              (groupés par dossier si plusieurs). Le créateur ne voit QUE les
+              dossiers de SON assignment. Masqué si aucun/vides. */}
+          {data.assets && data.assets.folders.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Assets à utiliser</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                  {data.assets.items.map((asset) => (
-                    <div key={asset.id} className="space-y-1.5">
-                      <div className="aspect-square overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
-                        {asset.url &&
-                          (asset.contentType.startsWith("video/") ? (
-                            <video
-                              src={asset.url}
-                              controls
-                              preload="metadata"
-                              className="size-full object-cover"
-                            />
-                          ) : (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={asset.url}
-                              alt={asset.fileName}
-                              className="size-full object-cover"
-                            />
-                          ))}
-                      </div>
-                      {asset.url && (
-                        <a
-                          href={asset.url}
-                          download={asset.fileName}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-slate-200 px-2 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
-                        >
-                          <DownloadIcon className="size-3.5" />
-                          Télécharger
-                        </a>
-                      )}
+              <CardContent className="space-y-4">
+                {data.assets.folders.map((folder) => (
+                  <div key={folder.folderId} className="space-y-2">
+                    {data.assets!.folders.length > 1 && (
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        {folder.name}
+                      </p>
+                    )}
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                      {folder.items.map((asset) => (
+                        <div key={asset.id} className="space-y-1.5">
+                          <div className="aspect-square overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                            {asset.url &&
+                              (asset.contentType.startsWith("video/") ? (
+                                <video
+                                  src={asset.url}
+                                  controls
+                                  preload="metadata"
+                                  className="size-full object-cover"
+                                />
+                              ) : (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={asset.url}
+                                  alt={asset.fileName}
+                                  className="size-full object-cover"
+                                />
+                              ))}
+                          </div>
+                          {asset.url && (
+                            <a
+                              href={asset.url}
+                              download={asset.fileName}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-slate-200 px-2 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                            >
+                              <DownloadIcon className="size-3.5" />
+                              Télécharger
+                            </a>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ))}
               </CardContent>
             </Card>
           )}
