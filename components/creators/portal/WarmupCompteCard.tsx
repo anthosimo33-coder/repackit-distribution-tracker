@@ -12,6 +12,7 @@ import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { CheckCircle2Icon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { AccountBioPanel } from "@/components/creators/portal/AccountBioPanel";
 import {
   getEffectiveStatus,
   getStatusBadge,
@@ -53,6 +54,9 @@ export function WarmupCompteCard({
   // Warmup à faire/rattraper aujourd'hui (non terminé ET pas coché aujourd'hui).
   const dueToday = isWarmup && mustCheckToday(compte);
   const warmupDone = progress?.complete ?? false;
+  // Bio à mettre (indépendante du warmup) : présente ssi l'admin l'a définie.
+  const hasBio = !!compte.bioToApply;
+  const bioPending = hasBio && compte.bioStatus === "to_apply";
 
   async function handleCheck() {
     setSubmitting(true);
@@ -69,7 +73,7 @@ export function WarmupCompteCard({
   return (
     <Card
       className={cn(
-        dueToday && "border-amber-300 ring-1 ring-amber-200",
+        (dueToday || bioPending) && "border-amber-300 ring-1 ring-amber-200",
       )}
     >
       <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
@@ -91,9 +95,13 @@ export function WarmupCompteCard({
         </span>
       </CardHeader>
 
-      {isWarmup ? (
-        <CardContent className="space-y-4">
-          {progress && (
+      <CardContent className="space-y-4">
+        {/* Bio à mettre (admin) — affichée quel que soit le statut du compte. */}
+        {hasBio && <AccountBioPanel compte={compte} projectId={projectId} />}
+
+        {isWarmup ? (
+          <div className="space-y-4">
+            {progress && (
             <div className="space-y-1.5">
               <div className="flex flex-col gap-1 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-2">
                 <span className="shrink-0 font-medium text-slate-700">
@@ -172,14 +180,13 @@ export function WarmupCompteCard({
               {doneToday ? "Warmup du jour fait ✓" : "Warmup du jour fait"}
             </Button>
           )}
-        </CardContent>
-      ) : (
-        <CardContent>
+          </div>
+        ) : hasBio ? null : (
           <p className="text-sm text-slate-500">
             Compte {badge.label.toLowerCase()}. Rien à faire aujourd&apos;hui.
           </p>
-        </CardContent>
-      )}
+        )}
+      </CardContent>
     </Card>
   );
 }

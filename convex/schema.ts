@@ -398,6 +398,23 @@ export default defineSchema({
         updatedAt: v.number(),
       }),
     ),
+    // ─── Bio à mettre (par compte) ───────────────────────────────────────
+    // L'admin définit la bio que le CRÉATEUR propriétaire doit recopier sur son
+    // vrai compte social. Le créateur ne fait que LIRE (copier) puis CONFIRMER
+    // l'application. Tous optional → aucune migration (absent = pas de bio).
+    // Pertinent uniquement pour les comptes liés à un créateur (creatorId).
+    // bioToApply = texte courant à appliquer (absent/"" = pas de bio définie).
+    bioToApply: v.optional(v.string()),
+    // État courant : "to_apply" (admin a posé/modifié → le créateur doit
+    // (re)confirmer) ; "applied" (le créateur a confirmé). Absent = pas de bio.
+    bioStatus: v.optional(
+      v.union(v.literal("to_apply"), v.literal("applied")),
+    ),
+    // Quand l'admin a défini/modifié la bio (ms). Sert à dater le « modifiée le ».
+    bioUpdatedAt: v.optional(v.number()),
+    // Quand le créateur a confirmé l'avoir appliquée (ms). Pour l'affichage admin
+    // « Appliquée le … ». Réinitialisé (unset) à chaque retour en "to_apply".
+    bioAppliedAt: v.optional(v.number()),
   })
     .index("by_plateforme", ["plateforme"])
     .index("by_actif", ["actif"])
