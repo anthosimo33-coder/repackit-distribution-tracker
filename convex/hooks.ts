@@ -1,10 +1,7 @@
 import { e2eMutation, adminQuery } from "./functions";
 import { v } from "convex/values";
 import { coerceSnapshotAge } from "./snapshotMatching";
-import {
-  buildDisplayMetrics,
-  groupSnapshotsByPublication,
-} from "./metricsDisplay";
+import { resolveDisplayMetrics } from "./metricsDisplay";
 
 export const countHooks = adminQuery({
   args: {},
@@ -362,14 +359,6 @@ export const getHookVariants = adminQuery({
             (p) => (p.mediaType ?? "carousel") === args.mediaType,
           );
 
-    // Snapshots des pubs du hook, groupés par publication (pour le matching
-    // par période ci-dessous).
-    const allSnaps = await ctx.db
-      .query("metricSnapshots")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
-    const snapsByPub = groupSnapshotsByPublication(allSnaps);
-
     // 1. Identifie les "groupes variantes" : parent ancré → Set des carouselIds
     //    distincts. Garde uniquement les groupes de taille >= 2.
     const carouselsByParentAncre = new Map<string, Set<string>>();
@@ -389,38 +378,38 @@ export const getHookVariants = adminQuery({
 
     // 2. Collecte les ROWS dans ces groupes (1 entrée par plateforme/compte
     //    pour permettre la comparaison côte à côte).
-    const variants = pubs
-      .filter((p) =>
-        variantParentAncres.has(p.parentCarouselId ?? p.carouselId),
-      )
-      .map((p) => {
-        const isPublished =
-          typeof p.postUrl === "string" && p.postUrl.length > 0;
-        const dm = buildDisplayMetrics(
-          snapsByPub.get(p._id) ?? [],
-          age,
-          args.customDay,
-        );
-        const saveRate =
-          dm.saves === null || dm.vues === null || dm.vues === 0
-            ? null
-            : dm.saves / dm.vues;
-        let verdict: "WINNER" | "MOYEN" | "FOLD" | null = null;
-        if (isPublished && saveRate !== null) {
-          if (saveRate >= 0.03) verdict = "WINNER";
-          else if (saveRate >= 0.01) verdict = "MOYEN";
-          else verdict = "FOLD";
-        }
-        return {
-          carouselId: p.carouselId,
-          compte: p.compte,
-          plateforme: p.plateforme,
-          isPublished,
-          verdict,
-          saveRate,
-          datePubli: p.datePubli,
-        };
-      });
+    const variants = await Promise.all(
+      pubs
+        .filter((p) =>
+          variantParentAncres.has(p.parentCarouselId ?? p.carouselId),
+        )
+        .map(async (p) => {
+          const isPublished =
+            typeof p.postUrl === "string" && p.postUrl.length > 0;
+          // Vue "latest" → dénormalisé (0 lecture) ; âgé → range-scan borné de
+          // cette publication (cf resolveDisplayMetrics).
+          const dm = await resolveDisplayMetrics(ctx, p, age, args.customDay);
+          const saveRate =
+            dm.saves === null || dm.vues === null || dm.vues === 0
+              ? null
+              : dm.saves / dm.vues;
+          let verdict: "WINNER" | "MOYEN" | "FOLD" | null = null;
+          if (isPublished && saveRate !== null) {
+            if (saveRate >= 0.03) verdict = "WINNER";
+            else if (saveRate >= 0.01) verdict = "MOYEN";
+            else verdict = "FOLD";
+          }
+          return {
+            carouselId: p.carouselId,
+            compte: p.compte,
+            plateforme: p.plateforme,
+            isPublished,
+            verdict,
+            saveRate,
+            datePubli: p.datePubli,
+          };
+        }),
+    );
 
     // 3. Tri saveRate desc (null = -Infinity → en bas), datePubli desc
     //    en tie-break. Aligné avec la convention "null < tout nombre".

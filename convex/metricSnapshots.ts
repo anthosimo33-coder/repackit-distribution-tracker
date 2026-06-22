@@ -29,15 +29,17 @@ export async function recomputeLatestMetrics(
   ctx: MutationCtx,
   publicationId: Id<"publications">,
 ): Promise<void> {
-  const snapshots = await ctx.db
+  // Latest = capturedAt max → .first() sur l'index desc (au lieu d'un collect
+  // de tout l'historique pour ne lire que la 1re ligne — audit #7).
+  const latest = await ctx.db
     .query("metricSnapshots")
     .withIndex("by_publication_and_capturedAt", (q) =>
       q.eq("publicationId", publicationId),
     )
     .order("desc")
-    .collect();
+    .first();
 
-  if (snapshots.length === 0) {
+  if (latest === null) {
     await ctx.db.patch(publicationId, {
       vuesLatest: undefined,
       likesLatest: undefined,
@@ -46,11 +48,11 @@ export async function recomputeLatestMetrics(
       commentsLatest: undefined,
       latestSnapshotId: undefined,
       latestSnapshotAt: undefined,
+      latestSnapshotDaysSince: undefined,
     });
     return;
   }
 
-  const latest = snapshots[0];
   await ctx.db.patch(publicationId, {
     vuesLatest: latest.vues,
     likesLatest: latest.likes,
@@ -59,6 +61,9 @@ export async function recomputeLatestMetrics(
     commentsLatest: latest.comments,
     latestSnapshotId: latest._id,
     latestSnapshotAt: latest.capturedAt,
+    // Copie VERBATIM du daysSince stocké (pas un recalcul) → la vue "latest"
+    // servie depuis ce champ reste exactement égale à l'ancien calcul.
+    latestSnapshotDaysSince: latest.daysSincePublication,
   });
 }
 

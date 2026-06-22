@@ -1,10 +1,7 @@
 import { adminQuery } from "./functions";
 import { v } from "convex/values";
 import { coerceSnapshotAge } from "./snapshotMatching";
-import {
-  buildDisplayMetrics,
-  groupSnapshotsByPublication,
-} from "./metricsDisplay";
+import { resolveDisplayMetrics } from "./metricsDisplay";
 
 /**
  * KPIs cross-format du dashboard, calculés à partir des snapshots résolus
@@ -26,14 +23,21 @@ export const dashboardKpis = adminQuery({
       .query("publications")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
-    const allSnaps = await ctx.db
-      .query("metricSnapshots")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
-    const snapsByPub = groupSnapshotsByPublication(allSnaps);
+
+    // Métriques résolues par publication PUBLIÉE. Vue "latest" (défaut) → champs
+    // dénormalisés, ZÉRO lecture de metricSnapshots ; vues âgées → range-scan
+    // borné par publication (parallèle pour ne pas sérialiser les lectures).
+    const isPublished = (p: (typeof pubs)[number]) =>
+      typeof p.postUrl === "string" && p.postUrl.length > 0;
+    const publishedPubs = pubs.filter(isPublished);
+    const dms = await Promise.all(
+      publishedPubs.map((p) =>
+        resolveDisplayMetrics(ctx, p, age, args.customDay),
+      ),
+    );
 
     let totalPublished = 0;
-    let totalDrafts = 0;
+    const totalDrafts = pubs.length - publishedPubs.length;
     let vuesTotal = 0;
     let likesTotal = 0;
     let savesTotal = 0;
@@ -42,20 +46,11 @@ export const dashboardKpis = adminQuery({
     let winnersCount = 0;
     const carouselRates: number[] = [];
 
-    for (const p of pubs) {
-      const published =
-        typeof p.postUrl === "string" && p.postUrl.length > 0;
-      if (!published) {
-        totalDrafts += 1;
-        continue;
-      }
+    for (let i = 0; i < publishedPubs.length; i++) {
+      const p = publishedPubs[i];
+      const dm = dms[i];
       totalPublished += 1;
 
-      const dm = buildDisplayMetrics(
-        snapsByPub.get(p._id) ?? [],
-        age,
-        args.customDay,
-      );
       if (dm.vues !== null) vuesTotal += dm.vues;
       if (dm.likes !== null) likesTotal += dm.likes;
       if (dm.saves !== null) savesTotal += dm.saves;

@@ -4,6 +4,10 @@ import {
   coerceSnapshotAge,
   TARGET_DAYS,
   TOLERANCE_DAYS,
+  DAY_MS,
+  ageWindowDays,
+  buildLatestMetricsFromDenorm,
+  type LatestMetricsSource,
 } from "./snapshot-matching";
 
 type S = { daysSincePublication: number; capturedAt: number; id: string };
@@ -90,5 +94,155 @@ describe("constants", () => {
     );
     expect(TOLERANCE_DAYS.j1).toBe(0);
     expect(TOLERANCE_DAYS.j90).toBe(10);
+  });
+});
+
+// ─── Vue "latest" servie depuis le dénormalisé (perf : 0 lecture snapshot) ───
+// On prouve l'égalité EXACTE entre :
+//  - buildLatestMetricsFromDenorm(champs dénormalisés)         [nouveau chemin]
+//  - buildDisplayMetrics(snapshots, "latest") émulé ci-dessous [ancien chemin]
+type FullSnap = {
+  _id: string;
+  capturedAt: number;
+  daysSincePublication: number;
+  vues: number;
+  likes: number;
+  saves?: number;
+  subsGained?: number;
+  comments?: number;
+};
+
+/** Réplique buildDisplayMetrics(snaps, "latest") (cf convex/metricsDisplay.ts). */
+function latestDisplayFromSnaps(snaps: FullSnap[]) {
+  const match = findMatchingSnapshot(snaps, "latest");
+  if (!match) {
+    return {
+      vues: null,
+      likes: null,
+      saves: null,
+      subsGained: null,
+      comments: null,
+      snapshotUsed: null,
+      matchExact: false,
+    };
+  }
+  return {
+    vues: match.vues,
+    likes: match.likes,
+    saves: match.saves ?? null,
+    subsGained: match.subsGained ?? null,
+    comments: match.comments ?? null,
+    snapshotUsed: {
+      id: match._id,
+      capturedAt: match.capturedAt,
+      daysSincePublication: match.daysSincePublication,
+    },
+    matchExact: true,
+  };
+}
+
+/** Réplique recomputeLatestMetrics : latest = capturedAt max, copie verbatim. */
+function denormFromSnaps(
+  datePubli: number,
+  snaps: FullSnap[],
+): LatestMetricsSource<string> {
+  if (snaps.length === 0) return { datePubli };
+  const latest = snaps.reduce((a, b) => (b.capturedAt > a.capturedAt ? b : a));
+  return {
+    datePubli,
+    vuesLatest: latest.vues,
+    likesLatest: latest.likes,
+    savesLatest: latest.saves,
+    subsGainedLatest: latest.subsGained,
+    commentsLatest: latest.comments,
+    latestSnapshotId: latest._id,
+    latestSnapshotAt: latest.capturedAt,
+    latestSnapshotDaysSince: latest.daysSincePublication,
+  };
+}
+
+describe("buildLatestMetricsFromDenorm (dénormalisé == latest calculé)", () => {
+  const datePubli = 1_700_000_000_000;
+  const fs = (
+    _id: string,
+    days: number,
+    vues: number,
+    likes: number,
+    saves?: number,
+    subsGained?: number,
+    comments?: number,
+  ): FullSnap => ({
+    _id,
+    capturedAt: datePubli + days * DAY_MS,
+    daysSincePublication: days,
+    vues,
+    likes,
+    saves,
+    subsGained,
+    comments,
+  });
+
+  it("égale le calcul-depuis-snapshots pour 'latest' (cas plein, plusieurs snapshots)", () => {
+    const snaps = [
+      fs("a", 1, 100, 10, 5, 2, 3),
+      fs("c", 30, 9000, 900, 40, 80, 70), // latest (capturedAt max)
+      fs("b", 7, 700, 70, 20, 15, 12),
+    ];
+    expect(buildLatestMetricsFromDenorm(denormFromSnaps(datePubli, snaps))).toEqual(
+      latestDisplayFromSnaps(snaps),
+    );
+  });
+
+  it("préserve les métriques optionnelles absentes (saves/subs/comments → null)", () => {
+    const snaps = [fs("only", 12, 1234, 56)]; // saves/subs/comments undefined
+    const out = buildLatestMetricsFromDenorm(denormFromSnaps(datePubli, snaps));
+    expect(out).toEqual(latestDisplayFromSnaps(snaps));
+    expect(out.saves).toBeNull();
+    expect(out.subsGained).toBeNull();
+    expect(out.comments).toBeNull();
+    expect(out.matchExact).toBe(true);
+  });
+
+  it("aucun snapshot → EMPTY (tout null, snapshotUsed null, matchExact false)", () => {
+    expect(buildLatestMetricsFromDenorm(denormFromSnaps(datePubli, []))).toEqual(
+      latestDisplayFromSnaps([]),
+    );
+  });
+
+  it("vues=0 dénormalisé reste 0 (et pas null)", () => {
+    const snaps = [fs("z", 3, 0, 0)];
+    expect(buildLatestMetricsFromDenorm(denormFromSnaps(datePubli, snaps)).vues).toBe(0);
+  });
+
+  it("fallback : sans latestSnapshotDaysSince, recalcule depuis datePubli (== stocké si datePubli inchangé)", () => {
+    const snaps = [fs("d", 9, 555, 55)];
+    const denorm = denormFromSnaps(datePubli, snaps);
+    const { latestSnapshotDaysSince, ...withoutStored } = denorm;
+    void latestSnapshotDaysSince;
+    const out = buildLatestMetricsFromDenorm(withoutStored);
+    expect(out.snapshotUsed?.daysSincePublication).toBe(9);
+    expect(out).toEqual(latestDisplayFromSnaps(snaps));
+  });
+});
+
+describe("ageWindowDays (bornage des vues âgées)", () => {
+  it("renvoie [target-tolérance, target+tolérance] pour les presets", () => {
+    expect(ageWindowDays("j7")).toEqual({ lo: 5, hi: 9 });
+    expect(ageWindowDays("j30")).toEqual({ lo: 25, hi: 35 });
+    expect(ageWindowDays("j1")).toEqual({ lo: 1, hi: 1 }); // tol 0
+  });
+
+  it("custom : tolérance max(2, day*0.1)", () => {
+    expect(ageWindowDays("custom", 100)).toEqual({ lo: 90, hi: 110 });
+    expect(ageWindowDays("custom", 5)).toEqual({ lo: 3, hi: 7 }); // tol 2
+  });
+
+  it("invariant : tout snapshot hors fenêtre est rejeté par findMatchingSnapshot", () => {
+    const { lo, hi } = ageWindowDays("j30"); // [25, 35]
+    // dans la fenêtre → accepté ; hors fenêtre → rejeté (donc inutile à charger)
+    expect(findMatchingSnapshot([snap(hi, 1)], "j30")).not.toBeNull();
+    expect(findMatchingSnapshot([snap(lo, 1)], "j30")).not.toBeNull();
+    expect(findMatchingSnapshot([snap(hi + 1, 1)], "j30")).toBeNull();
+    expect(findMatchingSnapshot([snap(lo - 1, 1)], "j30")).toBeNull();
   });
 });
