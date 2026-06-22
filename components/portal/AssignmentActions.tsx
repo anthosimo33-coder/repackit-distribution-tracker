@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { VideoUploader, type UploadedVideo } from "@/components/VideoUploader";
 import { VideoExample } from "@/components/formats/VideoExample";
+import { StreamPlayer } from "@/components/formats/StreamPlayer";
 import {
   Loader2Icon,
   PlayIcon,
@@ -138,8 +139,18 @@ export function AssignmentActions({
     }
   }
 
+  const streamUid = assignment.submittedVideoStreamUid;
+  const streamStatus = assignment.submittedVideoStreamStatus;
   const myVideoPreview =
-    assignment.submittedVideoStorageId && submittedVideoUrl !== undefined ? (
+    streamUid && (streamStatus === "ready" || streamStatus === "processing") ? (
+      // Cloudflare Stream a transcodé ta vidéo → tu la revois lisible (HEVC
+      // inclus), même si ton .mov ne s'ouvrait pas dans le navigateur.
+      <StreamPlayer
+        uid={streamUid}
+        status={streamStatus}
+        title="Ta vidéo soumise"
+      />
+    ) : assignment.submittedVideoStorageId && submittedVideoUrl !== undefined ? (
       <VideoExample
         example={{
           kind: "file",

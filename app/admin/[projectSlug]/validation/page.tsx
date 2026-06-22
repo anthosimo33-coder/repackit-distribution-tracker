@@ -32,6 +32,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { VideoExample } from "@/components/formats/VideoExample";
+import { StreamPlayer } from "@/components/formats/StreamPlayer";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { toast } from "sonner";
 import type { FunctionReturnType } from "convex/server";
@@ -291,22 +292,34 @@ function VideoReviewCard({ a }: { a: VideoSubmittedRow }) {
           </div>
         </div>
 
-        {a.videoUrl && a.videoStorageId ? (
-          <VideoExample
-            example={{
-              kind: "file",
-              storageId: a.videoStorageId,
-              title: "",
-              mimeType: a.videoMimeType,
-              url: a.videoUrl,
-            }}
-            onUnreadable={() => setUnreadable(true)}
-          />
-        ) : (
-          <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-400">
-            Vidéo indisponible.
-          </div>
-        )}
+        {/* Conteneur scopé à l'assignment (testid par id) : plusieurs cartes
+            cohabitent dans la file, les assertions e2e doivent viser LA bonne. */}
+        <div data-testid={`submission-media-${a._id}`}>
+          {a.streamUid &&
+          (a.streamStatus === "ready" || a.streamStatus === "processing") ? (
+            // Cloudflare Stream a transcodé (ou transcode) la vidéo → player
+            // lisible inline, HEVC inclus, sans téléchargement. Le bouton
+            // télécharger (#56) reste affiché en complément ci-dessous.
+            <StreamPlayer uid={a.streamUid} status={a.streamStatus} />
+          ) : a.videoUrl && a.videoStorageId ? (
+            // Fallback : pas de Stream (env absent, copie/transcoding en erreur,
+            // ou ancienne vidéo non migrée) → <video> Convex + message HEVC + DL.
+            <VideoExample
+              example={{
+                kind: "file",
+                storageId: a.videoStorageId,
+                title: "",
+                mimeType: a.videoMimeType,
+                url: a.videoUrl,
+              }}
+              onUnreadable={() => setUnreadable(true)}
+            />
+          ) : (
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-400">
+              Vidéo indisponible.
+            </div>
+          )}
+        </div>
 
         {a.videoUrl && (
           <div className="space-y-2">
