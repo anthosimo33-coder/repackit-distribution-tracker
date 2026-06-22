@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 import { CopyableLink } from "./CopyableLink";
 
 /**
@@ -56,7 +57,7 @@ export function InviteCreatorDialog({
       setToken(result.token);
       toast.success(`${name.trim()} invité`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erreur");
+      toast.error(convexErrorMessage(err, "Une erreur est survenue."));
     } finally {
       setSubmitting(false);
     }

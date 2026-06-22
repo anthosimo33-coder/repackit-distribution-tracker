@@ -54,7 +54,7 @@ export function AccountBioPanel({
       await confirmApplied({ projectId, id: compte._id });
       toast.success("Bio confirmée ✓");
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Erreur"));
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {
       setSubmitting(false);
     }

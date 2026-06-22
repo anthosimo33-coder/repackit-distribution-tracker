@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dialog";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
 import {
   ArrowLeftIcon,
@@ -254,14 +255,14 @@ function BrickRow({ brick, onEdit }: { brick: Brick; onEdit: () => void }) {
     try {
       await update({ id: brick._id, active });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     }
   }
   async function setTier(tier: ScriptTier | "none") {
     try {
       await update({ id: brick._id, tier: tier === "none" ? null : tier });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     }
   }
   async function onDelete() {
@@ -269,7 +270,7 @@ function BrickRow({ brick, onEdit }: { brick: Brick; onEdit: () => void }) {
       await remove({ id: brick._id });
       toast.success("Brique supprimée");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     }
   }
 
@@ -391,7 +392,7 @@ function BrickDialog({
       }
       onOpenChange(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {
       setBusy(false);
     }
@@ -519,7 +520,7 @@ function ImportHooksDialog({
       );
       onOpenChange(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {
       setBusy(false);
     }

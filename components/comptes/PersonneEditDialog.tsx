@@ -143,7 +143,7 @@ function PersonneEditDialogForm({
       }
       onClose();
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Erreur"));
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {
       setSubmitting(false);
     }

@@ -52,6 +52,7 @@ import {
 import { ALL_PLATFORMS } from "@/lib/format-config";
 import { Loader2Icon, StarIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 
 const TYPE_LABELS: Record<InspirationType, string> = {
   video: "Vidéo",
@@ -392,7 +393,7 @@ function InspirationDialogForm({
       }
       onClose();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {
       setSubmitting(false);
     }
@@ -407,7 +408,7 @@ function InspirationDialogForm({
       setConfirmDeleteOpen(false);
       onClose();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
       setSubmitting(false);
     }
   }

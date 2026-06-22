@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { Loader2Icon, PlusIcon, Trash2Icon, XIcon } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 import { detectInspirationType } from "@/lib/inspiration-url";
 import { HookPicker } from "./HookPicker";
 import { VideoUploader, type UploadedVideo } from "@/components/VideoUploader";
@@ -114,7 +115,7 @@ export function FormatEditor({ format }: { format: FullFormat }) {
       });
       toast.success("Format enregistré");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {
       setSaving(false);
     }
@@ -125,7 +126,7 @@ export function FormatEditor({ format }: { format: FullFormat }) {
       await update({ id: format._id, status: isArchived ? "active" : "archived" });
       toast.success(isArchived ? "Format réactivé" : "Format archivé");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     }
   }
 

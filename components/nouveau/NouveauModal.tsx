@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 import type { MediaType } from "@/lib/media-type";
 import {
   isFormatAllowedOnPlatform,
@@ -408,7 +409,7 @@ export function NouveauModal({
       onSuccess?.(nextCarouselId, state.data.mediaType as MediaType);
     } catch (e) {
       toast.error(
-        e instanceof Error ? e.message : "Erreur lors de la création",
+        convexErrorMessage(e, "Erreur lors de la création"),
       );
     } finally {
       setSubmitting(false);

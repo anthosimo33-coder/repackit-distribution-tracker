@@ -27,6 +27,7 @@ import {
   ExternalLinkIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 import { detectInspirationType } from "@/lib/inspiration-url";
 
 /**
@@ -84,7 +85,7 @@ export function AssignmentActions({
       await start({ projectId, id: assignment._id });
       toast.success("C'est parti — bon tournage !");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Impossible de démarrer la mission"));
     } finally {
       setBusy(false);
     }
@@ -102,7 +103,7 @@ export function AssignmentActions({
       setUploadOpen(false);
       toast.success("Vidéo envoyée — en attente de validation");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Échec de l'envoi de la vidéo"));
     } finally {
       setBusy(false);
     }
@@ -133,7 +134,7 @@ export function AssignmentActions({
       toast.success("Publication confirmée — paiement en route 🎉");
       setUrls({});
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erreur");
+      toast.error(convexErrorMessage(err, "Échec de la confirmation de publication"));
     } finally {
       setBusy(false);
     }

@@ -81,7 +81,7 @@ export function PersonnesManagerSection({ onBack }: { onBack: () => void }) {
       );
       setDeleteTarget(null);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Erreur"));
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {
       setDeleting(false);
     }

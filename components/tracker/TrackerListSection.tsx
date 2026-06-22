@@ -100,6 +100,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 
 const ALL = "all";
 const PENDING = "Pending";
@@ -434,7 +435,7 @@ export function TrackerListSection({
       setPresetName("");
     } catch (e) {
       toast.error(
-        e instanceof Error ? e.message : "Impossible de sauvegarder le preset",
+        convexErrorMessage(e, "Impossible de sauvegarder le preset"),
       );
     } finally {
       setSavingPreset(false);
@@ -447,7 +448,7 @@ export function TrackerListSection({
       toast.success(`Preset « ${name} » supprimé`);
     } catch (e) {
       toast.error(
-        e instanceof Error ? e.message : "Impossible de supprimer le preset",
+        convexErrorMessage(e, "Impossible de supprimer le preset"),
       );
     }
   }
@@ -654,7 +655,7 @@ export function TrackerListSection({
       setDeletingPub(null);
     } catch (e) {
       toast.error(
-        e instanceof Error ? e.message : "Erreur lors de la suppression",
+        convexErrorMessage(e, "Erreur lors de la suppression"),
       );
     } finally {
       setDeleting(false);
@@ -1443,7 +1444,7 @@ function MarkAsPostedDialog({
       onOpenChange(false);
     } catch (e) {
       toast.error(
-        e instanceof Error ? e.message : "Impossible de marquer comme publié",
+        convexErrorMessage(e, "Impossible de marquer comme publié"),
       );
     } finally {
       setSubmitting(false);
@@ -1552,7 +1553,7 @@ function DuplicateCarouselDialog({
       toast.success("Publication dupliquée");
       onOpenChange(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Impossible de dupliquer");
+      toast.error(convexErrorMessage(e, "Impossible de dupliquer"));
     } finally {
       setSubmitting(false);
     }

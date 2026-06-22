@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { getFolderColor } from "@/lib/folder-colors";
 import { ThumbnailFallback } from "./ThumbnailFallback";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 
 type InspirationCardData = Doc<"inspirations"> & {
   thumbnailUrl: string | null;
@@ -56,7 +57,7 @@ export function InspirationCard({
         isFavorite: !inspiration.isFavorite,
       });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erreur");
+      toast.error(convexErrorMessage(err, "Une erreur est survenue."));
     }
   }
 

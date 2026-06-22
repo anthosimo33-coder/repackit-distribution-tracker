@@ -37,6 +37,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
 import {
   PlusIcon,
@@ -169,7 +170,7 @@ function CampaignActions({
       });
       toast.success(isArchived ? "Réactivée" : "Archivée");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     }
   }
 
@@ -178,7 +179,7 @@ function CampaignActions({
       await remove({ id: campaign._id });
       toast.success("Campagne supprimée");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     }
   }
 
@@ -248,7 +249,7 @@ function CampaignDialog({
       }
       onOpenChange(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {
       setBusy(false);
     }

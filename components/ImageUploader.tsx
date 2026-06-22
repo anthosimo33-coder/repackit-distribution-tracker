@@ -7,6 +7,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Loader2Icon, UploadIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
 
 const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
@@ -66,7 +67,7 @@ export function ImageUploader({
       onChange(storageId);
     } catch (e) {
       toast.error(
-        e instanceof Error ? e.message : "Erreur lors de l'upload",
+        convexErrorMessage(e, "Erreur lors de l'upload"),
       );
     } finally {
       setUploading(false);

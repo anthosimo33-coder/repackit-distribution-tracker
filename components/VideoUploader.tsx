@@ -7,6 +7,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Loader2Icon, UploadIcon } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
 
 const MAX_SIZE_BYTES = 300 * 1024 * 1024; // 300 MB
@@ -91,7 +92,7 @@ export function VideoUploader({
       onUploaded({ storageId, mimeType: file.type, title });
       toast.success("Vidéo ajoutée");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur lors de l'upload");
+      toast.error(convexErrorMessage(e, "Erreur lors de l'upload"));
     } finally {
       setUploading(false);
       setProgress(0);

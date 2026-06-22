@@ -34,6 +34,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Loader2Icon, PlusIcon } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 import { formatEuros } from "@/lib/format-rate";
 import type { FunctionReturnType } from "convex/server";
 
@@ -133,7 +134,7 @@ export default function PricingsPage() {
       toast.success(editing ? "Pricing mis à jour" : "Pricing créé");
       setOpen(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erreur");
+      toast.error(convexErrorMessage(err, "Une erreur est survenue."));
     } finally {
       setBusy(false);
     }
@@ -144,7 +145,7 @@ export default function PricingsPage() {
       await archive({ id: p._id, archived: p.status === "active" });
       toast.success(p.status === "active" ? "Pricing archivé" : "Pricing réactivé");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     }
   }
 
@@ -153,7 +154,7 @@ export default function PricingsPage() {
       await remove({ id: p._id });
       toast.success("Pricing supprimé");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     }
   }
 

@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 import { Loader2Icon } from "lucide-react";
 
 type PaymentMethod = "sepa" | "paypal" | "usdt" | "autre";
@@ -70,7 +71,7 @@ export default function CreatorProfilPage() {
       });
       toast.success("Profil enregistré.");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {
       setBusy(false);
     }

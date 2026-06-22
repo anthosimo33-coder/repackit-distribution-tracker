@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/select";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 
 type Plateforme = "TikTok" | "Instagram" | "YouTube";
 
@@ -68,7 +69,7 @@ export function DeclareCompteDialog({
       reset();
       onOpenChange(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erreur");
+      toast.error(convexErrorMessage(err, "Une erreur est survenue."));
       setSubmitting(false);
     }
   }

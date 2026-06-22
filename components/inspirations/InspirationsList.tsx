@@ -24,6 +24,7 @@ import type {
 import { ExternalLinkIcon, StarIcon } from "lucide-react";
 import { ThumbnailFallback } from "./ThumbnailFallback";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 
 const TYPE_LABELS: Record<"video" | "account", string> = {
   video: "Vidéo",
@@ -109,7 +110,7 @@ export function InspirationsList({
     try {
       await updateInspiration({ id, isFavorite: !current });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erreur");
+      toast.error(convexErrorMessage(err, "Une erreur est survenue."));
     }
   }
 

@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 
 type FormatType = "carousel" | "short" | "screenrecorder" | "custom";
 const TYPE_OPTIONS: { value: FormatType; label: string }[] = [
@@ -62,7 +63,7 @@ export function NewFormatDialog({
       setName("");
       router.push(projectPath(`/formats/${id}`));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erreur");
+      toast.error(convexErrorMessage(err, "Une erreur est survenue."));
       setSubmitting(false);
     }
   }
