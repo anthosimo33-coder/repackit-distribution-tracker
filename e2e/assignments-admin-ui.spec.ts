@@ -91,4 +91,52 @@ test.describe("Admin — assignation + table", () => {
       });
     }
   });
+
+  test("supprimer un assignment depuis la table (confirmation → disparaît)", async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    const ts = Date.now();
+    const creatorName = `[E2E_TEST] DelUI ${ts}`;
+    const C = await createCreatorSession(convexUrl, {
+      name: creatorName,
+      email: `e2e-creator-delui-${ts}@repackit.test`,
+      password: "creator-delui-12345",
+    });
+    const formatName = `[E2E_TEST] DelUI Fmt ${ts}`;
+    const fid = (await admin.mutation(api.formats.createFormat, {
+      name: formatName,
+      type: "short",
+      rateModel: { basePerPost: 30 },
+    })) as Id<"formats">;
+    const target = await availableTarget({
+      e2eClient: admin,
+      creatorId: C.creatorId,
+      platform: "TikTok",
+      handle: `@e2edelui${ts}`,
+    });
+    await admin.mutation(api.assignments.assignFormat, {
+      formatId: fid,
+      creatorId: C.creatorId,
+      targets: [target],
+      postsPerCreator: 1,
+      dueDate: ts + 7 * 86_400_000,
+    });
+
+    await page.goto(adminPath("/assignments"));
+    const row = page.getByRole("row").filter({ hasText: formatName });
+    await expect(row).toHaveCount(1, { timeout: 10_000 });
+
+    // Poubelle → AlertDialog de confirmation → Supprimer.
+    await row.getByRole("button", { name: "Supprimer cet assignment" }).click();
+    const dialog = page.getByRole("alertdialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText(/irréversible/i);
+    await dialog.getByRole("button", { name: "Supprimer" }).click();
+
+    // La ligne disparaît (réactivité Convex) ; le serveur confirme la suppression.
+    await expect(row).toHaveCount(0, { timeout: 10_000 });
+    const list = await admin.query(api.assignments.listAssignments, {});
+    expect(list.some((a) => a.formatId === fid)).toBe(false);
+  });
 });

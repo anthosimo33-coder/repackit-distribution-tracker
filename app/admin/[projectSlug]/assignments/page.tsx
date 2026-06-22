@@ -1,7 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useProjectQuery } from "@/components/project/use-project-convex";
+import {
+  useProjectQuery,
+  useProjectMutation,
+} from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -12,6 +15,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,9 +40,13 @@ import {
   ClapperboardIcon,
   FileTextIcon,
   ImagesIcon,
+  Loader2Icon,
   PencilIcon,
+  Trash2Icon,
   TypeIcon,
 } from "lucide-react";
+import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AssignmentModelVideosDialog } from "@/components/admin/AssignmentModelVideosDialog";
 import { AssignmentScriptDialog } from "@/components/admin/AssignmentScriptDialog";
@@ -37,6 +54,7 @@ import { EditScriptComboDialog } from "@/components/admin/EditScriptComboDialog"
 import { EditBrickTextDialog } from "@/components/admin/EditBrickTextDialog";
 import { LinkAssetFolderDialog } from "@/components/admin/LinkAssetFolderDialog";
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
+import { canDeleteAssignment } from "@/lib/assignment-delete";
 import {
   ASSIGNMENT_STATUS,
   assignmentUrgency,
@@ -89,6 +107,24 @@ export default function AssignmentsPage() {
   const assetLinkRow = assetLinkId
     ? ((assignments ?? []).find((a) => a._id === assetLinkId) ?? null)
     : null;
+  // Suppression (hard-delete) — confirmation obligatoire, libère le combo.
+  const deleteAssignment = useProjectMutation(api.assignments.deleteAssignment);
+  const [deleteId, setDeleteId] = useState<Id<"assignments"> | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    if (!deleteId) return;
+    setDeleting(true);
+    try {
+      await deleteAssignment({ id: deleteId });
+      toast.success("Assignment supprimé — le combo est de nouveau disponible.");
+      setDeleteId(null);
+    } catch (e) {
+      toast.error(convexErrorMessage(e));
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   const creators = useMemo(() => {
     const m = new Map<string, string>();
@@ -215,6 +251,9 @@ export default function AssignmentsPage() {
                   <TableHead>Soumis</TableHead>
                   <TableHead>Modèles</TableHead>
                   <TableHead>Assets</TableHead>
+                  <TableHead className="text-right">
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -357,6 +396,30 @@ export default function AssignmentsPage() {
                             : "+"}
                         </Button>
                       </TableCell>
+                      <TableCell className="text-right">
+                        {canDeleteAssignment(a.status as AssignmentStatus) ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="size-8 p-0 text-slate-400 hover:text-rose-600"
+                            onClick={() => setDeleteId(a._id)}
+                            aria-label="Supprimer cet assignment"
+                          >
+                            <Trash2Icon className="size-4" />
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="size-8 p-0 text-slate-300"
+                            disabled
+                            aria-label="Suppression indisponible (assignment publié ou payé)"
+                            title="Un assignment publié ou payé ne peut pas être supprimé."
+                          >
+                            <Trash2Icon className="size-4" />
+                          </Button>
+                        )}
+                      </TableCell>
                     </TableRow>
                   );
                 })}
@@ -426,6 +489,39 @@ export default function AssignmentsPage() {
           creatorName={assetLinkRow.creatorName}
         />
       )}
+
+      <AlertDialog
+        open={deleteId !== null}
+        onOpenChange={(o) => {
+          if (!o && !deleting) setDeleteId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer cet assignment ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Le combo sera libéré et pourra être réassigné au créateur sur la
+              même plateforme. Cette action est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={(e) => {
+                // On gère la fermeture nous-mêmes (succès) pour afficher l'état
+                // de chargement ; empêche la fermeture auto de l'AlertDialog.
+                e.preventDefault();
+                void handleDelete();
+              }}
+              disabled={deleting}
+            >
+              {deleting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+              Supprimer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -350,6 +350,72 @@ export const migrateAssetFolderToArray = internalMutation({
   },
 });
 
+/**
+ * RÉPLIQUE serveur de lib/assignment-delete.canDeleteAssignment (règle A6 :
+ * convex/ ne peut pas importer lib/). DOIT rester alignée. Statuts pré-publication
+ * (sans publication matérialisée ni lineItem de paie) → hard-delete sûr. published
+ * /paid (+ legacy validated) sont BLOQUÉS : ils portent une publication (analytics)
+ * et/ou un paiement → les supprimer orphelinerait l'historique financier.
+ */
+const DELETABLE_STATUSES = new Set<string>([
+  "todo",
+  "in_progress",
+  "video_submitted",
+  "video_rejected",
+  "to_publish",
+  "submitted", // legacy
+  "rejected", // legacy
+]);
+
+/**
+ * SUPPRESSION manuelle d'un assignment (admin) — HARD-DELETE. Libère le comboKey
+ * occupé (unicité créateur+plateforme : plus d'assignment = plus d'occupation →
+ * le combo redevient assignable). Scopé projet ; admin only.
+ *
+ * GARDE-FOU statut : refuse published/paid (+ legacy validated) — historique
+ * financier/analytics rattaché (publication, snapshots, paiement). Les statuts
+ * pré-publication sont librement supprimables (cas d'usage : refaire un lot mal
+ * généré).
+ *
+ * NETTOYAGE best-effort de la vidéo SOUMISE orpheline : blob Convex (storage.delete)
+ * + copie Cloudflare Stream (scheduler deleteStreamAsset, no-op si env absent),
+ * comme la purge à la re-soumission/publication. Les ASSETS liés (modelVideos =
+ * liens ; assetFolderIds = dossiers PARTAGÉS réutilisables) ne sont PAS supprimés —
+ * on détache seulement en supprimant l'assignment. Aucune publication n'existe à ce
+ * stade (statut pré-published) → rien à cascader.
+ *
+ * IDEMPOTENT : id déjà supprimé / hors projet → no-op (`alreadyGone`), jamais de crash.
+ */
+export const deleteAssignment = adminMutation({
+  args: { id: v.id("assignments") },
+  handler: async (ctx, { id }) => {
+    const a = await ctx.db.get(id);
+    // Déjà supprimé OU hors projet (isolation) → no-op silencieux, pas de crash.
+    if (!a || a.projectId !== ctx.projectId) {
+      return { ok: true as const, alreadyGone: true };
+    }
+    if (!DELETABLE_STATUSES.has(a.status)) {
+      throw new ConvexError(
+        "Un assignment publié ou payé ne peut pas être supprimé (historique financier/analytics).",
+      );
+    }
+    // Vidéo soumise orpheline : purge Convex + Stream (best-effort).
+    if (a.submittedVideoStorageId) {
+      await ctx.storage.delete(a.submittedVideoStorageId);
+    }
+    if (a.submittedVideoStreamUid) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.cloudflareStream.deleteStreamAsset,
+        { uid: a.submittedVideoStreamUid },
+      );
+    }
+    // Hard-delete → le comboKey n'est plus occupé (réassignable).
+    await ctx.db.delete(id);
+    return { ok: true as const, alreadyGone: false };
+  },
+});
+
 /** Table admin : tous les assignments du projet, enrichis. */
 export const listAssignments = adminQuery({
   args: {},
