@@ -246,7 +246,8 @@ test.describe("S2 — assignation anti-coordination", () => {
     // ADMIN : la décomposition du combo est visible (résumé).
     const adminRows = await forCampaign(a.creatorId);
     expect(adminRows[0].scriptCampaignName).toContain("[E2E_TEST] Assign");
-    expect(adminRows[0].comboSummary).toMatch(/Tier [SAB] · /);
+    // Résumé combo en libellés visuels (2 tiers) : « Argent »/« Autre » · …
+    expect(adminRows[0].comboSummary).toMatch(/^(Argent|Autre) · /);
 
     // P7 — assignment de FORMAT classique fonctionne toujours.
     const formatId = await admin.mutation(api.formats.createFormat, {

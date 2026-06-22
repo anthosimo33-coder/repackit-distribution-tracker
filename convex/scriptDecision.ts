@@ -9,6 +9,7 @@ import {
   median,
   type CampaignViews,
 } from "./scriptAnalytics";
+import { tierLabel } from "./scriptTier";
 
 /**
  * S4 — Query de DÉCISION du bulk testing. campaignDecisions COMPOSE sur les
@@ -230,7 +231,7 @@ function buildDecisions(views: CampaignViews): CampaignDecisions {
   // (un tier accumule 50 posts bien plus vite qu'une brique de hook précise).
   const tierInputs: BrickInput[] = tiers.map((t) => ({
     key: t.tier,
-    label: `Tier ${t.tier}`,
+    label: tierLabel(t.tier),
     kind: "tier",
     postCount: t.postCount,
     viewsMedian: t.viewsMedian,
@@ -251,14 +252,14 @@ function buildDecisions(views: CampaignViews): CampaignDecisions {
   // seuil haut sous 50 posts. Le combo donne le grain le plus fin.
   const comboSignals: SignalInput[] = combos.map((c) => ({
     key: c.comboKey,
-    label: `Tier ${c.tier ?? "?"} · ${c.fluxLabel} · ${c.ctaLabel}`,
+    label: `${tierLabel(c.tier)} · ${c.fluxLabel} · ${c.ctaLabel}`,
     kind: "combo",
     postCount: c.postCount,
     viewsMedian: c.viewsMedian,
   }));
   const tierSignals: SignalInput[] = tiers.map((t) => ({
     key: `tier:${t.tier}`,
-    label: `Tier ${t.tier}`,
+    label: tierLabel(t.tier),
     kind: "tier",
     postCount: t.postCount,
     viewsMedian: t.viewsMedian,

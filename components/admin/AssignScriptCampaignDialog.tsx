@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { Loader2Icon } from "lucide-react";
+import { SCRIPT_TIERS, tierLabel } from "@/lib/script-tier";
 
 /**
  * Chantier C — assigne une campagne de scripts à UN créateur, sur 1 à 3 CIBLES
@@ -141,7 +142,7 @@ export function AssignScriptCampaignDialog({
         targets,
         videosPerCreator,
         dueDate: dueMs,
-        tier: tier === TIER_ALL ? undefined : (tier as "S" | "A" | "B"),
+        tier: tier === TIER_ALL ? undefined : (tier as "S" | "A"),
         pricingId: pricingId as Id<"pricings">,
       });
       toast.success(
@@ -296,14 +297,16 @@ export function AssignScriptCampaignDialog({
               <Select value={tier} onValueChange={(v) => v && setTier(v)}>
                 <SelectTrigger id="tier">
                   <SelectValue>
-                    {tier === TIER_ALL ? "Tous les tiers" : `Tier ${tier}`}
+                    {tier === TIER_ALL ? "Tous" : tierLabel(tier)}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={TIER_ALL}>Tous les tiers</SelectItem>
-                  <SelectItem value="S">Tier S</SelectItem>
-                  <SelectItem value="A">Tier A</SelectItem>
-                  <SelectItem value="B">Tier B</SelectItem>
+                  <SelectItem value={TIER_ALL}>Tous</SelectItem>
+                  {SCRIPT_TIERS.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {tierLabel(t)}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
