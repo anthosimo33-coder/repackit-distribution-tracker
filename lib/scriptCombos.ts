@@ -71,10 +71,28 @@ export function generateCombos(bricks: ComboBrick[]): Combo[] {
 }
 
 /**
- * Choisit jusqu'à `n` combos pour un créateur : exclut ceux déjà reçus
- * (`usedKeys`) et MAXIMISE la diversité de hook (round-robin par hook → on ne
- * donne pas 10× le même hook si d'autres sont dispo). Renvoie MOINS de `n` si
- * le stock disponible est épuisé (l'appelant signale l'épuisement).
+ * Choisit jusqu'à `n` combos pour un créateur en ÉQUILIBRANT les 3 dimensions
+ * (hook, flux, cta) — sélection gloutonne « least-used ». Exclut les combos déjà
+ * reçus (`usedKeys`). Renvoie MOINS de `n` si le stock disponible est épuisé
+ * (l'appelant signale l'épuisement). Pas de doublon silencieux.
+ *
+ * Score d'un combo = somme des usages de ses 3 bricks (hook + flux + cta) sur les
+ * combos DÉJÀ retenus. À chaque pas on prend le combo disponible de score MINIMAL
+ * → un flux/cta déjà utilisé renchérit ses combos, donc le choix bascule vers les
+ * bricks les moins servies. Avec le produit cartésien plein et plus de hooks que
+ * de picks, un hook neuf (usage 0) gagne toujours → la diversité de hook reste
+ * maximale, et flux/cta s'équilibrent DANS ce cadre (≠ ancien round-robin où flux
+ * & cta restaient figés tant que N < hooks·cta).
+ *
+ * Tie-break STABLE : à score égal, le PREMIER en ordre de génération l'emporte
+ * (`< bestScore` strict + parcours ascendant) → sélection déterministe et
+ * reproductible, sans aléatoire.
+ *
+ * Continuité de l'équilibre : les compteurs sont AMORCÉS depuis `usedKeys` (les
+ * combos déjà pris par le créateur+plateforme). Une clé est « hook:flux:cta » →
+ * on incrémente les 3 compteurs (clé legacy 4 segments ignorée, espace disjoint).
+ * Ainsi un flux sur-servi lors d'une assignation précédente reste évité ensuite —
+ * pas de remise à zéro qui re-piocherait le même flux.
  */
 export function pickCombosForCreator(
   allCombos: Combo[],
@@ -84,29 +102,43 @@ export function pickCombosForCreator(
   if (n <= 0) return [];
   const available = allCombos.filter((c) => !usedKeys.has(comboKeyOf(c)));
 
-  // Buckets par hook, dans l'ordre d'apparition (déterministe).
-  const buckets = new Map<string, Combo[]>();
-  for (const c of available) {
-    const b = buckets.get(c.hookBrickId);
-    if (b) b.push(c);
-    else buckets.set(c.hookBrickId, [c]);
+  // Compteurs d'usage par brick, amorcés depuis les combos déjà pris (usedKeys).
+  const hookUse = new Map<string, number>();
+  const fluxUse = new Map<string, number>();
+  const ctaUse = new Map<string, number>();
+  const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1);
+  for (const key of usedKeys) {
+    const parts = key.split(":");
+    if (parts.length !== 3) continue; // clé legacy 4 segments → ignorée
+    bump(hookUse, parts[0]);
+    bump(fluxUse, parts[1]);
+    bump(ctaUse, parts[2]);
   }
-  const order = [...buckets.values()];
 
-  // Round-robin : 1 combo de chaque hook à tour de rôle → diversité de hook
-  // maximale. À l'intérieur d'un hook, l'ordre varie flux/cta.
   const picked: Combo[] = [];
-  let progressed = true;
-  while (picked.length < n && progressed) {
-    progressed = false;
-    for (const bucket of order) {
-      if (picked.length >= n) break;
-      const next = bucket.shift();
-      if (next) {
-        picked.push(next);
-        progressed = true;
+  const taken = new Array<boolean>(available.length).fill(false);
+  for (let step = 0; step < n; step++) {
+    let bestIdx = -1;
+    let bestScore = Infinity;
+    for (let i = 0; i < available.length; i++) {
+      if (taken[i]) continue;
+      const c = available[i];
+      const score =
+        (hookUse.get(c.hookBrickId) ?? 0) +
+        (fluxUse.get(c.fluxBrickId) ?? 0) +
+        (ctaUse.get(c.ctaBrickId) ?? 0);
+      if (score < bestScore) {
+        bestScore = score;
+        bestIdx = i;
       }
     }
+    if (bestIdx === -1) break; // stock épuisé
+    taken[bestIdx] = true;
+    const c = available[bestIdx];
+    picked.push(c);
+    bump(hookUse, c.hookBrickId);
+    bump(fluxUse, c.fluxBrickId);
+    bump(ctaUse, c.ctaBrickId);
   }
   return picked;
 }
