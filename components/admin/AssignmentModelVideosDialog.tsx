@@ -130,7 +130,7 @@ export function AssignmentModelVideosDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Vidéos modèles — {creatorName}</DialogTitle>
           <DialogDescription>
@@ -156,7 +156,7 @@ export function AssignmentModelVideosDialog({
                     className="flex items-start gap-2 rounded-lg border border-slate-200 p-2.5"
                   >
                     <div className="min-w-0 flex-1 space-y-0.5">
-                      <div className="flex items-center gap-2">
+                      <div className="flex min-w-0 items-center gap-2">
                         <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-600">
                           {platform}
                         </span>
@@ -164,14 +164,16 @@ export function AssignmentModelVideosDialog({
                           href={mv.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex min-w-0 items-center gap-1 text-sm font-medium text-primary hover:underline"
+                          className="flex min-w-0 items-center gap-1 text-sm font-medium text-primary hover:underline"
                         >
                           <span className="truncate">{mv.title ?? mv.url}</span>
                           <ExternalLinkIcon className="size-3.5 shrink-0" />
                         </a>
                       </div>
                       {mv.note && (
-                        <p className="text-xs text-slate-500">{mv.note}</p>
+                        <p className="break-words text-xs text-slate-500">
+                          {mv.note}
+                        </p>
                       )}
                     </div>
                     <Button
