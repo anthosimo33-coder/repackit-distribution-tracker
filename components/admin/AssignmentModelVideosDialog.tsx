@@ -131,15 +131,21 @@ export function AssignmentModelVideosDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Vidéos modèles — {creatorName}</DialogTitle>
+        {/* min-w-0 sur les items de la grille (DialogContent est un `grid`) :
+            sinon un enfant intrinsèquement large — ici le Textarea
+            `field-sizing-content` — gonfle la piste de la grille au-delà de la
+            carte (débordement horizontal, texte tronqué, bouton hors cadre). */}
+        <DialogHeader className="min-w-0">
+          <DialogTitle className="break-words">
+            Vidéos modèles — {creatorName}
+          </DialogTitle>
           <DialogDescription>
             Des LIENS vers des vidéos existantes à reproduire avec le script. Le
             créateur les voit dans son brief comme « vidéos à reproduire ».
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           {/* Liste */}
           {modelVideos.length === 0 ? (
             <p className="rounded-lg border border-dashed border-slate-200 py-6 text-center text-sm text-slate-400">
