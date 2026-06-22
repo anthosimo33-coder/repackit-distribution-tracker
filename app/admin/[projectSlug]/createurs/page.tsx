@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MoreHorizontalIcon, PlusIcon, UserPlusIcon } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 import { creatorStatusBadge } from "@/lib/creator-status";
 import { cn } from "@/lib/utils";
 import { InviteCreatorDialog } from "@/components/creators/InviteCreatorDialog";
@@ -51,7 +52,7 @@ export default function CreateursPage() {
       const { token } = await regenerate({ creatorId });
       await copyLink(token);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     }
   }
 
@@ -81,7 +82,7 @@ export default function CreateursPage() {
         <EmptyState onInvite={() => setInviteOpen(true)} />
       ) : (
         <Card>
-          <CardContent className="p-0">
+          <CardContent className="overflow-x-auto p-0">
             <Table>
               <TableHeader>
                 <TableRow>

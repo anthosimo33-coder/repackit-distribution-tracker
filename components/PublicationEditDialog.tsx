@@ -48,6 +48,7 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -141,7 +142,7 @@ export function PublicationEditDialog({
       onOpenChange(false);
     } catch (e) {
       toast.error(
-        e instanceof Error ? e.message : "Erreur lors de la mise à jour",
+        convexErrorMessage(e, "Erreur lors de la mise à jour"),
       );
     } finally {
       setSavingInfos(false);
@@ -155,7 +156,7 @@ export function PublicationEditDialog({
       toast.success("Snapshot supprimé");
       setDeletingSnapshot(null);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur lors de la suppression");
+      toast.error(convexErrorMessage(e, "Erreur lors de la suppression"));
     }
   }
 
@@ -454,7 +455,7 @@ function SnapshotFormDialog({
       }
       onClose();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur lors de l'enregistrement");
+      toast.error(convexErrorMessage(e, "Erreur lors de l'enregistrement"));
     } finally {
       setSubmitting(false);
     }

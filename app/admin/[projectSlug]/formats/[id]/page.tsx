@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ArrowLeftIcon, Trash2Icon, UsersIcon } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 import { FormatEditor } from "@/components/formats/FormatEditor";
 import { FormatBriefPreview } from "@/components/formats/FormatBriefPreview";
 import { AssignFormatDialog } from "@/components/admin/AssignFormatDialog";
@@ -54,7 +55,7 @@ export default function FormatDetailPage({
       toast.success("Format supprimé");
       router.replace(projectPath("/formats"));
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
       setDeleting(false);
       setDeleteOpen(false);
     }

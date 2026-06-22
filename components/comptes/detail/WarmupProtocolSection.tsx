@@ -86,7 +86,7 @@ export function WarmupProtocolSection({ compte }: { compte: Compte }) {
       });
       toast.success("Protocole enregistré");
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Erreur"));
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {
       setSaving(false);
     }
@@ -102,7 +102,7 @@ export function WarmupProtocolSection({ compte }: { compte: Compte }) {
       });
       toast.success(`${compte.handle} passé en actif`);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Erreur"));
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {
       setActivating(false);
     }

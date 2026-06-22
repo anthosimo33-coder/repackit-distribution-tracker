@@ -35,6 +35,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
 import { formatEuros } from "@/lib/format-rate";
 import { formatPeriod } from "@/lib/payout";
@@ -272,7 +273,7 @@ function MarkPeriodPaidButton({
       );
       setOpen(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Paiement de la période impossible"));
     } finally {
       setBusy(false);
     }
@@ -348,7 +349,7 @@ function PaymentRow({ p }: { p: Payment }) {
       await markPaid({ id: p._id });
       toast.success(`${p.creatorName} marqué payé.`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Paiement impossible"));
     } finally {
       setBusy(false);
     }

@@ -22,6 +22,7 @@ import { FOLDER_COLORS, type FolderColorKey } from "@/lib/folder-colors";
 import { Loader2Icon, CheckIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 
 const MAX_NAME_LENGTH = 80;
 
@@ -126,7 +127,7 @@ function FolderEditDialogForm({
       }
       onClose();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {
       setSubmitting(false);
     }

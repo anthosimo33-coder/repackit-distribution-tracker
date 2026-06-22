@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/select";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 
 const NONE = "__none__";
 const PLATFORMS = ["TikTok", "YouTube", "Instagram"] as const;
@@ -135,7 +136,7 @@ export function AssignFormatDialog({
       setPricingId(NONE);
       onOpenChange(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erreur");
+      toast.error(convexErrorMessage(err, "Une erreur est survenue."));
     } finally {
       setSubmitting(false);
     }

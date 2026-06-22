@@ -164,7 +164,7 @@ export default function CompteDialog({
       toast.success(`${compte.handle} passé en actif`);
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Erreur"));
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {
       setSubmitting(false);
     }
@@ -217,7 +217,7 @@ export default function CompteDialog({
       setStatus("actif");
       setWarmupStartedAt(null);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Erreur"));
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {
       setSubmitting(false);
     }

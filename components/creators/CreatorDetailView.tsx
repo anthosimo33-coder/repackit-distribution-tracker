@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/dialog";
 import { FolderPlusIcon, KeyRoundIcon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
 import {
   CREATOR_STATUS_ORDER,
@@ -97,7 +98,7 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
       toast.success("Créateur rattaché au projet.");
       setAddTarget("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Échec du rattachement au projet"));
     } finally {
       setAdding(false);
     }
@@ -120,7 +121,7 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
       });
       toast.success("Créateur mis à jour");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Échec de la mise à jour du créateur"));
     } finally {
       setSaving(false);
     }
@@ -131,7 +132,7 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
       await regenerate({ creatorId: creator._id });
       toast.success("Nouveau lien généré — l'ancien est désactivé");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Échec de la génération du lien"));
     }
   }
 
@@ -141,7 +142,7 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
       const { token } = await generateResetLink({ creatorId: creator._id });
       setResetToken(token);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Échec de la génération du lien de réinitialisation"));
     } finally {
       setGeneratingReset(false);
     }
@@ -473,7 +474,7 @@ function BonusGridSection({
       });
       toast.success("Grille de bonus mise à jour");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Échec de la mise à jour de la grille de bonus"));
     } finally {
       setSaving(false);
     }

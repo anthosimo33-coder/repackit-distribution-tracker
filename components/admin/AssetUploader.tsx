@@ -118,7 +118,7 @@ export function AssetUploader({ folderId }: { folderId: Id<"assetFolders"> }) {
           toast.error(
             convexErrorMessage(
               e,
-              e instanceof Error ? e.message : "Erreur d'upload.",
+              convexErrorMessage(e, "Erreur d'upload."),
             ),
           );
         }

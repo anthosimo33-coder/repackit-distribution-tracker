@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 
 /**
  * Combobox de sélection d'un ICP, calque IcpCombobox sur PersonneCombobox.
@@ -78,7 +79,7 @@ export function IcpCombobox({
       setOpen(false);
       setQuery("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {
       setCreating(false);
     }

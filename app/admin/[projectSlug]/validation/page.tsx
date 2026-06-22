@@ -35,6 +35,7 @@ import { VideoExample } from "@/components/formats/VideoExample";
 import { StreamPlayer } from "@/components/formats/StreamPlayer";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 import type { FunctionReturnType } from "convex/server";
 import {
   CheckIcon,
@@ -248,7 +249,7 @@ function VideoReviewCard({ a }: { a: VideoSubmittedRow }) {
           : "Vidéo validée — le créateur peut publier.",
       );
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Échec de la validation de la vidéo"));
     } finally {
       setBusy(false);
     }
@@ -266,7 +267,7 @@ function VideoReviewCard({ a }: { a: VideoSubmittedRow }) {
       setRejectOpen(false);
       setFeedback("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Échec du refus de la vidéo"));
     } finally {
       setBusy(false);
     }
@@ -524,7 +525,7 @@ function BonusRow({ r }: { r: BonusRowData }) {
       toast.success(`Bonus crédité : ${eur(res.bonus)}`);
       setOpen(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Échec du calcul du bonus"));
     } finally {
       setBusy(false);
     }

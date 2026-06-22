@@ -92,7 +92,7 @@ export function PersonneCombobox({
       setOpen(false);
       setQuery("");
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Erreur"));
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {
       setCreating(false);
     }

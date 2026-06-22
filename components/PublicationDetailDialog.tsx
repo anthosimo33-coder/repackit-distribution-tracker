@@ -66,6 +66,7 @@ import {
   RefreshCwIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 
 // Refinement SR — helper local pour afficher un badge Appareil avec
 // icône Lucide. Couleurs neutres (info ≠ verdict). Réutilisé par
@@ -618,7 +619,7 @@ function AccountEditSubDialog({
       toast.success("Compte de publication modifié");
       onOpenChange(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {
       setSubmitting(false);
     }
@@ -872,7 +873,7 @@ function DraftEditView({
       toast.success("Brouillon enregistré");
       onOpenChange(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur lors de l'édition");
+      toast.error(convexErrorMessage(e, "Erreur lors de l'édition"));
     } finally {
       setSubmitting(false);
     }

@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 
 /**
@@ -30,7 +31,7 @@ export default function GuideAdminPage() {
       await update({ content });
       toast.success("Guide enregistré");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {
       setSaving(false);
     }

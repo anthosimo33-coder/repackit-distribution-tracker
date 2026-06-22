@@ -56,7 +56,7 @@ export function CompteAdminActions({
         toast.success(`${compte.handle} archivé`);
       }
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Erreur"));
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     }
   }
 
@@ -67,7 +67,7 @@ export function CompteAdminActions({
       toast.success(`${compte.handle} supprimé`);
       setConfirmOpen(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Erreur"));
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {
       setSubmitting(false);
     }

@@ -40,6 +40,7 @@ import {
   getFolderColor,
 } from "@/lib/folder-colors";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 
 /**
  * Page admin des ICPs, accessible via /comptes?view=icps. CRUD complet :
@@ -82,7 +83,7 @@ export function IcpsManagerSection({ onBack }: { onBack: () => void }) {
       await updateIcp({ id, color });
       toast.success("Couleur mise à jour");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     }
   }
 
@@ -99,7 +100,7 @@ export function IcpsManagerSection({ onBack }: { onBack: () => void }) {
       );
       setDeleteTarget(null);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {
       setDeleting(false);
     }

@@ -20,6 +20,7 @@ import { normalizeSourceId } from "@/lib/source-id";
 import { cn } from "@/lib/utils";
 import { CircleCheckIcon, Loader2Icon, TriangleAlertIcon } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 
 type SourceRow = FunctionReturnType<
   typeof api.publications.listSources
@@ -78,7 +79,7 @@ export function RenameSourceDialog({
       );
       onClose();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur lors du renommage");
+      toast.error(convexErrorMessage(e, "Erreur lors du renommage"));
     } finally {
       setIsSubmitting(false);
     }

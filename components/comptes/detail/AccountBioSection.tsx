@@ -40,7 +40,7 @@ export function AccountBioSection({ compte }: { compte: Compte }) {
       await setBio({ id: compte._id, bio: draft });
       toast.success("Bio enregistrée");
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Erreur"));
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {
       setSaving(false);
     }

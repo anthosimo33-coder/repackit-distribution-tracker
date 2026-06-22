@@ -11,6 +11,7 @@ import { PlatformBadge } from "@/components/VerdictBadge";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { CheckCircle2Icon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
 import { AccountBioPanel } from "@/components/creators/portal/AccountBioPanel";
 import {
@@ -64,7 +65,7 @@ export function WarmupCompteCard({
       await markCheck({ projectId, id: compte._id });
       toast.success("Check du jour validé ✓");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {
       setSubmitting(false);
     }
