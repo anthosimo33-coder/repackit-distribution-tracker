@@ -91,8 +91,14 @@ test.describe("Modifier une brique du combo", () => {
       (b) => b.kind === "flux" && b.active,
     )!;
 
-    // ── ÉDITION OK (A, statut todo) : swap du hook.
-    const newHook = hooks.find((h) => h._id !== a0.scriptCombo!.hookBrickId)!;
+    // ── ÉDITION OK (A, statut todo) : swap du hook vers un hook LIBRE (ni a0 ni
+    // b0). Viser le combo de b0 serait refusé : unicité comboKey × créateur ×
+    // plateforme (#59 — a0 et b0 sont du même créateur sur la même plateforme).
+    const newHook = hooks.find(
+      (h) =>
+        h._id !== a0.scriptCombo!.hookBrickId &&
+        h._id !== b0.scriptCombo!.hookBrickId,
+    )!;
     const pricingBefore = a0.pricingSnapshot;
     await admin.mutation(api.scripts.editScriptCombo, {
       id: a0._id,

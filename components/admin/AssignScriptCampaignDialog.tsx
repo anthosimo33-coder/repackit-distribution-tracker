@@ -111,6 +111,21 @@ export function AssignScriptCampaignDialog({
     accountId: picks[p] as Id<"comptes">,
   }));
 
+  // Combos UNIQUES encore attribuables à ce créateur sur les plateformes
+  // choisies (unicité comboKey × créateur × plateforme). Sert à prévenir AVANT
+  // d'assigner s'il en manque pour le nombre de vidéos demandé.
+  const combosInfo = useProjectQuery(
+    api.scripts.availableCombosForAssignment,
+    open && creatorId !== NONE && targets.length > 0
+      ? {
+          campaignId,
+          creatorId: creatorId as Id<"creators">,
+          platforms: targets.map((t) => t.platform),
+          tier: tier === TIER_ALL ? undefined : (tier as "S" | "A"),
+        }
+      : "skip",
+  );
+
   async function handleSubmit() {
     if (creatorId === NONE) {
       toast.error("Choisis un créateur.");
@@ -164,6 +179,9 @@ export function AssignScriptCampaignDialog({
   }
 
   const total = (Number(videos) || 0) * targets.length;
+  const need = Number(videos) || 0;
+  const platformsLabel = targets.map((t) => t.platform).join(", ");
+  const lacksCombos = combosInfo !== undefined && need > combosInfo.available;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -289,6 +307,20 @@ export function AssignScriptCampaignDialog({
               />
             </div>
           </div>
+
+          {/* Combos uniques disponibles (unicité comboKey × créateur × plateforme) */}
+          {creatorId !== NONE &&
+            targets.length > 0 &&
+            combosInfo !== undefined && (
+              <p
+                className={`text-xs ${lacksCombos ? "text-amber-600" : "text-slate-500"}`}
+                data-testid="combo-availability"
+              >
+                {lacksCombos
+                  ? `Plus assez de combos uniques pour ce créateur sur ${platformsLabel} — ${combosInfo.available} restant${combosInfo.available > 1 ? "s" : ""} pour ${need} demandée${need > 1 ? "s" : ""}. Seuls les combos uniques seront assignés (pas de doublon).`
+                  : `${combosInfo.available} combo${combosInfo.available > 1 ? "s" : ""} unique${combosInfo.available > 1 ? "s" : ""} disponible${combosInfo.available > 1 ? "s" : ""} pour ce créateur sur ${platformsLabel}.`}
+              </p>
+            )}
 
           {/* Filtre tier de hook + barème de paie (pricing OBLIGATOIRE) */}
           <div className="grid grid-cols-2 gap-4">
