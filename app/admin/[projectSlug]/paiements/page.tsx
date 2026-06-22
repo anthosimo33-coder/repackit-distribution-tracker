@@ -24,6 +24,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { formatEuros } from "@/lib/format-rate";
@@ -121,7 +131,11 @@ export default function PaiementsPage() {
   );
 
   const periodTotal = rows.reduce((s, p) => s + p.totalDue, 0);
-  const unpaidCount = rows.filter((p) => p.status !== "paid").length;
+  // Récap de l'action bulk : seules les lignes non payées sont marquées par
+  // markPeriodPaid (cf convex/payments.ts — skip status === "paid").
+  const unpaidRows = rows.filter((p) => p.status !== "paid");
+  const unpaidCount = unpaidRows.length;
+  const unpaidTotal = unpaidRows.reduce((s, p) => s + p.totalDue, 0);
 
   return (
     <div className="space-y-6">
@@ -186,7 +200,12 @@ export default function PaiementsPage() {
               <DownloadIcon className="mr-2 size-4" />
               Export CSV
             </Button>
-            <MarkPeriodPaidButton period={selected} disabled={unpaidCount === 0} />
+            <MarkPeriodPaidButton
+              period={selected}
+              unpaidCount={unpaidCount}
+              unpaidTotal={unpaidTotal}
+              disabled={unpaidCount === 0}
+            />
           </div>
         )}
       </header>
@@ -229,14 +248,20 @@ export default function PaiementsPage() {
 
 function MarkPeriodPaidButton({
   period,
+  unpaidCount,
+  unpaidTotal,
   disabled,
 }: {
   period: string;
+  unpaidCount: number;
+  unpaidTotal: number;
   disabled: boolean;
 }) {
   const markPeriodPaid = useProjectMutation(api.payments.markPeriodPaid);
+  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  async function onClick() {
+
+  async function handleConfirm() {
     setBusy(true);
     try {
       const r = await markPeriodPaid({ period });
@@ -245,21 +270,68 @@ function MarkPeriodPaidButton({
           ? `${r.marked} paiement${r.marked > 1 ? "s" : ""} marqué${r.marked > 1 ? "s" : ""} payé${r.marked > 1 ? "s" : ""}.`
           : "Rien à marquer (déjà payé).",
       );
+      setOpen(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur");
     } finally {
       setBusy(false);
     }
   }
+
+  const plural = unpaidCount > 1 ? "s" : "";
+
   return (
-    <Button onClick={onClick} disabled={busy || disabled}>
-      {busy ? (
-        <Loader2Icon className="mr-2 size-4 animate-spin" />
-      ) : (
+    <AlertDialog
+      open={open}
+      onOpenChange={(o) => {
+        // On bloque la fermeture pendant la mutation pour garder l'état de
+        // chargement visible (cf suppression d'assignment).
+        if (!busy) setOpen(o);
+      }}
+    >
+      <Button
+        onClick={() => setOpen(true)}
+        disabled={disabled}
+        data-testid="mark-period-paid"
+      >
         <CheckCircle2Icon className="mr-2 size-4" />
-      )}
-      Tout marquer payé
-    </Button>
+        Tout marquer payé
+      </Button>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            Marquer payé{plural} {unpaidCount} créateur{plural} ?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            Période{" "}
+            <span className="font-medium text-foreground">
+              {formatPeriod(period)}
+            </span>{" "}
+            · total concerné{" "}
+            <span className="font-medium text-foreground tabular-nums">
+              {formatEuros(unpaidTotal)}
+            </span>
+            . Cette action est irréversible.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={busy}>Annuler</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={(e) => {
+              // Fermeture gérée manuellement (succès) pour afficher l'état de
+              // chargement ; empêche la fermeture auto de l'AlertDialog.
+              e.preventDefault();
+              void handleConfirm();
+            }}
+            disabled={busy}
+            data-testid="mark-period-paid-confirm"
+          >
+            {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+            Confirmer le paiement
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
