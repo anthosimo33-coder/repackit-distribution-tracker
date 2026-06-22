@@ -754,6 +754,22 @@ export default defineSchema({
     // storage à published. mimeType pour le <source type> de <VideoExample>.
     submittedVideoStorageId: v.optional(v.id("_storage")),
     submittedVideoMimeType: v.optional(v.string()),
+    // ─── Cloudflare Stream — transcoding HEVC de la vidéo soumise ──────────────
+    // La soumission Convex (submittedVideoStorageId, ci-dessus) reste la SOURCE
+    // et le fallback (bouton télécharger #56). En plus, on copie la vidéo vers
+    // Cloudflare Stream qui la TRANSCODE → un player lisible partout (.mov HEVC
+    // iPhone inclus). UID Cloudflare + état du transcoding, posés HORS du chemin
+    // critique (scheduler) par convex/cloudflareStream.ts. Optional → 0 migration
+    // de schéma ; absent = pas de Stream (env Cloudflare manquant, copie échouée,
+    // ou ancienne vidéo non migrée) → l'UI retombe sur le <video> Convex.
+    submittedVideoStreamUid: v.optional(v.string()),
+    submittedVideoStreamStatus: v.optional(
+      v.union(
+        v.literal("processing"),
+        v.literal("ready"),
+        v.literal("error"),
+      ),
+    ),
     // Feedback admin au REFUS d'une vidéo (visible créateur). Remplace le rôle de
     // l'ancien adminFeedback (migré).
     videoReviewFeedback: v.optional(v.string()),

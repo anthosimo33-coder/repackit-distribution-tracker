@@ -691,6 +691,14 @@ export const listVideoSubmitted = adminQuery({
               ? await ctx.storage.getUrl(a.submittedVideoStorageId)
               : null,
             videoMimeType: a.submittedVideoMimeType ?? "video/mp4",
+            // Cloudflare Stream : UID + état du transcoding. "ready" → la carte
+            // affiche le PLAYER Stream (HEVC lisible inline) ; "processing" → un
+            // message « transcoding en cours » (la réactivité Convex bascule sur
+            // le player dès que c'est prêt) ; null/error → fallback <video> +
+            // bouton télécharger. Scopé projet (la soumission appartient au
+            // projet), UID exposé au seul admin du projet.
+            streamUid: a.submittedVideoStreamUid ?? null,
+            streamStatus: a.submittedVideoStreamStatus ?? null,
             // SCRIPT MONTÉ FIGÉ (labels:false, sans titres ##) : on l'AFFICHE
             // tel quel pour comparer vidéo ↔ script attendu. JAMAIS re-dérivé —
             // cohérent avec AssignmentScriptDialog. Null hors origine script.
@@ -1281,16 +1289,37 @@ export const submitVideo = creatorMutation({
     ) {
       throw new ConvexError("Soumission vidéo impossible dans cet état.");
     }
-    // Remplacement : l'ancienne vidéo (refusée) est purgée du storage.
+    // Remplacement : l'ancienne vidéo (refusée) est purgée du storage, et sa
+    // copie Cloudflare Stream supprimée (best-effort, hygiène de coût).
     if (a.submittedVideoStorageId && a.submittedVideoStorageId !== storageId) {
       await ctx.storage.delete(a.submittedVideoStorageId);
+    }
+    if (a.submittedVideoStreamUid) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.cloudflareStream.deleteStreamAsset,
+        { uid: a.submittedVideoStreamUid },
+      );
     }
     await ctx.db.patch(id, {
       status: "video_submitted",
       submittedVideoStorageId: storageId,
       submittedVideoMimeType: mimeType ?? "video/mp4",
+      // Reset Stream : la nouvelle vidéo repart d'un transcoding neuf (l'UI
+      // retombe sur le <video> Convex tant que le UID n'est pas reposé).
+      submittedVideoStreamUid: undefined,
+      submittedVideoStreamStatus: undefined,
       videoReviewFeedback: undefined,
     });
+    // TRANSCODING HEVC (hors chemin critique) : Cloudflare Stream récupère la
+    // vidéo depuis l'URL signée Convex et la transcode. Sans env Cloudflare,
+    // l'action no-op proprement → fallback Convex. La soumission n'est JAMAIS
+    // bloquée par Cloudflare.
+    await ctx.scheduler.runAfter(
+      0,
+      internal.cloudflareStream.startStreamCopy,
+      { assignmentId: id },
+    );
     return { ok: true };
   },
 });
@@ -1440,9 +1469,17 @@ export const confirmPublication = creatorMutation({
       await syncBonusUnlocks(ctx, ctx.projectId, a.creatorId);
     }
 
-    // PURGE du MP4 (1 vidéo pour toutes les cibles, inutile une fois publiée).
+    // PURGE du MP4 (1 vidéo pour toutes les cibles, inutile une fois publiée) —
+    // côté Convex ET côté Cloudflare Stream (best-effort, hygiène de coût).
     if (a.submittedVideoStorageId) {
       await ctx.storage.delete(a.submittedVideoStorageId);
+    }
+    if (a.submittedVideoStreamUid) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.cloudflareStream.deleteStreamAsset,
+        { uid: a.submittedVideoStreamUid },
+      );
     }
 
     await ctx.db.patch(id, {
@@ -1450,6 +1487,8 @@ export const confirmPublication = creatorMutation({
       targets: newTargets,
       submittedVideoStorageId: undefined,
       submittedVideoMimeType: undefined,
+      submittedVideoStreamUid: undefined,
+      submittedVideoStreamStatus: undefined,
     });
 
     return { ok: true, alreadyPublished: false, publicationIds };
@@ -1491,6 +1530,34 @@ export const e2eSetAssignmentStatus = e2eMutation({
   },
   handler: async (ctx, { id, status, videoReviewFeedback }) => {
     await ctx.db.patch(id, { status, videoReviewFeedback });
+    return { ok: true };
+  },
+});
+
+/**
+ * E2E — injecte directement le UID + l'état Cloudflare Stream sur une soumission,
+ * SANS appel réseau réel : c'est ainsi que la CI « mocke » Cloudflare (cf
+ * apify-sync). Exerce le VRAI rendu (player si "ready", message si "processing",
+ * fallback si absent) sans dépendre du transcoding réel. uid null = retire le
+ * Stream (revient au fallback Convex).
+ */
+export const e2eSetSubmittedVideoStream = e2eMutation({
+  args: {
+    id: v.id("assignments"),
+    uid: v.union(v.string(), v.null()),
+    status: v.optional(
+      v.union(
+        v.literal("processing"),
+        v.literal("ready"),
+        v.literal("error"),
+      ),
+    ),
+  },
+  handler: async (ctx, { id, uid, status }) => {
+    await ctx.db.patch(id, {
+      submittedVideoStreamUid: uid ?? undefined,
+      submittedVideoStreamStatus: uid ? (status ?? "processing") : undefined,
+    });
     return { ok: true };
   },
 });
