@@ -23,6 +23,9 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 // Kinds créables : refonte → hook/flux/cta. "corps" n'est plus créable (les
 // corps existants sont reclassés en hook par migrateCorpsToHooks).
 const KIND = v.union(v.literal("hook"), v.literal("flux"), v.literal("cta"));
+// 2 tiers visuels : "S" → « Argent », "A" → « Autre » (cf lib/script-tier).
+// "B" reste TOLÉRÉ par les args (legacy back-compat / seed de migration), mais
+// l'UI ne le propose plus jamais ; migrateTierBToA reclasse les "B" en "A".
 const TIER = v.union(v.literal("S"), v.literal("A"), v.literal("B"));
 
 // Ordre d'affichage. Un kind inconnu (ex. "corps" legacy pas encore migré)
@@ -271,7 +274,8 @@ export const updateBrick = adminMutation({
     id: v.id("scriptBricks"),
     label: v.optional(v.string()),
     content: v.optional(v.string()),
-    // null = retirer le tier ; "S"|"A"|"B" = définir (ignoré si non-hook).
+    // null = retirer le tier ; "S"|"A" = définir (ignoré si non-hook). "B"
+    // encore accepté par TIER (legacy) mais l'UI ne l'envoie plus.
     tier: v.optional(v.union(TIER, v.null())),
     active: v.optional(v.boolean()),
     order: v.optional(v.number()),
@@ -772,6 +776,41 @@ export const migrateCorpsToHooks = internalMutation({
     }
     return { migrated };
   },
+});
+
+/**
+ * Passage à 2 tiers (Argent/Autre) : reclasse TOUS les hooks tier "B" en "A".
+ * PATCH du seul champ `tier` (même _id) → n'altère AUCUN assembledScript figé,
+ * combo, assignment ni snapshot analytics (le tier d'une pub est re-résolu à
+ * l'affichage depuis hookBrickId : un ex-"B" affichera « Autre », ce qui est
+ * voulu). Tourne sur TOUS les projets (internalMutation, pas de ctx.projectId).
+ *
+ * IDEMPOTENTE : relançable sans effet (no-op s'il ne reste aucun "B"). À lancer
+ * APRÈS le deploy du code 2-tiers (même PR) :
+ *   npx convex run scripts:migrateTierBToA --prod
+ */
+async function reclassTierBToA(
+  ctx: MutationCtx,
+): Promise<{ migrated: number }> {
+  const all = await ctx.db.query("scriptBricks").collect();
+  let migrated = 0;
+  for (const b of all) {
+    if (b.tier !== "B") continue;
+    await ctx.db.patch(b._id, { tier: "A" });
+    migrated++;
+  }
+  return { migrated };
+}
+
+export const migrateTierBToA = internalMutation({
+  args: {},
+  handler: (ctx) => reclassTierBToA(ctx),
+});
+
+/** Variante e2e (gated E2E_SECRET) pour prouver la migration en test. */
+export const e2eMigrateTierBToA = e2eMutation({
+  args: {},
+  handler: (ctx) => reclassTierBToA(ctx),
 });
 
 /** Supprime les campagnes de test ([E2E_TEST]) + leurs bricks (cascade). */

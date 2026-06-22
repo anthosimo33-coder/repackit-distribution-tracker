@@ -41,15 +41,16 @@ async function makeCampaign(ts: number) {
     });
   const hookS = await add("hook", "H-S", "S");
   const hookA = await add("hook", "H-A", "A");
+  // 3e hook créé en "B" LEGACY : la dimension tier le replie sur « Autre » (A).
   const hookB = await add("hook", "H-B", "B");
   await add("flux", "F1");
   await add("flux", "F2");
   await add("cta", "T1");
   await add("cta", "T2");
-  const tierByHook: Record<string, "S" | "A" | "B"> = {
+  const tierByHook: Record<string, "S" | "A"> = {
     [hookS]: "S",
     [hookA]: "A",
-    [hookB]: "B",
+    [hookB]: "A", // ex-"B" → « Autre »
   };
   return { campaignId, tierByHook };
 }
@@ -101,7 +102,7 @@ test.describe("S4 — moteur de décision (campaignDecisions)", () => {
     expect(rows.length).toBe(9);
 
     type Post = {
-      tier: "S" | "A" | "B";
+      tier: "S" | "A";
       hookBrickId: string;
       fluxBrickId: string;
       ctaBrickId: string;
@@ -187,8 +188,8 @@ test.describe("S4 — moteur de décision (campaignDecisions)", () => {
       window: "j7",
     });
     const tierDim = dec7.dimensions.find((d) => d.kind === "tier")!;
-    expect(tierDim.decisions.length).toBe(3);
-    for (const t of ["S", "A", "B"] as const) {
+    expect(tierDim.decisions.length).toBe(2); // 2 tiers (Argent/Autre)
+    for (const t of ["S", "A"] as const) {
       const s3 = tier7.find((x) => x.tier === t)!;
       const dec = tierDim.decisions.find((x) => x.key === t)!;
       expect(dec.postCount).toBe(s3.postCount);

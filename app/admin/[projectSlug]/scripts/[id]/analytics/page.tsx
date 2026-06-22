@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/format";
+import { tierLabel } from "@/lib/script-tier";
 import { JUGEABLE_THRESHOLD } from "@/lib/scriptStats";
 import {
   ArrowLeftIcon,
@@ -555,16 +556,18 @@ function TierSection({ tiers }: { tiers: TierPerf[] }) {
       </div>
       {winner && (
         <p className="text-sm text-emerald-700">
-          <span className="font-semibold">Tier {winner.tier} surperforme</span>{" "}
+          <span className="font-semibold">
+            {tierLabel(winner.tier)} surperforme
+          </span>{" "}
           — médiane {formatNumber(winner.viewsMedian)} vues sur{" "}
           {winner.postCount} posts.
         </p>
       )}
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="grid gap-2 sm:grid-cols-2">
         {tiers.map((t, i) => (
           <MetricRow
             key={t.tier}
-            label={`Tier ${t.tier}`}
+            label={tierLabel(t.tier)}
             median={t.viewsMedian}
             postCount={t.postCount}
             status={t.status}
@@ -653,7 +656,7 @@ function ComboSection({ combos }: { combos: ComboPerf[] }) {
             >
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-slate-900">
-                  Tier {c.tier ?? "?"} · {c.fluxLabel} · {c.ctaLabel}
+                  {tierLabel(c.tier)} · {c.fluxLabel} · {c.ctaLabel}
                 </p>
                 <p className="truncate text-xs text-slate-400">{c.hookLabel}</p>
               </div>

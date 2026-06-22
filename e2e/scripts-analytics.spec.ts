@@ -41,15 +41,17 @@ async function makeCampaign(ts: number) {
     });
   const hookS = await add("hook", "H-S", "S");
   const hookA = await add("hook", "H-A", "A");
+  // 3e hook créé en "B" LEGACY : prouve que perfByTier le replie sur « Autre »
+  // (A). Son tier EFFECTIF d'agrégation est donc "A".
   const hookB = await add("hook", "H-B", "B");
   await add("flux", "F1");
   await add("flux", "F2");
   await add("cta", "T1");
   await add("cta", "T2");
-  const tierByHook: Record<string, "S" | "A" | "B"> = {
+  const tierByHook: Record<string, "S" | "A"> = {
     [hookS]: "S",
     [hookA]: "A",
-    [hookB]: "B",
+    [hookB]: "A", // ex-"B" → « Autre »
   };
   return { campaignId, tierByHook };
 }
@@ -100,7 +102,7 @@ test.describe("S3 — analytics par variable de script", () => {
 
     // Valide chaque post → matérialise une publication PORTANT le combo.
     type Post = {
-      tier: "S" | "A" | "B";
+      tier: "S" | "A";
       hookBrickId: string;
       fluxBrickId: string;
       ctaBrickId: string;
@@ -167,18 +169,18 @@ test.describe("S3 — analytics par variable de script", () => {
       });
     }
 
-    // ── perfByTier J+7 : médianes par tier correctes, tout "en test" (3 < 50).
+    // ── perfByTier J+7 : 2 tiers (Argent/Autre), médianes correctes, tout "en
+    // test" (< 50). « Autre » (A) cumule hookA + l'ex-"B" replié.
     const tier7 = await admin.query(api.scriptAnalytics.perfByTier, {
       campaignId,
       window: "j7",
     });
-    for (const t of ["S", "A", "B"] as const) {
-      const expected = median(
-        posts.filter((p) => p.tier === t).map((p) => p.vues7),
-      );
+    expect(tier7.map((x) => x.tier).sort()).toEqual(["A", "S"]);
+    for (const t of ["S", "A"] as const) {
+      const inTier = posts.filter((p) => p.tier === t);
       const row = tier7.find((x) => x.tier === t)!;
-      expect(row.viewsMedian).toBe(expected);
-      expect(row.postCount).toBe(3);
+      expect(row.viewsMedian).toBe(median(inTier.map((p) => p.vues7)));
+      expect(row.postCount).toBe(inTier.length); // S=3, A=6 (3 + ex-B 3)
       expect(row.status).toBe("en_test"); // jamais "jugeable" sous 50
     }
 
@@ -187,7 +189,7 @@ test.describe("S3 — analytics par variable de script", () => {
       campaignId,
       window: "j3",
     });
-    for (const t of ["S", "A", "B"] as const) {
+    for (const t of ["S", "A"] as const) {
       const expected = median(
         posts.filter((p) => p.tier === t).map((p) => p.vues3),
       );
@@ -195,7 +197,7 @@ test.describe("S3 — analytics par variable de script", () => {
     }
     // Au moins un tier a une médiane différente entre J+3 et J+7.
     expect(
-      (["S", "A", "B"] as const).some(
+      (["S", "A"] as const).some(
         (t) =>
           tier3.find((x) => x.tier === t)!.viewsMedian !==
           tier7.find((x) => x.tier === t)!.viewsMedian,

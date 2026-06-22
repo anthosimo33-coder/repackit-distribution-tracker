@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { findMatchingSnapshot, type SnapshotAge } from "./snapshotMatching";
+import { normalizeTier } from "./scriptTier";
 
 /**
  * S3 — Analytics par VARIABLE de script (lecture du bulk testing). Pour une
@@ -79,7 +80,8 @@ const WINDOW = v.union(
   v.literal("j30"),
 );
 
-export const TIERS = ["S", "A", "B"] as const;
+// 2 tiers (Argent/Autre). Le "B" legacy est replié sur "A" via normalizeTier.
+export const TIERS = ["S", "A"] as const;
 export type Tier = (typeof TIERS)[number];
 // Refonte 3 briques. Un kind inconnu (corps legacy) retombe en fin via `?? 99`.
 const KIND_ORDER: Record<string, number> = { hook: 0, flux: 1, cta: 2 };
@@ -215,7 +217,8 @@ export function aggregateByBrick(views: CampaignViews): BrickPerf[] {
         brickId: b._id,
         kind,
         label: b.label,
-        tier: (b.tier as Tier | undefined) ?? null,
+        // Tier normalisé (B legacy → A) ; null si la brique n'a pas de tier.
+        tier: b.tier ? normalizeTier(b.tier) : null,
         ...summarize(values),
       };
     });
@@ -240,18 +243,19 @@ export interface TierPerf extends Distribution {
 }
 
 /**
- * Vues agrégées par tier de hook (S/A/B). Renvoie TOUJOURS les 3 tiers
- * (postCount 0 → en_test) pour un rendu stable. Le tier d'une publication = tier
- * du hook de son combo (même si la brique a été désactivée depuis). Pur sur un
- * CampaignViews déjà chargé.
+ * Vues agrégées par tier de hook. Renvoie TOUJOURS les 2 tiers (« Argent » =
+ * S, « Autre » = A ; postCount 0 → en_test) pour un rendu stable. Le tier d'une
+ * publication = tier du hook de son combo (même si la brique a été désactivée
+ * depuis), NORMALISÉ : un hook ex-"B" (legacy, non encore migré) compte dans
+ * « Autre » (A). Un hook sans tier est ignoré. Pur sur un CampaignViews chargé.
  */
 export function aggregateByTier(views: CampaignViews): TierPerf[] {
   const { bricksById, samples } = views;
   const byTier = new Map<Tier, number[]>(TIERS.map((t) => [t, []]));
   for (const s of samples) {
     const hook = bricksById.get(s.hookBrickId as string);
-    const tier = hook?.tier as Tier | undefined;
-    if (tier && byTier.has(tier)) byTier.get(tier)!.push(s.views);
+    if (!hook?.tier) continue; // hook sans tier → non classé
+    byTier.get(normalizeTier(hook.tier))!.push(s.views); // "B" → "A"
   }
   return TIERS.map((tier) => ({ tier, ...summarize(byTier.get(tier)!) }));
 }

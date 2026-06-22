@@ -1026,6 +1026,10 @@ export default defineSchema({
     ),
     label: v.string(),
     content: v.string(),
+    // Tier de hook. Affichage : "S" → « Argent », "A" → « Autre » (cf
+    // lib/script-tier). "B" = LEGACY toléré dans l'union : migré en "A" par
+    // migrateTierBToA, plus jamais proposé par l'UI. Conservé ici pour que le
+    // deploy ne casse pas tant que des "B" subsistent (migration post-deploy).
     tier: v.optional(v.union(v.literal("S"), v.literal("A"), v.literal("B"))),
     active: v.boolean(),
     order: v.optional(v.number()),

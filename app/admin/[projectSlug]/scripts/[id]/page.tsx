@@ -54,6 +54,8 @@ import {
   type ScriptKind,
   type ScriptTier,
 } from "@/lib/scriptAssembly";
+import { SCRIPT_TIERS, tierLabel } from "@/lib/script-tier";
+import { TierBadge } from "@/components/admin/TierBadge";
 import { AssignScriptCampaignDialog } from "@/components/admin/AssignScriptCampaignDialog";
 import type { FunctionReturnType } from "convex/server";
 
@@ -61,8 +63,6 @@ type CampaignDetail = NonNullable<
   FunctionReturnType<typeof api.scripts.getCampaign>
 >;
 type Brick = CampaignDetail["bricks"][number];
-
-const TIERS: ScriptTier[] = ["S", "A", "B"];
 
 export default function ScriptCampaignDetailPage() {
   const params = useParams<{ id: string }>();
@@ -293,16 +293,16 @@ function BrickRow({ brick, onEdit }: { brick: Brick; onEdit: () => void }) {
             value={brick.tier ?? "none"}
             onValueChange={(v) => v && setTier(v as ScriptTier | "none")}
           >
-            <SelectTrigger className="h-8 w-20" aria-label="Tier du hook">
+            <SelectTrigger className="h-8 w-28" aria-label="Tier du hook">
               <SelectValue>
-                {brick.tier ? `Tier ${brick.tier}` : "Tier"}
+                {brick.tier ? <TierBadge tier={brick.tier} /> : "Tier"}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="none">—</SelectItem>
-              {TIERS.map((t) => (
+              {SCRIPT_TIERS.map((t) => (
                 <SelectItem key={t} value={t}>
-                  Tier {t}
+                  {tierLabel(t)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -438,14 +438,14 @@ function BrickDialog({
               >
                 <SelectTrigger id="brick-tier" className="w-32">
                   <SelectValue>
-                    {tier === "none" ? "—" : `Tier ${tier}`}
+                    {tier === "none" ? "—" : tierLabel(tier)}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">—</SelectItem>
-                  {TIERS.map((t) => (
+                  {SCRIPT_TIERS.map((t) => (
                     <SelectItem key={t} value={t}>
-                      Tier {t}
+                      {tierLabel(t)}
                     </SelectItem>
                   ))}
                 </SelectContent>

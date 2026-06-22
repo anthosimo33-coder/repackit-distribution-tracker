@@ -7,6 +7,7 @@ import {
 } from "./functions";
 import { withResolvedExamples } from "./formats";
 import { isFormatAllowedOnPlatform } from "./publications";
+import { tierLabel } from "./scriptTier";
 import {
   accrueBaseLineItem,
   upsertBonusLineItem,
@@ -420,7 +421,7 @@ export const listAssignments = adminQuery({
           const hook = brickMap.get(a.scriptCombo.hookBrickId);
           const flux = brickMap.get(a.scriptCombo.fluxBrickId);
           const cta = brickMap.get(a.scriptCombo.ctaBrickId);
-          comboSummary = `Tier ${hook?.tier ?? "?"} · ${flux?.label ?? "?"} · ${cta?.label ?? "?"}`;
+          comboSummary = `${tierLabel(hook?.tier)} · ${flux?.label ?? "?"} · ${cta?.label ?? "?"}`;
         }
         // Chantier C — cibles enrichies (handle + URL par plateforme).
         const targets = (a.targets ?? []).map((t) => ({
@@ -666,7 +667,7 @@ export const listVideoSubmitted = adminQuery({
             const hook = brickMap.get(combo.hookBrickId);
             const flux = brickMap.get(combo.fluxBrickId);
             const cta = brickMap.get(combo.ctaBrickId);
-            comboSummary = `Tier ${hook?.tier ?? "?"} · ${flux?.label ?? "?"} · ${cta?.label ?? "?"}`;
+            comboSummary = `${tierLabel(hook?.tier)} · ${flux?.label ?? "?"} · ${cta?.label ?? "?"}`;
           }
           return {
             _id: a._id,
