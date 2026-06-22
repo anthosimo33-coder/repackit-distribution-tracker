@@ -2,6 +2,7 @@ import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
+import { formatPeriod } from "../lib/payout";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
 
@@ -235,5 +236,91 @@ test.describe("P9 — paiements & gains", () => {
     expect(paid.status).toBe("paid");
 
     await ctx.close();
+  });
+
+  // Quick win audit #2 — l'action BULK « Tout marquer payé » (période entière,
+  // argent réel, irréversible) doit passer par une confirmation avec récap.
+  // Le marquage INDIVIDUEL (mark-paid-${id}) reste sans confirmation : action
+  // unitaire à plus faible risque (couverte par le test ci-dessus).
+  test("UI : 'Tout marquer payé' demande confirmation (récap, annuler, confirmer)", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const period = currentPeriod();
+
+    // Un créateur avec un paiement non payé sur la période courante.
+    const c = await createCreatorSession(url, {
+      name: `[E2E_TEST] PayBulk ${ts}`,
+      email: `e2e-creator-pay-bulk-${ts}@repackit.test`,
+      password: "pay-bulk-12345",
+    });
+    const formatId = await admin.mutation(api.formats.createFormat, {
+      name: `[E2E_TEST] PayBulkFmt ${ts}`,
+      type: "short",
+      rateModel: { basePerPost: 12 },
+    });
+    const target = await availableTarget({
+      e2eClient: admin,
+      creatorId: c.creatorId,
+      platform: "TikTok",
+      handle: `@e2epaybulk${ts}`,
+    });
+    await admin.mutation(api.assignments.assignFormat, {
+      formatId,
+      creatorId: c.creatorId,
+      targets: [target],
+      postsPerCreator: 1,
+      dueDate: ts + 7 * DAY,
+    });
+    const assignment = (
+      await admin.query(api.assignments.listAssignments, {})
+    ).find((x) => x.formatId === formatId && x.creatorId === c.creatorId)!;
+    await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
+      secret: E2E_SECRET,
+      id: assignment._id,
+      status: "to_publish",
+    });
+    await c.client.mutation(api.assignments.confirmPublication, {
+      projectId: c.projectId,
+      id: assignment._id,
+      urls: [
+        { platform: "TikTok", url: `https://www.tiktok.com/@bulk/video/${ts}` },
+      ],
+    });
+    const payId = (await admin.query(api.payments.listPayments, {})).find(
+      (p) => p.creatorId === c.creatorId,
+    )!._id;
+
+    await page.goto(adminPath("/paiements"));
+    // Période courante sélectionnée par défaut (tri desc) → bouton actif.
+    const bulkBtn = page.getByTestId("mark-period-paid");
+    await expect(bulkBtn).toBeEnabled({ timeout: 15_000 });
+
+    // 1) Le clic OUVRE le dialog avec le récap (période, total €, irréversible) —
+    //    AVANT toute écriture.
+    await bulkBtn.click();
+    const dialog = page.getByRole("alertdialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText(formatPeriod(period));
+    await expect(dialog).toContainText("€");
+    await expect(dialog).toContainText(/irréversible/i);
+
+    // 2) ANNULER ne fait rien : dialog fermé + paiement toujours non payé.
+    await dialog.getByRole("button", { name: /annuler/i }).click();
+    await expect(dialog).toBeHidden();
+    const afterCancel = (await admin.query(api.payments.listPayments, {})).find(
+      (p) => p._id === payId,
+    )!;
+    expect(afterCancel.status).not.toBe("paid");
+
+    // 3) CONFIRMER déclenche la mutation : le paiement passe à « payé ».
+    await bulkBtn.click();
+    await page.getByTestId("mark-period-paid-confirm").click();
+    await expect(page.getByRole("alertdialog")).toBeHidden({ timeout: 10_000 });
+    const afterConfirm = (await admin.query(api.payments.listPayments, {})).find(
+      (p) => p._id === payId,
+    )!;
+    expect(afterConfirm.status).toBe("paid");
   });
 });
