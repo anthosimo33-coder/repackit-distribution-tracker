@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type MouseEvent } from "react";
 import {
   useProjectQuery,
   useProjectMutation,
 } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { submittedVideoFilename } from "@/lib/video-download";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -39,6 +41,8 @@ import {
   ExternalLinkIcon,
   TrendingUpIcon,
   InboxIcon,
+  DownloadIcon,
+  FilmIcon,
 } from "lucide-react";
 
 type VideoSubmittedRow =
@@ -183,6 +187,45 @@ function VideoReviewCard({ a }: { a: VideoSubmittedRow }) {
   const [busy, setBusy] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [feedback, setFeedback] = useState("");
+  // Le lecteur inline signale s'il ne sait pas afficher la vidéo (HEVC iPhone) :
+  // on met alors le téléchargement en avant comme seule façon de la visionner.
+  const [unreadable, setUnreadable] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  const downloadName = submittedVideoFilename({
+    creatorName: a.creatorName,
+    label: a.label,
+    mimeType: a.videoMimeType,
+  });
+
+  // Télécharge le FICHIER ORIGINAL déjà stocké (URL signée Convex du
+  // storageId). On passe par fetch → blob → <a download> : cross-origin, c'est
+  // le seul moyen FIABLE d'imposer le téléchargement (et le nom de fichier)
+  // plutôt qu'une ouverture inline que le navigateur ne sait pas lire (HEVC).
+  // Repli : ouverture dans un onglet si le fetch échoue (réseau/CORS).
+  async function onDownload(e: MouseEvent<HTMLAnchorElement>) {
+    e.preventDefault();
+    if (!a.videoUrl || downloading) return;
+    setDownloading(true);
+    try {
+      const res = await fetch(a.videoUrl);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = downloadName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      window.open(a.videoUrl, "_blank", "noopener,noreferrer");
+      toast.error("Téléchargement direct impossible — ouvert dans un onglet.");
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   async function onApprove() {
     setBusy(true);
@@ -247,10 +290,46 @@ function VideoReviewCard({ a }: { a: VideoSubmittedRow }) {
               mimeType: a.videoMimeType,
               url: a.videoUrl,
             }}
+            onUnreadable={() => setUnreadable(true)}
           />
         ) : (
           <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-400">
             Vidéo indisponible.
+          </div>
+        )}
+
+        {a.videoUrl && (
+          <div className="space-y-2">
+            {unreadable && (
+              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800">
+                <FilmIcon className="mt-0.5 size-4 shrink-0 text-amber-500" />
+                <span>
+                  La vidéo ne s&apos;affiche pas dans le navigateur (format HEVC
+                  iPhone). Télécharge-la pour la visionner dans ton lecteur
+                  (QuickTime).
+                </span>
+              </div>
+            )}
+            <a
+              href={a.videoUrl}
+              download={downloadName}
+              onClick={onDownload}
+              data-testid={`download-${a._id}`}
+              aria-disabled={downloading}
+              className={cn(
+                buttonVariants({
+                  variant: unreadable ? "default" : "outline",
+                }),
+                "w-full",
+              )}
+            >
+              {downloading ? (
+                <Loader2Icon className="mr-2 size-4 animate-spin" />
+              ) : (
+                <DownloadIcon className="mr-2 size-4" />
+              )}
+              Télécharger la vidéo
+            </a>
           </div>
         )}
 

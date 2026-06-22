@@ -30,12 +30,27 @@ export type FormatExample =
       title: string;
     };
 
-export function VideoExample({ example }: { example: FormatExample }) {
+export function VideoExample({
+  example,
+  onUnreadable,
+}: {
+  example: FormatExample;
+  /**
+   * Notifié quand un fichier kind="file" ne peut pas être lu inline (typique
+   * .mov HEVC iPhone). Le parent (ex. file de validation admin) s'en sert pour
+   * proposer le téléchargement. Ce composant reste SANS lien de download.
+   */
+  onUnreadable?: () => void;
+}) {
   return (
     <figure className="space-y-1.5">
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
         {example.kind === "file" ? (
-          <FileVideo url={example.url ?? null} mimeType={example.mimeType} />
+          <FileVideo
+            url={example.url ?? null}
+            mimeType={example.mimeType}
+            onUnreadable={onUnreadable}
+          />
         ) : example.platform === "youtube" ? (
           <YouTubeEmbed url={example.url} title={example.title} />
         ) : example.platform === "tiktok" ? (
@@ -53,7 +68,15 @@ export function VideoExample({ example }: { example: FormatExample }) {
   );
 }
 
-function FileVideo({ url, mimeType }: { url: string | null; mimeType: string }) {
+function FileVideo({
+  url,
+  mimeType,
+  onUnreadable,
+}: {
+  url: string | null;
+  mimeType: string;
+  onUnreadable?: () => void;
+}) {
   const [error, setError] = useState(false);
   if (!url) return <FallbackCard label="Vidéo indisponible" />;
   if (error) {
@@ -74,7 +97,10 @@ function FileVideo({ url, mimeType }: { url: string | null; mimeType: string }) 
       preload="metadata"
       playsInline
       onContextMenu={(e) => e.preventDefault()}
-      onError={() => setError(true)}
+      onError={() => {
+        setError(true);
+        onUnreadable?.();
+      }}
       className="aspect-video w-full bg-black"
     >
       <source src={url} type={mimeType} />
