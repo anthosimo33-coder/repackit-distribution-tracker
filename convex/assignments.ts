@@ -626,54 +626,77 @@ export const listVideoSubmitted = adminQuery({
         q.eq("projectId", ctx.projectId).eq("status", "video_submitted"),
       )
       .collect();
-    const [creators, formats, campaigns, comptes] = await Promise.all([
-      ctx.db
-        .query("creators")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect(),
-      ctx.db
-        .query("formats")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect(),
-      ctx.db
-        .query("scriptCampaigns")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect(),
-      ctx.db
-        .query("comptes")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect(),
-    ]);
+    const [creators, formats, campaigns, comptes, scriptBricks] =
+      await Promise.all([
+        ctx.db
+          .query("creators")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect(),
+        ctx.db
+          .query("formats")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect(),
+        ctx.db
+          .query("scriptCampaigns")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect(),
+        ctx.db
+          .query("comptes")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect(),
+        ctx.db
+          .query("scriptBricks")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect(),
+      ]);
     const creatorMap = new Map(creators.map((c) => [c._id, c.name]));
     const formatMap = new Map(formats.map((f) => [f._id, f.name]));
     const campaignMap = new Map(campaigns.map((c) => [c._id, c.name]));
     const compteMap = new Map(comptes.map((c) => [c._id, c.handle]));
+    const brickMap = new Map(scriptBricks.map((b) => [b._id, b]));
     return Promise.all(
       subs
         .sort((a, b) => a.createdAt - b.createdAt)
-        .map(async (a) => ({
-          _id: a._id,
-          creatorName: creatorMap.get(a.creatorId) ?? "—",
-          label: a.scriptCombo
-            ? (campaignMap.get(a.scriptCombo.campaignId) ?? "Script")
-            : a.formatId
-              ? (formatMap.get(a.formatId) ?? "—")
-              : "—",
-          origin: (a.scriptCombo ? "script" : "format") as "script" | "format",
-          // Chantier C — cibles (plateforme + compte) : « 1 vidéo → N posts ».
-          targets: (a.targets ?? []).map((t) => ({
-            platform: t.platform,
-            accountHandle: t.accountId
-              ? (compteMap.get(t.accountId) ?? null)
+        .map(async (a) => {
+          const combo = a.scriptCombo;
+          // Résumé combo (Tier · Flux · CTA) — contexte ADMIN, comme la modale
+          // « Voir le script » côté Assignments. Null hors origine script.
+          let comboSummary: string | null = null;
+          if (combo) {
+            const hook = brickMap.get(combo.hookBrickId);
+            const flux = brickMap.get(combo.fluxBrickId);
+            const cta = brickMap.get(combo.ctaBrickId);
+            comboSummary = `Tier ${hook?.tier ?? "?"} · ${flux?.label ?? "?"} · ${cta?.label ?? "?"}`;
+          }
+          return {
+            _id: a._id,
+            creatorName: creatorMap.get(a.creatorId) ?? "—",
+            label: combo
+              ? (campaignMap.get(combo.campaignId) ?? "Script")
+              : a.formatId
+                ? (formatMap.get(a.formatId) ?? "—")
+                : "—",
+            origin: (combo ? "script" : "format") as "script" | "format",
+            // Chantier C — cibles (plateforme + compte) : « 1 vidéo → N posts ».
+            targets: (a.targets ?? []).map((t) => ({
+              platform: t.platform,
+              accountHandle: t.accountId
+                ? (compteMap.get(t.accountId) ?? null)
+                : null,
+            })),
+            dueDate: a.dueDate,
+            videoStorageId: a.submittedVideoStorageId ?? null,
+            videoUrl: a.submittedVideoStorageId
+              ? await ctx.storage.getUrl(a.submittedVideoStorageId)
               : null,
-          })),
-          dueDate: a.dueDate,
-          videoStorageId: a.submittedVideoStorageId ?? null,
-          videoUrl: a.submittedVideoStorageId
-            ? await ctx.storage.getUrl(a.submittedVideoStorageId)
-            : null,
-          videoMimeType: a.submittedVideoMimeType ?? "video/mp4",
-        })),
+            videoMimeType: a.submittedVideoMimeType ?? "video/mp4",
+            // SCRIPT MONTÉ FIGÉ (labels:false, sans titres ##) : on l'AFFICHE
+            // tel quel pour comparer vidéo ↔ script attendu. JAMAIS re-dérivé —
+            // cohérent avec AssignmentScriptDialog. Null hors origine script.
+            assembledScript: combo?.assembledScript ?? null,
+            comboSummary,
+          };
+        }),
     );
   },
 });

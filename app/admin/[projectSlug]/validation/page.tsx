@@ -32,6 +32,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { VideoExample } from "@/components/formats/VideoExample";
+import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { toast } from "sonner";
 import type { FunctionReturnType } from "convex/server";
 import {
@@ -43,6 +44,8 @@ import {
   InboxIcon,
   DownloadIcon,
   FilmIcon,
+  FileTextIcon,
+  ChevronDownIcon,
 } from "lucide-react";
 
 type VideoSubmittedRow =
@@ -198,6 +201,13 @@ function VideoReviewCard({ a }: { a: VideoSubmittedRow }) {
     mimeType: a.videoMimeType,
   });
 
+  // Script monté FIGÉ à suivre (origine script uniquement). Court → déplié
+  // d'emblée pour comparer vidéo ↔ script ; long → replié, dérouler à la
+  // demande pour ne pas noyer la carte.
+  const scriptText = a.assembledScript ?? "";
+  const hasScript = a.origin === "script" && scriptText.trim().length > 0;
+  const [scriptOpen, setScriptOpen] = useState(scriptText.length <= 360);
+
   // Télécharge le FICHIER ORIGINAL déjà stocké (URL signée Convex du
   // storageId). On passe par fetch → blob → <a download> : cross-origin, c'est
   // le seul moyen FIABLE d'imposer le téléchargement (et le nom de fichier)
@@ -330,6 +340,42 @@ function VideoReviewCard({ a }: { a: VideoSubmittedRow }) {
               )}
               Télécharger la vidéo
             </a>
+          </div>
+        )}
+
+        {hasScript && (
+          <div className="overflow-hidden rounded-md border border-slate-200 bg-slate-50">
+            <button
+              type="button"
+              onClick={() => setScriptOpen((o) => !o)}
+              aria-expanded={scriptOpen}
+              data-testid={`script-toggle-${a._id}`}
+              className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+            >
+              <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-slate-700">
+                <FileTextIcon className="size-4 shrink-0 text-slate-400" />
+                <span className="shrink-0">Script à suivre</span>
+                {a.comboSummary && (
+                  <span className="truncate text-xs font-normal text-slate-400">
+                    · {a.comboSummary}
+                  </span>
+                )}
+              </span>
+              <ChevronDownIcon
+                className={cn(
+                  "size-4 shrink-0 text-slate-400 transition-transform",
+                  scriptOpen && "rotate-180",
+                )}
+              />
+            </button>
+            {scriptOpen && (
+              <div
+                className="border-t border-slate-200 px-3 py-2.5"
+                data-testid={`script-content-${a._id}`}
+              >
+                <SimpleMarkdown content={scriptText} />
+              </div>
+            )}
           </div>
         )}
 
