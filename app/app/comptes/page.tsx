@@ -7,7 +7,12 @@ import { useCreatorProjectId } from "@/components/portal/use-creator-project";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { PlusIcon, MonitorSmartphoneIcon, FlameIcon } from "lucide-react";
+import {
+  PlusIcon,
+  MonitorSmartphoneIcon,
+  FlameIcon,
+  BellRingIcon,
+} from "lucide-react";
 import { DeclareCompteDialog } from "@/components/creators/portal/DeclareCompteDialog";
 import { WarmupCompteCard } from "@/components/creators/portal/WarmupCompteCard";
 import { WarmupGuideButton } from "@/components/warmup/WarmupGuideButton";
@@ -31,6 +36,11 @@ export default function CreatorComptesPage() {
   // dérivé des comptes déjà chargés — même logique que countMyWarmupDue serveur).
   const dueToday = (comptes ?? []).filter(
     (c) => getEffectiveStatus(c) === "warmup" && mustCheckToday(c),
+  );
+
+  // Notif in-app : comptes dont l'admin a (re)défini la bio → à (re)appliquer.
+  const bioDue = (comptes ?? []).filter(
+    (c) => !!c.bioToApply && c.bioStatus === "to_apply",
   );
 
   return (
@@ -68,6 +78,21 @@ export default function CreatorComptesPage() {
             Tu as {dueToday.length} warmup{dueToday.length > 1 ? "s" : ""} à
             faire aujourd&apos;hui — coche
             {dueToday.length > 1 ? "-les" : "-le"} ci-dessous.
+          </p>
+        </div>
+      )}
+
+      {bioDue.length > 0 && (
+        <div
+          className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4"
+          data-testid="bio-due-notif"
+        >
+          <BellRingIcon className="size-5 shrink-0 text-amber-600" />
+          <p className="text-sm font-medium text-amber-900">
+            {bioDue.length} bio{bioDue.length > 1 ? "s" : ""} à mettre à jour —
+            recopie{bioDue.length > 1 ? "-les" : "-la"} sur{" "}
+            {bioDue.length > 1 ? "tes comptes" : "ton compte"} puis confirme
+            ci-dessous.
           </p>
         </div>
       )}

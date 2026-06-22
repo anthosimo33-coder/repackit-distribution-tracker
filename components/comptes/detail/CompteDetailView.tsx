@@ -1,8 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQuery } from "convex/react";
-import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
+import { useProjectQuery } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
 import {
@@ -23,6 +22,7 @@ import { CompteStatsGrid } from "./CompteStatsGrid";
 import { CompteCalendar } from "./CompteCalendar";
 import { CompteFormatLists } from "./CompteFormatLists";
 import { WarmupProtocolSection } from "./WarmupProtocolSection";
+import { AccountBioSection } from "./AccountBioSection";
 
 /**
  * Vue détail compte. Source unique des publications : listPublications (déjà
@@ -63,6 +63,11 @@ export function CompteDetailView({ compte }: { compte: Compte }) {
       {getEffectiveStatus(compte) === "warmup" && (
         <WarmupProtocolSection compte={compte} />
       )}
+
+      {/* Bio à mettre (admin) : seulement pour un compte appartenant à un
+          créateur (c'est LUI qui recopie la bio puis confirme). Comptes internes
+          (sans creatorId) → pas de bio. */}
+      {compte.creatorId && <AccountBioSection compte={compte} />}
 
       {allPubs === undefined ? (
         <div className="space-y-6">

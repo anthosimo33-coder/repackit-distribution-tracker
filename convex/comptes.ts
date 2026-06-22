@@ -569,6 +569,99 @@ export const updateWarmupProtocol = adminMutation({
   },
 });
 
+// ─── Bio à mettre (par compte) ───────────────────────────────────────────────
+
+type BioStatus = "to_apply" | "applied";
+
+interface BioState {
+  bioToApply?: string;
+  bioStatus?: BioStatus;
+  bioUpdatedAt?: number;
+  bioAppliedAt?: number;
+}
+interface BioPatch {
+  bioToApply?: string | undefined;
+  bioStatus?: BioStatus | undefined;
+  bioUpdatedAt?: number | undefined;
+  bioAppliedAt?: number | undefined;
+}
+
+/**
+ * ⚠️ A6 (cross-tsconfig) — DUPLIQUÉ à l'identique de lib/account-bio.computeBioPatch
+ * (convex/ ne peut pas importer lib/). Toute évolution doit être répliquée des
+ * deux côtés ; la logique est testée côté lib (vitest) + e2e. Décide le patch
+ * résultant quand l'admin enregistre `rawBio` : pose/modif → "to_apply" (+ purge
+ * bioAppliedAt) ; même texte → no-op ; bio vidée → efface tout.
+ */
+function computeBioPatch(
+  current: BioState,
+  rawBio: string,
+  now: number,
+): BioPatch | null {
+  const bio = rawBio.trim();
+  if (bio.length === 0) {
+    if (current.bioToApply === undefined) return null;
+    return {
+      bioToApply: undefined,
+      bioStatus: undefined,
+      bioUpdatedAt: undefined,
+      bioAppliedAt: undefined,
+    };
+  }
+  if (current.bioToApply === bio && current.bioStatus !== undefined) {
+    return null;
+  }
+  return {
+    bioToApply: bio,
+    bioStatus: "to_apply",
+    bioUpdatedAt: now,
+    bioAppliedAt: undefined,
+  };
+}
+
+/**
+ * Admin — définit/modifie la « bio à mettre » d'un compte (scopé projet). Toute
+ * bio NOUVELLE ou MODIFIÉE repasse le compte en "to_apply" (le créateur devra
+ * re-confirmer) ; re-sauver le même texte est un no-op ; vider la bio l'efface.
+ * Garanti SERVEUR via computeBioPatch (pas seulement l'UI).
+ */
+export const setAccountBio = adminMutation({
+  args: { id: v.id("comptes"), bio: v.string() },
+  handler: async (ctx, { id, bio }) => {
+    const compte = await ctx.db.get(id);
+    if (!compte || compte.projectId !== ctx.projectId) {
+      throw new ConvexError("Compte introuvable.");
+    }
+    const patch = computeBioPatch(compte, bio, Date.now());
+    if (patch !== null) await ctx.db.patch(id, patch);
+  },
+});
+
+/**
+ * Créateur — confirme avoir appliqué la bio sur son vrai compte social →
+ * "applied" + bioAppliedAt = now. Strictement scopé : le compte doit appartenir
+ * au créateur authentifié (creatorId) ET avoir une bio en attente. Idempotent si
+ * déjà appliquée. Un créateur ne peut JAMAIS confirmer le compte d'un autre.
+ */
+export const confirmAccountBioApplied = creatorMutation({
+  args: { id: v.id("comptes") },
+  handler: async (ctx, { id }) => {
+    const compte = await ctx.db.get(id);
+    if (
+      !compte ||
+      compte.projectId !== ctx.projectId ||
+      compte.creatorId !== ctx.creatorId
+    ) {
+      throw new ConvexError("Compte introuvable.");
+    }
+    if (compte.bioToApply === undefined || compte.bioStatus === undefined) {
+      throw new ConvexError("Aucune bio à appliquer sur ce compte.");
+    }
+    if (compte.bioStatus === "applied") return; // idempotent
+    await ctx.db.patch(id, { bioStatus: "applied", bioAppliedAt: Date.now() });
+  },
+});
+
 // ─── P5 — Portail créateur (creatorQuery / creatorMutation) ───────────────────
 
 /** Comptes du créateur courant UNIQUEMENT (filtré serveur par ctx.creatorId). */
