@@ -1,5 +1,9 @@
+import type { QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
+  ageWindowDays,
+  buildLatestMetricsFromDenorm,
+  DAY_MS,
   findMatchingSnapshot,
   TARGET_DAYS,
   type SnapshotAge,
@@ -81,4 +85,47 @@ export function buildDisplayMetrics(
     },
     matchExact,
   };
+}
+
+/**
+ * Vue "latest" servie depuis les champs DÉNORMALISÉS de la publication, SANS
+ * lire les snapshots. Wrapper typé de buildLatestMetricsFromDenorm (pur, testé
+ * en vitest côté lib). Résultat identique à buildDisplayMetrics(snaps, "latest").
+ */
+export function buildLatestDisplayMetrics(pub: Doc<"publications">): DisplayMetrics {
+  return buildLatestMetricsFromDenorm<Id<"metricSnapshots">>(pub);
+}
+
+/**
+ * Résout les DisplayMetrics d'UNE publication pour la période demandée, en
+ * bornant la lecture des snapshots :
+ *  - age === "latest" (défaut) : ZÉRO lecture de metricSnapshots → champs
+ *    dénormalisés de la publication.
+ *  - age âgé (j7…/custom) : range-scan BORNÉ sur by_publication_and_capturedAt,
+ *    fenêtre [datePubli + lo·jour, datePubli + (hi+1)·jour) calculée par
+ *    ageWindowDays — superset exact de ce que findMatchingSnapshot accepte, donc
+ *    résultat identique à un chargement complet de l'historique.
+ */
+export async function resolveDisplayMetrics(
+  ctx: QueryCtx,
+  pub: Doc<"publications">,
+  age: SnapshotAge,
+  customDay?: number,
+): Promise<DisplayMetrics> {
+  if (age === "latest") {
+    return buildLatestDisplayMetrics(pub);
+  }
+  const { lo, hi } = ageWindowDays(age, customDay);
+  const fromAt = pub.datePubli + lo * DAY_MS;
+  const toAt = pub.datePubli + (hi + 1) * DAY_MS;
+  const snaps = await ctx.db
+    .query("metricSnapshots")
+    .withIndex("by_publication_and_capturedAt", (q) =>
+      q
+        .eq("publicationId", pub._id)
+        .gte("capturedAt", fromAt)
+        .lt("capturedAt", toAt),
+    )
+    .collect();
+  return buildDisplayMetrics(snaps, age, customDay);
 }

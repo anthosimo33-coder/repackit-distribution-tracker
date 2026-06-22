@@ -9,10 +9,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
 import { coerceSnapshotAge } from "./snapshotMatching";
-import {
-  buildDisplayMetrics,
-  groupSnapshotsByPublication,
-} from "./metricsDisplay";
+import { resolveDisplayMetrics } from "./metricsDisplay";
 
 const mecaniqueValidator = v.union(
   v.literal("Erreur"),
@@ -537,13 +534,10 @@ export const listPublications = adminQuery({
       .collect();
     const icpMap = new Map(icps.map((i) => [i._id, i]));
 
-    // Tous les snapshots DU PROJET, groupés en mémoire (évite un N+1).
-    const allSnaps = await ctx.db
-      .query("metricSnapshots")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
-    const snapsByPub = groupSnapshotsByPublication(allSnaps);
-
+    // Métriques résolues par publication. Vue "latest" (défaut) → champs
+    // dénormalisés, ZÉRO lecture de metricSnapshots (le coût ne dépend plus de
+    // l'historique). Vues âgées → range-scan borné par publication (cf
+    // resolveDisplayMetrics).
     return await Promise.all(
       rows.map(async (p) => {
         const imageUrl =
@@ -554,8 +548,9 @@ export const listPublications = adminQuery({
         const icp = icpDoc
           ? { nom: icpDoc.nom, color: icpDoc.color ?? null }
           : null;
-        const displayMetrics = buildDisplayMetrics(
-          snapsByPub.get(p._id) ?? [],
+        const displayMetrics = await resolveDisplayMetrics(
+          ctx,
+          p,
           age,
           args.customDay,
         );
@@ -593,18 +588,13 @@ export const getByCarouselId = adminQuery({
       .first();
     if (!row) return null;
     const age = coerceSnapshotAge(args.snapshotAge);
-    const snaps = await ctx.db
-      .query("metricSnapshots")
-      .withIndex("by_publication_and_capturedAt", (q) =>
-        q.eq("publicationId", row._id),
-      )
-      .order("desc")
-      .collect();
     return {
       _id: row._id,
       carouselId: row.carouselId,
       mediaType: (row.mediaType ?? "carousel") as MediaTypeServer,
-      displayMetrics: buildDisplayMetrics(snaps, age, args.customDay),
+      // Même résolution bornée que listPublications (latest → dénormalisé,
+      // âgé → range-scan borné de cette seule publication).
+      displayMetrics: await resolveDisplayMetrics(ctx, row, age, args.customDay),
     };
   },
 });

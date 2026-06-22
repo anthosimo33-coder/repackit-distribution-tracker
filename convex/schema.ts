@@ -273,6 +273,13 @@ export default defineSchema({
     commentsLatest: v.optional(v.number()),
     latestSnapshotId: v.optional(v.id("metricSnapshots")),
     latestSnapshotAt: v.optional(v.number()),
+    // daysSincePublication STOCKÉ du snapshot latest (copie verbatim, pas
+    // recalculé) → permet de servir la vue "latest" sans lire les snapshots
+    // tout en restant EXACTEMENT égal à l'ancien calcul, y compris si datePubli
+    // a été édité a posteriori (updatePublication ne recalcule pas le daysSince
+    // des snapshots existants). undefined = aucun snapshot OU row pas encore
+    // reprocessée (fallback recalcul depuis datePubli côté lecture).
+    latestSnapshotDaysSince: v.optional(v.number()),
     // Tracking auto YouTube — horodatage du dernier relevé réussi par le cron
     // (API Data v3). Présent ⇒ publication YouTube synchronisée automatiquement
     // (indicateur admin "vues synchronisées auto"). undefined pour TikTok/Insta
