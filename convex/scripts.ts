@@ -130,7 +130,108 @@ function pickCombosServer(
   return picked;
 }
 
+/**
+ * Unicité (comboKey, créateur, plateforme) — RÉPLIQUE de
+ * lib/script-combo-uniqueness (règle A6). comboKeys déjà pris par `creatorId`
+ * sur AU MOINS UNE des `platforms` (union) parmi `existing`. Sert à exclure de
+ * la génération : un combo doit être libre sur CHAQUE plateforme ciblée.
+ */
+function usedComboKeysForPlatforms(
+  existing: Doc<"assignments">[],
+  creatorId: Id<"creators">,
+  platforms: string[],
+): Set<string> {
+  const target = new Set(platforms);
+  const used = new Set<string>();
+  for (const a of existing) {
+    if (a.creatorId !== creatorId || !a.comboKey) continue;
+    const aps = (a.targets ?? []).map((t) => t.platform);
+    if (aps.some((p) => target.has(p))) used.add(a.comboKey);
+  }
+  return used;
+}
+
+/**
+ * Garde serveur d'unicité : rejette (ConvexError lisible) si `comboKey` est déjà
+ * utilisé par un AUTRE assignment du même créateur sur l'une des `platforms`.
+ * Lit via l'index by_creator_combo (créateur, comboKey).
+ */
+async function assertComboFreeForCreatorPlatforms(
+  ctx: MutationCtx,
+  input: {
+    comboKey: string;
+    creatorId: Id<"creators">;
+    platforms: string[];
+    excludeAssignmentId?: Id<"assignments">;
+  },
+): Promise<void> {
+  const target = new Set(input.platforms);
+  const sameCombo = await ctx.db
+    .query("assignments")
+    .withIndex("by_creator_combo", (q) =>
+      q.eq("creatorId", input.creatorId).eq("comboKey", input.comboKey),
+    )
+    .collect();
+  for (const a of sameCombo) {
+    if (a._id === input.excludeAssignmentId) continue;
+    const conflict = (a.targets ?? [])
+      .map((t) => t.platform)
+      .find((p) => target.has(p));
+    if (conflict) {
+      const creator = await ctx.db.get(input.creatorId);
+      throw new ConvexError(
+        `Ce combo est déjà utilisé pour ${creator?.name ?? "ce créateur"} sur ${conflict}.`,
+      );
+    }
+  }
+}
+
 // ─── Queries ─────────────────────────────────────────────────────────────────
+
+/**
+ * Combos UNIQUES disponibles pour assigner un créateur sur des plateformes
+ * données : total des combos de la campagne (après filtre tier) MOINS ceux déjà
+ * pris par ce créateur sur l'une des plateformes ciblées (unicité comboKey ×
+ * créateur × plateforme). Alimente la modale pour prévenir AVANT d'assigner s'il
+ * manque des combos uniques. `available` = combos encore attribuables.
+ */
+export const availableCombosForAssignment = adminQuery({
+  args: {
+    campaignId: v.id("scriptCampaigns"),
+    creatorId: v.id("creators"),
+    platforms: v.array(
+      v.union(
+        v.literal("TikTok"),
+        v.literal("Instagram"),
+        v.literal("YouTube"),
+      ),
+    ),
+    tier: v.optional(TIER),
+  },
+  handler: async (ctx, args) => {
+    await requireCampaign(ctx, args.campaignId, ctx.projectId);
+    const allBricks = await ctx.db
+      .query("scriptBricks")
+      .withIndex("by_campaign", (q) => q.eq("campaignId", args.campaignId))
+      .collect();
+    const bricks =
+      args.tier === undefined
+        ? allBricks
+        : allBricks.filter((b) => b.kind !== "hook" || b.tier === args.tier);
+    const combos = generateCombosServer(bricks);
+    const existing = await ctx.db
+      .query("assignments")
+      .withIndex("by_creator", (q) => q.eq("creatorId", args.creatorId))
+      .collect();
+    const usedKeys = usedComboKeysForPlatforms(
+      existing,
+      args.creatorId,
+      args.platforms,
+    );
+    const available = combos.filter((c) => !usedKeys.has(comboKeyOf(c))).length;
+    return { total: combos.length, available };
+  },
+});
 
 /** Campagnes du projet (actives d'abord, puis par nom). */
 export const listCampaigns = adminQuery({
@@ -442,17 +543,21 @@ export const assignScriptCampaign = adminMutation({
     const shortages: { name: string; requested: number; assigned: number }[] =
       [];
 
-    // Anti-coordination : combos déjà reçus par CE créateur sur CETTE campagne.
+    // Unicité (comboKey, créateur, PLATEFORME) : on exclut les combos déjà pris
+    // par CE créateur sur l'une des plateformes ciblées (union). Cross-plateforme
+    // AUTORISÉ → un combo sur le TikTok du créateur reste dispo pour son YouTube.
+    // Le créateur est mono-projet (creators.projectId) → ses assignments sont
+    // tous dans le projet courant (scoping projet implicite). comboKey embarque
+    // les brickIds (uniques par campagne) → pas de collision inter-campagnes.
     const existing = await ctx.db
       .query("assignments")
       .withIndex("by_creator", (q) => q.eq("creatorId", args.creatorId))
       .collect();
-    const usedKeys = new Set(
-      existing
-        .filter(
-          (a) => a.scriptCombo?.campaignId === args.campaignId && a.comboKey,
-        )
-        .map((a) => a.comboKey as string),
+    const targetPlatforms = args.targets.map((t) => t.platform);
+    const usedKeys = usedComboKeysForPlatforms(
+      existing,
+      args.creatorId,
+      targetPlatforms,
     );
     const picked = pickCombosServer(combos, usedKeys, args.videosPerCreator);
     if (picked.length < args.videosPerCreator) {
@@ -566,6 +671,16 @@ export const editScriptCombo = adminMutation({
     });
     const comboKey = comboKeyOf({ hookBrickId, fluxBrickId, ctaBrickId });
 
+    // Garde unicité (comboKey, créateur, plateforme) : le nouveau combo ne doit
+    // pas déjà être pris par un AUTRE assignment du même créateur sur l'une des
+    // plateformes ciblées par CET assignment.
+    await assertComboFreeForCreatorPlatforms(ctx, {
+      comboKey,
+      creatorId: a.creatorId,
+      platforms: (a.targets ?? []).map((t) => t.platform),
+      excludeAssignmentId: a._id,
+    });
+
     await ctx.db.patch(args.id, {
       // Combo RE-FIGÉ (3 kinds, sans corpsBrickId legacy) + verrou une seule fois.
       scriptCombo: {
@@ -668,6 +783,9 @@ export const editScriptBrickText = adminMutation({
       flux: flux.content,
       cta: cta.content,
     });
+    // Unicité (comboKey, créateur, plateforme) : le fork crée une brique NEUVE
+    // (brickId inédit) → comboKey forcément unique → aucune collision possible
+    // avec un assignment existant. Pas de garde nécessaire ici (cf #53).
     const comboKey = comboKeyOf({ hookBrickId, fluxBrickId, ctaBrickId });
 
     await ctx.db.patch(args.id, {
