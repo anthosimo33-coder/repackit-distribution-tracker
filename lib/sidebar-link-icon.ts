@@ -1,4 +1,5 @@
 import {
+  CaptionsIcon,
   ExternalLinkIcon,
   GraduationCapIcon,
   ImageIcon,
@@ -20,6 +21,8 @@ import {
 const ICONS: Record<string, LucideIcon> = {
   "external-link": ExternalLinkIcon,
   link: LinkIcon,
+  subtitles: CaptionsIcon,
+  captions: CaptionsIcon,
   carousel: LayoutTemplateIcon,
   template: LayoutTemplateIcon,
   image: ImageIcon,
