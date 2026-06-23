@@ -13,24 +13,24 @@ import {
 const checks = (n: number) => Array.from({ length: n }, (_, i) => `d${i}`);
 
 describe("WARMUP_DURATION_BY_PLATFORM", () => {
-  // P5 — barème unifié sur lib/warmup : TikTok aligné à 3 (était 7).
-  it("TikTok=3, Instagram=14, YouTube=3", () => {
+  // Barème unifié sur lib/warmup : TikTok/YouTube portés à 7 (était 3).
+  it("TikTok=7, Instagram=14, YouTube=7", () => {
     expect(WARMUP_DURATION_BY_PLATFORM).toEqual({
-      TikTok: 3,
+      TikTok: 7,
       Instagram: 14,
-      YouTube: 3,
+      YouTube: 7,
     });
   });
   it("getWarmupDuration reflète la map", () => {
-    expect(getWarmupDuration("TikTok")).toBe(3);
+    expect(getWarmupDuration("TikTok")).toBe(7);
     expect(getWarmupDuration("Instagram")).toBe(14);
-    expect(getWarmupDuration("YouTube")).toBe(3);
+    expect(getWarmupDuration("YouTube")).toBe(7);
   });
 });
 
 describe("getEffectiveWarmupDuration", () => {
   it("défaut plateforme sans protocole", () => {
-    expect(getEffectiveWarmupDuration({ plateforme: "TikTok" })).toBe(3);
+    expect(getEffectiveWarmupDuration({ plateforme: "TikTok" })).toBe(7);
     expect(getEffectiveWarmupDuration({ plateforme: "Instagram" })).toBe(14);
   });
   it("surcharge admin via warmupProtocol.targetDays", () => {
@@ -53,19 +53,19 @@ describe("isSelectableForPublication", () => {
 });
 
 describe("isWarmupCompleteForCompte (par CHECKS réels, ≠ calendaire)", () => {
-  it("terminé seulement quand assez de checks (TikTok=3)", () => {
+  it("terminé seulement quand assez de checks (TikTok=7)", () => {
     expect(
       isWarmupCompleteForCompte({
         plateforme: "TikTok",
         warmupStartedAt: 1,
-        warmupProtocol: { dailyChecks: checks(2) },
+        warmupProtocol: { dailyChecks: checks(6) },
       }),
     ).toBe(false);
     expect(
       isWarmupCompleteForCompte({
         plateforme: "TikTok",
         warmupStartedAt: 1,
-        warmupProtocol: { dailyChecks: checks(3) },
+        warmupProtocol: { dailyChecks: checks(7) },
       }),
     ).toBe(true);
   });
@@ -119,7 +119,7 @@ describe("getStatusBadge (décompte par CHECKS réels)", () => {
       plateforme: "TikTok",
       warmupStartedAt: 1,
     });
-    expect(b.label).toBe("Warmup J+0/3");
+    expect(b.label).toBe("Warmup J+0/7");
   });
   it("respecte targetDays surchargé (override admin)", () => {
     const b = getStatusBadge({
@@ -135,7 +135,7 @@ describe("getStatusBadge (décompte par CHECKS réels)", () => {
       status: "warmup",
       plateforme: "YouTube",
       warmupStartedAt: 1,
-      warmupProtocol: { dailyChecks: checks(3) },
+      warmupProtocol: { dailyChecks: checks(7) },
     });
     expect(b.label).toBe("À valider");
     expect(b.className).toContain("blue");

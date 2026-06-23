@@ -39,7 +39,7 @@ test.describe("Comptes créateurs — serveur", () => {
     const tk = mine.find((c) => c._id === tkId);
     const ig = mine.find((c) => c._id === igId);
     expect(tk?.status).toBe("warmup");
-    expect(tk?.warmupProtocol?.targetDays).toBe(3);
+    expect(tk?.warmupProtocol?.targetDays).toBe(7);
     expect(ig?.warmupProtocol?.targetDays).toBe(14);
   });
 

@@ -56,8 +56,8 @@ test.describe("Portail créateur — /app/comptes", () => {
     await dialog.getByRole("button", { name: "Déclarer", exact: true }).click();
     await expect(dialog).toBeHidden({ timeout: 8000 });
 
-    // Carte warmup : « Jour 1 / 3 » (défaut TikTok = 3).
-    await expect(page.getByText("Jour 1 / 3")).toBeVisible({ timeout: 8000 });
+    // Carte warmup : « Jour 1 / 7 » (défaut TikTok = 7).
+    await expect(page.getByText("Jour 1 / 7")).toBeVisible({ timeout: 8000 });
 
     // L'admin pose le protocole (keywords + instructions).
     const comptes = await convex.query(api.comptes.listComptes, {});

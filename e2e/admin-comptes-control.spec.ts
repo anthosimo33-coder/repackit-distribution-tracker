@@ -50,7 +50,7 @@ test.describe("Admin — contrôle des comptes", () => {
     });
 
     // 2. Changer la plateforme d'un compte VIERGE (Insta → TikTok) → OK + warmup
-    //    recalé sur la durée TikTok (3) avec compteur de checks remis à zéro.
+    //    recalé sur la durée TikTok (7) avec compteur de checks remis à zéro.
     await admin.mutation(api.comptes.updateCompte, {
       id: viergeId,
       plateforme: "TikTok",
@@ -59,7 +59,7 @@ test.describe("Admin — contrôle des comptes", () => {
       (c) => c._id === viergeId,
     )!;
     expect(after.plateforme).toBe("TikTok");
-    expect(after.warmupProtocol?.targetDays).toBe(3);
+    expect(after.warmupProtocol?.targetDays).toBe(7);
     expect(after.warmupProtocol?.dailyChecks.length).toBe(0);
     expect(after.inUse).toBe(false);
 

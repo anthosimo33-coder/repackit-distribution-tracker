@@ -61,7 +61,7 @@ type SubBlock = { subtitle: string; items: string[] };
 
 const TIKTOK_BLOCKS: SubBlock[] = [
   {
-    subtitle: "Phase de chauffe (J1 → J3) — aucun post",
+    subtitle: "Phase de chauffe (J1 → J7) — aucun post",
     items: [
       "**Recherches quotidiennes avec TES mots-clés** dans la barre de recherche",
       "20-30 min/jour de scroll FYP dans ta niche",
@@ -72,8 +72,8 @@ const TIKTOK_BLOCKS: SubBlock[] = [
     ],
   },
   {
-    subtitle: "Premier post — J4 (lendemain de la chauffe)",
-    items: ["**Aucun post avant J4** : la chauffe dure 3 jours pleins"],
+    subtitle: "Premier post — J8 (lendemain de la chauffe)",
+    items: ["**Aucun post avant J8** : la chauffe dure 7 jours pleins"],
   },
   {
     subtitle: "Montée en cadence (après le 1er post)",
@@ -144,7 +144,7 @@ const YOUTUBE_BLOCKS: SubBlock[] = [
     ],
   },
   {
-    subtitle: "Phase de chauffe (J1 → J3) — aucun post",
+    subtitle: "Phase de chauffe (J1 → J7) — aucun post",
     items: [
       "**Recherches quotidiennes avec TES mots-clés**",
       "Visionnage de 5-10 Shorts/jour dans ta niche",
@@ -154,9 +154,9 @@ const YOUTUBE_BLOCKS: SubBlock[] = [
     ],
   },
   {
-    subtitle: "Premier Short — J4 (lendemain de la chauffe)",
+    subtitle: "Premier Short — J8 (lendemain de la chauffe)",
     items: [
-      "**Aucun Short avant J4** : la chauffe dure 3 jours pleins",
+      "**Aucun Short avant J8** : la chauffe dure 7 jours pleins",
       "Ensuite, 1 Short/jour, idéalement à la même heure",
     ],
   },

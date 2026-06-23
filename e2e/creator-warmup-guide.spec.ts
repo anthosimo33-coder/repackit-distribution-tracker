@@ -55,13 +55,13 @@ test.describe("Guide warmup — portail créateur", () => {
       guide.getByRole("button", { name: /Règles communes/i }),
     ).toBeVisible();
     await expect(
-      guide.getByRole("button", { name: /TikTok — 3 jours/i }),
+      guide.getByRole("button", { name: /TikTok — 7 jours/i }),
     ).toBeVisible();
     await expect(
       guide.getByRole("button", { name: /Instagram — 14 jours/i }),
     ).toBeVisible();
     await expect(
-      guide.getByRole("button", { name: /YouTube Shorts — 3 jours/i }),
+      guide.getByRole("button", { name: /YouTube Shorts — 7 jours/i }),
     ).toBeVisible();
     await expect(
       guide.getByRole("button", { name: /Vérifications post-warmup/i }),
@@ -75,7 +75,7 @@ test.describe("Guide warmup — portail créateur", () => {
 
     // Replié par défaut → contenu TikTok caché, puis expand → visible.
     await expect(page.getByText(/avant d'augmenter la cadence/i)).toBeHidden();
-    await guide.getByRole("button", { name: /TikTok — 3 jours/i }).click();
+    await guide.getByRole("button", { name: /TikTok — 7 jours/i }).click();
     await expect(page.getByText(/avant d'augmenter la cadence/i)).toBeVisible();
 
     // Lecture seule (structurelle) : le guide est un composant statique,

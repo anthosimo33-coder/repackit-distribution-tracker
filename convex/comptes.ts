@@ -297,6 +297,7 @@ export const createCompte = adminMutation({
         "La date de warmup n'est valide que pour le statut warmup.",
       );
     }
+    const now = Date.now();
     return await ctx.db.insert("comptes", {
       projectId: ctx.projectId,
       handle: args.handle,
@@ -305,6 +306,19 @@ export const createCompte = adminMutation({
       personneId: args.personneId,
       status,
       warmupStartedAt: status === "warmup" ? args.warmupStartedAt : undefined,
+      // Durée FIGÉE au démarrage du warmup (comme declareCompte) → un changement
+      // ultérieur du barème plateforme ne recalcule jamais ce warmup. Absent si
+      // le compte n'est pas créé en warmup.
+      warmupProtocol:
+        status === "warmup"
+          ? {
+              keywords: [],
+              instructions: "",
+              targetDays: defaultTargetDays(args.plateforme),
+              dailyChecks: [],
+              updatedAt: now,
+            }
+          : undefined,
       // Legacy : maintenu synchronisé (actif === status "actif"). TD-017.
       actif: status === "actif",
     });
@@ -494,6 +508,44 @@ export const unarchiveCompte = adminMutation({
     if (effectiveStatus(compte) !== "archived") return { ok: true };
     await ctx.db.patch(id, { status: "actif", actif: true });
     return { ok: true };
+  },
+});
+
+/**
+ * RELANCE le warmup d'un compte (admin only, scopé projet). Le compte repasse
+ * en statut "warmup" avec un warmup NEUF de la durée plateforme courante
+ * (defaultTargetDays = 7 pour TikTok/YouTube), compteur de checks remis à zéro
+ * et warmupStartedAt = now — EXACTEMENT comme un warmup initial (cf
+ * declareCompte). keywords/instructions du protocole sont CONSERVÉS (config du
+ * compte, pas une progression). Effet immédiat : isAccountAvailable repasse à
+ * false → le compte redevient warmup-gated (ni cible d'assignment, ni
+ * publication possible) tant que les N checks ne sont pas posés. NE TOUCHE NI
+ * les publications NI les assignments existants : ça ne fait que ré-échauffer.
+ */
+export const restartWarmup = adminMutation({
+  args: { id: v.id("comptes") },
+  handler: async (ctx, { id }) => {
+    const compte = await ctx.db.get(id);
+    if (!compte || compte.projectId !== ctx.projectId) {
+      throw new ConvexError("Compte introuvable.");
+    }
+    const now = Date.now();
+    const proto = compte.warmupProtocol;
+    const targetDays = defaultTargetDays(compte.plateforme);
+    await ctx.db.patch(id, {
+      status: "warmup",
+      // Legacy synchronisé (TD-017) : un compte en warmup n'est pas "actif".
+      actif: false,
+      warmupStartedAt: now,
+      warmupProtocol: {
+        keywords: proto?.keywords ?? [],
+        instructions: proto?.instructions ?? "",
+        targetDays,
+        dailyChecks: [],
+        updatedAt: now,
+      },
+    });
+    return { ok: true, targetDays };
   },
 });
 
