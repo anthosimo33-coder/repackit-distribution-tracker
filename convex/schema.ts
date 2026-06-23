@@ -723,6 +723,12 @@ export default defineSchema({
   assignments: defineTable({
     projectId: v.id("projects"),
     creatorId: v.id("creators"),
+    // Approche C — nom du créateur FIGÉ sur les assignments CONSERVÉS
+    // (published/paid) au moment de la suppression du créateur (deleteCreator).
+    // Le creatorId reste (référence morte mais utile pour regrouper l'historique)
+    // ; ce snapshot rend la vue historique lisible quand la fiche n'existe plus.
+    // undefined tant que le créateur existe (on lit son nom vivant).
+    creatorNameSnapshot: v.optional(v.string()),
     // P7 : assignment "format". S2 : optional — un assignment a SOIT un formatId
     // SOIT un scriptCombo (assignment "script"). Champ assoupli → 0 migration.
     formatId: v.optional(v.id("formats")),
@@ -985,6 +991,11 @@ export default defineSchema({
   payments: defineTable({
     projectId: v.id("projects"),
     creatorId: v.id("creators"),
+    // Approche C — nom du créateur FIGÉ au moment de la suppression du créateur
+    // (deleteCreator). Le paiement est CONSERVÉ (historique financier) ; ce
+    // snapshot rend la liste paiements/CSV lisible quand la fiche n'existe plus.
+    // undefined tant que le créateur existe (on lit son nom vivant).
+    creatorNameSnapshot: v.optional(v.string()),
     // Période d'accrual, "YYYY-MM" (UTC, cf periodOf dans convex/payments.ts).
     period: v.string(),
     lineItems: v.array(

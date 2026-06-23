@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import {
   useProjectMutation,
   useProjectQuery,
 } from "@/components/project/use-project-convex";
+import { useProjectPath } from "@/components/project/ProjectProvider";
 import { formatEuros } from "@/lib/format-rate";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -35,7 +37,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { FolderPlusIcon, KeyRoundIcon, Loader2Icon } from "lucide-react";
+import {
+  FolderPlusIcon,
+  KeyRoundIcon,
+  Loader2Icon,
+  Trash2Icon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
@@ -47,6 +54,7 @@ import {
 } from "@/lib/creator-status";
 import { CopyableLink } from "./CopyableLink";
 import { CreatorComptesSection } from "./CreatorComptesSection";
+import { DeleteCreatorDialog } from "./DeleteCreatorDialog";
 
 type Creator = NonNullable<FunctionReturnType<typeof api.creators.getCreator>>;
 
@@ -55,11 +63,14 @@ type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 const NONE = "__none__";
 
 export function CreatorDetailView({ creator }: { creator: Creator }) {
+  const router = useRouter();
+  const projectPath = useProjectPath();
   const update = useProjectMutation(api.creators.updateCreator);
   const regenerate = useProjectMutation(api.creators.regenerateInvitation);
   const generateResetLink = useProjectMutation(
     api.passwordReset.generatePasswordResetLink,
   );
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const [name, setName] = useState(creator.name);
   const [phone, setPhone] = useState(creator.phone ?? "");
@@ -431,6 +442,33 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
         <FutureSection title="Assignments" />
         <FutureSection title="Paiements" />
       </div>
+
+      {/* Zone de danger — suppression définitive (cascade opérationnelle,
+          historique conservé sous le nom du créateur). */}
+      <Card className="border-rose-200">
+        <CardHeader>
+          <CardTitle className="text-rose-700">Zone de danger</CardTitle>
+          <CardDescription>
+            Supprime définitivement ce créateur : ses comptes et missions en
+            cours sont effacés (combos libérés) ; ses publications et son
+            historique de paiement sont conservés sous son nom. Irréversible.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button variant="destructive" onClick={() => setDeleteOpen(true)}>
+            <Trash2Icon className="mr-2 size-4" />
+            Supprimer le créateur
+          </Button>
+        </CardContent>
+      </Card>
+
+      <DeleteCreatorDialog
+        creatorId={creator._id}
+        creatorName={creator.name}
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        onDeleted={() => router.push(projectPath("/createurs"))}
+      />
     </div>
   );
 }
