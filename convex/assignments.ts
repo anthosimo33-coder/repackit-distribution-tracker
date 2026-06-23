@@ -1446,6 +1446,21 @@ export const confirmPublication = creatorMutation({
       throw new ConvexError("Aucune cible sur cet assignment.");
     }
 
+    // Garde warmup au moment de publier (symétrique de validateTargets) : un
+    // compte cible peut être REPASSÉ en warmup (relance admin restartWarmup)
+    // APRÈS la création de l'assignment. Tant que l'échauffement relancé n'est
+    // pas terminé, la publication est bloquée. Ne concerne que le warmup
+    // (status "warmup" non terminé) : shadowban/archived ne sont pas re-gatés ici.
+    for (const t of targets) {
+      if (!t.accountId) continue;
+      const compte = await ctx.db.get(t.accountId);
+      if (compte && compte.status === "warmup" && !isAccountAvailable(compte)) {
+        throw new ConvexError(
+          `Le compte ${compte.handle} est repassé en warmup — publication impossible jusqu'à la fin de l'échauffement.`,
+        );
+      }
+    }
+
     // Index des URLs par plateforme + validation de chaque lien (format + plateforme).
     const urlByPlatform = new Map<Plateforme, string>();
     for (const { platform, url } of urls) {

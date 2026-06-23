@@ -45,17 +45,17 @@ test.describe("Warmup décompte adaptatif par plateforme (par checks réels)", (
     const rowIg = page.getByRole("row").filter({ hasText: ig });
     const rowYt = page.getByRole("row").filter({ hasText: yt });
 
-    // Décompte adaptatif : N varie selon la plateforme (TikTok=3, YouTube=3,
+    // Décompte adaptatif : N varie selon la plateforme (TikTok=7, YouTube=7,
     // Instagram=14). 0 check → numérateur 0 (PAS « À valider », malgré J+2).
-    await expect(rowTk.getByText("Warmup J+0/3")).toBeVisible();
-    await expect(rowYt.getByText("Warmup J+0/3")).toBeVisible();
+    await expect(rowTk.getByText("Warmup J+0/7")).toBeVisible();
+    await expect(rowYt.getByText("Warmup J+0/7")).toBeVisible();
     await expect(rowIg.getByText("Warmup J+0/14")).toBeVisible();
 
-    // Poser 3 checks réels sur YouTube (durée 3) → warmup TERMINÉ par les checks.
+    // Poser 7 checks réels sur YouTube (durée 7) → warmup TERMINÉ par les checks.
     await convex.mutation(api.comptes.e2eSetWarmupChecks, {
       secret: E2E_SECRET,
       id: ids[yt],
-      dailyChecks: [ymd(ts - 2 * DAY), ymd(ts - 1 * DAY), ymd(ts)],
+      dailyChecks: [7, 6, 5, 4, 3, 2, 1].map((d) => ymd(ts - d * DAY)),
     });
     await page.reload();
     await expect(rowYt.getByText("À valider")).toBeVisible();

@@ -30,7 +30,7 @@ test.describe("Warmup — progression par checks réels", () => {
     const due = () =>
       A.client.query(api.comptes.countMyWarmupDue, { projectId: A.projectId });
 
-    // TikTok (durée 3). Fraîchement déclaré (0 check) → DÛ aujourd'hui.
+    // TikTok (durée 7). Fraîchement déclaré (0 check) → DÛ aujourd'hui.
     const id = await A.client.mutation(api.comptes.declareCompte, {
       projectId: A.projectId,
       plateforme: "TikTok",
@@ -47,7 +47,7 @@ test.describe("Warmup — progression par checks réels", () => {
     expect(await due()).toBe(0);
 
     // RATTRAPAGE : simuler « coché il y a 2 j seulement, rien aujourd'hui »
-    // (1 check, durée 3 → pas fini, pas coché aujourd'hui) → redevient DÛ.
+    // (1 check, durée 7 → pas fini, pas coché aujourd'hui) → redevient DÛ.
     await e2e.mutation(api.comptes.e2eSetWarmupChecks, {
       secret: E2E_SECRET,
       id,
@@ -56,7 +56,7 @@ test.describe("Warmup — progression par checks réels", () => {
     expect(await due()).toBe(1);
 
     // RATER UN JOUR N'AVANCE PAS : 2 checks à des dates NON consécutives (J-3, J-1)
-    // → 2/3 (pas 3 : le jour sauté ne compte pas) → check encore autorisé.
+    // → 2/7 (pas 3 : le jour sauté ne compte pas) → check encore autorisé.
     await e2e.mutation(api.comptes.e2eSetWarmupChecks, {
       secret: E2E_SECRET,
       id,
@@ -68,8 +68,21 @@ test.describe("Warmup — progression par checks réels", () => {
     });
     // 2 checks + aujourd'hui = 3 (le compteur a avancé d'1 sur le check réel).
     expect(third.totalChecks).toBe(3);
+    // Pas encore fini (3/7) → toujours dû aujourd'hui (déjà coché → 0 dû).
+    expect(await due()).toBe(0);
 
-    // TERMINÉ (3/3) → plus dû, et markWarmupCheck refuse un check de plus.
+    // COMPLÉTION : 6 checks passés posés, puis cocher aujourd'hui → 7/7 TERMINÉ
+    // → plus dû, et markWarmupCheck refuse un check de plus.
+    await e2e.mutation(api.comptes.e2eSetWarmupChecks, {
+      secret: E2E_SECRET,
+      id,
+      dailyChecks: [6, 5, 4, 3, 2, 1].map((d) => ymd(ts - d * DAY)),
+    });
+    const last = await A.client.mutation(api.comptes.markWarmupCheck, {
+      projectId: A.projectId,
+      id,
+    });
+    expect(last.totalChecks).toBe(7);
     expect(await due()).toBe(0);
     await expect(
       A.client.mutation(api.comptes.markWarmupCheck, {

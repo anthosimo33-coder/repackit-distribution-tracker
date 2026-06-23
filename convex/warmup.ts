@@ -7,9 +7,12 @@
  * importé par convex/comptes.ts.
  */
 
+// TikTok/YouTube portés à 7 (était 3) ; Instagram reste 14. Réplique de
+// lib/warmup.WARMUP_TARGET_DAYS (A6). Durée figée au démarrage du warmup →
+// changement non rétroactif sur les warmups en cours.
 export const WARMUP_TARGET_DAYS = {
-  youtube: 3,
-  tiktok: 3,
+  youtube: 7,
+  tiktok: 7,
   instagram: 14,
 } as const;
 

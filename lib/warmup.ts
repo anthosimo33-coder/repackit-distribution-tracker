@@ -17,10 +17,16 @@
  * (jours manqués), jamais à la complétion.
  */
 
-/** Durée de warmup (jours) par plateforme. Clés en minuscules (canonique). */
+/**
+ * Durée de warmup (jours) par plateforme. Clés en minuscules (canonique).
+ * TikTok/YouTube portés à 7 (était 3) ; Instagram reste 14. La durée est FIGÉE
+ * sur warmupProtocol.targetDays au DÉMARRAGE du warmup (declareCompte /
+ * createCompte / restartWarmup), donc changer ce barème n'affecte QUE les
+ * nouveaux warmups — les warmups en cours conservent leur targetDays figé.
+ */
 export const WARMUP_TARGET_DAYS = {
-  youtube: 3,
-  tiktok: 3,
+  youtube: 7,
+  tiktok: 7,
   instagram: 14,
 } as const;
 

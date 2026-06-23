@@ -18,6 +18,7 @@ import {
   getStatusBadge,
   isWarmupCompleteForCompte,
 } from "@/lib/compte-status";
+import { RestartWarmupButton } from "./RestartWarmupButton";
 import { cn } from "@/lib/utils";
 
 /**
@@ -35,6 +36,11 @@ export function CompteDetailHeader({ compte }: { compte: Compte }) {
     effStatus === "warmup" &&
     compte.warmupStartedAt != null &&
     isWarmupCompleteForCompte(compte);
+  // « Relancer le warmup » : pertinent pour un compte sorti d'échauffement
+  // (actif), à valider (warmup terminé) ou shadowban. Masqué pendant un warmup
+  // EN COURS (déjà en chauffe) et pour un compte archivé (réactiver d'abord).
+  const canRestartWarmup =
+    effStatus === "actif" || effStatus === "shadowban" || warmupComplete;
 
   return (
     <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -89,6 +95,12 @@ export function CompteDetailHeader({ compte }: { compte: Compte }) {
       </div>
       <div className="flex flex-wrap items-center gap-3">
         <SnapshotAgeSelector compact />
+        {canRestartWarmup && (
+          <RestartWarmupButton
+            compteId={compte._id}
+            plateforme={compte.plateforme}
+          />
+        )}
         <Button variant="outline" onClick={() => setEditOpen(true)}>
           <PencilIcon className="mr-2 size-4" />
           Modifier le compte
