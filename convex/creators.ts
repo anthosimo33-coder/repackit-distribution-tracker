@@ -10,6 +10,7 @@ import {
 } from "./functions";
 import { getProjectBySlug, REPACKIT_SLUG } from "./projects";
 import { syncBonusUnlocks } from "./pricing";
+import { DELETABLE_STATUSES, purgeAndDeleteAssignment } from "./assignments";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -239,6 +240,228 @@ export const updateCreator = adminMutation({
     if (args.bonusPricingId !== undefined) {
       await syncBonusUnlocks(ctx, ctx.projectId, args.id);
     }
+  },
+});
+
+// ─── Suppression d'un créateur (hard-delete + cascade, historique conservé) ──
+
+/**
+ * Compteurs de ce que deleteCreator SUPPRIMERA vs CONSERVERA. Lecture seule,
+ * partagé par la query de prévisualisation (UI de confirmation) et la mutation
+ * (résumé de succès). `publications` = posts sur les handles de compte du
+ * créateur (publications n'ont pas de creatorId direct ; le handle est le seul
+ * lien — scan projet, action admin ponctuelle, hors chemin chaud).
+ */
+async function creatorDeletionImpact(
+  ctx: QueryCtx,
+  creator: Doc<"creators">,
+): Promise<{
+  comptes: number;
+  deletableAssignments: number;
+  keptAssignments: number;
+  payments: number;
+  publications: number;
+}> {
+  const projectId = creator.projectId;
+  const comptes = await ctx.db
+    .query("comptes")
+    .withIndex("by_project_creator", (q) =>
+      q.eq("projectId", projectId).eq("creatorId", creator._id),
+    )
+    .collect();
+  const handles = new Set(comptes.map((c) => c.handle));
+  const assignments = await ctx.db
+    .query("assignments")
+    .withIndex("by_creator", (q) => q.eq("creatorId", creator._id))
+    .collect();
+  let deletableAssignments = 0;
+  for (const a of assignments) {
+    if (DELETABLE_STATUSES.has(a.status)) deletableAssignments++;
+  }
+  const payments = await ctx.db
+    .query("payments")
+    .withIndex("by_creator", (q) => q.eq("creatorId", creator._id))
+    .collect();
+  let publications = 0;
+  if (handles.size > 0) {
+    const pubs = await ctx.db
+      .query("publications")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .collect();
+    publications = pubs.filter((p) => handles.has(p.compte)).length;
+  }
+  return {
+    comptes: comptes.length,
+    deletableAssignments,
+    keptAssignments: assignments.length - deletableAssignments,
+    payments: payments.length,
+    publications,
+  };
+}
+
+/**
+ * Prévisualisation pour la confirmation de suppression : nom exact (saisie de
+ * confirmation) + compteurs supprimé/conservé. null si introuvable / hors projet.
+ */
+export const getCreatorDeletionImpact = adminQuery({
+  args: { id: v.id("creators") },
+  handler: async (ctx, { id }) => {
+    const creator = await ctx.db.get(id);
+    if (!creator || creator.projectId !== ctx.projectId) return null;
+    const impact = await creatorDeletionImpact(ctx, creator);
+    return { name: creator.name, ...impact };
+  },
+});
+
+/**
+ * HARD-DELETE d'un créateur (Approche C) — opération la plus destructrice de
+ * l'app. Scopé projet, admin only, idempotent (déjà supprimé / hors projet →
+ * `alreadyGone`).
+ *
+ * SUPPRIMÉ (opérationnel, sans valeur historique) :
+ *   - comptes du créateur (bio + warmup embarqués dans la row) ;
+ *   - assignments NON publiés/payés (DELETABLE_STATUSES) → purge vidéo orpheline
+ *     (Convex + Stream, best-effort) + suppression de la row, ce qui LIBÈRE le
+ *     comboKey (réassignable) ;
+ *   - invitations (tokens one-shot) ;
+ *   - membership creator du projet (révoque l'accès portail) ;
+ *   - le compte user partagé + ses reset tokens UNIQUEMENT s'il devient orphelin
+ *     (aucun autre membership ni fiche) → ne casse pas un créateur multi-projets
+ *     ni un admin.
+ *
+ * CONSERVÉ (historique), avec le nom FIGÉ en dénormalisation (creatorNameSnapshot,
+ * le creatorId reste comme référence morte mais utile au regroupement) :
+ *   - publications (liées par handle de compte, conservent leur handle string) ;
+ *   - paiements / line items (le breakdown live des paiements non soldés reste
+ *     correct : il recompute depuis les assignments published/paid + bonusUnlocks
+ *     CONSERVÉS, jamais depuis la fiche créateur) ;
+ *   - assignments published/paid/validated + bonusUnlocks (financier).
+ *
+ * Les effets externes (storage.delete, Cloudflare) sont best-effort/post-commit
+ * via purgeAndDeleteAssignment (idiome deleteAssignment) — un échec externe ne
+ * casse pas la suppression DB (transactionnelle).
+ */
+export const deleteCreator = adminMutation({
+  args: { id: v.id("creators") },
+  handler: async (ctx, { id }) => {
+    const creator = await ctx.db.get(id);
+    if (!creator || creator.projectId !== ctx.projectId) {
+      return { ok: true as const, alreadyGone: true as const };
+    }
+    const name = creator.name;
+    const projectId = creator.projectId;
+
+    // Handles de compte AVANT suppression → compte les publications conservées.
+    const comptes = await ctx.db
+      .query("comptes")
+      .withIndex("by_project_creator", (q) =>
+        q.eq("projectId", projectId).eq("creatorId", id),
+      )
+      .collect();
+    const handles = new Set(comptes.map((c) => c.handle));
+    let keptPublications = 0;
+    if (handles.size > 0) {
+      const pubs = await ctx.db
+        .query("publications")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect();
+      keptPublications = pubs.filter((p) => handles.has(p.compte)).length;
+    }
+
+    // 1. Figer le nom sur les paiements CONSERVÉS (tous).
+    const payments = await ctx.db
+      .query("payments")
+      .withIndex("by_creator", (q) => q.eq("creatorId", id))
+      .collect();
+    for (const p of payments) {
+      await ctx.db.patch(p._id, { creatorNameSnapshot: name });
+    }
+
+    // 2. Assignments : supprimer les opérationnels (combo libéré + purge vidéo),
+    //    figer le nom sur les conservés (published/paid/validated).
+    const assignments = await ctx.db
+      .query("assignments")
+      .withIndex("by_creator", (q) => q.eq("creatorId", id))
+      .collect();
+    let deletedAssignments = 0;
+    let freedCombos = 0;
+    let keptAssignments = 0;
+    for (const a of assignments) {
+      if (DELETABLE_STATUSES.has(a.status)) {
+        if (a.comboKey !== undefined) freedCombos++;
+        await purgeAndDeleteAssignment(ctx, a);
+        deletedAssignments++;
+      } else {
+        await ctx.db.patch(a._id, { creatorNameSnapshot: name });
+        keptAssignments++;
+      }
+    }
+
+    // 3. Supprimer les comptes (opérationnels). Les publications gardent leur
+    //    handle (string) → restent lisibles sans la row compte.
+    for (const c of comptes) {
+      await ctx.db.delete(c._id);
+    }
+
+    // 4. Supprimer les invitations (tokens one-shot, sans valeur historique).
+    const invitations = await ctx.db
+      .query("invitations")
+      .withIndex("by_creator", (q) => q.eq("creatorId", id))
+      .collect();
+    for (const inv of invitations) {
+      await ctx.db.delete(inv._id);
+    }
+
+    // 5. Révoquer l'accès : supprimer le membership creator de CE projet. Le
+    //    compte user partagé n'est supprimé que s'il devient totalement orphelin.
+    const userId = creator.userId;
+    if (userId) {
+      const memberships = await ctx.db
+        .query("memberships")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .collect();
+      const remaining: typeof memberships = [];
+      for (const m of memberships) {
+        if (m.projectId === projectId && m.role === "creator") {
+          await ctx.db.delete(m._id);
+        } else {
+          remaining.push(m);
+        }
+      }
+      const otherFiches = await ctx.db
+        .query("creators")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .collect();
+      const hasOtherFiche = otherFiches.some((f) => f._id !== id);
+      if (remaining.length === 0 && !hasOtherFiche) {
+        const resets = await ctx.db
+          .query("passwordResetTokens")
+          .withIndex("by_user", (q) => q.eq("userId", userId))
+          .collect();
+        for (const r of resets) await ctx.db.delete(r._id);
+        await ctx.db.delete(userId);
+      }
+    }
+
+    // 6. Supprimer la fiche créateur (hard-delete).
+    await ctx.db.delete(id);
+
+    return {
+      ok: true as const,
+      alreadyGone: false as const,
+      name,
+      deleted: {
+        comptes: comptes.length,
+        assignments: deletedAssignments,
+        invitations: invitations.length,
+        freedCombos,
+      },
+      kept: {
+        publications: keptPublications,
+        payments: payments.length,
+        assignments: keptAssignments,
+      },
+    };
   },
 });
 

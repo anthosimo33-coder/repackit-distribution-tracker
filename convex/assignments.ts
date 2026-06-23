@@ -357,7 +357,7 @@ export const migrateAssetFolderToArray = internalMutation({
  * /paid (+ legacy validated) sont BLOQUÉS : ils portent une publication (analytics)
  * et/ou un paiement → les supprimer orphelinerait l'historique financier.
  */
-const DELETABLE_STATUSES = new Set<string>([
+export const DELETABLE_STATUSES = new Set<string>([
   "todo",
   "in_progress",
   "video_submitted",
@@ -366,6 +366,31 @@ const DELETABLE_STATUSES = new Set<string>([
   "submitted", // legacy
   "rejected", // legacy
 ]);
+
+/**
+ * Purge best-effort la vidéo soumise orpheline d'un assignment (blob Convex +
+ * copie Cloudflare Stream, no-op si env absent) PUIS hard-delete la row — ce qui
+ * LIBÈRE son comboKey (l'unicité créateur+plateforme est purement basée sur
+ * l'existence de la row, cf by_creator_combo). Partagé par deleteAssignment
+ * (unitaire) et deleteCreator (cascade) — source unique du nettoyage vidéo.
+ * N'effectue AUCUNE garde de statut : l'appelant filtre les statuts supprimables.
+ */
+export async function purgeAndDeleteAssignment(
+  ctx: MutationCtx,
+  a: Doc<"assignments">,
+): Promise<void> {
+  if (a.submittedVideoStorageId) {
+    await ctx.storage.delete(a.submittedVideoStorageId);
+  }
+  if (a.submittedVideoStreamUid) {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.cloudflareStream.deleteStreamAsset,
+      { uid: a.submittedVideoStreamUid },
+    );
+  }
+  await ctx.db.delete(a._id);
+}
 
 /**
  * SUPPRESSION manuelle d'un assignment (admin) — HARD-DELETE. Libère le comboKey
@@ -399,19 +424,8 @@ export const deleteAssignment = adminMutation({
         "Un assignment publié ou payé ne peut pas être supprimé (historique financier/analytics).",
       );
     }
-    // Vidéo soumise orpheline : purge Convex + Stream (best-effort).
-    if (a.submittedVideoStorageId) {
-      await ctx.storage.delete(a.submittedVideoStorageId);
-    }
-    if (a.submittedVideoStreamUid) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.cloudflareStream.deleteStreamAsset,
-        { uid: a.submittedVideoStreamUid },
-      );
-    }
-    // Hard-delete → le comboKey n'est plus occupé (réassignable).
-    await ctx.db.delete(id);
+    // Purge vidéo orpheline (Convex + Stream) + hard-delete → comboKey libéré.
+    await purgeAndDeleteAssignment(ctx, a);
     return { ok: true as const, alreadyGone: false };
   },
 });
@@ -500,7 +514,7 @@ export const listAssignments = adminQuery({
         const linkedAssetFolderIds = effectiveAssetFolderIds(a);
         return {
           ...a,
-          creatorName: creatorMap.get(a.creatorId) ?? "—",
+          creatorName: creatorMap.get(a.creatorId) ?? a.creatorNameSnapshot ?? "—",
           formatName: a.formatId ? (formatMap.get(a.formatId) ?? "—") : null,
           targets,
           origin: (a.scriptCombo ? "script" : "format") as "script" | "format",
@@ -737,7 +751,7 @@ export const listVideoSubmitted = adminQuery({
           }
           return {
             _id: a._id,
-            creatorName: creatorMap.get(a.creatorId) ?? "—",
+            creatorName: creatorMap.get(a.creatorId) ?? a.creatorNameSnapshot ?? "—",
             label: combo
               ? (campaignMap.get(combo.campaignId) ?? "Script")
               : a.formatId
@@ -813,7 +827,7 @@ export const listPublished = adminQuery({
       .sort((a, b) => pubAtOf(b) - pubAtOf(a))
       .map((a) => ({
         _id: a._id,
-        creatorName: creatorMap.get(a.creatorId) ?? "—",
+        creatorName: creatorMap.get(a.creatorId) ?? a.creatorNameSnapshot ?? "—",
         label: a.scriptCombo
           ? "Script"
           : a.formatId
@@ -1082,7 +1096,7 @@ export const listValidatedForBonus = adminQuery({
         }
         return {
           assignmentId: a._id,
-          creatorName: creatorMap.get(a.creatorId) ?? "—",
+          creatorName: creatorMap.get(a.creatorId) ?? a.creatorNameSnapshot ?? "—",
           formatName: a.formatId ? (formatMap.get(a.formatId) ?? "—") : "—",
           postCount: pubIds.length,
           latestViews: hasSnapshot ? latestViews : null,

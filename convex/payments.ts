@@ -357,7 +357,10 @@ export const listPayments = adminQuery({
         const c = byId.get(p.creatorId);
         return {
           ...e,
-          creatorName: c?.name ?? "—",
+          // Approche C — fiche supprimée (creatorId mort) → nom figé en fallback,
+          // jamais de nom vide. Email/coordonnées sont des données vivantes du
+          // créateur, absentes après suppression (paiement déjà soldé/réconcilié).
+          creatorName: c?.name ?? p.creatorNameSnapshot ?? "—",
           creatorEmail: c?.email ?? "",
           creatorPaymentMethod: c?.paymentMethod ?? null,
           creatorPaymentDetails: c?.paymentDetails ?? null,

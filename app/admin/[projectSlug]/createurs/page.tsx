@@ -24,12 +24,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontalIcon, PlusIcon, UserPlusIcon } from "lucide-react";
+import {
+  MoreHorizontalIcon,
+  PlusIcon,
+  Trash2Icon,
+  UserPlusIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { creatorStatusBadge } from "@/lib/creator-status";
 import { cn } from "@/lib/utils";
 import { InviteCreatorDialog } from "@/components/creators/InviteCreatorDialog";
+import { DeleteCreatorDialog } from "@/components/creators/DeleteCreatorDialog";
 import { joinUrl } from "@/components/creators/CopyableLink";
 
 export default function CreateursPage() {
@@ -37,6 +43,10 @@ export default function CreateursPage() {
   const regenerate = useProjectMutation(api.creators.regenerateInvitation);
   const projectPath = useProjectPath();
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: Id<"creators">;
+    name: string;
+  } | null>(null);
 
   async function copyLink(token: string) {
     try {
@@ -123,35 +133,46 @@ export default function CreateursPage() {
                         {new Date(c.createdAt).toLocaleDateString("fr-FR")}
                       </TableCell>
                       <TableCell>
-                        {c.invitation ? (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger
-                              render={
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="size-8 p-0"
-                                  aria-label={`Actions ${c.name}`}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger
+                            render={
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="size-8 p-0"
+                                aria-label={`Actions ${c.name}`}
+                              >
+                                <MoreHorizontalIcon className="size-4" />
+                              </Button>
+                            }
+                          />
+                          <DropdownMenuContent align="end">
+                            {c.invitation ? (
+                              <>
+                                <DropdownMenuItem
+                                  onClick={() => copyLink(c.invitation!.token)}
                                 >
-                                  <MoreHorizontalIcon className="size-4" />
-                                </Button>
+                                  Copier le lien
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => handleRegenerate(c._id)}
+                                >
+                                  Régénérer le lien
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                              </>
+                            ) : null}
+                            <DropdownMenuItem
+                              onClick={() =>
+                                setDeleteTarget({ id: c._id, name: c.name })
                               }
-                            />
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem
-                                onClick={() => copyLink(c.invitation!.token)}
-                              >
-                                Copier le lien
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onClick={() => handleRegenerate(c._id)}
-                              >
-                                Régénérer le lien
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        ) : null}
+                              className="text-rose-600 focus:bg-rose-50 focus:text-rose-700"
+                            >
+                              <Trash2Icon className="mr-2 size-4" />
+                              Supprimer le créateur
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                     </TableRow>
                   );
@@ -163,6 +184,14 @@ export default function CreateursPage() {
       )}
 
       <InviteCreatorDialog open={inviteOpen} onOpenChange={setInviteOpen} />
+      {deleteTarget && (
+        <DeleteCreatorDialog
+          creatorId={deleteTarget.id}
+          creatorName={deleteTarget.name}
+          open={deleteTarget !== null}
+          onOpenChange={(o) => !o && setDeleteTarget(null)}
+        />
+      )}
     </div>
   );
 }
