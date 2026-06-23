@@ -12,37 +12,61 @@ import {
   WalletIcon,
   UserIcon,
   HelpCircleIcon,
+  WrenchIcon,
   type LucideIcon,
 } from "lucide-react";
 
 /**
  * Barre d'onglets MOBILE du portail créateur (style app native, au pouce).
- * Visible < md uniquement (le desktop garde la nav du header). Onglet actif en
+ * Visible < md uniquement (le desktop a la sidebar gauche). Onglet actif en
  * accent orange ; badges dérivés : « Accueil » = vidéos « à publier »
  * (countMyToPublish), « Comptes » = warmups à faire/rattraper aujourd'hui
  * (countMyWarmupDue). Fixe en bas, safe-area iOS gérée.
+ *
+ * 5ᵉ onglet selon le projet :
+ *   - projet AVEC outils → « Outils » (page /app/outils qui liste les outils) ;
+ *     « Guide » est alors déplacé dans le header mobile (cf app/app/layout).
+ *   - projet SANS outils → « Guide » reste ici (aucune réorganisation) : pas
+ *     d'onglet Outils vide.
  */
 type BadgeKey = "toPublish" | "warmupDue";
-const TABS: {
+type Tab = {
   href: string;
   label: string;
   icon: LucideIcon;
   exact: boolean;
   badgeKey?: BadgeKey;
-}[] = [
+};
+
+const BASE_TABS: Tab[] = [
   { href: "/app", label: "Accueil", icon: HomeIcon, exact: true, badgeKey: "toPublish" },
   { href: "/app/comptes", label: "Comptes", icon: AtSignIcon, exact: false, badgeKey: "warmupDue" },
   { href: "/app/paiements", label: "Gains", icon: WalletIcon, exact: false },
   { href: "/app/profil", label: "Profil", icon: UserIcon, exact: false },
-  { href: "/app/guide", label: "Guide", icon: HelpCircleIcon, exact: false },
 ];
+
+const OUTILS_TAB: Tab = {
+  href: "/app/outils",
+  label: "Outils",
+  icon: WrenchIcon,
+  exact: false,
+};
+const GUIDE_TAB: Tab = {
+  href: "/app/guide",
+  label: "Guide",
+  icon: HelpCircleIcon,
+  exact: false,
+};
 
 export function CreatorBottomNav({
   projectId,
+  hasTools,
 }: {
   projectId: Id<"projects"> | null;
+  hasTools: boolean;
 }) {
   const pathname = usePathname();
+  const tabs: Tab[] = [...BASE_TABS, hasTools ? OUTILS_TAB : GUIDE_TAB];
   const toPublish =
     useQuery(
       api.assignments.countMyToPublish,
@@ -65,7 +89,7 @@ export function CreatorBottomNav({
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
       <ul className="mx-auto grid max-w-lg grid-cols-5">
-        {TABS.map((t) => {
+        {tabs.map((t) => {
           const active = t.exact
             ? pathname === t.href
             : pathname.startsWith(t.href);
