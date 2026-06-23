@@ -221,11 +221,23 @@ test.describe("Accrual & matérialisation à la publication", () => {
     await expect(approveBtn).toBeHidden({ timeout: 10_000 });
 
     // Vérif serveur : la vidéo est validée → to_publish (paiement PAS encore).
+    // Validation déclenchée par CLIC UI : la propagation vers la query re-fetchée
+    // (client admin distinct de la page) peut avoir un micro-retard sous charge →
+    // on POLLE le statut au lieu d'un one-shot. Strict : si le statut ne devient
+    // jamais to_publish, le poll échoue au timeout.
+    await expect
+      .poll(
+        async () =>
+          (await admin.query(api.assignments.listAssignments, {})).find(
+            (x) => x._id === a._id,
+          )?.status,
+        { timeout: 10_000 },
+      )
+      .toBe("to_publish");
+    // Rien de matérialisé à la validation : aucune cible n'a d'URL publiée.
     const aNow = (await admin.query(api.assignments.listAssignments, {})).find(
       (x) => x._id === a._id,
     )!;
-    expect(aNow.status).toBe("to_publish");
-    // Rien de matérialisé à la validation : aucune cible n'a d'URL publiée.
     expect(aNow.targets.every((t) => !t.publishedUrl)).toBe(true);
   });
 });

@@ -66,9 +66,19 @@ test.describe("Admin — assignation + table", () => {
     await dialog.getByRole("button", { name: "Assigner", exact: true }).click();
     await expect(dialog).toBeHidden({ timeout: 8000 });
 
-    // Serveur : 1 (retard) + 2 (modal) = 3 rows pour ce format.
+    // Serveur : 1 (retard) + 2 (modal) = 3 rows pour ce format. Même course de
+    // propagation cross-client que pour la suppression → poll au lieu d'un
+    // one-shot. Strict : un total ≠ 3 au-delà du timeout fait échouer le test.
+    await expect
+      .poll(
+        async () =>
+          (await admin.query(api.assignments.listAssignments, {})).filter(
+            (a) => a.formatId === fid,
+          ).length,
+        { timeout: 10_000 },
+      )
+      .toBe(3);
     const list = await admin.query(api.assignments.listAssignments, {});
-    expect(list.filter((a) => a.formatId === fid).length).toBe(3);
 
     // Table admin : 3 lignes pour ce format, dont une en retard.
     await page.goto(adminPath("/assignments"));
@@ -136,7 +146,19 @@ test.describe("Admin — assignation + table", () => {
 
     // La ligne disparaît (réactivité Convex) ; le serveur confirme la suppression.
     await expect(row).toHaveCount(0, { timeout: 10_000 });
-    const list = await admin.query(api.assignments.listAssignments, {});
-    expect(list.some((a) => a.formatId === fid)).toBe(false);
+    // La propagation de la suppression vers la query re-fetchée (client admin
+    // distinct de la page) peut avoir un micro-retard sous charge : on POLLE
+    // jusqu'à ce que l'assignment ait disparu côté serveur, au lieu d'un check
+    // one-shot qui flake. Reste STRICT : si l'assignment n'est réellement pas
+    // supprimé, le poll renvoie true jusqu'au timeout et l'assertion échoue.
+    await expect
+      .poll(
+        async () => {
+          const list = await admin.query(api.assignments.listAssignments, {});
+          return list.some((a) => a.formatId === fid);
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(false);
   });
 });
