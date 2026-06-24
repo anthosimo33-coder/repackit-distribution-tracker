@@ -187,6 +187,11 @@ export function Sidebar({
       label: "Assets",
       ...item(projectPath("/assets")),
     },
+    {
+      icon: HelpCircleIcon,
+      label: "Comment ça marche",
+      ...item(projectPath("/guide")),
+    },
   ];
 
   // ARCHIVES — vues legacy du tracker interne, rangées (replié par défaut).
@@ -212,12 +217,6 @@ export function Sidebar({
       ...item(projectPath("/biblio-hooks")),
     },
   ];
-
-  const guideItem = {
-    icon: HelpCircleIcon,
-    label: "Comment ça marche",
-    ...item(projectPath("/guide")),
-  };
 
   // OUTILS — liens externes configurés PAR PROJET (project.sidebarLinks). Vide
   // pour les projets qui n'en ont pas (ex. RepackIt) → la section ne s'affiche
@@ -326,11 +325,6 @@ export function Sidebar({
             )}
           </div>
         )}
-
-        {/* Comment ça marche — config, en bas de la nav. */}
-        <div className={cn(!collapsed && "border-t border-slate-200 pt-4")}>
-          {renderItem(guideItem)}
-        </div>
       </nav>
 
       {/* Footer : email user + déconnexion + toggle collapse (desktop) */}

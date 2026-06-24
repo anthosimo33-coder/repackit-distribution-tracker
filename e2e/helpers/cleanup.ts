@@ -84,6 +84,12 @@ export async function cleanupTestData() {
       "scripts",
       () => client.mutation(api.scripts.cleanupTestScripts, { secret }),
     ],
+    // Modules « Comment ça marche » (par marqueur [E2E_TEST] dans le titre).
+    [
+      "guideModules",
+      () =>
+        client.mutation(api.guideModules.cleanupTestGuideModules, { secret }),
+    ],
   ];
 
   for (const [label, run] of steps) {
