@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
+import { PaymentInfoNudge } from "@/components/portal/PaymentInfoNudge";
 import {
   Card,
   CardContent,
@@ -82,6 +83,10 @@ export default function CreatorDashboardPage() {
   const assignments = useQuery(api.assignments.listMyAssignments, { projectId });
   const warmupDue =
     useQuery(api.comptes.countMyWarmupDue, { projectId }) ?? 0;
+  // QW1 — warmups EN COURS (qu'un check soit dû aujourd'hui ou non) : alimente le
+  // rappel permanent « reviens le cocher chaque jour » (lecture seule).
+  const warmupInProgress =
+    useQuery(api.comptes.countMyWarmupInProgress, { projectId }) ?? 0;
   const payments = useQuery(api.payments.getMyPayments, { projectId });
 
   const list = assignments ?? [];
@@ -106,7 +111,8 @@ export default function CreatorDashboardPage() {
     toProduce.length === 0 &&
     toPublish.length === 0 &&
     toRedo.length === 0 &&
-    warmupDue === 0;
+    warmupDue === 0 &&
+    warmupInProgress === 0;
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -118,6 +124,9 @@ export default function CreatorDashboardPage() {
           Ce que tu as à faire pour {current.name}.
         </p>
       </header>
+
+      {/* QW3 — coordonnées de paiement manquantes alors que des gains sont dus. */}
+      <PaymentInfoNudge projectId={projectId} />
 
       {!assignmentsLoaded ? (
         <div className="space-y-3">
@@ -157,6 +166,11 @@ export default function CreatorDashboardPage() {
               <BlockCta href="/app/comptes" label="Cocher mes warmups" />
             </ActionBlock>
           )}
+
+          {/* 2 bis. Warmup en cours mais rien à cocher aujourd'hui → rappel
+              PERMANENT (QW1) : le warmup se coche chaque jour, on ne laisse
+              jamais croire « rien à faire » tant qu'il n'est pas terminé. */}
+          {warmupDue === 0 && warmupInProgress > 0 && <WarmupOngoingReminder />}
 
           {/* 3. À publier */}
           {toPublish.length > 0 && (
@@ -211,11 +225,39 @@ function AllClear() {
           Tout est à jour
         </p>
         <p className="text-sm text-emerald-700">
-          Rien à faire pour le moment. On te préviendra dès qu&apos;une vidéo ou
-          un warmup t&apos;attend.
+          Rien à faire pour le moment. Repasse de temps en temps : tes nouvelles
+          missions et tes warmups apparaîtront ici.
         </p>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * QW1 — rappel PERMANENT tant qu'un warmup est en cours (et que le check du jour
+ * est déjà fait). Le warmup se coche CHAQUE jour jusqu'au bout ; on l'affiche même
+ * « fait aujourd'hui » pour ne jamais laisser croire qu'il n'y a plus rien à faire.
+ * Renvoie vers « Mes comptes » où se fait le check. AFFICHAGE seul (lecture).
+ */
+function WarmupOngoingReminder() {
+  return (
+    <Link
+      href="/app/comptes"
+      data-testid="warmup-ongoing-reminder"
+      className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 transition-colors hover:bg-amber-100"
+    >
+      <FlameIcon className="size-5 shrink-0 text-amber-600" />
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <p className="text-sm font-medium text-amber-900">
+          Warmup en cours — c&apos;est bon pour aujourd&apos;hui&nbsp;✓
+        </p>
+        <p className="text-sm text-amber-800">
+          Reviens le cocher chaque jour jusqu&apos;au bout : c&apos;est ce qui
+          rend ton compte prêt à publier.
+        </p>
+      </div>
+      <ArrowRightIcon className="size-4 shrink-0 text-amber-700" />
+    </Link>
   );
 }
 

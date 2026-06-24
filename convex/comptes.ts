@@ -848,6 +848,34 @@ export const countMyWarmupDue = creatorQuery({
 });
 
 /**
+ * Notif in-app créateur : nb de MES comptes dont le warmup est EN COURS (en
+ * warmup ET pas encore terminé par les checks), QU'UN CHECK SOIT DÛ AUJOURD'HUI
+ * OU NON. Alimente le rappel PERMANENT du dashboard (« reviens le cocher chaque
+ * jour ») — distinct de countMyWarmupDue qui ne compte que les checks à faire
+ * AUJOURD'HUI. LECTURE seule, filtré serveur par creatorId : aucune écriture,
+ * aucune dérivation calendaire (la complétion est fondée sur les checks réels).
+ */
+export const countMyWarmupInProgress = creatorQuery({
+  args: {},
+  handler: async (ctx) => {
+    const comptes = await ctx.db
+      .query("comptes")
+      .withIndex("by_project_creator", (q) =>
+        q.eq("projectId", ctx.projectId).eq("creatorId", ctx.creatorId),
+      )
+      .collect();
+    return comptes.filter(
+      (c) =>
+        effectiveStatus(c) === "warmup" &&
+        !isWarmupComplete({
+          plateforme: c.plateforme,
+          warmupProtocol: c.warmupProtocol,
+        }),
+    ).length;
+  },
+});
+
+/**
  * Migration data ONE-SHOT (internal — à lancer UNE SEULE FOIS post-deploy via
  * `pnpm dlx convex@latest run --prod comptes:migrateComptesStatus`, testable
  * d'abord en dev). Backfill `status` à partir du legacy `actif` :
