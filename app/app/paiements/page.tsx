@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
+import { PaymentInfoNudge } from "@/components/portal/PaymentInfoNudge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -271,6 +272,9 @@ export default function CreatorPaiementsPage() {
       <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
         Mes paiements
       </h1>
+
+      {/* QW3 — coordonnées de paiement manquantes alors que des gains sont dus. */}
+      <PaymentInfoNudge projectId={currentProject.projectId} />
 
       <BonusTierPanel projectId={currentProject.projectId} />
 

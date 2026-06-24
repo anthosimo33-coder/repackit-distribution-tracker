@@ -1602,6 +1602,40 @@ export const countMyToPublish = creatorQuery({
   },
 });
 
+/**
+ * Statuts ACTIONNABLES par le créateur (= il a quelque chose à faire MAINTENANT).
+ * ⚠️ Règle A6 — RÉPLIQUE de lib/assignment-status.isActionable (convex/ ne peut
+ * pas importer lib/) : garder les deux EN PHASE. Ce sont EXACTEMENT les catégories
+ * mises en avant par le dashboard créateur : à produire (todo / in_progress) +
+ * à publier (to_publish) + à refaire (video_rejected, + legacy rejected).
+ */
+const ACTIONABLE_STATUSES = new Set<string>([
+  "todo",
+  "in_progress",
+  "video_rejected",
+  "to_publish",
+  "rejected", // legacy
+]);
+
+/**
+ * Notif in-app : nb TOTAL de mes assignments ACTIONNABLES (à produire + à publier
+ * + à refaire) — alimente le badge de l'onglet « Accueil » pour qu'une NOUVELLE
+ * mission ou une vidéo REFUSÉE génère bien le badge (countMyToPublish n'en couvre
+ * qu'un tiers). LECTURE seule, scopée au créateur courant (ctx.creatorId, déjà
+ * propre au projet) : aucune écriture, aucun statut modifié, pas de fuite
+ * cross-créateur/cross-projet.
+ */
+export const countMyActionable = creatorQuery({
+  args: {},
+  handler: async (ctx) => {
+    const mine = await ctx.db
+      .query("assignments")
+      .withIndex("by_creator", (q) => q.eq("creatorId", ctx.creatorId))
+      .collect();
+    return mine.filter((a) => ACTIONABLE_STATUSES.has(a.status)).length;
+  },
+});
+
 // ─── Cleanup e2e (gated E2E_SECRET) ──────────────────────────────────────────
 
 /**

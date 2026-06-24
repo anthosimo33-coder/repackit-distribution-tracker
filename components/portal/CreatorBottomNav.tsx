@@ -19,9 +19,10 @@ import {
 /**
  * Barre d'onglets MOBILE du portail créateur (style app native, au pouce).
  * Visible < md uniquement (le desktop a la sidebar gauche). Onglet actif en
- * accent orange ; badges dérivés : « Accueil » = vidéos « à publier »
- * (countMyToPublish), « Comptes » = warmups à faire/rattraper aujourd'hui
- * (countMyWarmupDue). Fixe en bas, safe-area iOS gérée.
+ * accent orange ; badges dérivés : « Accueil » = TOTAL des actions à traiter —
+ * à produire + à publier + à refaire (countMyActionable, pour qu'une nouvelle
+ * mission ou une vidéo refusée génère bien le badge) ; « Comptes » = warmups à
+ * faire/rattraper aujourd'hui (countMyWarmupDue). Fixe en bas, safe-area iOS gérée.
  *
  * 5ᵉ onglet selon le projet :
  *   - projet AVEC outils → « Outils » (page /app/outils qui liste les outils) ;
@@ -29,7 +30,7 @@ import {
  *   - projet SANS outils → « Guide » reste ici (aucune réorganisation) : pas
  *     d'onglet Outils vide.
  */
-type BadgeKey = "toPublish" | "warmupDue";
+type BadgeKey = "actionable" | "warmupDue";
 type Tab = {
   href: string;
   label: string;
@@ -39,7 +40,7 @@ type Tab = {
 };
 
 const BASE_TABS: Tab[] = [
-  { href: "/app", label: "Accueil", icon: HomeIcon, exact: true, badgeKey: "toPublish" },
+  { href: "/app", label: "Accueil", icon: HomeIcon, exact: true, badgeKey: "actionable" },
   { href: "/app/comptes", label: "Comptes", icon: AtSignIcon, exact: false, badgeKey: "warmupDue" },
   { href: "/app/paiements", label: "Gains", icon: WalletIcon, exact: false },
   { href: "/app/profil", label: "Profil", icon: UserIcon, exact: false },
@@ -67,9 +68,9 @@ export function CreatorBottomNav({
 }) {
   const pathname = usePathname();
   const tabs: Tab[] = [...BASE_TABS, hasTools ? OUTILS_TAB : GUIDE_TAB];
-  const toPublish =
+  const actionable =
     useQuery(
-      api.assignments.countMyToPublish,
+      api.assignments.countMyActionable,
       projectId ? { projectId } : "skip",
     ) ?? 0;
   const warmupDue =
@@ -78,7 +79,7 @@ export function CreatorBottomNav({
       projectId ? { projectId } : "skip",
     ) ?? 0;
   const badgeCount: Record<BadgeKey, number> = {
-    toPublish,
+    actionable,
     warmupDue,
   };
 
