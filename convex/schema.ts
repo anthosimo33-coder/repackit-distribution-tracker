@@ -914,9 +914,29 @@ export default defineSchema({
   // ─── P7 — « Comment ça marche » (guide projet, éditable admin) ────────────
   // Un seul guide markdown par projet (le SYSTÈME, pas un format). Lu par les
   // créateurs (creatorQuery), édité par l'admin. Upsert (≤ 1 row/projet).
+  // LEGACY : conservé comme FALLBACK du nouveau système de modules (guideModules)
+  // tant qu'aucun module published n'existe — la page « Comment ça marche » n'est
+  // jamais vide pendant la transition (cf convex/guideModules.ts).
   projectGuide: defineTable({
     projectId: v.id("projects"),
     content: v.string(),
+    updatedAt: v.number(),
+  }).index("by_project", ["projectId"]),
+
+  // ─── « Comment ça marche » v2 — modules markdown par projet ───────────────
+  // Base de connaissance / centre de formation : liste PLATE de modules par
+  // projet (pas de hiérarchie). L'admin crée/édite/réordonne/supprime des
+  // modules (markdown) ; le créateur lit les modules `published` rendus,
+  // triés par `order`. Les `draft` ne sont JAMAIS visibles côté créateur.
+  // Strictement scopé projet (un module ∈ un seul projet). Tri en mémoire par
+  // (order, createdAt) — pas d'index composite (≤ qq dizaines de modules/projet).
+  guideModules: defineTable({
+    projectId: v.id("projects"),
+    title: v.string(),
+    contentMarkdown: v.string(),
+    order: v.number(),
+    status: v.union(v.literal("published"), v.literal("draft")),
+    createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_project", ["projectId"]),
 
