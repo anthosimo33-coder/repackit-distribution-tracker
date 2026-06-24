@@ -1,6 +1,7 @@
 import {
   adminMutation,
   adminQuery,
+  adminViewAsQuery,
   creatorQuery,
   e2eMutation,
 } from "./functions";
@@ -375,20 +376,34 @@ export const listPayments = adminQuery({
  * Paiements du créateur courant UNIQUEMENT (filtré serveur par ctx.creatorId).
  * Un créateur ne voit jamais les paiements d'un autre. Triés période desc.
  */
+async function paymentsForCreator(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  creatorId: Id<"creators">,
+) {
+  const payments = (
+    await ctx.db
+      .query("payments")
+      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+      .collect()
+  ).filter((p) => p.projectId === projectId);
+  const enriched = await Promise.all(
+    payments.map((p) => enrichPaymentForRead(ctx, p)),
+  );
+  return enriched.sort((a, b) => b.period.localeCompare(a.period));
+}
+
 export const getMyPayments = creatorQuery({
   args: {},
-  handler: async (ctx) => {
-    const payments = (
-      await ctx.db
-        .query("payments")
-        .withIndex("by_creator", (q) => q.eq("creatorId", ctx.creatorId))
-        .collect()
-    ).filter((p) => p.projectId === ctx.projectId);
-    const enriched = await Promise.all(
-      payments.map((p) => enrichPaymentForRead(ctx, p)),
-    );
-    return enriched.sort((a, b) => b.period.localeCompare(a.period));
-  },
+  handler: async (ctx) =>
+    paymentsForCreator(ctx, ctx.projectId, ctx.creatorId),
+});
+
+/** ADMIN view-as — paiements/gains du créateur ciblé (lecture seule, scopé projet). */
+export const getPaymentsAsAdmin = adminViewAsQuery({
+  args: {},
+  handler: async (ctx) =>
+    paymentsForCreator(ctx, ctx.projectId, ctx.creatorId),
 });
 
 // ─── Mutations admin — marquer payé (idempotent) ─────────────────────────────

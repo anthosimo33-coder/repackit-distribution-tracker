@@ -40,7 +40,14 @@ type CreatorProjectContextValue = {
   setProjectId: (id: Id<"projects">) => void;
 };
 
-const CreatorProjectContext =
+/**
+ * Exporté pour le mode admin « voir l'espace d'un créateur » (lecture seule) :
+ * la route view-as fournit une valeur SYNTHÉTIQUE (projet unique fixe + nom du
+ * créateur ciblé) à ce MÊME contexte, si bien que les écrans portail réutilisés
+ * (useCreatorProject / useCreatorProjectId) fonctionnent sans modification. Le
+ * portail créateur normal continue d'être alimenté par CreatorProjectProvider.
+ */
+export const CreatorProjectContext =
   createContext<CreatorProjectContextValue | null>(null);
 
 const STORAGE_KEY = "creator-current-project";

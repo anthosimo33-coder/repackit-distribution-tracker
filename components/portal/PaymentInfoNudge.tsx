@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useQuery } from "convex/react";
-import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { WalletIcon, ArrowRightIcon } from "lucide-react";
 import { formatEuros } from "@/lib/format-rate";
 import { amountOwed, shouldPromptPaymentInfo } from "@/lib/creator-payment";
+import { portalHref } from "@/lib/view-as";
+import { useMyProfile, useMyPayments } from "@/components/portal/creator-data";
+import { usePortalBase } from "@/components/portal/ViewAsContext";
 
 /**
  * QW3 — bandeau d'action « coordonnées de paiement manquantes ». S'affiche
@@ -20,14 +21,15 @@ import { amountOwed, shouldPromptPaymentInfo } from "@/lib/creator-payment";
  * Renvoie vers /app/profil (section coordonnées de paiement).
  */
 export function PaymentInfoNudge({ projectId }: { projectId: Id<"projects"> }) {
-  const profile = useQuery(api.creators.getMyProfile, { projectId });
-  const payments = useQuery(api.payments.getMyPayments, { projectId });
+  const profile = useMyProfile(projectId);
+  const payments = useMyPayments(projectId);
+  const base = usePortalBase();
 
   if (!shouldPromptPaymentInfo(profile, payments)) return null;
 
   return (
     <Link
-      href="/app/profil"
+      href={portalHref(base, "/profil")}
       data-testid="payment-info-nudge"
       className="flex items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 transition-colors hover:bg-amber-100"
     >

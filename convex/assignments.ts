@@ -1,6 +1,7 @@
 import {
   adminMutation,
   adminQuery,
+  adminViewAsQuery,
   creatorMutation,
   creatorQuery,
   e2eMutation,
@@ -1267,19 +1268,30 @@ async function enrichForCreator(ctx: QueryCtx, a: Doc<"assignments">) {
   };
 }
 
+async function assignmentsForCreator(
+  ctx: QueryCtx,
+  creatorId: Id<"creators">,
+) {
+  const assignments = await ctx.db
+    .query("assignments")
+    .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+    .collect();
+  const enriched = await Promise.all(
+    assignments.map((a) => enrichForCreator(ctx, a)),
+  );
+  return enriched.sort((a, b) => a.dueDate - b.dueDate);
+}
+
 /** Mes assignments UNIQUEMENT (filtre serveur par creatorId), triés deadline. */
 export const listMyAssignments = creatorQuery({
   args: {},
-  handler: async (ctx) => {
-    const assignments = await ctx.db
-      .query("assignments")
-      .withIndex("by_creator", (q) => q.eq("creatorId", ctx.creatorId))
-      .collect();
-    const enriched = await Promise.all(
-      assignments.map((a) => enrichForCreator(ctx, a)),
-    );
-    return enriched.sort((a, b) => a.dueDate - b.dueDate);
-  },
+  handler: async (ctx) => assignmentsForCreator(ctx, ctx.creatorId),
+});
+
+/** ADMIN view-as — assignments du créateur ciblé (lecture seule, scopé projet). */
+export const listAssignmentsAsAdmin = adminViewAsQuery({
+  args: {},
+  handler: async (ctx) => assignmentsForCreator(ctx, ctx.creatorId),
 });
 
 /**
@@ -1625,15 +1637,23 @@ const ACTIONABLE_STATUSES = new Set<string>([
  * propre au projet) : aucune écriture, aucun statut modifié, pas de fuite
  * cross-créateur/cross-projet.
  */
+async function actionableCount(ctx: QueryCtx, creatorId: Id<"creators">) {
+  const mine = await ctx.db
+    .query("assignments")
+    .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+    .collect();
+  return mine.filter((a) => ACTIONABLE_STATUSES.has(a.status)).length;
+}
+
 export const countMyActionable = creatorQuery({
   args: {},
-  handler: async (ctx) => {
-    const mine = await ctx.db
-      .query("assignments")
-      .withIndex("by_creator", (q) => q.eq("creatorId", ctx.creatorId))
-      .collect();
-    return mine.filter((a) => ACTIONABLE_STATUSES.has(a.status)).length;
-  },
+  handler: async (ctx) => actionableCount(ctx, ctx.creatorId),
+});
+
+/** ADMIN view-as — nb d'assignments actionnables du créateur ciblé (badge accueil). */
+export const countActionableAsAdmin = adminViewAsQuery({
+  args: {},
+  handler: async (ctx) => actionableCount(ctx, ctx.creatorId),
 });
 
 // ─── Cleanup e2e (gated E2E_SECRET) ──────────────────────────────────────────

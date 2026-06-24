@@ -1,18 +1,23 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import {
   useProjectMutation,
   useProjectQuery,
 } from "@/components/project/use-project-convex";
-import { useProjectPath } from "@/components/project/ProjectProvider";
+import {
+  useProjectPath,
+  useProjectSlug,
+} from "@/components/project/ProjectProvider";
+import { viewAsBase } from "@/lib/view-as";
 import { formatEuros } from "@/lib/format-rate";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { FunctionReturnType } from "convex/server";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -38,6 +43,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  EyeIcon,
   FolderPlusIcon,
   KeyRoundIcon,
   Loader2Icon,
@@ -65,6 +71,7 @@ const NONE = "__none__";
 export function CreatorDetailView({ creator }: { creator: Creator }) {
   const router = useRouter();
   const projectPath = useProjectPath();
+  const projectSlug = useProjectSlug();
   const update = useProjectMutation(api.creators.updateCreator);
   const regenerate = useProjectMutation(api.creators.regenerateInvitation);
   const generateResetLink = useProjectMutation(
@@ -175,6 +182,16 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
         >
           {badge.label}
         </span>
+        {/* Voir l'espace du créateur tel qu'il le voit, en LECTURE SEULE (scopé
+            projet, vérifié serveur). N'agit jamais en son nom. */}
+        <Link
+          href={viewAsBase(projectSlug, creator._id)}
+          className={cn(buttonVariants({ variant: "outline" }), "ml-auto")}
+          data-testid="view-as-creator"
+        >
+          <EyeIcon className="mr-2 size-4" />
+          Voir son espace
+        </Link>
       </div>
 
       {/* Lien d'invitation — uniquement tant que le créateur est "invited". */}

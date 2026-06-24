@@ -7,7 +7,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 
 /**
  * Remédiation sécurité — wrappers de gating pour TOUTES les fonctions
@@ -245,6 +245,60 @@ export const creatorMutation = customMutation(mutation, {
     const userId = await requireUserId(ctx);
     const creatorId = await requireCreator(ctx, userId, projectId);
     return { ctx: { userId, projectId, creatorId }, args: {} };
+  },
+});
+
+/**
+ * Admin « voir l'espace d'un créateur » (LECTURE SEULE) — wrapper de gating des
+ * queries qui rendent les écrans du PORTAIL CRÉATEUR pour un creatorId CIBLÉ par
+ * un admin, sans jamais prendre la session du créateur.
+ *
+ * Contrat : args publics obligatoires `projectId` + `creatorId`. Le wrapper :
+ *   1. exige l'identité (session) ;
+ *   2. exige le rôle ADMIN du projet (ou superadmin) — même barrière que
+ *      adminQuery (requireProjectAdmin) : un admin ne peut viser QUE les
+ *      créateurs d'un projet où il est admin ; le superadmin partout ;
+ *   3. VÉRIFIE CÔTÉ SERVEUR que la fiche `creators` ciblée appartient bien à ce
+ *      projet (`creator.projectId === projectId`). Un creatorId d'un AUTRE projet
+ *      (deviné/forgé) → rejet, AUCUNE donnée renvoyée (no cross-project leak).
+ * Il injecte alors `ctx.creatorId` (la fiche ciblée) EXACTEMENT comme creatorQuery
+ * injecte la fiche du créateur authentifié → le handler d'une view-as query est
+ * IDENTIQUE à celui de la creatorQuery correspondante (helper de lecture partagé,
+ * 0 duplication de logique). LECTURE SEULE par construction : il n'existe AUCUN
+ * adminViewAsMutation ; aucune mutation n'est jamais exposée par ce chemin.
+ */
+/**
+ * Gate du mode « voir comme » : `userId` doit être admin du projet (ou
+ * superadmin) ET la fiche `creatorId` doit appartenir à CE projet. Retourne la
+ * fiche ciblée, ou rejette. Source de vérité UNIQUE du contrôle d'accès view-as :
+ * appelée par adminViewAsQuery (toutes les queries de lecture) ET par l'assertion
+ * e2e (creators.e2eAssertViewAsAccess) → aucune dérive possible entre les deux.
+ */
+export async function requireCreatorViewableByAdmin(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+  projectId: Id<"projects">,
+  creatorId: Id<"creators">,
+): Promise<Doc<"creators">> {
+  await requireProjectAdmin(ctx, userId, projectId);
+  const creator = await ctx.db.get(creatorId);
+  if (creator === null || creator.projectId !== projectId) {
+    throw new ConvexError("Créateur introuvable dans ce projet.");
+  }
+  return creator;
+}
+
+export const adminViewAsQuery = customQuery(query, {
+  args: { projectId: v.id("projects"), creatorId: v.id("creators") },
+  input: async (ctx, { projectId, creatorId }) => {
+    const userId = await requireUserId(ctx);
+    const creator = await requireCreatorViewableByAdmin(
+      ctx,
+      userId,
+      projectId,
+      creatorId,
+    );
+    return { ctx: { userId, projectId, creatorId: creator._id }, args: {} };
   },
 });
 
