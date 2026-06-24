@@ -1,10 +1,73 @@
 /**
  * Logique PURE de la vue Tracker (data des posts publiés). Testée en vitest
  * (lib/tracker-data.test.ts). Consommée côté client (stats globales + agrégats
- * par catégorie pour les charts) ET — pour `computeDailyViewDeltas` — DUPLIQUÉE
- * côté serveur (convex/trackerData.ts) car convex/ ne peut pas importer lib/
- * (règle A6, cross-tsconfig). Toute évolution doit être répliquée dans les deux.
+ * par catégorie pour les charts) ET — pour `computeDailyViewDeltas` et
+ * `matchesDimensionFilters` — DUPLIQUÉE côté serveur (convex/trackerData.ts) car
+ * convex/ ne peut pas importer lib/ (règle A6, cross-tsconfig). Toute évolution
+ * doit être répliquée dans les deux.
  */
+
+export type PostDimensions = {
+  creatorId: string | null;
+  compte: string;
+  plateforme: string;
+  /** id du format NOMMÉ rattaché (via l'assignment), null si aucun. */
+  formatId: string | null;
+  campaignId: string | null;
+};
+
+/**
+ * Filtres de dimension MULTI-SELECT. Pour chaque dimension : undefined ou liste
+ * vide = pas de filtre (toutes les valeurs) ; liste non vide = appartenance.
+ */
+export type DimensionFilters = {
+  creatorIds?: readonly string[];
+  comptes?: readonly string[];
+  plateformes?: readonly string[];
+  formatIds?: readonly string[];
+  campaignIds?: readonly string[];
+};
+
+function activeFilter(list?: readonly string[]): list is readonly string[] {
+  return Array.isArray(list) && list.length > 0;
+}
+
+/**
+ * Matching des filtres multi-select : OU À L'INTÉRIEUR d'une dimension
+ * (appartenance à la liste), ET ENTRE dimensions (toutes les dimensions actives
+ * doivent matcher). Une dimension sans sélection (vide/undefined) n'impose aucune
+ * contrainte. Une valeur null du post (ex. pas de créateur / pas de format nommé)
+ * ne matche JAMAIS une dimension active → le post est exclu quand on filtre sur
+ * cette dimension, mais reste visible tant qu'elle est inactive.
+ */
+export function matchesDimensionFilters(
+  d: PostDimensions,
+  f: DimensionFilters,
+): boolean {
+  if (
+    activeFilter(f.creatorIds) &&
+    (d.creatorId === null || !f.creatorIds.includes(d.creatorId))
+  ) {
+    return false;
+  }
+  if (activeFilter(f.comptes) && !f.comptes.includes(d.compte)) return false;
+  if (activeFilter(f.plateformes) && !f.plateformes.includes(d.plateforme)) {
+    return false;
+  }
+  if (
+    activeFilter(f.formatIds) &&
+    (d.formatId === null || !f.formatIds.includes(d.formatId))
+  ) {
+    return false;
+  }
+  if (
+    activeFilter(f.campaignIds) &&
+    (d.campaignId === null || !f.campaignIds.includes(d.campaignId))
+  ) {
+    return false;
+  }
+  return true;
+}
 
 /**
  * Engagement rate = (likes + commentaires) / vues. Formule validée avec

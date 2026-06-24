@@ -21,13 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { FilterMultiSelect } from "@/components/filters/FilterMultiSelect";
 import {
   Table,
   TableBody,
@@ -55,8 +49,6 @@ import {
   ListIcon,
 } from "lucide-react";
 
-const ALL = "all";
-
 type TrackerPost = {
   _id: Id<"publications">;
   carouselId: string;
@@ -66,6 +58,8 @@ type TrackerPost = {
   compte: string;
   creatorId: Id<"creators"> | null;
   creatorName: string | null;
+  formatId: Id<"formats"> | null;
+  formatName: string | null;
   datePubli: number;
   postUrl: string | null;
   vues: number;
@@ -74,8 +68,8 @@ type TrackerPost = {
 };
 
 const PLATFORMS = ["TikTok", "Instagram", "YouTube"] as const;
-const MEDIA_TYPES: FormatKey[] = ["carousel", "short", "screenrecorder"];
 const CREATOR_NONE = "__none__";
+const FORMAT_NONE = "__none__";
 
 type SortKey = "vues" | "date" | "likes" | "engagement";
 type SortDir = "asc" | "desc";
@@ -100,11 +94,12 @@ function endOfDayMs(dateStr: string): number {
 export function TrackerDataView() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [creatorId, setCreatorId] = useState<string>(ALL);
-  const [compte, setCompte] = useState<string>(ALL);
-  const [plateforme, setPlateforme] = useState<string>(ALL);
-  const [mediaType, setMediaType] = useState<string>(ALL);
-  const [campaignId, setCampaignId] = useState<string>(ALL);
+  // Filtres de dimension MULTI-SELECT : Set vide = pas de filtre (tous).
+  const [creatorIds, setCreatorIds] = useState<Set<string>>(new Set());
+  const [comptes_, setComptes] = useState<Set<string>>(new Set());
+  const [plateformes, setPlateformes] = useState<Set<string>>(new Set());
+  const [formatIds, setFormatIds] = useState<Set<string>>(new Set());
+  const [campaignIds, setCampaignIds] = useState<Set<string>>(new Set());
 
   const [mode, setMode] = useState<ViewMode>("list");
   const [sortKey, setSortKey] = useState<SortKey>("vues");
@@ -114,27 +109,33 @@ export function TrackerDataView() {
   const creators = useProjectQuery(api.creators.listCreators, {});
   const comptes = useProjectQuery(api.comptes.listComptes, {});
   const campaigns = useProjectQuery(api.scripts.listCampaigns, {});
+  const formats = useProjectQuery(api.formats.listFormats, {});
 
   const queryArgs = useMemo(() => {
     const a: {
       dateFrom?: number;
       dateTo?: number;
-      creatorId?: Id<"creators">;
-      compte?: string;
-      plateforme?: "TikTok" | "Instagram" | "YouTube";
-      mediaType?: FormatKey;
-      campaignId?: Id<"scriptCampaigns">;
+      creatorIds?: Id<"creators">[];
+      comptes?: string[];
+      plateformes?: ("TikTok" | "Instagram" | "YouTube")[];
+      formatIds?: Id<"formats">[];
+      campaignIds?: Id<"scriptCampaigns">[];
     } = {};
     if (dateFrom) a.dateFrom = startOfDayMs(dateFrom);
     if (dateTo) a.dateTo = endOfDayMs(dateTo);
-    if (creatorId !== ALL) a.creatorId = creatorId as Id<"creators">;
-    if (compte !== ALL) a.compte = compte;
-    if (plateforme !== ALL)
-      a.plateforme = plateforme as "TikTok" | "Instagram" | "YouTube";
-    if (mediaType !== ALL) a.mediaType = mediaType as FormatKey;
-    if (campaignId !== ALL) a.campaignId = campaignId as Id<"scriptCampaigns">;
+    if (creatorIds.size) a.creatorIds = [...creatorIds] as Id<"creators">[];
+    if (comptes_.size) a.comptes = [...comptes_];
+    if (plateformes.size)
+      a.plateformes = [...plateformes] as (
+        | "TikTok"
+        | "Instagram"
+        | "YouTube"
+      )[];
+    if (formatIds.size) a.formatIds = [...formatIds] as Id<"formats">[];
+    if (campaignIds.size)
+      a.campaignIds = [...campaignIds] as Id<"scriptCampaigns">[];
     return a;
-  }, [dateFrom, dateTo, creatorId, compte, plateforme, mediaType, campaignId]);
+  }, [dateFrom, dateTo, creatorIds, comptes_, plateformes, formatIds, campaignIds]);
 
   const posts = useProjectQuery(
     api.trackerData.listTrackerPosts,
@@ -150,20 +151,20 @@ export function TrackerDataView() {
   const filtersActive =
     dateFrom !== "" ||
     dateTo !== "" ||
-    creatorId !== ALL ||
-    compte !== ALL ||
-    plateforme !== ALL ||
-    mediaType !== ALL ||
-    campaignId !== ALL;
+    creatorIds.size > 0 ||
+    comptes_.size > 0 ||
+    plateformes.size > 0 ||
+    formatIds.size > 0 ||
+    campaignIds.size > 0;
 
   function resetFilters() {
     setDateFrom("");
     setDateTo("");
-    setCreatorId(ALL);
-    setCompte(ALL);
-    setPlateforme(ALL);
-    setMediaType(ALL);
-    setCampaignId(ALL);
+    setCreatorIds(new Set());
+    setComptes(new Set());
+    setPlateformes(new Set());
+    setFormatIds(new Set());
+    setCampaignIds(new Set());
   }
 
   const stats = useMemo(() => computeGlobalStats(posts ?? []), [posts]);
@@ -198,13 +199,15 @@ export function TrackerDataView() {
       ),
     [posts],
   );
+  // "Vues par format" = par format NOMMÉ (cohérent avec le filtre Format) ; les
+  // posts sans format nommé tombent dans un bucket "Sans format".
   const byFormat = useMemo(
     () =>
       aggregateByCategory(
         (posts ?? []).map(
           (p): CategoryItem => ({
-            key: p.mediaType,
-            label: FORMAT_CONFIGS[p.mediaType].singular,
+            key: p.formatId ?? FORMAT_NONE,
+            label: p.formatName ?? "Sans format",
             vues: p.vues,
             likes: p.likes,
             comments: p.comments,
@@ -256,6 +259,14 @@ export function TrackerDataView() {
       })),
     [campaigns],
   );
+  const formatOptions = useMemo(
+    () =>
+      (formats ?? []).map((f) => ({
+        value: f._id as string,
+        label: f.status === "archived" ? `${f.name} (archivé)` : f.name,
+      })),
+    [formats],
+  );
 
   return (
     <div className="space-y-6">
@@ -286,43 +297,45 @@ export function TrackerDataView() {
               onChange={(e) => setDateTo(e.target.value)}
             />
           </div>
-          <FilterDropdown
+          <FilterMultiSelect
             label="Créateur"
-            value={creatorId}
-            onChange={setCreatorId}
+            selectedValues={creatorIds}
+            onChange={setCreatorIds}
             options={creatorOptions}
             allLabel="Tous"
+            width="w-full"
           />
-          <FilterDropdown
+          <FilterMultiSelect
             label="Compte"
-            value={compte}
-            onChange={setCompte}
+            selectedValues={comptes_}
+            onChange={setComptes}
             options={compteOptions}
             allLabel="Tous"
+            width="w-full"
           />
-          <FilterDropdown
+          <FilterMultiSelect
             label="Plateforme"
-            value={plateforme}
-            onChange={setPlateforme}
+            selectedValues={plateformes}
+            onChange={setPlateformes}
             options={PLATFORMS.map((p) => ({ value: p, label: p }))}
             allLabel="Toutes"
+            width="w-full"
           />
-          <FilterDropdown
+          <FilterMultiSelect
             label="Format"
-            value={mediaType}
-            onChange={setMediaType}
-            options={MEDIA_TYPES.map((m) => ({
-              value: m,
-              label: FORMAT_CONFIGS[m].singular,
-            }))}
+            selectedValues={formatIds}
+            onChange={setFormatIds}
+            options={formatOptions}
             allLabel="Tous"
+            width="w-full"
           />
-          <FilterDropdown
+          <FilterMultiSelect
             label="Campagne"
-            value={campaignId}
-            onChange={setCampaignId}
+            selectedValues={campaignIds}
+            onChange={setCampaignIds}
             options={campaignOptions}
             allLabel="Toutes"
+            width="w-full"
           />
         </div>
         <div className="mt-3 flex justify-end">
@@ -401,44 +414,6 @@ function sortValue(p: TrackerPost, key: SortKey): number | null {
     case "engagement":
       return engagementRate(p.likes, p.comments, p.vues);
   }
-}
-
-function FilterDropdown({
-  label,
-  value,
-  onChange,
-  options,
-  allLabel,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: { value: string; label: string }[];
-  allLabel: string;
-}) {
-  const selected = options.find((o) => o.value === value);
-  return (
-    <div className="flex min-w-0 flex-col gap-1.5">
-      <span className="text-xs font-medium text-slate-600">{label}</span>
-      <Select value={value} onValueChange={(v) => v !== null && onChange(v)}>
-        <SelectTrigger className="w-full">
-          <SelectValue>
-            <span className="truncate">
-              {value === ALL ? allLabel : (selected?.label ?? value)}
-            </span>
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={ALL}>{allLabel}</SelectItem>
-          {options.map((o) => (
-            <SelectItem key={o.value} value={o.value}>
-              {o.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
 }
 
 function ModeToggle({
@@ -552,7 +527,9 @@ function PostsList({
                     <PlatformBadge plateforme={p.plateforme} />
                     <span>{p.creatorName ?? "Sans créateur"}</span>
                     <span aria-hidden>·</span>
-                    <span>{FORMAT_CONFIGS[p.mediaType].singular}</span>
+                    <span>
+                      {p.formatName ?? FORMAT_CONFIGS[p.mediaType].singular}
+                    </span>
                     <span aria-hidden>·</span>
                     <span className="whitespace-nowrap">
                       {formatDate(p.datePubli)}

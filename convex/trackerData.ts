@@ -18,12 +18,16 @@ import type { QueryCtx } from "./_generated/server";
  *     metricSnapshots : range-scan BORNÉ sur l'index by_project_capturedAt à la
  *     plage de dates filtrée (jamais un collect global de tout l'historique).
  *
- * Les DEUX queries acceptent le même jeu de filtres (un seul état UI partagé) et
- * appliquent exactement la même règle d'inclusion (publishedAndMatches).
+ * Les DEUX queries acceptent le même jeu de filtres MULTI-SELECT (un seul état UI
+ * partagé) et appliquent exactement la même règle d'inclusion
+ * (publishedAndMatches → matchesDimensionFilters).
  *
- * Dimension "créateur" : ABSENTE de la table publications. Résolue via les
- * assignments (targets[].publicationId / publicationId legacy → creatorId +
- * creatorNameSnapshot). Cf buildPublicationCreatorMap.
+ * Sémantique des filtres de dimension : OU à l'intérieur d'une dimension, ET
+ * entre dimensions ; liste vide/absente = pas de filtre.
+ *
+ * Dimensions "créateur" et "format NOMMÉ" : ABSENTES de la table publications.
+ * Résolues via les assignments (targets[].publicationId / publicationId legacy →
+ * creatorId + creatorNameSnapshot + formatId). Cf buildPublicationAssignmentMap.
  */
 
 const plateformeArg = v.union(
@@ -31,50 +35,53 @@ const plateformeArg = v.union(
   v.literal("Instagram"),
   v.literal("YouTube"),
 );
-const mediaTypeArg = v.union(
-  v.literal("carousel"),
-  v.literal("short"),
-  v.literal("screenrecorder"),
-);
 
-// Filtres partagés. dateFrom/dateTo sont des bornes ms sur datePubli (le client
-// passe début-de-jour "Du" et fin-de-jour "Au"). Toutes optionnelles → "Tous".
+// Filtres partagés MULTI-SELECT. dateFrom/dateTo = bornes ms sur datePubli (le
+// client passe début-de-jour "Du" et fin-de-jour "Au"). Les listes de dimension
+// sont optionnelles ; vide/absente = "Tous". Le format est désormais le format
+// NOMMÉ (formatIds → formats), plus le mediaType.
 const filterArgs = {
   dateFrom: v.optional(v.number()),
   dateTo: v.optional(v.number()),
-  creatorId: v.optional(v.id("creators")),
-  compte: v.optional(v.string()),
-  plateforme: v.optional(plateformeArg),
-  mediaType: v.optional(mediaTypeArg),
-  campaignId: v.optional(v.id("scriptCampaigns")),
+  creatorIds: v.optional(v.array(v.id("creators"))),
+  comptes: v.optional(v.array(v.string())),
+  plateformes: v.optional(v.array(plateformeArg)),
+  formatIds: v.optional(v.array(v.id("formats"))),
+  campaignIds: v.optional(v.array(v.id("scriptCampaigns"))),
 } as const;
 
 type FilterArgs = {
   dateFrom?: number;
   dateTo?: number;
-  creatorId?: Id<"creators">;
-  compte?: string;
-  plateforme?: "TikTok" | "Instagram" | "YouTube";
-  mediaType?: "carousel" | "short" | "screenrecorder";
-  campaignId?: Id<"scriptCampaigns">;
+  creatorIds?: Id<"creators">[];
+  comptes?: string[];
+  plateformes?: ("TikTok" | "Instagram" | "YouTube")[];
+  formatIds?: Id<"formats">[];
+  campaignIds?: Id<"scriptCampaigns">[];
 };
 
-type CreatorRef = { creatorId: Id<"creators"> | null; creatorName: string };
+type AssignmentRef = {
+  creatorId: Id<"creators"> | null;
+  creatorName: string;
+  formatId: Id<"formats"> | null;
+  formatName: string | null;
+};
 
 /**
- * Map publicationId → créateur, construite depuis les assignments du projet.
- * Un assignment porte le creatorId (+ creatorNameSnapshot si le créateur a été
- * supprimé) et matérialise 1..3 publications via targets[].publicationId (et le
- * champ legacy publicationId). Le nom VIVANT (creators) prime ; à défaut, le
- * snapshot ; à défaut, un libellé neutre.
+ * Map publicationId → { créateur, format nommé }, construite depuis les
+ * assignments du projet. Un assignment porte le creatorId (+ creatorNameSnapshot
+ * si le créateur a été supprimé), un formatId OPTIONNEL (format nommé ; sparse —
+ * les assignments de SCRIPT n'en ont pas), et matérialise 1..3 publications via
+ * targets[].publicationId (et le champ legacy publicationId). Le nom vivant prime
+ * (creators / formats) ; à défaut, le snapshot ; à défaut, un libellé neutre.
  *
- * Coût : 1 collect assignments + 1 collect creators, bornés au projet (idiome
- * identique à dashboard/scriptAnalytics). Aucune lecture de snapshots ici.
+ * Coût : collect assignments + creators + formats, bornés au projet (idiome
+ * dashboard/scriptAnalytics). Aucune lecture de snapshots ici.
  */
-async function buildPublicationCreatorMap(
+async function buildPublicationAssignmentMap(
   ctx: QueryCtx & { projectId: Id<"projects"> },
-): Promise<Map<string, CreatorRef>> {
-  const [assignments, creators] = await Promise.all([
+): Promise<Map<string, AssignmentRef>> {
+  const [assignments, creators, formats] = await Promise.all([
     ctx.db
       .query("assignments")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
@@ -83,68 +90,138 @@ async function buildPublicationCreatorMap(
       .query("creators")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect(),
+    ctx.db
+      .query("formats")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect(),
   ]);
 
-  const nameById = new Map(creators.map((c) => [c._id as string, c.name]));
+  const creatorNameById = new Map(creators.map((c) => [c._id as string, c.name]));
+  const formatNameById = new Map(formats.map((f) => [f._id as string, f.name]));
 
   const raw = new Map<
     string,
-    { creatorId: Id<"creators">; snapshot: string | undefined }
+    {
+      creatorId: Id<"creators">;
+      snapshot: string | undefined;
+      formatId: Id<"formats"> | null;
+    }
   >();
   for (const a of assignments) {
-    const rec = { creatorId: a.creatorId, snapshot: a.creatorNameSnapshot };
+    const rec = {
+      creatorId: a.creatorId,
+      snapshot: a.creatorNameSnapshot,
+      formatId: a.formatId ?? null,
+    };
     if (a.publicationId) raw.set(a.publicationId as string, rec);
     for (const t of a.targets ?? []) {
       if (t.publicationId) raw.set(t.publicationId as string, rec);
     }
   }
 
-  const resolved = new Map<string, CreatorRef>();
+  const resolved = new Map<string, AssignmentRef>();
   for (const [pubId, rec] of raw) {
-    const liveName = nameById.get(rec.creatorId as string);
+    const liveName = creatorNameById.get(rec.creatorId as string);
     resolved.set(pubId, {
       creatorId: rec.creatorId,
       creatorName: liveName ?? rec.snapshot ?? "Créateur supprimé",
+      formatId: rec.formatId,
+      formatName: rec.formatId
+        ? (formatNameById.get(rec.formatId as string) ?? "Format supprimé")
+        : null,
     });
   }
   return resolved;
 }
 
+// ─── Matching des filtres de dimension (multi-select) ────────────────────────
+// DUPLIQUÉ de lib/tracker-data (matchesDimensionFilters + PostDimensions) car
+// convex/ ne peut pas importer lib/ (A6). La version lib/ est testée en vitest ;
+// garder les deux EXACTEMENT synchrones. OU intra-dimension, ET inter-dimensions.
+
+type PostDimensions = {
+  creatorId: string | null;
+  compte: string;
+  plateforme: string;
+  formatId: string | null;
+  campaignId: string | null;
+};
+
+function activeFilter(list?: readonly string[]): list is readonly string[] {
+  return Array.isArray(list) && list.length > 0;
+}
+
+function matchesDimensionFilters(
+  d: PostDimensions,
+  f: {
+    creatorIds?: readonly string[];
+    comptes?: readonly string[];
+    plateformes?: readonly string[];
+    formatIds?: readonly string[];
+    campaignIds?: readonly string[];
+  },
+): boolean {
+  if (
+    activeFilter(f.creatorIds) &&
+    (d.creatorId === null || !f.creatorIds.includes(d.creatorId))
+  ) {
+    return false;
+  }
+  if (activeFilter(f.comptes) && !f.comptes.includes(d.compte)) return false;
+  if (activeFilter(f.plateformes) && !f.plateformes.includes(d.plateforme)) {
+    return false;
+  }
+  if (
+    activeFilter(f.formatIds) &&
+    (d.formatId === null || !f.formatIds.includes(d.formatId))
+  ) {
+    return false;
+  }
+  if (
+    activeFilter(f.campaignIds) &&
+    (d.campaignId === null || !f.campaignIds.includes(d.campaignId))
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/** Dimensions d'une publication (compte/plateforme/campagne directes ; créateur
+ *  + format nommé via la map assignment). */
+function dimensionsOf(
+  p: Doc<"publications">,
+  ref: AssignmentRef | undefined,
+): PostDimensions {
+  return {
+    creatorId: ref?.creatorId ?? null,
+    compte: p.compte,
+    plateforme: p.plateforme,
+    formatId: ref?.formatId ?? null,
+    campaignId: p.scriptCombo?.campaignId ?? null,
+  };
+}
+
 /**
- * Règle d'inclusion d'une publication dans la vue : publiée (postUrl non vide)
- * ET matchant TOUS les filtres actifs. Filtre dimension "créateur" résolu via la
- * map (publications sans assignment → creatorId null → exclues si un créateur
- * précis est demandé).
+ * Règle d'inclusion d'une publication : publiée (postUrl non vide) + dates +
+ * filtres de dimension multi-select. Les dimensions créateur/format viennent de
+ * la map assignment (publications sans assignment → null → exclues si la
+ * dimension correspondante est filtrée).
  */
 function publishedAndMatches(
   p: Doc<"publications">,
   args: FilterArgs,
-  creatorRefOf: (pubId: string) => CreatorRef | undefined,
+  refOf: (pubId: string) => AssignmentRef | undefined,
 ): boolean {
   if (!(typeof p.postUrl === "string" && p.postUrl.length > 0)) return false;
   if (args.dateFrom !== undefined && p.datePubli < args.dateFrom) return false;
   if (args.dateTo !== undefined && p.datePubli > args.dateTo) return false;
-  if (args.plateforme !== undefined && p.plateforme !== args.plateforme) {
-    return false;
-  }
-  if (args.compte !== undefined && p.compte !== args.compte) return false;
-  if (
-    args.mediaType !== undefined &&
-    (p.mediaType ?? "carousel") !== args.mediaType
-  ) {
-    return false;
-  }
-  if (
-    args.campaignId !== undefined &&
-    p.scriptCombo?.campaignId !== args.campaignId
-  ) {
-    return false;
-  }
-  if (args.creatorId !== undefined) {
-    const ref = creatorRefOf(p._id as string);
-    if (!ref || ref.creatorId !== args.creatorId) return false;
-  }
-  return true;
+  return matchesDimensionFilters(dimensionsOf(p, refOf(p._id as string)), {
+    creatorIds: args.creatorIds,
+    comptes: args.comptes,
+    plateformes: args.plateformes,
+    formatIds: args.formatIds,
+    campaignIds: args.campaignIds,
+  });
 }
 
 /** Libellé d'un post : titre pour les ScreenRecorders (étape Hook skippée),
@@ -160,7 +237,7 @@ function postLabel(p: Doc<"publications">): string {
 export const listTrackerPosts = adminQuery({
   args: filterArgs,
   handler: async (ctx, args) => {
-    const creatorRefs = await buildPublicationCreatorMap(ctx);
+    const refs = await buildPublicationAssignmentMap(ctx);
 
     // datePubli desc → ordre stable par défaut (le client re-trie selon la
     // colonne choisie, défaut vues desc). Lecture latest = champs dénormalisés.
@@ -174,8 +251,8 @@ export const listTrackerPosts = adminQuery({
 
     const rows = [];
     for (const p of pubs) {
-      if (!publishedAndMatches(p, args, (id) => creatorRefs.get(id))) continue;
-      const ref = creatorRefs.get(p._id as string) ?? null;
+      if (!publishedAndMatches(p, args, (id) => refs.get(id))) continue;
+      const ref = refs.get(p._id as string) ?? null;
       rows.push({
         _id: p._id,
         carouselId: p.carouselId,
@@ -188,6 +265,9 @@ export const listTrackerPosts = adminQuery({
         compte: p.compte,
         creatorId: ref?.creatorId ?? null,
         creatorName: ref?.creatorName ?? null,
+        // Format NOMMÉ rattaché (via assignment), null si aucun.
+        formatId: ref?.formatId ?? null,
+        formatName: ref?.formatName ?? null,
         datePubli: p.datePubli,
         postUrl: p.postUrl ?? null,
         // Métriques LATEST dénormalisées (null → 0 pour les agrégats).
@@ -245,7 +325,7 @@ function computeDailyViewDeltas(
 export const trackerViewsDaily = adminQuery({
   args: filterArgs,
   handler: async (ctx, args) => {
-    const creatorRefs = await buildPublicationCreatorMap(ctx);
+    const refs = await buildPublicationAssignmentMap(ctx);
 
     // 1) Déterminer l'ensemble des publications filtrées + la 1re date de publi
     //    (borne basse de la fenêtre quand "Du" n'est pas posé). Lecture latest
@@ -258,7 +338,7 @@ export const trackerViewsDaily = adminQuery({
     const filteredIds = new Set<string>();
     let minDatePubli = Number.POSITIVE_INFINITY;
     for (const p of pubs) {
-      if (!publishedAndMatches(p, args, (id) => creatorRefs.get(id))) continue;
+      if (!publishedAndMatches(p, args, (id) => refs.get(id))) continue;
       filteredIds.add(p._id as string);
       if (p.datePubli < minDatePubli) minDatePubli = p.datePubli;
     }

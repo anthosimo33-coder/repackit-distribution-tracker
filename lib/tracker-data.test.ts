@@ -5,9 +5,92 @@ import {
   aggregateByCategory,
   computeDailyViewDeltas,
   dayKeyUTC,
+  matchesDimensionFilters,
   type CategoryItem,
   type SnapshotPoint,
+  type PostDimensions,
 } from "./tracker-data";
+
+describe("matchesDimensionFilters", () => {
+  const base: PostDimensions = {
+    creatorId: "c1",
+    compte: "@a",
+    plateforme: "TikTok",
+    formatId: "f1",
+    campaignId: "camp1",
+  };
+
+  it("no filters → always matches", () => {
+    expect(matchesDimensionFilters(base, {})).toBe(true);
+    expect(
+      matchesDimensionFilters(base, { creatorIds: [], plateformes: [] }),
+    ).toBe(true);
+  });
+
+  it("OR within a dimension (membership)", () => {
+    expect(
+      matchesDimensionFilters(base, { creatorIds: ["c1", "c2"] }),
+    ).toBe(true);
+    expect(
+      matchesDimensionFilters(base, { creatorIds: ["c2", "c3"] }),
+    ).toBe(false);
+  });
+
+  it("AND across dimensions", () => {
+    // (c1 OR c2) AND (TikTok) → matches
+    expect(
+      matchesDimensionFilters(base, {
+        creatorIds: ["c1", "c2"],
+        plateformes: ["TikTok"],
+      }),
+    ).toBe(true);
+    // creator matches but platform doesn't → excluded
+    expect(
+      matchesDimensionFilters(base, {
+        creatorIds: ["c1"],
+        plateformes: ["YouTube"],
+      }),
+    ).toBe(false);
+  });
+
+  it("null dimension value never matches an active filter", () => {
+    const noCreator: PostDimensions = { ...base, creatorId: null };
+    expect(matchesDimensionFilters(noCreator, { creatorIds: ["c1"] })).toBe(
+      false,
+    );
+    // but still visible when that dimension is inactive
+    expect(matchesDimensionFilters(noCreator, { plateformes: ["TikTok"] })).toBe(
+      true,
+    );
+  });
+
+  it("post without a named format excluded only when format filter active", () => {
+    const noFormat: PostDimensions = { ...base, formatId: null };
+    expect(matchesDimensionFilters(noFormat, { formatIds: ["f1"] })).toBe(false);
+    expect(matchesDimensionFilters(noFormat, {})).toBe(true);
+  });
+
+  it("compte / campaign membership", () => {
+    expect(matchesDimensionFilters(base, { comptes: ["@a", "@b"] })).toBe(true);
+    expect(matchesDimensionFilters(base, { comptes: ["@b"] })).toBe(false);
+    expect(matchesDimensionFilters(base, { campaignIds: ["camp1"] })).toBe(true);
+    expect(matchesDimensionFilters(base, { campaignIds: ["camp2"] })).toBe(
+      false,
+    );
+  });
+
+  it("all dimensions active and all match", () => {
+    expect(
+      matchesDimensionFilters(base, {
+        creatorIds: ["c1"],
+        comptes: ["@a"],
+        plateformes: ["TikTok"],
+        formatIds: ["f1"],
+        campaignIds: ["camp1"],
+      }),
+    ).toBe(true);
+  });
+});
 
 describe("engagementRate", () => {
   it("(likes + comments) / vues", () => {
