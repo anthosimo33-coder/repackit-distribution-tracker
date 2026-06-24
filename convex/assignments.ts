@@ -1300,46 +1300,73 @@ export const listAssignmentsAsAdmin = adminViewAsQuery({
  * créateur reçoit le script monté (`assembledScript`) et la rému, JAMAIS la
  * décomposition (briques/ids/tiers/campagne).
  */
-export const getMyAssignment = creatorQuery({
-  args: { id: v.id("assignments") },
-  handler: async (ctx, { id }) => {
-    const a = await ctx.db.get(id);
-    // Isolation : un assignment d'un autre créateur → introuvable.
-    if (!a || a.creatorId !== ctx.creatorId) return null;
-    const targets = await enrichTargets(ctx, a);
-    const { scriptCombo, comboKey, ...safe } = a;
-    void comboKey;
-    // ISOLATION : SA vidéo soumise, résolue côté serveur (URL signée). Le blob
-    // n'est jamais lisible que par le créateur (ici) et l'admin (listVideoSubmitted).
-    const submittedVideoUrl = a.submittedVideoStorageId
-      ? await ctx.storage.getUrl(a.submittedVideoStorageId)
-      : null;
-    const submittedVideoMimeType = a.submittedVideoMimeType ?? "video/mp4";
-    // Assets liés (images à télécharger) — dossier de SON assignment uniquement.
-    const assets = await resolveAssignmentAssets(ctx, a);
-    if (scriptCombo) {
-      return {
-        assignment: safe,
-        format: null,
-        assembledScript: scriptCombo.assembledScript,
-        targets,
-        submittedVideoUrl,
-        submittedVideoMimeType,
-        assets,
-      };
-    }
-    const format = a.formatId ? await ctx.db.get(a.formatId) : null;
-    const brief = format ? await withResolvedExamples(ctx, format) : null;
+/**
+ * Fiche assignment d'un créateur DONNÉ (helper de lecture partagé). MÊME corps
+ * que la query créateur ET la variante admin view-as → 0 duplication. ISOLATION :
+ * un assignment qui n'appartient pas à `creatorId` → null (garde vraie quel que
+ * soit l'appelant : créateur authentifié OU admin scopé projet). Pour un
+ * assignment de script, `scriptCombo`/`comboKey` sont RETIRÉS : le créateur (et
+ * l'admin qui regarde son écran) ne reçoit que le script monté, jamais la
+ * décomposition.
+ */
+async function assignmentDetailFor(
+  ctx: QueryCtx,
+  creatorId: Id<"creators">,
+  id: Id<"assignments">,
+) {
+  const a = await ctx.db.get(id);
+  // Isolation : un assignment d'un autre créateur → introuvable.
+  if (!a || a.creatorId !== creatorId) return null;
+  const targets = await enrichTargets(ctx, a);
+  const { scriptCombo, comboKey, ...safe } = a;
+  void comboKey;
+  // ISOLATION : SA vidéo soumise, résolue côté serveur (URL signée). Le blob
+  // n'est jamais lisible que par le créateur (ici) et l'admin (listVideoSubmitted).
+  const submittedVideoUrl = a.submittedVideoStorageId
+    ? await ctx.storage.getUrl(a.submittedVideoStorageId)
+    : null;
+  const submittedVideoMimeType = a.submittedVideoMimeType ?? "video/mp4";
+  // Assets liés (images à télécharger) — dossier de SON assignment uniquement.
+  const assets = await resolveAssignmentAssets(ctx, a);
+  if (scriptCombo) {
     return {
       assignment: safe,
-      format: brief,
-      assembledScript: null as string | null,
+      format: null,
+      assembledScript: scriptCombo.assembledScript,
       targets,
       submittedVideoUrl,
       submittedVideoMimeType,
       assets,
     };
-  },
+  }
+  const format = a.formatId ? await ctx.db.get(a.formatId) : null;
+  const brief = format ? await withResolvedExamples(ctx, format) : null;
+  return {
+    assignment: safe,
+    format: brief,
+    assembledScript: null as string | null,
+    targets,
+    submittedVideoUrl,
+    submittedVideoMimeType,
+    assets,
+  };
+}
+
+export const getMyAssignment = creatorQuery({
+  args: { id: v.id("assignments") },
+  handler: async (ctx, { id }) => assignmentDetailFor(ctx, ctx.creatorId, id),
+});
+
+/**
+ * ADMIN view-as — fiche détail d'une mission du créateur ciblé (lecture seule).
+ * adminViewAsQuery garantit : appelant admin du projet (ou superadmin) ET fiche
+ * créateur ∈ projet (ctx.creatorId injecté = créateur ciblé). assignmentDetailFor
+ * vérifie en plus que la mission appartient à CE créateur → un assignmentId hors
+ * créateur/projet renvoie null (aucune fuite).
+ */
+export const getAssignmentDetailAsAdmin = adminViewAsQuery({
+  args: { id: v.id("assignments") },
+  handler: async (ctx, { id }) => assignmentDetailFor(ctx, ctx.creatorId, id),
 });
 
 /** todo → in_progress (« Je commence »). */

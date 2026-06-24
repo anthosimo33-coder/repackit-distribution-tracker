@@ -33,6 +33,23 @@ export function useMyAssignments(projectId: Id<"projects">) {
   return va ? asAdmin : mine;
 }
 
+/** Fiche détail d'une mission. View-as → getAssignmentDetailAsAdmin (scopé serveur). */
+export function useMyAssignment(
+  projectId: Id<"projects">,
+  id: Id<"assignments">,
+) {
+  const va = useViewAs();
+  const mine = useQuery(
+    api.assignments.getMyAssignment,
+    va ? "skip" : { projectId, id },
+  );
+  const asAdmin = useQuery(
+    api.assignments.getAssignmentDetailAsAdmin,
+    va ? { projectId, creatorId: va.creatorId, id } : "skip",
+  );
+  return va ? asAdmin : mine;
+}
+
 export function useWarmupDue(projectId: Id<"projects">) {
   const va = useViewAs();
   const mine = useQuery(
