@@ -11,7 +11,7 @@ import {
   useWarmupInProgress,
   useMyPayments,
 } from "@/components/portal/creator-data";
-import { useReadOnly, usePortalBase } from "@/components/portal/ViewAsContext";
+import { usePortalBase } from "@/components/portal/ViewAsContext";
 import { portalHref } from "@/lib/view-as";
 import {
   Card,
@@ -78,7 +78,6 @@ export default function DashboardScreen() {
   const projectId = current.projectId;
   const name = current.creatorName;
   const payoutDay = current.payoutDay;
-  const readOnly = useReadOnly();
   const base = usePortalBase();
 
   const assignments = useMyAssignments(projectId);
@@ -147,7 +146,7 @@ export default function DashboardScreen() {
               title={`vidéo${toProduce.length > 1 ? "s" : ""} à produire`}
               description="Tourne ta vidéo selon le brief, puis envoie ton MP4."
             >
-              <AssignmentList items={toProduce} base={base} readOnly={readOnly} />
+              <AssignmentList items={toProduce} base={base} />
             </ActionBlock>
           )}
 
@@ -184,7 +183,7 @@ export default function DashboardScreen() {
               title={`vidéo${toPublish.length > 1 ? "s" : ""} à publier`}
               description="Validée(s) — publie et colle l'URL pour déclencher ton paiement."
             >
-              <AssignmentList items={toPublish} base={base} readOnly={readOnly} />
+              <AssignmentList items={toPublish} base={base} />
             </ActionBlock>
           )}
 
@@ -199,7 +198,7 @@ export default function DashboardScreen() {
               title={`vidéo${toRedo.length > 1 ? "s" : ""} à refaire`}
               description="Refusée(s) par l'admin — corrige et re-soumets."
             >
-              <AssignmentList items={toRedo} base={base} readOnly={readOnly} showFeedback />
+              <AssignmentList items={toRedo} base={base} showFeedback />
             </ActionBlock>
           )}
         </>
@@ -334,12 +333,10 @@ function BlockCta({ href, label }: { href: string; label: string }) {
 function AssignmentList({
   items,
   base,
-  readOnly,
   showFeedback,
 }: {
   items: CreatorAssignment[];
   base: string;
-  readOnly: boolean;
   showFeedback?: boolean;
 }) {
   const shown = items.slice(0, ITEM_CAP);
@@ -351,7 +348,6 @@ function AssignmentList({
           <AssignmentItem
             assignment={a}
             base={base}
-            readOnly={readOnly}
             showFeedback={showFeedback}
           />
         </li>
@@ -368,12 +364,10 @@ function AssignmentList({
 function AssignmentItem({
   assignment: a,
   base,
-  readOnly,
   showFeedback,
 }: {
   assignment: CreatorAssignment;
   base: string;
-  readOnly: boolean;
   showFeedback?: boolean;
 }) {
   const urg = assignmentUrgency(a.dueDate, a.status as AssignmentStatus);
@@ -420,7 +414,7 @@ function AssignmentItem({
           >
             {st.label}
           </span>
-          {!readOnly && <ArrowRightIcon className="size-4 text-slate-400" />}
+          <ArrowRightIcon className="size-4 text-slate-400" />
         </div>
       </div>
       {showFeedback && a.videoReviewFeedback && (
@@ -431,15 +425,9 @@ function AssignmentItem({
     </>
   );
 
-  // Lecture seule (admin view-as) : pas de page de détail dans le mode vue → carte
-  // non cliquable. Portail créateur normal : lien vers le détail de la mission.
-  if (readOnly) {
-    return (
-      <div className="block rounded-lg border border-slate-200 bg-white p-3">
-        {inner}
-      </div>
-    );
-  }
+  // Lien vers le détail de la mission — dans le portail créateur (/app/...) comme
+  // dans le mode admin view-as (la fiche détail existe dans les deux, en lecture
+  // seule côté admin). usePortalBase fournit la bonne base.
   return (
     <Link
       href={portalHref(base, `/assignments/${a._id}`)}

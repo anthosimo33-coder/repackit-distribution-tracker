@@ -1,11 +1,14 @@
 import { test, expect } from "@playwright/test";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../convex/_generated/api";
+import type { Id } from "../convex/_generated/dataModel";
 import {
   createE2eClient,
   E2E_SECRET,
   E2E_EMAIL,
 } from "./helpers/authed-client";
+import { createCreatorSession } from "./helpers/creator-client";
+import { availableTarget } from "./helpers/targets";
 import { config } from "dotenv";
 
 config({ path: ".env.local" });
@@ -177,6 +180,96 @@ test.describe("Admin — voir l'espace d'un créateur (lecture seule, scopé pro
       creatorClient.query(api.comptes.listComptesAsAdmin, {
         projectId: projectA,
         creatorId,
+      }),
+    ).rejects.toThrow(/administrateur|refusé/i);
+  });
+
+  test("détail de mission view-as : admin lit la mission de son créateur ; hors-créateur null ; session créateur rejetée", async () => {
+    test.setTimeout(90_000);
+    const ts = Date.now();
+    const fid = await convex.mutation(api.formats.createFormat, {
+      name: `[E2E_TEST] ViewAs Detail ${ts}`,
+      type: "short",
+      rateModel: {
+        basePerPost: 50,
+        viewBonusPer1k: 2,
+        bounties: [{ thresholdViews: 100_000, amount: 100 }],
+      },
+    });
+
+    // Deux créateurs RÉELS du projet e2e (A ciblé par la vue, B = tiers).
+    const A = await createCreatorSession(convexUrl, {
+      name: `[E2E_TEST] ViewAs Detail A ${ts}`,
+      email: `e2e-viewas-deta-${ts}@repackit.test`,
+      password: "viewas-detail-a-12345",
+    });
+    const B = await createCreatorSession(convexUrl, {
+      name: `[E2E_TEST] ViewAs Detail B ${ts}`,
+      email: `e2e-viewas-detb-${ts}@repackit.test`,
+      password: "viewas-detail-b-12345",
+    });
+    const due = ts + 7 * 86_400_000;
+
+    const tA = await availableTarget({
+      e2eClient: convex,
+      creatorId: A.creatorId,
+      platform: "TikTok",
+      handle: `@e2evda${ts}`,
+    });
+    const tB = await availableTarget({
+      e2eClient: convex,
+      creatorId: B.creatorId,
+      platform: "TikTok",
+      handle: `@e2evdb${ts}`,
+    });
+    await convex.mutation(api.assignments.assignFormat, {
+      formatId: fid as Id<"formats">,
+      creatorId: A.creatorId,
+      targets: [tA],
+      postsPerCreator: 1,
+      dueDate: due,
+    });
+    await convex.mutation(api.assignments.assignFormat, {
+      formatId: fid as Id<"formats">,
+      creatorId: B.creatorId,
+      targets: [tB],
+      postsPerCreator: 1,
+      dueDate: due,
+    });
+    const aId = (
+      await A.client.query(api.assignments.listMyAssignments, {
+        projectId: A.projectId,
+      })
+    )[0]._id;
+    const bId = (
+      await B.client.query(api.assignments.listMyAssignments, {
+        projectId: B.projectId,
+      })
+    )[0]._id;
+
+    // Admin (superadmin e2e) lit le détail de la mission du créateur A ciblé →
+    // brief/rému servis (projectId injecté = projet e2e).
+    const detail = await convex.query(
+      api.assignments.getAssignmentDetailAsAdmin,
+      { creatorId: A.creatorId, id: aId },
+    );
+    expect(detail?.assignment.rateSnapshot.basePerPost).toBe(50);
+    expect(detail?.format?.name).toContain("[E2E_TEST] ViewAs Detail");
+
+    // SCOPING : la mission de B demandée pour le créateur A ciblé → null (la
+    // mission n'appartient pas au créateur ciblé, aucune fuite cross-créateur).
+    const crossCreator = await convex.query(
+      api.assignments.getAssignmentDetailAsAdmin,
+      { creatorId: A.creatorId, id: bId },
+    );
+    expect(crossCreator).toBeNull();
+
+    // Une session CRÉATEUR ne peut pas emprunter le chemin admin view-as du détail.
+    await expect(
+      A.client.query(api.assignments.getAssignmentDetailAsAdmin, {
+        projectId: A.projectId,
+        creatorId: A.creatorId,
+        id: aId,
       }),
     ).rejects.toThrow(/administrateur|refusé/i);
   });

@@ -62,12 +62,15 @@ export function AssignmentActions({
   projectId,
   submittedVideoUrl,
   submittedVideoMimeType,
+  readOnly = false,
 }: {
   assignment: Doc<"assignments">;
   targets: Target[];
   projectId: Id<"projects">;
   submittedVideoUrl?: string | null;
   submittedVideoMimeType?: string | null;
+  /** Admin view-as : aucune action ; l'état du workflow est rendu en lecture. */
+  readOnly?: boolean;
 }) {
   const start = useMutation(api.assignments.startAssignment);
   const submitVideo = useMutation(api.assignments.submitVideo);
@@ -162,6 +165,69 @@ export function AssignmentActions({
         }}
       />
     ) : null;
+
+  // ── Admin view-as (LECTURE SEULE) ──────────────────────────────────────────
+  // Aucune action : on montre l'ÉTAT du workflow (où en est le créateur) +, le
+  // cas échéant, la vidéo soumise et les liens publiés. Les boutons/formulaires
+  // mutateurs (commencer, soumettre, confirmer) sont absents. Branche placée
+  // AVANT le rendu normal → le chemin créateur reste strictement inchangé.
+  if (readOnly) {
+    const publishedTargets = targets.filter((t) => t.publishedUrl);
+    return (
+      <div className="space-y-3">
+        {s === "todo" && (
+          <ReadOnlyState tone="slate" label="Mission pas encore démarrée par le créateur." />
+        )}
+        {s === "in_progress" && (
+          <ReadOnlyState tone="slate" label="En production — le créateur doit soumettre sa vidéo." />
+        )}
+        {s === "video_submitted" && (
+          <>
+            <ReadOnlyState tone="amber" label="Vidéo envoyée — en attente de validation par l'admin." />
+            {myVideoPreview}
+          </>
+        )}
+        {s === "video_rejected" && (
+          <>
+            {assignment.videoReviewFeedback && (
+              <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+                <p className="font-semibold">Vidéo à refaire</p>
+                <p>{assignment.videoReviewFeedback}</p>
+              </div>
+            )}
+            {myVideoPreview}
+            <ReadOnlyState tone="slate" label="Le créateur doit re-soumettre une vidéo." />
+          </>
+        )}
+        {s === "to_publish" && (
+          <ReadOnlyState
+            tone="emerald"
+            label="Vidéo validée — le créateur doit publier puis coller les URLs."
+          />
+        )}
+        {(s === "published" || s === "paid") && (
+          <>
+            <ReadOnlyState
+              tone="emerald"
+              label={s === "paid" ? "Publié et payé ✓" : "Publié ✓"}
+            />
+            {publishedTargets.map((t) => (
+              <a
+                key={t.platform}
+                href={t.publishedUrl!}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+              >
+                Voir le post {t.platform}
+                <ExternalLinkIcon className="size-3.5" />
+              </a>
+            ))}
+          </>
+        )}
+      </div>
+    );
+  }
 
   const uploadModal = (
     <Dialog open={uploadOpen} onOpenChange={(o) => !busy && setUploadOpen(o)}>
@@ -339,6 +405,31 @@ export function AssignmentActions({
           <ExternalLinkIcon className="size-3.5" />
         </a>
       ))}
+    </div>
+  );
+}
+
+const READONLY_TONE: Record<string, string> = {
+  slate: "border-slate-200 bg-slate-50 text-slate-600",
+  amber: "border-amber-200 bg-amber-50 text-amber-700",
+  emerald: "border-emerald-200 bg-emerald-50 text-emerald-700",
+};
+
+/** Encart d'état (admin view-as) : montre où en est le créateur, sans action. */
+function ReadOnlyState({
+  tone,
+  label,
+}: {
+  tone: "slate" | "amber" | "emerald";
+  label: string;
+}) {
+  return (
+    <div
+      data-testid="assignment-readonly-state"
+      className={`flex items-center gap-2 rounded-md border p-3 text-sm ${READONLY_TONE[tone]}`}
+    >
+      <ClockIcon className="size-4 shrink-0" />
+      {label}
     </div>
   );
 }
