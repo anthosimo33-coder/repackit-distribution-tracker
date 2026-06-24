@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   computeMonthlyPayout,
   assignmentCpm,
+  estimateMissionEarnings,
   tiersOf,
   evaluateBonusTiers,
   type PricingSnapshot,
@@ -144,3 +145,41 @@ describe("evaluateBonusTiers — cumul créateur", () => {
 });
 
 const round = (n: number) => Math.round(n * 100) / 100;
+
+describe("estimateMissionEarnings — fiche mission (fixe/vidéo + CPM, sans bonus)", () => {
+  // Pricing réel « Deal Créateur Face cam » (prod) : fixe 100€/60 vidéos, CPM 1,1.
+  const DEAL: PricingSnapshot = {
+    pricingId: "deal",
+    montantFixe: 100,
+    nbVideosCible: 60,
+    tauxCPM: 1.1,
+    seuilBonusVues: 0,
+    montantBonus: 0,
+  };
+
+  it("fixe/vidéo + CPM ; ex. Marielle à 10k vues ≈ 12,67€ (et non 0€)", () => {
+    const e = estimateMissionEarnings(DEAL, 10_000);
+    expect(e.fixed).toBe(1.67); // 100 / 60
+    expect(e.cpm).toBe(11); // 10 × 1,1
+    expect(e.total).toBe(12.67);
+  });
+
+  it("le slider (vues) pilote la part CPM → l'estimation varie", () => {
+    const at0 = estimateMissionEarnings(DEAL, 0);
+    const at50k = estimateMissionEarnings(DEAL, 50_000);
+    // À 0 vue : pas de CPM, total = fixe seul.
+    expect(at0.cpm).toBe(0);
+    expect(at0.total).toBe(at0.fixed);
+    // Plus de vues → plus de CPM → total strictement supérieur.
+    expect(at50k.cpm).toBe(55); // 50 × 1,1
+    expect(at50k.total).toBeGreaterThan(at0.total);
+    expect(at50k.cpm).toBe(assignmentCpm(DEAL, 50_000));
+  });
+
+  it("garde anti /0 : nbVideosCible invalide → fixe 0 (CPM seul)", () => {
+    const bad: PricingSnapshot = { ...DEAL, nbVideosCible: 0 };
+    const e = estimateMissionEarnings(bad, 10_000);
+    expect(e.fixed).toBe(0);
+    expect(e.total).toBe(11);
+  });
+});

@@ -79,6 +79,33 @@ function fixePerVideo(snapshot: PricingSnapshot): number {
   return snapshot.montantFixe / snapshot.nbVideosCible;
 }
 
+export interface MissionEstimate {
+  /** Part FIXE par vidéo (montantFixe / nbVideosCible). */
+  fixed: number;
+  /** Part CPM pour `views` (tauxCPM × views / 1000). */
+  cpm: number;
+  /** fixed + cpm. */
+  total: number;
+}
+
+/**
+ * Estimation de rému d'UNE mission (affichage fiche créateur, modèle pricing v2),
+ * pilotée par un nombre de vues (slider) : FIXE/vidéo + CPM(vues). RÉUTILISE les
+ * fonctions pures du moteur (fixePerVideo, assignmentCpm) → cohérent avec
+ * computeMonthlyPayout, qui exclut lui aussi tout bonus du per-mission. Les
+ * paliers de bonus (créateur-niveau, cumul à vie) NE sont PAS inclus ici : ils
+ * vivent sur le doc pricings et sont affichés sur l'écran Paiements
+ * (evaluateBonusTiers / getMyBonusStatus), pas par mission.
+ */
+export function estimateMissionEarnings(
+  snapshot: PricingSnapshot,
+  views: number,
+): MissionEstimate {
+  const fixed = round2(fixePerVideo(snapshot));
+  const cpm = assignmentCpm(snapshot, views);
+  return { fixed, cpm, total: round2(fixed + cpm) };
+}
+
 /**
  * Paie du mois (FIXE + CPM) à partir des vidéos publiées (1 item par assignment
  * publié). PAS de bonus par vidéo en v2 (le bonus est créateur-niveau à paliers

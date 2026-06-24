@@ -11,6 +11,7 @@ import { ArrowLeftIcon, DownloadIcon, ExternalLinkIcon } from "lucide-react";
 import { detectInspirationType } from "@/lib/inspiration-url";
 import { FormatBriefPreview } from "@/components/formats/FormatBriefPreview";
 import { EarningsCalculator } from "@/components/portal/EarningsCalculator";
+import { PricingEstimator } from "@/components/portal/PricingEstimator";
 import { AssignmentActions } from "@/components/portal/AssignmentActions";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 
@@ -211,13 +212,20 @@ export default function AssignmentDetailScreen({
             </Card>
           )}
 
-          {/* Rémunération figée (rateSnapshot) + calculateur */}
+          {/* Rémunération figée + calculateur. Populations DISJOINTES :
+              - mission de campagne de script → pricingSnapshot (modèle v2 :
+                fixe/vidéo + CPM) ; rateSnapshot y est un placeholder {basePerPost:0} ;
+              - mission de format → rateSnapshot réel (modèle legacy, inchangé). */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Rémunération</CardTitle>
             </CardHeader>
             <CardContent>
-              <EarningsCalculator rate={data.assignment.rateSnapshot} />
+              {data.assignment.pricingSnapshot ? (
+                <PricingEstimator snapshot={data.assignment.pricingSnapshot} />
+              ) : (
+                <EarningsCalculator rate={data.assignment.rateSnapshot} />
+              )}
             </CardContent>
           </Card>
         </div>
