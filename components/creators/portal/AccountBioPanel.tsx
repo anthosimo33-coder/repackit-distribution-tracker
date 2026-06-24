@@ -26,9 +26,12 @@ import { convexErrorMessage } from "@/lib/convex-error";
 export function AccountBioPanel({
   compte,
   projectId,
+  readOnly = false,
 }: {
   compte: Doc<"comptes">;
   projectId: Id<"projects">;
+  /** Admin view-as : masque le bouton de confirmation (lecture seule). */
+  readOnly?: boolean;
 }) {
   const confirmApplied = useMutation(api.comptes.confirmAccountBioApplied);
   const [submitting, setSubmitting] = useState(false);
@@ -106,7 +109,7 @@ export function AccountBioPanel({
         {bio}
       </p>
 
-      {pending && (
+      {pending && !readOnly && (
         <Button
           onClick={handleConfirm}
           disabled={submitting}

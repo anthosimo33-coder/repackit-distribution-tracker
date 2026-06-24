@@ -31,9 +31,12 @@ import { warmupProgress, checkedToday, mustCheckToday } from "@/lib/warmup";
 export function WarmupCompteCard({
   compte,
   projectId,
+  readOnly = false,
 }: {
   compte: Doc<"comptes">;
   projectId: Id<"projects">;
+  /** Admin view-as : masque les boutons d'action (check warmup, confirm bio). */
+  readOnly?: boolean;
 }) {
   const markCheck = useMutation(api.comptes.markWarmupCheck);
   const [submitting, setSubmitting] = useState(false);
@@ -98,7 +101,13 @@ export function WarmupCompteCard({
 
       <CardContent className="space-y-4">
         {/* Bio à mettre (admin) — affichée quel que soit le statut du compte. */}
-        {hasBio && <AccountBioPanel compte={compte} projectId={projectId} />}
+        {hasBio && (
+          <AccountBioPanel
+            compte={compte}
+            projectId={projectId}
+            readOnly={readOnly}
+          />
+        )}
 
         {isWarmup ? (
           <div className="space-y-4">
@@ -166,8 +175,9 @@ export function WarmupCompteCard({
           )}
 
           {/* Bouton du check quotidien — masqué une fois le warmup terminé
-              (plus de check à poser ; markWarmupCheck refuse de toute façon). */}
-          {!warmupDone && (
+              (plus de check à poser ; markWarmupCheck refuse de toute façon) et
+              en lecture seule (admin view-as : aucune action exécutable). */}
+          {!warmupDone && !readOnly && (
             <Button
               onClick={handleCheck}
               disabled={submitting || doneToday}

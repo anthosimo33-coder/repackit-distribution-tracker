@@ -1,11 +1,13 @@
 import {
   adminMutation,
   adminQuery,
+  adminViewAsQuery,
   authedQuery,
   creatorMutation,
   creatorQuery,
   e2eMutation,
   publicQuery,
+  requireCreatorViewableByAdmin,
   requireProjectAdmin,
 } from "./functions";
 import { getProjectBySlug, REPACKIT_SLUG } from "./projects";
@@ -576,19 +578,27 @@ export const getMyPortal = authedQuery({
 // ─── Portail créateur — profil (P9, isolé par ctx.creatorId) ─────────────────
 
 /** Profil de paiement du créateur courant (SES données uniquement). */
+async function profileFor(ctx: QueryCtx, creatorId: Id<"creators">) {
+  const c = await ctx.db.get(creatorId);
+  if (!c) return null;
+  return {
+    name: c.name,
+    email: c.email,
+    phone: c.phone ?? null,
+    paymentMethod: c.paymentMethod ?? null,
+    paymentDetails: c.paymentDetails ?? null,
+  };
+}
+
 export const getMyProfile = creatorQuery({
   args: {},
-  handler: async (ctx) => {
-    const c = await ctx.db.get(ctx.creatorId);
-    if (!c) return null;
-    return {
-      name: c.name,
-      email: c.email,
-      phone: c.phone ?? null,
-      paymentMethod: c.paymentMethod ?? null,
-      paymentDetails: c.paymentDetails ?? null,
-    };
-  },
+  handler: async (ctx) => profileFor(ctx, ctx.creatorId),
+});
+
+/** ADMIN view-as — profil (lecture) du créateur ciblé. Scopé projet + superadmin. */
+export const getProfileAsAdmin = adminViewAsQuery({
+  args: {},
+  handler: async (ctx) => profileFor(ctx, ctx.creatorId),
 });
 
 /**
@@ -845,6 +855,42 @@ export const e2eAssertAdminAccess = e2eMutation({
     if (user === null) return { allowed: false, error: "user introuvable" };
     try {
       await requireProjectAdmin(ctx, user._id, args.projectId);
+      return { allowed: true };
+    } catch (e) {
+      return {
+        allowed: false,
+        error: e instanceof ConvexError ? String(e.data) : "error",
+      };
+    }
+  },
+});
+
+/**
+ * Assertion du contrôle d'accès du mode admin « voir l'espace d'un créateur »
+ * (adminViewAsQuery), AS l'utilisateur `email`, pour (projectId, creatorId).
+ * Exécute la MÊME gate que le wrapper (requireCreatorViewableByAdmin) → prouve
+ * le scoping serveur : admin du projet OK ; créateur hors projet / autre projet
+ * refusé ; rôle creator refusé. Renvoie { allowed, error } sans lever.
+ */
+export const e2eAssertViewAsAccess = e2eMutation({
+  args: {
+    email: v.string(),
+    projectId: v.id("projects"),
+    creatorId: v.id("creators"),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", args.email))
+      .first();
+    if (user === null) return { allowed: false, error: "user introuvable" };
+    try {
+      await requireCreatorViewableByAdmin(
+        ctx,
+        user._id,
+        args.projectId,
+        args.creatorId,
+      );
       return { allowed: true };
     } catch (e) {
       return {

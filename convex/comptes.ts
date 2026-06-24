@@ -3,6 +3,7 @@ import {
   e2eMutation,
   adminMutation,
   adminQuery,
+  adminViewAsQuery,
   creatorMutation,
   creatorQuery,
 } from "./functions";
@@ -715,21 +716,56 @@ export const confirmAccountBioApplied = creatorMutation({
 });
 
 // ─── P5 — Portail créateur (creatorQuery / creatorMutation) ───────────────────
+//
+// Lecture des écrans portail : helpers PURS de données (ctx.db + projectId +
+// creatorId explicites) appelés à la fois par la creatorQuery (créateur sur SA
+// fiche) ET par l'adminViewAsQuery (admin « voir l'espace d'un créateur »,
+// lecture seule scopée projet). MÊME code → 0 duplication, le chemin créateur
+// normal est inchangé (le helper reçoit ctx.creatorId résolu par requireCreator).
+
+async function comptesForCreator(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  creatorId: Id<"creators">,
+) {
+  const comptes = await ctx.db
+    .query("comptes")
+    .withIndex("by_project_creator", (q) =>
+      q.eq("projectId", projectId).eq("creatorId", creatorId),
+    )
+    .collect();
+  return comptes.sort((a, b) =>
+    a.handle.localeCompare(b.handle, "fr", { sensitivity: "base" }),
+  );
+}
+
+function warmupDueCount(comptes: Doc<"comptes">[], now: number) {
+  return comptes.filter(
+    (c) => effectiveStatus(c) === "warmup" && mustCheckToday(c, now),
+  ).length;
+}
+
+function warmupInProgressCount(comptes: Doc<"comptes">[]) {
+  return comptes.filter(
+    (c) =>
+      effectiveStatus(c) === "warmup" &&
+      !isWarmupComplete({
+        plateforme: c.plateforme,
+        warmupProtocol: c.warmupProtocol,
+      }),
+  ).length;
+}
 
 /** Comptes du créateur courant UNIQUEMENT (filtré serveur par ctx.creatorId). */
 export const listMyComptes = creatorQuery({
   args: {},
-  handler: async (ctx) => {
-    const comptes = await ctx.db
-      .query("comptes")
-      .withIndex("by_project_creator", (q) =>
-        q.eq("projectId", ctx.projectId).eq("creatorId", ctx.creatorId),
-      )
-      .collect();
-    return comptes.sort((a, b) =>
-      a.handle.localeCompare(b.handle, "fr", { sensitivity: "base" }),
-    );
-  },
+  handler: async (ctx) => comptesForCreator(ctx, ctx.projectId, ctx.creatorId),
+});
+
+/** ADMIN view-as — comptes du créateur ciblé (lecture seule, scopé projet). */
+export const listComptesAsAdmin = adminViewAsQuery({
+  args: {},
+  handler: async (ctx) => comptesForCreator(ctx, ctx.projectId, ctx.creatorId),
 });
 
 /**
@@ -834,16 +870,17 @@ export const markWarmupCheck = creatorMutation({
 export const countMyWarmupDue = creatorQuery({
   args: {},
   handler: async (ctx) => {
-    const now = Date.now();
-    const comptes = await ctx.db
-      .query("comptes")
-      .withIndex("by_project_creator", (q) =>
-        q.eq("projectId", ctx.projectId).eq("creatorId", ctx.creatorId),
-      )
-      .collect();
-    return comptes.filter(
-      (c) => effectiveStatus(c) === "warmup" && mustCheckToday(c, now),
-    ).length;
+    const comptes = await comptesForCreator(ctx, ctx.projectId, ctx.creatorId);
+    return warmupDueCount(comptes, Date.now());
+  },
+});
+
+/** ADMIN view-as — warmups à cocher aujourd'hui du créateur ciblé (lecture). */
+export const countWarmupDueAsAdmin = adminViewAsQuery({
+  args: {},
+  handler: async (ctx) => {
+    const comptes = await comptesForCreator(ctx, ctx.projectId, ctx.creatorId);
+    return warmupDueCount(comptes, Date.now());
   },
 });
 
@@ -858,20 +895,17 @@ export const countMyWarmupDue = creatorQuery({
 export const countMyWarmupInProgress = creatorQuery({
   args: {},
   handler: async (ctx) => {
-    const comptes = await ctx.db
-      .query("comptes")
-      .withIndex("by_project_creator", (q) =>
-        q.eq("projectId", ctx.projectId).eq("creatorId", ctx.creatorId),
-      )
-      .collect();
-    return comptes.filter(
-      (c) =>
-        effectiveStatus(c) === "warmup" &&
-        !isWarmupComplete({
-          plateforme: c.plateforme,
-          warmupProtocol: c.warmupProtocol,
-        }),
-    ).length;
+    const comptes = await comptesForCreator(ctx, ctx.projectId, ctx.creatorId);
+    return warmupInProgressCount(comptes);
+  },
+});
+
+/** ADMIN view-as — warmups EN COURS du créateur ciblé (lecture seule). */
+export const countWarmupInProgressAsAdmin = adminViewAsQuery({
+  args: {},
+  handler: async (ctx) => {
+    const comptes = await comptesForCreator(ctx, ctx.projectId, ctx.creatorId);
+    return warmupInProgressCount(comptes);
   },
 });
 
