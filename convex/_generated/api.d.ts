@@ -49,6 +49,7 @@ import type * as scriptTier from "../scriptTier.js";
 import type * as scripts from "../scripts.js";
 import type * as snapshotMatching from "../snapshotMatching.js";
 import type * as storage from "../storage.js";
+import type * as trackerData from "../trackerData.js";
 import type * as warmup from "../warmup.js";
 import type * as youtubeApi from "../youtubeApi.js";
 import type * as youtubeSync from "../youtubeSync.js";
@@ -101,6 +102,7 @@ declare const fullApi: ApiFromModules<{
   scripts: typeof scripts;
   snapshotMatching: typeof snapshotMatching;
   storage: typeof storage;
+  trackerData: typeof trackerData;
   warmup: typeof warmup;
   youtubeApi: typeof youtubeApi;
   youtubeSync: typeof youtubeSync;
