@@ -193,3 +193,4 @@ bootstrap (purge users + sessions).
 - Smoke prod (`scripts/smoke-prod-presets.ts`) : s'authentifie avec un vrai
   compte prod via `PROD_SMOKE_EMAIL` / `PROD_SMOKE_PASSWORD`
   (`.env.prod.local`).
+
