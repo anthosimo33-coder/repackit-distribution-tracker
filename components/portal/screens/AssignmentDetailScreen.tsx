@@ -7,8 +7,8 @@ import { useMyAssignment } from "@/components/portal/creator-data";
 import { useReadOnly, usePortalBase } from "@/components/portal/ViewAsContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeftIcon, DownloadIcon, ExternalLinkIcon } from "lucide-react";
-import { detectInspirationType } from "@/lib/inspiration-url";
+import { ArrowLeftIcon, DownloadIcon } from "lucide-react";
+import { ModelVideoEmbed } from "@/components/portal/ModelVideoEmbed";
 import { FormatBriefPreview } from "@/components/formats/FormatBriefPreview";
 import { EarningsCalculator } from "@/components/portal/EarningsCalculator";
 import { PricingEstimator } from "@/components/portal/PricingEstimator";
@@ -119,37 +119,13 @@ export default function AssignmentDetailScreen({
                     Vidéos à reproduire
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-2">
-                  {data.assignment.modelVideos.map((mv) => {
-                    const platform =
-                      detectInspirationType(mv.url)?.plateforme ?? "Lien";
-                    return (
-                      <a
-                        key={mv.id}
-                        href={mv.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-start gap-3 rounded-lg border border-slate-200 p-3 transition-colors hover:border-primary hover:bg-primary/5"
-                      >
-                        <span className="mt-0.5 shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-600">
-                          {platform}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1 text-sm font-medium text-slate-900">
-                            <span className="truncate">
-                              {mv.title ?? mv.url}
-                            </span>
-                            <ExternalLinkIcon className="size-3.5 shrink-0 text-slate-400" />
-                          </div>
-                          {mv.note && (
-                            <p className="mt-0.5 text-sm text-slate-500">
-                              {mv.note}
-                            </p>
-                          )}
-                        </div>
-                      </a>
-                    );
-                  })}
+                <CardContent className="grid gap-4 sm:grid-cols-2">
+                  {data.assignment.modelVideos.map((mv) => (
+                    <ModelVideoEmbed
+                      key={mv.id}
+                      video={{ url: mv.url, title: mv.title, note: mv.note }}
+                    />
+                  ))}
                 </CardContent>
               </Card>
             )}
