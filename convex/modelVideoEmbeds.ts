@@ -39,8 +39,9 @@ type EmbedResult = {
 
 // ─── Répliques pures (lib/model-video-embed.ts + lib/thumbnail.ts) ───────────
 
-/** Réplique de lib/model-video-embed.isTikTokShortlink. */
-function isTikTokShortlink(url: string): boolean {
+/** Réplique de lib/model-video-embed.isTikTokShortlink. Exportée : réutilisée
+ *  par la résolution de postUrl du tracking (convex/postUrlResolution.ts). */
+export function isTikTokShortlink(url: string): boolean {
   return /^https?:\/\/(?:vm|vt)\.tiktok\.com\/[A-Za-z0-9]+/i.test(url.trim());
 }
 
@@ -92,7 +93,7 @@ async function fetchJsonSafe(url: string): Promise<unknown | null> {
  * shortlink TikTok et n'accepte qu'une cible finale sur un host tiktok.com
  * (anti-SSRF). Le corps n'est pas téléchargé (res.url suffit). Échec → null.
  */
-async function resolveTikTokShortlink(url: string): Promise<string | null> {
+export async function resolveTikTokShortlink(url: string): Promise<string | null> {
   if (!isTikTokShortlink(url)) return null;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);

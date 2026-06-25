@@ -84,6 +84,19 @@ export interface VideoStat {
   views: number;
   /** likeCount peut être masqué par le créateur → `null`. */
   likes: number | null;
+  /** snippet.title (titre réel YouTube) ; null si snippet absent/vide. */
+  title: string | null;
+}
+
+/** Longueur max stockée d'un titre (l'UI tronque visuellement en plus). */
+const TITLE_MAX = 500;
+
+/** Titre snippet → propre : trim, null si vide, tronqué à TITLE_MAX. */
+export function cleanTitle(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const t = value.trim();
+  if (t === "") return null;
+  return t.length > TITLE_MAX ? t.slice(0, TITLE_MAX) : t;
 }
 
 export interface ParsedVideoStats {
@@ -94,11 +107,12 @@ export interface ParsedVideoStats {
 }
 
 /**
- * Parse la réponse de `videos?part=statistics` de l'API YouTube Data v3 :
- *   { items: [{ id, statistics: { viewCount: "123", likeCount: "4" } }, ...] }
- * Convertit viewCount/likeCount (strings) en nombres. Une vidéo
- * supprimée/privée n'apparaît PAS dans `items` → listée dans `unavailable`
- * (jamais d'exception). Robuste à un JSON partiel/inattendu.
+ * Parse la réponse de `videos?part=snippet,statistics` de l'API YouTube Data v3 :
+ *   { items: [{ id, snippet: { title }, statistics: { viewCount, likeCount } }, ...] }
+ * Convertit viewCount/likeCount (strings) en nombres et lit snippet.title. Une
+ * vidéo supprimée/privée n'apparaît PAS dans `items` → listée dans `unavailable`
+ * (jamais d'exception). Robuste à un JSON partiel/inattendu (snippet absent → titre
+ * null, sans casser le relevé des vues).
  */
 export function parseVideoStats(
   apiResponse: unknown,
@@ -123,7 +137,12 @@ export function parseVideoStats(
     const views = toCount(viewRaw);
     if (views === null) continue; // pas de viewCount exploitable → on ignore
     const likes = toCount((statistics as { likeCount?: unknown }).likeCount);
-    stats[id] = { views, likes };
+    const snippet = (item as { snippet?: unknown }).snippet;
+    const title =
+      snippet && typeof snippet === "object"
+        ? cleanTitle((snippet as { title?: unknown }).title)
+        : null;
+    stats[id] = { views, likes, title };
   }
 
   const present = new Set(Object.keys(stats));

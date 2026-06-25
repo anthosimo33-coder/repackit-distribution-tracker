@@ -73,25 +73,47 @@ export function instagramShortcode(
   return m ? m[1] : null;
 }
 
+/** Stat d'UN post relevée via Apify : vues + likes + titre (= légende). */
+export interface ApifyPostStat {
+  /** Vues (playCount TikTok ; videoPlayCount/videoViewCount Instagram). */
+  views: number;
+  /** Likes (diggCount TikTok ; likesCount Instagram) ; null si non fourni. */
+  likes: number | null;
+  /** Légende = titre du post (text TikTok ; caption Instagram) ; null si vide. */
+  title: string | null;
+}
+
 export interface ParsedApifyViews {
-  /** clé de post → vues, pour chaque post PRÉSENT et exploitable dans la sortie. */
-  stats: Record<string, number>;
+  /** clé de post → stat, pour chaque post PRÉSENT et exploitable dans la sortie. */
+  stats: Record<string, ApifyPostStat>;
   /** clés demandées ABSENTES (post privé/supprimé, ou image Insta sans vues). */
   unavailable: string[];
 }
 
+/** Longueur max stockée d'une légende-titre (l'UI tronque visuellement en plus). */
+const TITLE_MAX = 500;
+
+/** Légende → titre propre : trim, null si vide, tronqué à TITLE_MAX. */
+export function cleanCaption(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const t = value.trim();
+  if (t === "") return null;
+  return t.length > TITLE_MAX ? t.slice(0, TITLE_MAX) : t;
+}
+
 /**
  * Parse la sortie de l'actor TikTok (clockworks/tiktok-scraper) :
- *   [{ id: "123", playCount: 4567, webVideoUrl: "...", ... }, ...]
- * Clé = `id` (fallback : id extrait de `webVideoUrl`). Vues = `playCount`. Un
- * post sans clé ou sans playCount exploitable est ignoré (jamais d'exception).
- * Robuste à un JSON partiel/inattendu.
+ *   [{ id: "123", playCount: 4567, diggCount: 89, text: "légende", webVideoUrl, ... }, ...]
+ * Clé = `id` (fallback : id extrait de `webVideoUrl`). Vues = `playCount`,
+ * likes = `diggCount`, titre = `text` (la légende = titre TikTok). Un post sans
+ * clé ou sans playCount exploitable est ignoré (jamais d'exception). Robuste à un
+ * JSON partiel/inattendu.
  */
 export function parseTikTokViews(
   apiResponse: unknown,
   requestedKeys: readonly string[],
 ): ParsedApifyViews {
-  const stats: Record<string, number> = {};
+  const stats: Record<string, ApifyPostStat> = {};
   const items = Array.isArray(apiResponse) ? apiResponse : [];
   for (const item of items) {
     if (!item || typeof item !== "object") continue;
@@ -103,7 +125,9 @@ export function parseTikTokViews(
     if (!key) continue;
     const views = toCount((item as { playCount?: unknown }).playCount);
     if (views === null) continue;
-    stats[key] = views;
+    const likes = toCount((item as { diggCount?: unknown }).diggCount);
+    const title = cleanCaption((item as { text?: unknown }).text);
+    stats[key] = { views, likes, title };
   }
   const present = new Set(Object.keys(stats));
   return { stats, unavailable: requestedKeys.filter((k) => !present.has(k)) };
@@ -112,16 +136,17 @@ export function parseTikTokViews(
 /**
  * Parse la sortie de l'actor Instagram (apify/instagram-scraper, resultsType
  * "posts") :
- *   [{ shortCode: "Cxyz", videoPlayCount: 1234, videoViewCount: 1230, type: "Video", url, ... }, ...]
+ *   [{ shortCode: "Cxyz", videoPlayCount, videoViewCount, likesCount, caption, type: "Video", url, ... }, ...]
  * Clé = `shortCode` (fallback : shortcode extrait de `url`). Vues =
- * `videoPlayCount` puis fallback `videoViewCount`. ⚠️ Un post IMAGE n'a aucun de
- * ces champs → ignoré (pas de vue = pas de snapshot), reporté en `unavailable`.
+ * `videoPlayCount` puis fallback `videoViewCount`, likes = `likesCount`, titre =
+ * `caption`. ⚠️ Un post IMAGE n'a aucune vue → ignoré (pas de snapshot), reporté
+ * en `unavailable`.
  */
 export function parseInstagramViews(
   apiResponse: unknown,
   requestedKeys: readonly string[],
 ): ParsedApifyViews {
-  const stats: Record<string, number> = {};
+  const stats: Record<string, ApifyPostStat> = {};
   const items = Array.isArray(apiResponse) ? apiResponse : [];
   for (const item of items) {
     if (!item || typeof item !== "object") continue;
@@ -135,7 +160,9 @@ export function parseInstagramViews(
       toCount((item as { videoPlayCount?: unknown }).videoPlayCount) ??
       toCount((item as { videoViewCount?: unknown }).videoViewCount);
     if (views === null) continue;
-    stats[key] = views;
+    const likes = toCount((item as { likesCount?: unknown }).likesCount);
+    const title = cleanCaption((item as { caption?: unknown }).caption);
+    stats[key] = { views, likes, title };
   }
   const present = new Set(Object.keys(stats));
   return { stats, unavailable: requestedKeys.filter((k) => !present.has(k)) };

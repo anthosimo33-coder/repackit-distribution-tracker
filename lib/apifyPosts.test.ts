@@ -100,17 +100,27 @@ describe("toCount", () => {
 // ─── Parse TikTok ────────────────────────────────────────────────────────────
 
 describe("parseTikTokViews", () => {
-  it("mappe id → playCount (id string ou numérique, playCount string)", () => {
+  it("mappe id → {views, likes, title} (playCount, diggCount, text)", () => {
     const items = [
-      { id: "7234567890123456789", playCount: 45_678, webVideoUrl: "x" },
-      { id: 42, playCount: "120" }, // id numérique + playCount en string
+      {
+        id: "7234567890123456789",
+        playCount: 45_678,
+        diggCount: 320,
+        text: "Ma légende #fyp",
+        webVideoUrl: "x",
+      },
+      { id: 42, playCount: "120" }, // id num + playCount string, sans likes/text
     ];
     const { stats, unavailable } = parseTikTokViews(items, [
       "7234567890123456789",
       "42",
     ]);
-    expect(stats["7234567890123456789"]).toBe(45_678);
-    expect(stats["42"]).toBe(120);
+    expect(stats["7234567890123456789"]).toEqual({
+      views: 45_678,
+      likes: 320,
+      title: "Ma légende #fyp",
+    });
+    expect(stats["42"]).toEqual({ views: 120, likes: null, title: null });
     expect(unavailable).toEqual([]);
   });
 
@@ -119,7 +129,20 @@ describe("parseTikTokViews", () => {
       { playCount: 99, webVideoUrl: "https://www.tiktok.com/@u/video/7000000000000000001" },
     ];
     const { stats } = parseTikTokViews(items, ["7000000000000000001"]);
-    expect(stats["7000000000000000001"]).toBe(99);
+    expect(stats["7000000000000000001"].views).toBe(99);
+  });
+
+  it("légende vide → title null ; légende trop longue → tronquée à 500", () => {
+    const items = [
+      { id: "7000000000000000010", playCount: 1, text: "   " },
+      { id: "7000000000000000011", playCount: 1, text: "a".repeat(600) },
+    ];
+    const { stats } = parseTikTokViews(items, [
+      "7000000000000000010",
+      "7000000000000000011",
+    ]);
+    expect(stats["7000000000000000010"].title).toBeNull();
+    expect(stats["7000000000000000011"].title).toHaveLength(500);
   });
 
   it("liste les clés demandées absentes (post privé/supprimé)", () => {
@@ -155,17 +178,28 @@ describe("parseTikTokViews", () => {
 // ─── Parse Instagram ─────────────────────────────────────────────────────────
 
 describe("parseInstagramViews", () => {
-  it("mappe shortCode → videoPlayCount (fallback videoViewCount)", () => {
+  it("mappe shortCode → {views, likes (likesCount), title (caption)}", () => {
     const items = [
-      { shortCode: "Creel001", videoPlayCount: 5_000, videoViewCount: 4_900, type: "Video" },
-      { shortCode: "Creel002", videoViewCount: 3_300, type: "Video" }, // pas de playCount
+      {
+        shortCode: "Creel001",
+        videoPlayCount: 5_000,
+        videoViewCount: 4_900,
+        likesCount: 88,
+        caption: "Légende IG",
+        type: "Video",
+      },
+      { shortCode: "Creel002", videoViewCount: 3_300, type: "Video" }, // fallback viewCount, sans likes/caption
     ];
     const { stats, unavailable } = parseInstagramViews(items, [
       "Creel001",
       "Creel002",
     ]);
-    expect(stats["Creel001"]).toBe(5_000);
-    expect(stats["Creel002"]).toBe(3_300);
+    expect(stats["Creel001"]).toEqual({
+      views: 5_000,
+      likes: 88,
+      title: "Légende IG",
+    });
+    expect(stats["Creel002"]).toEqual({ views: 3_300, likes: null, title: null });
     expect(unavailable).toEqual([]);
   });
 
@@ -174,7 +208,7 @@ describe("parseInstagramViews", () => {
       { url: "https://www.instagram.com/reel/Creel003/", videoPlayCount: 42 },
     ];
     const { stats } = parseInstagramViews(items, ["Creel003"]);
-    expect(stats["Creel003"]).toBe(42);
+    expect(stats["Creel003"].views).toBe(42);
   });
 
   it("post IMAGE (aucune vue) → unavailable, pas de crash", () => {

@@ -104,11 +104,13 @@ test.describe("Tracking auto des vues TikTok/Instagram (Apify)", () => {
     expect(tkSnaps.length).toBe(1); // un SEUL snapshot tiktok ce jour-là
     expect(tkSnaps[0].vues).toBe(1500); // valeur mise à jour
 
-    // Le lendemain → NOUVEAU point.
+    // Le lendemain → NOUVEAU point, AVEC likes (diggCount) + titre (légende).
     const r3 = await admin.mutation(api.apifySync.e2eRecordApifySnapshot, {
       secret: E2E_SECRET,
       publicationId: tkId,
       vues: 2000,
+      likes: 42,
+      title: "Ma légende TikTok",
       capturedAt: capturedAt + DAY,
       source: "tiktok",
     });
@@ -142,10 +144,18 @@ test.describe("Tracking auto des vues TikTok/Instagram (Apify)", () => {
     });
     const tkPub = pubs.find((p) => p._id === tkId)!;
     expect(tkPub.vuesLatest).toBe(2000);
+    // Likes Apify (diggCount) écrits → likesLatest ; titre (légende) → postTitle.
+    expect(tkPub.likesLatest).toBe(42);
+    expect(tkPub.postTitle).toBe("Ma légende TikTok");
     expect(tkPub.lastApifySyncAt).toBeTruthy();
     const igPub = pubs.find((p) => p._id === igId)!;
     expect(igPub.vuesLatest).toBe(777);
     expect(igPub.lastApifySyncAt).toBeTruthy();
+
+    // Le Tracker affiche le TITRE (postTitle) au lieu de « (sans titre) ».
+    const trackerRows = await admin.query(api.trackerData.listTrackerPosts, {});
+    const tkRow = trackerRows.find((r) => r._id === tkId)!;
+    expect(tkRow.label).toBe("Ma légende TikTok");
 
     // ── Isolation — le créateur ne peut PAS déclencher la sync ───────────────
     const creator = await createCreatorSession(url, {

@@ -67,6 +67,18 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
 export interface VideoStat {
   views: number;
   likes: number | null;
+  /** snippet.title (titre réel YouTube) ; null si snippet absent/vide. */
+  title: string | null;
+}
+
+const TITLE_MAX = 500;
+
+/** Réplique de lib/youtubeId.cleanTitle. */
+function cleanTitle(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const t = value.trim();
+  if (t === "") return null;
+  return t.length > TITLE_MAX ? t.slice(0, TITLE_MAX) : t;
 }
 
 function toCount(value: unknown): number | null {
@@ -101,7 +113,12 @@ function parseVideoStats(
     const views = toCount((statistics as { viewCount?: unknown }).viewCount);
     if (views === null) continue;
     const likes = toCount((statistics as { likeCount?: unknown }).likeCount);
-    stats[id] = { views, likes };
+    const snippet = (item as { snippet?: unknown }).snippet;
+    const title =
+      snippet && typeof snippet === "object"
+        ? cleanTitle((snippet as { title?: unknown }).title)
+        : null;
+    stats[id] = { views, likes, title };
   }
 
   const present = new Set(Object.keys(stats));
@@ -150,7 +167,9 @@ export async function fetchYouTubeViews(
 
   for (const batch of chunk(videoIds, MAX_IDS_PER_CALL)) {
     const params = new URLSearchParams({
-      part: "statistics",
+      // snippet → titre du post ; statistics → vues/likes. NE PAS retirer
+      // statistics (les vues YouTube en dépendent).
+      part: "snippet,statistics",
       id: batch.join(","),
       key: apiKey,
     });

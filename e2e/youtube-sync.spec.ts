@@ -89,11 +89,12 @@ test.describe("Tracking auto des vues YouTube", () => {
     expect(yt2.length).toBe(1); // un SEUL snapshot YouTube ce jour-là
     expect(yt2[0].vues).toBe(1500); // valeur mise à jour
 
-    // Le lendemain → NOUVEAU point (un snapshot par jour).
+    // Le lendemain → NOUVEAU point (un snapshot par jour), AVEC titre (snippet.title).
     const r3 = await admin.mutation(api.youtubeSync.e2eRecordYouTubeSnapshot, {
       secret: E2E_SECRET,
       publicationId: pubId,
       vues: 2000,
+      title: "Mon titre YouTube",
       capturedAt: capturedAt + DAY,
     });
     expect(r3.action).toBe("inserted");
@@ -108,8 +109,14 @@ test.describe("Tracking auto des vues YouTube", () => {
       snapshotAge: "latest",
     });
     const pub = pubs.find((p) => p._id === pubId)!;
-    expect(pub.vuesLatest).toBe(2000);
+    expect(pub.vuesLatest).toBe(2000); // vues YouTube NON régressées
+    expect(pub.postTitle).toBe("Mon titre YouTube"); // titre snippet capturé
     expect(pub.lastYouTubeSyncAt).toBeTruthy();
+
+    // Le Tracker affiche le TITRE YouTube au lieu de « (sans titre) ».
+    const trackerRows = await admin.query(api.trackerData.listTrackerPosts, {});
+    const ytRow = trackerRows.find((r) => r._id === pubId)!;
+    expect(ytRow.label).toBe("Mon titre YouTube");
 
     // ── Isolation — le créateur ne peut PAS déclencher la sync ───────────────
     const creator = await createCreatorSession(url, {

@@ -224,9 +224,11 @@ function publishedAndMatches(
   });
 }
 
-/** Libellé d'un post : titre pour les ScreenRecorders (étape Hook skippée),
- *  hookText sinon (carousel/short). */
+/** Libellé d'un post : titre/légende capturé par la sync (postTitle) en
+ *  priorité ; sinon titre des ScreenRecorders (étape Hook skippée) ; sinon
+ *  hookText (carousel/short interne). Vide → « (sans titre) » côté UI. */
 function postLabel(p: Doc<"publications">): string {
+  if (p.postTitle && p.postTitle.length > 0) return p.postTitle;
   const mediaType = p.mediaType ?? "carousel";
   if (mediaType === "screenrecorder" && p.titre && p.titre.length > 0) {
     return p.titre;
