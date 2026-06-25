@@ -1137,4 +1137,21 @@ export default defineSchema({
   })
     .index("by_folder", ["folderId"])
     .index("by_project", ["projectId"]),
+
+  // ─── Embed des vidéos MODÈLES (cache résolution shortlink + vignette) ───────
+  // Les « vidéos à reproduire » (assignments.modelVideos) sont des LIENS. Pour
+  // les afficher en lecteur intégré (VideoExample) on doit : résoudre les
+  // shortlinks TikTok (vm./vt.tiktok.com → URL canonique /@user/video/ID, requis
+  // par l'oEmbed) et récupérer une vignette (oEmbed TikTok/IG, vignette YouTube
+  // directe). Ces deux opérations sont des I/O réseau (action). CACHE read-through
+  // keyé par l'URL D'ORIGINE → on ne re-résout jamais le même lien. Aucune donnée
+  // sensible (URL publique). Découplé de modelVideos (le modèle « liens » et le
+  // flux admin d'ajout sont inchangés) ; partagé entre missions citant la même URL.
+  modelVideoEmbeds: defineTable({
+    url: v.string(), // URL d'origine (clé de cache)
+    canonicalUrl: v.optional(v.string()), // shortlink résolu, sinon = url
+    thumbnailUrl: v.optional(v.string()),
+    status: v.union(v.literal("ok"), v.literal("failed")),
+    fetchedAt: v.number(),
+  }).index("by_url", ["url"]),
 });

@@ -1,11 +1,12 @@
 import {
+  customAction,
   customCtx,
   customMutation,
   customQuery,
 } from "convex-helpers/server/customFunctions";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { action, mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 
@@ -114,6 +115,24 @@ export const authedMutation = customMutation(
   mutation,
   customCtx(async (ctx) => {
     const userId = await requireUserId(ctx);
+    return { userId };
+  }),
+);
+
+/**
+ * Action authentifiée (identité requise). Réservée aux rares actions appelables
+ * depuis le client qui font de l'I/O externe sans toucher de table scopée projet
+ * (ex. résolution d'embed d'une URL publique). Le ctx d'action expose `auth` →
+ * getAuthUserId fonctionne ; on rejette tout appel anonyme. Pas d'accès `db`
+ * direct dans une action : passer par runQuery/runMutation.
+ */
+export const authedAction = customAction(
+  action,
+  customCtx(async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) {
+      throw new ConvexError("Non authentifié.");
+    }
     return { userId };
   }),
 );
