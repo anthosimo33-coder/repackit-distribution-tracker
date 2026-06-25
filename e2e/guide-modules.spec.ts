@@ -179,8 +179,9 @@ test.describe("Guide modules — scoping, published/draft, order, view-as", () =
     await dialog
       .getByLabel(/contenu \(markdown\)/i)
       .fill("# Salut\n\nUn paragraphe **gras**.");
-    // Aperçu live : le gras est rendu.
-    await expect(dialog.getByText("gras")).toBeVisible();
+    // Aperçu live : le **gras** est RENDU en <strong> (pas le markdown brut du
+    // textarea ni le rappel de syntaxe). Cible le strong de l'aperçu → 1 élément.
+    await expect(dialog.locator("strong", { hasText: "gras" })).toBeVisible();
     await dialog.getByRole("button", { name: /^créer$/i }).click();
     await expect(dialog).not.toBeVisible({ timeout: 5000 });
 
@@ -188,8 +189,10 @@ test.describe("Guide modules — scoping, published/draft, order, view-as", () =
     await expect(row).toBeVisible({ timeout: 5000 });
     await expect(row.getByText(/^publié$/i)).toBeVisible();
 
-    // Supprimer via AlertDialog.
-    await row.getByRole("button", { name: new RegExp(`supprimer ${title}`, "i") }).click();
+    // Supprimer via AlertDialog. name en STRING (substring, insensible à la casse)
+    // et pas en RegExp : le titre contient « [E2E_TEST] » → les crochets seraient
+    // interprétés comme une classe de caractères.
+    await row.getByRole("button", { name: `Supprimer ${title}` }).click();
     const alert = page.getByRole("alertdialog");
     await expect(alert).toBeVisible();
     await alert.getByRole("button", { name: /^supprimer$/i }).click();
@@ -241,8 +244,9 @@ test.describe("Guide modules — scoping, published/draft, order, view-as", () =
       await expect(
         page.getByText(`${MARKER} Pub ${ts}`),
       ).toBeVisible({ timeout: 10_000 });
-      // Markdown rendu : gras, liste, et lien en nouvel onglet.
-      await expect(page.getByText("guide", { exact: false })).toBeVisible();
+      // Markdown rendu : **guide** en <strong> (preuve que le markdown est rendu,
+      // pas affiché brut), liste rendue, lien en nouvel onglet.
+      await expect(page.locator("strong", { hasText: "guide" })).toBeVisible();
       await expect(page.getByText("point un")).toBeVisible();
       const link = page.getByRole("link", { name: "RepackIt" });
       await expect(link).toHaveAttribute("href", "https://repackit.test");
