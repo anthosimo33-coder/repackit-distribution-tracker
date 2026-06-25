@@ -289,6 +289,12 @@ export default defineSchema({
     // cron Apify. Pendant Apify de lastYouTubeSyncAt. undefined tant qu'aucun
     // relevé Apify n'a abouti (post non rapprochable, image Insta, token absent).
     lastApifySyncAt: v.optional(v.number()),
+    // Titre du POST tel que sur la plateforme, capturé/rafraîchi par les syncs
+    // (YouTube : snippet.title ; TikTok/Instagram : la LÉGENDE, qui tient lieu de
+    // titre). Propriété du post (pas une série temporelle) → patchée à chaque
+    // relevé, pas stockée dans les snapshots. undefined tant qu'aucun relevé n'a
+    // abouti → l'affichage retombe sur hookText/titre puis « (sans titre) ».
+    postTitle: v.optional(v.string()),
     // LEGACY (vuesJ1/J3/J7 ci-dessus + saves/likes/subsGained/commentsTotal/
     // commentsAudit/profileVisits) : conservés temporairement. Les vues J1/J3/J7
     // sont migrées en metricSnapshots puis supprimées dans un commit séparé

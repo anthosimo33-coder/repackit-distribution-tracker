@@ -79,9 +79,12 @@ export interface ApifySyncSummary {
  * (recomputeLatestMetrics), les paliers de bonus (syncBonusForPublication) et
  * l'indicateur `lastApifySyncAt`. Même mécanisme d'écriture que YouTube.
  *
- * Apify ne nous donne PAS de likes fiables ici → on préserve le dernier like
- * connu (likesLatest) plutôt que d'écraser à 0, comme YouTube quand likeCount est
- * masqué.
+ * Likes : on écrit le like Apify (diggCount TikTok / likesCount Instagram) quand
+ * il est fourni ; sinon on PRÉSERVE le dernier like connu (likesLatest) plutôt
+ * que d'écraser à 0 (comme YouTube quand likeCount est masqué).
+ *
+ * Titre : si fourni (légende du post), patché sur la publication (postTitle) —
+ * propriété du post, pas une série temporelle, donc hors snapshot.
  *
  * Partagé par recordApifySnapshot (cron) et e2eRecordApifySnapshot (test).
  */
@@ -90,6 +93,8 @@ async function upsertApifySnapshot(
   args: {
     publicationId: Id<"publications">;
     vues: number;
+    likes?: number | null;
+    title?: string | null;
     capturedAt: number;
     source: ApifySource;
   },
@@ -115,7 +120,15 @@ async function upsertApifySnapshot(
   const daysSincePublication = Math.floor(
     (args.capturedAt - pub.datePubli) / DAY_MS,
   );
-  const likes = pub.likesLatest ?? 0;
+  // Like Apify s'il est fourni, sinon dernier like connu (jamais d'écrasement à 0).
+  const likes = args.likes ?? pub.likesLatest ?? 0;
+  // Patch publication : indicateur de sync + titre (légende) si capturé.
+  const pubPatch: { lastApifySyncAt: number; postTitle?: string } = {
+    lastApifySyncAt: args.capturedAt,
+  };
+  if (typeof args.title === "string" && args.title.length > 0) {
+    pubPatch.postTitle = args.title;
+  }
 
   if (existing) {
     await ctx.db.patch(existing._id, {
@@ -126,7 +139,7 @@ async function upsertApifySnapshot(
     });
     await recomputeLatestMetrics(ctx, args.publicationId);
     await syncBonusForPublication(ctx, args.publicationId);
-    await ctx.db.patch(args.publicationId, { lastApifySyncAt: args.capturedAt });
+    await ctx.db.patch(args.publicationId, pubPatch);
     return { action: "updated" };
   }
 
@@ -142,7 +155,7 @@ async function upsertApifySnapshot(
   });
   await recomputeLatestMetrics(ctx, args.publicationId);
   await syncBonusForPublication(ctx, args.publicationId);
-  await ctx.db.patch(args.publicationId, { lastApifySyncAt: args.capturedAt });
+  await ctx.db.patch(args.publicationId, pubPatch);
   return { action: "inserted" };
 }
 
@@ -189,6 +202,8 @@ export const recordApifySnapshot = internalMutation({
   args: {
     publicationId: v.id("publications"),
     vues: v.number(),
+    likes: v.union(v.number(), v.null()),
+    title: v.optional(v.string()),
     capturedAt: v.number(),
     source: apifySourceValidator,
   },
@@ -260,18 +275,20 @@ export const runDailySync = internalAction({
       summary.matched += targets.length;
       if (targets.length === 0) continue;
 
-      const { views, unavailable, errors, runs } =
+      const { stats, unavailable, errors, runs } =
         await fetchApifyViewsForPlatform(plateforme, urls, apiToken);
       summary.unavailable += unavailable.length;
       summary.errors += errors.length;
       summary.runs += runs;
 
       for (const t of targets) {
-        const vues = views[t.key];
-        if (vues === undefined) continue; // indisponible ou lot en erreur
+        const stat = stats[t.key];
+        if (stat === undefined) continue; // indisponible ou lot en erreur
         const r = await ctx.runMutation(internal.apifySync.recordApifySnapshot, {
           publicationId: t.publicationId,
-          vues,
+          vues: stat.views,
+          likes: stat.likes,
+          title: stat.title ?? undefined,
           capturedAt: now,
           source,
         });
@@ -328,6 +345,8 @@ export const e2eRecordApifySnapshot = e2eMutation({
   args: {
     publicationId: v.id("publications"),
     vues: v.number(),
+    likes: v.optional(v.union(v.number(), v.null())),
+    title: v.optional(v.string()),
     capturedAt: v.number(),
     source: apifySourceValidator,
   },

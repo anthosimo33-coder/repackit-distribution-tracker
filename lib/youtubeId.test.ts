@@ -141,24 +141,33 @@ describe("chunk", () => {
 });
 
 describe("parseVideoStats", () => {
-  it("parse viewCount + likeCount (string → number) par vidéo", () => {
+  it("parse viewCount + likeCount + snippet.title par vidéo", () => {
     const res = {
       items: [
-        { id: VID, statistics: { viewCount: "12345", likeCount: "67" } },
-        { id: VID2, statistics: { viewCount: "8", likeCount: "0" } },
+        {
+          id: VID,
+          snippet: { title: "Mon titre YouTube" },
+          statistics: { viewCount: "12345", likeCount: "67" },
+        },
+        { id: VID2, statistics: { viewCount: "8", likeCount: "0" } }, // sans snippet
       ],
     };
     const { stats, unavailable } = parseVideoStats(res, [VID, VID2]);
-    expect(stats[VID]).toEqual({ views: 12345, likes: 67 });
-    expect(stats[VID2]).toEqual({ views: 8, likes: 0 });
+    expect(stats[VID]).toEqual({
+      views: 12345,
+      likes: 67,
+      title: "Mon titre YouTube",
+    });
+    expect(stats[VID2]).toEqual({ views: 8, likes: 0, title: null });
     expect(unavailable).toEqual([]);
   });
 
-  it("likeCount masqué (absent) → likes null, views OK", () => {
+  it("likeCount masqué (absent) → likes null, views OK, title null sans snippet", () => {
     const res = { items: [{ id: VID, statistics: { viewCount: "500" } }] };
     expect(parseVideoStats(res, [VID]).stats[VID]).toEqual({
       views: 500,
       likes: null,
+      title: null,
     });
   });
 

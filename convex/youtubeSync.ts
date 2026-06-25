@@ -67,6 +67,7 @@ async function upsertYouTubeSnapshot(
     publicationId: Id<"publications">;
     vues: number;
     likes: number | null;
+    title?: string | null;
     capturedAt: number;
   },
 ): Promise<{ action: "inserted" | "updated" | "skipped" }> {
@@ -93,6 +94,13 @@ async function upsertYouTubeSnapshot(
   );
   // likeCount masqué → on conserve le dernier like connu plutôt que d'écraser à 0.
   const likes = args.likes ?? pub.likesLatest ?? 0;
+  // Patch publication : indicateur de sync + titre (snippet.title) si capturé.
+  const pubPatch: { lastYouTubeSyncAt: number; postTitle?: string } = {
+    lastYouTubeSyncAt: args.capturedAt,
+  };
+  if (typeof args.title === "string" && args.title.length > 0) {
+    pubPatch.postTitle = args.title;
+  }
 
   if (existing) {
     await ctx.db.patch(existing._id, {
@@ -103,9 +111,7 @@ async function upsertYouTubeSnapshot(
     });
     await recomputeLatestMetrics(ctx, args.publicationId);
     await syncBonusForPublication(ctx, args.publicationId);
-    await ctx.db.patch(args.publicationId, {
-      lastYouTubeSyncAt: args.capturedAt,
-    });
+    await ctx.db.patch(args.publicationId, pubPatch);
     return { action: "updated" };
   }
 
@@ -121,9 +127,7 @@ async function upsertYouTubeSnapshot(
   });
   await recomputeLatestMetrics(ctx, args.publicationId);
   await syncBonusForPublication(ctx, args.publicationId);
-  await ctx.db.patch(args.publicationId, {
-    lastYouTubeSyncAt: args.capturedAt,
-  });
+  await ctx.db.patch(args.publicationId, pubPatch);
   return { action: "inserted" };
 }
 
@@ -167,6 +171,7 @@ export const recordYouTubeSnapshot = internalMutation({
     publicationId: v.id("publications"),
     vues: v.number(),
     likes: v.union(v.number(), v.null()),
+    title: v.optional(v.string()),
     capturedAt: v.number(),
   },
   handler: async (
@@ -242,6 +247,7 @@ export const runDailySync = internalAction({
           publicationId: t.publicationId,
           vues: stat.views,
           likes: stat.likes,
+          title: stat.title ?? undefined,
           capturedAt: now,
         },
       );
@@ -300,6 +306,7 @@ export const e2eRecordYouTubeSnapshot = e2eMutation({
     vues: v.number(),
     capturedAt: v.number(),
     likes: v.optional(v.union(v.number(), v.null())),
+    title: v.optional(v.string()),
   },
   handler: async (
     ctx,
@@ -309,6 +316,7 @@ export const e2eRecordYouTubeSnapshot = e2eMutation({
       publicationId: args.publicationId,
       vues: args.vues,
       likes: args.likes ?? null,
+      title: args.title,
       capturedAt: args.capturedAt,
     }),
 });

@@ -8,8 +8,10 @@ import { internalMutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
+import { internal } from "./_generated/api";
 import { coerceSnapshotAge } from "./snapshotMatching";
 import { resolveDisplayMetrics } from "./metricsDisplay";
+import { isTikTokShortlink } from "./modelVideoEmbeds";
 
 const mecaniqueValidator = v.union(
   v.literal("Erreur"),
@@ -462,6 +464,15 @@ export const createFromAssignment = internalMutation({
       // S3 — undefined (format) → champ omis ; objet (script) → join analytics.
       scriptCombo: args.scriptCombo,
     });
+    // Résolution shortlink TikTok → canonique (async, action), pour que la sync
+    // métriques rapproche le post. No-op si non-TikTok / non-shortlink.
+    if (args.plateforme === "TikTok" && isTikTokShortlink(args.postUrl)) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.postUrlResolution.resolvePublicationShortlink,
+        { publicationId: id },
+      );
+    }
     return id;
   },
 });
@@ -687,6 +698,20 @@ export const updateMetrics = adminMutation({
     }
 
     await ctx.db.patch(id, update);
+    // Si l'admin pose/édite un postUrl TikTok shortlink → résolution canonique
+    // (async) pour que la sync métriques rapproche le post.
+    if (
+      typeof args.postUrl === "string" &&
+      args.postUrl.length > 0 &&
+      existing.plateforme === "TikTok" &&
+      isTikTokShortlink(args.postUrl)
+    ) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.postUrlResolution.resolvePublicationShortlink,
+        { publicationId: id },
+      );
+    }
     return { ok: true };
   },
 });

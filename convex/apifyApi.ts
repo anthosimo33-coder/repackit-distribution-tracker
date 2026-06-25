@@ -89,9 +89,26 @@ export function instagramShortcode(
   return m ? m[1] : null;
 }
 
+/** Réplique de lib/apifyPosts.ApifyPostStat — vues + likes + titre (légende). */
+export interface ApifyPostStat {
+  views: number;
+  likes: number | null;
+  title: string | null;
+}
+
 interface ParsedApifyViews {
-  stats: Record<string, number>;
+  stats: Record<string, ApifyPostStat>;
   unavailable: string[];
+}
+
+const TITLE_MAX = 500;
+
+/** Réplique de lib/apifyPosts.cleanCaption. */
+function cleanCaption(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const t = value.trim();
+  if (t === "") return null;
+  return t.length > TITLE_MAX ? t.slice(0, TITLE_MAX) : t;
 }
 
 /** Réplique de lib/apifyPosts.parseTikTokViews — cf tests Vitest là-bas. */
@@ -99,7 +116,7 @@ function parseTikTokViews(
   apiResponse: unknown,
   requestedKeys: readonly string[],
 ): ParsedApifyViews {
-  const stats: Record<string, number> = {};
+  const stats: Record<string, ApifyPostStat> = {};
   const items = Array.isArray(apiResponse) ? apiResponse : [];
   for (const item of items) {
     if (!item || typeof item !== "object") continue;
@@ -111,7 +128,9 @@ function parseTikTokViews(
     if (!key) continue;
     const views = toCount((item as { playCount?: unknown }).playCount);
     if (views === null) continue;
-    stats[key] = views;
+    const likes = toCount((item as { diggCount?: unknown }).diggCount);
+    const title = cleanCaption((item as { text?: unknown }).text);
+    stats[key] = { views, likes, title };
   }
   const present = new Set(Object.keys(stats));
   return { stats, unavailable: requestedKeys.filter((k) => !present.has(k)) };
@@ -122,7 +141,7 @@ function parseInstagramViews(
   apiResponse: unknown,
   requestedKeys: readonly string[],
 ): ParsedApifyViews {
-  const stats: Record<string, number> = {};
+  const stats: Record<string, ApifyPostStat> = {};
   const items = Array.isArray(apiResponse) ? apiResponse : [];
   for (const item of items) {
     if (!item || typeof item !== "object") continue;
@@ -136,7 +155,9 @@ function parseInstagramViews(
       toCount((item as { videoPlayCount?: unknown }).videoPlayCount) ??
       toCount((item as { videoViewCount?: unknown }).videoViewCount);
     if (views === null) continue;
-    stats[key] = views;
+    const likes = toCount((item as { likesCount?: unknown }).likesCount);
+    const title = cleanCaption((item as { caption?: unknown }).caption);
+    stats[key] = { views, likes, title };
   }
   const present = new Set(Object.keys(stats));
   return { stats, unavailable: requestedKeys.filter((k) => !present.has(k)) };
@@ -163,8 +184,8 @@ export interface ApifyBatchError {
 }
 
 export interface FetchApifyViewsResult {
-  /** clé de post → vues. */
-  views: Record<string, number>;
+  /** clé de post → stat (vues + likes + titre). */
+  stats: Record<string, ApifyPostStat>;
   /** clés absentes (post privé/supprimé, ou image Insta sans vues). */
   unavailable: string[];
   /** lots en erreur (quota, actor down, timeout, réseau) — non bloquant. */
@@ -234,7 +255,7 @@ export async function fetchApifyViewsForPlatform(
   fetchImpl: typeof fetch = fetch,
 ): Promise<FetchApifyViewsResult> {
   const result: FetchApifyViewsResult = {
-    views: {},
+    stats: {},
     unavailable: [],
     errors: [],
     runs: 0,
@@ -276,7 +297,7 @@ export async function fetchApifyViewsForPlatform(
       }
       const json: unknown = await res.json();
       const parsed = parseFor(platform, json, batchKeys);
-      Object.assign(result.views, parsed.stats);
+      Object.assign(result.stats, parsed.stats);
       result.unavailable.push(...parsed.unavailable);
     } catch (e) {
       result.errors.push({
@@ -299,7 +320,7 @@ export async function fetchTikTokViews(
   const key = tiktokPostId(postUrl);
   if (!key) return null;
   const r = await fetchApifyViewsForPlatform("TikTok", [postUrl], apiToken, fetchImpl);
-  return r.views[key] ?? null;
+  return r.stats[key]?.views ?? null;
 }
 
 /** Vues d'UN post/reel Instagram via son URL → nombre, ou null (image/privé/erreur). */
@@ -316,7 +337,7 @@ export async function fetchInstagramViews(
     apiToken,
     fetchImpl,
   );
-  return r.views[key] ?? null;
+  return r.stats[key]?.views ?? null;
 }
 
 /** Extrait un message d'erreur lisible du corps d'une réponse Apify non-ok. */
