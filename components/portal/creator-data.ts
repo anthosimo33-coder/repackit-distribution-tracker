@@ -142,13 +142,29 @@ export function useMyBonusStatus(projectId: Id<"projects">) {
   return va ? asAdmin : mine;
 }
 
-/** Guide « Comment ça marche ». View-as → getGuideForAdmin (per-projet, existant). */
+/** Guide « Comment ça marche » LEGACY (mono-bloc). View-as → getGuideForAdmin
+ *  (per-projet, existant). Sert de FALLBACK quand aucun module n'est publié. */
 export function useMyGuide(projectId: Id<"projects">) {
   const va = useViewAs();
   const mine = useQuery(api.guide.getMyGuide, va ? "skip" : { projectId });
   const asAdmin = useQuery(
     api.guide.getGuideForAdmin,
     va ? { projectId } : "skip",
+  );
+  return va ? asAdmin : mine;
+}
+
+/** Modules « Comment ça marche » v2 (published, triés par order). View-as →
+ *  listModulesAsAdmin (adminViewAsQuery, même contenu que le créateur). */
+export function useMyGuideModules(projectId: Id<"projects">) {
+  const va = useViewAs();
+  const mine = useQuery(
+    api.guideModules.listMyModules,
+    va ? "skip" : { projectId },
+  );
+  const asAdmin = useQuery(
+    api.guideModules.listModulesAsAdmin,
+    va ? { projectId, creatorId: va.creatorId } : "skip",
   );
   return va ? asAdmin : mine;
 }

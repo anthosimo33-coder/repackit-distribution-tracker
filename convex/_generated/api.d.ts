@@ -27,6 +27,7 @@ import type * as folders from "../folders.js";
 import type * as formats from "../formats.js";
 import type * as functions from "../functions.js";
 import type * as guide from "../guide.js";
+import type * as guideModules from "../guideModules.js";
 import type * as hooks from "../hooks.js";
 import type * as http from "../http.js";
 import type * as icps from "../icps.js";
@@ -81,6 +82,7 @@ declare const fullApi: ApiFromModules<{
   formats: typeof formats;
   functions: typeof functions;
   guide: typeof guide;
+  guideModules: typeof guideModules;
   hooks: typeof hooks;
   http: typeof http;
   icps: typeof icps;
