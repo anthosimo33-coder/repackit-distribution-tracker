@@ -21,10 +21,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { VideoExample } from "@/components/formats/VideoExample";
 import {
+  CalendarIcon,
+  ClockIcon,
   ExternalLinkIcon,
   EyeIcon,
+  FlameIcon,
   HeartIcon,
   LayoutGridIcon,
   ListIcon,
@@ -34,6 +36,7 @@ import {
   VideoOffIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { tiktokCanonicalVideoUrl, tiktokPlayerEmbedUrl } from "@/lib/embed";
 import {
   formatCount,
   formatDuration,
@@ -77,7 +80,6 @@ function sortVideos(videos: RadarVideo[], key: SortKey): RadarVideo[] {
 export function RadarVideoWall({ accounts }: { accounts: RadarAccount[] }) {
   // "all" ou un Id de compte (string : le Select Base UI infère sur string).
   const [accountFilter, setAccountFilter] = useState<string>("all");
-  const [sortKey, setSortKey] = useState<SortKey>("views");
   const [view, setView] = useState<ViewMode>("grid");
   const [active, setActive] = useState<RadarVideo | null>(null);
 
@@ -88,10 +90,13 @@ export function RadarVideoWall({ accounts }: { accounts: RadarAccount[] }) {
       : { accountId: accountFilter as Id<"radarAccounts"> },
   );
 
-  const sorted = useMemo(
-    () => (videos === undefined ? undefined : sortVideos(videos, sortKey)),
-    [videos, sortKey],
-  );
+  const { recent, popular } = useMemo(() => {
+    if (videos === undefined) return { recent: undefined, popular: undefined };
+    return {
+      recent: videos.filter((v) => v.bucket === "recent"),
+      popular: videos.filter((v) => v.bucket === "popular"),
+    };
+  }, [videos]);
 
   const filterLabel =
     accountFilter === "all"
@@ -99,7 +104,7 @@ export function RadarVideoWall({ accounts }: { accounts: RadarAccount[] }) {
       : `@${accounts.find((a) => a._id === accountFilter)?.handle ?? "compte"}`;
 
   return (
-    <section className="space-y-3">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-2">
         <Select
           value={accountFilter}
@@ -113,22 +118,6 @@ export function RadarVideoWall({ accounts }: { accounts: RadarAccount[] }) {
             {accounts.map((a) => (
               <SelectItem key={a._id} value={a._id}>
                 @{a.handle}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={sortKey}
-          onValueChange={(v) => v && setSortKey(v as SortKey)}
-        >
-          <SelectTrigger className="w-44" aria-label="Trier">
-            <SelectValue>{SORT_LABELS[sortKey]}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
-              <SelectItem key={k} value={k}>
-                {SORT_LABELS[k]}
               </SelectItem>
             ))}
           </SelectContent>
@@ -158,6 +147,79 @@ export function RadarVideoWall({ accounts }: { accounts: RadarAccount[] }) {
         </div>
       </div>
 
+      <VideoSection
+        title="Dernières vidéos"
+        icon={ClockIcon}
+        videos={recent}
+        view={view}
+        defaultSort="published"
+        emptyText="Aucune vidéo récente. Lance une synchronisation."
+        onPlay={setActive}
+      />
+      <VideoSection
+        title="Top vues"
+        icon={FlameIcon}
+        videos={popular}
+        view={view}
+        defaultSort="views"
+        emptyText="Aucune vidéo populaire pour l'instant."
+        onPlay={setActive}
+      />
+
+      <EmbedDialog video={active} onClose={() => setActive(null)} />
+    </div>
+  );
+}
+
+function VideoSection({
+  title,
+  icon: Icon,
+  videos,
+  view,
+  defaultSort,
+  emptyText,
+  onPlay,
+}: {
+  title: string;
+  icon: typeof ClockIcon;
+  videos: RadarVideo[] | undefined;
+  view: ViewMode;
+  defaultSort: SortKey;
+  emptyText: string;
+  onPlay: (v: RadarVideo) => void;
+}) {
+  const [sortKey, setSortKey] = useState<SortKey>(defaultSort);
+  const sorted = useMemo(
+    () => (videos === undefined ? undefined : sortVideos(videos, sortKey)),
+    [videos, sortKey],
+  );
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
+          <Icon className="size-4 text-slate-500" />
+          {title}
+          {sorted !== undefined && (
+            <span className="text-xs font-normal text-slate-400">
+              ({sorted.length})
+            </span>
+          )}
+        </h3>
+        <Select value={sortKey} onValueChange={(v) => v && setSortKey(v as SortKey)}>
+          <SelectTrigger className="w-40" size="sm" aria-label={`Trier ${title}`}>
+            <SelectValue>{SORT_LABELS[sortKey]}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
+              <SelectItem key={k} value={k}>
+                {SORT_LABELS[k]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       {sorted === undefined ? (
         <div
           className={cn(
@@ -166,7 +228,7 @@ export function RadarVideoWall({ accounts }: { accounts: RadarAccount[] }) {
               : "space-y-2",
           )}
         >
-          {Array.from({ length: 8 }).map((_, i) => (
+          {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton
               key={i}
               className={view === "grid" ? "aspect-[9/16] w-full" : "h-24 w-full"}
@@ -174,36 +236,23 @@ export function RadarVideoWall({ accounts }: { accounts: RadarAccount[] }) {
           ))}
         </div>
       ) : sorted.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-slate-200 bg-slate-50/50 px-6 py-16 text-center">
-          <VideoOffIcon className="size-12 text-slate-300" strokeWidth={1.5} />
-          <p className="text-sm text-slate-500">
-            Aucune vidéo pour ce filtre. Ajoute un compte et lance une
-            synchronisation.
-          </p>
+        <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-200 bg-slate-50/50 px-6 py-10 text-center">
+          <VideoOffIcon className="size-8 text-slate-300" strokeWidth={1.5} />
+          <p className="text-sm text-slate-500">{emptyText}</p>
         </div>
       ) : view === "grid" ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {sorted.map((video) => (
-            <GridCard
-              key={video._id}
-              video={video}
-              onPlay={() => setActive(video)}
-            />
+            <GridCard key={video._id} video={video} onPlay={() => onPlay(video)} />
           ))}
         </div>
       ) : (
         <ul className="space-y-2">
           {sorted.map((video) => (
-            <ListRow
-              key={video._id}
-              video={video}
-              onPlay={() => setActive(video)}
-            />
+            <ListRow key={video._id} video={video} onPlay={() => onPlay(video)} />
           ))}
         </ul>
       )}
-
-      <EmbedDialog video={active} onClose={() => setActive(null)} />
     </section>
   );
 }
@@ -238,13 +287,7 @@ function Thumb({
   );
 }
 
-function Stat({
-  icon: Icon,
-  value,
-}: {
-  icon: typeof EyeIcon;
-  value: number;
-}) {
+function Stat({ icon: Icon, value }: { icon: typeof EyeIcon; value: number }) {
   return (
     <span className="inline-flex items-center gap-1 tabular-nums">
       <Icon className="size-3.5 text-slate-400" />
@@ -295,6 +338,11 @@ function GridCard({
         <p className="truncate text-xs font-medium text-slate-900">
           @{video.accountHandle}
         </p>
+        {/* Date visible dans les DEUX sections (récente ou ancienne). */}
+        <p className="flex items-center gap-1 text-[11px] text-slate-400">
+          <CalendarIcon className="size-3" />
+          {formatPublished(video.publishedAt)}
+        </p>
         {video.accountNote && (
           <span className="inline-block max-w-full truncate rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-500">
             {video.accountNote}
@@ -337,8 +385,12 @@ function ListRow({
               {video.caption}
             </p>
           )}
-          <p className="mt-0.5 truncate text-xs text-slate-500">
-            @{video.accountHandle} · {formatPublished(video.publishedAt)}
+          {/* @compte + date (visible dans les deux sections). */}
+          <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-slate-500">
+            @{video.accountHandle}
+            <span className="text-slate-300">·</span>
+            <CalendarIcon className="size-3 text-slate-400" />
+            {formatPublished(video.publishedAt)}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600">
@@ -352,7 +404,11 @@ function ListRow({
         </div>
       </div>
       <a
-        href={video.url}
+        href={
+          video.accountHandle
+            ? tiktokCanonicalVideoUrl(video.accountHandle, video.tiktokId)
+            : video.url
+        }
         target="_blank"
         rel="noopener noreferrer"
         aria-label="Ouvrir sur TikTok"
@@ -364,7 +420,13 @@ function ListRow({
   );
 }
 
-/** Lecteur intégré : RÉUTILISE <VideoExample> (embed TikTok officiel) + lien ↗. */
+/**
+ * Lecteur intégré : LECTURE EN PLACE via l'iframe du lecteur TikTok officiel
+ * (`player/v1/<id>`), construit depuis tiktokId — pas d'oEmbed/embed.js (fiable
+ * même en ouvrant plusieurs vidéos d'affilée dans la modale). Lien ↗ vers TikTok
+ * à côté. Si la vidéo n'est pas embeddable (privée/restreinte), l'iframe affiche
+ * le message de TikTok ; le lien ↗ reste le secours.
+ */
 function EmbedDialog({
   video,
   onClose,
@@ -372,6 +434,13 @@ function EmbedDialog({
   video: RadarVideo | null;
   onClose: () => void;
 }) {
+  const canonicalUrl =
+    video === null
+      ? ""
+      : video.accountHandle
+        ? tiktokCanonicalVideoUrl(video.accountHandle, video.tiktokId)
+        : video.url;
+
   return (
     <Dialog open={video !== null} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-md">
@@ -387,25 +456,32 @@ function EmbedDialog({
                 </DialogDescription>
               )}
             </DialogHeader>
-            <div className="mx-auto w-full max-w-[320px]">
-              <VideoExample
-                example={{
-                  kind: "url",
-                  url: video.url,
-                  platform: "tiktok",
-                  title: video.caption ?? "",
-                }}
+            <div className="mx-auto w-full max-w-[320px] overflow-hidden rounded-lg border border-slate-200 bg-black">
+              <iframe
+                key={video.tiktokId}
+                src={tiktokPlayerEmbedUrl(video.tiktokId)}
+                title={video.caption ?? "Vidéo TikTok"}
+                className="aspect-[9/16] w-full"
+                allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+                allowFullScreen
+                data-testid="radar-tiktok-player"
               />
             </div>
-            <a
-              href={video.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center justify-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900"
-            >
-              <ExternalLinkIcon className="size-4" />
-              Ouvrir sur TikTok
-            </a>
+            <div className="space-y-1 text-center">
+              <a
+                href={canonicalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900"
+              >
+                <ExternalLinkIcon className="size-4" />
+                Ouvrir sur TikTok
+              </a>
+              <p className="text-xs text-slate-400">
+                Si la vidéo ne se lance pas (privée ou restreinte), ouvre-la sur
+                TikTok.
+              </p>
+            </div>
           </>
         )}
       </DialogContent>

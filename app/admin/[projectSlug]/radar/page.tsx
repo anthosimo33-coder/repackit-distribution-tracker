@@ -21,7 +21,7 @@ import { RadarVideoWall } from "@/components/admin/radar/RadarVideoWall";
 export default function RadarPage() {
   const data = useProjectQuery(api.radar.listRadarAccounts, {});
   const accounts = data?.accounts;
-  const limit = data?.limit ?? 25;
+  const limit = data?.limit ?? 8;
 
   return (
     <div className="space-y-6">

@@ -4,7 +4,34 @@ import {
   computeEngagement,
   toRadarDateFilter,
   parseRadarVideos,
+  mergeRadarBuckets,
+  type RadarParsedVideo,
 } from "./radarParsing";
+
+/** Fabrique une vidéo parsée minimale pour les tests de bucket. */
+function vid(overrides: Partial<RadarParsedVideo>): RadarParsedVideo {
+  return {
+    tiktokId: "1",
+    url: "https://www.tiktok.com/@u/video/1",
+    publishedAt: 0,
+    caption: null,
+    views: 0,
+    likes: 0,
+    comments: 0,
+    shares: 0,
+    saves: 0,
+    durationSec: null,
+    coverUrl: null,
+    musicName: null,
+    hashtags: [],
+    authorHandle: null,
+    authorFans: null,
+    isAd: false,
+    isPinned: false,
+    isSlideshow: false,
+    ...overrides,
+  };
+}
 
 // ─── normalizeTikTokHandle ───────────────────────────────────────────────────
 
@@ -161,5 +188,41 @@ describe("parseRadarVideos", () => {
       { id: "1", hashtags: ["fyp", "  ", { name: "pourtoi" }] },
     ]);
     expect(v.hashtags).toEqual(["fyp", "pourtoi"]);
+  });
+});
+
+// ─── mergeRadarBuckets ───────────────────────────────────────────────────────
+
+describe("mergeRadarBuckets", () => {
+  it("marque populaires et récentes, populaire prioritaire (dédup)", () => {
+    const recent = [vid({ tiktokId: "a" }), vid({ tiktokId: "b" })];
+    const popular = [vid({ tiktokId: "b" }), vid({ tiktokId: "c" })];
+    const merged = mergeRadarBuckets(recent, popular);
+    // b est dans les deux → gardé UNE fois, en populaire.
+    expect(merged.map((m) => [m.tiktokId, m.isPopular])).toEqual([
+      ["b", true],
+      ["c", true],
+      ["a", false],
+    ]);
+  });
+
+  it("exclut les épinglées des récentes mais les garde en populaire", () => {
+    const recent = [vid({ tiktokId: "pin", isPinned: true }), vid({ tiktokId: "a" })];
+    const popular = [vid({ tiktokId: "hot", isPinned: true })];
+    const merged = mergeRadarBuckets(recent, popular);
+    expect(merged.map((m) => m.tiktokId)).toEqual(["hot", "a"]);
+    expect(merged.find((m) => m.tiktokId === "hot")?.isPopular).toBe(true);
+  });
+
+  it("déduplique aussi à l'intérieur d'un même ensemble", () => {
+    const merged = mergeRadarBuckets(
+      [vid({ tiktokId: "a" }), vid({ tiktokId: "a" })],
+      [],
+    );
+    expect(merged.map((m) => m.tiktokId)).toEqual(["a"]);
+  });
+
+  it("gère deux ensembles vides", () => {
+    expect(mergeRadarBuckets([], [])).toEqual([]);
   });
 });

@@ -20,6 +20,7 @@ import { adminMutation, adminQuery } from "./functions";
 import {
   computeEngagement,
   fetchRadarProfileVideos,
+  mergeRadarBuckets,
   normalizeTikTokHandle,
   toRadarDateFilter,
 } from "./radarApi";
@@ -27,12 +28,17 @@ import {
 /**
  * Limite douce de comptes favoris (garde-fou quota Apify). NON bloquante : à
  * l'ajout au-delà, on AVERTIT mais on n'empêche pas (cf brief : prévenir, pas
- * bloquer dur). Le compteur « X / LIMIT » de l'UI lit cette valeur.
+ * bloquer dur). Le compteur « X / LIMIT » de l'UI lit cette valeur. Abaissée de
+ * 25 → 8 : chaque compte coûte désormais ~4× plus (15 récentes + 10 populaires,
+ * 2 appels Apify/sync) qu'avec l'unique appel de 6 vidéos d'origine.
  */
-const RADAR_ACCOUNT_LIMIT = 25;
+const RADAR_ACCOUNT_LIMIT = 8;
 
-/** Vidéos récupérées par compte et par sync (validé en faisabilité, coût borné). */
-const RESULTS_PER_PAGE = 6;
+/** Dernières vidéos récupérées par compte (sorting "latest", incrémental). */
+const RECENT_RESULTS = 15;
+
+/** Top vues récupérées par compte (sorting "popular", re-checké chaque sync). */
+const POPULAR_RESULTS = 10;
 
 /** Note libre : trim + borne. */
 function cleanNote(note: string | undefined): string | undefined {
@@ -77,10 +83,14 @@ export const listRadarAccounts = adminQuery({
 });
 
 /**
- * Mur de vidéos : toutes les vidéos du projet, ou celles d'UN compte favori.
- * Engagement calculé serveur (tri possible). Tri/filtre fin restent en JS côté
- * client (réactivité). Chaque vidéo porte le handle/note de son compte (affichage
- * grille). Un accountId d'un AUTRE projet est rejeté (no cross-project leak).
+ * Mur de vidéos en DEUX buckets, par compte (ou tous les comptes du projet) :
+ *   - "popular" : vidéos marquées isPopular au dernier sync (top vues), cap
+ *     POPULAR_RESULTS, triées par vues décroissantes ;
+ *   - "recent"  : vidéos NON populaires et NON épinglées, triées par date
+ *     décroissante, cap RECENT_RESULTS.
+ * La dédup populaire-prioritaire est garantie en amont (un id n'est jamais
+ * simultanément populaire et récent). Engagement calculé serveur. Le tri/filtre
+ * fin reste en JS côté client. Un accountId d'un AUTRE projet est rejeté.
  */
 export const listRadarVideos = adminQuery({
   args: { accountId: v.optional(v.id("radarAccounts")) },
@@ -91,27 +101,24 @@ export const listRadarVideos = adminQuery({
       .collect();
     const accountById = new Map(accounts.map((a) => [a._id, a]));
 
-    let videos: Doc<"radarVideos">[];
+    let targetIds: Id<"radarAccounts">[];
     if (accountId !== undefined) {
-      const account = accountById.get(accountId);
-      if (account === undefined) {
+      if (!accountById.has(accountId)) {
         throw new ConvexError("Compte Radar introuvable dans ce projet.");
       }
-      videos = await ctx.db
-        .query("radarVideos")
-        .withIndex("by_radarAccount", (q) => q.eq("radarAccountId", accountId))
-        .collect();
+      targetIds = [accountId];
     } else {
-      videos = await ctx.db
-        .query("radarVideos")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect();
+      targetIds = accounts.map((a) => a._id);
     }
 
-    return videos.map((video) => {
+    const toView = (
+      video: Doc<"radarVideos">,
+      bucket: "recent" | "popular",
+    ) => {
       const account = accountById.get(video.radarAccountId);
       return {
         ...video,
+        bucket,
         engagement: computeEngagement(
           video.views,
           video.likes,
@@ -121,7 +128,26 @@ export const listRadarVideos = adminQuery({
         accountHandle: account?.handle ?? video.authorHandle ?? null,
         accountNote: account?.note ?? null,
       };
-    });
+    };
+
+    const out: ReturnType<typeof toView>[] = [];
+    for (const id of targetIds) {
+      const vids = await ctx.db
+        .query("radarVideos")
+        .withIndex("by_radarAccount", (q) => q.eq("radarAccountId", id))
+        .collect();
+      const popular = vids
+        .filter((v) => v.isPopular === true)
+        .sort((a, b) => b.views - a.views)
+        .slice(0, POPULAR_RESULTS);
+      const recent = vids
+        .filter((v) => v.isPopular !== true && !v.isPinned)
+        .sort((a, b) => b.publishedAt - a.publishedAt)
+        .slice(0, RECENT_RESULTS);
+      for (const v of popular) out.push(toView(v, "popular"));
+      for (const v of recent) out.push(toView(v, "recent"));
+    }
+    return out;
   },
 });
 
@@ -177,7 +203,7 @@ export const addRadarAccount = adminMutation({
     const nextCount = current.length + 1;
     const warning =
       nextCount >= RADAR_ACCOUNT_LIMIT
-        ? `Tu suis ${nextCount} comptes (limite conseillée ${RADAR_ACCOUNT_LIMIT}). Au-delà, le quota Apify gratuit risque d'être dépassé.`
+        ? `Tu suis ${nextCount} comptes (limite conseillée ${RADAR_ACCOUNT_LIMIT}). Avec 15 récentes + 10 top vues par compte, au-delà le quota Apify gratuit risque d'être dépassé.`
         : null;
     return { accountId, warning };
   },
@@ -284,7 +310,7 @@ export const listAccountsForSync = internalQuery({
   },
 });
 
-const parsedVideoValidator = v.object({
+const bucketedVideoValidator = v.object({
   tiktokId: v.string(),
   url: v.string(),
   publishedAt: v.number(),
@@ -303,24 +329,34 @@ const parsedVideoValidator = v.object({
   isAd: v.boolean(),
   isPinned: v.boolean(),
   isSlideshow: v.boolean(),
+  isPopular: v.boolean(),
 });
 
 /**
- * Upsert idempotent d'un lot de vidéos pour un compte + maj du compte
- * (lastSyncAt, authorFansSnapshot). Toujours appelée quand le run a abouti (même
- * 0 vidéo → on marque lastSyncAt pour ne pas re-scraper toute la fenêtre).
+ * Upsert idempotent d'un lot de vidéos bucketées (récentes + populaires fusionnées
+ * et dédupliquées en amont) pour un compte, + maj du compte. Étapes :
+ *   1. upsert par (radarAccountId, tiktokId), `isPopular` rafraîchi ;
+ *   2. si `refreshPopular` (le fetch populaire a abouti) : DÉMOTE les ex-populaires
+ *      (isPopular=true en base mais plus dans le top courant) → isPopular=false,
+ *      elles redeviennent candidates « récentes » ;
+ *   3. `advanceSync` (le fetch récent a abouti) → avance lastSyncAt (incrémental).
+ * Toujours appelée quand au moins un fetch a abouti (même 0 vidéo → lastSyncAt
+ * marqué si advanceSync).
  */
 export const applyRadarVideos = internalMutation({
   args: {
     accountId: v.id("radarAccounts"),
     projectId: v.id("projects"),
-    videos: v.array(parsedVideoValidator),
+    videos: v.array(bucketedVideoValidator),
+    popularIds: v.array(v.string()),
+    refreshPopular: v.boolean(),
+    advanceSync: v.boolean(),
     fans: v.union(v.number(), v.null()),
     syncedAt: v.number(),
   },
   handler: async (
     ctx,
-    { accountId, projectId, videos, fans, syncedAt },
+    { accountId, projectId, videos, popularIds, refreshPopular, advanceSync, fans, syncedAt },
   ): Promise<{ upserted: number }> => {
     const account = await ctx.db.get(accountId);
     if (account === null) return { upserted: 0 }; // supprimé entre-temps
@@ -342,6 +378,7 @@ export const applyRadarVideos = internalMutation({
         isAd: video.isAd,
         isPinned: video.isPinned,
         isSlideshow: video.isSlideshow,
+        isPopular: video.isPopular,
         lastSeenAt: syncedAt,
       };
       const existing = await ctx.db
@@ -361,8 +398,24 @@ export const applyRadarVideos = internalMutation({
         });
       }
     }
+
+    // Démotion des ex-populaires : seulement si le top a été re-récupéré (sinon on
+    // garderait l'ancien top, ce qui est correct).
+    if (refreshPopular) {
+      const stillPopular = new Set(popularIds);
+      const formerlyPopular = await ctx.db
+        .query("radarVideos")
+        .withIndex("by_radarAccount", (q) => q.eq("radarAccountId", accountId))
+        .collect();
+      for (const v of formerlyPopular) {
+        if (v.isPopular === true && !stillPopular.has(v.tiktokId)) {
+          await ctx.db.patch(v._id, { isPopular: false });
+        }
+      }
+    }
+
     await ctx.db.patch(accountId, {
-      lastSyncAt: syncedAt,
+      ...(advanceSync ? { lastSyncAt: syncedAt } : {}),
       ...(fans !== null ? { authorFansSnapshot: fans } : {}),
     });
     return { upserted: videos.length };
@@ -378,11 +431,15 @@ type RadarSyncSummary = {
 };
 
 /**
- * Sync Apify (clé RADAR). Incrémental : filtre date = dernier sync du compte
- * (1er sync = sans filtre, RESULTS_PER_PAGE dernières vidéos). Robuste : un
- * compte introuvable/privé/0 vidéo NE crashe PAS la boucle ; un échec
- * réseau/quota est logué (sans la clé) et le compte sera retenté au prochain
- * passage (lastSyncAt non avancé). La clé n'est JAMAIS loguée.
+ * Sync Apify (clé RADAR). DEUX appels par compte :
+ *   - RÉCENTES : sorting "latest", 15 vidéos, épinglées exclues, filtre date
+ *     incrémental (= dernier sync ; 1er sync sans filtre) ;
+ *   - POPULAIRES : sorting "popular", 10 vidéos, SANS filtre date (le top bouge).
+ * Fusion + dédup (populaire prioritaire) via mergeRadarBuckets, puis upsert. lastSyncAt
+ * n'avance QUE si les récentes ont abouti (l'incrémental en dépend) ; le top n'est
+ * démoté que si les populaires ont abouti. Un compte privé/introuvable/0 vidéo NE
+ * crashe PAS la boucle ; les deux fetches en échec → compte logué (sans la clé) et
+ * retenté. La clé n'est JAMAIS loguée.
  */
 export const runRadarSync = internalAction({
   args: {
@@ -409,29 +466,49 @@ export const runRadarSync = internalAction({
     for (const account of accounts) {
       const oldestPostDate =
         account.lastSyncAt !== null ? toRadarDateFilter(account.lastSyncAt) : undefined;
-      const result = await fetchRadarProfileVideos(account.handle, apiToken, {
-        resultsPerPage: RESULTS_PER_PAGE,
+
+      const recent = await fetchRadarProfileVideos(account.handle, apiToken, {
+        sorting: "latest",
+        resultsPerPage: RECENT_RESULTS,
         oldestPostDate,
+        excludePinned: true,
       });
-      if (!result.ok) {
+      const popular = await fetchRadarProfileVideos(account.handle, apiToken, {
+        sorting: "popular",
+        resultsPerPage: POPULAR_RESULTS,
+      });
+
+      if (!recent.ok && !popular.ok) {
         errors += 1;
         console.warn(
-          `[radar] sync @${account.handle} échoué (${result.error ?? "?"}) — retenté au prochain passage.`,
+          `[radar] sync @${account.handle} échoué (récentes: ${recent.error ?? "?"} / top: ${popular.error ?? "?"}) — retenté.`,
         );
         continue; // lastSyncAt non avancé → retry
       }
-      const fansValues = result.videos
-        .map((v) => v.authorFans)
+
+      const merged = mergeRadarBuckets(
+        recent.ok ? recent.videos : [],
+        popular.ok ? popular.videos : [],
+      );
+      const fansValues = [
+        ...(recent.ok ? recent.videos : []),
+        ...(popular.ok ? popular.videos : []),
+      ]
+        .map((vid) => vid.authorFans)
         .filter((n): n is number => n !== null);
       const fans = fansValues.length > 0 ? Math.max(...fansValues) : null;
+
       await ctx.runMutation(internal.radar.applyRadarVideos, {
         accountId: account._id,
         projectId: account.projectId,
-        videos: result.videos,
+        videos: merged,
+        popularIds: popular.ok ? popular.videos.map((vid) => vid.tiktokId) : [],
+        refreshPopular: popular.ok,
+        advanceSync: recent.ok,
         fans,
         syncedAt: Date.now(),
       });
-      synced += result.videos.length;
+      synced += merged.length;
     }
 
     return { ok: true, accounts: accounts.length, synced, errors };
