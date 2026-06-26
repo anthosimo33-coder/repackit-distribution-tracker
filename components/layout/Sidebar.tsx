@@ -23,6 +23,7 @@ import {
   LogOutIcon,
   MonitorIcon,
   PlaySquareIcon,
+  RadarIcon,
   UserPlusIcon,
   Users2Icon,
   WalletIcon,
@@ -194,6 +195,15 @@ export function Sidebar({
     },
   ];
 
+  // VEILLE — Radar : module séparé de veille TikTok (admin only).
+  const veilleItems = [
+    {
+      icon: RadarIcon,
+      label: "Radar",
+      ...item(projectPath("/radar")),
+    },
+  ];
+
   // ARCHIVES — vues legacy du tracker interne, rangées (replié par défaut).
   const archiveItems = [
     {
@@ -277,6 +287,9 @@ export function Sidebar({
         </SidebarSection>
         <SidebarSection collapsed={collapsed} label="Contenu">
           {contenuItems.map(renderItem)}
+        </SidebarSection>
+        <SidebarSection collapsed={collapsed} label="Veille">
+          {veilleItems.map(renderItem)}
         </SidebarSection>
 
         {/* Outils — liens externes propres au projet (configurable). Masqué
