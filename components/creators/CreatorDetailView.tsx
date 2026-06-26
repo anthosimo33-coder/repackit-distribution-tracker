@@ -89,6 +89,15 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
     creator.paymentDetails ?? "",
   );
   const [adminNotes, setAdminNotes] = useState(creator.adminNotes ?? "");
+  const [handleTiktok, setHandleTiktok] = useState(
+    creator.handlesToCreate?.tiktok ?? "",
+  );
+  const [handleYoutube, setHandleYoutube] = useState(
+    creator.handlesToCreate?.youtube ?? "",
+  );
+  const [handleInstagram, setHandleInstagram] = useState(
+    creator.handlesToCreate?.instagram ?? "",
+  );
   const [saving, setSaving] = useState(false);
   // Lien de reset généré (affiché dans un dialog à copier). null = dialog fermé.
   const [resetToken, setResetToken] = useState<string | null>(null);
@@ -136,6 +145,11 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
             : (paymentMethod as PaymentMethod),
         paymentDetails,
         adminNotes,
+        handlesToCreate: {
+          tiktok: handleTiktok.trim() || undefined,
+          youtube: handleYoutube.trim() || undefined,
+          instagram: handleInstagram.trim() || undefined,
+        },
       });
       toast.success("Créateur mis à jour");
     } catch (e) {
@@ -422,6 +436,49 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
                 onChange={(e) => setPaymentDetails(e.target.value)}
               />
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>@ à créer par réseau</CardTitle>
+          <CardDescription>
+            Le ou les @ que ce créateur doit créer sur ses réseaux (affichés dans
+            « Mes comptes », à côté des consignes de warmup). Laisse vide un
+            réseau pour ne rien demander.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="handle-tiktok">@ TikTok à créer</Label>
+            <Input
+              id="handle-tiktok"
+              maxLength={64}
+              placeholder="@…"
+              value={handleTiktok}
+              onChange={(e) => setHandleTiktok(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="handle-youtube">@ YouTube à créer</Label>
+            <Input
+              id="handle-youtube"
+              maxLength={64}
+              placeholder="@…"
+              value={handleYoutube}
+              onChange={(e) => setHandleYoutube(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="handle-instagram">@ Instagram à créer</Label>
+            <Input
+              id="handle-instagram"
+              maxLength={64}
+              placeholder="@…"
+              value={handleInstagram}
+              onChange={(e) => setHandleInstagram(e.target.value)}
+            />
           </div>
         </CardContent>
       </Card>

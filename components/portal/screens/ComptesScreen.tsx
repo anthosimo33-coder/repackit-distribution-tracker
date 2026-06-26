@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { useCreatorProjectId } from "@/components/portal/use-creator-project";
-import { useMyComptes } from "@/components/portal/creator-data";
+import { useMyComptes, useMyProfile } from "@/components/portal/creator-data";
 import { useReadOnly } from "@/components/portal/ViewAsContext";
+import { PlatformBadge } from "@/components/VerdictBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,8 +31,24 @@ import { mustCheckToday } from "@/lib/warmup";
 export default function ComptesScreen() {
   const projectId = useCreatorProjectId();
   const comptes = useMyComptes(projectId);
+  const profile = useMyProfile(projectId);
   const readOnly = useReadOnly();
   const [declareOpen, setDeclareOpen] = useState(false);
+
+  // @ à créer par réseau (consigne admin) — uniquement les réseaux renseignés.
+  const h = profile?.handlesToCreate ?? null;
+  const handlesToCreate = h
+    ? (
+        [
+          ["TikTok", h.tiktok],
+          ["YouTube", h.youtube],
+          ["Instagram", h.instagram],
+        ] as const
+      ).filter(
+        (entry): entry is readonly ["TikTok" | "YouTube" | "Instagram", string] =>
+          typeof entry[1] === "string" && entry[1].length > 0,
+      )
+    : [];
 
   const loading = comptes === undefined;
 
@@ -70,6 +87,34 @@ export default function ComptesScreen() {
           )}
         </div>
       </header>
+
+      {/* @ à créer par réseau (consigne admin d'onboarding) — EN COMPLÉMENT des
+          mots-clés de warmup (par compte). Masqué si aucun @ renseigné. */}
+      {handlesToCreate.length > 0 && (
+        <Card>
+          <CardContent className="space-y-3 py-4">
+            <div className="space-y-0.5">
+              <p className="text-sm font-semibold text-slate-900">
+                Crée ces comptes sur tes réseaux :
+              </p>
+              <p className="text-xs text-slate-500">
+                Crée exactement ces @ — ils doivent correspondre aux comptes que
+                tu déclares ensuite.
+              </p>
+            </div>
+            <ul className="space-y-2">
+              {handlesToCreate.map(([network, handle]) => (
+                <li key={network} className="flex items-center gap-2">
+                  <PlatformBadge plateforme={network} />
+                  <span className="font-mono text-sm font-medium break-all text-slate-900">
+                    {handle}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
 
       {dueToday.length > 0 && (
         <div
@@ -145,6 +190,7 @@ export default function ComptesScreen() {
           open={declareOpen}
           onOpenChange={setDeclareOpen}
           projectId={projectId}
+          expectedHandles={h}
         />
       )}
     </div>
