@@ -13,11 +13,20 @@
  */
 
 import { ConvexError, v } from "convex/values";
+import { customAction } from "convex-helpers/server/customFunctions";
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
-import { internalAction, internalMutation, internalQuery } from "./_generated/server";
+import {
+  action,
+  internalAction,
+  internalMutation,
+  internalQuery,
+} from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { adminMutation, adminQuery } from "./functions";
 import {
+  apiFetchHashtagVideos,
+  apiFetchTrendHashtags,
   computeEngagement,
   fetchRadarProfileVideos,
   mergeRadarBuckets,
@@ -46,6 +55,69 @@ function cleanNote(note: string | undefined): string | undefined {
   const t = note.trim();
   return t === "" ? undefined : t.slice(0, 200);
 }
+
+// ─── Tendances (Brique 2) — constantes + wrapper action admin ────────────────
+
+/** Pays supportés par data_xplorer/tiktok-trends (countryCode). US par défaut côté UI. */
+const SUPPORTED_TREND_COUNTRIES = [
+  "US", "FR", "GB", "DE", "ES", "IT", "CA", "AU", "BR", "AR",
+];
+
+/** Âge max d'une vidéo de tendance (clockworks hashtag = top non trié par date). */
+const TREND_VIDEO_MAX_AGE_DAYS = 14;
+
+/** Vidéos récupérées par hashtag cliqué. */
+const TREND_HASHTAG_VIDEOS = 15;
+
+/** Valide + normalise un countryCode (rejette les pays non supportés). */
+function assertCountry(countryCode: string): string {
+  const cc = countryCode.trim().toUpperCase();
+  if (!SUPPORTED_TREND_COUNTRIES.includes(cc)) {
+    throw new ConvexError(`Pays non supporté : ${countryCode}.`);
+  }
+  return cc;
+}
+
+/**
+ * Vérifie le rôle admin DEPUIS UNE ACTION (qui n'a pas d'accès db direct). Interne,
+ * appelée par le wrapper adminAction via runQuery. Même règle que requireProjectAdmin.
+ */
+export const requireAdminForRadarAction = internalQuery({
+  args: { userId: v.id("users"), projectId: v.id("projects") },
+  handler: async (ctx, { userId, projectId }): Promise<boolean> => {
+    const project = await ctx.db.get(projectId);
+    if (project === null) return false;
+    const user = await ctx.db.get(userId);
+    if (user?.role === "superadmin") return true;
+    const membership = await ctx.db
+      .query("memberships")
+      .withIndex("by_user_project", (q) =>
+        q.eq("userId", userId).eq("projectId", projectId),
+      )
+      .first();
+    return membership?.role === "admin";
+  },
+});
+
+/**
+ * Wrapper ACTION admin-only, LOCAL au module Radar (functions.ts non touché). Même
+ * contrat que adminMutation (arg `projectId`, ctx.userId/projectId injectés) mais
+ * pour les actions (I/O Apify) appelables directement et AWAITables côté client →
+ * chargement « à la demande » propre. Gating via requireAdminForRadarAction.
+ */
+const adminAction = customAction(action, {
+  args: { projectId: v.id("projects") },
+  input: async (ctx, { projectId }) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) throw new ConvexError("Non authentifié.");
+    const ok: boolean = await ctx.runQuery(
+      internal.radar.requireAdminForRadarAction,
+      { userId, projectId },
+    );
+    if (!ok) throw new ConvexError("Réservé aux administrateurs du projet.");
+    return { ctx: { userId, projectId }, args: {} };
+  },
+});
 
 // ─── Queries admin (lecture) ─────────────────────────────────────────────────
 
@@ -512,5 +584,315 @@ export const runRadarSync = internalAction({
     }
 
     return { ok: true, accounts: accounts.length, synced, errors };
+  },
+});
+
+// ═══ TENDANCES (Brique 2) — hashtags par pays → vidéos à la demande ═══════════
+
+// ─── Queries admin (lecture, cache) ──────────────────────────────────────────
+
+/**
+ * Hashtags tendance en cache pour un pays, triés par rank, + `fetchedAt`
+ * (fraîcheur, null si jamais chargé). Chaque hashtag porte `videosFetchedAt`
+ * (null = ses vidéos pas encore chargées) pour le chargement paresseux.
+ */
+export const listTrendHashtags = adminQuery({
+  args: { countryCode: v.string() },
+  handler: async (ctx, { countryCode }) => {
+    const cc = assertCountry(countryCode);
+    const rows = await ctx.db
+      .query("radarTrendHashtags")
+      .withIndex("by_project_country", (q) =>
+        q.eq("projectId", ctx.projectId).eq("countryCode", cc),
+      )
+      .collect();
+    rows.sort((a, b) => a.rank - b.rank);
+    return {
+      fetchedAt: rows.length > 0 ? rows[0].fetchedAt : null,
+      hashtags: rows.map((r) => ({
+        _id: r._id,
+        hashtag: r.hashtag,
+        hashtagId: r.hashtagId ?? null,
+        rank: r.rank,
+        posts: r.posts ?? null,
+        videoViews: r.videoViews ?? null,
+        trendDirection: r.trendDirection ?? null,
+        topCreators: r.topCreators ?? [],
+        tiktokUrl: r.tiktokUrl ?? null,
+        videosFetchedAt: r.videosFetchedAt ?? null,
+        videosError: r.videosError ?? false,
+      })),
+    };
+  },
+});
+
+/** Vidéos en cache d'un hashtag (déjà filtrées < 14 j), avec engagement calculé. */
+export const listTrendVideos = adminQuery({
+  args: { countryCode: v.string(), hashtag: v.string() },
+  handler: async (ctx, { countryCode, hashtag }) => {
+    const cc = assertCountry(countryCode);
+    const vids = await ctx.db
+      .query("radarTrendVideos")
+      .withIndex("by_project_country_hashtag", (q) =>
+        q.eq("projectId", ctx.projectId).eq("countryCode", cc).eq("hashtag", hashtag),
+      )
+      .collect();
+    return vids.map((video) => ({
+      ...video,
+      engagement: computeEngagement(
+        video.views,
+        video.likes,
+        video.comments,
+        video.shares,
+      ),
+    }));
+  },
+});
+
+/** Liste des pays supportés (pour le sélecteur). */
+export const listTrendCountries = adminQuery({
+  args: {},
+  handler: async (): Promise<string[]> => SUPPORTED_TREND_COUNTRIES,
+});
+
+// ─── Mutations internes (remplacement de cache) ──────────────────────────────
+
+const trendHashtagValidator = v.object({
+  hashtag: v.string(),
+  hashtagId: v.union(v.string(), v.null()),
+  rank: v.number(),
+  posts: v.union(v.number(), v.null()),
+  videoViews: v.union(v.number(), v.null()),
+  trendDirection: v.union(v.string(), v.null()),
+  topCreators: v.array(
+    v.object({
+      handle: v.string(),
+      nickname: v.union(v.string(), v.null()),
+      country: v.union(v.string(), v.null()),
+      followers: v.union(v.number(), v.null()),
+    }),
+  ),
+  tiktokUrl: v.union(v.string(), v.null()),
+  period: v.union(v.string(), v.null()),
+});
+
+const trendVideoValidator = v.object({
+  tiktokId: v.string(),
+  url: v.string(),
+  publishedAt: v.number(),
+  caption: v.union(v.string(), v.null()),
+  views: v.number(),
+  likes: v.number(),
+  comments: v.number(),
+  shares: v.number(),
+  saves: v.number(),
+  durationSec: v.union(v.number(), v.null()),
+  coverUrl: v.union(v.string(), v.null()),
+  musicName: v.union(v.string(), v.null()),
+  hashtags: v.array(v.string()),
+  authorHandle: v.union(v.string(), v.null()),
+  isAd: v.boolean(),
+  isPinned: v.boolean(),
+  isSlideshow: v.boolean(),
+});
+
+/** Remplace TOUT le cache (hashtags + leurs vidéos) d'un pays par le frais. */
+export const replaceTrendHashtags = internalMutation({
+  args: {
+    projectId: v.id("projects"),
+    countryCode: v.string(),
+    fetchedAt: v.number(),
+    hashtags: v.array(trendHashtagValidator),
+  },
+  handler: async (
+    ctx,
+    { projectId, countryCode, fetchedAt, hashtags },
+  ): Promise<{ inserted: number }> => {
+    // Purge l'ancien cache du pays (hashtags + vidéos rattachées).
+    const oldHashtags = await ctx.db
+      .query("radarTrendHashtags")
+      .withIndex("by_project_country", (q) =>
+        q.eq("projectId", projectId).eq("countryCode", countryCode),
+      )
+      .collect();
+    for (const h of oldHashtags) await ctx.db.delete(h._id);
+    const oldVideos = await ctx.db
+      .query("radarTrendVideos")
+      .withIndex("by_project_country_hashtag", (q) =>
+        q.eq("projectId", projectId).eq("countryCode", countryCode),
+      )
+      .collect();
+    for (const vid of oldVideos) await ctx.db.delete(vid._id);
+
+    for (const h of hashtags) {
+      await ctx.db.insert("radarTrendHashtags", {
+        projectId,
+        countryCode,
+        hashtag: h.hashtag,
+        hashtagId: h.hashtagId ?? undefined,
+        rank: h.rank,
+        posts: h.posts ?? undefined,
+        videoViews: h.videoViews ?? undefined,
+        trendDirection: h.trendDirection ?? undefined,
+        topCreators: h.topCreators.map((c) => ({
+          handle: c.handle,
+          nickname: c.nickname ?? undefined,
+          country: c.country ?? undefined,
+          followers: c.followers ?? undefined,
+        })),
+        tiktokUrl: h.tiktokUrl ?? undefined,
+        period: h.period ?? undefined,
+        fetchedAt,
+      });
+    }
+    return { inserted: hashtags.length };
+  },
+});
+
+/** Remplace les vidéos d'UN hashtag + marque videosFetchedAt sur sa ligne. */
+export const replaceTrendVideos = internalMutation({
+  args: {
+    projectId: v.id("projects"),
+    countryCode: v.string(),
+    hashtag: v.string(),
+    fetchedAt: v.number(),
+    videos: v.array(trendVideoValidator),
+  },
+  handler: async (
+    ctx,
+    { projectId, countryCode, hashtag, fetchedAt, videos },
+  ): Promise<{ inserted: number }> => {
+    const old = await ctx.db
+      .query("radarTrendVideos")
+      .withIndex("by_project_country_hashtag", (q) =>
+        q.eq("projectId", projectId).eq("countryCode", countryCode).eq("hashtag", hashtag),
+      )
+      .collect();
+    for (const vid of old) await ctx.db.delete(vid._id);
+
+    for (const video of videos) {
+      await ctx.db.insert("radarTrendVideos", {
+        projectId,
+        countryCode,
+        hashtag,
+        tiktokId: video.tiktokId,
+        url: video.url,
+        publishedAt: video.publishedAt,
+        caption: video.caption ?? undefined,
+        views: video.views,
+        likes: video.likes,
+        comments: video.comments,
+        shares: video.shares,
+        saves: video.saves,
+        durationSec: video.durationSec ?? undefined,
+        coverUrl: video.coverUrl ?? undefined,
+        musicName: video.musicName ?? undefined,
+        hashtags: video.hashtags,
+        authorHandle: video.authorHandle ?? undefined,
+        isAd: video.isAd,
+        isPinned: video.isPinned,
+        isSlideshow: video.isSlideshow,
+        fetchedAt,
+      });
+    }
+
+    // Marque la ligne hashtag : ses vidéos sont chargées (succès), pas d'erreur.
+    const row = await ctx.db
+      .query("radarTrendHashtags")
+      .withIndex("by_project_country_hashtag", (q) =>
+        q.eq("projectId", projectId).eq("countryCode", countryCode).eq("hashtag", hashtag),
+      )
+      .first();
+    if (row !== null) {
+      await ctx.db.patch(row._id, { videosFetchedAt: fetchedAt, videosError: false });
+    }
+    return { inserted: videos.length };
+  },
+});
+
+// ─── Actions admin (I/O Apify, clé RADAR, awaitables) ────────────────────────
+
+/**
+ * Charge/rafraîchit les hashtags tendance d'un pays (data_xplorer, clé RADAR) et
+ * REMPLACE le cache du pays. À la demande (ouverture onglet / « Actualiser »).
+ * Awaitable → le front sait quand c'est fini. Token jamais logué.
+ */
+export const fetchTrendHashtags = adminAction({
+  args: { countryCode: v.string() },
+  handler: async (ctx, { countryCode }): Promise<{ ok: boolean; count: number }> => {
+    const cc = assertCountry(countryCode);
+    const apiToken = process.env.APIFY_RADAR_TOKEN;
+    if (!apiToken) {
+      console.error("[radar] APIFY_RADAR_TOKEN absent — tendances annulées.");
+      return { ok: false, count: 0 };
+    }
+    const res = await apiFetchTrendHashtags(cc, apiToken);
+    if (!res.ok) {
+      console.warn(`[radar] hashtags tendance ${cc} échoué (${res.error ?? "?"}).`);
+      return { ok: false, count: 0 };
+    }
+    await ctx.runMutation(internal.radar.replaceTrendHashtags, {
+      projectId: ctx.projectId,
+      countryCode: cc,
+      fetchedAt: Date.now(),
+      hashtags: res.hashtags,
+    });
+    return { ok: true, count: res.hashtags.length };
+  },
+});
+
+/**
+ * Charge/rafraîchit les vidéos d'UN hashtag (clockworks, proxyCountryCode, clé
+ * RADAR), FILTRÉES < 14 j côté serveur, et remplace leur cache. Déclenchée au clic
+ * sur un hashtag (chargement paresseux). Token jamais logué.
+ */
+export const fetchTrendVideos = adminAction({
+  args: { countryCode: v.string(), hashtag: v.string() },
+  handler: async (
+    ctx,
+    { countryCode, hashtag },
+  ): Promise<{ ok: boolean; count: number }> => {
+    const cc = assertCountry(countryCode);
+    const apiToken = process.env.APIFY_RADAR_TOKEN;
+    if (!apiToken) {
+      console.error("[radar] APIFY_RADAR_TOKEN absent — vidéos tendance annulées.");
+      return { ok: false, count: 0 };
+    }
+    const res = await apiFetchHashtagVideos(cc, hashtag, apiToken, Date.now(), {
+      resultsPerPage: TREND_HASHTAG_VIDEOS,
+      maxAgeDays: TREND_VIDEO_MAX_AGE_DAYS,
+    });
+    if (!res.ok) {
+      console.warn(
+        `[radar] vidéos ${hashtag} (${cc}) échoué (${res.error ?? "?"}) — réessayable.`,
+      );
+      return { ok: false, count: 0 };
+    }
+    await ctx.runMutation(internal.radar.replaceTrendVideos, {
+      projectId: ctx.projectId,
+      countryCode: cc,
+      hashtag,
+      fetchedAt: Date.now(),
+      videos: res.videos.map((vid) => ({
+        tiktokId: vid.tiktokId,
+        url: vid.url,
+        publishedAt: vid.publishedAt,
+        caption: vid.caption,
+        views: vid.views,
+        likes: vid.likes,
+        comments: vid.comments,
+        shares: vid.shares,
+        saves: vid.saves,
+        durationSec: vid.durationSec,
+        coverUrl: vid.coverUrl,
+        musicName: vid.musicName,
+        hashtags: vid.hashtags,
+        authorHandle: vid.authorHandle,
+        isAd: vid.isAd,
+        isPinned: vid.isPinned,
+        isSlideshow: vid.isSlideshow,
+      })),
+    });
+    return { ok: true, count: res.videos.length };
   },
 });

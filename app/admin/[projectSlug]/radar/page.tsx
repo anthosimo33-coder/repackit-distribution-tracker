@@ -10,13 +10,14 @@ import { RadarSyncButton } from "@/components/admin/radar/RadarSyncButton";
 import { AddRadarAccountDialog } from "@/components/admin/radar/AddRadarAccountDialog";
 import { RadarAccountsList } from "@/components/admin/radar/RadarAccountsList";
 import { RadarVideoWall } from "@/components/admin/radar/RadarVideoWall";
+import { RadarTrends } from "@/components/admin/radar/RadarTrends";
 
 /**
  * RADAR — veille TikTok (ADMIN UNIQUEMENT). Section séparée du tracking
- * créateurs. Brique 1 = comptes favoris + suivi de leurs vidéos. L'onglet
- * « Tendances US » (Brique 2) est réservé en placeholder pour plus tard.
- * L'accès est gardé serveur (adminQuery/adminMutation) : un créateur ne peut
- * atteindre aucune fonction Radar.
+ * créateurs. Brique 1 = comptes favoris + suivi de leurs vidéos ; Brique 2 =
+ * onglet « Tendances » (hashtags qui montent par pays → vidéos à la demande).
+ * L'accès est gardé serveur (adminQuery/adminMutation/adminAction) : un créateur
+ * ne peut atteindre aucune fonction Radar.
  */
 export default function RadarPage() {
   const data = useProjectQuery(api.radar.listRadarAccounts, {});
@@ -54,7 +55,7 @@ export default function RadarPage() {
           </TabsTrigger>
           <TabsTrigger value="tendances">
             <TrendingUpIcon className="size-4" />
-            Tendances US
+            Tendances
           </TabsTrigger>
         </TabsList>
 
@@ -116,18 +117,7 @@ export default function RadarPage() {
         </TabsContent>
 
         <TabsContent value="tendances" className="mt-6">
-          <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-slate-200 bg-slate-50/50 px-6 py-20 text-center">
-            <TrendingUpIcon className="size-14 text-slate-300" strokeWidth={1.5} />
-            <div className="space-y-1">
-              <h2 className="text-base font-semibold text-slate-900">
-                Tendances US — bientôt
-              </h2>
-              <p className="max-w-sm text-sm text-slate-500">
-                La veille des vidéos qui montent par zone géographique arrivera
-                ici (Brique 2).
-              </p>
-            </div>
-          </div>
+          <RadarTrends />
         </TabsContent>
       </Tabs>
     </div>

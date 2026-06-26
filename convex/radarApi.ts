@@ -352,3 +352,189 @@ export async function fetchRadarProfileVideos(
     };
   }
 }
+
+// ─── TENDANCES (Brique 2) — répliques pures + fetch (lib/radarParsing.ts) ──────
+
+/** Actor hashtags tendance (Creative Center). Overridable par env. */
+const DEFAULT_TRENDS_ACTOR = "data_xplorer~tiktok-trends";
+const DAY_MS = 86_400_000;
+
+function trendsActorSlug(): string {
+  return process.env.APIFY_RADAR_TRENDS_ACTOR || DEFAULT_TRENDS_ACTOR;
+}
+
+/** Réplique de lib/radarParsing.isWithinDays — cf tests Vitest là-bas. */
+export function isWithinDays(
+  publishedAtMs: number,
+  nowMs: number,
+  days: number,
+): boolean {
+  if (!Number.isFinite(publishedAtMs) || publishedAtMs <= 0) return false;
+  const ageMs = nowMs - publishedAtMs;
+  return ageMs <= days * DAY_MS && ageMs > -2 * DAY_MS;
+}
+
+/** Réplique de lib/radarParsing.ParsedTrendHashtag. */
+export interface ParsedTrendHashtag {
+  hashtag: string;
+  hashtagId: string | null;
+  rank: number;
+  posts: number | null;
+  videoViews: number | null;
+  trendDirection: string | null;
+  topCreators: {
+    handle: string;
+    nickname: string | null;
+    country: string | null;
+    followers: number | null;
+  }[];
+  tiktokUrl: string | null;
+  period: string | null;
+}
+
+function trendDir(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const t = value.trim().toLowerCase();
+  if (t === "up" || t === "down" || t === "stable") return t;
+  return null;
+}
+
+function parseTopCreators(value: unknown): ParsedTrendHashtag["topCreators"] {
+  if (!Array.isArray(value)) return [];
+  const out: ParsedTrendHashtag["topCreators"] = [];
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object") continue;
+    const c = raw as Record<string, unknown>;
+    const handle = cleanText(c.handle, 100);
+    if (handle === null) continue;
+    out.push({
+      handle,
+      nickname: cleanText(c.nickname, 100),
+      country: cleanText(c.country, 8),
+      followers: toCount(c.followers),
+    });
+    if (out.length >= 5) break;
+  }
+  return out;
+}
+
+/** Réplique de lib/radarParsing.parseTrendHashtags — cf tests Vitest là-bas. */
+export function parseTrendHashtags(apiResponse: unknown): ParsedTrendHashtag[] {
+  const items = Array.isArray(apiResponse) ? apiResponse : [];
+  const out: ParsedTrendHashtag[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const raw = items[i];
+    if (!raw || typeof raw !== "object") continue;
+    const item = raw as Record<string, unknown>;
+    const hashtag = cleanText(item["Hashtag"], 100);
+    if (hashtag === null) continue;
+    out.push({
+      hashtag,
+      hashtagId: cleanText(item["Hashtag ID"], 50),
+      rank: toCount(item["Rank"]) ?? i + 1,
+      posts: toCount(item["Posts"]),
+      videoViews: toCount(item["Video Views"]),
+      trendDirection: trendDir(item["Trend Direction"]),
+      topCreators: parseTopCreators(item["Top Creators"]),
+      tiktokUrl: cleanText(item["TikTok URL"], 300),
+      period: cleanText(item["Period"], 30),
+    });
+  }
+  return out;
+}
+
+export interface FetchTrendHashtagsResult {
+  ok: boolean;
+  hashtags: ParsedTrendHashtag[];
+  error?: string;
+}
+
+/**
+ * Hashtags tendance d'un PAYS via data_xplorer/tiktok-trends (clé RADAR). Filtre
+ * pays PROUVÉ en faisabilité (Country = "United States"/etc., contenu cohérent).
+ * Échec → `{ ok:false, error }` (pas d'exception). Token jamais logué.
+ */
+export async function apiFetchTrendHashtags(
+  countryCode: string,
+  apiToken: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<FetchTrendHashtagsResult> {
+  const endpoint = `${APIFY_ACTS_BASE}/${trendsActorSlug()}/run-sync-get-dataset-items?timeout=${RUN_TIMEOUT_SECS}`;
+  try {
+    const res = await fetchImpl(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiToken}`,
+      },
+      body: JSON.stringify({
+        trendType: "hashtags",
+        countryCode,
+        hashtagPeriod: "7",
+        maxItems: 25,
+      }),
+    });
+    if (!res.ok) {
+      return { ok: false, hashtags: [], error: await readApiError(res) };
+    }
+    const json: unknown = await res.json();
+    return { ok: true, hashtags: parseTrendHashtags(json) };
+  } catch (e) {
+    return {
+      ok: false,
+      hashtags: [],
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
+
+/**
+ * Vidéos d'un HASHTAG via clockworks (clé RADAR, `proxyCountryCode`). ⚠️ Mode
+ * hashtag = TOP du hashtag, PAS trié par date → on FILTRE < `maxAgeDays` jours
+ * côté serveur (createTimeISO). Le `#` de tête est retiré pour l'input acteur.
+ * Échec → `{ ok:false, error }`. Token jamais logué.
+ */
+export async function apiFetchHashtagVideos(
+  countryCode: string,
+  hashtag: string,
+  apiToken: string,
+  nowMs: number,
+  opts: { resultsPerPage: number; maxAgeDays: number },
+  fetchImpl: typeof fetch = fetch,
+): Promise<FetchRadarVideosResult> {
+  const tag = hashtag.replace(/^#+/, "").trim();
+  if (tag === "") return { ok: false, videos: [], error: "hashtag vide" };
+  const endpoint = `${APIFY_ACTS_BASE}/${actorSlug()}/run-sync-get-dataset-items?timeout=${RUN_TIMEOUT_SECS}`;
+  try {
+    const res = await fetchImpl(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiToken}`,
+      },
+      body: JSON.stringify({
+        hashtags: [tag],
+        resultsPerPage: opts.resultsPerPage,
+        proxyCountryCode: countryCode,
+        shouldDownloadVideos: false,
+        shouldDownloadCovers: false,
+        shouldDownloadSubtitles: false,
+        shouldDownloadSlideshowImages: false,
+      }),
+    });
+    if (!res.ok) {
+      return { ok: false, videos: [], error: await readApiError(res) };
+    }
+    const json: unknown = await res.json();
+    const fresh = parseRadarVideos(json).filter((v) =>
+      isWithinDays(v.publishedAt, nowMs, opts.maxAgeDays),
+    );
+    return { ok: true, videos: fresh };
+  } catch (e) {
+    return {
+      ok: false,
+      videos: [],
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
