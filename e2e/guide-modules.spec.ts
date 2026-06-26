@@ -240,19 +240,31 @@ test.describe("Guide modules — scoping, published/draft, order, view-as", () =
       await page.waitForURL("**/app", { timeout: 20_000 });
 
       await page.goto("/app/guide");
-      // Titre du module published visible.
-      await expect(
-        page.getByText(`${MARKER} Pub ${ts}`),
-      ).toBeVisible({ timeout: 10_000 });
-      // Markdown rendu : **guide** en <strong> (preuve que le markdown est rendu,
-      // pas affiché brut), liste rendue, lien en nouvel onglet.
+      // ACCORDÉON : le TITRE (en-tête bouton) est visible, mais le contenu est
+      // REPLIÉ par défaut → pas encore rendu.
+      const header = page.getByRole("button", {
+        name: `${MARKER} Pub ${ts}`,
+      });
+      await expect(header).toBeVisible({ timeout: 10_000 });
+      await expect(header).toHaveAttribute("aria-expanded", "false");
+      await expect(page.locator("strong", { hasText: "guide" })).toHaveCount(0);
+
+      // Clic sur l'en-tête → DÉPLIE : le markdown rendu apparaît.
+      await header.click();
+      await expect(header).toHaveAttribute("aria-expanded", "true");
       await expect(page.locator("strong", { hasText: "guide" })).toBeVisible();
       await expect(page.getByText("point un")).toBeVisible();
       const link = page.getByRole("link", { name: "RepackIt" });
       await expect(link).toHaveAttribute("href", "https://repackit.test");
       await expect(link).toHaveAttribute("target", "_blank");
       await expect(link).toHaveAttribute("rel", /noopener/);
-      // Brouillon JAMAIS visible côté créateur.
+
+      // Re-clic → REPLIE : le contenu disparaît.
+      await header.click();
+      await expect(header).toHaveAttribute("aria-expanded", "false");
+      await expect(page.locator("strong", { hasText: "guide" })).toHaveCount(0);
+
+      // Brouillon JAMAIS visible côté créateur (ni en-tête ni contenu).
       await expect(page.getByText(`${MARKER} Secret ${ts}`)).toHaveCount(0);
     } finally {
       await ctx.close();
