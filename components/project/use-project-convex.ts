@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import type {
   FunctionArgs,
   FunctionReference,
@@ -40,6 +40,19 @@ export function useProjectMutation<
 ) => Promise<FunctionReturnType<Mutation>> {
   const projectId = useProjectId();
   const fn = useMutation(mutation);
+  return (args) =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    fn({ ...args, projectId } as any);
+}
+
+/** Idem useProjectMutation pour les ACTIONS scopées projet (ex. Radar tendances). */
+export function useProjectAction<Action extends FunctionReference<"action">>(
+  action: Action,
+): (
+  args: WithoutProject<FunctionArgs<Action>>,
+) => Promise<FunctionReturnType<Action>> {
+  const projectId = useProjectId();
+  const fn = useAction(action);
   return (args) =>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     fn({ ...args, projectId } as any);

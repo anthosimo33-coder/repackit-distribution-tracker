@@ -1236,4 +1236,67 @@ export default defineSchema({
     .index("by_radarAccount", ["radarAccountId"])
     .index("by_account_tiktok", ["radarAccountId", "tiktokId"])
     .index("by_project", ["projectId"]),
+
+  // ─── RADAR Brique 2 — Tendances (hashtags qui montent par pays → vidéos) ─────
+  // Silo séparé, ADMIN ONLY, scopé projet. Source : data_xplorer/tiktok-trends
+  // (hashtags tendance par pays, Creative Center) puis clockworks (vidéos d'un
+  // hashtag, filtrées < 14 j côté serveur). Chargement À LA DEMANDE (pas de cron) :
+  // le cache d'un pays est REMPLACÉ à chaque actualisation. 0 migration destructive.
+
+  // Cache des hashtags tendance d'un pays. `videosFetchedAt`/`videosError` portent
+  // l'état du fetch des vidéos de CE hashtag (chargement paresseux au clic).
+  radarTrendHashtags: defineTable({
+    projectId: v.id("projects"),
+    countryCode: v.string(), // "US","FR",...
+    hashtag: v.string(), // tel que renvoyé, ex. "#nbadraft"
+    hashtagId: v.optional(v.string()),
+    rank: v.number(),
+    posts: v.optional(v.number()),
+    videoViews: v.optional(v.number()),
+    trendDirection: v.optional(v.string()), // "up" | "down" | "stable"
+    topCreators: v.optional(
+      v.array(
+        v.object({
+          handle: v.string(),
+          nickname: v.optional(v.string()),
+          country: v.optional(v.string()),
+          followers: v.optional(v.number()),
+        }),
+      ),
+    ),
+    tiktokUrl: v.optional(v.string()),
+    period: v.optional(v.string()),
+    fetchedAt: v.number(), // dernier fetch des hashtags du pays
+    videosFetchedAt: v.optional(v.number()), // dernier fetch RÉUSSI des vidéos (null=jamais)
+    videosError: v.optional(v.boolean()), // dernier fetch vidéos en échec ?
+  })
+    .index("by_project_country", ["projectId", "countryCode"])
+    .index("by_project_country_hashtag", ["projectId", "countryCode", "hashtag"]),
+
+  // Vidéos d'un hashtag tendance (rattachées à hashtag+pays, PAS à un compte
+  // favori → table séparée de radarVideos). Déjà filtrées < 14 j. Remplacées à
+  // chaque fetch (les vues bougent). Même shape vidéo que radarVideos.
+  radarTrendVideos: defineTable({
+    projectId: v.id("projects"),
+    countryCode: v.string(),
+    hashtag: v.string(),
+    tiktokId: v.string(),
+    url: v.string(),
+    publishedAt: v.number(),
+    caption: v.optional(v.string()),
+    views: v.number(),
+    likes: v.number(),
+    comments: v.number(),
+    shares: v.number(),
+    saves: v.number(),
+    durationSec: v.optional(v.number()),
+    coverUrl: v.optional(v.string()),
+    musicName: v.optional(v.string()),
+    hashtags: v.array(v.string()),
+    authorHandle: v.optional(v.string()),
+    isAd: v.boolean(),
+    isPinned: v.boolean(),
+    isSlideshow: v.boolean(),
+    fetchedAt: v.number(),
+  }).index("by_project_country_hashtag", ["projectId", "countryCode", "hashtag"]),
 });

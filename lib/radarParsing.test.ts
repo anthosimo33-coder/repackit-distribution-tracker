@@ -5,6 +5,8 @@ import {
   toRadarDateFilter,
   parseRadarVideos,
   mergeRadarBuckets,
+  isWithinDays,
+  parseTrendHashtags,
   type RadarParsedVideo,
 } from "./radarParsing";
 
@@ -224,5 +226,80 @@ describe("mergeRadarBuckets", () => {
 
   it("gère deux ensembles vides", () => {
     expect(mergeRadarBuckets([], [])).toEqual([]);
+  });
+});
+
+// ─── isWithinDays ────────────────────────────────────────────────────────────
+
+describe("isWithinDays", () => {
+  const now = Date.parse("2026-06-26T12:00:00.000Z");
+  const DAY = 86_400_000;
+  it("garde une vidéo de moins de 14 jours", () => {
+    expect(isWithinDays(now - 3 * DAY, now, 14)).toBe(true);
+    expect(isWithinDays(now - 13 * DAY, now, 14)).toBe(true);
+    expect(isWithinDays(now, now, 14)).toBe(true);
+  });
+  it("rejette une vidéo de plus de 14 jours", () => {
+    expect(isWithinDays(now - 20 * DAY, now, 14)).toBe(false);
+    expect(isWithinDays(now - 15 * DAY, now, 14)).toBe(false);
+  });
+  it("tolère un léger décalage futur mais rejette le futur absurde", () => {
+    expect(isWithinDays(now + DAY, now, 14)).toBe(true); // skew fuseau
+    expect(isWithinDays(now + 5 * DAY, now, 14)).toBe(false);
+  });
+  it("rejette une date invalide / nulle", () => {
+    expect(isWithinDays(0, now, 14)).toBe(false);
+    expect(isWithinDays(NaN, now, 14)).toBe(false);
+  });
+});
+
+// ─── parseTrendHashtags ──────────────────────────────────────────────────────
+
+describe("parseTrendHashtags", () => {
+  const sample = [
+    {
+      Rank: 1,
+      Hashtag: "#nbadraft",
+      "Hashtag ID": "16524128",
+      Posts: 12968,
+      "Video Views": 216705809,
+      "Trend Direction": "up",
+      "Top Creators": [
+        { rank: 1, nickname: "NBA", handle: "@nba", followers: 5000000, country: "US" },
+        { rank: 2, handle: "@espn", country: "US" },
+      ],
+      "TikTok URL": "https://www.tiktok.com/tag/nbadraft",
+      Period: "7 days",
+    },
+  ];
+
+  it("mappe les champs à clés espacées", () => {
+    const [h] = parseTrendHashtags(sample);
+    expect(h).toEqual({
+      hashtag: "#nbadraft",
+      hashtagId: "16524128",
+      rank: 1,
+      posts: 12968,
+      videoViews: 216705809,
+      trendDirection: "up",
+      topCreators: [
+        { handle: "@nba", nickname: "NBA", country: "US", followers: 5000000 },
+        { handle: "@espn", nickname: null, country: "US", followers: null },
+      ],
+      tiktokUrl: "https://www.tiktok.com/tag/nbadraft",
+      period: "7 days",
+    });
+  });
+
+  it("rang par défaut = index+1 si Rank absent, direction inconnue → null", () => {
+    const [h] = parseTrendHashtags([{ Hashtag: "#x", "Trend Direction": "weird" }]);
+    expect(h.rank).toBe(1);
+    expect(h.trendDirection).toBeNull();
+    expect(h.topCreators).toEqual([]);
+  });
+
+  it("ignore les items sans Hashtag et le non-array", () => {
+    expect(parseTrendHashtags([{ Posts: 10 }, null, "x"])).toEqual([]);
+    expect(parseTrendHashtags(null)).toEqual([]);
   });
 });

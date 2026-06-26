@@ -274,3 +274,98 @@ export function mergeRadarBuckets(
   }
   return out;
 }
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Vrai si `publishedAtMs` date de MOINS de `days` jours (par rapport à `nowMs`).
+ * Sert au filtre « vidéos récentes » des tendances : en mode hashtag, clockworks
+ * renvoie le TOP du hashtag (PAS trié par date) → on ne garde que le frais. Tolère
+ * 2 j de décalage futur (parsing de fuseau). `publishedAtMs<=0` → false.
+ */
+export function isWithinDays(
+  publishedAtMs: number,
+  nowMs: number,
+  days: number,
+): boolean {
+  if (!Number.isFinite(publishedAtMs) || publishedAtMs <= 0) return false;
+  const ageMs = nowMs - publishedAtMs;
+  return ageMs <= days * DAY_MS && ageMs > -2 * DAY_MS;
+}
+
+/** Hashtag tendance parsé depuis data_xplorer/tiktok-trends (trendType hashtags). */
+export interface ParsedTrendHashtag {
+  hashtag: string;
+  hashtagId: string | null;
+  rank: number;
+  posts: number | null;
+  videoViews: number | null;
+  trendDirection: string | null; // "up" | "down" | "stable"
+  topCreators: {
+    handle: string;
+    nickname: string | null;
+    country: string | null;
+    followers: number | null;
+  }[];
+  tiktokUrl: string | null;
+  period: string | null;
+}
+
+/** Normalise la direction de tendance en "up" | "down" | "stable" (sinon null). */
+function trendDir(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const t = value.trim().toLowerCase();
+  if (t === "up" || t === "down" || t === "stable") return t;
+  return null;
+}
+
+/** Extrait les top créateurs (`[{handle,nickname,followers,country}]`) → propre, cap 5. */
+function parseTopCreators(value: unknown): ParsedTrendHashtag["topCreators"] {
+  if (!Array.isArray(value)) return [];
+  const out: ParsedTrendHashtag["topCreators"] = [];
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object") continue;
+    const c = raw as Record<string, unknown>;
+    const handle = cleanText(c.handle, 100);
+    if (handle === null) continue;
+    out.push({
+      handle,
+      nickname: cleanText(c.nickname, 100),
+      country: cleanText(c.country, 8),
+      followers: toCount(c.followers),
+    });
+    if (out.length >= 5) break;
+  }
+  return out;
+}
+
+/**
+ * Parse la sortie de data_xplorer/tiktok-trends (trendType "hashtags") :
+ *   [{ Rank, Hashtag, "Hashtag ID", Posts, "Video Views", "Trend Direction",
+ *      "Top Creators":[{handle,nickname,followers,country}], "TikTok URL", Period }, ...]
+ * Les clés ont des ESPACES/MAJUSCULES (sortie "clean" de l'acteur). Un item sans
+ * `Hashtag` exploitable est ignoré. Robuste à un JSON partiel/inattendu.
+ */
+export function parseTrendHashtags(apiResponse: unknown): ParsedTrendHashtag[] {
+  const items = Array.isArray(apiResponse) ? apiResponse : [];
+  const out: ParsedTrendHashtag[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const raw = items[i];
+    if (!raw || typeof raw !== "object") continue;
+    const item = raw as Record<string, unknown>;
+    const hashtag = cleanText(item["Hashtag"], 100);
+    if (hashtag === null) continue;
+    out.push({
+      hashtag,
+      hashtagId: cleanText(item["Hashtag ID"], 50),
+      rank: toCount(item["Rank"]) ?? i + 1,
+      posts: toCount(item["Posts"]),
+      videoViews: toCount(item["Video Views"]),
+      trendDirection: trendDir(item["Trend Direction"]),
+      topCreators: parseTopCreators(item["Top Creators"]),
+      tiktokUrl: cleanText(item["TikTok URL"], 300),
+      period: cleanText(item["Period"], 30),
+    });
+  }
+  return out;
+}
