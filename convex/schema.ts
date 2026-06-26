@@ -883,6 +883,13 @@ export default defineSchema({
     // (deploy atomique : le schéma vit avant la migration data). Unset par
     // migrateAssetFolderToArray + setAssetFolders. Retrait = resserrage ultérieur.
     assetFolderId: v.optional(v.id("assetFolders")),
+    // ─── Texte OVERLAY à incruster en haut de la vidéo (consigne visuelle) ─────
+    // Une phrase OPTIONNELLE, saisie par l'admin AU NIVEAU DE L'ASSIGNMENT (peut
+    // varier d'un créateur à l'autre pour un même script/format). Affichée au
+    // créateur AU-DESSUS du hook comme « à incruster en haut de la vidéo » (pas un
+    // texte à lire). S'applique à tous les mediaTypes. undefined/absent = aucun
+    // overlay (comportement inchangé). 0 migration (optional).
+    overlayText: v.optional(v.string()),
     rateSnapshot: v.object({
       basePerPost: v.number(),
       viewBonusPer1k: v.optional(v.number()),

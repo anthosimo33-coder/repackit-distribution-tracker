@@ -9,6 +9,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -83,6 +84,7 @@ export function AssignFormatDialog({
   const [pricingId, setPricingId] = useState<string>(NONE);
   const [posts, setPosts] = useState("1");
   const [due, setDue] = useState(defaultDue());
+  const [overlayText, setOverlayText] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   function changeCreator(v: string) {
@@ -128,12 +130,14 @@ export function AssignFormatDialog({
         dueDate: dueMs,
         pricingId:
           pricingId === NONE ? undefined : (pricingId as Id<"pricings">),
+        overlayText: overlayText.trim() || undefined,
       });
       toast.success(
         `${created} vidéo${created > 1 ? "s" : ""} × ${targets.length} post${targets.length > 1 ? "s" : ""} assignée${created > 1 ? "s" : ""}`,
       );
       changeCreator(NONE);
       setPricingId(NONE);
+      setOverlayText("");
       onOpenChange(false);
     } catch (err) {
       toast.error(convexErrorMessage(err, "Une erreur est survenue."));
@@ -288,6 +292,24 @@ export function AssignFormatDialog({
                 onChange={(e) => setDue(e.target.value)}
               />
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="overlay">
+              Texte à incruster en haut de la vidéo (optionnel)
+            </Label>
+            <Textarea
+              id="overlay"
+              rows={2}
+              maxLength={200}
+              placeholder="Ex : Réservé aux 100 premiers"
+              value={overlayText}
+              onChange={(e) => setOverlayText(e.target.value)}
+            />
+            <p className="text-xs text-slate-500">
+              Apparaîtra en overlay permanent en haut de la vidéo, au-dessus du
+              hook côté créateur.
+            </p>
           </div>
 
           <DialogFooter>
