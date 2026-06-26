@@ -1180,4 +1180,55 @@ export default defineSchema({
     status: v.union(v.literal("ok"), v.literal("failed")),
     fetchedAt: v.number(),
   }).index("by_url", ["url"]),
+
+  // ─── RADAR — veille TikTok (Brique 1 : comptes favoris + leurs vidéos) ───────
+  // Module ADMIN UNIQUEMENT, SILO séparé : aucun lien avec creators/publications/
+  // comptes (le tracking créateurs est un autre module). Scopé projet via
+  // adminQuery/adminMutation (un créateur n'atteint AUCUNE fonction Radar). Source
+  // de données : Apify (clockworks/tiktok-scraper) avec un COMPTE Apify DISTINCT
+  // (clé APIFY_RADAR_TOKEN) pour isoler les quotas du tracking créateurs.
+
+  // Comptes TikTok mis en favori et suivis. Unicité (projet, handle) via
+  // by_project_handle (refus des doublons à l'ajout).
+  radarAccounts: defineTable({
+    projectId: v.id("projects"),
+    handle: v.string(), // @ normalisé, SANS le « @ » (ex. "khaby.lame")
+    platform: v.literal("tiktok"), // extensible plus tard (IG/YT)
+    note: v.optional(v.string()), // tag/note libre du fondateur
+    authorFansSnapshot: v.optional(v.number()), // abonnés au dernier sync
+    lastSyncAt: v.optional(v.number()), // dernier sync RÉUSSI (même si 0 vidéo)
+    addedAt: v.number(),
+  })
+    .index("by_handle", ["handle"])
+    .index("by_project", ["projectId"])
+    .index("by_project_handle", ["projectId", "handle"]),
+
+  // Vidéos récupérées d'un compte favori. Upsert idempotent par
+  // (radarAccountId, tiktokId) : une vidéo déjà connue est MISE À JOUR (stats
+  // fraîches), jamais dupliquée.
+  radarVideos: defineTable({
+    projectId: v.id("projects"),
+    radarAccountId: v.id("radarAccounts"),
+    tiktokId: v.string(), // id numérique de la vidéo (clé d'upsert)
+    url: v.string(), // webVideoUrl canonique (/@user/video/<id>)
+    publishedAt: v.number(), // createTimeISO → ms
+    caption: v.optional(v.string()),
+    views: v.number(),
+    likes: v.number(),
+    comments: v.number(),
+    shares: v.number(),
+    saves: v.number(),
+    durationSec: v.optional(v.number()),
+    coverUrl: v.optional(v.string()), // miniature TikTok (peut expirer → fallback UI)
+    musicName: v.optional(v.string()),
+    hashtags: v.array(v.string()),
+    authorHandle: v.optional(v.string()),
+    isAd: v.boolean(),
+    isPinned: v.boolean(),
+    isSlideshow: v.boolean(),
+    lastSeenAt: v.number(), // dernier sync où la vidéo est réapparue
+  })
+    .index("by_radarAccount", ["radarAccountId"])
+    .index("by_account_tiktok", ["radarAccountId", "tiktokId"])
+    .index("by_project", ["projectId"]),
 });

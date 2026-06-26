@@ -34,4 +34,22 @@ crons.daily(
   {},
 );
 
+// RADAR (veille TikTok, module séparé) — sync des comptes favoris 2×/SEMAINE
+// (lundi + jeudi) et NON quotidien : on reste dans le quota Apify gratuit du
+// COMPTE RADAR distinct. 09:00 UTC (après les relevés créateurs 07/08h) pour
+// étaler la charge. Aucun arg → tous les comptes Radar, tous projets confondus.
+// Distinct des crons créateurs ci-dessus (ne pas les fusionner).
+crons.weekly(
+  "radar-sync-monday",
+  { dayOfWeek: "monday", hourUTC: 9, minuteUTC: 0 },
+  internal.radar.runRadarSync,
+  {},
+);
+crons.weekly(
+  "radar-sync-thursday",
+  { dayOfWeek: "thursday", hourUTC: 9, minuteUTC: 0 },
+  internal.radar.runRadarSync,
+  {},
+);
+
 export default crons;
