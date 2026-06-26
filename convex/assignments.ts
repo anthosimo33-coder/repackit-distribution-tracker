@@ -129,6 +129,21 @@ export const listAssignableCreators = adminQuery({
  * vidéos → autant de rows "todo", chacune portant les MÊMES cibles (1 vidéo →
  * N posts). rateSnapshot = copie figée du rateModel (appliqué PAR post).
  */
+/** Longueur max d'une phrase d'overlay (une phrase courte à incruster). */
+export const OVERLAY_MAX_LENGTH = 200;
+
+/**
+ * Normalise le texte overlay : trim, vide → undefined (pas d'overlay), tronqué à
+ * OVERLAY_MAX_LENGTH. Trivial et SANS réplique lib (pas d'A6) — partagé par
+ * assignFormat / assignScriptCampaign / setAssignmentOverlayText.
+ */
+export function normalizeOverlayText(raw: string | undefined): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const t = raw.trim();
+  if (t.length === 0) return undefined;
+  return t.length > OVERLAY_MAX_LENGTH ? t.slice(0, OVERLAY_MAX_LENGTH) : t;
+}
+
 export const assignFormat = adminMutation({
   args: {
     formatId: v.id("formats"),
@@ -139,6 +154,8 @@ export const assignFormat = adminMutation({
     // Nouveau modèle de paie : pricing FIGÉ à l'attribution (Guard A). Optionnel
     // → absent = ancien modèle (rateSnapshot legacy), dual-mode.
     pricingId: v.optional(v.id("pricings")),
+    // Texte overlay optionnel à incruster en haut de la vidéo (cf schema).
+    overlayText: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const format = await ctx.db.get(args.formatId);
@@ -185,6 +202,7 @@ export const assignFormat = adminMutation({
     const pricingSnapshot = args.pricingId
       ? await buildPricingSnapshot(ctx, ctx.projectId, args.pricingId)
       : undefined;
+    const overlayText = normalizeOverlayText(args.overlayText);
     const now = Date.now();
     let created = 0;
     for (let i = 0; i < args.postsPerCreator; i++) {
@@ -197,11 +215,33 @@ export const assignFormat = adminMutation({
         status: "todo",
         rateSnapshot: format.rateModel,
         pricingSnapshot,
+        overlayText,
         createdAt: now,
       });
       created++;
     }
     return { created };
+  },
+});
+
+/**
+ * Édite le texte overlay d'un assignment EXISTANT (ajout/modif/effacement).
+ * Admin only, scopé projet. overlayText absent/vide → efface l'overlay (undefined).
+ */
+export const setAssignmentOverlayText = adminMutation({
+  args: {
+    id: v.id("assignments"),
+    overlayText: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const a = await ctx.db.get(args.id);
+    if (!a || a.projectId !== ctx.projectId) {
+      throw new ConvexError("Assignment introuvable.");
+    }
+    await ctx.db.patch(args.id, {
+      overlayText: normalizeOverlayText(args.overlayText),
+    });
+    return { ok: true };
   },
 });
 

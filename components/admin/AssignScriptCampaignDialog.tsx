@@ -9,6 +9,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -83,6 +84,7 @@ export function AssignScriptCampaignDialog({
   const [due, setDue] = useState(defaultDue());
   const [tier, setTier] = useState<string>(TIER_ALL);
   const [pricingId, setPricingId] = useState<string>(NONE);
+  const [overlayText, setOverlayText] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   // Reset à l'ouverture.
@@ -96,6 +98,7 @@ export function AssignScriptCampaignDialog({
       setDue(defaultDue());
       setTier(TIER_ALL);
       setPricingId(NONE);
+      setOverlayText("");
     }
   }
 
@@ -160,6 +163,7 @@ export function AssignScriptCampaignDialog({
         dueDate: dueMs,
         tier: tier === TIER_ALL ? undefined : (tier as "S" | "A"),
         pricingId: pricingId as Id<"pricings">,
+        overlayText: overlayText.trim() || undefined,
       });
       toast.success(
         `${res.created} vidéo${res.created > 1 ? "s" : ""} × ${targets.length} post${targets.length > 1 ? "s" : ""} assignée${res.created > 1 ? "s" : ""}.`,
@@ -377,6 +381,24 @@ export function AssignScriptCampaignDialog({
                 )
               )}
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="overlay">
+              Texte à incruster en haut de la vidéo (optionnel)
+            </Label>
+            <Textarea
+              id="overlay"
+              rows={2}
+              maxLength={200}
+              placeholder="Ex : Réservé aux 100 premiers"
+              value={overlayText}
+              onChange={(e) => setOverlayText(e.target.value)}
+            />
+            <p className="text-xs text-slate-500">
+              Apparaîtra en overlay permanent en haut de la vidéo, au-dessus du
+              hook côté créateur.
+            </p>
           </div>
         </div>
 

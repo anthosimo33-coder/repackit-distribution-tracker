@@ -87,6 +87,24 @@ export default function AssignmentDetailScreen({
             </CardContent>
           </Card>
 
+          {/* Texte OVERLAY à incruster en haut de la vidéo (consigne admin au
+              niveau de l'assignment). AU-DESSUS du hook, encart distinct : c'est
+              une consigne VISUELLE (à afficher à l'écran), pas un texte à lire.
+              Masqué si vide. Mobile : pleine largeur, texte qui passe à la ligne. */}
+          {data.assignment.overlayText && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-4">
+              <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-700">
+                <span aria-hidden>📌</span> À incruster en haut de la vidéo
+              </div>
+              <p className="mt-1.5 text-base font-medium break-words text-amber-950">
+                « {data.assignment.overlayText} »
+              </p>
+              <p className="mt-1 text-xs text-amber-700/90">
+                Texte à afficher en overlay permanent à l&apos;écran (pas à lire).
+              </p>
+            </div>
+          )}
+
           {/* Script monté (assignment de script) OU brief de format. Pour un
               script, le créateur ne voit que le texte fini — aucune brique,
               aucun tier, aucune campagne. */}

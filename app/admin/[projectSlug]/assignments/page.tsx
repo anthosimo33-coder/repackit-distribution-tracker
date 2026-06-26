@@ -53,6 +53,7 @@ import { AssignmentScriptDialog } from "@/components/admin/AssignmentScriptDialo
 import { EditScriptComboDialog } from "@/components/admin/EditScriptComboDialog";
 import { EditBrickTextDialog } from "@/components/admin/EditBrickTextDialog";
 import { LinkAssetFolderDialog } from "@/components/admin/LinkAssetFolderDialog";
+import { AssignmentOverlayDialog } from "@/components/admin/AssignmentOverlayDialog";
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
 import { canDeleteAssignment } from "@/lib/assignment-delete";
 import {
@@ -106,6 +107,11 @@ export default function AssignmentsPage() {
   const [assetLinkId, setAssetLinkId] = useState<Id<"assignments"> | null>(null);
   const assetLinkRow = assetLinkId
     ? ((assignments ?? []).find((a) => a._id === assetLinkId) ?? null)
+    : null;
+  // Texte overlay à incruster (consigne admin) — row dérivée live.
+  const [overlayId, setOverlayId] = useState<Id<"assignments"> | null>(null);
+  const overlayRow = overlayId
+    ? ((assignments ?? []).find((a) => a._id === overlayId) ?? null)
     : null;
   // Suppression (hard-delete) — confirmation obligatoire, libère le combo.
   const deleteAssignment = useProjectMutation(api.assignments.deleteAssignment);
@@ -251,6 +257,7 @@ export default function AssignmentsPage() {
                   <TableHead>Soumis</TableHead>
                   <TableHead>Modèles</TableHead>
                   <TableHead>Assets</TableHead>
+                  <TableHead>Overlay</TableHead>
                   <TableHead className="text-right">
                     <span className="sr-only">Actions</span>
                   </TableHead>
@@ -396,6 +403,24 @@ export default function AssignmentsPage() {
                             : "+"}
                         </Button>
                       </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className={cn(
+                            "h-8 gap-1.5 px-2",
+                            a.overlayText
+                              ? "text-amber-700"
+                              : "text-slate-600",
+                          )}
+                          onClick={() => setOverlayId(a._id)}
+                          aria-label="Texte à incruster en haut de la vidéo"
+                          title={a.overlayText ?? "Ajouter un texte overlay"}
+                        >
+                          <TypeIcon className="size-4" />
+                          {a.overlayText ? "•" : "+"}
+                        </Button>
+                      </TableCell>
                       <TableCell className="text-right">
                         {canDeleteAssignment(a.status as AssignmentStatus) ? (
                           <Button
@@ -487,6 +512,17 @@ export default function AssignmentsPage() {
           assignmentId={assetLinkRow._id}
           currentFolderIds={assetLinkRow.linkedFolderIds}
           creatorName={assetLinkRow.creatorName}
+        />
+      )}
+
+      {overlayRow && (
+        <AssignmentOverlayDialog
+          key={overlayRow._id}
+          open
+          onOpenChange={(o) => !o && setOverlayId(null)}
+          assignmentId={overlayRow._id}
+          creatorName={overlayRow.creatorName}
+          currentOverlayText={overlayRow.overlayText}
         />
       )}
 

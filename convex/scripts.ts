@@ -1,7 +1,11 @@
 import { adminMutation, adminQuery, e2eMutation } from "./functions";
 import { internalMutation } from "./_generated/server";
 import { CAMPAIGN_NAME, DEMO_BLOCK, SEED_BRICKS } from "./scriptSeedData";
-import { targetInputValidator, validateTargets } from "./assignments";
+import {
+  targetInputValidator,
+  validateTargets,
+  normalizeOverlayText,
+} from "./assignments";
 import { buildPricingSnapshot } from "./pricing";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -500,6 +504,8 @@ export const assignScriptCampaign = adminMutation({
     // émettre un ConvexError lisible si absent (sinon erreur validator brute) ;
     // le handler le rend requis. Plus aucun mode "sans pricing" (legacy retiré).
     pricingId: v.optional(v.id("pricings")),
+    // Texte overlay optionnel à incruster en haut de la vidéo (cf schema).
+    overlayText: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const campaign = await requireCampaign(ctx, args.campaignId, ctx.projectId);
@@ -564,6 +570,7 @@ export const assignScriptCampaign = adminMutation({
       platform: t.platform,
       accountId: t.accountId,
     }));
+    const overlayText = normalizeOverlayText(args.overlayText);
     const now = Date.now();
     const shortages: { name: string; requested: number; assigned: number }[] =
       [];
@@ -611,6 +618,7 @@ export const assignScriptCampaign = adminMutation({
         status: "todo",
         rateSnapshot,
         pricingSnapshot,
+        overlayText,
         createdAt: now,
       });
       created++;
