@@ -225,30 +225,66 @@ export function parseRadarVideos(apiResponse: unknown): RadarParsedVideo[] {
   return out;
 }
 
+/** Réplique de lib/radarParsing.BucketedRadarVideo. */
+export interface BucketedRadarVideo extends RadarParsedVideo {
+  isPopular: boolean;
+}
+
+/** Réplique de lib/radarParsing.mergeRadarBuckets — cf tests Vitest là-bas. */
+export function mergeRadarBuckets(
+  recent: readonly RadarParsedVideo[],
+  popular: readonly RadarParsedVideo[],
+): BucketedRadarVideo[] {
+  const seen = new Set<string>();
+  const out: BucketedRadarVideo[] = [];
+  for (const v of popular) {
+    if (seen.has(v.tiktokId)) continue;
+    seen.add(v.tiktokId);
+    out.push({ ...v, isPopular: true });
+  }
+  for (const v of recent) {
+    if (seen.has(v.tiktokId)) continue; // dédup : populaire prioritaire
+    if (v.isPinned) continue; // épinglées exclues des récentes
+    seen.add(v.tiktokId);
+    out.push({ ...v, isPopular: false });
+  }
+  return out;
+}
+
 // ─── Fetch profil (I/O — runtime action uniquement) ──────────────────────────
 
 function actorSlug(): string {
   return process.env.APIFY_RADAR_TIKTOK_ACTOR || DEFAULT_TIKTOK_ACTOR;
 }
 
+export type RadarSorting = "latest" | "popular";
+
 /** Input clockworks pour scraper UN profil (téléchargements désactivés = moins cher). */
 function profileActorInput(
   handle: string,
-  resultsPerPage: number,
-  oldestPostDate: string | undefined,
+  opts: {
+    sorting: RadarSorting;
+    resultsPerPage: number;
+    oldestPostDate?: string;
+    excludePinned?: boolean;
+  },
 ): Record<string, unknown> {
   const input: Record<string, unknown> = {
     profiles: [handle],
-    resultsPerPage,
-    profileSorting: "latest", // requis pour que le filtre date s'applique
+    resultsPerPage: opts.resultsPerPage,
+    profileSorting: opts.sorting, // "latest" (date) ou "popular" (vues)
     profileScrapeSections: ["videos"],
-    excludePinnedPosts: false,
+    excludePinnedPosts: opts.excludePinned ?? false,
     shouldDownloadVideos: false,
     shouldDownloadCovers: false,
     shouldDownloadSubtitles: false,
     shouldDownloadSlideshowImages: false,
   };
-  if (oldestPostDate) input.oldestPostDateUnified = oldestPostDate;
+  // Le filtre date ne s'applique qu'avec "latest"/"oldest" (cf actor) : on ne le
+  // passe donc que pour les récentes (incrémental), jamais pour les populaires.
+  if (opts.sorting === "latest" && opts.oldestPostDate) {
+    input.oldestPostDateUnified = opts.oldestPostDate;
+  }
   return input;
 }
 
@@ -274,18 +310,23 @@ export interface FetchRadarVideosResult {
 }
 
 /**
- * Relève les vidéos récentes d'UN compte TikTok via Apify (clé RADAR). Input
- * profil incrémental (`oldestPostDate` = "YYYY-MM-DD" du dernier sync, optionnel
- * au 1er sync). Un échec réseau/HTTP n'est PAS propagé en exception : on retourne
- * `{ ok:false, error }` → l'appelant marque le compte « tenté » sans crasher la
- * boucle des autres comptes. Le token n'est JAMAIS logué.
+ * Relève un ensemble de vidéos d'UN compte TikTok via Apify (clé RADAR). Deux
+ * usages : `sorting:"latest"` (récentes, filtre date incrémental + exclusion des
+ * épinglées) et `sorting:"popular"` (top vues, SANS filtre date — le top bouge à
+ * chaque sync). Un échec réseau/HTTP n'est PAS propagé en exception : on retourne
+ * `{ ok:false, error }` → l'appelant continue la boucle. Le token n'est JAMAIS logué.
  *
  * `fetchImpl` injectable pour les tests ; par défaut le `fetch` global de l'action.
  */
 export async function fetchRadarProfileVideos(
   handle: string,
   apiToken: string,
-  opts: { resultsPerPage: number; oldestPostDate?: string },
+  opts: {
+    sorting: RadarSorting;
+    resultsPerPage: number;
+    oldestPostDate?: string;
+    excludePinned?: boolean;
+  },
   fetchImpl: typeof fetch = fetch,
 ): Promise<FetchRadarVideosResult> {
   const endpoint = `${APIFY_ACTS_BASE}/${actorSlug()}/run-sync-get-dataset-items?timeout=${RUN_TIMEOUT_SECS}`;
@@ -296,9 +337,7 @@ export async function fetchRadarProfileVideos(
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiToken}`,
       },
-      body: JSON.stringify(
-        profileActorInput(handle, opts.resultsPerPage, opts.oldestPostDate),
-      ),
+      body: JSON.stringify(profileActorInput(handle, opts)),
     });
     if (!res.ok) {
       return { ok: false, videos: [], error: await readApiError(res) };

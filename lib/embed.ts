@@ -31,3 +31,24 @@ export function youTubeEmbedUrl(id: string): string {
 export function tiktokOembedUrl(videoUrl: string): string {
   return `https://www.tiktok.com/oembed?url=${encodeURIComponent(videoUrl.trim())}`;
 }
+
+/**
+ * URL du LECTEUR TikTok officiel (iframe `player/v1`) pour un id de vidéo. Joue
+ * la vidéo EN PLACE dans une iframe, sans oEmbed ni embed.js (donc fiable même
+ * quand plusieurs vidéos sont ouvertes successivement dans une modale — l'embed
+ * oEmbed/embed.js, lui, ne ré-hydrate pas les blockquotes après le 1er montage et
+ * dégénère en simple lien → redirection). `rel=0` coupe les recommandations.
+ */
+export function tiktokPlayerEmbedUrl(videoId: string): string {
+  return `https://www.tiktok.com/player/v1/${encodeURIComponent(videoId.trim())}?rel=0&description=0`;
+}
+
+/**
+ * URL canonique d'une vidéo TikTok (`/@handle/video/<id>`) reconstruite depuis le
+ * handle + l'id — pour le lien ↗ et tout embed qui exige le format canonique.
+ * Tolère un handle préfixé d'un « @ ».
+ */
+export function tiktokCanonicalVideoUrl(handle: string, videoId: string): string {
+  const h = handle.trim().replace(/^@+/, "");
+  return `https://www.tiktok.com/@${h}/video/${videoId.trim()}`;
+}

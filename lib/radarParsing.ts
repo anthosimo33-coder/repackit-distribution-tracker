@@ -238,3 +238,39 @@ export function parseRadarVideos(apiResponse: unknown): RadarParsedVideo[] {
   }
   return out;
 }
+
+/** Vidéo parsée + son bucket d'affichage (populaire vs récente). */
+export interface BucketedRadarVideo extends RadarParsedVideo {
+  isPopular: boolean;
+}
+
+/**
+ * Fusionne les DEUX ensembles d'un compte (récentes = sorting "latest" ;
+ * populaires = sorting "popular") en une liste DÉDUPLIQUÉE prête à l'upsert, avec
+ * marquage `isPopular`. Règles du fondateur :
+ *   - POPULAIRE PRIORITAIRE : une vidéo présente dans les deux n'est gardée qu'en
+ *     populaire (retirée des récentes) → jamais de doublon (clé = tiktokId).
+ *   - Les vidéos ÉPINGLÉES (isPinned) sont exclues des récentes (elles squattent
+ *     le haut du profil et fausseraient « les plus récentes »). Une épinglée peut
+ *     rester en populaire si elle y figure (vues élevées).
+ * Pur (aucune I/O) → testé Vitest, répliqué à l'identique dans convex/radarApi.ts.
+ */
+export function mergeRadarBuckets(
+  recent: readonly RadarParsedVideo[],
+  popular: readonly RadarParsedVideo[],
+): BucketedRadarVideo[] {
+  const seen = new Set<string>();
+  const out: BucketedRadarVideo[] = [];
+  for (const v of popular) {
+    if (seen.has(v.tiktokId)) continue;
+    seen.add(v.tiktokId);
+    out.push({ ...v, isPopular: true });
+  }
+  for (const v of recent) {
+    if (seen.has(v.tiktokId)) continue; // dédup : populaire prioritaire
+    if (v.isPinned) continue; // épinglées exclues des récentes
+    seen.add(v.tiktokId);
+    out.push({ ...v, isPopular: false });
+  }
+  return out;
+}

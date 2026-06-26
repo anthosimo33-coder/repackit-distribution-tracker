@@ -1226,6 +1226,11 @@ export default defineSchema({
     isAd: v.boolean(),
     isPinned: v.boolean(),
     isSlideshow: v.boolean(),
+    // Bucket d'affichage : true = dans le top vues (sorting "popular") au dernier
+    // sync ; false/absent = candidate « dernières vidéos ». Règle de dédup :
+    // populaire prioritaire (une vidéo récente ET populaire est marquée populaire).
+    // Optional → 0 migration (anciennes lignes = non populaires).
+    isPopular: v.optional(v.boolean()),
     lastSeenAt: v.number(), // dernier sync où la vidéo est réapparue
   })
     .index("by_radarAccount", ["radarAccountId"])
