@@ -193,6 +193,39 @@ export const regenerateInvitation = adminMutation({
 });
 
 /** Patch partiel d'un créateur (statut, paiement, notes admin, contact). */
+/** Longueur max d'un @ (handle) — large mais borné (saisie libre). */
+const HANDLE_MAX_LENGTH = 64;
+
+const handlesToCreateValidator = v.object({
+  tiktok: v.optional(v.string()),
+  youtube: v.optional(v.string()),
+  instagram: v.optional(v.string()),
+});
+
+/** Trim + cap un @ ; vide → undefined. */
+function normHandle(raw: string | undefined): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const t = raw.trim();
+  if (t.length === 0) return undefined;
+  return t.length > HANDLE_MAX_LENGTH ? t.slice(0, HANDLE_MAX_LENGTH) : t;
+}
+
+/**
+ * Normalise les @ à créer : trim chaque réseau, vide → undefined. Si AUCUN
+ * réseau renseigné → undefined (pas d'objet vide stocké). Trivial, sans réplique
+ * lib (pas d'A6).
+ */
+function normalizeHandlesToCreate(
+  raw: { tiktok?: string; youtube?: string; instagram?: string } | undefined,
+): { tiktok?: string; youtube?: string; instagram?: string } | undefined {
+  if (!raw) return undefined;
+  const tiktok = normHandle(raw.tiktok);
+  const youtube = normHandle(raw.youtube);
+  const instagram = normHandle(raw.instagram);
+  if (!tiktok && !youtube && !instagram) return undefined;
+  return { tiktok, youtube, instagram };
+}
+
 export const updateCreator = adminMutation({
   args: {
     id: v.id("creators"),
@@ -204,6 +237,9 @@ export const updateCreator = adminMutation({
     adminNotes: v.optional(v.string()),
     // Grille de paliers de bonus du créateur (cumul). null = détacher.
     bonusPricingId: v.optional(v.union(v.id("pricings"), v.null())),
+    // @ à créer par réseau (saisie libre admin). Absent = ne pas toucher ;
+    // objet (réseaux vides) = effacer.
+    handlesToCreate: v.optional(handlesToCreateValidator),
   },
   handler: async (ctx, args) => {
     const creator = await ctx.db.get(args.id);
@@ -235,6 +271,9 @@ export const updateCreator = adminMutation({
     }
     if (args.adminNotes !== undefined) {
       patch.adminNotes = args.adminNotes.trim() || undefined;
+    }
+    if (args.handlesToCreate !== undefined) {
+      patch.handlesToCreate = normalizeHandlesToCreate(args.handlesToCreate);
     }
     await ctx.db.patch(args.id, patch);
     // Changer la grille de bonus → matérialise immédiatement les paliers déjà
@@ -587,6 +626,8 @@ async function profileFor(ctx: QueryCtx, creatorId: Id<"creators">) {
     phone: c.phone ?? null,
     paymentMethod: c.paymentMethod ?? null,
     paymentDetails: c.paymentDetails ?? null,
+    // @ à créer par réseau (consigne onboarding). null = aucun.
+    handlesToCreate: c.handlesToCreate ?? null,
   };
 }
 

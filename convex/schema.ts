@@ -606,6 +606,19 @@ export default defineSchema({
     // FIXE/CPM restent par vidéo (pricingSnapshot par assignment) ; les paliers
     // sont créateur-niveau. undefined = aucun palier pour ce créateur.
     bonusPricingId: v.optional(v.id("pricings")),
+    // ─── @ (handles) à CRÉER par réseau — consigne d'onboarding/warmup ─────────
+    // Définis LIBREMENT par l'admin, PAR CRÉATEUR : le ou les @ que ce créateur
+    // doit créer sur ses réseaux (en complément des mots-clés de warmup, par
+    // compte). Saisie libre, chaque réseau optionnel (un réseau sans @ n'affiche
+    // rien). Affichés au créateur dans « Mes comptes ». undefined/absent = aucune
+    // consigne (onboarding inchangé). 0 migration (optional).
+    handlesToCreate: v.optional(
+      v.object({
+        tiktok: v.optional(v.string()),
+        youtube: v.optional(v.string()),
+        instagram: v.optional(v.string()),
+      }),
+    ),
     createdAt: v.number(),
   })
     .index("by_project", ["projectId"])
