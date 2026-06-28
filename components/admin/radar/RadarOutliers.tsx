@@ -4,11 +4,13 @@ import { useMemo, useState } from "react";
 import type { FunctionReturnType } from "convex/server";
 import {
   useProjectAction,
+  useProjectMutation,
   useProjectQuery,
 } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
@@ -18,13 +20,23 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  BookmarkCheckIcon,
+  BookmarkPlusIcon,
   CalendarIcon,
   ExternalLinkIcon,
   EyeIcon,
   FlameIcon,
+  Loader2Icon,
   PlayIcon,
   RepeatIcon,
   SearchIcon,
+  UserCheckIcon,
+  UserPlusIcon,
   UsersIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -65,6 +77,26 @@ export function RadarOutliers() {
   const result = useProjectQuery(
     api.radar.getRadarSearch,
     submitted ? { keyword: submitted } : "skip",
+  );
+
+  // États "déjà suivi" / "déjà ajouté" pour les actions de chaque carte. On
+  // ne souscrit qu'une fois une recherche lancée (skip sinon) : inutile de
+  // charger comptes + inspirations tant qu'aucun résultat n'est affiché.
+  const radarAccounts = useProjectQuery(
+    api.radar.listRadarAccounts,
+    submitted ? {} : "skip",
+  );
+  const inspirations = useProjectQuery(
+    api.inspirations.listInspirations,
+    submitted ? {} : "skip",
+  );
+  const followedHandles = useMemo(
+    () => new Set((radarAccounts?.accounts ?? []).map((a) => a.handle)),
+    [radarAccounts],
+  );
+  const savedUrls = useMemo(
+    () => new Set((inspirations ?? []).map((i) => i.url)),
+    [inspirations],
   );
 
   async function runSearch(e: React.FormEvent) {
@@ -178,7 +210,13 @@ export function RadarOutliers() {
             </h3>
             <ul className="space-y-2">
               {result.videos.map((v) => (
-                <OutlierRow key={v.tiktokId} video={v} onPlay={() => setActive(v)} />
+                <OutlierRow
+                  key={v.tiktokId}
+                  video={v}
+                  onPlay={() => setActive(v)}
+                  followedHandles={followedHandles}
+                  savedUrls={savedUrls}
+                />
               ))}
             </ul>
           </section>
@@ -293,16 +331,87 @@ function RecurringAccountCard({ account }: { account: RecurringAccount }) {
 
 // ─── Ligne vidéo ─────────────────────────────────────────────────────────────
 
+/** Normalise un handle TikTok pour comparaison (sans @, minuscules), ou null. */
+function normalizeHandle(handle: string | null): string | null {
+  if (handle === null) return null;
+  const h = handle.trim().replace(/^@+/, "").toLowerCase();
+  return h.length > 0 ? h : null;
+}
+
 function OutlierRow({
   video,
   onPlay,
+  followedHandles,
+  savedUrls,
 }: {
   video: SearchVideo;
   onPlay: () => void;
+  followedHandles: ReadonlySet<string>;
+  savedUrls: ReadonlySet<string>;
 }) {
   const link = video.authorHandle
     ? tiktokCanonicalVideoUrl(video.authorHandle, video.tiktokId)
     : video.url;
+  const handle = normalizeHandle(video.authorHandle);
+
+  const addAccount = useProjectMutation(api.radar.addRadarAccount);
+  const createInspiration = useProjectMutation(api.inspirations.createInspiration);
+
+  // Vérité réactive (les queries reflètent l'ajout) + flag local optimiste pour
+  // un retour immédiat avant le rafraîchissement de la souscription.
+  const [justFollowed, setJustFollowed] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+  const [following, setFollowing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [inspoOpen, setInspoOpen] = useState(false);
+  const [titre, setTitre] = useState("");
+  const [note, setNote] = useState("");
+
+  const followed = justFollowed || (handle !== null && followedHandles.has(handle));
+  const saved = justSaved || savedUrls.has(link);
+
+  async function handleFollow() {
+    if (handle === null || followed || following) return;
+    setFollowing(true);
+    try {
+      await addAccount({ input: handle });
+      setJustFollowed(true);
+      toast.success(`@${handle} ajouté au suivi Radar`);
+    } catch (err) {
+      toast.error(convexErrorMessage(err, "Ajout au suivi impossible."));
+    } finally {
+      setFollowing(false);
+    }
+  }
+
+  async function handleSaveInspiration() {
+    if (saved || saving) return;
+    setSaving(true);
+    try {
+      await createInspiration({
+        url: link,
+        type: "video",
+        plateforme: "TikTok",
+        titre: titre.trim() || undefined,
+        notes: note.trim() || undefined,
+        stats: {
+          views: video.views,
+          followers: video.fans ?? undefined,
+          outlierRatio: video.outlierRatio,
+          authorHandle: video.authorHandle ?? undefined,
+          capturedAt: Date.now(),
+        },
+      });
+      setJustSaved(true);
+      setInspoOpen(false);
+      toast.success("Vidéo ajoutée aux inspirations");
+    } catch (err) {
+      toast.error(convexErrorMessage(err, "Ajout en inspiration impossible."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <li
       className={cn(
@@ -359,15 +468,103 @@ function OutlierRow({
         </div>
       </div>
 
-      <a
-        href={link}
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label="Ouvrir sur TikTok"
-        className="flex shrink-0 items-center self-start p-1 text-slate-400 hover:text-slate-700"
-      >
-        <ExternalLinkIcon className="size-4" />
-      </a>
+      <div className="flex shrink-0 flex-col items-center gap-1 self-start">
+        <a
+          href={link}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Ouvrir sur TikTok"
+          className="flex items-center justify-center p-1.5 text-slate-400 hover:text-slate-700"
+        >
+          <ExternalLinkIcon className="size-4" />
+        </a>
+
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={
+            handle === null
+              ? "Compte inconnu"
+              : followed
+                ? `@${handle} déjà suivi`
+                : `Suivre @${handle}`
+          }
+          title={
+            handle === null
+              ? "Handle indisponible"
+              : followed
+                ? "Compte déjà suivi"
+                : "Suivre ce compte"
+          }
+          onClick={handleFollow}
+          disabled={handle === null || followed || following}
+          className={cn(followed && "text-emerald-600")}
+        >
+          {following ? (
+            <Loader2Icon className="size-4 animate-spin" />
+          ) : followed ? (
+            <UserCheckIcon className="size-4" />
+          ) : (
+            <UserPlusIcon className="size-4" />
+          )}
+        </Button>
+
+        {saved ? (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Déjà en inspiration"
+            title="Déjà en inspiration"
+            disabled
+            className="text-emerald-600"
+          >
+            <BookmarkCheckIcon className="size-4" />
+          </Button>
+        ) : (
+          <Popover open={inspoOpen} onOpenChange={setInspoOpen}>
+            <PopoverTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Ajouter en inspiration"
+                  title="Ajouter en inspiration"
+                >
+                  <BookmarkPlusIcon className="size-4" />
+                </Button>
+              }
+            />
+            <PopoverContent align="end" className="w-72 space-y-2 p-3">
+              <p className="text-sm font-semibold text-slate-900">
+                Ajouter en inspiration
+              </p>
+              <Input
+                autoFocus
+                placeholder="Titre / étiquette (optionnel)"
+                value={titre}
+                maxLength={120}
+                onChange={(e) => setTitre(e.target.value)}
+              />
+              <Textarea
+                placeholder="Note perso (optionnelle)"
+                value={note}
+                maxLength={2000}
+                rows={3}
+                onChange={(e) => setNote(e.target.value)}
+              />
+              <Button
+                size="sm"
+                className="w-full"
+                onClick={handleSaveInspiration}
+                disabled={saving}
+              >
+                {saving && <Loader2Icon className="size-4 animate-spin" />}
+                Enregistrer
+              </Button>
+            </PopoverContent>
+          </Popover>
+        )}
+      </div>
     </li>
   );
 }

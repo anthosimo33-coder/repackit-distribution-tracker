@@ -556,6 +556,11 @@ export default defineSchema({
         followers: v.optional(v.number()),
         comments: v.optional(v.number()),
         capturedAt: v.optional(v.number()),
+        // Provenance RADAR (ajout depuis l'onglet Outliers) — ratio de
+        // surperformance et handle du compte source. Optionnels : nuls pour
+        // toute inspiration saisie hors Radar, n'invalident rien d'existant.
+        outlierRatio: v.optional(v.number()),
+        authorHandle: v.optional(v.string()),
       }),
     ),
     folderId: v.optional(v.id("folders")),
