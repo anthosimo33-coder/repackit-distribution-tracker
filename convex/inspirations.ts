@@ -16,6 +16,10 @@ const statsValidator = v.object({
   followers: v.optional(v.number()),
   comments: v.optional(v.number()),
   capturedAt: v.optional(v.number()),
+  // Provenance RADAR Outliers (cf. schema) — ratio de surperformance + handle
+  // du compte source. Optionnels, ne concernent que les ajouts depuis Radar.
+  outlierRatio: v.optional(v.number()),
+  authorHandle: v.optional(v.string()),
 });
 
 /**
