@@ -369,3 +369,175 @@ export function parseTrendHashtags(apiResponse: unknown): ParsedTrendHashtag[] {
   }
   return out;
 }
+
+// ─── Brique 3 — RECHERCHE D'OUTLIERS (mot-clé → vidéos scorées) ───────────────
+// Source : clockworks/tiktok-scraper en mode RECHERCHE par mot-clé. On score
+// chaque vidéo par sa surperformance relative (vues / abonnés) et on flague les
+// comptes qui surperforment de façon RÉPÉTÉE (≥ 2 vidéos au-dessus du seuil) →
+// signal d'un FORMAT validé, pas d'un coup de chance. Fonctions PURES (testées
+// Vitest), RÉPLIQUÉES à l'identique dans convex/radarApi.ts (règle A6).
+
+/**
+ * Seuil d'outlier (vues / abonnés) à partir duquel une vidéo est « pétée » : 5.0
+ * = la vidéo fait 5× les abonnés du compte en vues. AJUSTABLE ici (et dans la
+ * réplique convex/radarApi.ts). Pilote la détection de comptes récurrents.
+ */
+export const RADAR_OUTLIER_THRESHOLD = 5.0;
+
+/**
+ * Nombre minimum de vidéos outlier d'un MÊME compte (dans le lot) pour le
+ * qualifier de « récurrent » (format validé). 1 seule = fluke probable.
+ */
+export const RADAR_RECURRING_MIN_OUTLIERS = 2;
+
+/**
+ * Normalise un mot-clé de recherche pour la CLÉ DE CACHE : trim, minuscule,
+ * espaces internes compressés. "  Argent   En Ligne " → "argent en ligne".
+ * null si vide → l'appelant refuse la recherche.
+ */
+export function normalizeSearchKeyword(input: string | null | undefined): string | null {
+  if (typeof input !== "string") return null;
+  const norm = input.trim().toLowerCase().replace(/\s+/g, " ");
+  return norm === "" ? null : norm.slice(0, 100);
+}
+
+/** Vidéo parsée depuis la sortie clockworks en mode RECHERCHE par mot-clé. */
+export interface RadarSearchVideo {
+  tiktokId: string;
+  url: string;
+  authorId: string | null; // authorMeta.id — id NUMÉRIQUE stable (clé de groupage)
+  authorHandle: string | null; // authorMeta.name
+  publishedAt: number;
+  caption: string | null;
+  coverUrl: string | null;
+  views: number; // playCount
+  fans: number | null; // authorMeta.fans (abonnés du compte)
+  likes: number;
+  comments: number;
+  shares: number;
+  durationSec: number | null;
+  textLanguage: string | null; // textLanguage ("en", "fr", ...)
+}
+
+/**
+ * Parse la sortie clockworks en mode recherche → vidéos exploitables pour le
+ * scoring. Capte en plus du parse profil l'`authorMeta.id` (groupage récurrence)
+ * et `textLanguage` (filtre anglophone). Item sans id exploitable ignoré.
+ */
+export function parseRadarSearchVideos(apiResponse: unknown): RadarSearchVideo[] {
+  const items = Array.isArray(apiResponse) ? apiResponse : [];
+  const out: RadarSearchVideo[] = [];
+  for (const raw of items) {
+    if (!raw || typeof raw !== "object") continue;
+    const item = raw as Record<string, unknown>;
+
+    const rawId = item.id;
+    const tiktokId =
+      typeof rawId === "string" || typeof rawId === "number"
+        ? String(rawId)
+        : videoIdFromUrl(item.webVideoUrl);
+    if (!tiktokId || tiktokId === "") continue;
+
+    const authorMeta = (item.authorMeta ?? {}) as Record<string, unknown>;
+    const videoMeta = (item.videoMeta ?? {}) as Record<string, unknown>;
+    const authorHandle = cleanText(authorMeta.name, 100);
+    const rawAuthorId = authorMeta.id;
+    const authorId =
+      typeof rawAuthorId === "string" || typeof rawAuthorId === "number"
+        ? String(rawAuthorId)
+        : null;
+
+    out.push({
+      tiktokId,
+      url:
+        firstString(item.webVideoUrl) ??
+        (authorHandle
+          ? `https://www.tiktok.com/@${authorHandle}/video/${tiktokId}`
+          : `https://www.tiktok.com/video/${tiktokId}`),
+      authorId,
+      authorHandle,
+      publishedAt: parsePublishedAt(item),
+      caption: cleanText(item.text),
+      coverUrl: firstString(
+        videoMeta.coverUrl,
+        videoMeta.cover,
+        videoMeta.originCover,
+        videoMeta.dynamicCover,
+      ),
+      views: toCount(item.playCount) ?? 0,
+      fans: toCount(authorMeta.fans),
+      likes: toCount(item.diggCount) ?? 0,
+      comments: toCount(item.commentCount) ?? 0,
+      shares: toCount(item.shareCount) ?? 0,
+      durationSec: toCount(videoMeta.duration),
+      textLanguage: cleanText(item.textLanguage, 8),
+    });
+  }
+  return out;
+}
+
+/**
+ * Outlier ratio = vues / abonnés. GARDE-FOU : null si abonnés absent ou ≤ 0
+ * (vidéo exclue du classement plutôt que division par zéro). Jamais NaN/Infinity.
+ */
+export function computeOutlierRatio(views: number, fans: number | null): number | null {
+  if (fans === null || !Number.isFinite(fans) || fans <= 0) return null;
+  if (!Number.isFinite(views) || views < 0) return null;
+  return views / fans;
+}
+
+/** Vidéo scorée + flags de récurrence du compte (prête à l'affichage/stockage). */
+export interface RankedSearchVideo extends RadarSearchVideo {
+  outlierRatio: number;
+  accountOutlierCount: number; // nb de vidéos outlier de CE compte dans le lot
+  isRecurringAccount: boolean; // accountOutlierCount ≥ RADAR_RECURRING_MIN_OUTLIERS
+}
+
+/**
+ * Cœur de la Brique 3. À partir d'un lot brut de vidéos de recherche :
+ *   1. ne garde QUE l'anglophone (textLanguage === "en") ;
+ *   2. calcule l'outlier ratio, EXCLUT les vidéos sans abonnés exploitables ;
+ *   3. groupe par authorId, compte les vidéos ≥ `threshold` par compte → un
+ *      compte avec ≥ 2 outliers est « récurrent » (format validé) ;
+ *   4. trie par outlier ratio DÉCROISSANT (on ignore l'ordre Apify, non fiable).
+ * Les vidéos sans authorId ne peuvent pas être groupées → jamais récurrentes.
+ * Pure (aucune I/O) → testée Vitest, répliquée dans convex/radarApi.ts.
+ */
+export function rankSearchVideos(
+  videos: readonly RadarSearchVideo[],
+  threshold: number = RADAR_OUTLIER_THRESHOLD,
+): RankedSearchVideo[] {
+  // 1-2. Filtre anglophone + ratio défini.
+  const scored: (RadarSearchVideo & { outlierRatio: number })[] = [];
+  for (const v of videos) {
+    if (v.textLanguage !== "en") continue;
+    const ratio = computeOutlierRatio(v.views, v.fans);
+    if (ratio === null) continue;
+    scored.push({ ...v, outlierRatio: ratio });
+  }
+
+  // 3. Compte des outliers par compte (authorId), uniquement ≥ seuil.
+  const outliersByAuthor = new Map<string, number>();
+  for (const v of scored) {
+    if (v.authorId === null || v.outlierRatio < threshold) continue;
+    outliersByAuthor.set(v.authorId, (outliersByAuthor.get(v.authorId) ?? 0) + 1);
+  }
+
+  const ranked: RankedSearchVideo[] = scored.map((v) => {
+    const accountOutlierCount =
+      v.authorId !== null
+        ? (outliersByAuthor.get(v.authorId) ?? 0)
+        : v.outlierRatio >= threshold
+          ? 1
+          : 0;
+    return {
+      ...v,
+      accountOutlierCount,
+      isRecurringAccount: accountOutlierCount >= RADAR_RECURRING_MIN_OUTLIERS,
+    };
+  });
+
+  // 4. Tri par surperformance décroissante.
+  ranked.sort((a, b) => b.outlierRatio - a.outlierRatio);
+  return ranked;
+}

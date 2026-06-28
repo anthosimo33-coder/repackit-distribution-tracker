@@ -4,13 +4,14 @@ import { useProjectQuery } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import { RadarIcon, UsersIcon, TrendingUpIcon } from "lucide-react";
+import { RadarIcon, UsersIcon, TrendingUpIcon, ZapIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { RadarSyncButton } from "@/components/admin/radar/RadarSyncButton";
 import { AddRadarAccountDialog } from "@/components/admin/radar/AddRadarAccountDialog";
 import { RadarAccountsList } from "@/components/admin/radar/RadarAccountsList";
 import { RadarVideoWall } from "@/components/admin/radar/RadarVideoWall";
 import { RadarTrends } from "@/components/admin/radar/RadarTrends";
+import { RadarOutliers } from "@/components/admin/radar/RadarOutliers";
 
 /**
  * RADAR — veille TikTok (ADMIN UNIQUEMENT). Section séparée du tracking
@@ -56,6 +57,10 @@ export default function RadarPage() {
           <TabsTrigger value="tendances">
             <TrendingUpIcon className="size-4" />
             Tendances
+          </TabsTrigger>
+          <TabsTrigger value="outliers">
+            <ZapIcon className="size-4" />
+            Outliers
           </TabsTrigger>
         </TabsList>
 
@@ -118,6 +123,10 @@ export default function RadarPage() {
 
         <TabsContent value="tendances" className="mt-6">
           <RadarTrends />
+        </TabsContent>
+
+        <TabsContent value="outliers" className="mt-6">
+          <RadarOutliers />
         </TabsContent>
       </Tabs>
     </div>

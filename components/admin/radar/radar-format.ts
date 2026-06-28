@@ -34,6 +34,13 @@ export function formatEngagement(ratio: number): string {
   return (ratio * 100).toFixed(1).replace(".", ",") + " %";
 }
 
+/** Outlier ratio vues/abonnés → "47×", "3,2×" (< 10 = 1 décimale). */
+export function formatOutlierRatio(ratio: number): string {
+  if (!Number.isFinite(ratio) || ratio < 0) return "—";
+  if (ratio >= 10) return `${Math.round(ratio)}×`;
+  return `${ratio.toFixed(1).replace(".", ",")}×`;
+}
+
 /** Date de publication courte (fr-FR) : "25 juin 2026". */
 export function formatPublished(ms: number): string {
   if (!Number.isFinite(ms) || ms <= 0) return "—";

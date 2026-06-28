@@ -538,3 +538,233 @@ export async function apiFetchHashtagVideos(
     };
   }
 }
+
+// ═══ Brique 3 — RECHERCHE D'OUTLIERS ═════════════════════════════════════════
+// Répliques À L'IDENTIQUE de lib/radarParsing.ts (tests Vitest là-bas) + le fetch
+// I/O en mode recherche par mot-clé. Toute évolution doit l'être des DEUX côtés.
+
+/** Réplique de lib/radarParsing.RADAR_OUTLIER_THRESHOLD. */
+export const RADAR_OUTLIER_THRESHOLD = 5.0;
+
+/** Réplique de lib/radarParsing.RADAR_RECURRING_MIN_OUTLIERS. */
+export const RADAR_RECURRING_MIN_OUTLIERS = 2;
+
+/** Réplique de lib/radarParsing.normalizeSearchKeyword — cf tests Vitest là-bas. */
+export function normalizeSearchKeyword(
+  input: string | null | undefined,
+): string | null {
+  if (typeof input !== "string") return null;
+  const norm = input.trim().toLowerCase().replace(/\s+/g, " ");
+  return norm === "" ? null : norm.slice(0, 100);
+}
+
+/** Réplique de lib/radarParsing.RadarSearchVideo. */
+export interface RadarSearchVideo {
+  tiktokId: string;
+  url: string;
+  authorId: string | null;
+  authorHandle: string | null;
+  publishedAt: number;
+  caption: string | null;
+  coverUrl: string | null;
+  views: number;
+  fans: number | null;
+  likes: number;
+  comments: number;
+  shares: number;
+  durationSec: number | null;
+  textLanguage: string | null;
+}
+
+/** Réplique de lib/radarParsing.parseRadarSearchVideos — cf tests Vitest là-bas. */
+export function parseRadarSearchVideos(apiResponse: unknown): RadarSearchVideo[] {
+  const items = Array.isArray(apiResponse) ? apiResponse : [];
+  const out: RadarSearchVideo[] = [];
+  for (const raw of items) {
+    if (!raw || typeof raw !== "object") continue;
+    const item = raw as Record<string, unknown>;
+
+    const rawId = item.id;
+    const tiktokId =
+      typeof rawId === "string" || typeof rawId === "number"
+        ? String(rawId)
+        : videoIdFromUrl(item.webVideoUrl);
+    if (!tiktokId || tiktokId === "") continue;
+
+    const authorMeta = (item.authorMeta ?? {}) as Record<string, unknown>;
+    const videoMeta = (item.videoMeta ?? {}) as Record<string, unknown>;
+    const authorHandle = cleanText(authorMeta.name, 100);
+    const rawAuthorId = authorMeta.id;
+    const authorId =
+      typeof rawAuthorId === "string" || typeof rawAuthorId === "number"
+        ? String(rawAuthorId)
+        : null;
+
+    out.push({
+      tiktokId,
+      url:
+        firstString(item.webVideoUrl) ??
+        (authorHandle
+          ? `https://www.tiktok.com/@${authorHandle}/video/${tiktokId}`
+          : `https://www.tiktok.com/video/${tiktokId}`),
+      authorId,
+      authorHandle,
+      publishedAt: parsePublishedAt(item),
+      caption: cleanText(item.text),
+      coverUrl: firstString(
+        videoMeta.coverUrl,
+        videoMeta.cover,
+        videoMeta.originCover,
+        videoMeta.dynamicCover,
+      ),
+      views: toCount(item.playCount) ?? 0,
+      fans: toCount(authorMeta.fans),
+      likes: toCount(item.diggCount) ?? 0,
+      comments: toCount(item.commentCount) ?? 0,
+      shares: toCount(item.shareCount) ?? 0,
+      durationSec: toCount(videoMeta.duration),
+      textLanguage: cleanText(item.textLanguage, 8),
+    });
+  }
+  return out;
+}
+
+/** Réplique de lib/radarParsing.computeOutlierRatio — cf tests Vitest là-bas. */
+export function computeOutlierRatio(
+  views: number,
+  fans: number | null,
+): number | null {
+  if (fans === null || !Number.isFinite(fans) || fans <= 0) return null;
+  if (!Number.isFinite(views) || views < 0) return null;
+  return views / fans;
+}
+
+/** Réplique de lib/radarParsing.RankedSearchVideo. */
+export interface RankedSearchVideo extends RadarSearchVideo {
+  outlierRatio: number;
+  accountOutlierCount: number;
+  isRecurringAccount: boolean;
+}
+
+/** Réplique de lib/radarParsing.rankSearchVideos — cf tests Vitest là-bas. */
+export function rankSearchVideos(
+  videos: readonly RadarSearchVideo[],
+  threshold: number = RADAR_OUTLIER_THRESHOLD,
+): RankedSearchVideo[] {
+  const scored: (RadarSearchVideo & { outlierRatio: number })[] = [];
+  for (const v of videos) {
+    if (v.textLanguage !== "en") continue;
+    const ratio = computeOutlierRatio(v.views, v.fans);
+    if (ratio === null) continue;
+    scored.push({ ...v, outlierRatio: ratio });
+  }
+
+  const outliersByAuthor = new Map<string, number>();
+  for (const v of scored) {
+    if (v.authorId === null || v.outlierRatio < threshold) continue;
+    outliersByAuthor.set(v.authorId, (outliersByAuthor.get(v.authorId) ?? 0) + 1);
+  }
+
+  const ranked: RankedSearchVideo[] = scored.map((v) => {
+    const accountOutlierCount =
+      v.authorId !== null
+        ? (outliersByAuthor.get(v.authorId) ?? 0)
+        : v.outlierRatio >= threshold
+          ? 1
+          : 0;
+    return {
+      ...v,
+      accountOutlierCount,
+      isRecurringAccount: accountOutlierCount >= RADAR_RECURRING_MIN_OUTLIERS,
+    };
+  });
+
+  ranked.sort((a, b) => b.outlierRatio - a.outlierRatio);
+  return ranked;
+}
+
+// ─── Fetch recherche (I/O — runtime action uniquement) ───────────────────────
+
+/** Proxy US hardcodé (cf brief Brique 3 : pas de sélecteur pays). */
+const SEARCH_PROXY_COUNTRY = "US";
+
+/**
+ * Timeout (s) du run recherche : plus long que le profil (80 résultats + add-ons
+ * recherche = run plus lent). Borné par le max gateway run-sync d'Apify.
+ */
+const SEARCH_RUN_TIMEOUT_SECS = 240;
+
+export interface FetchSearchResult {
+  ok: boolean;
+  /** Vidéos parsées BRUTES (non scorées) — l'appelant applique rankSearchVideos. */
+  videos: RadarSearchVideo[];
+  /** Taille du lot brut renvoyé par Apify (avant filtre langue/scoring). */
+  totalFetched: number;
+  error?: string;
+}
+
+/**
+ * Relève un lot de vidéos TikTok par MOT-CLÉ via Apify (clé RADAR). Mode recherche
+ * vidéos, proxy US, tri par popularité (most liked) et fenêtre 3 derniers mois
+ * (add-ons payants — le compte RADAR y a accès, confirmé au test de faisabilité).
+ * Le scoring/tri outlier est fait par l'appelant (rankSearchVideos), l'ordre Apify
+ * n'étant PAS fiable. Échec réseau/HTTP → `{ ok:false }` (pas d'exception). Token
+ * jamais logué. `fetchImpl` injectable pour les tests.
+ */
+export async function apiFetchSearchVideos(
+  keyword: string,
+  apiToken: string,
+  opts: { resultsPerPage: number },
+  fetchImpl: typeof fetch = fetch,
+): Promise<FetchSearchResult> {
+  const query = keyword.trim();
+  if (query === "") {
+    return { ok: false, videos: [], totalFetched: 0, error: "mot-clé vide" };
+  }
+  const endpoint = `${APIFY_ACTS_BASE}/${actorSlug()}/run-sync-get-dataset-items?timeout=${SEARCH_RUN_TIMEOUT_SECS}`;
+  try {
+    const res = await fetchImpl(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiToken}`,
+      },
+      body: JSON.stringify({
+        searchQueries: [query],
+        searchSection: "/video",
+        proxyCountryCode: SEARCH_PROXY_COUNTRY,
+        videoSearchSorting: "MOST_LIKED",
+        videoSearchDateFilter: "LAST_3_MONTHS",
+        resultsPerPage: opts.resultsPerPage,
+        shouldDownloadVideos: false,
+        shouldDownloadCovers: false,
+        shouldDownloadSubtitles: false,
+        shouldDownloadSlideshowImages: false,
+        shouldDownloadAvatars: false,
+        shouldDownloadMusicCovers: false,
+      }),
+    });
+    if (!res.ok) {
+      return {
+        ok: false,
+        videos: [],
+        totalFetched: 0,
+        error: await readApiError(res),
+      };
+    }
+    const json: unknown = await res.json();
+    const videos = parseRadarSearchVideos(json);
+    return {
+      ok: true,
+      videos,
+      totalFetched: Array.isArray(json) ? json.length : videos.length,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      videos: [],
+      totalFetched: 0,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}

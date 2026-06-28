@@ -1,0 +1,479 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import type { FunctionReturnType } from "convex/server";
+import {
+  useProjectAction,
+  useProjectQuery,
+} from "@/components/project/use-project-convex";
+import { api } from "@/convex/_generated/api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  CalendarIcon,
+  ExternalLinkIcon,
+  EyeIcon,
+  FlameIcon,
+  PlayIcon,
+  RepeatIcon,
+  SearchIcon,
+  UsersIcon,
+} from "lucide-react";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+import { convexErrorMessage } from "@/lib/convex-error";
+import { tiktokCanonicalVideoUrl, tiktokPlayerEmbedUrl } from "@/lib/embed";
+import {
+  formatCount,
+  formatOutlierRatio,
+  formatPublished,
+  formatRelative,
+} from "./radar-format";
+
+/**
+ * RADAR Brique 3 — RECHERCHE D'OUTLIERS. L'admin tape un mot-clé : on récupère un
+ * lot de vidéos TikTok US (via l'action cache-aware searchOutliers), scorées par
+ * surperformance relative (vues/abonnés) côté serveur. L'UI met en avant les
+ * COMPTES RÉCURRENTS (≥ 2 vidéos outlier = format validé), puis liste les vidéos
+ * triées par ratio décroissant. Lecture TikTok en place (iframe player officiel).
+ * Admin only (l'action/query sont gardées serveur).
+ */
+type SearchResult = NonNullable<
+  FunctionReturnType<typeof api.radar.getRadarSearch>
+>;
+type SearchVideo = SearchResult["videos"][number];
+
+/** Provenance du dernier résultat affiché (pour l'indicateur de cache). */
+type Origin = { cached: boolean; fetchedAt: number | null } | null;
+
+export function RadarOutliers() {
+  const [input, setInput] = useState("");
+  const [submitted, setSubmitted] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [origin, setOrigin] = useState<Origin>(null);
+  const [active, setActive] = useState<SearchVideo | null>(null);
+
+  const search = useProjectAction(api.radar.searchOutliers);
+  const result = useProjectQuery(
+    api.radar.getRadarSearch,
+    submitted ? { keyword: submitted } : "skip",
+  );
+
+  async function runSearch(e: React.FormEvent) {
+    e.preventDefault();
+    const keyword = input.trim();
+    if (keyword === "" || loading) return;
+    setLoading(true);
+    try {
+      const r = await search({ keyword });
+      if (!r.ok) {
+        toast.error("Recherche impossible (quota Apify ou acteur indisponible).");
+        return;
+      }
+      setSubmitted(keyword.toLowerCase().replace(/\s+/g, " "));
+      setOrigin({ cached: r.cached, fetchedAt: r.fetchedAt });
+      if (r.cached) {
+        toast.info("Résultats servis depuis le cache — aucun appel consommé.");
+      }
+    } catch (err) {
+      toast.error(convexErrorMessage(err, "Recherche impossible."));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const videos = result?.videos;
+  const recurringAccounts = useMemo(
+    () => (videos ? groupRecurringAccounts(videos) : []),
+    [videos],
+  );
+
+  const waitingForResult = submitted !== null && result === undefined;
+  const showSkeleton = loading || waitingForResult;
+
+  return (
+    <div className="space-y-5">
+      <form onSubmit={runSearch} className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+          <Input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Mot-clé (ex. make money online)"
+            className="pl-9"
+            aria-label="Mot-clé de recherche d'outliers"
+            disabled={loading}
+            maxLength={100}
+          />
+        </div>
+        <Button type="submit" disabled={loading || input.trim() === ""} className="gap-1.5">
+          <SearchIcon className={cn("size-4", loading && "animate-pulse")} />
+          {loading ? "Recherche…" : "Rechercher"}
+        </Button>
+      </form>
+
+      <p className="text-xs text-slate-400">
+        TikTok 🇺🇸 · 3 derniers mois · les comptes qui pètent ≥ 2 fois sont des
+        formats validés. Recherche mise en cache 6 h.
+      </p>
+
+      {showSkeleton ? (
+        <div className="space-y-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-24 w-full" />
+          ))}
+        </div>
+      ) : submitted === null ? (
+        <EmptyState
+          icon={SearchIcon}
+          title="Recherche d'outliers"
+          text="Tape un mot-clé pour repérer les vidéos qui surperforment et les comptes qui valident un format."
+        />
+      ) : result == null || result.videos.length === 0 ? (
+        <EmptyState
+          icon={SearchIcon}
+          title="Aucun outlier"
+          text="Aucune vidéo anglophone exploitable pour ce mot-clé. Essaie une autre formulation."
+        />
+      ) : (
+        <div className="space-y-5">
+          <CacheBanner origin={origin} result={result} count={result.videos.length} />
+
+          {recurringAccounts.length > 0 && (
+            <section className="space-y-2">
+              <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
+                <RepeatIcon className="size-4 text-emerald-600" />
+                Comptes récurrents
+                <span className="text-xs font-normal text-slate-400">
+                  ({recurringAccounts.length})
+                </span>
+              </h3>
+              <p className="text-xs text-slate-500">
+                Ces comptes ont fait ≥ 2 vidéos outlier sur ce mot-clé — formats à
+                disséquer en priorité.
+              </p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {recurringAccounts.map((a) => (
+                  <RecurringAccountCard key={a.authorId} account={a} />
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section className="space-y-2">
+            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
+              <FlameIcon className="size-4 text-slate-500" />
+              Vidéos par surperformance
+              <span className="text-xs font-normal text-slate-400">
+                ({result.videos.length})
+              </span>
+            </h3>
+            <ul className="space-y-2">
+              {result.videos.map((v) => (
+                <OutlierRow key={v.tiktokId} video={v} onPlay={() => setActive(v)} />
+              ))}
+            </ul>
+          </section>
+        </div>
+      )}
+
+      <EmbedDialog video={active} onClose={() => setActive(null)} />
+    </div>
+  );
+}
+
+// ─── Indicateur de cache ─────────────────────────────────────────────────────
+
+function CacheBanner({
+  origin,
+  result,
+  count,
+}: {
+  origin: Origin;
+  result: SearchResult;
+  count: number;
+}) {
+  const cached = origin?.cached ?? false;
+  return (
+    <div
+      className={cn(
+        "flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border px-3 py-2 text-xs",
+        cached
+          ? "border-amber-200 bg-amber-50 text-amber-700"
+          : "border-emerald-200 bg-emerald-50 text-emerald-700",
+      )}
+    >
+      <span className="font-medium">
+        {count} vidéo{count > 1 ? "s" : ""} · {result.totalFetched} récupérée
+        {result.totalFetched > 1 ? "s" : ""} brutes
+      </span>
+      <span className="text-slate-400">·</span>
+      {cached ? (
+        <span>
+          Résultats en cache ({formatRelative(result.fetchedAt)}) — aucun appel
+          Apify consommé.
+        </span>
+      ) : (
+        <span>Résultats frais ({formatRelative(result.fetchedAt)}).</span>
+      )}
+    </div>
+  );
+}
+
+// ─── Comptes récurrents (groupage client) ────────────────────────────────────
+
+interface RecurringAccount {
+  authorId: string;
+  handle: string | null;
+  fans: number | null;
+  outlierCount: number;
+  bestRatio: number;
+  videoCount: number;
+}
+
+/** Regroupe les vidéos récurrentes par compte (authorId), trié par best ratio. */
+function groupRecurringAccounts(videos: readonly SearchVideo[]): RecurringAccount[] {
+  const byId = new Map<string, RecurringAccount>();
+  for (const v of videos) {
+    if (!v.isRecurringAccount || v.authorId === null) continue;
+    const cur = byId.get(v.authorId);
+    if (cur === undefined) {
+      byId.set(v.authorId, {
+        authorId: v.authorId,
+        handle: v.authorHandle,
+        fans: v.fans,
+        outlierCount: v.accountOutlierCount,
+        bestRatio: v.outlierRatio,
+        videoCount: 1,
+      });
+    } else {
+      cur.videoCount += 1;
+      cur.bestRatio = Math.max(cur.bestRatio, v.outlierRatio);
+    }
+  }
+  return [...byId.values()].sort((a, b) => b.bestRatio - a.bestRatio);
+}
+
+function RecurringAccountCard({ account }: { account: RecurringAccount }) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+        <RepeatIcon className="size-4" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <a
+          href={`https://www.tiktok.com/@${account.handle ?? ""}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block truncate text-sm font-semibold text-slate-900 hover:underline"
+        >
+          @{account.handle ?? "compte"}
+        </a>
+        <p className="flex flex-wrap items-center gap-x-2 text-xs text-slate-500">
+          <span className="font-medium text-emerald-700">
+            {account.outlierCount} vidéos outlier
+          </span>
+          {account.fans != null && <span>{formatCount(account.fans)} abonnés</span>}
+        </p>
+      </div>
+      <span className="shrink-0 rounded-md bg-emerald-600 px-2 py-1 text-sm font-bold tabular-nums text-white">
+        {formatOutlierRatio(account.bestRatio)}
+      </span>
+    </div>
+  );
+}
+
+// ─── Ligne vidéo ─────────────────────────────────────────────────────────────
+
+function OutlierRow({
+  video,
+  onPlay,
+}: {
+  video: SearchVideo;
+  onPlay: () => void;
+}) {
+  const link = video.authorHandle
+    ? tiktokCanonicalVideoUrl(video.authorHandle, video.tiktokId)
+    : video.url;
+  return (
+    <li
+      className={cn(
+        "flex items-stretch gap-3 rounded-lg border bg-white p-2 shadow-sm",
+        video.isRecurringAccount ? "border-emerald-300" : "border-slate-200",
+      )}
+    >
+      <button
+        type="button"
+        onClick={onPlay}
+        aria-label={`Lire la vidéo de @${video.authorHandle ?? ""}`}
+        className="relative block aspect-[9/16] h-28 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-900"
+      >
+        <Thumb url={video.coverUrl} alt={video.caption ?? "Vidéo TikTok"} />
+        <span className="absolute inset-0 flex items-center justify-center">
+          <PlayIcon className="size-6 text-white/90 drop-shadow" />
+        </span>
+      </button>
+
+      <div className="flex min-w-0 flex-1 flex-col justify-between gap-1 py-0.5">
+        <div className="min-w-0 space-y-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="rounded-md bg-slate-900 px-2 py-0.5 text-sm font-bold tabular-nums text-white">
+              {formatOutlierRatio(video.outlierRatio)}
+            </span>
+            {video.isRecurringAccount && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                <RepeatIcon className="size-3" />
+                COMPTE RÉCURRENT · {video.accountOutlierCount}
+              </span>
+            )}
+          </div>
+          {video.caption && (
+            <p className="line-clamp-2 text-sm text-slate-700">{video.caption}</p>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slate-500">
+          <span className="truncate font-medium text-slate-700">
+            @{video.authorHandle ?? "?"}
+          </span>
+          <span className="inline-flex items-center gap-1 tabular-nums">
+            <EyeIcon className="size-3.5 text-slate-400" />
+            {formatCount(video.views)}
+          </span>
+          <span className="inline-flex items-center gap-1 tabular-nums">
+            <UsersIcon className="size-3.5 text-slate-400" />
+            {video.fans != null ? formatCount(video.fans) : "—"}
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <CalendarIcon className="size-3 text-slate-400" />
+            {formatPublished(video.publishedAt)}
+          </span>
+        </div>
+      </div>
+
+      <a
+        href={link}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Ouvrir sur TikTok"
+        className="flex shrink-0 items-center self-start p-1 text-slate-400 hover:text-slate-700"
+      >
+        <ExternalLinkIcon className="size-4" />
+      </a>
+    </li>
+  );
+}
+
+// ─── Miniature (repli propre si l'image manque/expire) ───────────────────────
+
+function Thumb({ url, alt }: { url: string | null; alt: string }) {
+  const [broken, setBroken] = useState(false);
+  if (url && !broken) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={url}
+        alt={alt}
+        loading="lazy"
+        onError={() => setBroken(true)}
+        className="size-full object-cover"
+      />
+    );
+  }
+  return (
+    <div className="flex size-full items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900 text-slate-300">
+      <PlayIcon className="size-6" />
+    </div>
+  );
+}
+
+// ─── Empty / embed ───────────────────────────────────────────────────────────
+
+function EmptyState({
+  icon: Icon,
+  title,
+  text,
+}: {
+  icon: typeof SearchIcon;
+  title: string;
+  text: string;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-slate-200 bg-slate-50/50 px-6 py-16 text-center">
+      <Icon className="size-12 text-slate-300" strokeWidth={1.5} />
+      <div className="space-y-1">
+        <h2 className="text-base font-semibold text-slate-900">{title}</h2>
+        <p className="mx-auto max-w-sm text-sm text-slate-500">{text}</p>
+      </div>
+    </div>
+  );
+}
+
+/** Lecture EN PLACE via l'iframe du lecteur TikTok officiel (cf RadarVideoGrid). */
+function EmbedDialog({
+  video,
+  onClose,
+}: {
+  video: SearchVideo | null;
+  onClose: () => void;
+}) {
+  const canonicalUrl =
+    video === null
+      ? ""
+      : video.authorHandle
+        ? tiktokCanonicalVideoUrl(video.authorHandle, video.tiktokId)
+        : video.url;
+
+  return (
+    <Dialog open={video !== null} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        {video && (
+          <>
+            <DialogHeader>
+              <DialogTitle className="truncate">@{video.authorHandle}</DialogTitle>
+              {video.caption && (
+                <DialogDescription className="line-clamp-2">
+                  {video.caption}
+                </DialogDescription>
+              )}
+            </DialogHeader>
+            <div className="mx-auto w-full max-w-[320px] overflow-hidden rounded-lg border border-slate-200 bg-black">
+              <iframe
+                key={video.tiktokId}
+                src={tiktokPlayerEmbedUrl(video.tiktokId)}
+                title={video.caption ?? "Vidéo TikTok"}
+                className="aspect-[9/16] w-full"
+                allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+                allowFullScreen
+                data-testid="radar-tiktok-player"
+              />
+            </div>
+            <div className="space-y-1 text-center">
+              <a
+                href={canonicalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900"
+              >
+                <ExternalLinkIcon className="size-4" />
+                Ouvrir sur TikTok
+              </a>
+              <p className="text-xs text-slate-400">
+                Si la vidéo ne se lance pas (privée ou restreinte), ouvre-la sur
+                TikTok.
+              </p>
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}

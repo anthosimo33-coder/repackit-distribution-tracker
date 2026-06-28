@@ -26,11 +26,14 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { adminMutation, adminQuery } from "./functions";
 import {
   apiFetchHashtagVideos,
+  apiFetchSearchVideos,
   apiFetchTrendHashtags,
   computeEngagement,
   fetchRadarProfileVideos,
   mergeRadarBuckets,
+  normalizeSearchKeyword,
   normalizeTikTokHandle,
+  rankSearchVideos,
   toRadarDateFilter,
 } from "./radarApi";
 
@@ -894,5 +897,208 @@ export const fetchTrendVideos = adminAction({
       })),
     });
     return { ok: true, count: res.videos.length };
+  },
+});
+
+// ═══ RECHERCHE D'OUTLIERS (Brique 3) — mot-clé → vidéos scorées (cache 6 h) ════
+// Flux : action searchOutliers (cache-aware) → si frais (< 6 h) resert le cache
+// SANS appel Apify ; sinon fetch Apify (clé RADAR, proxy US), scoring/tri outlier
+// + détection de comptes récurrents (lib pure), puis remplacement du cache du
+// mot-clé. La query getRadarSearch lit le cache scoré. Silo radarSearches dédié.
+
+/** Résultats récupérés par recherche (resultsPerPage Apify, mode recherche). */
+const SEARCH_RESULTS_PER_PAGE = 80;
+
+/** TTL du cache d'une recherche : 6 h (garde-fou budget, l'appel est coûteux). */
+const SEARCH_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+
+const rankedSearchVideoValidator = v.object({
+  tiktokId: v.string(),
+  url: v.string(),
+  authorId: v.union(v.string(), v.null()),
+  authorHandle: v.union(v.string(), v.null()),
+  publishedAt: v.number(),
+  caption: v.union(v.string(), v.null()),
+  coverUrl: v.union(v.string(), v.null()),
+  views: v.number(),
+  fans: v.union(v.number(), v.null()),
+  likes: v.number(),
+  comments: v.number(),
+  shares: v.number(),
+  durationSec: v.union(v.number(), v.null()),
+  outlierRatio: v.number(),
+  accountOutlierCount: v.number(),
+  isRecurringAccount: v.boolean(),
+});
+
+// ─── Query admin (lecture du cache) ──────────────────────────────────────────
+
+/**
+ * Lot scoré en cache pour un mot-clé (normalisé), ou null si jamais recherché.
+ * Vidéos déjà filtrées (anglophone), scorées et triées par outlierRatio
+ * décroissant, avec flags de récurrence — la query ne fait que lire le cache.
+ */
+export const getRadarSearch = adminQuery({
+  args: { keyword: v.string() },
+  handler: async (ctx, { keyword }) => {
+    const norm = normalizeSearchKeyword(keyword);
+    if (norm === null) return null;
+    const row = await ctx.db
+      .query("radarSearches")
+      .withIndex("by_project_keyword", (q) =>
+        q.eq("projectId", ctx.projectId).eq("keyword", norm),
+      )
+      .first();
+    if (row === null) return null;
+    return {
+      keyword: row.keyword,
+      rawKeyword: row.rawKeyword,
+      fetchedAt: row.fetchedAt,
+      totalFetched: row.totalFetched,
+      videos: row.videos,
+    };
+  },
+});
+
+// ─── Query interne (fraîcheur du cache, pour l'action) ───────────────────────
+
+/** Fraîcheur du cache d'un mot-clé pour décider d'un appel Apify (action). */
+export const getSearchCacheMeta = internalQuery({
+  args: { projectId: v.id("projects"), keyword: v.string() },
+  handler: async (
+    ctx,
+    { projectId, keyword },
+  ): Promise<{ fetchedAt: number; count: number } | null> => {
+    const row = await ctx.db
+      .query("radarSearches")
+      .withIndex("by_project_keyword", (q) =>
+        q.eq("projectId", projectId).eq("keyword", keyword),
+      )
+      .first();
+    return row === null
+      ? null
+      : { fetchedAt: row.fetchedAt, count: row.videos.length };
+  },
+});
+
+// ─── Mutation interne (remplacement du cache d'un mot-clé) ───────────────────
+
+/** Remplace le lot scoré en cache pour un mot-clé (un seul par projet+mot-clé). */
+export const replaceRadarSearch = internalMutation({
+  args: {
+    projectId: v.id("projects"),
+    keyword: v.string(),
+    rawKeyword: v.string(),
+    fetchedAt: v.number(),
+    totalFetched: v.number(),
+    videos: v.array(rankedSearchVideoValidator),
+  },
+  handler: async (
+    ctx,
+    { projectId, keyword, rawKeyword, fetchedAt, totalFetched, videos },
+  ): Promise<{ inserted: number }> => {
+    const existing = await ctx.db
+      .query("radarSearches")
+      .withIndex("by_project_keyword", (q) =>
+        q.eq("projectId", projectId).eq("keyword", keyword),
+      )
+      .first();
+    if (existing !== null) await ctx.db.delete(existing._id);
+    await ctx.db.insert("radarSearches", {
+      projectId,
+      keyword,
+      rawKeyword,
+      fetchedAt,
+      totalFetched,
+      videos,
+    });
+    return { inserted: videos.length };
+  },
+});
+
+// ─── Action admin (I/O Apify, clé RADAR, cache-aware, awaitable) ─────────────
+
+/**
+ * Recherche d'outliers par mot-clé. CACHE 6 H d'abord : si le même mot-clé
+ * (normalisé) a été recherché dans la fenêtre, on resert le cache SANS appel
+ * Apify (`cached:true`). Sinon : fetch Apify (clé RADAR, proxy US, 80 résultats),
+ * scoring/tri outlier + détection récurrence (lib pure), remplacement du cache.
+ * Awaitable → le front sait quand c'est fini et si un appel a été consommé.
+ * Token jamais logué.
+ */
+export const searchOutliers = adminAction({
+  args: { keyword: v.string() },
+  handler: async (
+    ctx,
+    { keyword },
+  ): Promise<{
+    ok: boolean;
+    cached: boolean;
+    fetchedAt: number | null;
+    count: number;
+    error?: string;
+  }> => {
+    const norm = normalizeSearchKeyword(keyword);
+    if (norm === null) {
+      throw new ConvexError("Saisis un mot-clé à rechercher.");
+    }
+
+    // 1. Cache 6 h : resert sans appel Apify si frais.
+    const cacheMeta = await ctx.runQuery(internal.radar.getSearchCacheMeta, {
+      projectId: ctx.projectId,
+      keyword: norm,
+    });
+    if (cacheMeta !== null && Date.now() - cacheMeta.fetchedAt < SEARCH_CACHE_TTL_MS) {
+      return {
+        ok: true,
+        cached: true,
+        fetchedAt: cacheMeta.fetchedAt,
+        count: cacheMeta.count,
+      };
+    }
+
+    // 2. Appel Apify (clé RADAR dédiée).
+    const apiToken = process.env.APIFY_RADAR_TOKEN;
+    if (!apiToken) {
+      console.error("[radar] APIFY_RADAR_TOKEN absent — recherche annulée.");
+      return { ok: false, cached: false, fetchedAt: null, count: 0 };
+    }
+    const res = await apiFetchSearchVideos(norm, apiToken, {
+      resultsPerPage: SEARCH_RESULTS_PER_PAGE,
+    });
+    if (!res.ok) {
+      console.warn(`[radar] recherche "${norm}" échouée (${res.error ?? "?"}).`);
+      return { ok: false, cached: false, fetchedAt: null, count: 0 };
+    }
+
+    // 3. Scoring + tri + récurrence (lib pure), puis remplacement du cache.
+    const ranked = rankSearchVideos(res.videos);
+    const fetchedAt = Date.now();
+    await ctx.runMutation(internal.radar.replaceRadarSearch, {
+      projectId: ctx.projectId,
+      keyword: norm,
+      rawKeyword: keyword.trim().slice(0, 100),
+      fetchedAt,
+      totalFetched: res.totalFetched,
+      videos: ranked.map((v) => ({
+        tiktokId: v.tiktokId,
+        url: v.url,
+        authorId: v.authorId,
+        authorHandle: v.authorHandle,
+        publishedAt: v.publishedAt,
+        caption: v.caption,
+        coverUrl: v.coverUrl,
+        views: v.views,
+        fans: v.fans,
+        likes: v.likes,
+        comments: v.comments,
+        shares: v.shares,
+        durationSec: v.durationSec,
+        outlierRatio: v.outlierRatio,
+        accountOutlierCount: v.accountOutlierCount,
+        isRecurringAccount: v.isRecurringAccount,
+      })),
+    });
+    return { ok: true, cached: false, fetchedAt, count: ranked.length };
   },
 });
