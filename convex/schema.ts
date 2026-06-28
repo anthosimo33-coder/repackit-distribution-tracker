@@ -1299,4 +1299,42 @@ export default defineSchema({
     isSlideshow: v.boolean(),
     fetchedAt: v.number(),
   }).index("by_project_country_hashtag", ["projectId", "countryCode", "hashtag"]),
+
+  // ─── RADAR Brique 3 — Recherche d'outliers (mot-clé → vidéos scorées) ────────
+  // Silo séparé, ADMIN ONLY, scopé projet. Source : clockworks/tiktok-scraper en
+  // mode RECHERCHE par mot-clé (proxy US). Le lot récupéré est filtré (anglophone),
+  // scoré (outlierRatio = vues/abonnés) et trié côté serveur, puis MIS EN CACHE par
+  // mot-clé normalisé. CACHE 6 H (garde-fou budget : l'appel est pay-per-result +
+  // add-ons) : une même recherche dans la fenêtre resert le cache, AUCUN appel
+  // Apify. Une ligne = un mot-clé ; les vidéos scorées sont stockées inline (lot
+  // borné). Remplacée au rafraîchissement. 0 migration destructive.
+  radarSearches: defineTable({
+    projectId: v.id("projects"),
+    keyword: v.string(), // mot-clé NORMALISÉ (trim + lowercase) — clé de cache
+    rawKeyword: v.string(), // saisie d'origine (affichage)
+    fetchedAt: v.number(), // dernier run Apify RÉUSSI (base de la fraîcheur cache)
+    totalFetched: v.number(), // taille du lot brut Apify (avant filtre/scoring)
+    // Vidéos déjà filtrées (anglophone), scorées (outlierRatio) et triées
+    // décroissant, avec les flags de récurrence par compte (calculés au fetch).
+    videos: v.array(
+      v.object({
+        tiktokId: v.string(),
+        url: v.string(),
+        authorId: v.union(v.string(), v.null()), // id numérique stable (groupage)
+        authorHandle: v.union(v.string(), v.null()),
+        publishedAt: v.number(),
+        caption: v.union(v.string(), v.null()),
+        coverUrl: v.union(v.string(), v.null()),
+        views: v.number(),
+        fans: v.union(v.number(), v.null()), // abonnés du compte
+        likes: v.number(),
+        comments: v.number(),
+        shares: v.number(),
+        durationSec: v.union(v.number(), v.null()),
+        outlierRatio: v.number(), // vues / abonnés
+        accountOutlierCount: v.number(), // nb de vidéos outlier de ce compte
+        isRecurringAccount: v.boolean(), // ≥ 2 vidéos outlier du même compte
+      }),
+    ),
+  }).index("by_project_keyword", ["projectId", "keyword"]),
 });

@@ -7,7 +7,13 @@ import {
   mergeRadarBuckets,
   isWithinDays,
   parseTrendHashtags,
+  normalizeSearchKeyword,
+  parseRadarSearchVideos,
+  computeOutlierRatio,
+  rankSearchVideos,
+  RADAR_OUTLIER_THRESHOLD,
   type RadarParsedVideo,
+  type RadarSearchVideo,
 } from "./radarParsing";
 
 /** Fabrique une vidéo parsée minimale pour les tests de bucket. */
@@ -301,5 +307,149 @@ describe("parseTrendHashtags", () => {
   it("ignore les items sans Hashtag et le non-array", () => {
     expect(parseTrendHashtags([{ Posts: 10 }, null, "x"])).toEqual([]);
     expect(parseTrendHashtags(null)).toEqual([]);
+  });
+});
+
+// ─── Brique 3 — recherche d'outliers ─────────────────────────────────────────
+
+/** Fabrique une vidéo de recherche minimale (anglophone, abonnés présents). */
+function sv(overrides: Partial<RadarSearchVideo>): RadarSearchVideo {
+  return {
+    tiktokId: "1",
+    url: "https://www.tiktok.com/@u/video/1",
+    authorId: "a1",
+    authorHandle: "u",
+    publishedAt: 0,
+    caption: null,
+    coverUrl: null,
+    views: 0,
+    fans: 1000,
+    likes: 0,
+    comments: 0,
+    shares: 0,
+    durationSec: null,
+    textLanguage: "en",
+    ...overrides,
+  };
+}
+
+describe("normalizeSearchKeyword", () => {
+  it("trim, minuscule, espaces compressés", () => {
+    expect(normalizeSearchKeyword("  Argent   En Ligne ")).toBe("argent en ligne");
+    expect(normalizeSearchKeyword("MAKE MONEY")).toBe("make money");
+  });
+  it("null si vide / non-string", () => {
+    expect(normalizeSearchKeyword("   ")).toBeNull();
+    expect(normalizeSearchKeyword("")).toBeNull();
+    expect(normalizeSearchKeyword(null)).toBeNull();
+    expect(normalizeSearchKeyword(undefined)).toBeNull();
+  });
+});
+
+describe("parseRadarSearchVideos", () => {
+  it("capte authorId, textLanguage et les champs cibles", () => {
+    const [v] = parseRadarSearchVideos([
+      {
+        id: "7631829472915836180",
+        webVideoUrl: "https://www.tiktok.com/@uservledlzg4co/video/7631829472915836180",
+        createTimeISO: "2026-04-23T05:56:25.000Z",
+        text: "Fetch your life.",
+        textLanguage: "en",
+        playCount: 89340,
+        diggCount: 1114,
+        commentCount: 116,
+        shareCount: 53,
+        videoMeta: { duration: 59, coverUrl: "https://cdn/cover.jpg" },
+        authorMeta: { id: "7631308590364705793", name: "uservledlzg4co", fans: 36200 },
+      },
+    ]);
+    expect(v).toEqual({
+      tiktokId: "7631829472915836180",
+      url: "https://www.tiktok.com/@uservledlzg4co/video/7631829472915836180",
+      authorId: "7631308590364705793",
+      authorHandle: "uservledlzg4co",
+      publishedAt: Date.parse("2026-04-23T05:56:25.000Z"),
+      caption: "Fetch your life.",
+      coverUrl: "https://cdn/cover.jpg",
+      views: 89340,
+      fans: 36200,
+      likes: 1114,
+      comments: 116,
+      shares: 53,
+      durationSec: 59,
+      textLanguage: "en",
+    });
+  });
+
+  it("authorId null si absent, fans null si absent", () => {
+    const [v] = parseRadarSearchVideos([{ id: "1", authorMeta: { name: "x" } }]);
+    expect(v.authorId).toBeNull();
+    expect(v.fans).toBeNull();
+    expect(v.textLanguage).toBeNull();
+  });
+
+  it("ignore les items sans id exploitable et le non-array", () => {
+    expect(parseRadarSearchVideos([{ playCount: 10 }, null])).toEqual([]);
+    expect(parseRadarSearchVideos(null)).toEqual([]);
+  });
+});
+
+describe("computeOutlierRatio", () => {
+  it("vues / abonnés", () => {
+    expect(computeOutlierRatio(50000, 1000)).toBe(50);
+    expect(computeOutlierRatio(112662, 1138)).toBeCloseTo(99.0, 0);
+  });
+  it("null (exclu) si abonnés 0, négatif, absent", () => {
+    expect(computeOutlierRatio(50000, 0)).toBeNull();
+    expect(computeOutlierRatio(50000, null)).toBeNull();
+    expect(computeOutlierRatio(50000, -5)).toBeNull();
+  });
+});
+
+describe("rankSearchVideos", () => {
+  it("filtre non-anglophone et abonnés manquants, trie par ratio décroissant", () => {
+    const ranked = rankSearchVideos([
+      sv({ tiktokId: "fr", textLanguage: "fr", views: 999999, fans: 10 }), // exclu (langue)
+      sv({ tiktokId: "nofans", views: 5000, fans: 0 }), // exclu (div par 0)
+      sv({ tiktokId: "low", authorId: "a", views: 2000, fans: 1000 }), // 2x
+      sv({ tiktokId: "high", authorId: "b", views: 30000, fans: 1000 }), // 30x
+    ]);
+    expect(ranked.map((v) => v.tiktokId)).toEqual(["high", "low"]);
+    expect(ranked[0].outlierRatio).toBe(30);
+  });
+
+  it("compte récurrent = ≥ 2 vidéos ≥ seuil, même authorId", () => {
+    const ranked = rankSearchVideos([
+      sv({ tiktokId: "v1", authorId: "acc", views: 8000, fans: 1000 }), // 8x ≥ 5
+      sv({ tiktokId: "v2", authorId: "acc", views: 6000, fans: 1000 }), // 6x ≥ 5
+      sv({ tiktokId: "v3", authorId: "acc", views: 1000, fans: 1000 }), // 1x < 5
+    ]);
+    // Les TROIS vidéos du compte portent le badge récurrent (2 outliers).
+    for (const v of ranked) {
+      expect(v.isRecurringAccount).toBe(true);
+      expect(v.accountOutlierCount).toBe(2);
+    }
+  });
+
+  it("compte à 1 seul outlier = NON récurrent (fluke)", () => {
+    const ranked = rankSearchVideos([
+      sv({ tiktokId: "v1", authorId: "solo", views: 50000, fans: 1000 }), // 50x
+      sv({ tiktokId: "v2", authorId: "solo", views: 1000, fans: 1000 }), // 1x
+    ]);
+    for (const v of ranked) {
+      expect(v.isRecurringAccount).toBe(false);
+      expect(v.accountOutlierCount).toBe(1);
+    }
+  });
+
+  it("seuil ajustable et vidéo sans authorId jamais récurrente", () => {
+    const ranked = rankSearchVideos(
+      [
+        sv({ tiktokId: "n1", authorId: null, views: 100000, fans: 1000 }),
+        sv({ tiktokId: "n2", authorId: null, views: 100000, fans: 1000 }),
+      ],
+      RADAR_OUTLIER_THRESHOLD,
+    );
+    expect(ranked.every((v) => v.isRecurringAccount === false)).toBe(true);
   });
 });
