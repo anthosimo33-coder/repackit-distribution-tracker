@@ -44,6 +44,7 @@ import type * as personnes from "../personnes.js";
 import type * as postUrlResolution from "../postUrlResolution.js";
 import type * as pricing from "../pricing.js";
 import type * as projects from "../projects.js";
+import type * as provisionAdmin from "../provisionAdmin.js";
 import type * as publications from "../publications.js";
 import type * as radar from "../radar.js";
 import type * as radarApi from "../radarApi.js";
@@ -102,6 +103,7 @@ declare const fullApi: ApiFromModules<{
   postUrlResolution: typeof postUrlResolution;
   pricing: typeof pricing;
   projects: typeof projects;
+  provisionAdmin: typeof provisionAdmin;
   publications: typeof publications;
   radar: typeof radar;
   radarApi: typeof radarApi;
