@@ -8,57 +8,34 @@
 // projet figé "admin". Lancé manuellement via `npx convex run ... --prod` par un
 // opérateur ayant accès au deployment.
 import { ConvexError, v } from "convex/values";
-import { internalAction, internalMutation } from "./_generated/server";
-import { createAccount } from "@convex-dev/auth/server";
-import { internal } from "./_generated/api";
-import type { DataModel, Id } from "./_generated/dataModel";
+import { internalMutation } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 
 const RESET_TTL_MS = 48 * 60 * 60 * 1000; // 48 h (aligné convex/passwordReset.ts)
 
 /**
- * Mint un token de reset (table passwordResetTokens, même shape/mécanique que
- * passwordReset.generatePasswordResetLink) pour `userId`, scopé `projectId`
- * (branding du preview /reset-password). Remplace tout token actif du user (un
- * seul lien valide à la fois).
- */
-export const mintResetToken = internalMutation({
-  args: { userId: v.id("users"), projectId: v.id("projects") },
-  handler: async (
-    ctx,
-    { userId, projectId },
-  ): Promise<{ token: string; expiresAt: number }> => {
-    const previous = await ctx.db
-      .query("passwordResetTokens")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .collect();
-    for (const t of previous) await ctx.db.delete(t._id);
-    const expiresAt = Date.now() + RESET_TTL_MS;
-    // Token long opaque (2× UUID v4, tirets retirés) — 244 bits d'entropie.
-    const token = (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "");
-    await ctx.db.insert("passwordResetTokens", {
-      token,
-      userId,
-      projectId,
-      expiresAt,
-    });
-    return { token, expiresAt };
-  },
-});
-
-/**
- * (f) Crée un compte mot de passe pour `email` (role GLOBAL "member", jamais
- * superadmin) avec un mot de passe ALÉATOIRE généré et JETÉ ici (jamais retourné
- * ni loggé), puis mint un lien de reset. L'utilisateur fixe SON mot de passe via
- * le lien — aucun secret ne sort de cette fonction.
- * Retour : userId / email / resetPath / expiresAt — AUCUN secret.
+ * Crée un compte mot de passe pour `email` (role GLOBAL "member", jamais
+ * superadmin) par INSERTS BRUTS `users` + `authAccounts`, contournant le gate de
+ * signup (auth.ts `createOrUpdateUser`, « inscription fermée »).
  *
- * Le mot de passe réellement utilisable vient du flux de reset
- * (modifyAccountCredentials, éprouvé) : le hash initial n'est jamais utilisé.
+ * Compte STRUCTURELLEMENT identique à un signup normal (vérifié contre la lib
+ * Convex Auth — users.js/createOrUpdateAccount) :
+ *   - users        : { email, role:"member" } (idem callback invitation auth.ts)
+ *   - authAccounts : { userId, provider:"password", providerAccountId:email }
+ * `secret` est OMIS (optional) : aucun mot de passe posé ici → l'utilisateur le
+ * fixe via le lien de reset (`modifyAccountCredentials` remplit `secret` ; il
+ * exige seulement que la ligne authAccounts existe, pas un secret préalable).
+ * `emailVerified` non requis (le gate login `Password.js` ne s'active que si
+ * `config.verify` est défini, ce qui n'est pas le cas ici). AUCUNE autre table
+ * touchée (sessions/verifiers créés au sign-in).
+ *
+ * Mint aussi le lien de reset. Refuse si l'email existe déjà (préserve l'unicité
+ * `.unique()` des lookups auth). Retour : userId/email/resetPath/expiresAt.
  *
  *   npx convex run provisionAdmin:provisionAdminAccount \
  *     '{"email":"...","brandingProjectId":"<id>"}' --prod
  */
-export const provisionAdminAccount = internalAction({
+export const provisionAdminAccount = internalMutation({
   args: { email: v.string(), brandingProjectId: v.id("projects") },
   handler: async (
     ctx,
@@ -69,21 +46,36 @@ export const provisionAdminAccount = internalAction({
     resetPath: string;
     expiresAt: number;
   }> => {
-    // Mot de passe interne jeté : 24 octets aléatoires en hex. Jamais exfiltré.
-    const throwaway = Array.from(crypto.getRandomValues(new Uint8Array(24)))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-    const { user } = await createAccount<DataModel>(ctx, {
+    const existing = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", email))
+      .first();
+    if (existing !== null) {
+      throw new ConvexError(`User ${email} existe déjà — provisioning annulé.`);
+    }
+
+    // Inserts bruts (mêmes champs qu'un signup invitation). secret omis →
+    // posé par le reset ; emailVerified non requis.
+    const userId = await ctx.db.insert("users", { email, role: "member" });
+    await ctx.db.insert("authAccounts", {
+      userId,
       provider: "password",
-      account: { id: email, secret: throwaway },
-      profile: { email, role: "member" },
+      providerAccountId: email,
     });
-    const { token, expiresAt } = await ctx.runMutation(
-      internal.provisionAdmin.mintResetToken,
-      { userId: user._id, projectId: brandingProjectId },
-    );
+
+    // Lien de reset (même mécanique que passwordReset.generatePasswordResetLink).
+    const expiresAt = Date.now() + RESET_TTL_MS;
+    // Token long opaque (2× UUID v4, tirets retirés) — 244 bits d'entropie.
+    const token = (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "");
+    await ctx.db.insert("passwordResetTokens", {
+      token,
+      userId,
+      projectId: brandingProjectId,
+      expiresAt,
+    });
+
     return {
-      userId: user._id,
+      userId,
       email,
       resetPath: `/reset-password/${token}`,
       expiresAt,
