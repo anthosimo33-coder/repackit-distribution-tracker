@@ -541,3 +541,52 @@ export function rankSearchVideos(
   ranked.sort((a, b) => b.outlierRatio - a.outlierRatio);
   return ranked;
 }
+
+/** Champs minimaux requis par `applyFollowerFloor` (filtre plancher d'abonnés). */
+export interface FloorFilterableVideo {
+  authorId: string | null;
+  fans: number | null;
+  outlierRatio: number;
+}
+
+/**
+ * Plancher d'abonnés — FILTRE D'AFFICHAGE sur un lot DÉJÀ scoré (par
+ * rankSearchVideos), JAMAIS un paramètre d'appel Apify : ajuster `minFollowers`
+ * ne consomme aucun quota. Deux effets :
+ *   1. exclut les vidéos dont `fans < minFollowers` (micro-comptes = bruit
+ *      mathématique : 8 abonnés / 764 vues = ratio 96× sans valeur de format) ;
+ *   2. RECALCULE la récurrence (accountOutlierCount / isRecurringAccount) sur le
+ *      SOUS-ENSEMBLE retenu → un compte sous le plancher ne compte plus comme
+ *      récurrent (cohérence badge ↔ liste affichée).
+ * `minFollowers ≤ 0` → aucun filtrage (le recompte reproduit le scoring serveur).
+ * Préserve l'ordre (tri serveur décroissant). Pur (testé Vitest).
+ */
+export function applyFollowerFloor<T extends FloorFilterableVideo>(
+  videos: readonly T[],
+  minFollowers: number,
+  threshold: number = RADAR_OUTLIER_THRESHOLD,
+): (T & { accountOutlierCount: number; isRecurringAccount: boolean })[] {
+  // 1. Filtre plancher. fans === null déjà exclu au scoring serveur (garde-fou).
+  const kept = videos.filter((v) => v.fans !== null && v.fans >= minFollowers);
+
+  // 2. Recompte des outliers par compte SUR le sous-ensemble retenu.
+  const outliersByAuthor = new Map<string, number>();
+  for (const v of kept) {
+    if (v.authorId === null || v.outlierRatio < threshold) continue;
+    outliersByAuthor.set(v.authorId, (outliersByAuthor.get(v.authorId) ?? 0) + 1);
+  }
+
+  return kept.map((v) => {
+    const accountOutlierCount =
+      v.authorId !== null
+        ? (outliersByAuthor.get(v.authorId) ?? 0)
+        : v.outlierRatio >= threshold
+          ? 1
+          : 0;
+    return {
+      ...v,
+      accountOutlierCount,
+      isRecurringAccount: accountOutlierCount >= RADAR_RECURRING_MIN_OUTLIERS,
+    };
+  });
+}

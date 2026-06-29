@@ -1243,15 +1243,17 @@ export default defineSchema({
     .index("by_project", ["projectId"]),
 
   // ─── RADAR Brique 2 — Tendances (hashtags qui montent par pays → vidéos) ─────
-  // Silo séparé, ADMIN ONLY, scopé projet. Source : data_xplorer/tiktok-trends
-  // (hashtags tendance par pays, Creative Center) puis clockworks (vidéos d'un
-  // hashtag, filtrées < 14 j côté serveur). Chargement À LA DEMANDE (pas de cron) :
-  // le cache d'un pays est REMPLACÉ à chaque actualisation. 0 migration destructive.
+  // Silo séparé, ADMIN ONLY, cache GLOBAL (cross-projet : la veille tendances est
+  // partagée par tous les projets, clé = pays seul). Source : data_xplorer/tiktok-
+  // trends (hashtags tendance par pays, Creative Center) puis clockworks (vidéos
+  // d'un hashtag, filtrées < 14 j côté serveur). Chargement À LA DEMANDE (pas de
+  // cron) : le cache d'un pays est REMPLACÉ à chaque actualisation.
+  // `projectId` est VESTIGIAL (optional, plus écrit) — voir TD-RADAR-projectId-drop.
 
   // Cache des hashtags tendance d'un pays. `videosFetchedAt`/`videosError` portent
   // l'état du fetch des vidéos de CE hashtag (chargement paresseux au clic).
   radarTrendHashtags: defineTable({
-    projectId: v.id("projects"),
+    projectId: v.optional(v.id("projects")), // VESTIGIAL — cache global, plus écrit
     countryCode: v.string(), // "US","FR",...
     hashtag: v.string(), // tel que renvoyé, ex. "#nbadraft"
     hashtagId: v.optional(v.string()),
@@ -1275,14 +1277,14 @@ export default defineSchema({
     videosFetchedAt: v.optional(v.number()), // dernier fetch RÉUSSI des vidéos (null=jamais)
     videosError: v.optional(v.boolean()), // dernier fetch vidéos en échec ?
   })
-    .index("by_project_country", ["projectId", "countryCode"])
-    .index("by_project_country_hashtag", ["projectId", "countryCode", "hashtag"]),
+    .index("by_country", ["countryCode"])
+    .index("by_country_hashtag", ["countryCode", "hashtag"]),
 
   // Vidéos d'un hashtag tendance (rattachées à hashtag+pays, PAS à un compte
   // favori → table séparée de radarVideos). Déjà filtrées < 14 j. Remplacées à
   // chaque fetch (les vues bougent). Même shape vidéo que radarVideos.
   radarTrendVideos: defineTable({
-    projectId: v.id("projects"),
+    projectId: v.optional(v.id("projects")), // VESTIGIAL — cache global, plus écrit
     countryCode: v.string(),
     hashtag: v.string(),
     tiktokId: v.string(),
@@ -1303,18 +1305,20 @@ export default defineSchema({
     isPinned: v.boolean(),
     isSlideshow: v.boolean(),
     fetchedAt: v.number(),
-  }).index("by_project_country_hashtag", ["projectId", "countryCode", "hashtag"]),
+  }).index("by_country_hashtag", ["countryCode", "hashtag"]),
 
   // ─── RADAR Brique 3 — Recherche d'outliers (mot-clé → vidéos scorées) ────────
-  // Silo séparé, ADMIN ONLY, scopé projet. Source : clockworks/tiktok-scraper en
-  // mode RECHERCHE par mot-clé (proxy US). Le lot récupéré est filtré (anglophone),
-  // scoré (outlierRatio = vues/abonnés) et trié côté serveur, puis MIS EN CACHE par
-  // mot-clé normalisé. CACHE 6 H (garde-fou budget : l'appel est pay-per-result +
-  // add-ons) : une même recherche dans la fenêtre resert le cache, AUCUN appel
-  // Apify. Une ligne = un mot-clé ; les vidéos scorées sont stockées inline (lot
-  // borné). Remplacée au rafraîchissement. 0 migration destructive.
+  // Silo séparé, ADMIN ONLY, cache GLOBAL (cross-projet : la même recherche depuis
+  // n'importe quel projet partage l'entrée, clé = mot-clé seul). Source :
+  // clockworks/tiktok-scraper en mode RECHERCHE par mot-clé (proxy US). Le lot
+  // récupéré est filtré (anglophone), scoré (outlierRatio = vues/abonnés) et trié
+  // côté serveur, puis MIS EN CACHE par mot-clé normalisé. CACHE 24 H (garde-fou
+  // budget : l'appel est pay-per-result + add-ons) : une même recherche dans la
+  // fenêtre resert le cache, AUCUN appel Apify. Une ligne = un mot-clé ; les vidéos
+  // scorées sont stockées inline (lot borné). Remplacée au rafraîchissement.
+  // `projectId` est VESTIGIAL (optional, plus écrit) — voir TD-RADAR-projectId-drop.
   radarSearches: defineTable({
-    projectId: v.id("projects"),
+    projectId: v.optional(v.id("projects")), // VESTIGIAL — cache global, plus écrit
     keyword: v.string(), // mot-clé NORMALISÉ (trim + lowercase) — clé de cache
     rawKeyword: v.string(), // saisie d'origine (affichage)
     fetchedAt: v.number(), // dernier run Apify RÉUSSI (base de la fraîcheur cache)
@@ -1341,5 +1345,5 @@ export default defineSchema({
         isRecurringAccount: v.boolean(), // ≥ 2 vidéos outlier du même compte
       }),
     ),
-  }).index("by_project_keyword", ["projectId", "keyword"]),
+  }).index("by_keyword", ["keyword"]),
 });

@@ -605,9 +605,7 @@ export const listTrendHashtags = adminQuery({
     const cc = assertCountry(countryCode);
     const rows = await ctx.db
       .query("radarTrendHashtags")
-      .withIndex("by_project_country", (q) =>
-        q.eq("projectId", ctx.projectId).eq("countryCode", cc),
-      )
+      .withIndex("by_country", (q) => q.eq("countryCode", cc))
       .collect();
     rows.sort((a, b) => a.rank - b.rank);
     return {
@@ -636,8 +634,8 @@ export const listTrendVideos = adminQuery({
     const cc = assertCountry(countryCode);
     const vids = await ctx.db
       .query("radarTrendVideos")
-      .withIndex("by_project_country_hashtag", (q) =>
-        q.eq("projectId", ctx.projectId).eq("countryCode", cc).eq("hashtag", hashtag),
+      .withIndex("by_country_hashtag", (q) =>
+        q.eq("countryCode", cc).eq("hashtag", hashtag),
       )
       .collect();
     return vids.map((video) => ({
@@ -702,34 +700,28 @@ const trendVideoValidator = v.object({
 /** Remplace TOUT le cache (hashtags + leurs vidéos) d'un pays par le frais. */
 export const replaceTrendHashtags = internalMutation({
   args: {
-    projectId: v.id("projects"),
     countryCode: v.string(),
     fetchedAt: v.number(),
     hashtags: v.array(trendHashtagValidator),
   },
   handler: async (
     ctx,
-    { projectId, countryCode, fetchedAt, hashtags },
+    { countryCode, fetchedAt, hashtags },
   ): Promise<{ inserted: number }> => {
     // Purge l'ancien cache du pays (hashtags + vidéos rattachées).
     const oldHashtags = await ctx.db
       .query("radarTrendHashtags")
-      .withIndex("by_project_country", (q) =>
-        q.eq("projectId", projectId).eq("countryCode", countryCode),
-      )
+      .withIndex("by_country", (q) => q.eq("countryCode", countryCode))
       .collect();
     for (const h of oldHashtags) await ctx.db.delete(h._id);
     const oldVideos = await ctx.db
       .query("radarTrendVideos")
-      .withIndex("by_project_country_hashtag", (q) =>
-        q.eq("projectId", projectId).eq("countryCode", countryCode),
-      )
+      .withIndex("by_country_hashtag", (q) => q.eq("countryCode", countryCode))
       .collect();
     for (const vid of oldVideos) await ctx.db.delete(vid._id);
 
     for (const h of hashtags) {
       await ctx.db.insert("radarTrendHashtags", {
-        projectId,
         countryCode,
         hashtag: h.hashtag,
         hashtagId: h.hashtagId ?? undefined,
@@ -755,7 +747,6 @@ export const replaceTrendHashtags = internalMutation({
 /** Remplace les vidéos d'UN hashtag + marque videosFetchedAt sur sa ligne. */
 export const replaceTrendVideos = internalMutation({
   args: {
-    projectId: v.id("projects"),
     countryCode: v.string(),
     hashtag: v.string(),
     fetchedAt: v.number(),
@@ -763,19 +754,18 @@ export const replaceTrendVideos = internalMutation({
   },
   handler: async (
     ctx,
-    { projectId, countryCode, hashtag, fetchedAt, videos },
+    { countryCode, hashtag, fetchedAt, videos },
   ): Promise<{ inserted: number }> => {
     const old = await ctx.db
       .query("radarTrendVideos")
-      .withIndex("by_project_country_hashtag", (q) =>
-        q.eq("projectId", projectId).eq("countryCode", countryCode).eq("hashtag", hashtag),
+      .withIndex("by_country_hashtag", (q) =>
+        q.eq("countryCode", countryCode).eq("hashtag", hashtag),
       )
       .collect();
     for (const vid of old) await ctx.db.delete(vid._id);
 
     for (const video of videos) {
       await ctx.db.insert("radarTrendVideos", {
-        projectId,
         countryCode,
         hashtag,
         tiktokId: video.tiktokId,
@@ -802,8 +792,8 @@ export const replaceTrendVideos = internalMutation({
     // Marque la ligne hashtag : ses vidéos sont chargées (succès), pas d'erreur.
     const row = await ctx.db
       .query("radarTrendHashtags")
-      .withIndex("by_project_country_hashtag", (q) =>
-        q.eq("projectId", projectId).eq("countryCode", countryCode).eq("hashtag", hashtag),
+      .withIndex("by_country_hashtag", (q) =>
+        q.eq("countryCode", countryCode).eq("hashtag", hashtag),
       )
       .first();
     if (row !== null) {
@@ -835,7 +825,6 @@ export const fetchTrendHashtags = adminAction({
       return { ok: false, count: 0 };
     }
     await ctx.runMutation(internal.radar.replaceTrendHashtags, {
-      projectId: ctx.projectId,
       countryCode: cc,
       fetchedAt: Date.now(),
       hashtags: res.hashtags,
@@ -872,7 +861,6 @@ export const fetchTrendVideos = adminAction({
       return { ok: false, count: 0 };
     }
     await ctx.runMutation(internal.radar.replaceTrendVideos, {
-      projectId: ctx.projectId,
       countryCode: cc,
       hashtag,
       fetchedAt: Date.now(),
@@ -900,17 +888,24 @@ export const fetchTrendVideos = adminAction({
   },
 });
 
-// ═══ RECHERCHE D'OUTLIERS (Brique 3) — mot-clé → vidéos scorées (cache 6 h) ════
-// Flux : action searchOutliers (cache-aware) → si frais (< 6 h) resert le cache
+// ═══ RECHERCHE D'OUTLIERS (Brique 3) — mot-clé → vidéos scorées (cache 24 h) ═══
+// Flux : action searchOutliers (cache-aware) → si frais (< 24 h) resert le cache
 // SANS appel Apify ; sinon fetch Apify (clé RADAR, proxy US), scoring/tri outlier
 // + détection de comptes récurrents (lib pure), puis remplacement du cache du
-// mot-clé. La query getRadarSearch lit le cache scoré. Silo radarSearches dédié.
+// mot-clé. Cache GLOBAL (clé = mot-clé seul, partagé cross-projet). La query
+// getRadarSearch lit le cache scoré. Silo radarSearches dédié.
 
 /** Résultats récupérés par recherche (resultsPerPage Apify, mode recherche). */
 const SEARCH_RESULTS_PER_PAGE = 80;
 
-/** TTL du cache d'une recherche : 6 h (garde-fou budget, l'appel est coûteux). */
-const SEARCH_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+/**
+ * TTL du cache RADAR (outliers ET cohérence d'affichage tendances) : 24 h.
+ * Garde-fou budget — l'appel Apify est pay-per-result + add-ons. Ajustable ici.
+ * Seul gate TTL serveur : les outliers (searchOutliers) ; les tendances refetch
+ * à la demande (« Actualiser »), leur fenêtre de fraîcheur 24 h est côté client.
+ */
+const RADAR_CACHE_TTL_HOURS = 24;
+const RADAR_CACHE_TTL_MS = RADAR_CACHE_TTL_HOURS * 60 * 60 * 1000;
 
 const rankedSearchVideoValidator = v.object({
   tiktokId: v.string(),
@@ -945,9 +940,7 @@ export const getRadarSearch = adminQuery({
     if (norm === null) return null;
     const row = await ctx.db
       .query("radarSearches")
-      .withIndex("by_project_keyword", (q) =>
-        q.eq("projectId", ctx.projectId).eq("keyword", norm),
-      )
+      .withIndex("by_keyword", (q) => q.eq("keyword", norm))
       .first();
     if (row === null) return null;
     return {
@@ -964,16 +957,14 @@ export const getRadarSearch = adminQuery({
 
 /** Fraîcheur du cache d'un mot-clé pour décider d'un appel Apify (action). */
 export const getSearchCacheMeta = internalQuery({
-  args: { projectId: v.id("projects"), keyword: v.string() },
+  args: { keyword: v.string() },
   handler: async (
     ctx,
-    { projectId, keyword },
+    { keyword },
   ): Promise<{ fetchedAt: number; count: number } | null> => {
     const row = await ctx.db
       .query("radarSearches")
-      .withIndex("by_project_keyword", (q) =>
-        q.eq("projectId", projectId).eq("keyword", keyword),
-      )
+      .withIndex("by_keyword", (q) => q.eq("keyword", keyword))
       .first();
     return row === null
       ? null
@@ -983,10 +974,9 @@ export const getSearchCacheMeta = internalQuery({
 
 // ─── Mutation interne (remplacement du cache d'un mot-clé) ───────────────────
 
-/** Remplace le lot scoré en cache pour un mot-clé (un seul par projet+mot-clé). */
+/** Remplace le lot scoré en cache pour un mot-clé (un seul par mot-clé, global). */
 export const replaceRadarSearch = internalMutation({
   args: {
-    projectId: v.id("projects"),
     keyword: v.string(),
     rawKeyword: v.string(),
     fetchedAt: v.number(),
@@ -995,17 +985,14 @@ export const replaceRadarSearch = internalMutation({
   },
   handler: async (
     ctx,
-    { projectId, keyword, rawKeyword, fetchedAt, totalFetched, videos },
+    { keyword, rawKeyword, fetchedAt, totalFetched, videos },
   ): Promise<{ inserted: number }> => {
     const existing = await ctx.db
       .query("radarSearches")
-      .withIndex("by_project_keyword", (q) =>
-        q.eq("projectId", projectId).eq("keyword", keyword),
-      )
+      .withIndex("by_keyword", (q) => q.eq("keyword", keyword))
       .first();
     if (existing !== null) await ctx.db.delete(existing._id);
     await ctx.db.insert("radarSearches", {
-      projectId,
       keyword,
       rawKeyword,
       fetchedAt,
@@ -1019,9 +1006,10 @@ export const replaceRadarSearch = internalMutation({
 // ─── Action admin (I/O Apify, clé RADAR, cache-aware, awaitable) ─────────────
 
 /**
- * Recherche d'outliers par mot-clé. CACHE 6 H d'abord : si le même mot-clé
- * (normalisé) a été recherché dans la fenêtre, on resert le cache SANS appel
- * Apify (`cached:true`). Sinon : fetch Apify (clé RADAR, proxy US, 80 résultats),
+ * Recherche d'outliers par mot-clé. CACHE 24 H d'abord : si le même mot-clé
+ * (normalisé) a été recherché dans la fenêtre (par N'IMPORTE quel projet — cache
+ * global), on resert le cache SANS appel Apify (`cached:true`). Sinon : fetch
+ * Apify (clé RADAR, proxy US, 80 résultats),
  * scoring/tri outlier + détection récurrence (lib pure), remplacement du cache.
  * Awaitable → le front sait quand c'est fini et si un appel a été consommé.
  * Token jamais logué.
@@ -1043,12 +1031,11 @@ export const searchOutliers = adminAction({
       throw new ConvexError("Saisis un mot-clé à rechercher.");
     }
 
-    // 1. Cache 6 h : resert sans appel Apify si frais.
+    // 1. Cache 24 h (global) : resert sans appel Apify si frais.
     const cacheMeta = await ctx.runQuery(internal.radar.getSearchCacheMeta, {
-      projectId: ctx.projectId,
       keyword: norm,
     });
-    if (cacheMeta !== null && Date.now() - cacheMeta.fetchedAt < SEARCH_CACHE_TTL_MS) {
+    if (cacheMeta !== null && Date.now() - cacheMeta.fetchedAt < RADAR_CACHE_TTL_MS) {
       return {
         ok: true,
         cached: true,
@@ -1075,7 +1062,6 @@ export const searchOutliers = adminAction({
     const ranked = rankSearchVideos(res.videos);
     const fetchedAt = Date.now();
     await ctx.runMutation(internal.radar.replaceRadarSearch, {
-      projectId: ctx.projectId,
       keyword: norm,
       rawKeyword: keyword.trim().slice(0, 100),
       fetchedAt,

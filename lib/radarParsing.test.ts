@@ -11,6 +11,7 @@ import {
   parseRadarSearchVideos,
   computeOutlierRatio,
   rankSearchVideos,
+  applyFollowerFloor,
   RADAR_OUTLIER_THRESHOLD,
   type RadarParsedVideo,
   type RadarSearchVideo,
@@ -451,5 +452,55 @@ describe("rankSearchVideos", () => {
       RADAR_OUTLIER_THRESHOLD,
     );
     expect(ranked.every((v) => v.isRecurringAccount === false)).toBe(true);
+  });
+});
+
+describe("applyFollowerFloor", () => {
+  it("plancher 0 = aucun filtrage, reproduit le scoring serveur", () => {
+    const ranked = rankSearchVideos([
+      sv({ tiktokId: "v1", authorId: "acc", views: 8000, fans: 1000 }),
+      sv({ tiktokId: "v2", authorId: "acc", views: 6000, fans: 1000 }),
+    ]);
+    const floored = applyFollowerFloor(ranked, 0);
+    expect(floored.map((v) => v.tiktokId)).toEqual(["v1", "v2"]);
+    for (const v of floored) {
+      expect(v.isRecurringAccount).toBe(true);
+      expect(v.accountOutlierCount).toBe(2);
+    }
+  });
+
+  it("exclut les comptes sous le plancher d'abonnés", () => {
+    const ranked = rankSearchVideos([
+      sv({ tiktokId: "micro", authorId: "m", views: 764, fans: 8 }), // 95x, bruit
+      sv({ tiktokId: "real", authorId: "r", views: 30000, fans: 2000 }), // 15x
+    ]);
+    const floored = applyFollowerFloor(ranked, 1000);
+    expect(floored.map((v) => v.tiktokId)).toEqual(["real"]);
+  });
+
+  it("recalcule la récurrence : un compte qui retombe à 1 outlier visible n'est plus récurrent", () => {
+    // acc a 2 outliers MAIS l'un de ses comptes... non : ici on filtre une des
+    // deux vidéos outlier du compte via le plancher → reste 1 → non récurrent.
+    const ranked = rankSearchVideos([
+      sv({ tiktokId: "keep", authorId: "acc", views: 8000, fans: 1000 }), // 8x, fans 1000
+      sv({ tiktokId: "drop", authorId: "acc", views: 6000, fans: 1000 }), // 6x, fans 1000
+    ]);
+    // Les deux ont fans=1000 → un plancher 1001 retire les DEUX (même compte).
+    expect(applyFollowerFloor(ranked, 1001)).toEqual([]);
+  });
+
+  it("badge récurrent recalculé sur le sous-ensemble retenu", () => {
+    // Deux comptes : big (récurrent, 2 outliers, gros) et small (1 outlier, petit).
+    const ranked = rankSearchVideos([
+      sv({ tiktokId: "b1", authorId: "big", views: 40000, fans: 5000 }), // 8x
+      sv({ tiktokId: "b2", authorId: "big", views: 30000, fans: 5000 }), // 6x
+      sv({ tiktokId: "s1", authorId: "small", views: 4000, fans: 50 }), // 80x, micro
+    ]);
+    const floored = applyFollowerFloor(ranked, 1000);
+    expect(floored.map((v) => v.tiktokId).sort()).toEqual(["b1", "b2"]);
+    for (const v of floored) {
+      expect(v.isRecurringAccount).toBe(true);
+      expect(v.accountOutlierCount).toBe(2);
+    }
   });
 });

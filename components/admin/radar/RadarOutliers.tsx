@@ -43,6 +43,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { tiktokCanonicalVideoUrl, tiktokPlayerEmbedUrl } from "@/lib/embed";
+import { applyFollowerFloor } from "@/lib/radarParsing";
 import {
   formatCount,
   formatOutlierRatio,
@@ -68,10 +69,19 @@ type Origin = { cached: boolean; fetchedAt: number | null } | null;
 
 export function RadarOutliers() {
   const [input, setInput] = useState("");
+  const [floorInput, setFloorInput] = useState("");
   const [submitted, setSubmitted] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [origin, setOrigin] = useState<Origin>(null);
   const [active, setActive] = useState<SearchVideo | null>(null);
+
+  // Plancher d'abonnés — pur filtre d'AFFICHAGE sur le lot caché (jamais un
+  // paramètre Apify : l'ajuster ne consomme aucun quota). 0/invalide = pas de
+  // filtre. Voir applyFollowerFloor (recalcule aussi la récurrence).
+  const minFollowers = useMemo(() => {
+    const n = Number.parseInt(floorInput, 10);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }, [floorInput]);
 
   const search = useProjectAction(api.radar.searchOutliers);
   const result = useProjectQuery(
@@ -122,10 +132,14 @@ export function RadarOutliers() {
     }
   }
 
-  const videos = result?.videos;
+  // Lot affiché = cache filtré par le plancher (récurrence recalculée dessus).
+  const displayedVideos = useMemo(
+    () => (result?.videos ? applyFollowerFloor(result.videos, minFollowers) : undefined),
+    [result, minFollowers],
+  );
   const recurringAccounts = useMemo(
-    () => (videos ? groupRecurringAccounts(videos) : []),
-    [videos],
+    () => (displayedVideos ? groupRecurringAccounts(displayedVideos) : []),
+    [displayedVideos],
   );
 
   const waitingForResult = submitted !== null && result === undefined;
@@ -146,6 +160,25 @@ export function RadarOutliers() {
             maxLength={100}
           />
         </div>
+        <div className="flex items-center gap-2">
+          <label
+            htmlFor="radar-floor"
+            className="whitespace-nowrap text-xs text-slate-500"
+          >
+            Abonnés min
+          </label>
+          <Input
+            id="radar-floor"
+            type="number"
+            min={0}
+            inputMode="numeric"
+            value={floorInput}
+            onChange={(e) => setFloorInput(e.target.value)}
+            placeholder="0"
+            className="w-24"
+            aria-label="Plancher d'abonnés (filtre d'affichage)"
+          />
+        </div>
         <Button type="submit" disabled={loading || input.trim() === ""} className="gap-1.5">
           <SearchIcon className={cn("size-4", loading && "animate-pulse")} />
           {loading ? "Recherche…" : "Rechercher"}
@@ -154,7 +187,8 @@ export function RadarOutliers() {
 
       <p className="text-xs text-slate-400">
         TikTok 🇺🇸 · 3 derniers mois · les comptes qui pètent ≥ 2 fois sont des
-        formats validés. Recherche mise en cache 6 h.
+        formats validés. Recherche mise en cache 24 h. Le plancher « abonnés min »
+        filtre l&apos;affichage (gratuit, aucun appel).
       </p>
 
       {showSkeleton ? (
@@ -175,9 +209,19 @@ export function RadarOutliers() {
           title="Aucun outlier"
           text="Aucune vidéo anglophone exploitable pour ce mot-clé. Essaie une autre formulation."
         />
+      ) : (displayedVideos ?? []).length === 0 ? (
+        <EmptyState
+          icon={UsersIcon}
+          title="Plancher trop haut"
+          text={`Aucune vidéo de compte ≥ ${formatCount(minFollowers)} abonnés. Baisse le plancher « abonnés min » pour réafficher le lot.`}
+        />
       ) : (
         <div className="space-y-5">
-          <CacheBanner origin={origin} result={result} count={result.videos.length} />
+          <CacheBanner
+            origin={origin}
+            result={result}
+            count={(displayedVideos ?? []).length}
+          />
 
           {recurringAccounts.length > 0 && (
             <section className="space-y-2">
@@ -205,11 +249,11 @@ export function RadarOutliers() {
               <FlameIcon className="size-4 text-slate-500" />
               Vidéos par surperformance
               <span className="text-xs font-normal text-slate-400">
-                ({result.videos.length})
+                ({(displayedVideos ?? []).length})
               </span>
             </h3>
             <ul className="space-y-2">
-              {result.videos.map((v) => (
+              {(displayedVideos ?? []).map((v) => (
                 <OutlierRow
                   key={v.tiktokId}
                   video={v}
