@@ -15,17 +15,18 @@ import {
   FilesIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
+import { ConvexError } from "convex/values";
 import { classifyDriveKind, formatBytes } from "@/lib/snytch-drive";
 import { cn } from "@/lib/utils";
 
 /**
- * Dépôt de contenu Snytch — upload DIRECT navigateur → Google Drive (le gros
- * fichier ne transite JAMAIS par Convex). Par fichier :
- *   1. getUploadSession (action) → URL de session resumable Drive (dossier du
- *      créateur, fixé serveur) ;
- *   2. PUT du binaire directement sur Google (XMLHttpRequest → barre de
- *      progression réelle ; fetch n'expose pas la progression d'upload) ;
+ * Dépôt de contenu Snytch — upload navigateur → Google Drive (le gros fichier ne
+ * transite JAMAIS par Convex). Par fichier :
+ *   1. getUploadSession (action Convex) → URL de session resumable Drive (dossier
+ *      du créateur + métadonnées fixés serveur, service account) ;
+ *   2. upload PAR CHUNKS via le route handler same-origin /api/snytch-drive/upload
+ *      (uploadViaProxy) — le PUT DIRECT navigateur → Google est bloqué par CORS,
+ *      on relaie donc chaque chunk côté serveur (même origine = pas de CORS) ;
  *   3. confirmUpload (mutation) → enregistre les métadonnées (la liste « déposé »
  *      se rafraîchit toute seule via la réactivité Convex).
  *
@@ -49,50 +50,75 @@ type UploadItem = {
   error?: string;
 };
 
-/** PUT resumable d'un fichier sur l'URL de session Drive, avec progression. */
-function putToDrive(
+/**
+ * Taille de chunk : 4 Mo (16 × 256 Ko — multiple de 256 Ko requis par Drive pour
+ * les chunks intermédiaires), volontairement < 4,5 Mo (limite de body des
+ * fonctions Vercel) pour que chaque requête passe l'ingress. Découpe les gros
+ * fichiers (vidéo iPhone > 1 Go) sans jamais les bufferiser en entier.
+ */
+const CHUNK_BYTES = 4 * 1024 * 1024;
+
+type ProxyChunkResponse =
+  | { status: "incomplete"; range: string | null }
+  | {
+      status: "complete";
+      file: { id?: string; webViewLink?: string; thumbnailLink?: string } | null;
+    }
+  | { status: "error"; httpStatus: number; message: string };
+
+/**
+ * Upload d'un fichier PAR CHUNKS via le route handler same-origin
+ * (/api/snytch-drive/upload) — contourne le blocage CORS du PUT direct
+ * navigateur → Google. Chaque chunk est PUT sur la session Drive côté serveur ;
+ * Drive répond « incomplete » jusqu'au dernier (« complete » → ressource
+ * fichier). Progression au chunk. Aucune bufferisation du fichier entier.
+ */
+async function uploadViaProxy(
   sessionUrl: string,
   file: File,
   onProgress: (pct: number) => void,
 ): Promise<{ id: string; webViewLink?: string; thumbnailLink?: string }> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("PUT", sessionUrl);
-    xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
-    xhr.timeout = 60 * 60 * 1000; // 1 h (vidéos iPhone lourdes sur mobile)
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
-    };
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        try {
-          const r = JSON.parse(xhr.responseText) as {
-            id?: string;
-            webViewLink?: string;
-            thumbnailLink?: string;
-          };
-          if (!r.id) {
-            reject(new Error("Réponse Drive invalide (id manquant)."));
-            return;
-          }
-          resolve({
-            id: r.id,
-            webViewLink: r.webViewLink,
-            thumbnailLink: r.thumbnailLink,
-          });
-        } catch {
-          reject(new Error("Réponse Drive illisible."));
-        }
-      } else {
-        reject(new Error(`Upload Drive échoué (HTTP ${xhr.status}).`));
-      }
-    };
-    xhr.onerror = () =>
-      reject(new Error("Upload interrompu (réseau ou blocage navigateur)."));
-    xhr.ontimeout = () =>
-      reject(new Error("Upload expiré (fichier trop lourd / connexion lente)."));
-    xhr.send(file);
-  });
+  const total = file.size;
+  let start = 0;
+  let fileResource:
+    | { id?: string; webViewLink?: string; thumbnailLink?: string }
+    | null = null;
+
+  while (start < total) {
+    const end = Math.min(start + CHUNK_BYTES, total);
+    const contentRange = `bytes ${start}-${end - 1}/${total}`;
+    const res = await fetch("/api/snytch-drive/upload", {
+      method: "POST",
+      headers: {
+        "x-drive-session": sessionUrl,
+        "x-drive-content-range": contentRange,
+      },
+      body: file.slice(start, end),
+    });
+    if (!res.ok) {
+      throw new Error(`Upload interrompu (HTTP ${res.status}).`);
+    }
+    const data = (await res.json()) as ProxyChunkResponse;
+    if (data.status === "error") {
+      throw new Error(`Drive a refusé l'upload (HTTP ${data.httpStatus}).`);
+    }
+    if (data.status === "complete") {
+      fileResource = data.file;
+      onProgress(100);
+      break;
+    }
+    start = end;
+    onProgress(Math.round((start / total) * 100));
+  }
+
+  if (!fileResource?.id) {
+    throw new Error("Réponse Drive invalide (id manquant).");
+  }
+  return {
+    id: fileResource.id,
+    webViewLink: fileResource.webViewLink,
+    thumbnailLink: fileResource.thumbnailLink,
+  };
 }
 
 export function DriveUploader({ projectId }: { projectId: Id<"projects"> }) {
@@ -126,7 +152,7 @@ export function DriveUploader({ projectId }: { projectId: Id<"projects"> }) {
         toast.error(msg);
         return;
       }
-      const res = await putToDrive(session.uploadUrl, item.file, (pct) =>
+      const res = await uploadViaProxy(session.uploadUrl, item.file, (pct) =>
         patch(item.localId, { progress: pct }),
       );
       await confirmUpload({
@@ -141,10 +167,15 @@ export function DriveUploader({ projectId }: { projectId: Id<"projects"> }) {
       patch(item.localId, { status: "done", progress: 100 });
       toast.success(`${item.name} envoyé`);
     } catch (e) {
-      patch(item.localId, {
-        status: "error",
-        error: convexErrorMessage(e, "Échec de l'upload."),
-      });
+      // Surface le message réel (ConvexError métier OU Error d'upload avec le
+      // code HTTP) pour un diagnostic utile côté créateur/fondateur.
+      const msg =
+        e instanceof ConvexError && typeof e.data === "string"
+          ? e.data
+          : e instanceof Error
+            ? e.message
+            : "Échec de l'upload.";
+      patch(item.localId, { status: "error", error: msg });
     }
   }
 
