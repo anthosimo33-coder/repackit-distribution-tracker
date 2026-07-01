@@ -624,10 +624,42 @@ export default defineSchema({
         instagram: v.optional(v.string()),
       }),
     ),
+    // ─── Dépôt de fichiers Snytch — dossier Google Drive du créateur ──────────
+    // SNYTCH UNIQUEMENT. Id du sous-dossier Drive (dans le dossier racine
+    // "Snytch Créateurs", cf SNYTCH_DRIVE_ROOT_FOLDER_ID) créé par l'app à la
+    // création du créateur (ou par le backfill). Le service account gère ce
+    // dossier ; le créateur y dépose ses vidéos/photos (upload direct
+    // navigateur → Drive). undefined = pas encore créé (créateur pré-feature,
+    // env Drive absent au moment de la création, ou projet ≠ Snytch). Optional
+    // → 0 migration. Cf convex/snytchDrive.ts (ensureCreatorFolder, idempotent).
+    driveFolderId: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_project", ["projectId"])
     .index("by_user", ["userId"]),
+
+  // ─── Dépôt de fichiers Snytch — métadonnées des fichiers déposés ──────────
+  // SNYTCH UNIQUEMENT. 1 row = 1 fichier (vidéo ou photo) déposé par un créateur
+  // dans SON dossier Google Drive. Le FICHIER lui-même vit sur Drive (jamais
+  // dans Convex/Vercel) : cette table ne stocke QUE des métadonnées légères pour
+  // afficher la liste « ce que tu as déposé » sans rescanner Drive. Écrite par
+  // snytchDrive.confirmUpload (creatorMutation) après un upload direct
+  // navigateur → Drive réussi. Scopée par creatorId (un créateur ne voit que ses
+  // fichiers, cf listMyDriveFiles). Aucune vue admin in-app (le fondateur accède
+  // aux fichiers directement via son Google Drive). driveFileId = id Drive du
+  // fichier (clé de dédup idempotente de confirmUpload). webViewLink/
+  // thumbnailLink = liens éventuels renvoyés par Drive (non requis).
+  snytchDriveFiles: defineTable({
+    creatorId: v.id("creators"),
+    projectId: v.id("projects"),
+    driveFileId: v.string(),
+    fileName: v.string(),
+    mimeType: v.string(),
+    sizeBytes: v.number(),
+    uploadedAt: v.number(),
+    webViewLink: v.optional(v.string()),
+    thumbnailLink: v.optional(v.string()),
+  }).index("by_creator", ["creatorId"]),
 
   // ─── Reset mot de passe admin (Voie B) — lien à usage unique sans email ────
   // Un admin génère un lien /reset-password/<token> qu'il transmet au créateur

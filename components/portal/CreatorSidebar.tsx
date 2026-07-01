@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import {
   AtSignIcon,
+  FilesIcon,
   HelpCircleIcon,
   HomeIcon,
   LogOutIcon,
@@ -15,6 +16,7 @@ import { CreatorProjectSwitcher } from "@/components/portal/CreatorProjectSwitch
 import { SidebarItem } from "@/components/layout/SidebarItem";
 import { Button } from "@/components/ui/button";
 import { getCreatorTools } from "@/lib/creator-tools";
+import { isSnytchProject } from "@/lib/snytch-drive";
 import { resolveSidebarLinkIcon } from "@/lib/sidebar-link-icon";
 
 /**
@@ -52,11 +54,23 @@ const NAV_ITEMS: {
   },
 ];
 
+/** Dépôt de contenu — Snytch uniquement (cf lib/snytch-drive), inséré après comptes. */
+const FICHIERS_ITEM = {
+  href: "/app/fichiers",
+  label: "Mes fichiers",
+  icon: FilesIcon,
+  exact: false,
+} as const;
+
 export function CreatorSidebar({ onSignOut }: { onSignOut: () => void }) {
   const pathname = usePathname();
   const { current } = useCreatorProject();
   // Outils figés du projet courant (vide → pas de section, cf creator-tools).
   const tools = getCreatorTools(current.slug);
+  // « Mes fichiers » réservé à Snytch (les autres projets n'ont pas de Drive).
+  const navItems = isSnytchProject(current.slug)
+    ? [...NAV_ITEMS.slice(0, 2), FICHIERS_ITEM, ...NAV_ITEMS.slice(2)]
+    : NAV_ITEMS;
 
   return (
     <aside className="hidden h-screen w-60 shrink-0 flex-col border-r border-slate-200 bg-white md:sticky md:top-0 md:flex">
@@ -71,7 +85,7 @@ export function CreatorSidebar({ onSignOut }: { onSignOut: () => void }) {
         className="flex-1 space-y-6 overflow-y-auto px-3 py-4"
       >
         <div className="space-y-1">
-          {NAV_ITEMS.map((it) => (
+          {navItems.map((it) => (
             <SidebarItem
               key={it.href}
               icon={it.icon}

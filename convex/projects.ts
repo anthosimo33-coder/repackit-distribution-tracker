@@ -18,6 +18,13 @@ import type { Doc } from "./_generated/dataModel";
  */
 export const REPACKIT_SLUG = "repackit";
 
+/**
+ * Slug du projet Snytch — la SEULE app concernée par le dépôt de fichiers
+ * créateur (Google Drive, cf convex/snytchDrive.ts). Réplique A6 de
+ * lib/snytch-drive.SNYTCH_SLUG (convex/ ne peut pas importer lib/).
+ */
+export const SNYTCH_SLUG = "snytch";
+
 export async function getProjectBySlug(
   ctx: QueryCtx,
   slug: string,

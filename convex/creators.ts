@@ -11,6 +11,7 @@ import {
   requireProjectAdmin,
 } from "./functions";
 import { getProjectBySlug, REPACKIT_SLUG } from "./projects";
+import { internal } from "./_generated/api";
 import { syncBonusUnlocks } from "./pricing";
 import { DELETABLE_STATUSES, purgeAndDeleteAssignment } from "./assignments";
 import { ConvexError, v } from "convex/values";
@@ -159,6 +160,12 @@ export const inviteCreator = adminMutation({
       projectId: ctx.projectId,
       email,
       expiresAt: now + INVITE_TTL_MS,
+    });
+    // Dépôt de fichiers Snytch — crée le sous-dossier Drive du créateur (hors
+    // chemin critique). ensureCreatorFolder s'auto-gate (Snytch only) et no-op
+    // proprement si l'env Drive est absent → aucun impact sur les autres projets.
+    await ctx.scheduler.runAfter(0, internal.snytchDrive.ensureCreatorFolder, {
+      creatorId,
     });
     return { creatorId, token };
   },
@@ -818,6 +825,11 @@ export const addCreatorToProject = adminMutation({
       userId: creatorUserId,
       projectId: ctx.projectId,
       role: "creator",
+    });
+    // Dépôt de fichiers Snytch — crée le sous-dossier Drive (self-gaté Snytch,
+    // no-op sans env Drive). Cf inviteCreator.
+    await ctx.scheduler.runAfter(0, internal.snytchDrive.ensureCreatorFolder, {
+      creatorId,
     });
     return { creatorId };
   },

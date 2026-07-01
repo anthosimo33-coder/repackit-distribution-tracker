@@ -18,6 +18,7 @@ import {
 import { CreatorProjectSwitcher } from "@/components/portal/CreatorProjectSwitcher";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { getCreatorTools } from "@/lib/creator-tools";
+import { isSnytchProject } from "@/lib/snytch-drive";
 import { cn } from "@/lib/utils";
 
 /**
@@ -93,6 +94,8 @@ function CreatorShell({ children }: { children: React.ReactNode }) {
   const { signOut } = useAuthActions();
   const { current } = useCreatorProject();
   const hasTools = getCreatorTools(current.slug).length > 0;
+  // « Mes fichiers » (dépôt Drive) — Snytch uniquement.
+  const showFiles = isSnytchProject(current.slug);
 
   async function handleSignOut() {
     await signOut();
@@ -149,7 +152,11 @@ function CreatorShell({ children }: { children: React.ReactNode }) {
         </div>
       </main>
 
-      <CreatorBottomNav projectId={current.projectId} hasTools={hasTools} />
+      <CreatorBottomNav
+        projectId={current.projectId}
+        hasTools={hasTools}
+        showFiles={showFiles}
+      />
     </div>
   );
 }
