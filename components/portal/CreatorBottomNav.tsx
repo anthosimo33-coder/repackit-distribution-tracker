@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import {
   HomeIcon,
   AtSignIcon,
+  FilesIcon,
   WalletIcon,
   UserIcon,
   HelpCircleIcon,
@@ -58,16 +59,29 @@ const GUIDE_TAB: Tab = {
   icon: HelpCircleIcon,
   exact: false,
 };
+// Dépôt de contenu — Snytch uniquement (cf lib/snytch-drive), inséré après Comptes.
+const FICHIERS_TAB: Tab = {
+  href: "/app/fichiers",
+  label: "Fichiers",
+  icon: FilesIcon,
+  exact: false,
+};
 
 export function CreatorBottomNav({
   projectId,
   hasTools,
+  showFiles,
 }: {
   projectId: Id<"projects"> | null;
   hasTools: boolean;
+  showFiles: boolean;
 }) {
   const pathname = usePathname();
-  const tabs: Tab[] = [...BASE_TABS, hasTools ? OUTILS_TAB : GUIDE_TAB];
+  // Snytch → 6 onglets (Fichiers inséré) ; sinon 5 (comportement inchangé).
+  const lastTab = hasTools ? OUTILS_TAB : GUIDE_TAB;
+  const tabs: Tab[] = showFiles
+    ? [BASE_TABS[0], BASE_TABS[1], FICHIERS_TAB, BASE_TABS[2], BASE_TABS[3], lastTab]
+    : [...BASE_TABS, lastTab];
   const actionable =
     useQuery(
       api.assignments.countMyActionable,
@@ -89,7 +103,12 @@ export function CreatorBottomNav({
       className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 backdrop-blur supports-backdrop-filter:bg-white/80 md:hidden"
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
-      <ul className="mx-auto grid max-w-lg grid-cols-5">
+      <ul
+        className={cn(
+          "mx-auto grid max-w-lg",
+          tabs.length === 6 ? "grid-cols-6" : "grid-cols-5",
+        )}
+      >
         {tabs.map((t) => {
           const active = t.exact
             ? pathname === t.href
