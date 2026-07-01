@@ -277,6 +277,12 @@ export const getUploadSession = authedAction({
         mimeType,
         sizeBytes,
       );
+      // Diagnostic : confirme que l'ÉTAPE 1 (init resumable côté serveur) réussit.
+      // L'upload du binaire est ensuite relayé par /api/snytch-drive/upload
+      // (même origine → pas de CORS). On ne logge JAMAIS l'uploadUrl (capacité).
+      console.info(
+        "[snytch-drive] session resumable initiée (étape 1 OK) — upload relayé same-origin.",
+      );
       return { ok: true, uploadUrl };
     } catch (e) {
       console.error(`[snytch-drive] init upload échoué: ${errMsg(e)}`);
