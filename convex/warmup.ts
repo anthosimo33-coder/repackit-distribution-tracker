@@ -71,15 +71,23 @@ type CompteStatusLike = "warmup" | "actif" | "shadowban" | "archived";
 
 /**
  * Compte DISPONIBLE pour publier (réplique de lib/warmup.isAccountAvailable,
- * chantier C) : "actif" (warmup déjà validé) OU en warmup terminé (assez de
- * checks). shadowban / archived → indisponible. Coercion legacy du status
- * identique à convex/comptes.effectiveStatus.
+ * chantier C). shadowban / archived → toujours indisponible. Coercion legacy du
+ * status identique à convex/comptes.effectiveStatus.
+ *
+ * Deux régimes selon `opts.strict` :
+ *   - LENIENT (défaut) : "actif" OU warmup TERMINÉ (assez de checks). Régime
+ *     historique, conservé pour les projets hors Snytch (ne PAS changer le
+ *     gating RepackIt).
+ *   - STRICT : "actif" UNIQUEMENT. Un warmup terminé mais pas encore validé par
+ *     l'admin n'est PAS disponible → le passage "actif" devient un VRAI gate.
+ *     Passé strict:true uniquement pour le projet Snytch (cf isSnytchProject).
  */
 export function isAccountAvailable(
   c: WarmupCompteLike & { status?: CompteStatusLike; actif?: boolean },
+  opts?: { strict?: boolean },
 ): boolean {
   const status = c.status ?? (c.actif === false ? "archived" : "actif");
   if (status === "actif") return true;
-  if (status === "warmup") return isWarmupComplete(c);
+  if (status === "warmup") return opts?.strict ? false : isWarmupComplete(c);
   return false;
 }

@@ -14,7 +14,9 @@ import {
   isWarmupComplete,
   mustCheckToday,
   isAccountAvailable,
+  effectiveTargetDays,
 } from "./warmup";
+import { isSnytchProject } from "./projects";
 import { v, ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -236,14 +238,16 @@ export const listComptes = adminQuery({
 });
 
 /**
- * Chantier C — comptes d'UN créateur annotés `available` (isAccountAvailable :
- * actif OU warmup terminé). Alimente les sélecteurs de cibles à la création
- * d'assignment : seuls les comptes disponibles sont choisissables ; une
- * plateforme sans compte disponible est désactivée (« en warmup »).
+ * Chantier C — comptes d'UN créateur annotés `available`. Alimente les
+ * sélecteurs de cibles à la création d'assignment : seuls les comptes
+ * disponibles sont choisissables ; une plateforme sans compte disponible est
+ * désactivée. Gate STRICT pour Snytch (available = "actif" seulement) ; lenient
+ * ailleurs (warmup terminé suffit).
  */
 export const listCreatorAvailableComptes = adminQuery({
   args: { creatorId: v.id("creators") },
   handler: async (ctx, { creatorId }) => {
+    const strict = await isSnytchProject(ctx, ctx.projectId);
     const comptes = await ctx.db
       .query("comptes")
       .withIndex("by_project_creator", (q) =>
@@ -255,7 +259,7 @@ export const listCreatorAvailableComptes = adminQuery({
         _id: c._id,
         handle: c.handle,
         plateforme: c.plateforme,
-        available: isAccountAvailable(c),
+        available: isAccountAvailable(c, { strict }),
       }))
       .sort((a, b) =>
         a.handle.localeCompare(b.handle, "fr", { sensitivity: "base" }),
@@ -907,6 +911,76 @@ export const countWarmupInProgressAsAdmin = adminViewAsQuery({
     const comptes = await comptesForCreator(ctx, ctx.projectId, ctx.creatorId);
     return warmupInProgressCount(comptes);
   },
+});
+
+// ─── SNYTCH — état d'ONBOARDING créatrice (dérivé serveur COMPACT) ────────────
+// Alimente la checklist du dashboard (cf lib/onboarding.deriveOnboarding + le
+// DashboardScreen). On NE renvoie QUE le strict nécessaire (statut, warmup, bio)
+// par compte — jamais le brut (protocole, keywords, notes). SNYTCH UNIQUEMENT :
+// hors Snytch → { applicable:false } → la checklist ne s'affiche pas et le
+// dashboard garde son comportement historique.
+
+type OnboardingAccountPayload = {
+  id: Id<"comptes">;
+  handle: string;
+  plateforme: Doc<"comptes">["plateforme"];
+  status: CompteStatus;
+  checksDone: number;
+  targetDays: number;
+  warmupDone: boolean;
+  dueToday: boolean;
+  bio: "none" | "to_apply" | "applied";
+};
+
+type OnboardingStatePayload = {
+  applicable: boolean;
+  accounts: OnboardingAccountPayload[];
+};
+
+async function onboardingStateForCreator(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  creatorId: Id<"creators">,
+  now: number,
+): Promise<OnboardingStatePayload> {
+  // Feature Snytch-only : hors Snytch on ne charge même pas les comptes.
+  if (!(await isSnytchProject(ctx, projectId))) {
+    return { applicable: false, accounts: [] };
+  }
+  const comptes = await comptesForCreator(ctx, projectId, creatorId);
+  const accounts = comptes.map((c) => {
+    const warmupLike = {
+      plateforme: c.plateforme,
+      warmupProtocol: c.warmupProtocol,
+    };
+    const status = effectiveStatus(c);
+    return {
+      id: c._id,
+      handle: c.handle,
+      plateforme: c.plateforme,
+      status,
+      checksDone: c.warmupProtocol?.dailyChecks?.length ?? 0,
+      targetDays: effectiveTargetDays(warmupLike),
+      warmupDone: isWarmupComplete(warmupLike),
+      dueToday: status === "warmup" && mustCheckToday(warmupLike, now),
+      bio: (c.bioStatus ?? "none") as "none" | "to_apply" | "applied",
+    };
+  });
+  return { applicable: true, accounts };
+}
+
+/** État d'onboarding de MON espace créateur (Snytch). Cf lib/onboarding. */
+export const getMyOnboardingState = creatorQuery({
+  args: {},
+  handler: async (ctx) =>
+    onboardingStateForCreator(ctx, ctx.projectId, ctx.creatorId, Date.now()),
+});
+
+/** ADMIN view-as — état d'onboarding du créateur ciblé (lecture seule). */
+export const getOnboardingStateAsAdmin = adminViewAsQuery({
+  args: {},
+  handler: async (ctx) =>
+    onboardingStateForCreator(ctx, ctx.projectId, ctx.creatorId, Date.now()),
 });
 
 /**

@@ -1,7 +1,8 @@
 import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { REPACKIT_SLUG } from "./projects";
+import { REPACKIT_SLUG, getProjectBySlug, SNYTCH_SLUG } from "./projects";
+import { isWarmupComplete } from "./warmup";
 
 const DEFAULT_ACCENT = "#FF5200";
 const DEFAULT_PAYOUT_DAY = 5;
@@ -180,5 +181,97 @@ export const seedProject = internalMutation({
       }
     }
     return { projectId };
+  },
+});
+
+/**
+ * SNYTCH — backfill du GATE STRICT "actif" (one-shot, idempotent, relançable).
+ *
+ * Contexte : avant le gate strict, isAccountAvailable laissait un compte
+ * status:"warmup" MAIS warmup TERMINÉ être ciblé par des assignments. En passant
+ * au gate strict (Snytch : seul "actif" est disponible), ces comptes déjà
+ * utilisés deviendraient soudain "non disponibles" → risque de bloquer la
+ * publication d'assignments EN COURS (confirmPublication re-garde).
+ *
+ * Ce backfill recense les comptes Snytch { status "warmup" && warmup terminé }
+ * qui sont RÉFÉRENCÉS comme cible d'un assignment NON terminal (tout sauf
+ * published/paid) et les passe "actif" (ils étaient de facto validés puisque
+ * déjà utilisés). Les comptes warmup-terminé JAMAIS utilisés ne sont PAS touchés
+ * (comportement voulu : l'admin doit les valider avant de nouveaux scripts).
+ *
+ *   Dry-run (compter sans écrire) :
+ *     ./node_modules/.bin/convex run migrations:backfillSnytchWarmupDoneToActif '{"dryRun":true}' [--prod]
+ *   Appliquer :
+ *     ./node_modules/.bin/convex run migrations:backfillSnytchWarmupDoneToActif '{"dryRun":false}' [--prod]
+ */
+export const backfillSnytchWarmupDoneToActif = internalMutation({
+  args: { dryRun: v.boolean() },
+  handler: async (ctx, { dryRun }) => {
+    const project = await getProjectBySlug(ctx, SNYTCH_SLUG);
+    if (project === null) {
+      return {
+        snytch: false as const,
+        dryRun,
+        warmupDoneTotal: 0,
+        inUse: 0,
+        flipped: 0,
+        handles: [] as string[],
+      };
+    }
+
+    // 1. Comptes Snytch en status "warmup" ET warmup terminé (checks atteints).
+    const comptes = await ctx.db
+      .query("comptes")
+      .withIndex("by_project", (q) => q.eq("projectId", project._id))
+      .collect();
+    const warmupDone = comptes.filter((c) => {
+      const status = c.status ?? (c.actif === false ? "archived" : "actif");
+      return (
+        status === "warmup" &&
+        isWarmupComplete({
+          plateforme: c.plateforme,
+          warmupProtocol: c.warmupProtocol,
+        })
+      );
+    });
+
+    // 2. Ids de comptes référencés par un assignment NON terminal (targets +
+    //    legacy accountId). Terminal = published / paid (post déjà sorti, jamais
+    //    re-gaté par confirmPublication).
+    const TERMINAL = new Set(["published", "paid"]);
+    const assignments = await ctx.db
+      .query("assignments")
+      .withIndex("by_project", (q) => q.eq("projectId", project._id))
+      .collect();
+    const referenced = new Set<Id<"comptes">>();
+    for (const a of assignments) {
+      if (TERMINAL.has(a.status)) continue;
+      for (const t of a.targets ?? []) {
+        if (t.accountId) referenced.add(t.accountId);
+      }
+      if (a.accountId) referenced.add(a.accountId);
+    }
+
+    // 3. Intersection : warmup-terminé ET déjà utilisé → à passer actif.
+    const inUse = warmupDone.filter((c) => referenced.has(c._id));
+
+    if (!dryRun) {
+      for (const c of inUse) {
+        await ctx.db.patch(c._id, {
+          status: "actif",
+          actif: true,
+          warmupStartedAt: undefined,
+        });
+      }
+    }
+
+    return {
+      snytch: true as const,
+      dryRun,
+      warmupDoneTotal: warmupDone.length,
+      inUse: inUse.length,
+      flipped: dryRun ? 0 : inUse.length,
+      handles: inUse.map((c) => `${c.plateforme}:${c.handle}`),
+    };
   },
 });

@@ -172,6 +172,45 @@ describe("isAccountAvailable", () => {
       false,
     );
   });
+
+  // Gate STRICT (Snytch) — un warmup TERMINÉ n'est PLUS disponible tant que
+  // l'admin ne l'a pas passé "actif". Seul "actif" débloque.
+  describe("strict (gate actif Snytch)", () => {
+    const warmDone = {
+      plateforme: "TikTok" as const,
+      status: "warmup" as const,
+      warmupProtocol: {
+        dailyChecks: Array.from({ length: 7 }, (_, i) => `d${i}`),
+      },
+    };
+    it("warmup terminé → indisponible en strict (dispo en lenient)", () => {
+      expect(isAccountAvailable(warmDone)).toBe(true); // lenient (défaut)
+      expect(isAccountAvailable(warmDone, { strict: true })).toBe(false);
+    });
+    it("actif → disponible même en strict", () => {
+      expect(
+        isAccountAvailable(
+          { plateforme: "TikTok", status: "actif" },
+          { strict: true },
+        ),
+      ).toBe(true);
+      expect(
+        isAccountAvailable(
+          { plateforme: "TikTok", actif: true },
+          { strict: true },
+        ),
+      ).toBe(true);
+    });
+    it("warmup en cours → indisponible dans les deux régimes", () => {
+      const warmInProgress = {
+        plateforme: "TikTok" as const,
+        status: "warmup" as const,
+        warmupProtocol: { dailyChecks: ["d0", "d1"] },
+      };
+      expect(isAccountAvailable(warmInProgress)).toBe(false);
+      expect(isAccountAvailable(warmInProgress, { strict: true })).toBe(false);
+    });
+  });
 });
 
 describe("mustCheckToday", () => {

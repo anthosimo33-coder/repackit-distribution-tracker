@@ -8,7 +8,7 @@ import {
 import { internalMutation } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import type { QueryCtx } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 
 /**
  * P2 Multi-tenant — résolution du projet courant.
@@ -33,6 +33,24 @@ export async function getProjectBySlug(
     .query("projects")
     .withIndex("by_slug", (q) => q.eq("slug", slug))
     .first();
+}
+
+/**
+ * Le projet d'id `projectId` est-il Snytch ? Sert à SCOPER un comportement au
+ * seul projet Snytch sans toucher les autres (RepackIt & co.). Typé QueryCtx
+ * (comme getProjectBySlug) → utilisable depuis query ET mutation. Un projet
+ * introuvable → false (jamais Snytch par défaut).
+ *
+ * Utilisé par le GATE STRICT « actif » : isAccountAvailable(compte, { strict })
+ * n'est passé en strict que pour Snytch (cf convex/assignments.validateTargets,
+ * confirmPublication, convex/comptes.listCreatorAvailableComptes).
+ */
+export async function isSnytchProject(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+): Promise<boolean> {
+  const project = await ctx.db.get(projectId);
+  return project?.slug === SNYTCH_SLUG;
 }
 
 /**
