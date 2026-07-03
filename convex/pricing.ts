@@ -205,8 +205,9 @@ export function evaluateBonusTiers(
 // ─── Vues + période d'un assignment ──────────────────────────────────────────
 
 /** Date de publication d'un assignment = la PLUS PRÉCOCE de ses cibles (toutes
- *  publiées le même jour par confirmPublication), fallback legacy/createdAt. */
-function assignmentPublishedAt(a: Doc<"assignments">): number {
+ *  publiées le même jour par confirmPublication), fallback legacy/createdAt.
+ *  Exporté : réutilisé par le suivi vidéos créatrice (convex/creatorVideos). */
+export function assignmentPublishedAt(a: Doc<"assignments">): number {
   const ts = (a.targets ?? [])
     .map((t) => t.publishedAt)
     .filter((x): x is number => typeof x === "number");
@@ -214,24 +215,44 @@ function assignmentPublishedAt(a: Doc<"assignments">): number {
   return a.publishedAt ?? a.createdAt;
 }
 
-/** Vues TOTALES d'un assignment = somme des vuesLatest de ses publications. */
-async function assignmentTotalViews(
+/**
+ * Vues TOTALES (somme des vuesLatest des publications) ET présence de métriques
+ * (au moins un snapshot déjà relevé, via latestSnapshotAt) d'un assignment, en
+ * UN SEUL passage sur les publications. SOURCE UNIQUE des vues d'une vidéo :
+ * réutilisée par le CPM (assignmentTotalViews délègue ici) ET par le suivi
+ * vidéos créatrice → aucune divergence de vues entre « Mes paiements » et
+ * « Mes vidéos ». `hasMetrics` alimente le statut de suivi (actif vs en cours de
+ * calcul) côté créatrice sans re-lire les publications.
+ */
+export async function assignmentViewsAndMetrics(
   ctx: QueryCtx | MutationCtx,
   a: Doc<"assignments">,
-): Promise<number> {
+): Promise<{ totalViews: number; hasMetrics: boolean }> {
   const pubIds = [
     ...(a.targets ?? []).map((t) => t.publicationId),
     a.publicationId,
   ].filter((p): p is Id<"publications"> => p !== undefined);
-  let total = 0;
+  let totalViews = 0;
+  let hasMetrics = false;
   const seen = new Set<string>();
   for (const pid of pubIds) {
     if (seen.has(pid)) continue;
     seen.add(pid);
     const pub = await ctx.db.get(pid);
-    total += pub?.vuesLatest ?? 0;
+    if (!pub) continue;
+    totalViews += pub.vuesLatest ?? 0;
+    // Un snapshot a été relevé (Apify/YouTube/manuel) ⇒ suivi actif.
+    if (pub.latestSnapshotAt !== undefined) hasMetrics = true;
   }
-  return total;
+  return { totalViews, hasMetrics };
+}
+
+/** Vues TOTALES d'un assignment (délègue à assignmentViewsAndMetrics). */
+async function assignmentTotalViews(
+  ctx: QueryCtx | MutationCtx,
+  a: Doc<"assignments">,
+): Promise<number> {
+  return (await assignmentViewsAndMetrics(ctx, a)).totalViews;
 }
 
 /** "YYYY-MM" → mois suivant ("YYYY-MM"), UTC (rollover Guard A). */

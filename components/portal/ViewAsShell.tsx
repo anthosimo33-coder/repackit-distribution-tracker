@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   AtSignIcon,
   EyeIcon,
+  FilmIcon,
   HelpCircleIcon,
   HomeIcon,
   LogOutIcon,
@@ -12,6 +13,7 @@ import {
   WalletIcon,
   type LucideIcon,
 } from "lucide-react";
+import { isSnytchProject } from "@/lib/snytch-drive";
 import { AccentStyle } from "@/components/project/AccentStyle";
 import { SidebarItem } from "@/components/layout/SidebarItem";
 import { useProjectPath } from "@/components/project/ProjectProvider";
@@ -50,6 +52,15 @@ const NAV: NavItem[] = [
   { sub: "/guide", label: "Comment ça marche", shortLabel: "Guide", icon: HelpCircleIcon, exact: false },
 ];
 
+/** Suivi vidéos — Snytch uniquement, inséré après « Mes paiements » (lecture seule). */
+const VIDEOS_NAV: NavItem = {
+  sub: "/videos",
+  label: "Mes vidéos",
+  shortLabel: "Vidéos",
+  icon: FilmIcon,
+  exact: false,
+};
+
 export function ViewAsShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const projectPath = useProjectPath();
@@ -72,6 +83,10 @@ export function ViewAsShell({ children }: { children: React.ReactNode }) {
   const actionable = useActionable(current.projectId) ?? 0;
   const warmupDue = useWarmupDue(current.projectId) ?? 0;
   const badgeCount = { actionable, warmupDue };
+  // « Mes vidéos » réservé à Snytch (comme dans le portail créateur normal).
+  const navItems = isSnytchProject(current.slug)
+    ? [...NAV.slice(0, 3), VIDEOS_NAV, ...NAV.slice(3)]
+    : NAV;
 
   function isActive(item: NavItem) {
     const href = portalHref(base, item.sub);
@@ -117,7 +132,7 @@ export function ViewAsShell({ children }: { children: React.ReactNode }) {
             aria-label="Navigation vue créateur"
             className="flex-1 space-y-1 overflow-y-auto px-3 py-4"
           >
-            {NAV.map((it) => (
+            {navItems.map((it) => (
               <SidebarItem
                 key={it.sub}
                 icon={it.icon}
@@ -144,8 +159,13 @@ export function ViewAsShell({ children }: { children: React.ReactNode }) {
         className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 backdrop-blur supports-backdrop-filter:bg-white/80 md:hidden"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        <ul className="mx-auto grid max-w-lg grid-cols-5">
-          {NAV.map((it) => {
+        <ul
+          className={cn(
+            "mx-auto grid max-w-lg",
+            navItems.length === 6 ? "grid-cols-6" : "grid-cols-5",
+          )}
+        >
+          {navItems.map((it) => {
             const active = isActive(it);
             const Icon = it.icon;
             const count = it.badge ? badgeCount[it.badge] : 0;
