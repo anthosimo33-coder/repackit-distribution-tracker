@@ -9,6 +9,7 @@ import {
 import { withResolvedExamples } from "./formats";
 import { isFormatAllowedOnPlatform } from "./publications";
 import { tierLabel } from "./scriptTier";
+import { SNYTCH_SLUG } from "./projects";
 import {
   accrueBaseLineItem,
   upsertBonusLineItem,
@@ -1283,6 +1284,43 @@ async function resolveAssignmentAssets(
   return { folders };
 }
 
+/** Deux zones de destination d'un script monté (rendu créateur Snytch). */
+type ScriptZones = { videoScript: string; descriptionScript: string };
+
+/**
+ * SNYTCH — découpe le script monté en deux zones de DESTINATION pour l'affichage
+ * créateur : « dans la vidéo » (hook + flux) vs « en description » (cta). Lit les
+ * briques FIGÉES du combo et ne renvoie le découpage QUE s'il reconstruit
+ * l'assembledScript figé À L'OCTET PRÈS (même join que assembleNoLabels côté
+ * write, labels:false). Sinon — brique éditée depuis l'assignation, combo legacy
+ * 4-briques (corps), ou cta vide — renvoie null : la fiche retombe alors sur la
+ * carte unique « Vidéo à tourner » (le texte figé RESTE la source de vérité, cf.
+ * scriptAssembly). Gate Snytch : rien n'est calculé/renvoyé hors Snytch. Aucune
+ * brique/id/tier/campagne n'est exposé — UNIQUEMENT le texte, comme assembledScript.
+ */
+async function splitScriptZones(
+  ctx: QueryCtx,
+  a: Doc<"assignments">,
+  combo: NonNullable<Doc<"assignments">["scriptCombo"]>,
+): Promise<ScriptZones | null> {
+  const project = await ctx.db.get(a.projectId);
+  if (!project || project.slug !== SNYTCH_SLUG) return null;
+  const [hook, flux, cta] = await Promise.all([
+    ctx.db.get(combo.hookBrickId),
+    ctx.db.get(combo.fluxBrickId),
+    ctx.db.get(combo.ctaBrickId),
+  ]);
+  if (!hook || !flux || !cta) return null;
+  const h = hook.content.trim();
+  const f = flux.content.trim();
+  const c = cta.content.trim();
+  if (c.length === 0) return null;
+  // Garde anti-divergence : le découpage n'est fidèle que s'il reconstitue le
+  // texte figé exactement (même assemblage que le write path, labels:false).
+  if ([h, f, c].join("\n\n") !== combo.assembledScript) return null;
+  return { videoScript: [h, f].join("\n\n"), descriptionScript: c };
+}
+
 async function enrichForCreator(ctx: QueryCtx, a: Doc<"assignments">) {
   const targets = await enrichTargets(ctx, a);
   const { scriptCombo, comboKey, ...safe } = a;
@@ -1369,10 +1407,12 @@ async function assignmentDetailFor(
   // Assets liés (images à télécharger) — dossier de SON assignment uniquement.
   const assets = await resolveAssignmentAssets(ctx, a);
   if (scriptCombo) {
+    const scriptZones = await splitScriptZones(ctx, a, scriptCombo);
     return {
       assignment: safe,
       format: null,
       assembledScript: scriptCombo.assembledScript,
+      scriptZones,
       targets,
       submittedVideoUrl,
       submittedVideoMimeType,
@@ -1385,6 +1425,7 @@ async function assignmentDetailFor(
     assignment: safe,
     format: brief,
     assembledScript: null as string | null,
+    scriptZones: null as ScriptZones | null,
     targets,
     submittedVideoUrl,
     submittedVideoMimeType,

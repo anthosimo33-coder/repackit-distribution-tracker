@@ -7,7 +7,8 @@ import {
   useProjectQuery,
   useProjectMutation,
 } from "@/components/project/use-project-convex";
-import { useProjectPath } from "@/components/project/ProjectProvider";
+import { useProjectPath, useProjectSlug } from "@/components/project/ProjectProvider";
+import { isSnytchProject } from "@/lib/snytch-drive";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Card, CardContent } from "@/components/ui/card";
@@ -56,6 +57,7 @@ import {
   type ScriptTier,
 } from "@/lib/scriptAssembly";
 import { SCRIPT_TIERS, tierLabel } from "@/lib/script-tier";
+import { ScriptDestinationZones } from "@/components/scripts/ScriptDestinationZones";
 import { TierBadge } from "@/components/admin/TierBadge";
 import { AssignScriptCampaignDialog } from "@/components/admin/AssignScriptCampaignDialog";
 import type { FunctionReturnType } from "convex/server";
@@ -608,6 +610,10 @@ function PreviewDialog({
     cta: null,
   });
 
+  // SNYTCH — l'aperçu montre les DEUX zones de destination (ce que verra la
+  // créatrice) ; hors Snytch, rendu classique (script enchaîné, titres visibles).
+  const snytch = isSnytchProject(useProjectSlug());
+
   function resolve(kind: ScriptKind): Brick | null {
     const actives = activeByKind(kind);
     if (actives.length === 0) return null;
@@ -636,8 +642,9 @@ function PreviewDialog({
         <DialogHeader>
           <DialogTitle>Aperçu d&apos;un script monté</DialogTitle>
           <DialogDescription>
-            Le rendu final d&apos;une vidéo (ce que verra le créateur), sans les
-            briques séparées.
+            {snytch
+              ? "Ce que verra la créatrice : 🎬 hook + flux vont dans la vidéo, 📝 le CTA va en description du post."
+              : "Le rendu final d'une vidéo (ce que verra le créateur), sans les briques séparées."}
           </DialogDescription>
         </DialogHeader>
 
@@ -681,7 +688,16 @@ function PreviewDialog({
           data-testid="preview-output"
         >
           {ready ? (
-            <SimpleMarkdown content={assembled} />
+            snytch ? (
+              <ScriptDestinationZones
+                videoScript={[hook.content.trim(), flux.content.trim()].join(
+                  "\n\n",
+                )}
+                descriptionScript={cta.content.trim()}
+              />
+            ) : (
+              <SimpleMarkdown content={assembled} />
+            )
           ) : (
             <p className="text-sm text-slate-500">
               Active au moins une brique de chaque type pour prévisualiser.

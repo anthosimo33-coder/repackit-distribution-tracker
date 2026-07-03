@@ -14,6 +14,7 @@ import { EarningsCalculator } from "@/components/portal/EarningsCalculator";
 import { PricingEstimator } from "@/components/portal/PricingEstimator";
 import { AssignmentActions } from "@/components/portal/AssignmentActions";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
+import { ScriptDestinationZones } from "@/components/scripts/ScriptDestinationZones";
 
 /**
  * Fiche détail d'une mission — écran RÉUTILISÉ par le portail créateur normal ET
@@ -107,16 +108,26 @@ export default function AssignmentDetailScreen({
 
           {/* Script monté (assignment de script) OU brief de format. Pour un
               script, le créateur ne voit que le texte fini — aucune brique,
-              aucun tier, aucune campagne. */}
+              aucun tier, aucune campagne. SNYTCH : le script est éclaté en DEUX
+              zones de destination (🎬 dans la vidéo = hook+flux / 📝 en
+              description = cta) pour lever la confusion « qu'est-ce qui va où ».
+              Hors Snytch (scriptZones absent) : carte unique inchangée. */}
           {data.assembledScript ? (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Vidéo à tourner</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <SimpleMarkdown content={data.assembledScript} />
-              </CardContent>
-            </Card>
+            data.scriptZones ? (
+              <ScriptDestinationZones
+                videoScript={data.scriptZones.videoScript}
+                descriptionScript={data.scriptZones.descriptionScript}
+              />
+            ) : (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Vidéo à tourner</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <SimpleMarkdown content={data.assembledScript} />
+                </CardContent>
+              </Card>
+            )
           ) : data.format ? (
             <FormatBriefPreview format={data.format} showRate={false} />
           ) : (

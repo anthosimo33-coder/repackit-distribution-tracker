@@ -1,0 +1,53 @@
+"use client";
+
+import { useState } from "react";
+import { CheckIcon, CopyIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+
+/**
+ * Bouton « copier dans le presse-papier » réutilisable — même pattern que
+ * CopyableLink (navigator.clipboard.writeText + feedback ✓ pendant 1,5 s).
+ * Silencieux si le presse-papier est indisponible : l'utilisateur peut toujours
+ * sélectionner le texte à la main. `text` est copié VERBATIM (markdown source),
+ * pas le rendu — utile pour une description de post (hashtags inclus).
+ */
+export function CopyButton({
+  text,
+  label = "Copier",
+  copiedLabel = "Copié !",
+  className,
+}: {
+  text: string;
+  label?: string;
+  copiedLabel?: string;
+  className?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* presse-papier indisponible — sélection manuelle possible */
+    }
+  }
+
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      onClick={copy}
+      className={cn("gap-1.5", className)}
+    >
+      {copied ? (
+        <CheckIcon className="size-4 text-emerald-600" />
+      ) : (
+        <CopyIcon className="size-4" />
+      )}
+      {copied ? copiedLabel : label}
+    </Button>
+  );
+}
