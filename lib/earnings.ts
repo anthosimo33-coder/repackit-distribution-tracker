@@ -9,7 +9,10 @@
  *                 chaque palier franchi paie sa prime)
  *   - total     = base + viewBonus + bounty
  * Tous les montants sont arrondis au centime pour que la somme soit exacte.
+ *
+ * Plafond 150 €/vidéo (GLOBAL tous projets) appliqué au total (base + bonus).
  */
+import { MAX_PAY_PER_VIDEO_EUR } from "./pricing-engine";
 
 export type RateSnapshot = {
   basePerPost: number;
@@ -35,5 +38,20 @@ export function computeEarnings(rate: RateSnapshot, views: number): Earnings {
       .filter((b) => v >= b.thresholdViews)
       .reduce((sum, b) => sum + b.amount, 0),
   );
-  return { base, viewBonus, bounty, total: round2(base + viewBonus + bounty) };
+  const rawTotal = round2(base + viewBonus + bounty);
+  if (rawTotal <= MAX_PAY_PER_VIDEO_EUR) {
+    return { base, viewBonus, bounty, total: rawTotal };
+  }
+  // Plafond 150 €/vidéo : on garde la base, on rogne le bonus aux vues (part
+  // explosive) puis les primes → base + bonus rognés = 150. Le bonus accru
+  // (assignments.computeViewBonus = viewBonus + bounty) est donc capé À LA SOURCE.
+  const room = Math.max(0, round2(MAX_PAY_PER_VIDEO_EUR - base));
+  const cappedViewBonus = Math.min(viewBonus, room);
+  const cappedBounty = Math.min(bounty, round2(room - cappedViewBonus));
+  return {
+    base,
+    viewBonus: cappedViewBonus,
+    bounty: cappedBounty,
+    total: round2(base + cappedViewBonus + cappedBounty),
+  };
 }

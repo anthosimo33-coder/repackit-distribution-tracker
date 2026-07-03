@@ -92,7 +92,9 @@ test.describe("Pricing — calcul de paie (fixe + CPM + bonus, snapshot)", () =>
       likes: 5_000,
     });
 
-    // 4. Breakdown chiffré côté créateur : fixe 1,67 + CPM 240 + bonus 50 = 291,67.
+    // 4. Breakdown chiffré côté créateur — PLAFOND 150 €/vidéo (global tous
+    //    projets). Brut : fixe 1,67 + CPM 240 = 241,67 > 150 → la vidéo est capée :
+    //    le CPM est rogné (240 → 148,33) pour un total de 150.
     const period = new Date().toISOString().slice(0, 7);
     const payments = await creator.client.query(api.payments.getMyPayments, {
       projectId,
@@ -100,11 +102,12 @@ test.describe("Pricing — calcul de paie (fixe + CPM + bonus, snapshot)", () =>
     const cur = payments.find((p) => p.period === period);
     expect(cur).toBeTruthy();
     // v2 : fixe + CPM (le bonus par vidéo de v1 est retiré ; les paliers cumulés
-    // sont testés dans pricing-bonus-tiers.spec). 1,67 + 240 = 241,67.
+    // sont testés dans pricing-bonus-tiers.spec). Le fixe (1,67 < 150) est gardé,
+    // le CPM absorbe le plafond → 148,33 ; total plafonné à 150.
     expect(cur!.pricingBreakdown.fixedTotal).toBe(1.67);
-    expect(cur!.pricingBreakdown.cpmTotal).toBe(240);
+    expect(cur!.pricingBreakdown.cpmTotal).toBe(148.33);
     expect(cur!.pricingBreakdown.bonusTierCashTotal).toBe(0);
-    expect(cur!.pricingBreakdown.total).toBe(241.67);
+    expect(cur!.pricingBreakdown.total).toBe(150);
 
     // 5. SNAPSHOT FIGÉ : modifier le pricing (montantFixe 200) ne change PAS la
     //    vidéo déjà attribuée → le fixe reste 1,67 (100/60), pas 3,33 (200/60).
