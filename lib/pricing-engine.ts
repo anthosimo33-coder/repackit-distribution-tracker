@@ -67,6 +67,17 @@ export interface MonthlyPayout {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/**
+ * Plafond DUR de rémunération PAR VIDÉO — GLOBAL, tous projets (Snytch, RepackIt,
+ * …), JAMAIS scopé par projet. Dès que la paie d'UNE vidéo (part fixe + CPM ; ou
+ * base + bonus dans le modèle legacy) atteint ce montant, elle est plafonnée —
+ * même à des dizaines de millions de vues. Appliqué à la SOURCE du calcul par
+ * vidéo (computeMonthlyPayout / estimateMissionEarnings ici ; computeEarnings
+ * dans lib/earnings) et RÉPLIQUÉ côté convex (A6). Le total mensuel = SOMME des
+ * vidéos DÉJÀ plafonnées (le cap est par vidéo, jamais sur le total agrégé).
+ */
+export const MAX_PAY_PER_VIDEO_EUR = 150;
+
 /** CPM d'une vidéo (vues totales, toutes plateformes confondues). */
 export function assignmentCpm(snapshot: PricingSnapshot, totalViews: number): number {
   const v = Math.max(0, totalViews);
@@ -103,7 +114,13 @@ export function estimateMissionEarnings(
 ): MissionEstimate {
   const fixed = round2(fixePerVideo(snapshot));
   const cpm = assignmentCpm(snapshot, views);
-  return { fixed, cpm, total: round2(fixed + cpm) };
+  const total = round2(fixed + cpm);
+  if (total <= MAX_PAY_PER_VIDEO_EUR) return { fixed, cpm, total };
+  // Plafond 150 €/vidéo : on garde la part fixe et on rogne le CPM (puis le fixe
+  // au cas pathologique fixe/vidéo > 150). Cohérent avec computeMonthlyPayout.
+  const cappedFixed = Math.min(fixed, MAX_PAY_PER_VIDEO_EUR);
+  const cappedCpm = round2(MAX_PAY_PER_VIDEO_EUR - cappedFixed);
+  return { fixed: cappedFixed, cpm: cappedCpm, total: MAX_PAY_PER_VIDEO_EUR };
 }
 
 /**
@@ -128,19 +145,35 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
     const snapshot = groupItems[0].snapshot;
     const perVideo = fixePerVideo(snapshot);
     const videoCount = groupItems.length;
-    const fixed = round2(Math.min(videoCount * perVideo, snapshot.montantFixe));
+    // Fixe du groupe (plafonné au budget montantFixe) — arrondi AU NIVEAU DU
+    // GROUPE, calcul INCHANGÉ hors plafond 150 (sous-cap = octet pour octet).
+    const fixedGroup = round2(Math.min(videoCount * perVideo, snapshot.montantFixe));
 
+    // ─── Plafond 150 €/vidéo ───────────────────────────────────────────────
+    // Chaque vidéo = part fixe (répartie, bornée au budget montantFixe) + CPM.
+    // Le dépassement au-delà de MAX_PAY_PER_VIDEO_EUR est rogné sur le CPM en
+    // premier, puis sur la part fixe (cas pathologique fixe/vidéo > 150). Sans
+    // dépassement, fixedOverflow reste 0 → fixe et CPM identiques à avant.
+    let remainingFixe = snapshot.montantFixe;
     let groupCpm = 0;
+    let fixedOverflow = 0;
     for (const it of groupItems) {
+      const fixedShare = Math.min(perVideo, Math.max(0, remainingFixe));
+      remainingFixe -= fixedShare;
       const cpm = assignmentCpm(it.snapshot, it.totalViews);
-      groupCpm = round2(groupCpm + cpm);
+      const excess = Math.max(0, fixedShare + cpm - MAX_PAY_PER_VIDEO_EUR);
+      const cpmOverflow = Math.min(cpm, excess);
+      fixedOverflow += excess - cpmOverflow;
+      const cappedCpm = round2(cpm - cpmOverflow);
+      groupCpm = round2(groupCpm + cappedCpm);
       perAssignment.push({
         assignmentId: it.assignmentId,
         pricingId: it.snapshot.pricingId,
         totalViews: Math.max(0, it.totalViews),
-        cpm,
+        cpm: cappedCpm,
       });
     }
+    const fixed = round2(fixedGroup - fixedOverflow);
 
     perPricing.push({
       pricingId,

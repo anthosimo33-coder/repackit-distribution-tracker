@@ -8,6 +8,7 @@ import {
 import {
   computeLivePricingBreakdown,
   syncBonusUnlocks,
+  MAX_PAY_PER_VIDEO_EUR,
   type PricingBreakdown,
 } from "./pricing";
 import { ConvexError, v } from "convex/values";
@@ -74,7 +75,22 @@ export function computeEarnings(rate: RateSnapshot, views: number): Earnings {
       .filter((b) => v >= b.thresholdViews)
       .reduce((sum, b) => sum + b.amount, 0),
   );
-  return { base, viewBonus, bounty, total: round2(base + viewBonus + bounty) };
+  const rawTotal = round2(base + viewBonus + bounty);
+  // Plafond 150 €/vidéo (RÉPLIQUE lib/earnings, A6) : cape le bonus (viewBonus
+  // puis primes) → l'accrual (assignments.computeViewBonus = viewBonus+bounty)
+  // est capé À LA SOURCE, base + bonus ≤ 150.
+  if (rawTotal <= MAX_PAY_PER_VIDEO_EUR) {
+    return { base, viewBonus, bounty, total: rawTotal };
+  }
+  const room = Math.max(0, round2(MAX_PAY_PER_VIDEO_EUR - base));
+  const cappedViewBonus = Math.min(viewBonus, room);
+  const cappedBounty = Math.min(bounty, round2(room - cappedViewBonus));
+  return {
+    base,
+    viewBonus: cappedViewBonus,
+    bounty: cappedBounty,
+    total: round2(base + cappedViewBonus + cappedBounty),
+  };
 }
 
 const recomputeTotal = (lineItems: LineItem[]): number =>

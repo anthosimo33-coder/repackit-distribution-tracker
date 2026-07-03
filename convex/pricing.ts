@@ -24,6 +24,14 @@ import { periodOf } from "./payments";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/**
+ * Plafond DUR de rémunération PAR VIDÉO — GLOBAL tous projets. RÉPLIQUE de
+ * lib/pricing-engine.MAX_PAY_PER_VIDEO_EUR (A6 — convex/ ne peut pas importer
+ * lib/). DOIT rester identique. Cf computeMonthlyPayout (ici) + computeEarnings
+ * (convex/payments) qui l'importe.
+ */
+export const MAX_PAY_PER_VIDEO_EUR = 150;
+
 export type PricingSnapshot = {
   pricingId: Id<"pricings">;
   montantFixe: number;
@@ -89,18 +97,30 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
     const snapshot = groupItems[0].snapshot;
     const perVideo = fixePerVideo(snapshot);
     const videoCount = groupItems.length;
-    const fixed = round2(Math.min(videoCount * perVideo, snapshot.montantFixe));
+    // Fixe du groupe (plafonné au budget montantFixe) — arrondi au niveau groupe.
+    const fixedGroup = round2(Math.min(videoCount * perVideo, snapshot.montantFixe));
+    // Plafond 150 €/vidéo (RÉPLIQUE lib/pricing-engine) : dépassement rogné sur le
+    // CPM d'abord, puis la part fixe (pathologique). Sans dépassement = inchangé.
+    let remainingFixe = snapshot.montantFixe;
     let groupCpm = 0;
+    let fixedOverflow = 0;
     for (const it of groupItems) {
+      const fixedShare = Math.min(perVideo, Math.max(0, remainingFixe));
+      remainingFixe -= fixedShare;
       const cpm = assignmentCpm(it.snapshot, it.totalViews);
-      groupCpm = round2(groupCpm + cpm);
+      const excess = Math.max(0, fixedShare + cpm - MAX_PAY_PER_VIDEO_EUR);
+      const cpmOverflow = Math.min(cpm, excess);
+      fixedOverflow += excess - cpmOverflow;
+      const cappedCpm = round2(cpm - cpmOverflow);
+      groupCpm = round2(groupCpm + cappedCpm);
       perAssignment.push({
         assignmentId: it.assignmentId,
         pricingId: it.snapshot.pricingId,
         totalViews: Math.max(0, it.totalViews),
-        cpm,
+        cpm: cappedCpm,
       });
     }
+    const fixed = round2(fixedGroup - fixedOverflow);
     perPricing.push({
       pricingId,
       videoCount,

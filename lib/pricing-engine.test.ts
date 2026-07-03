@@ -43,16 +43,54 @@ describe("computeMonthlyPayout — FIXE + CPM (v2, sans bonus par vidéo)", () =
 
   it("RÉGRESSION : une vidéo à 1M vues ne déclenche PLUS de bonus par vidéo", () => {
     const r = computeMonthlyPayout(items(1, 1_000_000)); // ex-seuil v1 = 100k
-    // total = fixe (1/60≈1,67) + CPM (1000×2=2000) — AUCUN bonus.
+    // fixe (1/60≈1,67) + CPM (1000×2=2000) — AUCUN bonus ; CPM rogné par le
+    // plafond 150 €/vidéo (2001,67 → 150 ; cf describe « plafond »).
     expect(r.fixedTotal).toBe(1.67);
-    expect(r.cpmTotal).toBe(2000);
-    expect(r.total).toBe(2001.67);
+    expect(r.cpmTotal).toBe(148.33);
+    expect(r.total).toBe(150);
     expect("bonusTotal" in r).toBe(false);
   });
 
   it("total = fixe + CPM (round2), pas vide", () => {
     const r = computeMonthlyPayout(items(1, 120_000));
     expect(r.total).toBe(round(r.fixedTotal + r.cpmTotal));
+  });
+});
+
+describe("plafond 150 €/vidéo — computeMonthlyPayout (global tous projets)", () => {
+  // Part fixe RONDE (120/60 = 2 €/vidéo) → totaux nets pour les assertions.
+  const P2: PricingSnapshot = {
+    ...P,
+    montantFixe: 120,
+    nbVideosCible: 60,
+    tauxCPM: 2,
+  };
+
+  it("une vidéo dont le calcul dépasse 150 € → capée à 150 €", () => {
+    // fixe 2 + CPM (1000×2=2000) = 2002 → 150.
+    expect(computeMonthlyPayout(items(1, 1_000_000, P2)).total).toBe(150);
+  });
+
+  it("122M vues → 150 € (exemple fondateur)", () => {
+    expect(computeMonthlyPayout(items(1, 122_000_000, P2)).total).toBe(150);
+  });
+
+  it("une vidéo SOUS 150 € → calcul inchangé (CPM normal)", () => {
+    // fixe 2 + CPM (5×2=10) = 12.
+    expect(computeMonthlyPayout(items(1, 5000, P2)).total).toBe(12);
+  });
+
+  it("total = SOMME des vidéos DÉJÀ capées (cap PAR vidéo, pas sur le total)", () => {
+    // 3 vidéos > 150 chacune → 450, JAMAIS capé à 150 globalement.
+    expect(computeMonthlyPayout(items(3, 1_000_000, P2)).total).toBe(450);
+  });
+
+  it("mix : une vidéo capée (150) + une sous le plafond (fixe 2) → 152", () => {
+    const mix = [
+      ...items(1, 1_000_000, P2, "hi"),
+      ...items(1, 0, P2, "lo"),
+    ];
+    expect(computeMonthlyPayout(mix).total).toBe(152);
   });
 });
 
@@ -181,5 +219,13 @@ describe("estimateMissionEarnings — fiche mission (fixe/vidéo + CPM, sans bon
     const e = estimateMissionEarnings(bad, 10_000);
     expect(e.fixed).toBe(0);
     expect(e.total).toBe(11);
+  });
+
+  it("plafond 150 €/vidéo : estimation > 150 → capée (fixe gardé, CPM rogné)", () => {
+    // CPM 1,1 × 1M/1000 = 1100 + fixe 1,67 → 1101,67 → 150.
+    const e = estimateMissionEarnings(DEAL, 1_000_000);
+    expect(e.total).toBe(150);
+    expect(e.fixed).toBe(1.67);
+    expect(e.cpm).toBe(148.33);
   });
 });
