@@ -116,6 +116,34 @@ export function useMyComptes(projectId: Id<"projects">) {
   return va ? asAdmin : mine;
 }
 
+/** Mes vidéos publiées (Snytch). View-as → listPublishedVideosAsAdmin (scopé serveur). */
+export function useMyPublishedVideos(projectId: Id<"projects">) {
+  const va = useViewAs();
+  const mine = useQuery(
+    api.creatorVideos.listMyPublishedVideos,
+    va ? "skip" : { projectId },
+  );
+  const asAdmin = useQuery(
+    api.creatorVideos.listPublishedVideosAsAdmin,
+    va ? { projectId, creatorId: va.creatorId } : "skip",
+  );
+  return va ? asAdmin : mine;
+}
+
+/** Récap vidéos du mois (Snytch). View-as → getVideoStatsAsAdmin. */
+export function useMyVideoStats(projectId: Id<"projects">) {
+  const va = useViewAs();
+  const mine = useQuery(
+    api.creatorVideos.getMyVideoStats,
+    va ? "skip" : { projectId },
+  );
+  const asAdmin = useQuery(
+    api.creatorVideos.getVideoStatsAsAdmin,
+    va ? { projectId, creatorId: va.creatorId } : "skip",
+  );
+  return va ? asAdmin : mine;
+}
+
 export function useMyPayments(projectId: Id<"projects">) {
   const va = useViewAs();
   const mine = useQuery(

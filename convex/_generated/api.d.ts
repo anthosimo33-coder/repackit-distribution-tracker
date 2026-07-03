@@ -17,6 +17,7 @@ import type * as auth from "../auth.js";
 import type * as cloudflareStream from "../cloudflareStream.js";
 import type * as cloudflareStreamApi from "../cloudflareStreamApi.js";
 import type * as comptes from "../comptes.js";
+import type * as creatorVideos from "../creatorVideos.js";
 import type * as creators from "../creators.js";
 import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
@@ -78,6 +79,7 @@ declare const fullApi: ApiFromModules<{
   cloudflareStream: typeof cloudflareStream;
   cloudflareStreamApi: typeof cloudflareStreamApi;
   comptes: typeof comptes;
+  creatorVideos: typeof creatorVideos;
   creators: typeof creators;
   crons: typeof crons;
   dashboard: typeof dashboard;

@@ -10,6 +10,7 @@ import {
   HomeIcon,
   AtSignIcon,
   FilesIcon,
+  FilmIcon,
   WalletIcon,
   UserIcon,
   HelpCircleIcon,
@@ -66,6 +67,13 @@ const FICHIERS_TAB: Tab = {
   icon: FilesIcon,
   exact: false,
 };
+// Suivi des vidéos publiées — Snytch uniquement, inséré après Fichiers.
+const VIDEOS_TAB: Tab = {
+  href: "/app/videos",
+  label: "Vidéos",
+  icon: FilmIcon,
+  exact: false,
+};
 
 export function CreatorBottomNav({
   projectId,
@@ -77,10 +85,18 @@ export function CreatorBottomNav({
   showFiles: boolean;
 }) {
   const pathname = usePathname();
-  // Snytch → 6 onglets (Fichiers inséré) ; sinon 5 (comportement inchangé).
+  // Snytch → 7 onglets (Fichiers + Vidéos insérés) ; sinon 5 (inchangé).
   const lastTab = hasTools ? OUTILS_TAB : GUIDE_TAB;
   const tabs: Tab[] = showFiles
-    ? [BASE_TABS[0], BASE_TABS[1], FICHIERS_TAB, BASE_TABS[2], BASE_TABS[3], lastTab]
+    ? [
+        BASE_TABS[0],
+        BASE_TABS[1],
+        FICHIERS_TAB,
+        VIDEOS_TAB,
+        BASE_TABS[2],
+        BASE_TABS[3],
+        lastTab,
+      ]
     : [...BASE_TABS, lastTab];
   const actionable =
     useQuery(
@@ -106,7 +122,11 @@ export function CreatorBottomNav({
       <ul
         className={cn(
           "mx-auto grid max-w-lg",
-          tabs.length === 6 ? "grid-cols-6" : "grid-cols-5",
+          tabs.length === 7
+            ? "grid-cols-7"
+            : tabs.length === 6
+              ? "grid-cols-6"
+              : "grid-cols-5",
         )}
       >
         {tabs.map((t) => {

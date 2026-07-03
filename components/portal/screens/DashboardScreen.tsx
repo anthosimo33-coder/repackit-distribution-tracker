@@ -11,6 +11,7 @@ import {
   useWarmupInProgress,
   useMyPayments,
   useOnboardingState,
+  useMyVideoStats,
 } from "@/components/portal/creator-data";
 import { usePortalBase } from "@/components/portal/ViewAsContext";
 import { portalHref } from "@/lib/view-as";
@@ -35,6 +36,7 @@ import {
   CircleIcon,
   ClapperboardIcon,
   ClockIcon,
+  FilmIcon,
   FlameIcon,
   ListChecksIcon,
   PartyPopperIcon,
@@ -44,7 +46,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatEuros } from "@/lib/format-rate";
+import { formatEuros, formatViews } from "@/lib/format-rate";
+import { isSnytchProject } from "@/lib/snytch-drive";
+import type { Id } from "@/convex/_generated/dataModel";
 import { nextPayoutDate, daysUntilPayout } from "@/lib/payout";
 import {
   ASSIGNMENT_STATUS,
@@ -238,6 +242,11 @@ export default function DashboardScreen() {
             </ActionBlock>
           )}
         </>
+      )}
+
+      {/* Récap « Mes vidéos publiées » (Snytch) — 3 chiffres du mois + détail. */}
+      {isSnytchProject(current.slug) && (
+        <VideoStatsCard projectId={projectId} base={base} />
       )}
 
       {/* 5. Aperçu gains + prochaine paie — toujours visible. */}
@@ -650,6 +659,62 @@ function AssignmentItem({
     >
       {inner}
     </Link>
+  );
+}
+
+/**
+ * Récap « Mes vidéos publiées » (Snytch) — 3 chiffres du MOIS (vidéos en ligne /
+ * vues cumulées / gains générés) + lien vers le détail par vidéo. Rendu SEULEMENT
+ * si au moins une vidéo est publiée ce mois-ci (jamais de carte vide). Les gains
+ * = somme des gains PAR VIDÉO déjà plafonnés 150 € (source unique, cf VideosScreen).
+ */
+function VideoStatsCard({
+  projectId,
+  base,
+}: {
+  projectId: Id<"projects">;
+  base: string;
+}) {
+  const stats = useMyVideoStats(projectId);
+  if (!stats || stats.onlineCount === 0) return null;
+  return (
+    <Card data-testid="video-stats-card">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <FilmIcon className="size-4 text-slate-400" />
+          Mes vidéos publiées
+        </CardTitle>
+        <CardDescription>Ton activité vidéo ce mois-ci.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-3 gap-2">
+          <VideoStat label="En ligne" value={String(stats.onlineCount)} />
+          <VideoStat label="Vues" value={formatViews(stats.totalViews)} />
+          <VideoStat label="Gains" value={formatEuros(stats.totalGain)} />
+        </div>
+        <Link
+          href={portalHref(base, "/videos")}
+          className="inline-flex items-center gap-1 text-sm font-medium text-slate-900 underline underline-offset-4 hover:text-slate-700"
+        >
+          Voir le détail par vidéo
+          <ArrowRightIcon className="size-3.5" />
+        </Link>
+      </CardContent>
+    </Card>
+  );
+}
+
+function VideoStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-slate-50 py-3 text-center">
+      <p
+        className="text-lg font-semibold tabular-nums text-slate-900"
+        data-testid="video-stat-value"
+      >
+        {value}
+      </p>
+      <p className="text-xs text-slate-500">{label}</p>
+    </div>
   );
 }
 

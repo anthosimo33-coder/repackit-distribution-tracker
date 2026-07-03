@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import {
   AtSignIcon,
   FilesIcon,
+  FilmIcon,
   HelpCircleIcon,
   HomeIcon,
   LogOutIcon,
@@ -62,14 +63,23 @@ const FICHIERS_ITEM = {
   exact: false,
 } as const;
 
+/** Suivi des vidéos publiées — Snytch uniquement, inséré après « Mes fichiers ». */
+const VIDEOS_ITEM = {
+  href: "/app/videos",
+  label: "Mes vidéos",
+  icon: FilmIcon,
+  exact: false,
+} as const;
+
 export function CreatorSidebar({ onSignOut }: { onSignOut: () => void }) {
   const pathname = usePathname();
   const { current } = useCreatorProject();
   // Outils figés du projet courant (vide → pas de section, cf creator-tools).
   const tools = getCreatorTools(current.slug);
-  // « Mes fichiers » réservé à Snytch (les autres projets n'ont pas de Drive).
+  // « Mes fichiers » + « Mes vidéos » réservés à Snytch (les autres projets n'ont
+  // ni Drive ni suivi vidéos exposé).
   const navItems = isSnytchProject(current.slug)
-    ? [...NAV_ITEMS.slice(0, 2), FICHIERS_ITEM, ...NAV_ITEMS.slice(2)]
+    ? [...NAV_ITEMS.slice(0, 2), FICHIERS_ITEM, VIDEOS_ITEM, ...NAV_ITEMS.slice(2)]
     : NAV_ITEMS;
 
   return (
