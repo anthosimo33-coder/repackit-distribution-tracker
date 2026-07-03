@@ -76,6 +76,20 @@ export function useWarmupInProgress(projectId: Id<"projects">) {
   return va ? asAdmin : mine;
 }
 
+/** État d'onboarding (Snytch). View-as → getOnboardingStateAsAdmin (scopé serveur). */
+export function useOnboardingState(projectId: Id<"projects">) {
+  const va = useViewAs();
+  const mine = useQuery(
+    api.comptes.getMyOnboardingState,
+    va ? "skip" : { projectId },
+  );
+  const asAdmin = useQuery(
+    api.comptes.getOnboardingStateAsAdmin,
+    va ? { projectId, creatorId: va.creatorId } : "skip",
+  );
+  return va ? asAdmin : mine;
+}
+
 export function useActionable(projectId: Id<"projects">) {
   const va = useViewAs();
   const mine = useQuery(

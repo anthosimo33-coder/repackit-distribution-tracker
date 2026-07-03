@@ -18,6 +18,7 @@ import {
 } from "./payments";
 import { buildPricingSnapshot, syncBonusUnlocks } from "./pricing";
 import { isAccountAvailable } from "./warmup";
+import { isSnytchProject } from "./projects";
 import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
@@ -70,6 +71,10 @@ export async function validateTargets(
   if (targets.length < 1 || targets.length > 3) {
     throw new ConvexError("Un assignment porte 1 à 3 cibles (plateformes).");
   }
+  // Gate STRICT pour Snytch : un compte n'est ciblable que s'il est "actif"
+  // (validé admin). Hors Snytch : régime lenient historique (warmup terminé
+  // suffit) → gating RepackIt inchangé.
+  const strict = await isSnytchProject(ctx, projectId);
   const seen = new Set<Plateforme>();
   for (const t of targets) {
     if (seen.has(t.platform)) {
@@ -91,9 +96,9 @@ export async function validateTargets(
         `Le compte ${compte.handle} n'est pas un compte ${t.platform}.`,
       );
     }
-    if (!isAccountAvailable(compte)) {
+    if (!isAccountAvailable(compte, { strict })) {
       throw new ConvexError(
-        `Le compte ${compte.handle} est en warmup — indisponible pour publier.`,
+        `Le compte ${compte.handle} n'est pas disponible (warmup en cours ou compte non validé).`,
       );
     }
   }
@@ -1527,15 +1532,20 @@ export const confirmPublication = creatorMutation({
 
     // Garde warmup au moment de publier (symétrique de validateTargets) : un
     // compte cible peut être REPASSÉ en warmup (relance admin restartWarmup)
-    // APRÈS la création de l'assignment. Tant que l'échauffement relancé n'est
-    // pas terminé, la publication est bloquée. Ne concerne que le warmup
-    // (status "warmup" non terminé) : shadowban/archived ne sont pas re-gatés ici.
+    // APRÈS la création de l'assignment. En régime STRICT (Snytch) un compte en
+    // warmup — même terminé — n'est pas publiable tant que l'admin ne l'a pas
+    // repassé "actif". shadowban/archived ne sont pas re-gatés ici.
+    const strict = await isSnytchProject(ctx, ctx.projectId);
     for (const t of targets) {
       if (!t.accountId) continue;
       const compte = await ctx.db.get(t.accountId);
-      if (compte && compte.status === "warmup" && !isAccountAvailable(compte)) {
+      if (
+        compte &&
+        compte.status === "warmup" &&
+        !isAccountAvailable(compte, { strict })
+      ) {
         throw new ConvexError(
-          `Le compte ${compte.handle} est repassé en warmup — publication impossible jusqu'à la fin de l'échauffement.`,
+          `Le compte ${compte.handle} n'est pas validé pour publier (échauffement en cours ou compte à revalider par l'admin).`,
         );
       }
     }

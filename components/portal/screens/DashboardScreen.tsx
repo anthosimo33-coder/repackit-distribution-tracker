@@ -10,9 +10,15 @@ import {
   useWarmupDue,
   useWarmupInProgress,
   useMyPayments,
+  useOnboardingState,
 } from "@/components/portal/creator-data";
 import { usePortalBase } from "@/components/portal/ViewAsContext";
 import { portalHref } from "@/lib/view-as";
+import {
+  deriveOnboarding,
+  type StepState,
+  type OnboardingDerived,
+} from "@/lib/onboarding";
 import {
   Card,
   CardContent,
@@ -24,8 +30,13 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowRightIcon,
+  CircleCheckIcon,
+  CircleDashedIcon,
+  CircleIcon,
   ClapperboardIcon,
+  ClockIcon,
   FlameIcon,
+  ListChecksIcon,
   PartyPopperIcon,
   RotateCcwIcon,
   SendIcon,
@@ -86,6 +97,9 @@ export default function DashboardScreen() {
   // rappel permanent « reviens le cocher chaque jour » (lecture seule).
   const warmupInProgress = useWarmupInProgress(projectId) ?? 0;
   const payments = useMyPayments(projectId);
+  // Onboarding (Snytch) — dérivé serveur compact. Hors Snytch : applicable false.
+  const onboardingRaw = useOnboardingState(projectId);
+  const onboarding = onboardingRaw ? deriveOnboarding(onboardingRaw) : null;
 
   const list = assignments ?? [];
   const toProduce = list.filter(
@@ -103,9 +117,22 @@ export default function DashboardScreen() {
   const nextPayoutTs = payoutDay ? nextPayoutDate(payoutDay) : null;
   const payoutDays = payoutDay ? daysUntilPayout(payoutDay) : null;
 
-  const assignmentsLoaded = assignments !== undefined;
+  // On attend assignments ET onboarding pour éviter un flash « Tout est à jour »
+  // avant que l'état d'onboarding soit connu.
+  const loaded = assignments !== undefined && onboarding !== null;
+  // Checklist visible tant que l'onboarding Snytch n'est PAS terminé.
+  const showChecklist = onboarding?.applicable === true && !onboarding.complete;
+  // Onboarding « terminé » pour la logique AllClear : true hors Snytch (dashboard
+  // inchangé) et une fois la créatrice réellement activée.
+  const onboardingDone = !onboarding?.applicable || onboarding.complete;
+  // Pendant l'onboarding PUR (aucun compte actif), la checklist porte déjà l'info
+  // warmup → on masque les blocs warmup autonomes pour ne pas dupliquer.
+  const suppressWarmupBlocks =
+    showChecklist && onboarding?.hasActiveAccount === false;
+
   const allClear =
-    assignmentsLoaded &&
+    loaded &&
+    onboardingDone &&
     toProduce.length === 0 &&
     toPublish.length === 0 &&
     toRedo.length === 0 &&
@@ -126,13 +153,19 @@ export default function DashboardScreen() {
       {/* QW3 — coordonnées de paiement manquantes alors que des gains sont dus. */}
       <PaymentInfoNudge projectId={projectId} />
 
-      {!assignmentsLoaded ? (
+      {!loaded ? (
         <div className="space-y-3">
           <Skeleton className="h-28 w-full" />
           <Skeleton className="h-28 w-full" />
         </div>
       ) : (
         <>
+          {/* 0. Checklist d'onboarding (Snytch) — tant que le compte n'est pas
+              activé, on guide au lieu d'afficher un faux « tout à jour ». */}
+          {showChecklist && onboarding && (
+            <OnboardingChecklist onb={onboarding} base={base} />
+          )}
+
           {allClear && <AllClear />}
 
           {/* 1. À produire */}
@@ -150,8 +183,9 @@ export default function DashboardScreen() {
             </ActionBlock>
           )}
 
-          {/* 2. Warmups à cocher aujourd'hui */}
-          {warmupDue > 0 && (
+          {/* 2. Warmups à cocher aujourd'hui — masqué pendant l'onboarding pur
+              (la checklist porte déjà l'étape warmup). */}
+          {!suppressWarmupBlocks && warmupDue > 0 && (
             <ActionBlock
               testId="block-warmup"
               icon={FlameIcon}
@@ -168,9 +202,11 @@ export default function DashboardScreen() {
           {/* 2 bis. Warmup en cours mais rien à cocher aujourd'hui → rappel
               PERMANENT (QW1) : le warmup se coche chaque jour, on ne laisse
               jamais croire « rien à faire » tant qu'il n'est pas terminé. */}
-          {warmupDue === 0 && warmupInProgress > 0 && (
-            <WarmupOngoingReminder href={portalHref(base, "/comptes")} />
-          )}
+          {!suppressWarmupBlocks &&
+            warmupDue === 0 &&
+            warmupInProgress > 0 && (
+              <WarmupOngoingReminder href={portalHref(base, "/comptes")} />
+            )}
 
           {/* 3. À publier */}
           {toPublish.length > 0 && (
@@ -212,6 +248,185 @@ export default function DashboardScreen() {
         payoutDays={payoutDays}
         detailHref={portalHref(base, "/paiements")}
       />
+    </div>
+  );
+}
+
+/**
+ * Checklist d'ONBOARDING (Snytch) — remplace le faux « Tout est à jour » tant
+ * que la créatrice n'est pas activée. Guide les 4 étapes : déclarer un compte,
+ * warmup, bio (si fournie), validation admin. Le message « en cours de
+ * validation » couvre le trou warmup-terminé-mais-pas-encore-actif.
+ */
+function OnboardingChecklist({
+  onb,
+  base,
+}: {
+  onb: OnboardingDerived;
+  base: string;
+}) {
+  const s = onb.steps;
+  const best = onb.best;
+  const comptesHref = portalHref(base, "/comptes");
+  return (
+    <Card
+      data-testid="onboarding-checklist"
+      className="border-primary/30 bg-primary/5"
+    >
+      <CardHeader>
+        <div className="flex items-center gap-3">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <ListChecksIcon className="size-5" />
+          </span>
+          <div className="min-w-0">
+            <CardTitle className="text-base">
+              Pour commencer à recevoir tes missions
+            </CardTitle>
+            <CardDescription>
+              Termine ces étapes pour activer ton compte.
+            </CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <ChecklistRow
+          testId="step-declare"
+          state={s.declare}
+          title="Déclare ton compte"
+          detail={
+            onb.hasDeclaredAccount
+              ? "Compte déclaré"
+              : "Ajoute ton @ TikTok / Instagram / YouTube."
+          }
+          cta={
+            onb.hasDeclaredAccount
+              ? undefined
+              : { href: comptesHref, label: "Déclarer mon compte" }
+          }
+        />
+        <ChecklistRow
+          testId="step-warmup"
+          state={s.warmup}
+          title="Fais ton warmup"
+          detail={
+            s.warmup === "done"
+              ? "Warmup terminé"
+              : best
+                ? `Jour ${best.checksDone}/${best.targetDays}`
+                : "Disponible après la déclaration de ton compte."
+          }
+          cta={
+            best?.dueToday
+              ? { href: comptesHref, label: "Cocher le check du jour" }
+              : undefined
+          }
+        />
+        {s.bio !== "na" && (
+          <ChecklistRow
+            testId="step-bio"
+            state={s.bio}
+            title="Applique ta bio"
+            detail={
+              s.bio === "todo"
+                ? "Une bio t'a été fournie — copie-la sur ton profil."
+                : "Bio appliquée"
+            }
+            cta={
+              s.bio === "todo"
+                ? { href: comptesHref, label: "Voir la bio" }
+                : undefined
+            }
+          />
+        )}
+        {s.validation === "pending" ? (
+          <div
+            data-testid="awaiting-validation"
+            className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3"
+          >
+            <ClockIcon className="size-5 shrink-0 text-amber-600" />
+            <div className="min-w-0 space-y-0.5">
+              <p className="text-sm font-medium text-amber-900">
+                Ton compte est en cours de validation
+              </p>
+              <p className="text-sm text-amber-800">
+                Tes scripts arrivent bientôt : l&apos;équipe valide ton compte,
+                tu recevras tes premières missions juste après.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <ChecklistRow
+            testId="step-validation"
+            state={s.validation}
+            title="Validation de ton compte"
+            detail={
+              s.validation === "done"
+                ? "Compte validé — tu peux recevoir des missions."
+                : "L'équipe valide ton compte une fois le warmup terminé."
+            }
+          />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+const STEP_ICON: Record<StepState, { Icon: LucideIcon; className: string }> = {
+  done: { Icon: CircleCheckIcon, className: "text-emerald-500" },
+  in_progress: { Icon: CircleDashedIcon, className: "text-amber-500" },
+  todo: { Icon: CircleDashedIcon, className: "text-primary" },
+  pending: { Icon: ClockIcon, className: "text-amber-500" },
+  upcoming: { Icon: CircleIcon, className: "text-slate-300" },
+  na: { Icon: CircleIcon, className: "text-slate-300" },
+};
+
+/** Ligne de checklist : icône d'état + titre + détail + CTA optionnel. */
+function ChecklistRow({
+  testId,
+  state,
+  title,
+  detail,
+  cta,
+}: {
+  testId: string;
+  state: StepState;
+  title: string;
+  detail?: string;
+  cta?: { href: string; label: string };
+}) {
+  const { Icon, className } = STEP_ICON[state];
+  const muted = state === "upcoming" || state === "na";
+  return (
+    <div
+      data-testid={testId}
+      data-state={state}
+      className="flex items-start gap-3"
+    >
+      <Icon className={cn("mt-0.5 size-5 shrink-0", className)} />
+      <div className="min-w-0 flex-1 space-y-1">
+        <p
+          className={cn(
+            "text-sm font-medium",
+            muted ? "text-slate-400" : "text-slate-900",
+          )}
+        >
+          {title}
+        </p>
+        {detail && (
+          <p className={cn("text-xs", muted ? "text-slate-400" : "text-slate-500")}>
+            {detail}
+          </p>
+        )}
+        {cta && (
+          <Link
+            href={cta.href}
+            className="inline-flex h-10 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
+          >
+            {cta.label}
+            <ArrowRightIcon className="size-3.5" />
+          </Link>
+        )}
+      </div>
     </div>
   );
 }
