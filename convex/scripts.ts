@@ -32,6 +32,14 @@ const KIND = v.union(v.literal("hook"), v.literal("flux"), v.literal("cta"));
 // l'UI ne le propose plus jamais ; migrateTierBToA reclasse les "B" en "A".
 const TIER = v.union(v.literal("S"), v.literal("A"), v.literal("B"));
 
+// SNYTCH — mode d'usage d'une brique DANS LA VIDÉO (hook / flux) : à dire / à
+// afficher / les deux. Stocké UNIQUEMENT pour hook/flux (cf create/updateBrick).
+const MODE = v.union(
+  v.literal("dire"),
+  v.literal("afficher"),
+  v.literal("les_deux"),
+);
+
 // Ordre d'affichage. Un kind inconnu (ex. "corps" legacy pas encore migré)
 // retombe en fin de liste via `?? 99` côté tri.
 const KIND_ORDER: Record<string, number> = {
@@ -378,6 +386,7 @@ export const createBrick = adminMutation({
     label: v.string(),
     content: v.string(),
     tier: v.optional(TIER),
+    mode: v.optional(MODE),
   },
   handler: async (ctx, args) => {
     await requireCampaign(ctx, args.campaignId, ctx.projectId);
@@ -393,6 +402,10 @@ export const createBrick = adminMutation({
       content: args.content,
       // tier UNIQUEMENT pour les hooks.
       tier: args.kind === "hook" ? args.tier : undefined,
+      // mode (zone vidéo) UNIQUEMENT pour hook/flux ; absent = défaut "les_deux"
+      // au read (Snytch). Ignoré pour cta.
+      mode:
+        args.kind === "hook" || args.kind === "flux" ? args.mode : undefined,
       active: true,
       createdAt: Date.now(),
     });
@@ -409,6 +422,7 @@ export const updateBrick = adminMutation({
     tier: v.optional(v.union(TIER, v.null())),
     active: v.optional(v.boolean()),
     order: v.optional(v.number()),
+    mode: v.optional(MODE),
   },
   handler: async (ctx, args) => {
     const brick = await ctx.db.get(args.id);
@@ -426,6 +440,13 @@ export const updateBrick = adminMutation({
     if (args.order !== undefined) patch.order = args.order;
     if (args.tier !== undefined && brick.kind === "hook") {
       patch.tier = args.tier === null ? undefined : args.tier;
+    }
+    // mode (zone vidéo) : hook/flux uniquement.
+    if (
+      args.mode !== undefined &&
+      (brick.kind === "hook" || brick.kind === "flux")
+    ) {
+      patch.mode = args.mode;
     }
     await ctx.db.patch(args.id, patch);
     return { ok: true };

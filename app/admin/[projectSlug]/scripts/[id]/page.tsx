@@ -57,6 +57,12 @@ import {
   type ScriptTier,
 } from "@/lib/scriptAssembly";
 import { SCRIPT_TIERS, tierLabel } from "@/lib/script-tier";
+import {
+  BRICK_MODE_OPTIONS,
+  resolveBrickMode,
+  brickModeDisplay,
+  type BrickMode,
+} from "@/lib/script-mode";
 import { ScriptDestinationZones } from "@/components/scripts/ScriptDestinationZones";
 import { TierBadge } from "@/components/admin/TierBadge";
 import { AssignScriptCampaignDialog } from "@/components/admin/AssignScriptCampaignDialog";
@@ -252,6 +258,12 @@ function BrickSection({
 function BrickRow({ brick, onEdit }: { brick: Brick; onEdit: () => void }) {
   const update = useProjectMutation(api.scripts.updateBrick);
   const remove = useProjectMutation(api.scripts.deleteBrick);
+  // Mode (zone vidéo) : Snytch + hook/flux uniquement. Indicateur en un coup
+  // d'œil dans la ligne ; l'édition se fait dans la BrickDialog.
+  const snytch = isSnytchProject(useProjectSlug());
+  const showMode =
+    snytch && (brick.kind === "hook" || brick.kind === "flux");
+  const modeDisplay = brickModeDisplay(resolveBrickMode(brick.mode));
 
   async function setActive(active: boolean) {
     try {
@@ -311,6 +323,16 @@ function BrickRow({ brick, onEdit }: { brick: Brick; onEdit: () => void }) {
             </SelectContent>
           </Select>
         )}
+        {showMode && (
+          <span
+            className="mt-0.5 shrink-0 text-base leading-none"
+            title={modeDisplay.label}
+            aria-label={modeDisplay.label}
+            data-testid="brick-mode-indicator"
+          >
+            {modeDisplay.icon}
+          </span>
+        )}
         <Button
           variant="ghost"
           size="sm"
@@ -353,7 +375,11 @@ function BrickDialog({
   const [label, setLabel] = useState("");
   const [content, setContent] = useState("");
   const [tier, setTier] = useState<ScriptTier | "none">("none");
+  const [mode, setMode] = useState<BrickMode>("les_deux");
   const [busy, setBusy] = useState(false);
+  // Mode (zone vidéo) : Snytch + hook/flux uniquement.
+  const snytch = isSnytchProject(useProjectSlug());
+  const showMode = snytch && (kind === "hook" || kind === "flux");
 
   const [lastOpen, setLastOpen] = useState(false);
   if (open !== lastOpen) {
@@ -362,6 +388,7 @@ function BrickDialog({
       setLabel(brick?.label ?? "");
       setContent(brick?.content ?? "");
       setTier(brick?.tier ?? "none");
+      setMode(resolveBrickMode(brick?.mode));
     }
   }
 
@@ -380,6 +407,7 @@ function BrickDialog({
           ...(kind === "hook"
             ? { tier: tier === "none" ? null : tier }
             : {}),
+          ...(showMode ? { mode } : {}),
         });
         toast.success("Brique mise à jour");
       } else {
@@ -389,6 +417,7 @@ function BrickDialog({
           label,
           content,
           ...(kind === "hook" && tier !== "none" ? { tier } : {}),
+          ...(showMode ? { mode } : {}),
         });
         toast.success("Brique ajoutée");
       }
@@ -449,6 +478,28 @@ function BrickDialog({
                   {SCRIPT_TIERS.map((t) => (
                     <SelectItem key={t} value={t}>
                       {tierLabel(t)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {/* SNYTCH — mode d'usage dans la vidéo (hook/flux) : dire / afficher /
+              les deux. Ce que la créatrice verra étiqueté sur ce bloc. */}
+          {showMode && (
+            <div className="space-y-1.5">
+              <Label htmlFor="brick-mode">Dans la vidéo</Label>
+              <Select
+                value={mode}
+                onValueChange={(v) => v && setMode(v as BrickMode)}
+              >
+                <SelectTrigger id="brick-mode" className="w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {BRICK_MODE_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -690,9 +741,16 @@ function PreviewDialog({
           {ready ? (
             snytch ? (
               <ScriptDestinationZones
-                videoScript={[hook.content.trim(), flux.content.trim()].join(
-                  "\n\n",
-                )}
+                videoBlocks={[
+                  {
+                    text: hook.content.trim(),
+                    mode: resolveBrickMode(hook.mode),
+                  },
+                  {
+                    text: flux.content.trim(),
+                    mode: resolveBrickMode(flux.mode),
+                  },
+                ]}
                 descriptionScript={cta.content.trim()}
               />
             ) : (

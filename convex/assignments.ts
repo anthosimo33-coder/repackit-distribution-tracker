@@ -1289,8 +1289,13 @@ async function resolveAssignmentAssets(
   return { folders };
 }
 
-/** Deux zones de destination d'un script monté (rendu créateur Snytch). */
-type ScriptZones = { videoScript: string; descriptionScript: string };
+/** Mode d'une brique vidéo (réplique lib/script-mode.BrickMode — A6). */
+type BrickMode = "dire" | "afficher" | "les_deux";
+/** Un bloc de la zone 🎬 (hook / flux) + son mode d'usage PAR BRIQUE. */
+type VideoBlock = { text: string; mode: BrickMode };
+/** Deux zones de destination d'un script monté (rendu créateur Snytch). La zone
+ *  vidéo est éclatée PAR BRIQUE (hook, flux) pour porter un mode par bloc. */
+type ScriptZones = { videoBlocks: VideoBlock[]; descriptionScript: string };
 
 /**
  * SNYTCH — découpe le script monté en deux zones de DESTINATION pour l'affichage
@@ -1321,9 +1326,18 @@ async function splitScriptZones(
   const c = cta.content.trim();
   if (c.length === 0) return null;
   // Garde anti-divergence : le découpage n'est fidèle que s'il reconstitue le
-  // texte figé exactement (même assemblage que le write path, labels:false).
+  // texte figé exactement (même assemblage que le write path, labels:false). Le
+  // MODE est ORTHOGONAL au contenu → n'entre pas dans cette garde.
   if ([h, f, c].join("\n\n") !== combo.assembledScript) return null;
-  return { videoScript: [h, f].join("\n\n"), descriptionScript: c };
+  return {
+    // Zone vidéo PAR BRIQUE : chaque bloc porte son mode (défaut "les_deux" au
+    // read, rétrocompat — réplique de lib/script-mode.resolveBrickMode, A6).
+    videoBlocks: [
+      { text: h, mode: hook.mode ?? "les_deux" },
+      { text: f, mode: flux.mode ?? "les_deux" },
+    ],
+    descriptionScript: c,
+  };
 }
 
 async function enrichForCreator(ctx: QueryCtx, a: Doc<"assignments">) {
