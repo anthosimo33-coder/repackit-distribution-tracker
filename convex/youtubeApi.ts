@@ -67,6 +67,7 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
 export interface VideoStat {
   views: number;
   likes: number | null;
+  comments: number | null;
   /** snippet.title (titre réel YouTube) ; null si snippet absent/vide. */
   title: string | null;
 }
@@ -113,12 +114,13 @@ function parseVideoStats(
     const views = toCount((statistics as { viewCount?: unknown }).viewCount);
     if (views === null) continue;
     const likes = toCount((statistics as { likeCount?: unknown }).likeCount);
+    const comments = toCount((statistics as { commentCount?: unknown }).commentCount);
     const snippet = (item as { snippet?: unknown }).snippet;
     const title =
       snippet && typeof snippet === "object"
         ? cleanTitle((snippet as { title?: unknown }).title)
         : null;
-    stats[id] = { views, likes, title };
+    stats[id] = { views, likes, comments, title };
   }
 
   const present = new Set(Object.keys(stats));

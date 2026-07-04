@@ -84,6 +84,8 @@ export interface VideoStat {
   views: number;
   /** likeCount peut être masqué par le créateur → `null`. */
   likes: number | null;
+  /** statistics.commentCount ; null si non fourni. */
+  comments: number | null;
   /** snippet.title (titre réel YouTube) ; null si snippet absent/vide. */
   title: string | null;
 }
@@ -108,8 +110,8 @@ export interface ParsedVideoStats {
 
 /**
  * Parse la réponse de `videos?part=snippet,statistics` de l'API YouTube Data v3 :
- *   { items: [{ id, snippet: { title }, statistics: { viewCount, likeCount } }, ...] }
- * Convertit viewCount/likeCount (strings) en nombres et lit snippet.title. Une
+ *   { items: [{ id, snippet: { title }, statistics: { viewCount, likeCount, commentCount } }, ...] }
+ * Convertit viewCount/likeCount/commentCount (strings) en nombres et lit snippet.title. Une
  * vidéo supprimée/privée n'apparaît PAS dans `items` → listée dans `unavailable`
  * (jamais d'exception). Robuste à un JSON partiel/inattendu (snippet absent → titre
  * null, sans casser le relevé des vues).
@@ -137,12 +139,13 @@ export function parseVideoStats(
     const views = toCount(viewRaw);
     if (views === null) continue; // pas de viewCount exploitable → on ignore
     const likes = toCount((statistics as { likeCount?: unknown }).likeCount);
+    const comments = toCount((statistics as { commentCount?: unknown }).commentCount);
     const snippet = (item as { snippet?: unknown }).snippet;
     const title =
       snippet && typeof snippet === "object"
         ? cleanTitle((snippet as { title?: unknown }).title)
         : null;
-    stats[id] = { views, likes, title };
+    stats[id] = { views, likes, comments, title };
   }
 
   const present = new Set(Object.keys(stats));

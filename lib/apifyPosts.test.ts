@@ -100,16 +100,17 @@ describe("toCount", () => {
 // ─── Parse TikTok ────────────────────────────────────────────────────────────
 
 describe("parseTikTokViews", () => {
-  it("mappe id → {views, likes, title} (playCount, diggCount, text)", () => {
+  it("mappe id → {views, likes, comments, title} (playCount, diggCount, commentCount, text)", () => {
     const items = [
       {
         id: "7234567890123456789",
         playCount: 45_678,
         diggCount: 320,
+        commentCount: 88,
         text: "Ma légende #fyp",
         webVideoUrl: "x",
       },
-      { id: 42, playCount: "120" }, // id num + playCount string, sans likes/text
+      { id: 42, playCount: "120" }, // id num + playCount string, sans likes/comments/text
     ];
     const { stats, unavailable } = parseTikTokViews(items, [
       "7234567890123456789",
@@ -118,9 +119,15 @@ describe("parseTikTokViews", () => {
     expect(stats["7234567890123456789"]).toEqual({
       views: 45_678,
       likes: 320,
+      comments: 88,
       title: "Ma légende #fyp",
     });
-    expect(stats["42"]).toEqual({ views: 120, likes: null, title: null });
+    expect(stats["42"]).toEqual({
+      views: 120,
+      likes: null,
+      comments: null,
+      title: null,
+    });
     expect(unavailable).toEqual([]);
   });
 
@@ -178,17 +185,18 @@ describe("parseTikTokViews", () => {
 // ─── Parse Instagram ─────────────────────────────────────────────────────────
 
 describe("parseInstagramViews", () => {
-  it("mappe shortCode → {views, likes (likesCount), title (caption)}", () => {
+  it("mappe shortCode → {views, likes, comments, title} (likesCount, commentsCount, caption)", () => {
     const items = [
       {
         shortCode: "Creel001",
         videoPlayCount: 5_000,
         videoViewCount: 4_900,
         likesCount: 88,
+        commentsCount: 47,
         caption: "Légende IG",
         type: "Video",
       },
-      { shortCode: "Creel002", videoViewCount: 3_300, type: "Video" }, // fallback viewCount, sans likes/caption
+      { shortCode: "Creel002", videoViewCount: 3_300, type: "Video" }, // fallback viewCount, sans likes/comments/caption
     ];
     const { stats, unavailable } = parseInstagramViews(items, [
       "Creel001",
@@ -197,9 +205,15 @@ describe("parseInstagramViews", () => {
     expect(stats["Creel001"]).toEqual({
       views: 5_000,
       likes: 88,
+      comments: 47,
       title: "Légende IG",
     });
-    expect(stats["Creel002"]).toEqual({ views: 3_300, likes: null, title: null });
+    expect(stats["Creel002"]).toEqual({
+      views: 3_300,
+      likes: null,
+      comments: null,
+      title: null,
+    });
     expect(unavailable).toEqual([]);
   });
 
