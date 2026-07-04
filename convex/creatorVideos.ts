@@ -11,50 +11,98 @@ import type { QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 
 /**
- * SNYTCH — suivi des vidéos PUBLIÉES par la créatrice (vues + statut de suivi +
- * gain par vidéo). EXPOSE des données déjà existantes (publications + métriques
- * Apify/YouTube + pricing) ; ne recrée AUCUN tracking. SNYTCH UNIQUEMENT (gate
- * slug) : hors Snytch → listes/stats vides, la nav et la carte dashboard ne
- * pointent pas ici (RepackIt intact).
+ * SNYTCH — suivi créatrice de TOUT le cycle de vie de ses vidéos depuis la
+ * soumission (chantier « filtres statut Mes vidéos ») : la vidéo soumise, la
+ * revue admin (attente / rejet + feedback), l'approbation, la publication et le
+ * paiement. EXPOSE des données déjà existantes (assignments + publications +
+ * métriques Apify/YouTube + pricing) ; ne recrée AUCUN tracking, n'ajoute AUCUN
+ * champ au schéma. SNYTCH UNIQUEMENT (gate slug) : hors Snytch → listes/stats
+ * vides, la nav et la carte dashboard ne pointent pas ici (RepackIt intact).
  *
- * SOURCE UNIQUE du GAIN : le gain d'une vidéo réutilise le MÊME moteur cappé que
- * « Mes paiements » (computeMonthlyPayout pour le modèle pricing v2, computeEarnings
- * pour le legacy) — donc le plafond 150 €/vidéo (#99, MAX_PAY_PER_VIDEO_EUR)
- * s'applique à l'identique, aucune divergence avec les paiements. Les vues
- * proviennent de assignmentViewsAndMetrics (même source que le CPM).
+ * PÉRIMÈTRE : les statuts `video_submitted` et AU-DELÀ (video_submitted,
+ * video_rejected, to_publish, published, paid). `todo`/`in_progress` sont exclus
+ * (pas encore de vidéo soumise → restent dans les missions à faire), tout comme
+ * les littéraux legacy non migrés (submitted/validated/rejected).
  *
- * ISOLATION : filtré serveur par ctx.creatorId — une créatrice ne voit JAMAIS les
- * vidéos d'une autre. Aucun brut inutile renvoyé (pas d'ids de publication, de
- * snapshot pricing, de vues par plateforme).
+ * SOURCE UNIQUE du GAIN + des VUES : réservés aux vidéos EN LIGNE
+ * (published/paid), calculés par le MÊME moteur cappé que « Mes paiements »
+ * (computeMonthlyPayout v2 / computeEarnings legacy) → plafond 150 €/vidéo (#99,
+ * MAX_PAY_PER_VIDEO_EUR) à l'identique, aucune divergence. Les vues viennent de
+ * assignmentViewsAndMetrics (même source que le CPM). Avant publication
+ * (submitted/rejected/to_publish), ni vues ni gain (rien n'est encore généré).
+ *
+ * ISOLATION : filtré serveur par ctx.creatorId — une créatrice ne voit JAMAIS
+ * les vidéos d'une autre. Aucun brut inutile renvoyé.
  */
 
 type Plateforme = "TikTok" | "Instagram" | "YouTube";
 
-/** Statut de suivi : actif = des métriques sont déjà remontées ; pending = vidéo
- *  publiée mais aucune métrique encore relevée (fraîche, en cours de calcul). */
+/** Statut de suivi (vidéos en ligne) : actif = des métriques sont déjà remontées ;
+ *  pending = vidéo publiée mais aucune métrique encore relevée (en cours de calcul). */
 export type VideoTrackingStatus = "active" | "pending";
 
-export type PublishedVideo = {
+/**
+ * Statut de cycle de vie exposé à la créatrice (sous-ensemble « vidéo soumise et
+ * au-delà » de la machine à états assignment). A6 : défini ici (convex/ ne peut
+ * importer lib/) ; les mêmes littéraux servent aux filtres UI (lib/creator-video-filters).
+ */
+export type CreatorVideoStatus =
+  | "video_submitted"
+  | "video_rejected"
+  | "to_publish"
+  | "published"
+  | "paid";
+
+export type CreatorVideo = {
   id: Id<"assignments">;
+  status: CreatorVideoStatus;
+  /** Plateformes matérialisées (published/paid) ; vide avant publication. */
   platforms: Plateforme[];
-  publishedAt: number;
-  trackingStatus: VideoTrackingStatus;
-  /** Dernier compte de vues connu ; null tant qu'aucune métrique n'est remontée. */
+  /** Date de publication RÉELLE ; null tant que la vidéo n'est pas en ligne. */
+  publishedAt: number | null;
+  /** Suivi vues (published/paid) ; null avant publication (rien à suivre). */
+  trackingStatus: VideoTrackingStatus | null;
+  /** Dernier compte de vues (published/paid, si métriques) ; null sinon. */
   views: number | null;
-  /** Gain de CETTE vidéo, plafonné à 150 € (source unique = moteur paie cappé). */
-  gain: number;
+  /** Gain de CETTE vidéo, plafonné 150 € (published/paid) ; null avant publication. */
+  gain: number | null;
   /** Le gain a atteint le plafond 150 € → afficher « gain max ». */
   capped: boolean;
+  /** Feedback admin de REFUS (video_rejected), si stocké ; null sinon. */
+  rejectionReason: string | null;
+  /** La créatrice a bien un MP4 soumis (video_submitted..published) rattaché. */
+  hasSubmittedVideo: boolean;
 };
 
-/** Un assignment publié dont une publication est matérialisée = 1 vidéo suivie. */
-function isPublishedVideo(a: Doc<"assignments">, projectId: Id<"projects">): boolean {
-  if (a.projectId !== projectId) return false;
-  if (a.status !== "published" && a.status !== "paid") return false;
+/** Une publication est matérialisée (cible OU legacy) → la vidéo est réellement en ligne. */
+function hasMaterializedPublication(a: Doc<"assignments">): boolean {
   return (
     (a.targets ?? []).some((t) => t.publicationId !== undefined) ||
     a.publicationId !== undefined
   );
+}
+
+/**
+ * Classe un assignment dans le cycle de vie « vidéos » de la créatrice, ou null
+ * s'il n'y appartient pas (mauvais projet, todo/in_progress, statut legacy, ou
+ * published/paid sans publication matérialisée — comportement conservé de #100).
+ */
+function creatorVideoStatus(
+  a: Doc<"assignments">,
+  projectId: Id<"projects">,
+): CreatorVideoStatus | null {
+  if (a.projectId !== projectId) return null;
+  switch (a.status) {
+    case "video_submitted":
+    case "video_rejected":
+    case "to_publish":
+      return a.status;
+    case "published":
+    case "paid":
+      return hasMaterializedPublication(a) ? a.status : null;
+    default:
+      return null; // todo, in_progress, legacy (submitted/validated/rejected)
+  }
 }
 
 /** Plateformes de la vidéo (cibles matérialisées ; fallback legacy submittedPlatform). */
@@ -70,49 +118,81 @@ function videoPlatforms(a: Doc<"assignments">): Plateforme[] {
   return a.submittedPlatform ? [a.submittedPlatform] : [];
 }
 
-async function toPublishedVideo(
+async function toCreatorVideo(
   ctx: QueryCtx,
   a: Doc<"assignments">,
-): Promise<PublishedVideo> {
-  const { totalViews, hasMetrics } = await assignmentViewsAndMetrics(ctx, a);
-  // Gain par vidéo — MÊME moteur cappé que Mes paiements (plafond 150 réutilisé).
-  const gain = a.pricingSnapshot
-    ? computeMonthlyPayout([
-        { assignmentId: a._id, snapshot: a.pricingSnapshot, totalViews },
-      ]).total
-    : computeEarnings(a.rateSnapshot, totalViews).total;
+  status: CreatorVideoStatus,
+): Promise<CreatorVideo> {
+  const isOnline = status === "published" || status === "paid";
+
+  // Vues + gain UNIQUEMENT pour les vidéos en ligne : avant publication rien
+  // n'est généré (ne PAS matérialiser un gain de base fantôme sur to_publish).
+  let views: number | null = null;
+  let gain: number | null = null;
+  let capped = false;
+  let trackingStatus: VideoTrackingStatus | null = null;
+  let publishedAt: number | null = null;
+
+  if (isOnline) {
+    const { totalViews, hasMetrics } = await assignmentViewsAndMetrics(ctx, a);
+    // Gain par vidéo — MÊME moteur cappé que Mes paiements (plafond 150 réutilisé).
+    const g = a.pricingSnapshot
+      ? computeMonthlyPayout([
+          { assignmentId: a._id, snapshot: a.pricingSnapshot, totalViews },
+        ]).total
+      : computeEarnings(a.rateSnapshot, totalViews).total;
+    views = hasMetrics ? totalViews : null;
+    gain = g;
+    capped = g >= MAX_PAY_PER_VIDEO_EUR;
+    trackingStatus = hasMetrics ? "active" : "pending";
+    publishedAt = assignmentPublishedAt(a);
+  }
+
   return {
     id: a._id,
+    status,
     platforms: videoPlatforms(a),
-    publishedAt: assignmentPublishedAt(a),
-    trackingStatus: hasMetrics ? "active" : "pending",
-    views: hasMetrics ? totalViews : null,
+    publishedAt,
+    trackingStatus,
+    views,
     gain,
-    capped: gain >= MAX_PAY_PER_VIDEO_EUR,
+    capped,
+    rejectionReason:
+      status === "video_rejected" ? (a.videoReviewFeedback ?? null) : null,
+    hasSubmittedVideo:
+      a.submittedVideoStorageId !== undefined ||
+      a.submittedVideoStreamUid !== undefined,
   };
 }
 
-/** Vidéos publiées d'UNE créatrice (Snytch only), triées de la plus récente. */
-async function publishedVideosForCreator(
+/**
+ * Vidéos d'UNE créatrice depuis la soumission (Snytch only), triées par activité
+ * décroissante (publishedAt pour les vidéos en ligne, fallback createdAt sinon —
+ * cf assignmentPublishedAt) : les vidéos fraîchement soumises et les publiées
+ * récentes remontent en tête.
+ */
+async function videosForCreator(
   ctx: QueryCtx,
   projectId: Id<"projects">,
   creatorId: Id<"creators">,
-): Promise<PublishedVideo[]> {
+): Promise<CreatorVideo[]> {
   if (!(await isSnytchProject(ctx, projectId))) return [];
   const assignments = await ctx.db
     .query("assignments")
     .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
     .collect();
-  const videos = await Promise.all(
-    assignments
-      .filter((a) => isPublishedVideo(a, projectId))
-      .map((a) => toPublishedVideo(ctx, a)),
-  );
-  return videos.sort((x, y) => y.publishedAt - x.publishedAt);
+  const covered = assignments
+    .map((a) => ({ a, status: creatorVideoStatus(a, projectId) }))
+    .filter(
+      (x): x is { a: Doc<"assignments">; status: CreatorVideoStatus } =>
+        x.status !== null,
+    );
+  covered.sort((x, y) => assignmentPublishedAt(y.a) - assignmentPublishedAt(x.a));
+  return Promise.all(covered.map(({ a, status }) => toCreatorVideo(ctx, a, status)));
 }
 
 export type VideoStats = {
-  /** Vidéos mises en ligne CE MOIS (période courante UTC, alignée sur les paiements). */
+  /** Vidéos EN LIGNE ce mois (période courante UTC, alignée sur les paiements). */
   onlineCount: number;
   /** Vues cumulées de ces vidéos (0 pour les vidéos encore en cours de calcul). */
   totalViews: number;
@@ -120,38 +200,46 @@ export type VideoStats = {
   totalGain: number;
 };
 
-/** Récap dashboard : 3 chiffres du mois courant, dérivés de la même liste. */
+/**
+ * Récap dashboard : 3 chiffres du mois courant. Dérivé de la MÊME liste que
+ * l'onglet, RESTREINT aux vidéos en ligne (published/paid) — les vidéos en
+ * attente/rejetées/à publier ne comptent NI dans « en ligne » NI dans le gain
+ * (sémantique #100 préservée : seules les vidéos publiées génèrent).
+ */
 async function videoStatsForCreator(
   ctx: QueryCtx,
   projectId: Id<"projects">,
   creatorId: Id<"creators">,
   now: number,
 ): Promise<VideoStats> {
-  const videos = await publishedVideosForCreator(ctx, projectId, creatorId);
+  const videos = await videosForCreator(ctx, projectId, creatorId);
+  const online = videos.filter(
+    (v) => v.status === "published" || v.status === "paid",
+  );
   const period = periodOf(now);
   const round2 = (n: number) => Math.round(n * 100) / 100;
-  const monthly = videos.filter((v) => periodOf(v.publishedAt) === period);
+  const monthly = online.filter(
+    (v) => v.publishedAt !== null && periodOf(v.publishedAt) === period,
+  );
   return {
     onlineCount: monthly.length,
     totalViews: monthly.reduce((s, v) => s + (v.views ?? 0), 0),
-    totalGain: round2(monthly.reduce((s, v) => s + v.gain, 0)),
+    totalGain: round2(monthly.reduce((s, v) => s + (v.gain ?? 0), 0)),
   };
 }
 
 // ─── Queries (créatrice + view-as admin) ─────────────────────────────────────
 
-/** Mes vidéos publiées (Snytch). Filtré serveur par ctx.creatorId. */
+/** Mes vidéos depuis la soumission (Snytch). Filtré serveur par ctx.creatorId. */
 export const listMyPublishedVideos = creatorQuery({
   args: {},
-  handler: async (ctx) =>
-    publishedVideosForCreator(ctx, ctx.projectId, ctx.creatorId),
+  handler: async (ctx) => videosForCreator(ctx, ctx.projectId, ctx.creatorId),
 });
 
-/** ADMIN view-as — vidéos publiées du créateur ciblé (lecture seule). */
+/** ADMIN view-as — vidéos du créateur ciblé (lecture seule). */
 export const listPublishedVideosAsAdmin = adminViewAsQuery({
   args: {},
-  handler: async (ctx) =>
-    publishedVideosForCreator(ctx, ctx.projectId, ctx.creatorId),
+  handler: async (ctx) => videosForCreator(ctx, ctx.projectId, ctx.creatorId),
 });
 
 /** Récap dashboard — mes 3 chiffres vidéos du mois (Snytch). */

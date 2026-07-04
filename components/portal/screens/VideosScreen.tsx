@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
 import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
@@ -11,15 +11,31 @@ import { cn } from "@/lib/utils";
 import { formatEuros, formatViews } from "@/lib/format-rate";
 import { publishedAgo } from "@/lib/video-tracking";
 import { isSnytchProject } from "@/lib/snytch-drive";
-import { FilmIcon, CircleCheckIcon, ClockIcon, InfoIcon } from "lucide-react";
+import {
+  CREATOR_VIDEO_FILTERS,
+  countCreatorVideosByFilter,
+  matchesCreatorVideoFilter,
+  type CreatorVideoFilterKey,
+} from "@/lib/creator-video-filters";
+import {
+  FilmIcon,
+  CircleCheckIcon,
+  ClockIcon,
+  InfoIcon,
+  CircleXIcon,
+  RocketIcon,
+  BadgeCheckIcon,
+  VideoIcon,
+} from "lucide-react";
 
 /**
- * « Mes vidéos » — suivi créatrice SNYTCH des vidéos PUBLIÉES : plateforme,
- * ancienneté, STATUT DE SUIVI (actif / en cours de calcul), vues, gain par vidéo
- * (plafonné 150 €, source unique = moteur paie). PUREMENT en lecture → réutilisé
- * tel quel en mode admin « voir l'espace d'un créateur » (données scopées serveur
- * via useMyPublishedVideos). Gate Snytch par slug (défense en profondeur ; la nav
- * ne pointe ici que pour Snytch).
+ * « Mes vidéos » — suivi créatrice SNYTCH de TOUT le cycle de vie depuis la
+ * soumission : en attente de validation, rejet (+ feedback), approuvé-à-publier,
+ * en ligne (vues + gain plafonné 150 €, source unique = moteur paie). Filtre par
+ * statut en tête (Toutes / En attente / Approuvé et en ligne / Rejeté), défaut
+ * Toutes. PUREMENT en lecture → réutilisé tel quel en mode admin « voir l'espace
+ * d'un créateur » (données scopées serveur via useMyPublishedVideos). Gate Snytch
+ * par slug (défense en profondeur ; la nav ne pointe ici que pour Snytch).
  */
 
 type Video = FunctionReturnType<
@@ -45,12 +61,16 @@ function PlatformBadge({ platform }: { platform: string }) {
   );
 }
 
-function TrackingChip({ status }: { status: Video["trackingStatus"] }) {
+const CHIP_BASE =
+  "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold";
+
+/** Suivi vues des vidéos EN LIGNE (published/paid). */
+function TrackingChip({ status }: { status: "active" | "pending" }) {
   if (status === "active") {
     return (
       <span
         data-testid="tracking-active"
-        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700"
+        className={cn(CHIP_BASE, "border-emerald-200 bg-emerald-50 text-emerald-700")}
       >
         <CircleCheckIcon className="size-3.5" />
         Suivi actif
@@ -60,7 +80,7 @@ function TrackingChip({ status }: { status: Video["trackingStatus"] }) {
   return (
     <span
       data-testid="tracking-pending"
-      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700"
+      className={cn(CHIP_BASE, "border-amber-200 bg-amber-50 text-amber-700")}
     >
       <ClockIcon className="size-3.5" />
       Vues en cours de calcul
@@ -68,45 +88,136 @@ function TrackingChip({ status }: { status: Video["trackingStatus"] }) {
   );
 }
 
-function VideoRow({ v, now }: { v: Video; now: number }) {
+/** Badge de cycle de vie AVANT « en ligne réellement suivie » (attente/rejet/à publier). */
+function StatusChip({ status }: { status: Video["status"] }) {
+  if (status === "video_submitted") {
+    return (
+      <span
+        data-testid="status-pending"
+        className={cn(CHIP_BASE, "border-amber-200 bg-amber-50 text-amber-700")}
+      >
+        <ClockIcon className="size-3.5" />
+        En attente de validation
+      </span>
+    );
+  }
+  if (status === "video_rejected") {
+    return (
+      <span
+        data-testid="status-rejected"
+        className={cn(CHIP_BASE, "border-red-200 bg-red-50 text-red-700")}
+      >
+        <CircleXIcon className="size-3.5" />
+        Rejeté
+      </span>
+    );
+  }
+  // to_publish
   return (
-    <Card data-testid="video-row">
+    <span
+      data-testid="status-to-publish"
+      className={cn(CHIP_BASE, "border-sky-200 bg-sky-50 text-sky-700")}
+    >
+      <RocketIcon className="size-3.5" />
+      Approuvé, à publier
+    </span>
+  );
+}
+
+/** Bloc Vues + Gain — vidéos EN LIGNE uniquement (published/paid). */
+function OnlineMetrics({ v }: { v: Video }) {
+  return (
+    <div className="flex items-end justify-between gap-3">
+      <div>
+        <p className="text-xs text-slate-400">Vues</p>
+        <p className="text-lg font-semibold tabular-nums text-slate-900">
+          {v.views === null ? "—" : formatViews(v.views)}
+        </p>
+      </div>
+      <div className="text-right">
+        <p className="text-xs text-slate-400">Gain</p>
+        <p
+          className={cn(
+            "text-lg font-semibold tabular-nums",
+            v.capped ? "text-emerald-600" : "text-slate-900",
+          )}
+        >
+          {v.gain === null ? "—" : formatEuros(v.gain)}
+        </p>
+        {v.capped && (
+          <span className="text-[0.65rem] font-semibold uppercase tracking-wide text-emerald-600">
+            gain max
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function VideoRow({ v, now }: { v: Video; now: number }) {
+  const isOnline = v.status === "published" || v.status === "paid";
+  return (
+    <Card data-testid="video-row" data-status={v.status}>
       <CardContent className="space-y-3 py-4">
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             {v.platforms.map((p) => (
               <PlatformBadge key={p} platform={p} />
             ))}
-            <span className="text-xs text-slate-400">
-              Publié {publishedAgo(v.publishedAt, now)}
-            </span>
-          </div>
-          <TrackingChip status={v.trackingStatus} />
-        </div>
-        <div className="flex items-end justify-between gap-3">
-          <div>
-            <p className="text-xs text-slate-400">Vues</p>
-            <p className="text-lg font-semibold tabular-nums text-slate-900">
-              {v.views === null ? "—" : formatViews(v.views)}
-            </p>
-          </div>
-          <div className="text-right">
-            <p className="text-xs text-slate-400">Gain</p>
-            <p
-              className={cn(
-                "text-lg font-semibold tabular-nums",
-                v.capped ? "text-emerald-600" : "text-slate-900",
-              )}
-            >
-              {formatEuros(v.gain)}
-            </p>
-            {v.capped && (
-              <span className="text-[0.65rem] font-semibold uppercase tracking-wide text-emerald-600">
-                gain max
+            {v.publishedAt !== null && (
+              <span className="text-xs text-slate-400">
+                Publié {publishedAgo(v.publishedAt, now)}
+              </span>
+            )}
+            {v.status === "paid" && (
+              <span
+                className={cn(
+                  CHIP_BASE,
+                  "border-emerald-200 bg-emerald-50 text-emerald-700",
+                )}
+              >
+                <BadgeCheckIcon className="size-3.5" />
+                Payé
               </span>
             )}
           </div>
+          {isOnline && v.trackingStatus !== null ? (
+            <TrackingChip status={v.trackingStatus} />
+          ) : (
+            <StatusChip status={v.status} />
+          )}
         </div>
+
+        {isOnline ? (
+          <OnlineMetrics v={v} />
+        ) : v.status === "video_rejected" ? (
+          v.rejectionReason ? (
+            <div className="rounded-md border border-red-100 bg-red-50/60 px-3 py-2">
+              <p className="text-xs font-semibold text-red-700">
+                Raison du rejet
+              </p>
+              <p className="mt-0.5 text-sm text-slate-700">{v.rejectionReason}</p>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">
+              Ta vidéo a été refusée. Retrouve la mission pour la soumettre à
+              nouveau.
+            </p>
+          )
+        ) : v.status === "to_publish" ? (
+          <p className="text-sm text-slate-500">
+            Validée ! Publie-la sur la plateforme depuis ta mission pour lancer le
+            suivi des vues et le gain.
+          </p>
+        ) : (
+          // video_submitted
+          <p className="flex items-center gap-1.5 text-sm text-slate-500">
+            {v.hasSubmittedVideo && (
+              <VideoIcon className="size-4 shrink-0 text-slate-400" />
+            )}
+            Vidéo soumise — en attente de la validation de l&apos;équipe.
+          </p>
+        )}
       </CardContent>
     </Card>
   );
@@ -127,12 +238,70 @@ function Notice({ body }: { body: string }) {
   );
 }
 
+function FilterChips({
+  active,
+  counts,
+  onChange,
+}: {
+  active: CreatorVideoFilterKey;
+  counts: Record<CreatorVideoFilterKey, number>;
+  onChange: (key: CreatorVideoFilterKey) => void;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Filtrer mes vidéos par statut"
+      className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1"
+    >
+      {CREATOR_VIDEO_FILTERS.map((f) => {
+        const selected = f.key === active;
+        return (
+          <button
+            key={f.key}
+            type="button"
+            role="tab"
+            aria-selected={selected}
+            data-testid={`videos-filter-${f.key}`}
+            onClick={() => onChange(f.key)}
+            className={cn(
+              "shrink-0 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
+              selected
+                ? "border-slate-900 bg-slate-900 text-white"
+                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
+            )}
+          >
+            {f.label}
+            <span
+              className={cn(
+                "ml-1.5 tabular-nums",
+                selected ? "text-slate-300" : "text-slate-400",
+              )}
+            >
+              {counts[f.key]}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function VideosScreen() {
   const { current } = useCreatorProject();
   const videos = useMyPublishedVideos(current.projectId);
+  const [filter, setFilter] = useState<CreatorVideoFilterKey>("all");
   // Ancre temporelle figée au montage (relative time stable, pas d'appel impur
   // au render — cf react-hooks/purity).
   const [now] = useState(() => Date.now());
+
+  const counts = useMemo(
+    () => countCreatorVideosByFilter(videos ?? []),
+    [videos],
+  );
+  const filtered = useMemo(
+    () => (videos ?? []).filter((v) => matchesCreatorVideoFilter(v.status, filter)),
+    [videos, filter],
+  );
 
   // Défense en profondeur : la nav ne pointe ici que pour Snytch.
   if (!isSnytchProject(current.slug)) {
@@ -146,7 +315,7 @@ export default function VideosScreen() {
           Mes vidéos
         </h1>
         <p className="text-sm text-slate-500">
-          Le suivi de tes vidéos publiées : vues et gain par vidéo.
+          Le suivi de tes vidéos, de la soumission à la mise en ligne.
         </p>
       </header>
 
@@ -159,6 +328,7 @@ export default function VideosScreen() {
 
       {videos === undefined ? (
         <div className="space-y-3">
+          <Skeleton className="h-9 w-full" />
           <Skeleton className="h-28 w-full" />
           <Skeleton className="h-28 w-full" />
         </div>
@@ -167,19 +337,26 @@ export default function VideosScreen() {
           <CardContent className="space-y-2 py-10 text-center">
             <FilmIcon className="mx-auto size-8 text-slate-300" strokeWidth={1.5} />
             <p className="text-sm font-medium text-slate-600">
-              Aucune vidéo publiée pour l&apos;instant
+              Aucune vidéo pour l&apos;instant
             </p>
             <p className="text-sm text-slate-400">
-              Dès que tu publies une vidéo, elle apparaît ici avec son suivi
-              (vues + gain).
+              Dès que tu soumets une vidéo, elle apparaît ici avec son statut, puis
+              son suivi (vues + gain) une fois en ligne.
             </p>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
-          {videos.map((v) => (
-            <VideoRow key={v.id} v={v} now={now} />
-          ))}
+          <FilterChips active={filter} counts={counts} onChange={setFilter} />
+          {filtered.length === 0 ? (
+            <Card data-testid="videos-filter-empty">
+              <CardContent className="py-8 text-center text-sm text-slate-400">
+                Aucune vidéo dans ce filtre.
+              </CardContent>
+            </Card>
+          ) : (
+            filtered.map((v) => <VideoRow key={v.id} v={v} now={now} />)
+          )}
         </div>
       )}
     </div>
