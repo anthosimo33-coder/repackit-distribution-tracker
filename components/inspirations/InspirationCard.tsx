@@ -3,11 +3,14 @@
 import { useState } from "react";
 import { useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
-import { ExternalLinkIcon, StarIcon } from "lucide-react";
+import { ExternalLinkIcon, EyeIcon, StarIcon } from "lucide-react";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { PlatformBadge } from "@/components/VerdictBadge";
 import { cn } from "@/lib/utils";
 import { getFolderColor } from "@/lib/folder-colors";
+import { formatNumber } from "@/lib/format";
+import { formatOutlierRatio } from "@/components/admin/radar/radar-format";
+import { resolveOutlierRatio } from "@/lib/inspiration-stats";
 import { ThumbnailFallback } from "./ThumbnailFallback";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
@@ -42,6 +45,10 @@ export function InspirationCard({
   const hasUrl = inspiration.url.trim().length > 0;
   // L'URL de vignette peut casser (lien mort) → onError bascule sur le fallback.
   const [imgError, setImgError] = useState(false);
+  // Stats affichées : vues (si saisies) + ratio outlier résolu (stocké Radar ou
+  // fallback views/followers ; null pour un compte ou données insuffisantes).
+  const views = inspiration.stats?.views;
+  const outlierRatio = resolveOutlierRatio(inspiration.stats, inspiration.type);
 
   const updateInspiration = useProjectMutation(api.inspirations.updateInspiration);
 
@@ -131,6 +138,29 @@ export function InspirationCard({
           >
             <ExternalLinkIcon className="size-4" />
           </a>
+        )}
+        {(views != null || outlierRatio != null) && (
+          // Overlay stats en bas de vignette : scrim gradient pour rester lisible
+          // sur n'importe quelle miniature. Décoratif → pointer-events-none pour
+          // ne pas intercepter le click carte. Ratio à gauche, vues à droite.
+          <div
+            className={cn(
+              "pointer-events-none absolute inset-x-0 bottom-0 flex items-end gap-2 bg-gradient-to-t from-black/60 to-transparent p-2",
+              outlierRatio != null ? "justify-between" : "justify-end",
+            )}
+          >
+            {outlierRatio != null && (
+              <span className="rounded bg-slate-900/90 px-1.5 py-0.5 text-xs font-bold tabular-nums text-white shadow-sm">
+                {formatOutlierRatio(outlierRatio)}
+              </span>
+            )}
+            {views != null && (
+              <span className="inline-flex items-center gap-1 rounded bg-black/55 px-1.5 py-0.5 text-xs font-medium tabular-nums text-white shadow-sm">
+                <EyeIcon className="size-3" />
+                {formatNumber(views)}
+              </span>
+            )}
+          </div>
         )}
       </div>
 

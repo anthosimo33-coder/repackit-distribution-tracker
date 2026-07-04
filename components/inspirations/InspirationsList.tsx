@@ -16,6 +16,8 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { PlatformBadge } from "@/components/VerdictBadge";
 import { cn } from "@/lib/utils";
 import { formatDate, formatNumber } from "@/lib/format";
+import { formatOutlierRatio } from "@/components/admin/radar/radar-format";
+import { resolveOutlierRatio } from "@/lib/inspiration-stats";
 import { getFolderColor } from "@/lib/folder-colors";
 import type {
   FolderRef,
@@ -66,18 +68,34 @@ function StatsCell({
   stats: InspirationCardData["stats"];
   type: "video" | "account";
 }) {
-  if (!stats) return <span className="text-slate-400">—</span>;
+  // Ratio outlier résolu (stocké Radar ou fallback views/followers) — SORTI du
+  // slice pour rester TOUJOURS visible s'il existe, quelles que soient les
+  // autres stats. Même helper/format que la grille et l'onglet Radar Outliers.
+  const outlierRatio = resolveOutlierRatio(stats, type);
   const parts: string[] = [];
-  if (type === "account" && stats.followers !== undefined) {
+  if (type === "account" && stats?.followers !== undefined) {
     parts.push(`${formatNumber(stats.followers)} abonnés`);
   }
-  if (stats.views !== undefined) parts.push(`${formatNumber(stats.views)} vues`);
-  if (stats.likes !== undefined) parts.push(`${formatNumber(stats.likes)} likes`);
-  if (stats.comments !== undefined)
+  if (stats?.views !== undefined) parts.push(`${formatNumber(stats.views)} vues`);
+  if (stats?.likes !== undefined) parts.push(`${formatNumber(stats.likes)} likes`);
+  if (stats?.comments !== undefined)
     parts.push(`${formatNumber(stats.comments)} comm.`);
-  if (parts.length === 0) return <span className="text-slate-400">—</span>;
+  if (outlierRatio === null && parts.length === 0) {
+    return <span className="text-slate-400">—</span>;
+  }
   return (
-    <span className="text-xs text-slate-600">{parts.slice(0, 2).join(" · ")}</span>
+    <div className="flex items-center gap-1.5">
+      {outlierRatio !== null && (
+        <span className="rounded bg-slate-900 px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-white">
+          {formatOutlierRatio(outlierRatio)}
+        </span>
+      )}
+      {parts.length > 0 && (
+        <span className="truncate text-xs text-slate-600">
+          {parts.slice(0, 2).join(" · ")}
+        </span>
+      )}
+    </div>
   );
 }
 
