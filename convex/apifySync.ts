@@ -94,6 +94,7 @@ async function upsertApifySnapshot(
     publicationId: Id<"publications">;
     vues: number;
     likes?: number | null;
+    comments?: number | null;
     title?: string | null;
     capturedAt: number;
     source: ApifySource;
@@ -122,6 +123,8 @@ async function upsertApifySnapshot(
   );
   // Like Apify s'il est fourni, sinon dernier like connu (jamais d'écrasement à 0).
   const likes = args.likes ?? pub.likesLatest ?? 0;
+  // Commentaires : MÊME règle que likes (préserve le dernier connu si non fourni).
+  const comments = args.comments ?? pub.commentsLatest ?? 0;
   // Patch publication : indicateur de sync + titre (légende) si capturé.
   const pubPatch: { lastApifySyncAt: number; postTitle?: string } = {
     lastApifySyncAt: args.capturedAt,
@@ -134,6 +137,7 @@ async function upsertApifySnapshot(
     await ctx.db.patch(existing._id, {
       vues: args.vues,
       likes,
+      comments,
       capturedAt: args.capturedAt,
       daysSincePublication,
     });
@@ -150,6 +154,7 @@ async function upsertApifySnapshot(
     daysSincePublication,
     vues: args.vues,
     likes,
+    comments,
     createdAt: Date.now(),
     source: args.source,
   });
@@ -203,6 +208,7 @@ export const recordApifySnapshot = internalMutation({
     publicationId: v.id("publications"),
     vues: v.number(),
     likes: v.union(v.number(), v.null()),
+    comments: v.union(v.number(), v.null()),
     title: v.optional(v.string()),
     capturedAt: v.number(),
     source: apifySourceValidator,
@@ -288,6 +294,7 @@ export const runDailySync = internalAction({
           publicationId: t.publicationId,
           vues: stat.views,
           likes: stat.likes,
+          comments: stat.comments,
           title: stat.title ?? undefined,
           capturedAt: now,
           source,
@@ -346,6 +353,7 @@ export const e2eRecordApifySnapshot = e2eMutation({
     publicationId: v.id("publications"),
     vues: v.number(),
     likes: v.optional(v.union(v.number(), v.null())),
+    comments: v.optional(v.union(v.number(), v.null())),
     title: v.optional(v.string()),
     capturedAt: v.number(),
     source: apifySourceValidator,

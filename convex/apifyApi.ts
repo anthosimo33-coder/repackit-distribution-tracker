@@ -89,10 +89,11 @@ export function instagramShortcode(
   return m ? m[1] : null;
 }
 
-/** Réplique de lib/apifyPosts.ApifyPostStat — vues + likes + titre (légende). */
+/** Réplique de lib/apifyPosts.ApifyPostStat — vues + likes + commentaires + titre. */
 export interface ApifyPostStat {
   views: number;
   likes: number | null;
+  comments: number | null;
   title: string | null;
 }
 
@@ -129,8 +130,9 @@ function parseTikTokViews(
     const views = toCount((item as { playCount?: unknown }).playCount);
     if (views === null) continue;
     const likes = toCount((item as { diggCount?: unknown }).diggCount);
+    const comments = toCount((item as { commentCount?: unknown }).commentCount);
     const title = cleanCaption((item as { text?: unknown }).text);
-    stats[key] = { views, likes, title };
+    stats[key] = { views, likes, comments, title };
   }
   const present = new Set(Object.keys(stats));
   return { stats, unavailable: requestedKeys.filter((k) => !present.has(k)) };
@@ -156,8 +158,9 @@ function parseInstagramViews(
       toCount((item as { videoViewCount?: unknown }).videoViewCount);
     if (views === null) continue;
     const likes = toCount((item as { likesCount?: unknown }).likesCount);
+    const comments = toCount((item as { commentsCount?: unknown }).commentsCount);
     const title = cleanCaption((item as { caption?: unknown }).caption);
-    stats[key] = { views, likes, title };
+    stats[key] = { views, likes, comments, title };
   }
   const present = new Set(Object.keys(stats));
   return { stats, unavailable: requestedKeys.filter((k) => !present.has(k)) };

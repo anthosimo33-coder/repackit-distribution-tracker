@@ -67,6 +67,7 @@ async function upsertYouTubeSnapshot(
     publicationId: Id<"publications">;
     vues: number;
     likes: number | null;
+    comments: number | null;
     title?: string | null;
     capturedAt: number;
   },
@@ -94,6 +95,8 @@ async function upsertYouTubeSnapshot(
   );
   // likeCount masqué → on conserve le dernier like connu plutôt que d'écraser à 0.
   const likes = args.likes ?? pub.likesLatest ?? 0;
+  // Commentaires : MÊME règle que likes (préserve le dernier connu si non fourni).
+  const comments = args.comments ?? pub.commentsLatest ?? 0;
   // Patch publication : indicateur de sync + titre (snippet.title) si capturé.
   const pubPatch: { lastYouTubeSyncAt: number; postTitle?: string } = {
     lastYouTubeSyncAt: args.capturedAt,
@@ -106,6 +109,7 @@ async function upsertYouTubeSnapshot(
     await ctx.db.patch(existing._id, {
       vues: args.vues,
       likes,
+      comments,
       capturedAt: args.capturedAt,
       daysSincePublication,
     });
@@ -122,6 +126,7 @@ async function upsertYouTubeSnapshot(
     daysSincePublication,
     vues: args.vues,
     likes,
+    comments,
     createdAt: Date.now(),
     source: "youtube",
   });
@@ -171,6 +176,7 @@ export const recordYouTubeSnapshot = internalMutation({
     publicationId: v.id("publications"),
     vues: v.number(),
     likes: v.union(v.number(), v.null()),
+    comments: v.union(v.number(), v.null()),
     title: v.optional(v.string()),
     capturedAt: v.number(),
   },
@@ -247,6 +253,7 @@ export const runDailySync = internalAction({
           publicationId: t.publicationId,
           vues: stat.views,
           likes: stat.likes,
+          comments: stat.comments,
           title: stat.title ?? undefined,
           capturedAt: now,
         },
@@ -306,6 +313,7 @@ export const e2eRecordYouTubeSnapshot = e2eMutation({
     vues: v.number(),
     capturedAt: v.number(),
     likes: v.optional(v.union(v.number(), v.null())),
+    comments: v.optional(v.union(v.number(), v.null())),
     title: v.optional(v.string()),
   },
   handler: async (
@@ -316,6 +324,7 @@ export const e2eRecordYouTubeSnapshot = e2eMutation({
       publicationId: args.publicationId,
       vues: args.vues,
       likes: args.likes ?? null,
+      comments: args.comments ?? null,
       title: args.title,
       capturedAt: args.capturedAt,
     }),
