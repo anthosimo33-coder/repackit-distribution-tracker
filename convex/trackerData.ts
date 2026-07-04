@@ -78,7 +78,7 @@ type AssignmentRef = {
  * Coût : collect assignments + creators + formats, bornés au projet (idiome
  * dashboard/scriptAnalytics). Aucune lecture de snapshots ici.
  */
-async function buildPublicationAssignmentMap(
+export async function buildPublicationAssignmentMap(
   ctx: QueryCtx & { projectId: Id<"projects"> },
 ): Promise<Map<string, AssignmentRef>> {
   const [assignments, creators, formats] = await Promise.all([
@@ -226,8 +226,9 @@ function publishedAndMatches(
 
 /** Libellé d'un post : titre/légende capturé par la sync (postTitle) en
  *  priorité ; sinon titre des ScreenRecorders (étape Hook skippée) ; sinon
- *  hookText (carousel/short interne). Vide → « (sans titre) » côté UI. */
-function postLabel(p: Doc<"publications">): string {
+ *  hookText (carousel/short interne). Vide → « (sans titre) » côté UI.
+ *  Exporté : réutilisé par le drill-down analytics scripts (scriptAnalytics). */
+export function postLabel(p: Doc<"publications">): string {
   if (p.postTitle && p.postTitle.length > 0) return p.postTitle;
   const mediaType = p.mediaType ?? "carousel";
   if (mediaType === "screenrecorder" && p.titre && p.titre.length > 0) {
