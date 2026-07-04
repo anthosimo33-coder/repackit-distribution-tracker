@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useProjectQuery } from "@/components/project/use-project-convex";
@@ -16,6 +16,13 @@ import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/format";
 import { tierLabel } from "@/lib/script-tier";
 import { JUGEABLE_THRESHOLD } from "@/lib/scriptStats";
+import {
+  PostsList,
+  sortTrackerPosts,
+  type TrackerPost,
+  type SortKey,
+  type SortDir,
+} from "@/components/tracker/PostsList";
 import {
   ArrowLeftIcon,
   TrophyIcon,
@@ -138,6 +145,9 @@ export default function ScriptAnalyticsPage() {
                   key={kind}
                   kind={kind}
                   bricks={bricks.filter((b) => b.kind === kind)}
+                  campaignId={campaignId}
+                  window={window}
+                  windowLabel={windowLabel}
                 />
               ))}
               <ComboSection combos={combos} />
@@ -583,9 +593,15 @@ function TierSection({ tiers }: { tiers: TierPerf[] }) {
 function BrickSection({
   kind,
   bricks,
+  campaignId,
+  window,
+  windowLabel,
 }: {
   kind: string;
   bricks: BrickPerf[];
+  campaignId: Id<"scriptCampaigns">;
+  window: Window;
+  windowLabel: string;
 }) {
   const rows = bricks.map((b) => ({
     median: b.viewsMedian,
@@ -608,19 +624,117 @@ function BrickSection({
       ) : (
         <div className="space-y-2">
           {bricks.map((b, i) => (
-            <MetricRow
-              key={b.brickId}
-              label={b.label}
-              median={b.viewsMedian}
-              postCount={b.postCount}
-              status={b.status}
-              maxMedian={maxMedian}
-              winner={i === wIdx}
-            />
+            <div key={b.brickId} className="space-y-1.5">
+              <MetricRow
+                label={b.label}
+                median={b.viewsMedian}
+                postCount={b.postCount}
+                status={b.status}
+                maxMedian={maxMedian}
+                winner={i === wIdx}
+              />
+              <BrickDrilldown
+                campaignId={campaignId}
+                brickId={b.brickId}
+                window={window}
+                windowLabel={windowLabel}
+                postCount={b.postCount}
+              />
+            </div>
           ))}
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * Drill-down sous une variable de brique (flux/cta) : au dépli, charge les posts
+ * RÉELS qui l'utilisent à la FENÊTRE courante (postsForBrick) et les rend via le
+ * présentational partagé PostsList. Mêmes posts que ceux qui produisent la
+ * médiane/verdict de la variable (même passe gatherCampaignViews, même fenêtre,
+ * posts mesurés à J+X). La query n'est déclenchée qu'à l'ouverture ("skip" sinon).
+ */
+function BrickDrilldown({
+  campaignId,
+  brickId,
+  window,
+  windowLabel,
+  postCount,
+}: {
+  campaignId: Id<"scriptCampaigns">;
+  brickId: Id<"scriptBricks">;
+  window: Window;
+  windowLabel: string;
+  postCount: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>("vues");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  const posts = useProjectQuery(
+    api.scriptAnalytics.postsForBrick,
+    open ? { campaignId, brickId, window } : "skip",
+  ) as TrackerPost[] | undefined;
+
+  const sorted = useMemo(
+    () => sortTrackerPosts(posts ?? [], sortKey, sortDir),
+    [posts, sortKey, sortDir],
+  );
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  }
+
+  // Une variable sans post mesuré à la fenêtre n'a rien à auditer (c'est aussi
+  // pourquoi sa médiane est absente à cette fenêtre) → pas de dépli, note claire.
+  if (postCount === 0) {
+    return (
+      <p className="pl-1 text-xs text-slate-400">
+        Aucun post mesuré à {windowLabel}.
+      </p>
+    );
+  }
+
+  return (
+    <div className="pl-1">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="inline-flex items-center gap-1 py-0.5 text-xs font-medium text-slate-500 hover:text-slate-900"
+      >
+        <ChevronDownIcon
+          className={cn("size-3.5 transition-transform", open && "rotate-180")}
+        />
+        {open
+          ? "Masquer les posts"
+          : `Voir les ${postCount} post${postCount > 1 ? "s" : ""} mesuré${
+              postCount > 1 ? "s" : ""
+            } à ${windowLabel}`}
+      </button>
+      {open &&
+        (posts === undefined ? (
+          <Skeleton className="mt-2 h-40 w-full" />
+        ) : posts.length === 0 ? (
+          <p className="mt-2 pl-1 text-xs text-slate-400">
+            Aucun post mesuré à {windowLabel}.
+          </p>
+        ) : (
+          <div className="mt-2">
+            <PostsList
+              posts={sorted}
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onToggleSort={toggleSort}
+            />
+          </div>
+        ))}
+    </div>
   );
 }
 

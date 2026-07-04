@@ -23,56 +23,25 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FilterMultiSelect } from "@/components/filters/FilterMultiSelect";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { PlatformBadge } from "@/components/VerdictBadge";
-import { formatNumber, formatPercent, formatDate } from "@/lib/format";
-import { FORMAT_CONFIGS, type FormatKey } from "@/lib/format-config";
-import {
   aggregateByCategory,
   computeGlobalStats,
-  engagementRate,
   type CategoryItem,
 } from "@/lib/tracker-data";
-import { cn } from "@/lib/utils";
 import {
-  ArrowDownIcon,
-  ArrowUpDownIcon,
-  ArrowUpIcon,
-  ExternalLinkIcon,
-  BarChart3Icon,
-  ListIcon,
-} from "lucide-react";
-
-type TrackerPost = {
-  _id: Id<"publications">;
-  carouselId: string;
-  label: string;
-  plateforme: "TikTok" | "Instagram" | "YouTube";
-  mediaType: FormatKey;
-  compte: string;
-  creatorId: Id<"creators"> | null;
-  creatorName: string | null;
-  formatId: Id<"formats"> | null;
-  formatName: string | null;
-  datePubli: number;
-  postUrl: string | null;
-  vues: number;
-  likes: number;
-  comments: number;
-};
+  PostsList,
+  sortTrackerPosts,
+  type TrackerPost,
+  type SortKey,
+  type SortDir,
+} from "./PostsList";
+import { formatNumber, formatPercent } from "@/lib/format";
+import { cn } from "@/lib/utils";
+import { BarChart3Icon, ListIcon } from "lucide-react";
 
 const PLATFORMS = ["TikTok", "Instagram", "YouTube"] as const;
 const CREATOR_NONE = "__none__";
 const FORMAT_NONE = "__none__";
 
-type SortKey = "vues" | "date" | "likes" | "engagement";
-type SortDir = "asc" | "desc";
 type ViewMode = "list" | "charts";
 
 /** "YYYY-MM-DD" (input date, heure locale) → ms au début du jour. */
@@ -217,22 +186,10 @@ export function TrackerDataView() {
     [posts],
   );
 
-  const sortedPosts = useMemo(() => {
-    const list = [...(posts ?? [])];
-    list.sort((a, b) => {
-      const va = sortValue(a, sortKey);
-      const vb = sortValue(b, sortKey);
-      let cmp: number;
-      if (va === null && vb === null) cmp = 0;
-      else if (va === null) cmp = 1;
-      else if (vb === null) cmp = -1;
-      else cmp = va - vb;
-      const directional = sortDir === "asc" ? cmp : -cmp;
-      if (directional !== 0) return directional;
-      return b.datePubli - a.datePubli; // tiebreak: plus récent d'abord
-    });
-    return list;
-  }, [posts, sortKey, sortDir]);
+  const sortedPosts = useMemo(
+    () => sortTrackerPosts(posts ?? [], sortKey, sortDir),
+    [posts, sortKey, sortDir],
+  );
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -403,19 +360,6 @@ export function TrackerDataView() {
   );
 }
 
-function sortValue(p: TrackerPost, key: SortKey): number | null {
-  switch (key) {
-    case "vues":
-      return p.vues;
-    case "date":
-      return p.datePubli;
-    case "likes":
-      return p.likes;
-    case "engagement":
-      return engagementRate(p.likes, p.comments, p.vues);
-  }
-}
-
 function ModeToggle({
   value,
   onChange,
@@ -455,156 +399,6 @@ function ModeToggle({
         );
       })}
     </div>
-  );
-}
-
-function PostsList({
-  posts,
-  sortKey,
-  sortDir,
-  onToggleSort,
-}: {
-  posts: TrackerPost[];
-  sortKey: SortKey;
-  sortDir: SortDir;
-  onToggleSort: (k: SortKey) => void;
-}) {
-  return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <SortableHead
-              active={sortKey === "date"}
-              dir={sortDir}
-              onClick={() => onToggleSort("date")}
-            >
-              Post
-            </SortableHead>
-            <SortableHead
-              active={sortKey === "vues"}
-              dir={sortDir}
-              onClick={() => onToggleSort("vues")}
-              className="text-right"
-            >
-              Vues
-            </SortableHead>
-            <SortableHead
-              active={sortKey === "likes"}
-              dir={sortDir}
-              onClick={() => onToggleSort("likes")}
-              className="text-right"
-            >
-              Likes
-            </SortableHead>
-            <TableHead className="text-right">Comm.</TableHead>
-            <SortableHead
-              active={sortKey === "engagement"}
-              dir={sortDir}
-              onClick={() => onToggleSort("engagement")}
-              className="text-right"
-            >
-              Engagement
-            </SortableHead>
-            <TableHead className="w-10 text-center">Lien</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {posts.map((p) => {
-            const eng = engagementRate(p.likes, p.comments, p.vues);
-            return (
-              <TableRow key={p._id}>
-                <TableCell className="max-w-[420px]">
-                  <div
-                    className="truncate text-sm font-medium text-slate-900"
-                    title={p.label}
-                  >
-                    {p.label || (
-                      <span className="text-slate-400">(sans titre)</span>
-                    )}
-                  </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-slate-500">
-                    <PlatformBadge plateforme={p.plateforme} />
-                    <span>{p.creatorName ?? "Sans créateur"}</span>
-                    <span aria-hidden>·</span>
-                    <span>
-                      {p.formatName ?? FORMAT_CONFIGS[p.mediaType].singular}
-                    </span>
-                    <span aria-hidden>·</span>
-                    <span className="whitespace-nowrap">
-                      {formatDate(p.datePubli)}
-                    </span>
-                  </div>
-                </TableCell>
-                <TableCell className="text-right tabular-nums text-sm">
-                  {formatNumber(p.vues)}
-                </TableCell>
-                <TableCell className="text-right tabular-nums text-sm">
-                  {formatNumber(p.likes)}
-                </TableCell>
-                <TableCell className="text-right tabular-nums text-sm">
-                  {formatNumber(p.comments)}
-                </TableCell>
-                <TableCell className="text-right tabular-nums text-sm">
-                  {formatPercent(eng, 2)}
-                </TableCell>
-                <TableCell className="text-center">
-                  {p.postUrl ? (
-                    <a
-                      href={p.postUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex text-slate-400 hover:text-primary"
-                      aria-label={`Ouvrir le post ${p.carouselId} sur ${p.plateforme}`}
-                      title="Ouvrir le post"
-                    >
-                      <ExternalLinkIcon className="size-4" />
-                    </a>
-                  ) : (
-                    <span className="text-slate-300">—</span>
-                  )}
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </div>
-  );
-}
-
-function SortableHead({
-  children,
-  active,
-  dir,
-  onClick,
-  className,
-}: {
-  children: React.ReactNode;
-  active: boolean;
-  dir: SortDir;
-  onClick: () => void;
-  className?: string;
-}) {
-  return (
-    <TableHead className={className}>
-      <button
-        type="button"
-        onClick={onClick}
-        className="inline-flex items-center gap-1 hover:text-slate-900"
-      >
-        {children}
-        {active ? (
-          dir === "asc" ? (
-            <ArrowUpIcon className="size-3" />
-          ) : (
-            <ArrowDownIcon className="size-3" />
-          )
-        ) : (
-          <ArrowUpDownIcon className="size-3 opacity-40" />
-        )}
-      </button>
-    </TableHead>
   );
 }
 

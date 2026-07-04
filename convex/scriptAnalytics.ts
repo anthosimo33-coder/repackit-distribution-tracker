@@ -4,6 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { findMatchingSnapshot, type SnapshotAge } from "./snapshotMatching";
 import { normalizeTier } from "./scriptTier";
+import { buildPublicationAssignmentMap, postLabel } from "./trackerData";
 
 /**
  * S3 — Analytics par VARIABLE de script (lecture du bulk testing). Pour une
@@ -86,13 +87,31 @@ export type Tier = (typeof TIERS)[number];
 // Refonte 3 briques. Un kind inconnu (corps legacy) retombe en fin via `?? 99`.
 const KIND_ORDER: Record<string, number> = { hook: 0, flux: 1, cta: 2 };
 
-/** Un échantillon = une publication de script ayant une vue résolue à la fenêtre. */
+/** Un échantillon = une publication de script ayant une vue résolue à la fenêtre.
+ *
+ *  `views` reste la SEULE base des médianes/verdicts (aggregateBy* — inchangé).
+ *  Les autres champs sont ADDITIFS, pour le drill-down par variable (postsByBrick)
+ *  SANS second scan : `likes`/`comments` viennent du MÊME snapshot matché que
+ *  `views` (même fenêtre) ; les champs d'affichage viennent de la publication
+ *  déjà chargée dans la passe. Aucun agrégat ne les lit → médianes préservées. */
 interface ViewSample {
   comboKey: string;
   hookBrickId: Id<"scriptBricks">;
   fluxBrickId: Id<"scriptBricks">;
   ctaBrickId: Id<"scriptBricks">;
   views: number;
+  // ─── Drill-down (additif) — métriques du snapshot matché à la fenêtre ───────
+  likes: number;
+  comments: number;
+  // ─── Drill-down (additif) — identité + affichage du post ────────────────────
+  publicationId: Id<"publications">;
+  carouselId: string;
+  label: string;
+  plateforme: "TikTok" | "Instagram" | "YouTube";
+  mediaType: "carousel" | "short" | "screenrecorder";
+  compte: string;
+  datePubli: number;
+  postUrl: string | null;
 }
 
 export interface CampaignViews {
@@ -169,6 +188,18 @@ export async function gatherCampaignViews(
       fluxBrickId: combo.fluxBrickId,
       ctaBrickId: combo.ctaBrickId,
       views: match.vues,
+      // Même snapshot matché que `views` — likes requis, comments optionnel (→ 0
+      // comme le tracker, pour l'engagement dérivé au rendu).
+      likes: match.likes,
+      comments: match.comments ?? 0,
+      publicationId: p._id,
+      carouselId: p.carouselId,
+      label: postLabel(p),
+      plateforme: p.plateforme,
+      mediaType: p.mediaType ?? "carousel",
+      compte: p.compte,
+      datePubli: p.datePubli,
+      postUrl: p.postUrl ?? null,
     });
   }
 
@@ -236,6 +267,115 @@ export const perfByBrick = adminQuery({
     aggregateByBrick(
       await gatherCampaignViews(ctx, ctx.projectId, campaignId, window),
     ),
+});
+
+// ─── Drill-down : les POSTS réels derrière une variable de brique ─────────────
+
+/**
+ * Un post du drill-down, à la FENÊTRE de la passe. Shape ALIGNÉE sur
+ * `TrackerPost` (components/tracker/PostsList) pour réutiliser le présentational
+ * tel quel. `vues`/`likes`/`comments` = métriques du snapshot matché à J+X (PAS
+ * le latest) ; l'engagement est dérivé au rendu via engagementRate.
+ */
+export interface BrickPostRow {
+  _id: Id<"publications">;
+  carouselId: string;
+  label: string;
+  plateforme: "TikTok" | "Instagram" | "YouTube";
+  mediaType: "carousel" | "short" | "screenrecorder";
+  compte: string;
+  creatorId: Id<"creators"> | null;
+  creatorName: string | null;
+  formatId: Id<"formats"> | null;
+  formatName: string | null;
+  datePubli: number;
+  postUrl: string | null;
+  vues: number;
+  likes: number;
+  comments: number;
+}
+
+/**
+ * Pour une brique-variable donnée, la liste des posts qui l'utilisent, À LA
+ * FENÊTRE de la passe. Réplique A6 de lib/scriptPosts.selectSamplesForBrick :
+ * garde les samples dont le slot du `kind` de la brique === brickId (via slotOf).
+ * Le `corps` legacy n'a pas de slot → liste vide. Rows SANS créateur/format
+ * (résolus par la query). Trié vues décroissantes (le client re-trie). Pur sur
+ * un CampaignViews déjà chargé.
+ *
+ * Cohérence verdict↔preuve : ce sont EXACTEMENT les samples qui produisent la
+ * médiane de la brique dans aggregateByBrick (même passe, même fenêtre, mêmes
+ * posts mesurés à J+X). Une brique sans sample mesuré → liste vide.
+ */
+export function postsByBrick(
+  views: CampaignViews,
+  brickId: Id<"scriptBricks">,
+): BrickPostRow[] {
+  const brick = views.bricksById.get(brickId as string);
+  if (!brick || brick.kind === "corps") return [];
+  const kind = brick.kind as "hook" | "flux" | "cta";
+  const rows: BrickPostRow[] = views.samples
+    .filter((s) => slotOf(s, kind) === brickId)
+    .map((s) => ({
+      _id: s.publicationId,
+      carouselId: s.carouselId,
+      label: s.label,
+      plateforme: s.plateforme,
+      mediaType: s.mediaType,
+      compte: s.compte,
+      creatorId: null,
+      creatorName: null,
+      formatId: null,
+      formatName: null,
+      datePubli: s.datePubli,
+      postUrl: s.postUrl,
+      vues: s.views,
+      likes: s.likes,
+      comments: s.comments,
+    }));
+  return rows.sort((a, b) => b.vues - a.vues);
+}
+
+/**
+ * postsForBrick — pour une campagne + une brique + une fenêtre J+X, la liste des
+ * posts RÉELS qui utilisent cette variable, avec leurs métriques individuelles À
+ * CETTE FENÊTRE. Partage la MÊME passe gatherCampaignViews que perfByBrick → les
+ * posts affichés sont exactement ceux qui produisent la médiane/verdict de la
+ * variable. Enrichit ensuite chaque post de son créateur/format via les
+ * assignments (même attribution que le tracker). Admin-only.
+ */
+export const postsForBrick = adminQuery({
+  args: {
+    campaignId: v.id("scriptCampaigns"),
+    brickId: v.id("scriptBricks"),
+    window: WINDOW,
+  },
+  handler: async (
+    ctx,
+    { campaignId, brickId, window },
+  ): Promise<BrickPostRow[]> => {
+    const views = await gatherCampaignViews(
+      ctx,
+      ctx.projectId,
+      campaignId,
+      window,
+    );
+    const rows = postsByBrick(views, brickId);
+    if (rows.length === 0) return [];
+    // Créateur/format via les assignments (script → format null). Chargé
+    // uniquement ici (pas dans la passe partagée) → médianes non impactées.
+    const refs = await buildPublicationAssignmentMap(ctx);
+    return rows.map((r) => {
+      const ref = refs.get(r._id as string);
+      return {
+        ...r,
+        creatorId: ref?.creatorId ?? null,
+        creatorName: ref?.creatorName ?? null,
+        formatId: ref?.formatId ?? null,
+        formatName: ref?.formatName ?? null,
+      };
+    });
+  },
 });
 
 export interface TierPerf extends Distribution {
