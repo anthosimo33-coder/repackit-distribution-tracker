@@ -72,11 +72,20 @@ function StatsCell({
   // slice pour rester TOUJOURS visible s'il existe, quelles que soient les
   // autres stats. Même helper/format que la grille et l'onglet Radar Outliers.
   const outlierRatio = resolveOutlierRatio(stats, type);
-  const parts: string[] = [];
-  if (type === "account" && stats?.followers !== undefined) {
-    parts.push(`${formatNumber(stats.followers)} abonnés`);
-  }
-  if (stats?.views !== undefined) parts.push(`${formatNumber(stats.views)} vues`);
+  // Vues + abonnés = les 2 stats CLÉS (le ratio est un badge séparé) : placées en
+  // TÊTE pour toujours survivre au slice(0, 2). Ordre selon le type (un compte
+  // met les abonnés d'abord, une vidéo les vues) ; likes/comm. secondaires.
+  const viewsPart =
+    stats?.views !== undefined ? `${formatNumber(stats.views)} vues` : null;
+  const followersPart =
+    stats?.followers !== undefined
+      ? `${formatNumber(stats.followers)} abonnés`
+      : null;
+  const parts: string[] = (
+    type === "account"
+      ? [followersPart, viewsPart]
+      : [viewsPart, followersPart]
+  ).filter((p): p is string => p !== null);
   if (stats?.likes !== undefined) parts.push(`${formatNumber(stats.likes)} likes`);
   if (stats?.comments !== undefined)
     parts.push(`${formatNumber(stats.comments)} comm.`);
@@ -142,7 +151,7 @@ export function InspirationsList({
             <TableHead className="w-[100px]">Plateforme</TableHead>
             <TableHead>Titre</TableHead>
             <TableHead className="w-[140px]">Dossier</TableHead>
-            <TableHead className="w-[180px]">Stats</TableHead>
+            <TableHead className="w-[210px]">Stats</TableHead>
             <TableHead className="w-[88px]" aria-label="Actions" />
             <TableHead className="w-[90px]">Date</TableHead>
           </TableRow>

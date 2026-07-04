@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
-import { ExternalLinkIcon, EyeIcon, StarIcon } from "lucide-react";
+import { ExternalLinkIcon, EyeIcon, StarIcon, UsersIcon } from "lucide-react";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { PlatformBadge } from "@/components/VerdictBadge";
 import { cn } from "@/lib/utils";
@@ -45,9 +45,11 @@ export function InspirationCard({
   const hasUrl = inspiration.url.trim().length > 0;
   // L'URL de vignette peut casser (lien mort) → onError bascule sur le fallback.
   const [imgError, setImgError] = useState(false);
-  // Stats affichées : vues (si saisies) + ratio outlier résolu (stocké Radar ou
-  // fallback views/followers ; null pour un compte ou données insuffisantes).
+  // Stats overlay : vues + abonnés (si saisis) + ratio outlier résolu (stocké
+  // Radar ou fallback views/followers ; null pour un compte ou données
+  // insuffisantes). Tous optionnels → chacun n'apparaît que s'il existe.
   const views = inspiration.stats?.views;
+  const followers = inspiration.stats?.followers;
   const outlierRatio = resolveOutlierRatio(inspiration.stats, inspiration.type);
 
   const updateInspiration = useProjectMutation(api.inspirations.updateInspiration);
@@ -139,10 +141,12 @@ export function InspirationCard({
             <ExternalLinkIcon className="size-4" />
           </a>
         )}
-        {(views != null || outlierRatio != null) && (
+        {(views != null || followers != null || outlierRatio != null) && (
           // Overlay stats en bas de vignette : scrim gradient pour rester lisible
           // sur n'importe quelle miniature. Décoratif → pointer-events-none pour
-          // ne pas intercepter le click carte. Ratio à gauche, vues à droite.
+          // ne pas intercepter le click carte. Hiérarchie : badge ratio (héro) à
+          // gauche ; vues + abonnés empilés à droite (largeur bornée par le plus
+          // long nombre → densité maîtrisée sur les petites cartes 2 colonnes).
           <div
             className={cn(
               "pointer-events-none absolute inset-x-0 bottom-0 flex items-end gap-2 bg-gradient-to-t from-black/60 to-transparent p-2",
@@ -154,11 +158,21 @@ export function InspirationCard({
                 {formatOutlierRatio(outlierRatio)}
               </span>
             )}
-            {views != null && (
-              <span className="inline-flex items-center gap-1 rounded bg-black/55 px-1.5 py-0.5 text-xs font-medium tabular-nums text-white shadow-sm">
-                <EyeIcon className="size-3" />
-                {formatNumber(views)}
-              </span>
+            {(views != null || followers != null) && (
+              <div className="flex flex-col items-end gap-1">
+                {views != null && (
+                  <span className="inline-flex items-center gap-1 rounded bg-black/55 px-1.5 py-0.5 text-xs font-medium tabular-nums text-white shadow-sm">
+                    <EyeIcon className="size-3" />
+                    {formatNumber(views)}
+                  </span>
+                )}
+                {followers != null && (
+                  <span className="inline-flex items-center gap-1 rounded bg-black/55 px-1.5 py-0.5 text-xs font-medium tabular-nums text-white shadow-sm">
+                    <UsersIcon className="size-3" />
+                    {formatNumber(followers)}
+                  </span>
+                )}
+              </div>
             )}
           </div>
         )}
