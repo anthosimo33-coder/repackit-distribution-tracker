@@ -7,40 +7,55 @@ import {
 } from "@/components/ui/card";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { CopyButton } from "@/components/ui/CopyButton";
+import { brickModeDisplay, type BrickMode } from "@/lib/script-mode";
 
 /**
  * SNYTCH — rend un script monté en DEUX zones de DESTINATION explicites, pour
  * lever la confusion « qu'est-ce qui va où » :
- *   - 🎬 Dans la vidéo   = hook + flux (ce que la créatrice DIT / AFFICHE à l'écran)
+ *   - 🎬 Dans la vidéo   = hook + flux, PAR BRIQUE avec un MODE (à dire à l'oral /
+ *     à afficher à l'écran / les deux) → plus d'ambiguïté générique
  *   - 📝 En description  = cta (à COPIER-COLLER en légende du post, hashtags inclus)
  *
- * Mapping FIXE Snytch (pas de config par brique). Réutilisé à l'identique par la
- * fiche créatrice (rendu réel) ET l'aperçu admin (« ce que verra la créatrice »),
- * pour que les deux vues portent exactement les mêmes étiquettes. Le nom des
- * briques (Hook/Flux/CTA) n'apparaît PLUS : seule la destination prime.
+ * Réutilisé à l'identique par la fiche créatrice (rendu réel) ET l'aperçu admin
+ * (« ce que verra la créatrice ») → mêmes étiquettes des deux côtés. Le nom des
+ * briques (Hook/Flux/CTA) n'apparaît PAS : seule la destination + le mode priment.
  * Mobile-first : cartes pleine largeur empilées, bouton copier pleine largeur.
  */
 export function ScriptDestinationZones({
-  videoScript,
+  videoBlocks,
   descriptionScript,
 }: {
-  videoScript: string;
+  videoBlocks: { text: string; mode: BrickMode }[];
   descriptionScript: string;
 }) {
   return (
     <div className="space-y-4">
-      {/* ZONE 1 — dans la vidéo (hook + flux). */}
+      {/* ZONE 1 — dans la vidéo (hook + flux), un bloc PAR BRIQUE avec son mode. */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <span aria-hidden>🎬</span> Dans la vidéo
           </CardTitle>
           <CardDescription>
-            Ce que tu dis et affiches à l&apos;écran.
+            Chaque partie précise si c&apos;est à dire, à afficher, ou les deux.
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <SimpleMarkdown content={videoScript} />
+        <CardContent className="space-y-4">
+          {videoBlocks.map((b, i) => {
+            const d = brickModeDisplay(b.mode);
+            return (
+              <div key={i} className="space-y-1.5" data-testid="video-block">
+                <p
+                  className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500"
+                  data-mode={b.mode}
+                >
+                  <span aria-hidden>{d.icon}</span>
+                  {d.label}
+                </p>
+                <SimpleMarkdown content={b.text} />
+              </div>
+            );
+          })}
         </CardContent>
       </Card>
 

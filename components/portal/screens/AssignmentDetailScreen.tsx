@@ -115,7 +115,7 @@ export default function AssignmentDetailScreen({
           {data.assembledScript ? (
             data.scriptZones ? (
               <ScriptDestinationZones
-                videoScript={data.scriptZones.videoScript}
+                videoBlocks={data.scriptZones.videoBlocks}
                 descriptionScript={data.scriptZones.descriptionScript}
               />
             ) : (

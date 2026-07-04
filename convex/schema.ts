@@ -1165,6 +1165,17 @@ export default defineSchema({
     // migrateTierBToA, plus jamais proposé par l'UI. Conservé ici pour que le
     // deploy ne casse pas tant que des "B" subsistent (migration post-deploy).
     tier: v.optional(v.union(v.literal("S"), v.literal("A"), v.literal("B"))),
+    // SNYTCH — mode d'usage du texte DANS LA VIDÉO (zone 🎬), PAR BRIQUE (hook /
+    // flux) : "dire" = à dire à l'oral ; "afficher" = à afficher en texte à
+    // l'écran ; "les_deux" = les deux. Optional → défaut "les_deux" au READ
+    // (rétrocompat : briques existantes rendues à l'identique, 0 migration).
+    // Ignoré pour cta (zone description) et corps (legacy). Lu LIVE par
+    // splitScriptZones — ORTHOGONAL à assembledScript (la garde anti-divergence,
+    // fondée sur le contenu, reste inchangée : changer le mode ne casse pas le
+    // découpage d'un combo déjà assigné).
+    mode: v.optional(
+      v.union(v.literal("dire"), v.literal("afficher"), v.literal("les_deux")),
+    ),
     active: v.boolean(),
     order: v.optional(v.number()),
     createdAt: v.number(),
