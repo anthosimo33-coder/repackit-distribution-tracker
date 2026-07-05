@@ -48,6 +48,7 @@ import {
   FilmIcon,
   FileTextIcon,
   ChevronDownIcon,
+  SendIcon,
 } from "lucide-react";
 
 type VideoSubmittedRow =
@@ -56,6 +57,8 @@ type PublishedRow =
   FunctionReturnType<typeof api.assignments.listPublished>[number];
 type BonusRowData =
   FunctionReturnType<typeof api.assignments.listValidatedForBonus>[number];
+type ManagedToPublishRow =
+  FunctionReturnType<typeof api.assignments.listManagedToPublish>[number];
 
 /**
  * File de validation admin. La REVUE VIDÉO vient AVANT publication :
@@ -75,6 +78,10 @@ const formatDate = (ts: number) => new Date(ts).toLocaleDateString("fr-FR");
 
 export default function ValidationPage() {
   const toReview = useProjectQuery(api.assignments.listVideoSubmitted, {});
+  const managedToPublish = useProjectQuery(
+    api.assignments.listManagedToPublish,
+    {},
+  );
   const published = useProjectQuery(api.assignments.listPublished, {});
   const bonusRows = useProjectQuery(api.assignments.listValidatedForBonus, {});
 
@@ -116,6 +123,25 @@ export default function ValidationPage() {
           </div>
         )}
       </section>
+
+      {/* ─── Comptes gérés — à publier ──────────────────────────────────────── */}
+      {managedToPublish !== undefined && managedToPublish.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
+            Comptes gérés — à publier
+          </h2>
+          <p className="text-sm text-slate-500">
+            Comptes tenus par l&apos;équipe : colle le lien du post publié. La
+            créatrice est créditée et voit le post + ses perfs (elle ne publie
+            pas).
+          </p>
+          <div className="grid gap-4 lg:grid-cols-2">
+            {managedToPublish.map((a) => (
+              <ManagedPublishCard key={a._id} a={a} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* ─── Publiées récemment ────────────────────────────────────────────── */}
       {published !== undefined && published.length > 0 && (
@@ -453,6 +479,123 @@ function VideoReviewCard({ a }: { a: VideoSubmittedRow }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </Card>
+  );
+}
+
+/**
+ * COMPTE GÉRÉ — l'admin colle le(s) lien(s) du post publié (1 URL par cible) puis
+ * publie via confirmPublicationAsAdmin. MÊME accrual que la publication créatrice
+ * → la créatrice est créditée à l'identique et voit le post + ses perfs.
+ */
+function ManagedPublishCard({ a }: { a: ManagedToPublishRow }) {
+  const publish = useProjectMutation(api.assignments.confirmPublicationAsAdmin);
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [scriptOpen, setScriptOpen] = useState(false);
+
+  async function onPublish() {
+    const payload = a.targets.map((t) => ({
+      platform: t.platform,
+      url: (urls[t.platform] ?? "").trim(),
+    }));
+    if (payload.some((u) => u.url.length === 0)) {
+      toast.error("Colle l'URL du post pour chaque plateforme.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await publish({ id: a._id, urls: payload });
+      toast.success("Publié — la créatrice voit le post et ses performances.");
+    } catch (e) {
+      toast.error(convexErrorMessage(e, "Échec de la publication"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-0.5">
+            <div className="font-medium text-slate-900">{a.creatorName}</div>
+            <div className="flex items-center gap-2 text-sm text-slate-500">
+              {a.label}
+              <Badge variant="secondary" className="text-[10px]">
+                Géré
+              </Badge>
+            </div>
+          </div>
+          <div className="text-right text-xs text-slate-400">
+            Échéance {formatDate(a.dueDate)}
+          </div>
+        </div>
+
+        {a.assembledScript && (
+          <div className="overflow-hidden rounded-md border border-slate-200 bg-slate-50">
+            <button
+              type="button"
+              onClick={() => setScriptOpen((o) => !o)}
+              aria-expanded={scriptOpen}
+              className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+            >
+              <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-slate-700">
+                <FileTextIcon className="size-4 shrink-0 text-slate-400" />
+                Script à publier
+              </span>
+              <ChevronDownIcon
+                className={cn(
+                  "size-4 shrink-0 text-slate-400 transition-transform",
+                  scriptOpen && "rotate-180",
+                )}
+              />
+            </button>
+            {scriptOpen && (
+              <div className="border-t border-slate-200 px-3 py-2.5">
+                <SimpleMarkdown content={a.assembledScript} />
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="space-y-2">
+          {a.targets.map((t) => (
+            <div key={t.platform} className="space-y-1">
+              <Label htmlFor={`managed-url-${a._id}-${t.platform}`} className="text-xs">
+                {t.platform}
+                {t.accountHandle ? (
+                  <span className="ml-1 font-mono text-slate-400">
+                    {t.accountHandle}
+                  </span>
+                ) : null}
+              </Label>
+              <Input
+                id={`managed-url-${a._id}-${t.platform}`}
+                placeholder="https://…"
+                value={urls[t.platform] ?? ""}
+                onChange={(e) =>
+                  setUrls((u) => ({ ...u, [t.platform]: e.target.value }))
+                }
+              />
+            </div>
+          ))}
+        </div>
+
+        <Button
+          onClick={onPublish}
+          disabled={busy}
+          className="w-full"
+          data-testid={`managed-publish-${a._id}`}
+        >
+          {busy ? (
+            <Loader2Icon className="mr-2 size-4 animate-spin" />
+          ) : (
+            <SendIcon className="mr-2 size-4" />
+          )}
+          Publier (coller le lien)
+        </Button>
+      </CardContent>
     </Card>
   );
 }

@@ -42,6 +42,7 @@ import {
   type Plateforme,
 } from "@/lib/compte-status";
 import { PersonneCombobox } from "@/components/comptes/PersonneCombobox";
+import { Switch } from "@/components/ui/switch";
 
 // listComptes enrichit chaque compte avec `personne`, `creator` (propriétaire)
 // et `perf` (agrégat publications). Lookups/agrégation serveur (P5).
@@ -101,6 +102,11 @@ export default function CompteDialog({
   const [warmupStartedAt, setWarmupStartedAt] = useState<number | null>(
     compte?.warmupStartedAt ?? null,
   );
+  // Mode « géré par l'équipe » — modifiable uniquement en édition d'un compte
+  // rattaché à une créatrice (managed ⇒ creatorId requis, imposé serveur).
+  const [managedByAdmin, setManagedByAdmin] = useState<boolean>(
+    compte?.managedByAdmin ?? false,
+  );
   const [dateError, setDateError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -117,6 +123,7 @@ export default function CompteDialog({
       setPersonneId(compte?.personneId ?? null);
       setStatus(compte ? getEffectiveStatus(compte) : "actif");
       setWarmupStartedAt(compte?.warmupStartedAt ?? null);
+      setManagedByAdmin(compte?.managedByAdmin ?? false);
       setDateError(false);
       /* eslint-enable react-hooks/set-state-in-effect */
     }
@@ -196,6 +203,9 @@ export default function CompteDialog({
           ...(plateformeEditable && plateforme !== compte.plateforme
             ? { plateforme: plateforme as Plateforme }
             : {}),
+          // Mode géré : transmis seulement pour un compte rattaché à une
+          // créatrice (le toggle n'est montré que dans ce cas).
+          ...(compte.creatorId ? { managedByAdmin } : {}),
         });
         toast.success(`${finalHandle} mis à jour`);
       } else {
@@ -393,6 +403,28 @@ export default function CompteDialog({
               Optionnel — qui gère ce compte.
             </p>
           </div>
+          {/* Mode « géré par l'équipe » — uniquement en édition d'un compte
+              rattaché à une créatrice. Le flag est dénormalisé à la création des
+              assignments : le changer n'affecte que les FUTURS assignments. */}
+          {isEdit && compte?.creatorId && (
+            <div className="flex items-start gap-3 rounded-md border border-slate-200 bg-slate-50/50 px-3 py-2">
+              <Switch
+                id="compte-managed"
+                checked={managedByAdmin}
+                onCheckedChange={setManagedByAdmin}
+              />
+              <div className="space-y-0.5">
+                <Label htmlFor="compte-managed" className="cursor-pointer">
+                  Géré par l&apos;équipe
+                </Label>
+                <p className="text-xs text-slate-500">
+                  L&apos;équipe tient le compte (warmup, publication, lien) ; la
+                  créatrice suit en lecture. N&apos;affecte que les futurs
+                  assignments.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
         <DialogFooter>
           <Button
