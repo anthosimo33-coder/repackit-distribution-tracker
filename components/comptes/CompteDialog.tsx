@@ -43,6 +43,11 @@ import {
 } from "@/lib/compte-status";
 import { PersonneCombobox } from "@/components/comptes/PersonneCombobox";
 import { Switch } from "@/components/ui/switch";
+import {
+  COUNTRY_LABELS,
+  COUNTRY_CODES,
+  type CountryCode,
+} from "@/lib/countries";
 
 // listComptes enrichit chaque compte avec `personne`, `creator` (propriétaire)
 // et `perf` (agrégat publications). Lookups/agrégation serveur (P5).
@@ -62,6 +67,9 @@ const STATUS_OPTIONS: { value: CompteStatus; label: string; dot: string }[] = [
   { value: "shadowban", label: "Shadowban", dot: "bg-rose-500" },
   { value: "archived", label: "Archivé", dot: "bg-slate-400" },
 ];
+
+/** Valeur sentinelle du sélecteur pays = « non défini » (targetCountry unset). */
+const COUNTRY_NONE = "none";
 
 function todayStart(): number {
   const d = new Date();
@@ -107,6 +115,10 @@ export default function CompteDialog({
   const [managedByAdmin, setManagedByAdmin] = useState<boolean>(
     compte?.managedByAdmin ?? false,
   );
+  // Pays ciblé (label informatif) — code de la liste fermée ou sentinelle NONE.
+  const [targetCountry, setTargetCountry] = useState<string>(
+    compte?.targetCountry ?? COUNTRY_NONE,
+  );
   const [dateError, setDateError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -124,6 +136,7 @@ export default function CompteDialog({
       setStatus(compte ? getEffectiveStatus(compte) : "actif");
       setWarmupStartedAt(compte?.warmupStartedAt ?? null);
       setManagedByAdmin(compte?.managedByAdmin ?? false);
+      setTargetCountry(compte?.targetCountry ?? COUNTRY_NONE);
       setDateError(false);
       /* eslint-enable react-hooks/set-state-in-effect */
     }
@@ -206,6 +219,11 @@ export default function CompteDialog({
           // Mode géré : transmis seulement pour un compte rattaché à une
           // créatrice (le toggle n'est montré que dans ce cas).
           ...(compte.creatorId ? { managedByAdmin } : {}),
+          // Pays ciblé (label) : code, ou null pour « non défini » (unset).
+          targetCountry:
+            targetCountry === COUNTRY_NONE
+              ? null
+              : (targetCountry as CountryCode),
         });
         toast.success(`${finalHandle} mis à jour`);
       } else {
@@ -217,6 +235,10 @@ export default function CompteDialog({
           status,
           warmupStartedAt:
             status === "warmup" ? (warmupStartedAt ?? undefined) : undefined,
+          targetCountry:
+            targetCountry === COUNTRY_NONE
+              ? undefined
+              : (targetCountry as CountryCode),
         });
         toast.success(`${finalHandle} ajouté sur ${plateforme}`);
       }
@@ -226,6 +248,7 @@ export default function CompteDialog({
       setPersonneId(null);
       setStatus("actif");
       setWarmupStartedAt(null);
+      setTargetCountry(COUNTRY_NONE);
     } catch (e) {
       toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {
@@ -401,6 +424,36 @@ export default function CompteDialog({
             <PersonneCombobox value={personneId} onChange={setPersonneId} />
             <p className="text-xs text-slate-500">
               Optionnel — qui gère ce compte.
+            </p>
+          </div>
+          {/* Pays ciblé — label INFORMATIF interne (liste fermée partagée avec le
+              Radar). Ne pilote rien (scraping/filtres inchangés), invisible côté
+              créatrice. « Non défini » = unset. */}
+          <div className="space-y-1.5">
+            <Label>Pays ciblé</Label>
+            <Select
+              value={targetCountry}
+              onValueChange={(v) => v !== null && setTargetCountry(v)}
+            >
+              <SelectTrigger aria-label="Pays ciblé">
+                <SelectValue>
+                  {targetCountry === COUNTRY_NONE
+                    ? "Non défini"
+                    : (COUNTRY_LABELS[targetCountry] ?? targetCountry)}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={COUNTRY_NONE}>Non défini</SelectItem>
+                {COUNTRY_CODES.map((cc) => (
+                  <SelectItem key={cc} value={cc}>
+                    {COUNTRY_LABELS[cc] ?? cc}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-slate-500">
+              Label interne informatif — n&apos;affecte ni le scraping ni les
+              filtres. Invisible côté créatrice.
             </p>
           </div>
           {/* Mode « géré par l'équipe » — uniquement en édition d'un compte

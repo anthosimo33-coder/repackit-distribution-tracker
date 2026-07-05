@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { authTables } from "@convex-dev/auth/server";
 import { v } from "convex/values";
+import { countryValidator } from "./countries";
 
 /**
  * P2 Multi-tenant — rollout terminé (2 phases, à cause du deploy atomique
@@ -438,6 +439,13 @@ export default defineSchema({
     // Dénormalisé sur assignments.managedByAdmin à la création de l'assignment.
     // Optional → 0 migration.
     managedByAdmin: v.optional(v.boolean()),
+    // ─── Pays CIBLÉ (label INFORMATIF, admin only) ───────────────────────────
+    // Code pays de la liste FERMÉE partagée (convex/countries.countryValidator,
+    // même liste que le sélecteur Radar Tendances). PUREMENT descriptif : ne
+    // pilote RIEN (ni scraping, ni proxy, ni filtre, ni affichage créatrice).
+    // Édité uniquement par l'admin (updateCompte). Optional → 0 migration ;
+    // absent = « non défini ».
+    targetCountry: v.optional(countryValidator),
   })
     .index("by_plateforme", ["plateforme"])
     .index("by_actif", ["actif"])

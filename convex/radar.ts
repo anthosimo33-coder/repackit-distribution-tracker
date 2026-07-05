@@ -36,6 +36,9 @@ import {
   rankSearchVideos,
   toRadarDateFilter,
 } from "./radarApi";
+// Pays supportés + validation = SOURCE UNIQUE partagée (cf convex/countries),
+// réutilisée aussi par comptes.targetCountry (aucune duplication de la liste).
+import { SUPPORTED_COUNTRIES as SUPPORTED_TREND_COUNTRIES, assertCountry } from "./countries";
 
 /**
  * Limite douce de comptes favoris (garde-fou quota Apify). NON bloquante : à
@@ -61,25 +64,12 @@ function cleanNote(note: string | undefined): string | undefined {
 
 // ─── Tendances (Brique 2) — constantes + wrapper action admin ────────────────
 
-/** Pays supportés par data_xplorer/tiktok-trends (countryCode). US par défaut côté UI. */
-const SUPPORTED_TREND_COUNTRIES = [
-  "US", "FR", "GB", "DE", "ES", "IT", "CA", "AU", "BR", "AR",
-];
-
 /** Âge max d'une vidéo de tendance (clockworks hashtag = top non trié par date). */
 const TREND_VIDEO_MAX_AGE_DAYS = 14;
 
 /** Vidéos récupérées par hashtag cliqué. */
 const TREND_HASHTAG_VIDEOS = 15;
 
-/** Valide + normalise un countryCode (rejette les pays non supportés). */
-function assertCountry(countryCode: string): string {
-  const cc = countryCode.trim().toUpperCase();
-  if (!SUPPORTED_TREND_COUNTRIES.includes(cc)) {
-    throw new ConvexError(`Pays non supporté : ${countryCode}.`);
-  }
-  return cc;
-}
 
 /**
  * Vérifie le rôle admin DEPUIS UNE ACTION (qui n'a pas d'accès db direct). Interne,
@@ -653,7 +643,7 @@ export const listTrendVideos = adminQuery({
 /** Liste des pays supportés (pour le sélecteur). */
 export const listTrendCountries = adminQuery({
   args: {},
-  handler: async (): Promise<string[]> => SUPPORTED_TREND_COUNTRIES,
+  handler: async (): Promise<string[]> => [...SUPPORTED_TREND_COUNTRIES],
 });
 
 // ─── Mutations internes (remplacement de cache) ──────────────────────────────

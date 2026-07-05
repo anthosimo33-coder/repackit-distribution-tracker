@@ -27,6 +27,7 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { COUNTRY_LABELS } from "@/lib/countries";
 import {
   RadarVideoGrid,
   type RadarCardVideo,
@@ -38,19 +39,6 @@ import { formatCount, formatRelative } from "./radar-format";
 const DAY_MS = 86_400_000;
 
 /** Libellés FR (drapeau + nom) des pays supportés. Fallback = le code. */
-const COUNTRY_LABELS: Record<string, string> = {
-  US: "🇺🇸 États-Unis",
-  FR: "🇫🇷 France",
-  GB: "🇬🇧 Royaume-Uni",
-  DE: "🇩🇪 Allemagne",
-  ES: "🇪🇸 Espagne",
-  IT: "🇮🇹 Italie",
-  CA: "🇨🇦 Canada",
-  AU: "🇦🇺 Australie",
-  BR: "🇧🇷 Brésil",
-  AR: "🇦🇷 Argentine",
-};
-
 type TrendData = FunctionReturnType<typeof api.radar.listTrendHashtags>;
 type TrendHashtag = TrendData["hashtags"][number];
 type VideoStatus = "loading" | "error" | "ok";

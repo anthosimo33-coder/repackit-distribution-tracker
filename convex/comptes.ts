@@ -17,6 +17,7 @@ import {
   effectiveTargetDays,
 } from "./warmup";
 import { isSnytchProject } from "./projects";
+import { countryValidator } from "./countries";
 import { v, ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -279,6 +280,8 @@ export const createCompte = adminMutation({
     status: v.optional(statusValidator),
     warmupStartedAt: v.optional(v.number()),
     personneId: v.optional(v.id("personnes")),
+    // Pays ciblé (label informatif, liste fermée partagée). Optional = non défini.
+    targetCountry: v.optional(countryValidator),
   },
   handler: async (ctx, args) => {
     // Dedup (handle, plateforme) DANS le projet (by_project_plateforme).
@@ -309,6 +312,7 @@ export const createCompte = adminMutation({
       plateforme: args.plateforme,
       notes: args.notes,
       personneId: args.personneId,
+      targetCountry: args.targetCountry,
       status,
       warmupStartedAt: status === "warmup" ? args.warmupStartedAt : undefined,
       // Durée FIGÉE au démarrage du warmup (comme declareCompte) → un changement
@@ -353,6 +357,9 @@ export const updateCompte = adminMutation({
     // assignments DÉJÀ créés n'est pas réécrit ; seuls les futurs assignments
     // captent le nouveau mode (sémantique snapshot du repo).
     managedByAdmin: v.optional(v.boolean()),
+    // Pays ciblé (label informatif) : code de la liste fermée = set, null = unset
+    // (« non défini »), absent = ne pas toucher. Validé par countryValidator.
+    targetCountry: v.optional(v.union(countryValidator, v.null())),
   },
   handler: async (ctx, args) => {
     const { id } = args;
@@ -394,6 +401,11 @@ export const updateCompte = adminMutation({
     }
     if (args.managedByAdmin !== undefined) {
       update.managedByAdmin = args.managedByAdmin;
+    }
+    if (args.targetCountry !== undefined) {
+      // null → « non défini » (unset) ; sinon code validé (countryValidator).
+      update.targetCountry =
+        args.targetCountry === null ? undefined : args.targetCountry;
     }
 
     // Chantier D — changement de PLATEFORME : VIERGE uniquement (sinon le
