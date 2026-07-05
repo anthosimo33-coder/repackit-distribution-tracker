@@ -1058,6 +1058,7 @@ type OnboardingAccountPayload = {
 type OnboardingStatePayload = {
   applicable: boolean;
   accounts: OnboardingAccountPayload[];
+  fullyManaged: boolean;
 };
 
 async function onboardingStateForCreator(
@@ -1068,13 +1069,17 @@ async function onboardingStateForCreator(
 ): Promise<OnboardingStatePayload> {
   // Feature Snytch-only : hors Snytch on ne charge même pas les comptes.
   if (!(await isSnytchProject(ctx, projectId))) {
-    return { applicable: false, accounts: [] };
+    return { applicable: false, accounts: [], fullyManaged: false };
   }
+  const allComptes = await comptesForCreator(ctx, projectId, creatorId);
   // Comptes GÉRÉS exclus de la checklist d'onboarding : la créatrice n'a ni
-  // warmup ni bio ni @ à créer dessus (l'équipe tient le compte).
-  const comptes = (await comptesForCreator(ctx, projectId, creatorId)).filter(
-    (c) => !c.managedByAdmin,
-  );
+  // warmup ni bio ni @ à créer dessus (l'équipe tient le compte). « Full gérée »
+  // = 0 compte propre + ≥1 géré → aucun onboarding à faire (message dédié au lieu
+  // de la checklist, cf DashboardScreen), à distinguer d'une créatrice NEUVE
+  // (0 compte du tout → elle doit déclarer).
+  const comptes = allComptes.filter((c) => !c.managedByAdmin);
+  const fullyManaged =
+    comptes.length === 0 && allComptes.some((c) => c.managedByAdmin);
   const accounts = comptes.map((c) => {
     const warmupLike = {
       plateforme: c.plateforme,
@@ -1093,7 +1098,7 @@ async function onboardingStateForCreator(
       bio: (c.bioStatus ?? "none") as "none" | "to_apply" | "applied",
     };
   });
-  return { applicable: true, accounts };
+  return { applicable: true, accounts, fullyManaged };
 }
 
 /** État d'onboarding de MON espace créateur (Snytch). Cf lib/onboarding. */
