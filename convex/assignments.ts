@@ -105,6 +105,44 @@ export async function validateTargets(
   }
 }
 
+/**
+ * Comptes GÉRÉS PAR L'ÉQUIPE — SOURCE UNIQUE de détection des cibles gérées,
+ * PARTAGÉE par assignFormat ET assignScriptCampaign. (Extraite pour tuer la
+ * dérive #107 : le court-circuit géré n'avait été posé que sur le chemin format,
+ * laissant le chemin script — primaire côté Snytch — insérer en dur `todo` sans
+ * flag.) IMPOSE l'homogénéité : une mission ne mélange pas cibles gérées et non
+ * gérées (sinon « qui publie ? » est ambigu). Appelée APRÈS validateTargets
+ * (existence/appartenance/disponibilité déjà garanties) ; (projectId, creatorId)
+ * re-vérifiés en défense en profondeur, MÊME rejet que validateTargets →
+ * behavior-preserving. Renvoie `managed` : true ⇒ l'assignment part DIRECT en
+ * to_publish + managedByAdmin (l'admin publie), false ⇒ workflow créateur normal.
+ */
+export async function resolveManagedTargets(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  creatorId: Id<"creators">,
+  targets: { platform: Plateforme; accountId: Id<"comptes"> }[],
+): Promise<{ managed: boolean }> {
+  const comptes = await Promise.all(targets.map((t) => ctx.db.get(t.accountId)));
+  let managedCount = 0;
+  for (const compte of comptes) {
+    if (
+      !compte ||
+      compte.projectId !== projectId ||
+      compte.creatorId !== creatorId
+    ) {
+      throw new ConvexError("Compte cible introuvable pour ce créateur.");
+    }
+    if (compte.managedByAdmin) managedCount++;
+  }
+  if (managedCount > 0 && managedCount < targets.length) {
+    throw new ConvexError(
+      "Un assignment ne peut pas mélanger des comptes gérés par l'équipe et des comptes créateur.",
+    );
+  }
+  return { managed: managedCount > 0 };
+}
+
 // ─── Admin ─────────────────────────────────────────────────────────────────
 
 /**
@@ -206,23 +244,16 @@ export const assignFormat = adminMutation({
       accountId: t.accountId,
     }));
     // ─── Comptes GÉRÉS PAR L'ÉQUIPE (D1/D2) ──────────────────────────────────
-    // Si les cibles sont gérées par l'équipe, l'assignment est créé DIRECT en
-    // to_publish (saut de todo/in_progress/video_submitted/review — l'admin
-    // publie lui-même via confirmPublicationAsAdmin) et porte le flag DÉNORMALISÉ
-    // copié du compte, pour que les surfaces actionnables créatrice lisent le
-    // mode sans jointure. Homogénéité IMPOSÉE : une mission ne mélange pas cibles
-    // gérées et non gérées (sinon « qui publie ? » est ambigu). Les comptes
-    // viennent d'être validés par validateTargets (existence/appartenance).
-    const targetComptes = await Promise.all(
-      args.targets.map((t) => ctx.db.get(t.accountId)),
+    // Cibles gérées ⇒ assignment créé DIRECT en to_publish (saut de todo/…/review
+    // — l'admin publie via confirmPublicationAsAdmin) + flag DÉNORMALISÉ copié du
+    // compte. Détection + homogénéité déléguées au helper PARTAGÉ (même source que
+    // assignScriptCampaign — plus de dérive possible).
+    const { managed } = await resolveManagedTargets(
+      ctx,
+      ctx.projectId,
+      args.creatorId,
+      args.targets,
     );
-    const managedCount = targetComptes.filter((c) => c?.managedByAdmin).length;
-    if (managedCount > 0 && managedCount < args.targets.length) {
-      throw new ConvexError(
-        "Un assignment ne peut pas mélanger des comptes gérés par l'équipe et des comptes créateur.",
-      );
-    }
-    const managed = managedCount > 0;
     const pricingSnapshot = args.pricingId
       ? await buildPricingSnapshot(ctx, ctx.projectId, args.pricingId)
       : undefined;
@@ -966,6 +997,49 @@ export const listManagedToPublish = adminQuery({
             : null,
         })),
       }));
+  },
+});
+
+/**
+ * BACKFILL one-shot (internal) — comptes gérés. Corrige les assignments ORPHELINS
+ * créés AVANT le fix du chemin script (assignScriptCampaign insérait `todo` sans
+ * flag même sur un compte géré). Pour chaque assignment NON encore agi (todo /
+ * in_progress) dont TOUTES les cibles pointent un compte managedByAdmin : pose
+ * managedByAdmin:true + status:"to_publish" → il rejoint la file admin « Comptes
+ * gérés — à publier » ET sort des actionnables créatrice. Restreint aux non-agis
+ * (video_submitted et au-delà = la créatrice a déjà produit → intouché).
+ * IDEMPOTENT (rows déjà managed ignorées ; une fois to_publish, plus todo/in_progress).
+ * Mix géré/non-géré (créé avant l'homogénéité) → SKIPPÉ + compté, à traiter à la main.
+ *
+ * Runnable : `npx convex run assignments:backfillManagedAssignments` (dev puis --prod).
+ */
+export const backfillManagedAssignments = internalMutation({
+  args: {},
+  handler: async (
+    ctx,
+  ): Promise<{ updated: number; skippedMixed: number }> => {
+    const assignments = await ctx.db.query("assignments").collect();
+    let updated = 0;
+    let skippedMixed = 0;
+    for (const a of assignments) {
+      if (a.managedByAdmin) continue; // déjà géré (idempotence)
+      if (a.status !== "todo" && a.status !== "in_progress") continue; // non-agi
+      const targets = a.targets ?? [];
+      if (targets.length === 0) continue;
+      const comptes = await Promise.all(
+        targets.map((t) => (t.accountId ? ctx.db.get(t.accountId) : null)),
+      );
+      const managedCount = comptes.filter((c) => c?.managedByAdmin).length;
+      if (managedCount === 0) continue; // aucune cible gérée → assignment normal
+      if (managedCount < targets.length) {
+        // Mix géré/non-géré (antérieur à l'homogénéité) : ambigu → laissé manuel.
+        skippedMixed++;
+        continue;
+      }
+      await ctx.db.patch(a._id, { managedByAdmin: true, status: "to_publish" });
+      updated++;
+    }
+    return { updated, skippedMixed };
   },
 });
 
