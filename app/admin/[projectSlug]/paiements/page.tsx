@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   useProjectQuery,
   useProjectMutation,
@@ -10,13 +10,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Table,
   TableBody,
   TableCell,
@@ -24,28 +17,25 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
 import { formatEuros } from "@/lib/format-rate";
-import { formatPeriod } from "@/lib/payout";
+import { formatCycleRange } from "@/lib/pay-cycle";
 import type { FunctionReturnType } from "convex/server";
 import {
   ChevronRightIcon,
   DownloadIcon,
   Loader2Icon,
-  CheckCircle2Icon,
 } from "lucide-react";
+
+/**
+ * Paiements admin — CYCLES J+30 GLISSANTS par créateur (fenêtre de 30 j ancrée
+ * sur son 1er post). 1 ligne = 1 (créateur, cycle) : le regroupement calendaire
+ * global (« période du mois ») n'existe plus (chaque créateur a son propre cycle).
+ * Marquer payé se fait PAR CYCLE (markCyclePaid). Le montant est inchangé (même
+ * moteur cappé 150€/vidéo) — seul le découpage change.
+ */
 
 type Payment = FunctionReturnType<typeof api.payments.listPayments>[number];
 
@@ -80,17 +70,10 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
   autre: "Autre",
 };
 
-const STATUS_BADGE: Record<
-  string,
-  { label: string; className: string }
-> = {
+const STATUS_BADGE: Record<string, { label: string; className: string }> = {
   accruing: {
     label: "En cours",
     className: "border-amber-200 bg-amber-50 text-amber-700",
-  },
-  scheduled: {
-    label: "Programmé",
-    className: "border-sky-200 bg-sky-50 text-sky-700",
   },
   paid: {
     label: "Payé",
@@ -117,26 +100,11 @@ function downloadCsv(filename: string, rows: string[][]) {
 
 export default function PaiementsPage() {
   const payments = useProjectQuery(api.payments.listPayments, {});
-  const [period, setPeriod] = useState<string | null>(null);
-
-  // Périodes distinctes (desc) ; sélection par défaut = la plus récente.
-  const periods = useMemo(() => {
-    const set = new Set((payments ?? []).map((p) => p.period));
-    return [...set].sort((a, b) => b.localeCompare(a));
-  }, [payments]);
-  const selected = period ?? periods[0] ?? null;
-
-  const rows = useMemo(
-    () => (payments ?? []).filter((p) => p.period === selected),
-    [payments, selected],
-  );
-
-  const periodTotal = rows.reduce((s, p) => s + p.totalDue, 0);
-  // Récap de l'action bulk : seules les lignes non payées sont marquées par
-  // markPeriodPaid (cf convex/payments.ts — skip status === "paid").
-  const unpaidRows = rows.filter((p) => p.status !== "paid");
-  const unpaidCount = unpaidRows.length;
-  const unpaidTotal = unpaidRows.reduce((s, p) => s + p.totalDue, 0);
+  const rows = payments ?? [];
+  const total = rows.reduce((s, p) => s + p.totalDue, 0);
+  const unpaidTotal = rows
+    .filter((p) => p.status !== "paid")
+    .reduce((s, p) => s + p.totalDue, 0);
 
   return (
     <div className="space-y-6">
@@ -148,75 +116,57 @@ export default function PaiementsPage() {
           <p className="text-sm text-slate-500">
             {payments === undefined
               ? "Chargement…"
-              : selected
-                ? `${rows.length} créateur${rows.length > 1 ? "s" : ""} · ${formatEuros(periodTotal)} dû`
-                : "Aucun paiement pour l'instant."}
+              : rows.length === 0
+                ? "Aucun paiement pour l'instant."
+                : `${rows.length} cycle${rows.length > 1 ? "s" : ""} · ${formatEuros(total)} dû (${formatEuros(unpaidTotal)} en attente)`}
+          </p>
+          <p className="text-xs text-slate-400">
+            Cycles de 30 jours propres à chaque créateur (ancrés sur son 1er
+            post).
           </p>
         </div>
-        {selected && (
-          <div className="flex flex-wrap items-center gap-2">
-            <Select
-              value={selected}
-              onValueChange={(v) => v && setPeriod(v)}
-            >
-              <SelectTrigger className="w-44" aria-label="Période">
-                <SelectValue>{formatPeriod(selected)}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {periods.map((p) => (
-                  <SelectItem key={p} value={p}>
-                    {formatPeriod(p)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              variant="outline"
-              onClick={() =>
-                downloadCsv(`paiements-${selected}.csv`, [
-                  [
-                    "Créateur",
-                    "Email",
-                    "Méthode",
-                    "Coordonnées",
-                    "Total dû (€)",
-                    "Période",
-                    "Statut",
-                  ],
-                  ...rows.map((p) => [
-                    p.creatorName,
-                    p.creatorEmail,
-                    p.creatorPaymentMethod
-                      ? (PAYMENT_METHOD_LABELS[p.creatorPaymentMethod] ??
-                        p.creatorPaymentMethod)
-                      : "",
-                    p.creatorPaymentDetails ?? "",
-                    String(p.totalDue),
-                    selected,
-                    p.status,
-                  ]),
-                ])
-              }
-            >
-              <DownloadIcon className="mr-2 size-4" />
-              Export CSV
-            </Button>
-            <MarkPeriodPaidButton
-              period={selected}
-              unpaidCount={unpaidCount}
-              unpaidTotal={unpaidTotal}
-              disabled={unpaidCount === 0}
-            />
-          </div>
+        {rows.length > 0 && (
+          <Button
+            variant="outline"
+            onClick={() =>
+              downloadCsv("paiements-cycles.csv", [
+                [
+                  "Créateur",
+                  "Email",
+                  "Méthode",
+                  "Coordonnées",
+                  "Cycle",
+                  "Total dû (€)",
+                  "Statut",
+                ],
+                ...rows.map((p) => [
+                  p.creatorName,
+                  p.creatorEmail,
+                  p.creatorPaymentMethod
+                    ? (PAYMENT_METHOD_LABELS[p.creatorPaymentMethod] ??
+                      p.creatorPaymentMethod)
+                    : "",
+                  p.creatorPaymentDetails ?? "",
+                  formatCycleRange(p.cycleStart, p.cycleEnd),
+                  String(p.totalDue),
+                  p.status,
+                ]),
+              ])
+            }
+          >
+            <DownloadIcon className="mr-2 size-4" />
+            Export CSV
+          </Button>
         )}
       </header>
 
       {payments === undefined ? (
         <Skeleton className="h-64 w-full" />
-      ) : !selected ? (
+      ) : rows.length === 0 ? (
         <Card>
           <CardContent className="py-16 text-center text-sm text-slate-500">
-            Les paiements apparaîtront ici dès la validation des premiers posts.
+            Les paiements apparaîtront ici dès la première publication des
+            créateurs.
           </CardContent>
         </Card>
       ) : (
@@ -227,8 +177,8 @@ export default function PaiementsPage() {
                 <TableRow>
                   <TableHead className="w-8" />
                   <TableHead>Créateur</TableHead>
+                  <TableHead>Cycle</TableHead>
                   <TableHead>Méthode</TableHead>
-                  <TableHead className="text-right">Posts</TableHead>
                   <TableHead>Statut</TableHead>
                   <TableHead className="text-right">Total dû</TableHead>
                   <TableHead className="w-32" />
@@ -236,7 +186,7 @@ export default function PaiementsPage() {
               </TableHeader>
               <TableBody>
                 {rows.map((p) => (
-                  <PaymentRow key={p._id} p={p} />
+                  <PaymentRow key={p.key} p={p} />
                 ))}
               </TableBody>
             </Table>
@@ -247,107 +197,17 @@ export default function PaiementsPage() {
   );
 }
 
-function MarkPeriodPaidButton({
-  period,
-  unpaidCount,
-  unpaidTotal,
-  disabled,
-}: {
-  period: string;
-  unpaidCount: number;
-  unpaidTotal: number;
-  disabled: boolean;
-}) {
-  const markPeriodPaid = useProjectMutation(api.payments.markPeriodPaid);
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  async function handleConfirm() {
-    setBusy(true);
-    try {
-      const r = await markPeriodPaid({ period });
-      toast.success(
-        r.marked > 0
-          ? `${r.marked} paiement${r.marked > 1 ? "s" : ""} marqué${r.marked > 1 ? "s" : ""} payé${r.marked > 1 ? "s" : ""}.`
-          : "Rien à marquer (déjà payé).",
-      );
-      setOpen(false);
-    } catch (e) {
-      toast.error(convexErrorMessage(e, "Paiement de la période impossible"));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const plural = unpaidCount > 1 ? "s" : "";
-
-  return (
-    <AlertDialog
-      open={open}
-      onOpenChange={(o) => {
-        // On bloque la fermeture pendant la mutation pour garder l'état de
-        // chargement visible (cf suppression d'assignment).
-        if (!busy) setOpen(o);
-      }}
-    >
-      <Button
-        onClick={() => setOpen(true)}
-        disabled={disabled}
-        data-testid="mark-period-paid"
-      >
-        <CheckCircle2Icon className="mr-2 size-4" />
-        Tout marquer payé
-      </Button>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>
-            Marquer payé{plural} {unpaidCount} créateur{plural} ?
-          </AlertDialogTitle>
-          <AlertDialogDescription>
-            Période{" "}
-            <span className="font-medium text-foreground">
-              {formatPeriod(period)}
-            </span>{" "}
-            · total concerné{" "}
-            <span className="font-medium text-foreground tabular-nums">
-              {formatEuros(unpaidTotal)}
-            </span>
-            . Cette action est irréversible.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={busy}>Annuler</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={(e) => {
-              // Fermeture gérée manuellement (succès) pour afficher l'état de
-              // chargement ; empêche la fermeture auto de l'AlertDialog.
-              e.preventDefault();
-              void handleConfirm();
-            }}
-            disabled={busy}
-            data-testid="mark-period-paid-confirm"
-          >
-            {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-            Confirmer le paiement
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
-}
-
 function PaymentRow({ p }: { p: Payment }) {
-  const markPaid = useProjectMutation(api.payments.markPaymentPaid);
+  const markCyclePaid = useProjectMutation(api.payments.markCyclePaid);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const baseCount = p.lineItems.filter((li) => li.kind === "base").length;
   const badge = STATUS_BADGE[p.status] ?? STATUS_BADGE.accruing;
 
   async function onMarkPaid() {
     setBusy(true);
     try {
-      await markPaid({ id: p._id });
-      toast.success(`${p.creatorName} marqué payé.`);
+      await markCyclePaid({ creatorId: p.creatorId, cycleIndex: p.cycleIndex });
+      toast.success(`${p.creatorName} — cycle marqué payé.`);
     } catch (e) {
       toast.error(convexErrorMessage(e, "Paiement impossible"));
     } finally {
@@ -360,7 +220,7 @@ function PaymentRow({ p }: { p: Payment }) {
       <TableRow
         className="cursor-pointer"
         onClick={() => setOpen((o) => !o)}
-        data-testid={`payment-${p._id}`}
+        data-testid={`payment-${p.key}`}
       >
         <TableCell>
           <ChevronRightIcon
@@ -374,13 +234,13 @@ function PaymentRow({ p }: { p: Payment }) {
           {p.creatorName}
         </TableCell>
         <TableCell className="text-sm text-slate-600">
+          {formatCycleRange(p.cycleStart, p.cycleEnd)}
+        </TableCell>
+        <TableCell className="text-sm text-slate-600">
           {p.creatorPaymentMethod
             ? (PAYMENT_METHOD_LABELS[p.creatorPaymentMethod] ??
               p.creatorPaymentMethod)
             : "—"}
-        </TableCell>
-        <TableCell className="text-right tabular-nums text-slate-700">
-          {baseCount}
         </TableCell>
         <TableCell>
           <span
@@ -395,10 +255,7 @@ function PaymentRow({ p }: { p: Payment }) {
         <TableCell className="text-right font-medium tabular-nums text-slate-900">
           {formatEuros(p.totalDue)}
         </TableCell>
-        <TableCell
-          className="text-right"
-          onClick={(e) => e.stopPropagation()}
-        >
+        <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
           {p.status === "paid" ? (
             <span className="text-xs text-slate-400">Payé</span>
           ) : (
@@ -407,7 +264,7 @@ function PaymentRow({ p }: { p: Payment }) {
               variant="outline"
               onClick={onMarkPaid}
               disabled={busy}
-              data-testid={`mark-paid-${p._id}`}
+              data-testid={`mark-paid-${p.key}`}
             >
               {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
               Marquer payé
@@ -419,13 +276,21 @@ function PaymentRow({ p }: { p: Payment }) {
         <TableRow className="bg-slate-50/60">
           <TableCell />
           <TableCell colSpan={6} className="space-y-2 py-2">
-            {/* Modèle PRICING (live ou gelé) : fixe / CPM / bonus. */}
             {p.pricingBreakdown.total > 0 && (
               <ul className="space-y-1 text-sm">
-                <BreakdownLine label="Fixe (vidéos publiées)" amount={p.pricingBreakdown.fixedTotal} />
-                <BreakdownLine label="CPM (vues cumulées)" amount={p.pricingBreakdown.cpmTotal} />
+                <BreakdownLine
+                  label="Fixe (vidéos publiées)"
+                  amount={p.pricingBreakdown.fixedTotal}
+                />
+                <BreakdownLine
+                  label="CPM (vues cumulées)"
+                  amount={p.pricingBreakdown.cpmTotal}
+                />
                 {p.pricingBreakdown.bonusTierCashTotal > 0 && (
-                  <BreakdownLine label="Bonus paliers (cash)" amount={p.pricingBreakdown.bonusTierCashTotal} />
+                  <BreakdownLine
+                    label="Bonus paliers (cash)"
+                    amount={p.pricingBreakdown.bonusTierCashTotal}
+                  />
                 )}
               </ul>
             )}

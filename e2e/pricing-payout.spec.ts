@@ -95,11 +95,12 @@ test.describe("Pricing — calcul de paie (fixe + CPM + bonus, snapshot)", () =>
     // 4. Breakdown chiffré côté créateur — PLAFOND 150 €/vidéo (global tous
     //    projets). Brut : fixe 1,67 + CPM 240 = 241,67 > 150 → la vidéo est capée :
     //    le CPM est rogné (240 → 148,33) pour un total de 150.
-    const period = new Date().toISOString().slice(0, 7);
+    // Cycle J+30 : la vidéo publiée « maintenant » tombe dans le cycle 0 du
+    // créateur (ancre = son 1er post) — remplace l'ex-« période du mois » YYYY-MM.
     const payments = await creator.client.query(api.payments.getMyPayments, {
       projectId,
     });
-    const cur = payments.find((p) => p.period === period);
+    const cur = payments.find((p) => p.cycleIndex === 0);
     expect(cur).toBeTruthy();
     // v2 : fixe + CPM (le bonus par vidéo de v1 est retiré ; les paliers cumulés
     // sont testés dans pricing-bonus-tiers.spec). Le fixe (1,67 < 150) est gardé,
@@ -120,7 +121,7 @@ test.describe("Pricing — calcul de paie (fixe + CPM + bonus, snapshot)", () =>
     });
     const after = (
       await creator.client.query(api.payments.getMyPayments, { projectId })
-    ).find((p) => p.period === period);
+    ).find((p) => p.cycleIndex === 0);
     expect(after!.pricingBreakdown.fixedTotal).toBe(1.67);
 
     // 6. Suppression d'un pricing UTILISÉ → bloquée.

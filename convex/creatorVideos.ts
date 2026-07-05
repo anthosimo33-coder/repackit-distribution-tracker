@@ -6,7 +6,8 @@ import {
   assignmentViewsAndMetrics,
   MAX_PAY_PER_VIDEO_EUR,
 } from "./pricing";
-import { computeEarnings, periodOf } from "./payments";
+import { computeEarnings } from "./payments";
+import { calcCycle, cycleIndexOf } from "./payCycle";
 import type { QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 
@@ -220,15 +221,24 @@ async function videoStatsForCreator(
   const online = videos.filter(
     (v) => v.status === "published" || v.status === "paid",
   );
-  const period = periodOf(now);
   const round2 = (n: number) => Math.round(n * 100) / 100;
-  const monthly = online.filter(
-    (v) => v.publishedAt !== null && periodOf(v.publishedAt) === period,
+  // Restreint au CYCLE J+30 EN COURS (fenêtre de 30 j ancrée sur le 1er post) →
+  // cohérent avec « Mes paiements » (même fenêtrage). Sans firstPostAt (aucun post
+  // en ligne possible), fenêtre vide.
+  const creator = await ctx.db.get(creatorId);
+  const firstPostAt = creator?.firstPostAt;
+  const currentCycle =
+    firstPostAt !== undefined ? calcCycle(firstPostAt, now).cycleIndex : null;
+  const inCycle = online.filter(
+    (v) =>
+      v.publishedAt !== null &&
+      firstPostAt !== undefined &&
+      cycleIndexOf(firstPostAt, v.publishedAt) === currentCycle,
   );
   return {
-    onlineCount: monthly.length,
-    totalViews: monthly.reduce((s, v) => s + (v.views ?? 0), 0),
-    totalGain: round2(monthly.reduce((s, v) => s + (v.gain ?? 0), 0)),
+    onlineCount: inCycle.length,
+    totalViews: inCycle.reduce((s, v) => s + (v.views ?? 0), 0),
+    totalGain: round2(inCycle.reduce((s, v) => s + (v.gain ?? 0), 0)),
   };
 }
 

@@ -2,7 +2,6 @@ import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
-import { formatPeriod } from "../lib/payout";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
 
@@ -13,19 +12,18 @@ if (!url) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
 const admin = createE2eClient(url);
 
 const DAY = 86_400_000;
-const currentPeriod = () => new Date().toISOString().slice(0, 7);
 
 /**
- * P9 — portail gains créateur + vue admin paiements. Le cœur (accrual,
- * isolation, idempotence du marquage payé) est prouvé au niveau SERVEUR ;
- * un test UI vérifie le câblage des pages (dashboard, /app/paiements, /app/profil,
- * /admin/paiements).
+ * P9 — portail gains créateur + vue admin paiements, MODÈLE CYCLE J+30 GLISSANT
+ * (ancré sur le 1er post de chaque créateur). Le cœur (accrual, isolation,
+ * idempotence du marquage payé PAR CYCLE) est prouvé au niveau SERVEUR ; un test
+ * UI vérifie le câblage des pages (dashboard, /app/paiements, /app/profil,
+ * /admin/paiements). Les 2 posts publiés « maintenant » tombent dans le cycle 0.
  */
-test.describe("P9 — paiements & gains", () => {
-  test("serveur : gains, isolation créateur, marquer payé idempotent, profil + CSV data", async () => {
+test.describe("P9 — paiements & gains (cycle J+30)", () => {
+  test("serveur : gains groupés par cycle, isolation, marquer cycle payé idempotent, profil + CSV data", async () => {
     test.setTimeout(120_000);
     const ts = Date.now();
-    const period = currentPeriod();
     const a = await createCreatorSession(url, {
       name: `[E2E_TEST] PayA ${ts}`,
       email: `e2e-creator-pay-a-${ts}@repackit.test`,
@@ -61,7 +59,8 @@ test.describe("P9 — paiements & gains", () => {
     ).filter((x) => x.formatId === formatId && x.creatorId === a.creatorId);
     expect(aAssigns.length).toBe(2);
 
-    // Vidéo validée (to_publish) puis A PUBLIE → accrual à la publication.
+    // Vidéo validée (to_publish) puis A PUBLIE → accrual à la publication + ancre
+    // firstPostAt figée à la 1re publi (cycle 0 démarre là).
     for (let i = 0; i < 2; i++) {
       await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
         secret: E2E_SECRET,
@@ -77,16 +76,16 @@ test.describe("P9 — paiements & gains", () => {
       });
     }
 
-    // A voit SON paiement : période courante, 2 lignes base, total 20.
+    // A voit SON cycle courant (cycle 0) : 2 lignes base, total 20.
     const aPays = await a.client.query(api.payments.getMyPayments, {
       projectId,
     });
     expect(aPays.length).toBe(1);
-    expect(aPays[0].period).toBe(period);
+    expect(aPays[0].cycleIndex).toBe(0);
     expect(aPays[0].lineItems.filter((li) => li.kind === "base").length).toBe(2);
     expect(aPays[0].totalDue).toBe(20);
 
-    // ISOLATION : B ne voit AUCUN paiement de A (filtré serveur par creatorId).
+    // ISOLATION : B ne voit AUCUN cycle de A (filtré serveur par creatorId).
     const bPays = await b.client.query(api.payments.getMyPayments, {
       projectId,
     });
@@ -106,37 +105,38 @@ test.describe("P9 — paiements & gains", () => {
     expect(aProfile?.paymentDetails).toBe("FR76 1234 5678");
     expect(aProfile?.phone).toBe("+33612345678");
 
-    // Admin : le paiement de A porte les infos (source CSV) + total.
-    const aRow = (await admin.query(api.payments.listPayments, {})).find(
-      (p) => p.creatorId === a.creatorId && p.period === period,
-    )!;
+    // Admin : le cycle de A porte les infos (source CSV) + total.
+    const findRow = async () =>
+      (await admin.query(api.payments.listPayments, {})).find(
+        (p) => p.creatorId === a.creatorId && p.cycleIndex === 0,
+      )!;
+    const aRow = await findRow();
     expect(aRow.totalDue).toBe(20);
     expect(aRow.creatorPaymentMethod).toBe("sepa");
     expect(aRow.creatorPaymentDetails).toBe("FR76 1234 5678");
     expect(aRow.creatorEmail).toContain("e2e-creator-pay-a");
 
-    // Marquer payé — idempotent (re-marquer ne change pas paidAt).
-    const r1 = await admin.mutation(api.payments.markPaymentPaid, {
-      id: aRow._id,
+    // Marquer le CYCLE payé — idempotent (re-marquer ne change pas paidAt).
+    const r1 = await admin.mutation(api.payments.markCyclePaid, {
+      creatorId: a.creatorId,
+      cycleIndex: 0,
     });
     expect(r1.alreadyPaid).toBe(false);
-    const paid1 = (await admin.query(api.payments.listPayments, {})).find(
-      (p) => p._id === aRow._id,
-    )!;
+    const paid1 = await findRow();
     expect(paid1.status).toBe("paid");
     expect(paid1.paidAt).toBeTruthy();
+    expect(paid1.totalDue).toBe(20); // les 2 lignes base sont capturées dans le gel
 
-    const r2 = await admin.mutation(api.payments.markPaymentPaid, {
-      id: aRow._id,
+    const r2 = await admin.mutation(api.payments.markCyclePaid, {
+      creatorId: a.creatorId,
+      cycleIndex: 0,
     });
     expect(r2.alreadyPaid).toBe(true);
-    const paid2 = (await admin.query(api.payments.listPayments, {})).find(
-      (p) => p._id === aRow._id,
-    )!;
+    const paid2 = await findRow();
     expect(paid2.paidAt).toBe(paid1.paidAt); // inchangé
   });
 
-  test("UI : dashboard gains, /app/paiements, /app/profil, admin marquer payé", async ({
+  test("UI : dashboard gains, /app/paiements, /app/profil, admin marquer cycle payé", async ({
     page,
     browser,
   }) => {
@@ -204,7 +204,7 @@ test.describe("P9 — paiements & gains", () => {
       timeout: 15_000,
     });
 
-    // /app/paiements : montant dû + ligne de détail.
+    // /app/paiements : montant dû du cycle en cours + ligne de détail.
     await cpage.goto("/app/paiements");
     await expect(cpage.getByTestId("due-now")).toContainText("15", {
       timeout: 15_000,
@@ -219,108 +219,22 @@ test.describe("P9 — paiements & gains", () => {
       timeout: 10_000,
     });
 
-    // Admin UI : la page paiements liste le créateur ; marquer payé.
-    const payId = (await admin.query(api.payments.listPayments, {})).find(
+    // Admin UI : la page paiements liste le cycle du créateur ; marquer payé.
+    const payRow = (await admin.query(api.payments.listPayments, {})).find(
       (p) => p.creatorId === creatorId,
-    )!._id;
+    )!;
     await page.goto(adminPath("/paiements"));
-    const markBtn = page.getByTestId(`mark-paid-${payId}`);
+    const markBtn = page.getByTestId(`mark-paid-${payRow.key}`);
     await expect(markBtn).toBeVisible({ timeout: 15_000 });
     await markBtn.click();
     await expect(markBtn).toBeHidden({ timeout: 10_000 });
 
-    // Vérif serveur : payé.
+    // Vérif serveur : cycle payé.
     const paid = (await admin.query(api.payments.listPayments, {})).find(
-      (p) => p._id === payId,
+      (p) => p.creatorId === creatorId && p.cycleIndex === payRow.cycleIndex,
     )!;
     expect(paid.status).toBe("paid");
 
     await ctx.close();
-  });
-
-  // Quick win audit #2 — l'action BULK « Tout marquer payé » (période entière,
-  // argent réel, irréversible) doit passer par une confirmation avec récap.
-  // Le marquage INDIVIDUEL (mark-paid-${id}) reste sans confirmation : action
-  // unitaire à plus faible risque (couverte par le test ci-dessus).
-  test("UI : 'Tout marquer payé' demande confirmation (récap, annuler, confirmer)", async ({
-    page,
-  }) => {
-    test.setTimeout(120_000);
-    const ts = Date.now();
-    const period = currentPeriod();
-
-    // Un créateur avec un paiement non payé sur la période courante.
-    const c = await createCreatorSession(url, {
-      name: `[E2E_TEST] PayBulk ${ts}`,
-      email: `e2e-creator-pay-bulk-${ts}@repackit.test`,
-      password: "pay-bulk-12345",
-    });
-    const formatId = await admin.mutation(api.formats.createFormat, {
-      name: `[E2E_TEST] PayBulkFmt ${ts}`,
-      type: "short",
-      rateModel: { basePerPost: 12 },
-    });
-    const target = await availableTarget({
-      e2eClient: admin,
-      creatorId: c.creatorId,
-      platform: "TikTok",
-      handle: `@e2epaybulk${ts}`,
-    });
-    await admin.mutation(api.assignments.assignFormat, {
-      formatId,
-      creatorId: c.creatorId,
-      targets: [target],
-      postsPerCreator: 1,
-      dueDate: ts + 7 * DAY,
-    });
-    const assignment = (
-      await admin.query(api.assignments.listAssignments, {})
-    ).find((x) => x.formatId === formatId && x.creatorId === c.creatorId)!;
-    await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
-      secret: E2E_SECRET,
-      id: assignment._id,
-      status: "to_publish",
-    });
-    await c.client.mutation(api.assignments.confirmPublication, {
-      projectId: c.projectId,
-      id: assignment._id,
-      urls: [
-        { platform: "TikTok", url: `https://www.tiktok.com/@bulk/video/${ts}` },
-      ],
-    });
-    const payId = (await admin.query(api.payments.listPayments, {})).find(
-      (p) => p.creatorId === c.creatorId,
-    )!._id;
-
-    await page.goto(adminPath("/paiements"));
-    // Période courante sélectionnée par défaut (tri desc) → bouton actif.
-    const bulkBtn = page.getByTestId("mark-period-paid");
-    await expect(bulkBtn).toBeEnabled({ timeout: 15_000 });
-
-    // 1) Le clic OUVRE le dialog avec le récap (période, total €, irréversible) —
-    //    AVANT toute écriture.
-    await bulkBtn.click();
-    const dialog = page.getByRole("alertdialog");
-    await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText(formatPeriod(period));
-    await expect(dialog).toContainText("€");
-    await expect(dialog).toContainText(/irréversible/i);
-
-    // 2) ANNULER ne fait rien : dialog fermé + paiement toujours non payé.
-    await dialog.getByRole("button", { name: /annuler/i }).click();
-    await expect(dialog).toBeHidden();
-    const afterCancel = (await admin.query(api.payments.listPayments, {})).find(
-      (p) => p._id === payId,
-    )!;
-    expect(afterCancel.status).not.toBe("paid");
-
-    // 3) CONFIRMER déclenche la mutation : le paiement passe à « payé ».
-    await bulkBtn.click();
-    await page.getByTestId("mark-period-paid-confirm").click();
-    await expect(page.getByRole("alertdialog")).toBeHidden({ timeout: 10_000 });
-    const afterConfirm = (await admin.query(api.payments.listPayments, {})).find(
-      (p) => p._id === payId,
-    )!;
-    expect(afterConfirm.status).toBe("paid");
   });
 });

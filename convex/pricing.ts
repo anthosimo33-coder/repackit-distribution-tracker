@@ -8,6 +8,7 @@ import { ConvexError, v } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { periodOf } from "./payments";
+import { cycleIndexOf } from "./payCycle";
 
 /**
  * Pricing v2 — barèmes + MOTEUR de paie (réplique serveur).
@@ -440,6 +441,68 @@ export async function computeLivePricingBreakdown(
       u.projectId === projectId &&
       u.rewardType === "cash" &&
       u.attributionPeriod === period,
+  );
+  const bonusTierCashTotal = round2(
+    cashUnlocks.reduce((s, u) => s + (u.montant ?? 0), 0),
+  );
+  return {
+    ...base,
+    bonusTierCashTotal,
+    total: round2(base.total + bonusTierCashTotal),
+  };
+}
+
+/**
+ * Paie PRICING (live) d'un (créateur, projet) pour UN CYCLE J+30 GLISSANT.
+ * IDENTIQUE à computeLivePricingBreakdown mais le fenêtrage est PERSO au créateur
+ * (cycleIndexOf(firstPostAt, …)) au lieu du mois calendaire. Le MONTANT est
+ * inchangé : MÊME moteur `computeMonthlyPayout` (fixe/CPM, cap 150€/vidéo) — seul
+ * le prédicat de fenêtre change. FIXE/CPM : assignments publiés/payés à
+ * pricingSnapshot dont le CYCLE de publication = `cycleIndex`. BONUS CASH : unlocks
+ * cash dont le CYCLE de déblocage (unlockedAt) = `cycleIndex` (≠ attributionPeriod
+ * calendaire, obsolète sous cycles). Exclut les assignments couverts par une
+ * lineItem legacy (Guard B).
+ */
+export async function computeCyclePricingBreakdown(
+  ctx: QueryCtx | MutationCtx,
+  projectId: Id<"projects">,
+  creatorId: Id<"creators">,
+  firstPostAt: number,
+  cycleIndex: number,
+  legacyAssignmentIds: Set<string>,
+): Promise<PricingBreakdown> {
+  const assignments = (
+    await ctx.db
+      .query("assignments")
+      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+      .collect()
+  ).filter(
+    (a) =>
+      a.projectId === projectId &&
+      a.pricingSnapshot !== undefined &&
+      (a.status === "published" || a.status === "paid") &&
+      cycleIndexOf(firstPostAt, assignmentPublishedAt(a)) === cycleIndex &&
+      !legacyAssignmentIds.has(a._id),
+  );
+  const items: PayoutItem[] = [];
+  for (const a of assignments) {
+    items.push({
+      assignmentId: a._id,
+      snapshot: a.pricingSnapshot!,
+      totalViews: await assignmentTotalViews(ctx, a),
+    });
+  }
+  const base = computeMonthlyPayout(items);
+  const cashUnlocks = (
+    await ctx.db
+      .query("bonusUnlocks")
+      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+      .collect()
+  ).filter(
+    (u) =>
+      u.projectId === projectId &&
+      u.rewardType === "cash" &&
+      cycleIndexOf(firstPostAt, u.unlockedAt) === cycleIndex,
   );
   const bonusTierCashTotal = round2(
     cashUnlocks.reduce((s, u) => s + (u.montant ?? 0), 0),
