@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
@@ -50,7 +51,6 @@ import { cn } from "@/lib/utils";
 import { formatEuros, formatViews } from "@/lib/format-rate";
 import { isSnytchProject } from "@/lib/snytch-drive";
 import type { Id } from "@/convex/_generated/dataModel";
-import { nextPayoutDate, daysUntilPayout } from "@/lib/payout";
 import {
   ASSIGNMENT_STATUS,
   assignmentUrgency,
@@ -93,7 +93,6 @@ export default function DashboardScreen() {
   const { current } = useCreatorProject();
   const projectId = current.projectId;
   const name = current.creatorName;
-  const payoutDay = current.payoutDay;
   const base = usePortalBase();
 
   const assignments = useMyAssignments(projectId);
@@ -120,12 +119,21 @@ export default function DashboardScreen() {
     (a) => a.status === "video_rejected" || a.status === "rejected",
   );
 
-  // Gains de la période en cours (UTC "YYYY-MM", aligné sur periodOf serveur).
-  const currentPeriod = new Date().toISOString().slice(0, 7);
-  const dueNow =
-    (payments ?? []).find((p) => p.period === currentPeriod)?.totalDue ?? 0;
-  const nextPayoutTs = payoutDay ? nextPayoutDate(payoutDay) : null;
-  const payoutDays = payoutDay ? daysUntilPayout(payoutDay) : null;
+  // Gains + prochaine paie du CYCLE J+30 EN COURS (fenêtre de 30 j perso, ancrée
+  // au 1er post). Cycle courant = celui qui contient maintenant (sinon le plus
+  // récent). « Prochaine paie » = sa fin (cycleEnd) — plus de « 10 du mois ».
+  // Ancre temporelle stable au montage (impure au render sinon, cf react-hooks/purity).
+  const [nowMs] = useState(() => Date.now());
+  const currentCycle =
+    (payments ?? []).find((p) => nowMs >= p.cycleStart && nowMs < p.cycleEnd) ??
+    (payments ?? [])[0] ??
+    null;
+  const dueNow = currentCycle?.totalDue ?? 0;
+  const nextPayoutTs = currentCycle?.cycleEnd ?? null;
+  const payoutDays =
+    nextPayoutTs !== null
+      ? Math.max(0, Math.ceil((nextPayoutTs - nowMs) / 86_400_000))
+      : null;
 
   // On attend assignments ET onboarding pour éviter un flash « Tout est à jour »
   // avant que l'état d'onboarding soit connu.
@@ -767,7 +775,7 @@ function VideoStatsCard({
           <FilmIcon className="size-4 text-slate-400" />
           Mes vidéos publiées
         </CardTitle>
-        <CardDescription>Ton activité vidéo ce mois-ci.</CardDescription>
+        <CardDescription>Ton activité vidéo ce cycle.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="grid grid-cols-3 gap-2">

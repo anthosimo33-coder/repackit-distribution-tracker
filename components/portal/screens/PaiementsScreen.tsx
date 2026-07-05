@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { formatEuros } from "@/lib/format-rate";
 import { formatDate } from "@/lib/format";
-import { nextPayoutDate, daysUntilPayout, formatPeriod } from "@/lib/payout";
+import { formatCycleRange } from "@/lib/pay-cycle";
 import { ChevronRightIcon } from "lucide-react";
 import type { FunctionReturnType } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -25,9 +25,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 
 type Payment = FunctionReturnType<typeof api.payments.getMyPayments>[number];
 
-/** Période d'accrual courante "YYYY-MM" (UTC, aligné sur periodOf serveur). */
-const currentPeriod = () => new Date().toISOString().slice(0, 7);
-
+const DAY_MS = 86_400_000;
 const fmtViews = (n: number) => n.toLocaleString("fr-FR");
 
 /**
@@ -232,8 +230,8 @@ function PastPeriod({ p }: { p: Payment }) {
               open && "rotate-90",
             )}
           />
-          <span className="font-medium capitalize text-slate-900">
-            {formatPeriod(p.period)}
+          <span className="font-medium text-slate-900">
+            {formatCycleRange(p.cycleStart, p.cycleEnd)}
           </span>
           {p.status === "paid" ? (
             <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
@@ -260,18 +258,21 @@ function PastPeriod({ p }: { p: Payment }) {
 
 export default function PaiementsScreen() {
   const { current: currentProject } = useCreatorProject();
-  const payoutDay = currentProject.payoutDay;
   const payments = useMyPayments(currentProject.projectId);
 
   const loading = payments === undefined;
-  const period = currentPeriod();
-  const current = (payments ?? []).find((p) => p.period === period) ?? null;
-  const past = (payments ?? [])
-    .filter((p) => p.period !== period)
-    .sort((a, b) => b.period.localeCompare(a.period));
+  const list = payments ?? [];
+  // Ancre temporelle stable au montage (relative time déterministe au render).
+  const [now] = useState(() => Date.now());
+  // Cycle J+30 EN COURS = celui qui contient maintenant (sinon le plus récent).
+  const current =
+    list.find((p) => now >= p.cycleStart && now < p.cycleEnd) ?? list[0] ?? null;
+  const past = list.filter((p) => p !== current);
   const dueNow = current?.totalDue ?? 0;
-  const nextTs = payoutDay ? nextPayoutDate(payoutDay) : null;
-  const days = payoutDay ? daysUntilPayout(payoutDay) : null;
+  // « Prochaine paie » = FIN du cycle courant (plus de « 10 du mois »).
+  const nextTs = current?.cycleEnd ?? null;
+  const days =
+    nextTs !== null ? Math.max(0, Math.ceil((nextTs - now) / DAY_MS)) : null;
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -291,8 +292,10 @@ export default function PaiementsScreen() {
           {/* Montant dû (période en cours) + prochaine date de paie */}
           <Card>
             <CardContent className="space-y-1 py-7 text-center">
-              <p className="text-sm capitalize text-slate-500">
-                Dû pour {formatPeriod(period)}
+              <p className="text-sm text-slate-500">
+                {current
+                  ? `Dû pour le cycle en cours (${formatCycleRange(current.cycleStart, current.cycleEnd)})`
+                  : "Dû ce cycle"}
               </p>
               <p
                 className="text-4xl font-semibold tabular-nums text-slate-900"
@@ -300,11 +303,15 @@ export default function PaiementsScreen() {
               >
                 {formatEuros(dueNow)}
               </p>
-              {nextTs !== null && days !== null && (
+              {nextTs !== null && days !== null ? (
                 <p className="text-sm text-slate-500">
                   {dueNow > 0
                     ? `Payé dans ${days} jour${days > 1 ? "s" : ""} (le ${formatDate(nextTs)})`
                     : `Prochaine paie le ${formatDate(nextTs)}`}
+                </p>
+              ) : (
+                <p className="text-sm text-slate-500">
+                  Ta première paie démarrera après ta première publication.
                 </p>
               )}
             </CardContent>
@@ -314,14 +321,14 @@ export default function PaiementsScreen() {
               modèle) + lineItems legacy éventuelles. */}
           <section className="space-y-2">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-              Détail du mois
+              Détail du cycle en cours
             </h2>
             {!current ||
             (current.lineItems.length === 0 &&
               current.pricingBreakdown.total <= 0) ? (
               <Card>
                 <CardContent className="py-8 text-center text-sm text-slate-500">
-                  Aucune vidéo publiée ce mois-ci pour l&apos;instant.
+                  Aucune vidéo publiée sur ce cycle pour l&apos;instant.
                 </CardContent>
               </Card>
             ) : (
@@ -346,7 +353,7 @@ export default function PaiementsScreen() {
               </h2>
               <div className="space-y-2">
                 {past.map((p) => (
-                  <PastPeriod key={p._id} p={p} />
+                  <PastPeriod key={p.key} p={p} />
                 ))}
               </div>
             </section>

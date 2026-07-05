@@ -1873,6 +1873,15 @@ async function confirmPublicationCore(
     submittedVideoStreamStatus: undefined,
   });
 
+  // ANCRE du cycle de paie J+30 : figée au TOUT PREMIER post publié du créateur,
+  // JAMAIS réécrite (posée seulement si absente → idempotent, stable). Couvre
+  // confirmPublication (créatrice) ET confirmPublicationAsAdmin (compte géré), qui
+  // passent tous deux par ce cœur. N'affecte AUCUN montant (regroupement seul).
+  const creator = await ctx.db.get(a.creatorId);
+  if (creator && creator.firstPostAt === undefined) {
+    await ctx.db.patch(a.creatorId, { firstPostAt: now });
+  }
+
   return { ok: true, alreadyPublished: false, publicationIds };
 }
 

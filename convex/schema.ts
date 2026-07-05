@@ -651,6 +651,14 @@ export default defineSchema({
     // env Drive absent au moment de la création, ou projet ≠ Snytch). Optional
     // → 0 migration. Cf convex/snytchDrive.ts (ensureCreatorFolder, idempotent).
     driveFolderId: v.optional(v.string()),
+    // ─── ANCRE du cycle de paie J+30 GLISSANT ─────────────────────────────────
+    // Date (ms) du TOUT PREMIER post publié du créateur. FIGÉE une seule fois (à
+    // la 1re transition `published`, cf confirmPublicationCore + backfill), JAMAIS
+    // réécrite → ancre stable. Le cycle courant = [firstPostAt + 30j·k, +30j·(k+1)),
+    // k = floor((now − firstPostAt)/30j) (cf lib/pay-cycle.calcCycle). undefined =
+    // aucun post publié → pas de cycle (« prochaine paie » non applicable). Optional
+    // → 0 migration. N'affecte AUCUN montant (regroupement seulement).
+    firstPostAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_project", ["projectId"])
