@@ -19,6 +19,7 @@ import {
   isWarmupCompleteForCompte,
 } from "@/lib/compte-status";
 import { RestartWarmupButton } from "./RestartWarmupButton";
+import { countryLabel } from "@/lib/countries";
 import { cn } from "@/lib/utils";
 
 /**
@@ -72,6 +73,15 @@ export function CompteDetailHeader({ compte }: { compte: Compte }) {
             )}
             {badge.label}
           </span>
+          {compte.targetCountry && (
+            <span
+              data-testid="compte-country-badge"
+              className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-3 py-0.5 text-xs font-semibold text-slate-600"
+              title="Pays ciblé (label interne, informatif)"
+            >
+              {countryLabel(compte.targetCountry)}
+            </span>
+          )}
           {warmupComplete && (
             <Button
               variant="outline"
