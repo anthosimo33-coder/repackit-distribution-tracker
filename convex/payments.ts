@@ -18,6 +18,7 @@ import {
   cycleWindow,
   cyclePeriodKey,
   cycleIndexOf,
+  CYCLE_LENGTH_MS,
 } from "./payCycle";
 import { ConvexError, v } from "convex/values";
 import { internalMutation } from "./_generated/server";
@@ -514,6 +515,7 @@ export const listPayments = adminQuery({
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
     const now = Date.now();
+    const liveIds = new Set(creators.map((c) => c._id));
     const out = [];
     for (const c of creators) {
       const cycles = await cyclePaymentsForCreator(
@@ -532,6 +534,43 @@ export const listPayments = adminQuery({
           creatorPaymentDetails: c.paymentDetails ?? null,
         });
       }
+    }
+    // Approche C — paiements ORPHELINS (fiche créateur supprimée : plus de
+    // firstPostAt donc AUCUN cycle calculé) : on surface la row STOCKÉE telle
+    // quelle (snapshot financier figé), lisible via creatorNameSnapshot. Sans ça,
+    // l'historique d'un créateur supprimé disparaîtrait de la vue admin.
+    const orphanRows = (
+      await ctx.db
+        .query("payments")
+        .withIndex("by_project_period", (q) => q.eq("projectId", ctx.projectId))
+        .collect()
+    ).filter((p) => !liveIds.has(p.creatorId));
+    for (const p of orphanRows) {
+      out.push({
+        // Fenêtre synthétique (ancre perdue avec la fiche) : juste pour l'affichage.
+        key: `orphan:${p._id}`,
+        cycleIndex: 0,
+        cycleStart: p.createdAt,
+        cycleEnd: p.createdAt + CYCLE_LENGTH_MS,
+        period: p.period,
+        status: (p.status === "paid" ? "paid" : "accruing") as
+          | "paid"
+          | "accruing",
+        paidAt: p.paidAt ?? null,
+        lineItems: p.lineItems,
+        totalDue: p.totalDue,
+        pricingBreakdown: frozenBreakdownOf(p),
+        creatorId: p.creatorId,
+        creatorName: p.creatorNameSnapshot ?? "—",
+        creatorEmail: "",
+        creatorPaymentMethod: null as
+          | "sepa"
+          | "paypal"
+          | "usdt"
+          | "autre"
+          | null,
+        creatorPaymentDetails: null as string | null,
+      });
     }
     return out.sort(
       (a, b) =>

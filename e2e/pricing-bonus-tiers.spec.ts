@@ -116,11 +116,11 @@ test.describe("Pricing v2 — paliers de bonus (cumul, cash/nature)", () => {
     expect(status!.cashUnlockedTotal).toBe(500);
     expect(status!.natureUnlocked.map((r) => r.libelle)).toEqual(["iPhone"]);
 
-    // Le 500€ entre dans le total € de la période (via bonusTierCashTotal).
-    const period = new Date().toISOString().slice(0, 7);
+    // Le 500€ entre dans le total € du CYCLE COURANT (via bonusTierCashTotal) :
+    // débloqué « maintenant » → cycle 0 du créateur (ex-« période du mois »).
     const pay = (
       await creator.client.query(api.payments.getMyPayments, { projectId })
-    ).find((p) => p.period === period);
+    ).find((p) => p.cycleIndex === 0);
     expect(pay!.pricingBreakdown.bonusTierCashTotal).toBe(500);
 
     // 5. IDEMPOTENCE : re-sync (même cumul) → pas de double unlock.
