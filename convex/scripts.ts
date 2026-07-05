@@ -4,6 +4,7 @@ import { CAMPAIGN_NAME, DEMO_BLOCK, SEED_BRICKS } from "./scriptSeedData";
 import {
   targetInputValidator,
   validateTargets,
+  resolveManagedTargets,
   normalizeOverlayText,
 } from "./assignments";
 import { buildPricingSnapshot } from "./pricing";
@@ -591,6 +592,16 @@ export const assignScriptCampaign = adminMutation({
       platform: t.platform,
       accountId: t.accountId,
     }));
+    // Comptes GÉRÉS PAR L'ÉQUIPE — MÊME court-circuit que assignFormat, via le
+    // helper PARTAGÉ (source unique) : cibles gérées ⇒ assignments créés DIRECT en
+    // to_publish + managedByAdmin dénormalisé (l'admin publie via la file « Comptes
+    // gérés — à publier »). Homogénéité imposée par le helper.
+    const { managed } = await resolveManagedTargets(
+      ctx,
+      ctx.projectId,
+      args.creatorId,
+      args.targets,
+    );
     const overlayText = normalizeOverlayText(args.overlayText);
     const now = Date.now();
     const shortages: { name: string; requested: number; assigned: number }[] =
@@ -636,7 +647,9 @@ export const assignScriptCampaign = adminMutation({
         comboKey: comboKeyOf(combo),
         targets,
         dueDate: args.dueDate,
-        status: "todo",
+        status: managed ? "to_publish" : "todo",
+        // Dénormalisation (undefined si non géré → 0 bruit sur les rows normales).
+        managedByAdmin: managed ? true : undefined,
         rateSnapshot,
         pricingSnapshot,
         overlayText,
