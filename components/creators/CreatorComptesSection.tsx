@@ -22,6 +22,7 @@ import { warmupProgress } from "@/lib/warmup";
 import CompteDialog, { type Compte } from "@/components/comptes/CompteDialog";
 import { CompteAdminActions } from "@/components/comptes/CompteAdminActions";
 import { ManagedCompteDialog } from "@/components/comptes/ManagedCompteDialog";
+import { countryLabel } from "@/lib/countries";
 
 /**
  * P5 — section « Comptes » de la fiche créateur (admin). Alimentée depuis
@@ -102,6 +103,16 @@ export function CreatorComptesSection({
                       >
                         <UsersIcon className="size-3" />
                         Géré
+                      </span>
+                    )}
+                    {/* Pays ciblé (label informatif #110) — masqué si non défini,
+                        même style que le badge de la fiche détail. */}
+                    {c.targetCountry && (
+                      <span
+                        className="inline-flex shrink-0 items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[0.65rem] font-semibold text-slate-600"
+                        title="Pays ciblé"
+                      >
+                        {countryLabel(c.targetCountry)}
                       </span>
                     )}
                   </div>
