@@ -15,7 +15,9 @@
  * `complete` = ONBOARDING TERMINÉ = compte "actif" (⇒ déclaré + warmup terminé +
  * validé admin) ET aucune bio en attente. Aligné sur le gate strict : "actif"
  * est la ligne d'arrivée qui débloque les scripts. Hors Snytch (applicable
- * false) → toujours `complete` (dashboard inchangé).
+ * false) → toujours `complete` (dashboard inchangé). Créatrice « full gérée »
+ * (0 compte propre, l'équipe tient tout) → `complete` aussi : rien à configurer,
+ * le dashboard montre un message dédié au lieu de la checklist.
  */
 
 export type OnboardingPlatform = "TikTok" | "Instagram" | "YouTube";
@@ -40,7 +42,13 @@ export type OnboardingAccount = {
 
 export type OnboardingServerState = {
   applicable: boolean;
+  /** Comptes PROPRES de la créatrice uniquement (les comptes gérés par l'équipe
+   *  sont exclus côté serveur — elle n'a rien à y configurer). */
   accounts: OnboardingAccount[];
+  /** Créatrice « full gérée » : AUCUN compte propre + au moins un compte géré par
+   *  l'équipe. Pas d'onboarding à faire → le dashboard affiche un message dédié au
+   *  lieu de la checklist (cf DashboardScreen). false hors Snytch. */
+  fullyManaged: boolean;
 };
 
 /**
@@ -62,6 +70,8 @@ export type StepState =
 
 export type OnboardingDerived = {
   applicable: boolean;
+  /** Full gérée (0 compte propre + ≥1 géré) : pas de checklist, message dédié. */
+  fullyManaged: boolean;
   hasDeclaredAccount: boolean;
   hasActiveAccount: boolean;
   bioApplicable: boolean;
@@ -119,10 +129,17 @@ export function deriveOnboarding(
 
   const bio: StepState = !bioApplicable ? "na" : bioPending ? "todo" : "done";
 
-  const complete = state.applicable ? hasActiveAccount && !bioPending : true;
+  // Full gérée (aucun compte propre, l'équipe tient tout) : RIEN à onboarder →
+  // complete (pas de checklist ; le dashboard affiche un message dédié). Même
+  // principe d'exclusion que #107 (comptes gérés hors surfaces actionnables).
+  const complete =
+    state.applicable && !state.fullyManaged
+      ? hasActiveAccount && !bioPending
+      : true;
 
   return {
     applicable: state.applicable,
+    fullyManaged: state.fullyManaged,
     hasDeclaredAccount,
     hasActiveAccount,
     bioApplicable,

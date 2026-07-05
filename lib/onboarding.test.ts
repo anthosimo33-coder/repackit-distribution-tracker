@@ -23,8 +23,9 @@ function acc(over: Partial<OnboardingAccount> = {}): OnboardingAccount {
 function state(
   accounts: OnboardingAccount[],
   applicable = true,
+  fullyManaged = false,
 ): OnboardingServerState {
-  return { applicable, accounts };
+  return { applicable, accounts, fullyManaged };
 }
 
 describe("deriveOnboarding", () => {
@@ -118,5 +119,47 @@ describe("deriveOnboarding", () => {
     expect(d.best).toBeNull();
     expect(d.steps.warmup).toBe("upcoming");
     expect(d.complete).toBe(false);
+  });
+
+  // ─── Comptes GÉRÉS PAR L'ÉQUIPE (#107) — onboarding conscient du mode géré ────
+
+  it("full gérée (0 compte propre, fullyManaged) → complete, PAS de checklist", () => {
+    // accounts = [] car les comptes gérés sont exclus côté serveur ; fullyManaged
+    // distingue ce cas d'une créatrice NEUVE (qui, elle, doit déclarer).
+    const d = deriveOnboarding(state([], true, true));
+    expect(d.fullyManaged).toBe(true);
+    expect(d.applicable).toBe(true);
+    // complete=true ⇒ showChecklist (applicable && !complete) = false → pas de checklist.
+    expect(d.complete).toBe(true);
+    expect(d.hasDeclaredAccount).toBe(false);
+  });
+
+  it("créatrice NEUVE (0 compte, PAS gérée) ≠ full gérée → declare todo, PAS complete", () => {
+    const d = deriveOnboarding(state([], true, false));
+    expect(d.fullyManaged).toBe(false);
+    expect(d.steps.declare).toBe("todo");
+    expect(d.complete).toBe(false);
+  });
+
+  it("mix (comptes propres + gérés) → checklist sur les PROPRES only, fullyManaged false", () => {
+    // Le serveur n'envoie QUE les comptes propres dans `accounts` (gérés exclus) ;
+    // fullyManaged=false car il reste ≥1 compte propre. La dérivation porte donc
+    // uniquement sur les comptes propres, exactement comme sans compte géré.
+    const d = deriveOnboarding(
+      state([acc({ checksDone: 2, targetDays: 7, warmupDone: false })], true, false),
+    );
+    expect(d.fullyManaged).toBe(false);
+    expect(d.hasDeclaredAccount).toBe(true);
+    expect(d.steps.warmup).toBe("in_progress");
+    expect(d.complete).toBe(false);
+  });
+
+  it("full propre (0 géré) → onboarding INCHANGÉ (compte actif ⇒ complete)", () => {
+    const d = deriveOnboarding(
+      state([acc({ status: "actif", warmupDone: true, bio: "none" })], true, false),
+    );
+    expect(d.fullyManaged).toBe(false);
+    expect(d.complete).toBe(true);
+    expect(d.steps.validation).toBe("done");
   });
 });

@@ -132,6 +132,9 @@ export default function DashboardScreen() {
   const loaded = assignments !== undefined && onboarding !== null;
   // Checklist visible tant que l'onboarding Snytch n'est PAS terminé.
   const showChecklist = onboarding?.applicable === true && !onboarding.complete;
+  // Créatrice « full gérée » (0 compte propre, l'équipe tient tout) : pas de
+  // checklist (onboarding.complete=true côté lib) → message dédié à la place.
+  const fullyManaged = onboarding?.fullyManaged === true;
   // Onboarding « terminé » pour la logique AllClear : true hors Snytch (dashboard
   // inchangé) et une fois la créatrice réellement activée.
   const onboardingDone = !onboarding?.applicable || onboarding.complete;
@@ -175,6 +178,11 @@ export default function DashboardScreen() {
           {showChecklist && onboarding && (
             <OnboardingChecklist onb={onboarding} base={base} />
           )}
+
+          {/* Créatrice full gérée : rien à configurer (l'équipe tient ses
+              comptes). Message court + espace normal (missions/vidéos/AllClear
+              selon l'état réel). Mutuellement exclusif avec la checklist. */}
+          {fullyManaged && <ManagedByTeamNotice />}
 
           {allClear && <AllClear />}
 
@@ -470,6 +478,36 @@ function ChecklistRow({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Créatrice « full gérée » (0 compte propre, l'équipe tient tous ses comptes) :
+ * rien à configurer → message court à la place de la checklist d'onboarding.
+ * L'espace normal (missions gérées, vidéos, AllClear) s'affiche selon l'état réel
+ * des assignments — pas de faux « tout à jour » forcé.
+ */
+function ManagedByTeamNotice() {
+  return (
+    <Card
+      data-testid="managed-by-team-notice"
+      className="border-slate-200 bg-slate-50/60"
+    >
+      <CardContent className="flex items-start gap-3 py-4">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
+          <UsersIcon className="size-5" />
+        </span>
+        <div className="min-w-0 space-y-0.5">
+          <p className="text-sm font-semibold text-slate-900">
+            Ton équipe gère tes comptes
+          </p>
+          <p className="text-sm text-slate-500">
+            Tu n&apos;as rien à configurer. Retrouve tes vidéos et leurs
+            performances dans « Mes vidéos ».
+          </p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
