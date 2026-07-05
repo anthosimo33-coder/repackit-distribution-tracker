@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { PlatformBadge } from "@/components/VerdictBadge";
+import { countryLabel } from "@/lib/countries";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
@@ -383,7 +384,19 @@ function ComptesPageInner() {
                         </Link>
                       </TableCell>
                       <TableCell>
-                        <PlatformBadge plateforme={c.plateforme} />
+                        <div className="flex flex-wrap items-center gap-2">
+                          <PlatformBadge plateforme={c.plateforme} />
+                          {/* Pays ciblé (label informatif #110) — masqué si non
+                              défini, même style que le badge de la fiche détail. */}
+                          {c.targetCountry && (
+                            <span
+                              className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-semibold text-slate-600"
+                              title="Pays ciblé"
+                            >
+                              {countryLabel(c.targetCountry)}
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <span
