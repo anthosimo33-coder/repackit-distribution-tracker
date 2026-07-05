@@ -428,6 +428,16 @@ export default defineSchema({
     // Quand le créateur a confirmé l'avoir appliquée (ms). Pour l'affichage admin
     // « Appliquée le … ». Réinitialisé (unset) à chaque retour en "to_apply".
     bioAppliedAt: v.optional(v.number()),
+    // ─── Compte GÉRÉ PAR L'ADMIN (SOURCE DE VÉRITÉ) ──────────────────────────
+    // true = compte tenu PHYSIQUEMENT par l'équipe (l'admin coche le warmup,
+    // soumet, publie, met le lien) MAIS rattaché à une créatrice (creatorId) qui
+    // voit scripts + posts publiés + perfs SANS jamais publier ni déposer.
+    // NE change PAS l'appartenance : creatorId reste la créatrice assignée (c'est
+    // ce qui lui donne Mes comptes / Mes vidéos / perfs). N'ajoute qu'un MODE
+    // opératoire. absent/false = compte créateur classique (elle gère et publie).
+    // Dénormalisé sur assignments.managedByAdmin à la création de l'assignment.
+    // Optional → 0 migration.
+    managedByAdmin: v.optional(v.boolean()),
   })
     .index("by_plateforme", ["plateforme"])
     .index("by_actif", ["actif"])
@@ -816,6 +826,16 @@ export default defineSchema({
     comboKey: v.optional(v.string()),
     accountId: v.optional(v.id("comptes")),
     dueDate: v.number(),
+    // ─── Compte GÉRÉ PAR L'ADMIN — flag DÉNORMALISÉ (copié du compte cible) ────
+    // Posé à la CRÉATION de l'assignment (assignFormat) en copiant
+    // comptes.managedByAdmin de la/les cible(s). FIGÉ ensuite (snapshot, comme
+    // rateSnapshot/creatorNameSnapshot) : retoucher le compte ne réécrit pas les
+    // assignments déjà créés. Permet aux surfaces ACTIONNABLES créatrice de lire
+    // le mode SANS jointure vers le compte. true → l'admin soumet/publie
+    // (confirmPublicationAsAdmin) et l'assignment est créé DIRECT en to_publish ;
+    // la créatrice ne le voit qu'en LECTURE (script + post + perfs). Optional →
+    // 0 migration (absent/false = mission créatrice classique).
+    managedByAdmin: v.optional(v.boolean()),
     // Machine à états WORKFLOW MP4 (chantier vidéo-avant-publication) :
     //   todo → in_progress → video_submitted → [reject] video_rejected →
     //   (re-upload) video_submitted → [approve] to_publish → published → paid.

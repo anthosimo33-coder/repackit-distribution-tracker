@@ -205,6 +205,24 @@ export const assignFormat = adminMutation({
       platform: t.platform,
       accountId: t.accountId,
     }));
+    // ─── Comptes GÉRÉS PAR L'ÉQUIPE (D1/D2) ──────────────────────────────────
+    // Si les cibles sont gérées par l'équipe, l'assignment est créé DIRECT en
+    // to_publish (saut de todo/in_progress/video_submitted/review — l'admin
+    // publie lui-même via confirmPublicationAsAdmin) et porte le flag DÉNORMALISÉ
+    // copié du compte, pour que les surfaces actionnables créatrice lisent le
+    // mode sans jointure. Homogénéité IMPOSÉE : une mission ne mélange pas cibles
+    // gérées et non gérées (sinon « qui publie ? » est ambigu). Les comptes
+    // viennent d'être validés par validateTargets (existence/appartenance).
+    const targetComptes = await Promise.all(
+      args.targets.map((t) => ctx.db.get(t.accountId)),
+    );
+    const managedCount = targetComptes.filter((c) => c?.managedByAdmin).length;
+    if (managedCount > 0 && managedCount < args.targets.length) {
+      throw new ConvexError(
+        "Un assignment ne peut pas mélanger des comptes gérés par l'équipe et des comptes créateur.",
+      );
+    }
+    const managed = managedCount > 0;
     const pricingSnapshot = args.pricingId
       ? await buildPricingSnapshot(ctx, ctx.projectId, args.pricingId)
       : undefined;
@@ -218,7 +236,9 @@ export const assignFormat = adminMutation({
         formatId: args.formatId,
         targets,
         dueDate: args.dueDate,
-        status: "todo",
+        status: managed ? "to_publish" : "todo",
+        // Dénormalisation D1 (undefined si non géré → 0 bruit sur les rows normales).
+        managedByAdmin: managed ? true : undefined,
         rateSnapshot: format.rateModel,
         pricingSnapshot,
         overlayText,
@@ -894,6 +914,62 @@ export const listPublished = adminQuery({
 });
 
 /**
+ * COMPTES GÉRÉS — assignments en to_publish à publier PAR L'ÉQUIPE (l'admin colle
+ * le lien via confirmPublicationAsAdmin). Sous-ensemble MANAGÉ de to_publish :
+ * créés direct en to_publish (D2, aucune vidéo à valider) → absents de « Vidéos à
+ * valider ». Enrichi comme listPublished (créateur, format, cibles + handle) +
+ * le script monté (à produire/publier par l'équipe).
+ */
+export const listManagedToPublish = adminQuery({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db
+      .query("assignments")
+      .withIndex("by_project_status", (q) =>
+        q.eq("projectId", ctx.projectId).eq("status", "to_publish"),
+      )
+      .collect();
+    const managed = rows.filter((a) => a.managedByAdmin);
+    const [creators, formats, comptes] = await Promise.all([
+      ctx.db
+        .query("creators")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+      ctx.db
+        .query("formats")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+      ctx.db
+        .query("comptes")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+    ]);
+    const creatorMap = new Map(creators.map((c) => [c._id, c.name]));
+    const formatMap = new Map(formats.map((f) => [f._id, f.name]));
+    const compteMap = new Map(comptes.map((c) => [c._id, c.handle]));
+    return managed
+      .sort((a, b) => a.dueDate - b.dueDate)
+      .map((a) => ({
+        _id: a._id,
+        creatorName: creatorMap.get(a.creatorId) ?? a.creatorNameSnapshot ?? "—",
+        label: a.scriptCombo
+          ? "Script"
+          : a.formatId
+            ? (formatMap.get(a.formatId) ?? "—")
+            : "—",
+        dueDate: a.dueDate,
+        assembledScript: a.scriptCombo?.assembledScript ?? null,
+        targets: (a.targets ?? []).map((t) => ({
+          platform: t.platform,
+          accountHandle: t.accountId
+            ? (compteMap.get(t.accountId) ?? null)
+            : null,
+        })),
+      }));
+  },
+});
+
+/**
  * S3 — BACKFILL idempotent du raccord combo ↔ publication. À lancer une fois si
  * des posts de SCRIPT ont été validés AVANT S3 (sous S2 : aucune publication
  * n'était matérialisée → publicationId absent). Pour chaque assignment de script
@@ -1544,13 +1620,193 @@ export const submitVideo = creatorMutation({
 });
 
 /**
- * PUBLICATION — le créateur fournit l'URL du post publié (étape `to_publish`).
- * C'EST ICI le DÉCLENCHEUR : matérialise la publication (tracking de vues),
- * accrue le paiement de BASE, et PURGE le MP4 de soumission. Plateforme détectée
- * serveur. IDEMPOTENT : re-confirmer un assignment déjà published est un no-op
- * (ni double pub, ni double crédit, ni re-purge).
- *
- * Type de retour ANNOTÉ (matérialise via ctx.runMutation(internal.*) → TS7022).
+ * Cœur PUBLICATION — PARTAGÉ par confirmPublication (créatrice) et
+ * confirmPublicationAsAdmin (admin, comptes gérés). `a` est déjà AUTORISÉ par
+ * l'appelant. Matérialise 1 publication/cible, accrue le paiement de BASE AU
+ * CRÉDIT de a.creatorId (D3 : la créatrice est payée À L'IDENTIQUE, quel que soit
+ * qui colle le lien), PURGE le MP4 s'il existe. Plateforme détectée serveur.
+ * IDEMPOTENT (published/paid → no-op). Garde warmup strict #98 INCHANGÉE. `ctx`
+ * porte projectId (injecté par les deux wrappers). Type ANNOTÉ (matérialise via
+ * ctx.runMutation(internal.*) → TS7022).
+ */
+async function confirmPublicationCore(
+  ctx: MutationCtx & { projectId: Id<"projects"> },
+  a: Doc<"assignments">,
+  urls: { platform: Plateforme; url: string }[],
+): Promise<{
+  ok: true;
+  alreadyPublished: boolean;
+  publicationIds: Id<"publications">[];
+}> {
+  if (a.status === "published" || a.status === "paid") {
+    const ids = (a.targets ?? [])
+      .map((t) => t.publicationId)
+      .filter((p): p is Id<"publications"> => p !== undefined);
+    return { ok: true, alreadyPublished: true, publicationIds: ids };
+  }
+  if (a.status !== "to_publish") {
+    throw new ConvexError(
+      "Publication possible seulement après validation de ta vidéo.",
+    );
+  }
+  const targets = a.targets ?? [];
+  if (targets.length === 0) {
+    throw new ConvexError("Aucune cible sur cet assignment.");
+  }
+
+  // Garde warmup au moment de publier (symétrique de validateTargets) : un
+  // compte cible peut être REPASSÉ en warmup (relance admin restartWarmup)
+  // APRÈS la création de l'assignment. En régime STRICT (Snytch) un compte en
+  // warmup — même terminé — n'est pas publiable tant que l'admin ne l'a pas
+  // repassé "actif". shadowban/archived ne sont pas re-gatés ici.
+  const strict = await isSnytchProject(ctx, ctx.projectId);
+  for (const t of targets) {
+    if (!t.accountId) continue;
+    const compte = await ctx.db.get(t.accountId);
+    if (
+      compte &&
+      compte.status === "warmup" &&
+      !isAccountAvailable(compte, { strict })
+    ) {
+      throw new ConvexError(
+        `Le compte ${compte.handle} n'est pas validé pour publier (échauffement en cours ou compte à revalider par l'admin).`,
+      );
+    }
+  }
+
+  // Index des URLs par plateforme + validation de chaque lien (format + plateforme).
+  const urlByPlatform = new Map<Plateforme, string>();
+  for (const { platform, url } of urls) {
+    const trimmed = url.trim();
+    if (!/^https?:\/\/.+/i.test(trimmed)) {
+      throw new ConvexError(
+        `URL du post invalide pour ${platform} (lien http(s) attendu).`,
+      );
+    }
+    if (detectPlatform(trimmed) !== platform) {
+      throw new ConvexError(
+        `L'URL fournie pour ${platform} ne correspond pas à cette plateforme.`,
+      );
+    }
+    urlByPlatform.set(platform, trimmed);
+  }
+
+  // TOUTES les cibles doivent avoir une URL (publication groupée, même jour).
+  const format = a.formatId ? await ctx.db.get(a.formatId) : null;
+  for (const t of targets) {
+    if (!urlByPlatform.has(t.platform)) {
+      throw new ConvexError(
+        `URL manquante pour ${t.platform} — toutes les plateformes sont obligatoires.`,
+      );
+    }
+    if (
+      format &&
+      format.type !== "custom" &&
+      !isFormatAllowedOnPlatform(format.type, t.platform)
+    ) {
+      throw new ConvexError(
+        `Le format « ${format.name} » (${format.type}) ne peut pas être publié sur ${t.platform}.`,
+      );
+    }
+  }
+
+  const now = Date.now();
+  const dateLabel = new Date(now).toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+  });
+  const isScript = a.scriptCombo !== undefined && a.formatId === undefined;
+
+  const publicationIds: Id<"publications">[] = [];
+  const newTargets: NonNullable<Doc<"assignments">["targets"]> = [];
+  for (const t of targets) {
+    // Idempotence défensive : cible déjà publiée → conservée telle quelle.
+    if (t.publicationId !== undefined || t.publishedUrl !== undefined) {
+      newTargets.push(t);
+      if (t.publicationId) publicationIds.push(t.publicationId);
+      continue;
+    }
+    const url = urlByPlatform.get(t.platform)!;
+    const publicationId = await materializeTargetPublication(
+      ctx,
+      a,
+      ctx.projectId,
+      t,
+      url,
+      now,
+    );
+    // Modèle PRICING (pricingSnapshot présent) : AUCUNE lineItem base écrite
+    // ici — la paie (fixe/CPM/bonus) est calculée à la lecture, en temps réel
+    // sur les vues, et GELÉE au paiement (Guard A/B/C, 0 double paiement).
+    // Modèle LEGACY (pas de snapshot) : base PAR POST inchangée.
+    if (a.pricingSnapshot === undefined) {
+      const label = isScript
+        ? `Vidéo — ${t.platform} — ${dateLabel}`
+        : `${format?.name ?? "Format"} — ${t.platform} — ${dateLabel}`;
+      await accrueBaseLineItem(ctx, {
+        projectId: ctx.projectId,
+        creatorId: a.creatorId,
+        assignmentId: a._id,
+        label,
+        amount: a.rateSnapshot.basePerPost,
+        now,
+        platform: t.platform,
+      });
+    }
+    if (publicationId) publicationIds.push(publicationId);
+    newTargets.push({
+      platform: t.platform,
+      accountId: t.accountId,
+      publishedUrl: url,
+      publishedAt: now,
+      publicationId: publicationId ?? undefined,
+    });
+  }
+
+  // Modèle PRICING : pas de lineItem écrite, mais on GARANTIT une row de
+  // paiement pour la période → l'admin a une période à marquer payée (le
+  // montant pricing est calculé live jusqu'au gel au paiement).
+  if (a.pricingSnapshot !== undefined) {
+    await getOrCreatePayment(ctx, {
+      projectId: ctx.projectId,
+      creatorId: a.creatorId,
+      period: periodOf(now),
+      now,
+    });
+    // Nouvelle vidéo publiée → recalcule les paliers de bonus du créateur.
+    await syncBonusUnlocks(ctx, ctx.projectId, a.creatorId);
+  }
+
+  // PURGE du MP4 (1 vidéo pour toutes les cibles, inutile une fois publiée) —
+  // côté Convex ET côté Cloudflare Stream (best-effort, hygiène de coût).
+  if (a.submittedVideoStorageId) {
+    await ctx.storage.delete(a.submittedVideoStorageId);
+  }
+  if (a.submittedVideoStreamUid) {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.cloudflareStream.deleteStreamAsset,
+      { uid: a.submittedVideoStreamUid },
+    );
+  }
+
+  await ctx.db.patch(a._id, {
+    status: "published",
+    targets: newTargets,
+    submittedVideoStorageId: undefined,
+    submittedVideoMimeType: undefined,
+    submittedVideoStreamUid: undefined,
+    submittedVideoStreamStatus: undefined,
+  });
+
+  return { ok: true, alreadyPublished: false, publicationIds };
+}
+
+/**
+ * PUBLICATION (CRÉATRICE) — elle fournit l'URL du post publié (étape to_publish).
+ * Un compte GÉRÉ par l'équipe est REFUSÉ ici (défense en profondeur, l'UI masque
+ * déjà le bouton) : c'est l'admin qui publie (confirmPublicationAsAdmin). Type
+ * de retour ANNOTÉ (TS7022).
  */
 export const confirmPublication = creatorMutation({
   args: {
@@ -1569,168 +1825,45 @@ export const confirmPublication = creatorMutation({
     if (!a || a.creatorId !== ctx.creatorId) {
       throw new ConvexError("Assignment introuvable.");
     }
-    if (a.status === "published" || a.status === "paid") {
-      const ids = (a.targets ?? [])
-        .map((t) => t.publicationId)
-        .filter((p): p is Id<"publications"> => p !== undefined);
-      return { ok: true, alreadyPublished: true, publicationIds: ids };
-    }
-    if (a.status !== "to_publish") {
+    if (a.managedByAdmin) {
       throw new ConvexError(
-        "Publication possible seulement après validation de ta vidéo.",
+        "Compte géré par l'équipe : la publication est gérée par l'admin.",
       );
     }
-    const targets = a.targets ?? [];
-    if (targets.length === 0) {
-      throw new ConvexError("Aucune cible sur cet assignment.");
-    }
+    return confirmPublicationCore(ctx, a, urls);
+  },
+});
 
-    // Garde warmup au moment de publier (symétrique de validateTargets) : un
-    // compte cible peut être REPASSÉ en warmup (relance admin restartWarmup)
-    // APRÈS la création de l'assignment. En régime STRICT (Snytch) un compte en
-    // warmup — même terminé — n'est pas publiable tant que l'admin ne l'a pas
-    // repassé "actif". shadowban/archived ne sont pas re-gatés ici.
-    const strict = await isSnytchProject(ctx, ctx.projectId);
-    for (const t of targets) {
-      if (!t.accountId) continue;
-      const compte = await ctx.db.get(t.accountId);
-      if (
-        compte &&
-        compte.status === "warmup" &&
-        !isAccountAvailable(compte, { strict })
-      ) {
-        throw new ConvexError(
-          `Le compte ${compte.handle} n'est pas validé pour publier (échauffement en cours ou compte à revalider par l'admin).`,
-        );
-      }
+/**
+ * PUBLICATION (ADMIN) d'un assignment sur COMPTE GÉRÉ — l'admin colle le(s)
+ * lien(s) à la place de la créatrice. MÊME cœur (materialize + accrue) → la
+ * créatrice est CRÉDITÉE À L'IDENTIQUE (D3, pricing prédéfini, cap 150€). Gaté
+ * sur a.managedByAdmin + projectId (aucune appartenance créatrice requise :
+ * l'équipe tient le compte). Type de retour ANNOTÉ (TS7022).
+ */
+export const confirmPublicationAsAdmin = adminMutation({
+  args: {
+    id: v.id("assignments"),
+    urls: v.array(v.object({ platform: plateformeValidator, url: v.string() })),
+  },
+  handler: async (
+    ctx,
+    { id, urls },
+  ): Promise<{
+    ok: true;
+    alreadyPublished: boolean;
+    publicationIds: Id<"publications">[];
+  }> => {
+    const a = await ctx.db.get(id);
+    if (!a || a.projectId !== ctx.projectId) {
+      throw new ConvexError("Assignment introuvable.");
     }
-
-    // Index des URLs par plateforme + validation de chaque lien (format + plateforme).
-    const urlByPlatform = new Map<Plateforme, string>();
-    for (const { platform, url } of urls) {
-      const trimmed = url.trim();
-      if (!/^https?:\/\/.+/i.test(trimmed)) {
-        throw new ConvexError(
-          `URL du post invalide pour ${platform} (lien http(s) attendu).`,
-        );
-      }
-      if (detectPlatform(trimmed) !== platform) {
-        throw new ConvexError(
-          `L'URL fournie pour ${platform} ne correspond pas à cette plateforme.`,
-        );
-      }
-      urlByPlatform.set(platform, trimmed);
-    }
-
-    // TOUTES les cibles doivent avoir une URL (publication groupée, même jour).
-    const format = a.formatId ? await ctx.db.get(a.formatId) : null;
-    for (const t of targets) {
-      if (!urlByPlatform.has(t.platform)) {
-        throw new ConvexError(
-          `URL manquante pour ${t.platform} — toutes les plateformes sont obligatoires.`,
-        );
-      }
-      if (
-        format &&
-        format.type !== "custom" &&
-        !isFormatAllowedOnPlatform(format.type, t.platform)
-      ) {
-        throw new ConvexError(
-          `Le format « ${format.name} » (${format.type}) ne peut pas être publié sur ${t.platform}.`,
-        );
-      }
-    }
-
-    const now = Date.now();
-    const dateLabel = new Date(now).toLocaleDateString("fr-FR", {
-      day: "2-digit",
-      month: "2-digit",
-    });
-    const isScript = a.scriptCombo !== undefined && a.formatId === undefined;
-
-    const publicationIds: Id<"publications">[] = [];
-    const newTargets: NonNullable<Doc<"assignments">["targets"]> = [];
-    for (const t of targets) {
-      // Idempotence défensive : cible déjà publiée → conservée telle quelle.
-      if (t.publicationId !== undefined || t.publishedUrl !== undefined) {
-        newTargets.push(t);
-        if (t.publicationId) publicationIds.push(t.publicationId);
-        continue;
-      }
-      const url = urlByPlatform.get(t.platform)!;
-      const publicationId = await materializeTargetPublication(
-        ctx,
-        a,
-        ctx.projectId,
-        t,
-        url,
-        now,
-      );
-      // Modèle PRICING (pricingSnapshot présent) : AUCUNE lineItem base écrite
-      // ici — la paie (fixe/CPM/bonus) est calculée à la lecture, en temps réel
-      // sur les vues, et GELÉE au paiement (Guard A/B/C, 0 double paiement).
-      // Modèle LEGACY (pas de snapshot) : base PAR POST inchangée.
-      if (a.pricingSnapshot === undefined) {
-        const label = isScript
-          ? `Vidéo — ${t.platform} — ${dateLabel}`
-          : `${format?.name ?? "Format"} — ${t.platform} — ${dateLabel}`;
-        await accrueBaseLineItem(ctx, {
-          projectId: ctx.projectId,
-          creatorId: a.creatorId,
-          assignmentId: a._id,
-          label,
-          amount: a.rateSnapshot.basePerPost,
-          now,
-          platform: t.platform,
-        });
-      }
-      if (publicationId) publicationIds.push(publicationId);
-      newTargets.push({
-        platform: t.platform,
-        accountId: t.accountId,
-        publishedUrl: url,
-        publishedAt: now,
-        publicationId: publicationId ?? undefined,
-      });
-    }
-
-    // Modèle PRICING : pas de lineItem écrite, mais on GARANTIT une row de
-    // paiement pour la période → l'admin a une période à marquer payée (le
-    // montant pricing est calculé live jusqu'au gel au paiement).
-    if (a.pricingSnapshot !== undefined) {
-      await getOrCreatePayment(ctx, {
-        projectId: ctx.projectId,
-        creatorId: a.creatorId,
-        period: periodOf(now),
-        now,
-      });
-      // Nouvelle vidéo publiée → recalcule les paliers de bonus du créateur.
-      await syncBonusUnlocks(ctx, ctx.projectId, a.creatorId);
-    }
-
-    // PURGE du MP4 (1 vidéo pour toutes les cibles, inutile une fois publiée) —
-    // côté Convex ET côté Cloudflare Stream (best-effort, hygiène de coût).
-    if (a.submittedVideoStorageId) {
-      await ctx.storage.delete(a.submittedVideoStorageId);
-    }
-    if (a.submittedVideoStreamUid) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.cloudflareStream.deleteStreamAsset,
-        { uid: a.submittedVideoStreamUid },
+    if (!a.managedByAdmin) {
+      throw new ConvexError(
+        "Cet assignment n'est pas sur un compte géré par l'équipe.",
       );
     }
-
-    await ctx.db.patch(id, {
-      status: "published",
-      targets: newTargets,
-      submittedVideoStorageId: undefined,
-      submittedVideoMimeType: undefined,
-      submittedVideoStreamUid: undefined,
-      submittedVideoStreamStatus: undefined,
-    });
-
-    return { ok: true, alreadyPublished: false, publicationIds };
+    return confirmPublicationCore(ctx, a, urls);
   },
 });
 
@@ -1742,7 +1875,10 @@ export const countMyToPublish = creatorQuery({
       .query("assignments")
       .withIndex("by_creator", (q) => q.eq("creatorId", ctx.creatorId))
       .collect();
-    return mine.filter((a) => a.status === "to_publish").length;
+    // Comptes GÉRÉS exclus : c'est l'admin qui publie, la créatrice n'a rien à
+    // faire sur ces assignments (lecture seule).
+    return mine.filter((a) => a.status === "to_publish" && !a.managedByAdmin)
+      .length;
   },
 });
 
@@ -1774,7 +1910,11 @@ async function actionableCount(ctx: QueryCtx, creatorId: Id<"creators">) {
     .query("assignments")
     .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
     .collect();
-  return mine.filter((a) => ACTIONABLE_STATUSES.has(a.status)).length;
+  // Comptes GÉRÉS exclus des actionnables : la créatrice ne produit/soumet/publie
+  // rien dessus (l'équipe s'en charge) → ils ne badgent jamais son Accueil.
+  return mine.filter(
+    (a) => ACTIONABLE_STATUSES.has(a.status) && !a.managedByAdmin,
+  ).length;
 }
 
 export const countMyActionable = creatorQuery({

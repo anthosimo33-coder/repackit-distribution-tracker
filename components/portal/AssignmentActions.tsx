@@ -25,6 +25,7 @@ import {
   ClockIcon,
   CheckCircle2Icon,
   ExternalLinkIcon,
+  UsersIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
@@ -81,6 +82,9 @@ export function AssignmentActions({
   const [busy, setBusy] = useState(false);
 
   const s = assignment.status;
+  // Compte GÉRÉ par l'équipe : la créatrice ne soumet ni ne publie rien (l'admin
+  // le fait). Rendu en LECTURE seule + marqueur, quel que soit readOnly.
+  const managed = assignment.managedByAdmin === true;
 
   async function handleStart() {
     setBusy(true);
@@ -165,6 +169,48 @@ export function AssignmentActions({
         }}
       />
     ) : null;
+
+  // ── Compte GÉRÉ par l'équipe (LECTURE SEULE + marqueur) ─────────────────────
+  // La créatrice SUIT sa vidéo (script au-dessus, post + perfs dans « Mes
+  // vidéos ») mais ne soumet ni ne publie RIEN : l'équipe s'en charge. Aucune
+  // action mutatrice ; on montre le marqueur « géré par l'équipe » + les liens
+  // publiés le cas échéant. Branche AVANT readOnly et le rendu normal → le
+  // chemin créateur classique reste strictement inchangé.
+  if (managed) {
+    const publishedTargets = targets.filter((t) => t.publishedUrl);
+    const isOnline = s === "published" || s === "paid";
+    return (
+      <div className="space-y-3" data-testid="managed-assignment-actions">
+        <div className="flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-600">
+          <UsersIcon className="mt-0.5 size-4 shrink-0 text-slate-400" />
+          <span>
+            <span className="font-medium text-slate-800">
+              Géré par l&apos;équipe
+            </span>{" "}
+            — l&apos;équipe publie ce contenu. Tu n&apos;as rien à soumettre ni à
+            publier ; le post et ses performances apparaîtront dans « Mes
+            vidéos ».
+          </span>
+        </div>
+        {isOnline && publishedTargets.length > 0 && (
+          <div className="space-y-1">
+            {publishedTargets.map((t) => (
+              <a
+                key={t.platform}
+                href={t.publishedUrl!}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+              >
+                Voir le post {t.platform}
+                <ExternalLinkIcon className="size-3.5" />
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   // ── Admin view-as (LECTURE SEULE) ──────────────────────────────────────────
   // Aucune action : on montre l'ÉTAT du workflow (où en est le créateur) +, le

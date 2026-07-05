@@ -23,6 +23,7 @@ import { CompteCalendar } from "./CompteCalendar";
 import { CompteFormatLists } from "./CompteFormatLists";
 import { WarmupProtocolSection } from "./WarmupProtocolSection";
 import { AccountBioSection } from "./AccountBioSection";
+import { ManagedAccountAdminPanel } from "./ManagedAccountAdminPanel";
 
 /**
  * Vue détail compte. Source unique des publications : listPublications (déjà
@@ -57,6 +58,10 @@ export function CompteDetailView({ compte }: { compte: Compte }) {
   return (
     <div className="space-y-6">
       <CompteDetailHeader compte={compte} />
+
+      {/* Compte GÉRÉ par l'équipe : panneau admin dédié (cocher le warmup +
+          activer). L'équipe tient le compte ; la créatrice ne fait que suivre. */}
+      {compte.managedByAdmin && <ManagedAccountAdminPanel compte={compte} />}
 
       {/* P5 — protocole de warmup (admin) : visible tant que le compte est en
           warmup. Indépendant des publications, rendu avant le chargement. */}

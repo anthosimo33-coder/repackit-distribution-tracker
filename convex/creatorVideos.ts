@@ -72,6 +72,9 @@ export type CreatorVideo = {
   rejectionReason: string | null;
   /** La créatrice a bien un MP4 soumis (video_submitted..published) rattaché. */
   hasSubmittedVideo: boolean;
+  /** Compte GÉRÉ par l'équipe : la créatrice suit (script + post + perfs) mais ne
+   *  publie pas — l'UI affiche « géré par l'équipe » au lieu d'un CTA publier. */
+  managedByAdmin: boolean;
 };
 
 /** Une publication est matérialisée (cible OU legacy) → la vidéo est réellement en ligne. */
@@ -162,6 +165,7 @@ async function toCreatorVideo(
     hasSubmittedVideo:
       a.submittedVideoStorageId !== undefined ||
       a.submittedVideoStreamUid !== undefined,
+    managedByAdmin: a.managedByAdmin === true,
   };
 }
 

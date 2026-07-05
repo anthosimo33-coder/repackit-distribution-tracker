@@ -26,6 +26,7 @@ import {
   RocketIcon,
   BadgeCheckIcon,
   VideoIcon,
+  UsersIcon,
 } from "lucide-react";
 
 /**
@@ -180,6 +181,18 @@ function VideoRow({ v, now }: { v: Video; now: number }) {
                 Payé
               </span>
             )}
+            {v.managedByAdmin && (
+              <span
+                data-testid="managed-video-chip"
+                className={cn(
+                  CHIP_BASE,
+                  "border-slate-300 bg-slate-100 text-slate-600",
+                )}
+              >
+                <UsersIcon className="size-3.5" />
+                Géré par l&apos;équipe
+              </span>
+            )}
           </div>
           {isOnline && v.trackingStatus !== null ? (
             <TrackingChip status={v.trackingStatus} />
@@ -205,10 +218,17 @@ function VideoRow({ v, now }: { v: Video; now: number }) {
             </p>
           )
         ) : v.status === "to_publish" ? (
-          <p className="text-sm text-slate-500">
-            Validée ! Publie-la sur la plateforme depuis ta mission pour lancer le
-            suivi des vues et le gain.
-          </p>
+          v.managedByAdmin ? (
+            <p className="text-sm text-slate-500">
+              L&apos;équipe publie cette vidéo — elle apparaîtra ici en ligne
+              (vues + gain) dès qu&apos;elle est postée.
+            </p>
+          ) : (
+            <p className="text-sm text-slate-500">
+              Validée ! Publie-la sur la plateforme depuis ta mission pour lancer
+              le suivi des vues et le gain.
+            </p>
+          )
         ) : (
           // video_submitted
           <p className="flex items-center gap-1.5 text-sm text-slate-500">

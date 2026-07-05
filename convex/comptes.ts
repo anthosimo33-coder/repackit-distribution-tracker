@@ -347,12 +347,23 @@ export const updateCompte = adminMutation({
     // null = désassigner le gestionnaire (unset), Id = assigner, absent =
     // ne pas toucher. Pattern folderId/thumbnail d'updateInspiration.
     personneId: v.optional(v.union(v.id("personnes"), v.null())),
+    // Mode "géré par l'équipe" : true/false pour (dé)marquer un compte EXISTANT,
+    // absent = ne pas toucher. Un compte géré DOIT être rattaché à une créatrice
+    // (creatorId) — rejet sinon. NB (dénormalisation D1) : le flag figé sur les
+    // assignments DÉJÀ créés n'est pas réécrit ; seuls les futurs assignments
+    // captent le nouveau mode (sémantique snapshot du repo).
+    managedByAdmin: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const { id } = args;
     const compte = await ctx.db.get(id);
     if (!compte || compte.projectId !== ctx.projectId) {
       throw new ConvexError("Compte introuvable.");
+    }
+    if (args.managedByAdmin === true && compte.creatorId === undefined) {
+      throw new ConvexError(
+        "Un compte géré par l'équipe doit être rattaché à une créatrice.",
+      );
     }
 
     // Garde-fou rename (scopé projet) : publications.compte = handle string.
@@ -380,6 +391,9 @@ export const updateCompte = adminMutation({
     if (args.personneId !== undefined) {
       update.personneId =
         args.personneId === null ? undefined : args.personneId;
+    }
+    if (args.managedByAdmin !== undefined) {
+      update.managedByAdmin = args.managedByAdmin;
     }
 
     // Chantier D — changement de PLATEFORME : VIERGE uniquement (sinon le
@@ -743,15 +757,21 @@ async function comptesForCreator(
   );
 }
 
+// Comptes GÉRÉS exclus : c'est l'équipe qui coche leur warmup, jamais la
+// créatrice → ils ne doivent JAMAIS peser dans ses compteurs / notifs à faire.
 function warmupDueCount(comptes: Doc<"comptes">[], now: number) {
   return comptes.filter(
-    (c) => effectiveStatus(c) === "warmup" && mustCheckToday(c, now),
+    (c) =>
+      !c.managedByAdmin &&
+      effectiveStatus(c) === "warmup" &&
+      mustCheckToday(c, now),
   ).length;
 }
 
 function warmupInProgressCount(comptes: Doc<"comptes">[]) {
   return comptes.filter(
     (c) =>
+      !c.managedByAdmin &&
       effectiveStatus(c) === "warmup" &&
       !isWarmupComplete({
         plateforme: c.plateforme,
@@ -822,9 +842,108 @@ export const declareCompte = creatorMutation({
 });
 
 /**
- * Check warmup du jour. REFUSE un 2e check le même jour (UTC), même appelée
- * directement (la garde n'est pas que dans l'UI). Le compte doit appartenir au
- * créateur ET être en warmup.
+ * Déclaration d'un compte GÉRÉ PAR L'ÉQUIPE (admin) rattaché à une créatrice.
+ * SEUL point d'écriture de comptes.creatorId côté admin (declareCompte, côté
+ * créatrice, reste l'autre). L'appartenance = la créatrice ciblée (elle voit
+ * scripts + Mes vidéos + perfs), le MODE = managedByAdmin:true (l'équipe coche le
+ * warmup, soumet, publie). Créé en "warmup" (l'admin cochera puis activera) —
+ * même init que declareCompte pour rester en phase avec le gate strict #98.
+ */
+export const declareManagedCompte = adminMutation({
+  args: {
+    creatorId: v.id("creators"),
+    plateforme: plateformeValidator,
+    handle: v.string(),
+    url: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const creator = await ctx.db.get(args.creatorId);
+    if (!creator || creator.projectId !== ctx.projectId) {
+      throw new ConvexError("Créateur introuvable dans le projet.");
+    }
+    const handle = normalizeHandle(args.handle);
+    if (!handle || handle === "@") {
+      throw new ConvexError("Handle requis.");
+    }
+    const samePlatform = await ctx.db
+      .query("comptes")
+      .withIndex("by_project_plateforme", (q) =>
+        q.eq("projectId", ctx.projectId).eq("plateforme", args.plateforme),
+      )
+      .collect();
+    if (samePlatform.some((c) => c.handle === handle)) {
+      throw new ConvexError(
+        `Le compte ${handle} existe déjà sur ${args.plateforme}.`,
+      );
+    }
+    const now = Date.now();
+    return await ctx.db.insert("comptes", {
+      projectId: ctx.projectId,
+      handle,
+      plateforme: args.plateforme,
+      notes: "",
+      url: args.url?.trim() || undefined,
+      // Appartenance : la créatrice ciblée (comme declareCompte pose ctx.creatorId).
+      creatorId: args.creatorId,
+      // MODE opératoire : l'équipe tient physiquement le compte.
+      managedByAdmin: true,
+      status: "warmup",
+      warmupStartedAt: now,
+      actif: false,
+      warmupProtocol: {
+        keywords: [],
+        instructions: "",
+        targetDays: defaultTargetDays(args.plateforme),
+        dailyChecks: [],
+        updatedAt: now,
+      },
+    });
+  },
+});
+
+/**
+ * Cœur du check warmup du jour — PARTAGÉ par le check CRÉATRICE (markWarmupCheck)
+ * et le check ADMIN d'un compte géré (markWarmupCheckAsAdmin). Le compte est déjà
+ * AUTORISÉ par l'appelant (appartenance créatrice OU compte géré du projet).
+ * REFUSE un 2e check le même jour (UTC) et un warmup déjà terminé — gardes
+ * serveur, pas seulement UI. Chantier B : progression par checks RÉELS.
+ */
+async function applyWarmupCheck(
+  ctx: MutationCtx,
+  compte: Doc<"comptes">,
+): Promise<{ totalChecks: number }> {
+  if (effectiveStatus(compte) !== "warmup") {
+    throw new ConvexError("Ce compte n'est plus en warmup.");
+  }
+  const now = Date.now();
+  const protocol = compte.warmupProtocol ?? {
+    keywords: [],
+    instructions: "",
+    targetDays: defaultTargetDays(compte.plateforme),
+    dailyChecks: [],
+    updatedAt: now,
+  };
+  if (
+    isWarmupComplete({ plateforme: compte.plateforme, warmupProtocol: protocol })
+  ) {
+    throw new ConvexError(
+      "Warmup déjà terminé — en attente de validation admin.",
+    );
+  }
+  if (checkedToday(protocol.dailyChecks, now)) {
+    throw new ConvexError("Le check du jour est déjà fait.");
+  }
+  const dailyChecks = [...protocol.dailyChecks, todayKey(now)];
+  await ctx.db.patch(compte._id, {
+    warmupProtocol: { ...protocol, dailyChecks },
+  });
+  return { totalChecks: dailyChecks.length };
+}
+
+/**
+ * Check warmup du jour (CRÉATRICE). Le compte doit lui appartenir ET être en
+ * warmup. Un compte GÉRÉ par l'équipe est REFUSÉ ici : c'est l'admin qui coche
+ * (markWarmupCheckAsAdmin) — la créatrice ne touche pas ces comptes.
  */
 export const markWarmupCheck = creatorMutation({
   args: { id: v.id("comptes") },
@@ -837,31 +956,35 @@ export const markWarmupCheck = creatorMutation({
     ) {
       throw new ConvexError("Compte introuvable.");
     }
-    if (effectiveStatus(compte) !== "warmup") {
-      throw new ConvexError("Ce compte n'est plus en warmup.");
+    if (compte.managedByAdmin) {
+      throw new ConvexError(
+        "Compte géré par l'équipe : le warmup est coché par l'admin.",
+      );
     }
-    const now = Date.now();
-    const protocol = compte.warmupProtocol ?? {
-      keywords: [],
-      instructions: "",
-      targetDays: defaultTargetDays(compte.plateforme),
-      dailyChecks: [],
-      updatedAt: now,
-    };
-    // Chantier B — le warmup progresse par checks RÉELS : une fois N checks
-    // atteints, le warmup est terminé (à valider par l'admin), plus de check à
-    // poser. Garde côté serveur, pas seulement dans l'UI.
-    if (isWarmupComplete({ plateforme: compte.plateforme, warmupProtocol: protocol })) {
-      throw new ConvexError("Warmup déjà terminé — en attente de validation admin.");
+    return applyWarmupCheck(ctx, compte);
+  },
+});
+
+/**
+ * Check warmup du jour (ADMIN) d'un compte GÉRÉ. Même logique + garde 1-par-jour
+ * que la créatrice, mais gaté sur compte.managedByAdmin + projectId (pas
+ * d'appartenance créatrice requise : l'équipe tient le compte). Puis activation
+ * via updateCompte status:"actif" (déjà dispo) → le gate strict #98 reste le
+ * VRAI passage warmup → disponible.
+ */
+export const markWarmupCheckAsAdmin = adminMutation({
+  args: { id: v.id("comptes") },
+  handler: async (ctx, args) => {
+    const compte = await ctx.db.get(args.id);
+    if (!compte || compte.projectId !== ctx.projectId) {
+      throw new ConvexError("Compte introuvable.");
     }
-    if (checkedToday(protocol.dailyChecks, now)) {
-      throw new ConvexError("Le check du jour est déjà fait.");
+    if (!compte.managedByAdmin) {
+      throw new ConvexError(
+        "Ce compte n'est pas géré par l'équipe (le créateur coche son warmup).",
+      );
     }
-    const dailyChecks = [...protocol.dailyChecks, todayKey(now)];
-    await ctx.db.patch(args.id, {
-      warmupProtocol: { ...protocol, dailyChecks },
-    });
-    return { totalChecks: dailyChecks.length };
+    return applyWarmupCheck(ctx, compte);
   },
 });
 
@@ -947,7 +1070,11 @@ async function onboardingStateForCreator(
   if (!(await isSnytchProject(ctx, projectId))) {
     return { applicable: false, accounts: [] };
   }
-  const comptes = await comptesForCreator(ctx, projectId, creatorId);
+  // Comptes GÉRÉS exclus de la checklist d'onboarding : la créatrice n'a ni
+  // warmup ni bio ni @ à créer dessus (l'équipe tient le compte).
+  const comptes = (await comptesForCreator(ctx, projectId, creatorId)).filter(
+    (c) => !c.managedByAdmin,
+  );
   const accounts = comptes.map((c) => {
     const warmupLike = {
       plateforme: c.plateforme,

@@ -42,6 +42,7 @@ import {
   PartyPopperIcon,
   RotateCcwIcon,
   SendIcon,
+  UsersIcon,
   WalletIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -106,11 +107,16 @@ export default function DashboardScreen() {
   const onboarding = onboardingRaw ? deriveOnboarding(onboardingRaw) : null;
 
   const list = assignments ?? [];
-  const toProduce = list.filter(
+  // Comptes GÉRÉS par l'équipe : missions montrées en LECTURE (script visible)
+  // mais JAMAIS dans les blocs actionnables — la créatrice ne produit/soumet/
+  // publie rien dessus (l'équipe s'en charge, cf managedByAdmin dénormalisé).
+  const managedList = list.filter((a) => a.managedByAdmin);
+  const actionable = list.filter((a) => !a.managedByAdmin);
+  const toProduce = actionable.filter(
     (a) => a.status === "todo" || a.status === "in_progress",
   );
-  const toPublish = list.filter((a) => a.status === "to_publish");
-  const toRedo = list.filter(
+  const toPublish = actionable.filter((a) => a.status === "to_publish");
+  const toRedo = actionable.filter(
     (a) => a.status === "video_rejected" || a.status === "rejected",
   );
 
@@ -240,6 +246,33 @@ export default function DashboardScreen() {
             >
               <AssignmentList items={toRedo} base={base} showFeedback />
             </ActionBlock>
+          )}
+
+          {/* Gérées par l'équipe — LECTURE seule : la créatrice consulte le
+              script à produire, mais l'équipe publie (aucune action ici). Le
+              post publié + les perfs apparaissent dans « Mes vidéos ». */}
+          {managedList.length > 0 && (
+            <Card data-testid="block-managed">
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
+                    <UsersIcon className="size-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <CardTitle className="text-base">
+                      Gérées par l&apos;équipe
+                    </CardTitle>
+                    <CardDescription>
+                      L&apos;équipe publie ces vidéos — ouvre-les pour voir le
+                      script. Le post et les perfs arrivent dans « Mes vidéos ».
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <AssignmentList items={managedList} base={base} managed />
+              </CardContent>
+            </Card>
           )}
         </>
       )}
@@ -558,10 +591,13 @@ function AssignmentList({
   items,
   base,
   showFeedback,
+  managed,
 }: {
   items: CreatorAssignment[];
   base: string;
   showFeedback?: boolean;
+  /** Comptes gérés : pas d'urgence, badge « géré par l'équipe » au lieu du statut. */
+  managed?: boolean;
 }) {
   const shown = items.slice(0, ITEM_CAP);
   const extra = items.length - shown.length;
@@ -573,6 +609,7 @@ function AssignmentList({
             assignment={a}
             base={base}
             showFeedback={showFeedback}
+            managed={managed}
           />
         </li>
       ))}
@@ -589,12 +626,18 @@ function AssignmentItem({
   assignment: a,
   base,
   showFeedback,
+  managed,
 }: {
   assignment: CreatorAssignment;
   base: string;
   showFeedback?: boolean;
+  managed?: boolean;
 }) {
-  const urg = assignmentUrgency(a.dueDate, a.status as AssignmentStatus);
+  // Compte géré : aucune urgence (elle n'agit pas), et un badge « géré par
+  // l'équipe » remplace le statut de workflow (« À publier » serait trompeur).
+  const urg = managed
+    ? ("none" as const)
+    : assignmentUrgency(a.dueDate, a.status as AssignmentStatus);
   const st = ASSIGNMENT_STATUS[a.status as AssignmentStatus];
   const inner = (
     <>
@@ -633,10 +676,12 @@ function AssignmentItem({
           <span
             className={cn(
               "hidden rounded-full border px-2.5 py-0.5 text-xs font-semibold sm:inline",
-              st.className,
+              managed
+                ? "border-slate-300 bg-slate-100 text-slate-600"
+                : st.className,
             )}
           >
-            {st.label}
+            {managed ? "Géré par l'équipe" : st.label}
           </span>
           <ArrowRightIcon className="size-4 text-slate-400" />
         </div>

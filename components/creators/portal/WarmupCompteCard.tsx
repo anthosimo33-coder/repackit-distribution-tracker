@@ -43,6 +43,10 @@ export function WarmupCompteCard({
 
   const status = getEffectiveStatus(compte);
   const badge = getStatusBadge(compte);
+  // Compte GÉRÉ par l'équipe : la créatrice le SUIT (script + post + perfs) mais
+  // ne coche ni ne publie rien. On masque toute action (check warmup, bio) et on
+  // affiche un marqueur explicite « géré par l'équipe » (Q3=B).
+  const managed = compte.managedByAdmin === true;
   const isWarmup = status === "warmup";
   const protocol = compte.warmupProtocol;
   const dailyChecks = protocol?.dailyChecks ?? [];
@@ -92,14 +96,32 @@ export function WarmupCompteCard({
         <span
           className={cn(
             "inline-flex shrink-0 items-center rounded-full border px-3 py-0.5 text-xs font-semibold",
-            badge.className,
+            managed
+              ? "border-slate-300 bg-slate-100 text-slate-600"
+              : badge.className,
           )}
         >
-          {badge.label}
+          {managed ? "Géré par l'équipe" : badge.label}
         </span>
       </CardHeader>
 
       <CardContent className="space-y-4">
+        {managed ? (
+          <div
+            data-testid="managed-account-notice"
+            className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600"
+          >
+            <p className="font-medium text-slate-800">
+              Compte géré par l&apos;équipe
+            </p>
+            <p className="mt-0.5">
+              L&apos;équipe s&apos;occupe de ce compte (warmup, publication,
+              lien). Tu n&apos;as rien à cocher ni à publier ici — retrouve les
+              vidéos publiées et leurs performances dans « Mes vidéos ».
+            </p>
+          </div>
+        ) : (
+          <>
         {/* Bio à mettre (admin) — affichée quel que soit le statut du compte. */}
         {hasBio && (
           <AccountBioPanel
@@ -196,6 +218,8 @@ export function WarmupCompteCard({
           <p className="text-sm text-slate-500">
             Compte {badge.label.toLowerCase()}. Rien à faire aujourd&apos;hui.
           </p>
+        )}
+          </>
         )}
       </CardContent>
     </Card>

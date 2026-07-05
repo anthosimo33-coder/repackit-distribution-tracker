@@ -7,8 +7,10 @@ import { useProjectPath } from "@/components/project/ProjectProvider";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PlatformBadge } from "@/components/VerdictBadge";
+import { UsersIcon, PlusIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   getEffectiveStatus,
@@ -19,6 +21,7 @@ import {
 import { warmupProgress } from "@/lib/warmup";
 import CompteDialog, { type Compte } from "@/components/comptes/CompteDialog";
 import { CompteAdminActions } from "@/components/comptes/CompteAdminActions";
+import { ManagedCompteDialog } from "@/components/comptes/ManagedCompteDialog";
 
 /**
  * P5 — section « Comptes » de la fiche créateur (admin). Alimentée depuis
@@ -35,11 +38,23 @@ export function CreatorComptesSection({
   const projectPath = useProjectPath();
   const mine = (comptes ?? []).filter((c) => c.creatorId === creatorId);
   const [editTarget, setEditTarget] = useState<Compte | null>(null);
+  const [managedOpen, setManagedOpen] = useState(false);
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
         <CardTitle>Comptes</CardTitle>
+        {/* Créer un compte GÉRÉ par l'équipe (rattaché à cette créatrice) :
+            l'équipe le tient, elle ne fait que suivre. */}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setManagedOpen(true)}
+          data-testid="create-managed-compte"
+        >
+          <PlusIcon className="mr-1.5 size-4" />
+          Compte géré
+        </Button>
       </CardHeader>
       <CardContent>
         {comptes === undefined ? (
@@ -72,14 +87,23 @@ export function CreatorComptesSection({
                     status === "archived" && "opacity-60",
                   )}
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
                     <PlatformBadge plateforme={c.plateforme} />
                     <Link
                       href={projectPath(`/comptes/${c._id}`)}
-                      className="font-mono text-sm font-medium text-slate-900 hover:text-primary hover:underline"
+                      className="truncate font-mono text-sm font-medium text-slate-900 hover:text-primary hover:underline"
                     >
                       {c.handle}
                     </Link>
+                    {c.managedByAdmin && (
+                      <span
+                        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[0.65rem] font-semibold text-slate-600"
+                        title="Compte géré par l'équipe"
+                      >
+                        <UsersIcon className="size-3" />
+                        Géré
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-3">
                     {progress && (
@@ -112,6 +136,12 @@ export function CreatorComptesSection({
         onOpenChange={(o) => !o && setEditTarget(null)}
         mode="edit"
         compte={editTarget ?? undefined}
+      />
+
+      <ManagedCompteDialog
+        open={managedOpen}
+        onOpenChange={setManagedOpen}
+        creatorId={creatorId}
       />
     </Card>
   );

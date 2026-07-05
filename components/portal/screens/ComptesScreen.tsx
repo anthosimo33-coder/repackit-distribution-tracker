@@ -35,7 +35,14 @@ export default function ComptesScreen() {
   const readOnly = useReadOnly();
   const [declareOpen, setDeclareOpen] = useState(false);
 
-  // @ à créer par réseau (consigne admin) — uniquement les réseaux renseignés.
+  // Comptes GÉRÉS par l'équipe : la créatrice ne crée pas le @ et ne fait pas le
+  // warmup/bio dessus → on les retire des consignes/notifs (l'équipe s'en charge).
+  const managedPlatforms = new Set(
+    (comptes ?? []).filter((c) => c.managedByAdmin).map((c) => c.plateforme),
+  );
+
+  // @ à créer par réseau (consigne admin) — uniquement les réseaux renseignés ET
+  // non gérés par l'équipe (un @ géré est créé par l'équipe, pas par la créatrice).
   const h = profile?.handlesToCreate ?? null;
   const handlesToCreate = h
     ? (
@@ -46,7 +53,9 @@ export default function ComptesScreen() {
         ] as const
       ).filter(
         (entry): entry is readonly ["TikTok" | "YouTube" | "Instagram", string] =>
-          typeof entry[1] === "string" && entry[1].length > 0,
+          typeof entry[1] === "string" &&
+          entry[1].length > 0 &&
+          !managedPlatforms.has(entry[0]),
       )
     : [];
 
@@ -54,13 +63,18 @@ export default function ComptesScreen() {
 
   // Notif in-app : comptes en warmup à faire/rattraper aujourd'hui (compteur
   // dérivé des comptes déjà chargés — même logique que countMyWarmupDue serveur).
+  // Comptes gérés exclus (l'équipe coche leur warmup).
   const dueToday = (comptes ?? []).filter(
-    (c) => getEffectiveStatus(c) === "warmup" && mustCheckToday(c),
+    (c) =>
+      !c.managedByAdmin &&
+      getEffectiveStatus(c) === "warmup" &&
+      mustCheckToday(c),
   );
 
   // Notif in-app : comptes dont l'admin a (re)défini la bio → à (re)appliquer.
+  // Comptes gérés exclus (l'équipe applique la bio sur le vrai compte).
   const bioDue = (comptes ?? []).filter(
-    (c) => !!c.bioToApply && c.bioStatus === "to_apply",
+    (c) => !c.managedByAdmin && !!c.bioToApply && c.bioStatus === "to_apply",
   );
 
   return (
