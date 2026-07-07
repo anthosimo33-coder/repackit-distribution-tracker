@@ -42,7 +42,12 @@ type EmbedResult = {
 /** Réplique de lib/model-video-embed.isTikTokShortlink. Exportée : réutilisée
  *  par la résolution de postUrl du tracking (convex/postUrlResolution.ts). */
 export function isTikTokShortlink(url: string): boolean {
-  return /^https?:\/\/(?:vm|vt)\.tiktok\.com\/[A-Za-z0-9]+/i.test(url.trim());
+  // DEUX formats de partage TikTok : sous-domaine (vm./vt.tiktok.com/CODE) ET
+  // chemin /t/ ((www.)tiktok.com/t/CODE). Le /t/ était non couvert → jamais
+  // résolu en canonique → tiktokPostId=null → post écarté de la sync → 0 vue.
+  return /^https?:\/\/(?:(?:vm|vt)\.tiktok\.com\/|(?:www\.)?tiktok\.com\/t\/)[A-Za-z0-9]+/i.test(
+    url.trim(),
+  );
 }
 
 /** Réplique de lib/model-video-embed.isTikTokHost (garde anti-SSRF). */

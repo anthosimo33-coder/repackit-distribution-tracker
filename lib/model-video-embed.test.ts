@@ -13,17 +13,27 @@ describe("videoExamplePlatform — Plateforme → identifiant VideoExample", () 
   });
 });
 
-describe("isTikTokShortlink — vm./vt.tiktok.com", () => {
-  it("détecte les shortlinks vm/vt", () => {
+describe("isTikTokShortlink — vm./vt.tiktok.com + chemin /t/", () => {
+  it("détecte les shortlinks vm/vt (sous-domaine)", () => {
     expect(isTikTokShortlink("https://vm.tiktok.com/ZNRT1H5GN/")).toBe(true);
     expect(isTikTokShortlink("https://vt.tiktok.com/ZSabc123/")).toBe(true);
     expect(isTikTokShortlink("HTTPS://VM.TIKTOK.COM/Xy9/")).toBe(true);
+  });
+
+  it("détecte le format /t/ ((www.)tiktok.com/t/CODE)", () => {
+    // Format de partage réel (post à 0 vue de prod) : sans ça, jamais résolu → 0.
+    expect(isTikTokShortlink("https://tiktok.com/t/ZP8GaTvfN/")).toBe(true);
+    expect(isTikTokShortlink("https://www.tiktok.com/t/ZP8GaTvfN/")).toBe(true);
+    expect(isTikTokShortlink("HTTPS://WWW.TIKTOK.COM/T/Abc123")).toBe(true);
   });
 
   it("ne matche pas une URL canonique ni une autre plateforme", () => {
     expect(
       isTikTokShortlink("https://www.tiktok.com/@dawoodzahidd/video/7638012892847066390"),
     ).toBe(false);
+    // Pas de faux positif sur /t/ : un @user commençant par « t » ni un /tag/.
+    expect(isTikTokShortlink("https://www.tiktok.com/@tuser/video/123")).toBe(false);
+    expect(isTikTokShortlink("https://www.tiktok.com/tag/foryou")).toBe(false);
     expect(isTikTokShortlink("https://www.instagram.com/reel/DRSPmo2DEfd/")).toBe(false);
     expect(isTikTokShortlink("https://youtu.be/abc123")).toBe(false);
   });

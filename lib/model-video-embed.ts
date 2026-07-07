@@ -25,12 +25,17 @@ export function videoExamplePlatform(plateforme: Plateforme): EmbedPlatform {
 }
 
 /**
- * Shortlink TikTok (vm.tiktok.com / vt.tiktok.com) : pointe vers une vidéo via
- * un redirect, mais l'oEmbed TikTok exige l'URL canonique (/@user/video/ID) →
- * doit être résolu serveur (suivi du redirect) avant l'embed.
+ * Shortlink TikTok : pointe vers une vidéo via un redirect, mais l'oEmbed / la
+ * sync métriques exigent l'URL canonique (/@user/video/ID) → doit être résolu
+ * serveur (suivi du redirect) avant l'embed. DEUX formats de partage TikTok :
+ *   - sous-domaine : vm.tiktok.com/CODE, vt.tiktok.com/CODE
+ *   - chemin /t/   : (www.)tiktok.com/t/CODE  ← ajouté (sinon jamais résolu ni
+ *     tracké : tiktokPostId renvoie null sur /t/, le post reste à 0 vue).
  */
 export function isTikTokShortlink(url: string): boolean {
-  return /^https?:\/\/(?:vm|vt)\.tiktok\.com\/[A-Za-z0-9]+/i.test(url.trim());
+  return /^https?:\/\/(?:(?:vm|vt)\.tiktok\.com\/|(?:www\.)?tiktok\.com\/t\/)[A-Za-z0-9]+/i.test(
+    url.trim(),
+  );
 }
 
 /**
