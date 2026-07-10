@@ -1,9 +1,9 @@
 "use client";
 
-import { CrownIcon, TrophyIcon } from "lucide-react";
+import type { FunctionReturnType } from "convex/server";
+import { CrownIcon, SendIcon, TrophyIcon } from "lucide-react";
 import { useProjectQuery } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -11,24 +11,22 @@ import { formatEuros } from "@/lib/format-rate";
 import { formatCycleRange } from "@/lib/pay-cycle";
 
 /**
- * Leaderboard admin des créateurs d'un projet — podium top 3 + liste (rang 4+),
- * classés sur les gains (`totalDue`) de LEUR cycle J+30 EN COURS. Source :
- * `api.payments.leaderboard` (déjà trié desc). Cycles désynchronisés (chacun
- * ancré sur son 1er post) → la fenêtre de cycle est affichée sous chaque nom.
+ * Leaderboard des créateurs d'un projet — podium top 3 + liste (rang 4+), classés
+ * sur les gains (`totalDue`) du cycle J+30 EN COURS de chaque créateur.
  *
- * Accent : token `primary` (piloté par projet via AccentStyle) — JAMAIS de hex
- * en dur. Les médailles or/argent/bronze (amber/slate/orange) sont des couleurs
- * FIXES, indépendantes de l'accent projet. Theme-aware (light + dark).
+ * `LeaderboardSection` est PRÉSENTATIONNEL (prend `data`) → réutilisé par la vue
+ * admin (`CreatorLeaderboard`, source `api.payments.leaderboard`) ET par le portail
+ * créateur (source `api.payments.projectLeaderboard`, cf components/portal). Le
+ * `rank` et le `isMe` viennent du serveur (même shape pour les deux sources).
+ *
+ * Accent : token `primary` (piloté par projet via AccentStyle) — JAMAIS de hex en
+ * dur. Médailles or/argent/bronze (amber/slate/orange) FIXES, indépendantes de
+ * l'accent. Surlignage `isMe` = teinte `primary`. Theme-aware (light + dark).
  */
 
-type Entry = {
-  creatorId: Id<"creators">;
-  name: string;
-  totalDue: number;
-  cycleStart: number;
-  cycleEnd: number;
-};
-type Ranked = Entry & { rank: number };
+export type LeaderboardEntry = FunctionReturnType<
+  typeof api.payments.leaderboard
+>[number];
 
 /** Médailles FIXES (hors accent projet) — or / argent / bronze. */
 const MEDAL: Record<
@@ -59,9 +57,7 @@ function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
   if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
-  return (
-    parts[0].charAt(0) + parts[parts.length - 1].charAt(0)
-  ).toUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
 }
 
 /** Avatar initiales sur fond d'accent projet (`primary`). Recopié de ProjectAvatar. */
@@ -85,40 +81,66 @@ function CreatorAvatar({
   );
 }
 
-export function CreatorLeaderboard() {
-  const data = useProjectQuery(api.payments.leaderboard, {});
+/** Pastille « Toi » pour repérer sa propre ligne. */
+function MePill() {
+  return (
+    <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+      Toi
+    </span>
+  );
+}
+
+export function LeaderboardSection({
+  data,
+  title = "Classement du cycle",
+  subtitle = "Gains du cycle en cours de chaque créateur (fenêtre J+30 personnelle, ancrée sur son premier post).",
+  selfInvite = false,
+}: {
+  data: LeaderboardEntry[] | undefined;
+  title?: string;
+  subtitle?: string;
+  /** Portail : affiche une invitation si l'appelant n'est pas (encore) classé. */
+  selfInvite?: boolean;
+}) {
+  const meRanked = data?.some((e) => e.isMe) ?? false;
+  const showInvite =
+    selfInvite && data !== undefined && data.length > 0 && !meRanked;
 
   return (
     <section className="space-y-4">
       <div className="space-y-1">
         <h2 className="text-lg font-semibold tracking-tight text-foreground">
-          Classement du cycle
+          {title}
         </h2>
-        <p className="text-sm text-muted-foreground">
-          Gains du cycle en cours de chaque créateur (fenêtre J+30 personnelle,
-          ancrée sur son premier post).
-        </p>
+        <p className="text-sm text-muted-foreground">{subtitle}</p>
       </div>
+      {showInvite && <SelfInviteBanner />}
       {data === undefined ? (
         <LeaderboardSkeleton />
       ) : data.length === 0 ? (
         <EmptyLeaderboard />
       ) : (
-        <LeaderboardContent entries={data} />
+        <LeaderboardBody entries={data} />
       )}
     </section>
   );
 }
 
-function LeaderboardContent({ entries }: { entries: Entry[] }) {
-  const ranked: Ranked[] = entries.map((e, i) => ({ ...e, rank: i + 1 }));
-  const podium = ranked.slice(0, 3);
-  const rest = ranked.slice(3);
+/** Vue admin — self-contained (source api.payments.leaderboard, scopé projet). */
+export function CreatorLeaderboard() {
+  const data = useProjectQuery(api.payments.leaderboard, {});
+  return <LeaderboardSection data={data} />;
+}
+
+function LeaderboardBody({ entries }: { entries: LeaderboardEntry[] }) {
+  // `entries` déjà triées + rankées côté serveur.
+  const podium = entries.slice(0, 3);
+  const rest = entries.slice(3);
   // Ordre à l'écran : 2e à gauche, 1er au centre, 3e à droite. filter(Boolean)
   // gère < 3 créateurs sans trou cassé.
   const podiumOrder = [podium[1], podium[0], podium[2]].filter(
     Boolean,
-  ) as Ranked[];
+  ) as LeaderboardEntry[];
 
   return (
     <div className="space-y-6">
@@ -145,7 +167,7 @@ function LeaderboardContent({ entries }: { entries: Entry[] }) {
   );
 }
 
-function PodiumSpot({ entry }: { entry: Ranked }) {
+function PodiumSpot({ entry }: { entry: LeaderboardEntry }) {
   const m = MEDAL[entry.rank as 1 | 2 | 3];
   // Pédestal décroissant 1 > 2 > 3 ; items-end aligne les bases → le 1er culmine.
   const pedestalH =
@@ -160,35 +182,53 @@ function PodiumSpot({ entry }: { entry: Ranked }) {
         )}
       </div>
 
-      {/* Avatar + anneau médaille + badge de rang chevauchant le bas. */}
-      <div className="relative mt-1">
-        <CreatorAvatar
-          name={entry.name}
+      {/* En-tête (surligné si c'est moi). */}
+      <div
+        className={cn(
+          "flex flex-col items-center rounded-xl px-2 pb-1",
+          entry.isMe && "bg-primary/5",
+        )}
+      >
+        {/* Avatar + anneau médaille + badge de rang chevauchant le bas. */}
+        <div className="relative mt-1">
+          <CreatorAvatar
+            name={entry.name}
+            className={cn(
+              "size-16 text-lg ring-2 ring-offset-2 ring-offset-background",
+              m.ring,
+            )}
+          />
+          <span
+            className={cn(
+              "absolute -bottom-2 left-1/2 -translate-x-1/2 rounded-full px-2 py-0.5 text-[10px] font-bold text-white shadow-sm",
+              m.badge,
+            )}
+          >
+            {m.label}
+          </span>
+        </div>
+
+        <p
           className={cn(
-            "size-16 text-lg ring-2 ring-offset-2 ring-offset-background",
-            m.ring,
-          )}
-        />
-        <span
-          className={cn(
-            "absolute -bottom-2 left-1/2 -translate-x-1/2 rounded-full px-2 py-0.5 text-[10px] font-bold text-white shadow-sm",
-            m.badge,
+            "mt-4 line-clamp-1 text-center text-sm font-semibold",
+            entry.isMe ? "text-primary" : "text-foreground",
           )}
         >
-          {m.label}
-        </span>
+          {entry.name}
+        </p>
+        <p className="text-sm font-bold tabular-nums text-foreground">
+          {formatEuros(entry.totalDue)}
+        </p>
+        {/* Fenêtre de cycle — obligatoire (mitigation de la désynchro). */}
+        <p className="mt-0.5 line-clamp-1 text-center text-[11px] text-muted-foreground">
+          {formatCycleRange(entry.cycleStart, entry.cycleEnd)}
+        </p>
+        {entry.isMe && (
+          <div className="mt-1">
+            <MePill />
+          </div>
+        )}
       </div>
-
-      <p className="mt-4 line-clamp-1 text-center text-sm font-semibold text-foreground">
-        {entry.name}
-      </p>
-      <p className="text-sm font-bold tabular-nums text-foreground">
-        {formatEuros(entry.totalDue)}
-      </p>
-      {/* Fenêtre de cycle — obligatoire (mitigation de la désynchro). */}
-      <p className="mt-0.5 line-clamp-1 text-center text-[11px] text-muted-foreground">
-        {formatCycleRange(entry.cycleStart, entry.cycleEnd)}
-      </p>
 
       {/* Pédestal — gros numéro de rang. */}
       <div
@@ -204,17 +244,30 @@ function PodiumSpot({ entry }: { entry: Ranked }) {
   );
 }
 
-function ListRow({ entry }: { entry: Ranked }) {
+function ListRow({ entry }: { entry: LeaderboardEntry }) {
   return (
-    <li className="flex items-center gap-3 p-2">
+    <li
+      className={cn(
+        "flex items-center gap-3 rounded-md p-2",
+        entry.isMe && "bg-primary/5",
+      )}
+    >
       <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold tabular-nums text-muted-foreground">
         {entry.rank}
       </span>
       <CreatorAvatar name={entry.name} className="size-9 text-xs" />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold text-foreground">
-          {entry.name}
-        </p>
+        <div className="flex items-center gap-1.5">
+          <p
+            className={cn(
+              "truncate text-sm font-semibold",
+              entry.isMe ? "text-primary" : "text-foreground",
+            )}
+          >
+            {entry.name}
+          </p>
+          {entry.isMe && <MePill />}
+        </div>
         <p className="truncate text-xs text-muted-foreground">
           {formatCycleRange(entry.cycleStart, entry.cycleEnd)}
         </p>
@@ -223,6 +276,17 @@ function ListRow({ entry }: { entry: Ranked }) {
         {formatEuros(entry.totalDue)}
       </span>
     </li>
+  );
+}
+
+function SelfInviteBanner() {
+  return (
+    <div className="flex items-center gap-3 rounded-lg bg-primary/5 p-3 ring-1 ring-primary/20">
+      <SendIcon className="size-5 shrink-0 text-primary" />
+      <p className="text-sm text-foreground">
+        Publie ton premier post pour entrer au classement.
+      </p>
+    </div>
   );
 }
 

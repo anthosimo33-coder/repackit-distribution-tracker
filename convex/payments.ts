@@ -594,53 +594,86 @@ export const getPaymentsAsAdmin = adminViewAsQuery({
 });
 
 /**
- * Leaderboard du projet — créateurs classés sur les gains de LEUR cycle J+30 EN
- * COURS (fenêtre perso ancrée sur firstPostAt). Métrique = `totalDue` du cycle
- * courant (fixe/CPM + bonus paliers cash = le vrai « à payer »). Réutilise
+ * Classement d'un projet sur les gains du cycle J+30 EN COURS de chaque créateur.
+ * Logique PARTAGÉE entre l'adminQuery `leaderboard` (vue admin) et la creatorQuery
+ * `projectLeaderboard` (portail créateur) — 0 duplication. Métrique = `totalDue`
+ * du cycle courant (fixe/CPM + bonus paliers cash = le vrai « à payer »). Réutilise
  * `cyclePaymentsForCreator` (le cycle courant y est TOUJOURS présent, même à 0 €)
- * et n'en garde QUE ce cycle. Créateur sans firstPostAt (aucun post publié) → pas
- * de cycle → exclu. Créateurs vivants uniquement (pas d'orphelins). Trié gains
- * desc, départage par nom. Cycles désynchronisés entre créateurs (chacun ancré
- * sur son 1er post) → chaque ligne porte SA fenêtre (cycleStart/cycleEnd).
+ * et n'en garde QUE ce cycle. Créateur sans firstPostAt (aucun post) → pas de cycle
+ * → exclu. Créateurs vivants uniquement (pas d'orphelins). Trié gains desc,
+ * départage par nom → `rank` (1-based). `isMe` marque la fiche de l'appelant
+ * (`meCreatorId` absent côté admin → tout false). Cycles désynchronisés (chacun
+ * ancré sur son 1er post) → chaque ligne porte SA fenêtre (cycleStart/cycleEnd).
  */
+async function computeProjectLeaderboard(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  now: number,
+  meCreatorId?: Id<"creators">,
+): Promise<
+  Array<{
+    creatorId: Id<"creators">;
+    name: string;
+    rank: number;
+    totalDue: number;
+    cycleStart: number;
+    cycleEnd: number;
+    isMe: boolean;
+  }>
+> {
+  const creators = await ctx.db
+    .query("creators")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+  const rows: Array<{
+    creatorId: Id<"creators">;
+    name: string;
+    totalDue: number;
+    cycleStart: number;
+    cycleEnd: number;
+  }> = [];
+  for (const c of creators) {
+    if (c.firstPostAt === undefined) continue; // aucun post → pas de cycle
+    const currentIndex = calcCycle(c.firstPostAt, now).cycleIndex;
+    const cycles = await cyclePaymentsForCreator(ctx, projectId, c._id, now);
+    const current = cycles.find((cy) => cy.cycleIndex === currentIndex);
+    if (!current) continue; // garde défensive (toujours présent en théorie)
+    rows.push({
+      creatorId: c._id,
+      name: c.name,
+      totalDue: current.totalDue,
+      cycleStart: current.cycleStart,
+      cycleEnd: current.cycleEnd,
+    });
+  }
+  rows.sort(
+    (a, b) => b.totalDue - a.totalDue || a.name.localeCompare(b.name, "fr"),
+  );
+  return rows.map((r, i) => ({
+    ...r,
+    rank: i + 1,
+    isMe: meCreatorId !== undefined && r.creatorId === meCreatorId,
+  }));
+}
+
+/** Leaderboard ADMIN du projet (cf computeProjectLeaderboard). isMe tout false. */
 export const leaderboard = adminQuery({
   args: {},
-  handler: async (ctx) => {
-    const creators = await ctx.db
-      .query("creators")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
-    const now = Date.now();
-    const rows: Array<{
-      creatorId: Id<"creators">;
-      name: string;
-      totalDue: number;
-      cycleStart: number;
-      cycleEnd: number;
-    }> = [];
-    for (const c of creators) {
-      if (c.firstPostAt === undefined) continue; // aucun post → pas de cycle
-      const currentIndex = calcCycle(c.firstPostAt, now).cycleIndex;
-      const cycles = await cyclePaymentsForCreator(
-        ctx,
-        ctx.projectId,
-        c._id,
-        now,
-      );
-      const current = cycles.find((cy) => cy.cycleIndex === currentIndex);
-      if (!current) continue; // garde défensive (toujours présent en théorie)
-      rows.push({
-        creatorId: c._id,
-        name: c.name,
-        totalDue: current.totalDue,
-        cycleStart: current.cycleStart,
-        cycleEnd: current.cycleEnd,
-      });
-    }
-    return rows.sort(
-      (a, b) => b.totalDue - a.totalDue || a.name.localeCompare(b.name, "fr"),
-    );
-  },
+  handler: async (ctx) =>
+    computeProjectLeaderboard(ctx, ctx.projectId, Date.now()),
+});
+
+/**
+ * Leaderboard PORTAIL créateur — MÊME classement, exposé à la créatrice
+ * (transparence assumée : gains de toutes visibles). Le wrapper `creatorQuery`
+ * VÉRIFIE que l'appelant est bien créateur de `projectId` (requireCreator → rejet
+ * cross-projet, aucune fuite d'un projet où elle n'est pas) et injecte
+ * `ctx.creatorId` → `isMe` marque sa propre ligne. Même helper que la vue admin.
+ */
+export const projectLeaderboard = creatorQuery({
+  args: {},
+  handler: async (ctx) =>
+    computeProjectLeaderboard(ctx, ctx.projectId, Date.now(), ctx.creatorId),
 });
 
 // ─── Mutations admin — marquer payé (idempotent) ─────────────────────────────
