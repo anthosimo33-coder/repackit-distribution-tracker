@@ -6,6 +6,7 @@ import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
 import { PaymentInfoNudge } from "@/components/portal/PaymentInfoNudge";
+import { PortalLeaderboard } from "@/components/portal/PortalLeaderboard";
 import {
   useMyAssignments,
   useWarmupDue,
@@ -306,6 +307,11 @@ export default function DashboardScreen() {
         payoutDays={payoutDays}
         detailHref={portalHref(base, "/paiements")}
       />
+
+      {/* 6. Classement du projet — gains de tous visibles (transparence assumée),
+          soi surligné. Scopé/sécurisé serveur (creatorQuery), view-as géré via le
+          hook d'indirection. */}
+      <PortalLeaderboard />
     </div>
   );
 }

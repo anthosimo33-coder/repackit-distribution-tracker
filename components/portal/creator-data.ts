@@ -157,6 +157,29 @@ export function useMyPayments(projectId: Id<"projects">) {
   return va ? asAdmin : mine;
 }
 
+/**
+ * Classement du projet (portail créateur). Créateur normal → creatorQuery
+ * `projectLeaderboard` (vérifie l'appartenance au projet côté serveur, injecte
+ * isMe). View-as admin → adminQuery `leaderboard` EXISTANTE (l'admin y a accès) +
+ * isMe recalculé pour le créateur ciblé — pas de query view-as dédiée (un seul
+ * nouveau query backend). Shapes identiques → aucun branchement de type côté écran.
+ */
+export function useProjectLeaderboard(projectId: Id<"projects">) {
+  const va = useViewAs();
+  const mine = useQuery(
+    api.payments.projectLeaderboard,
+    va ? "skip" : { projectId },
+  );
+  const asAdmin = useQuery(
+    api.payments.leaderboard,
+    va ? { projectId } : "skip",
+  );
+  if (va) {
+    return asAdmin?.map((e) => ({ ...e, isMe: e.creatorId === va.creatorId }));
+  }
+  return mine;
+}
+
 export function useMyProfile(projectId: Id<"projects">) {
   const va = useViewAs();
   const mine = useQuery(
