@@ -37,6 +37,7 @@ import { cn } from "@/lib/utils";
 import { InviteCreatorDialog } from "@/components/creators/InviteCreatorDialog";
 import { DeleteCreatorDialog } from "@/components/creators/DeleteCreatorDialog";
 import { joinUrl } from "@/components/creators/CopyableLink";
+import { CreatorLeaderboard } from "@/components/admin/leaderboard/CreatorLeaderboard";
 
 export default function CreateursPage() {
   const creators = useProjectQuery(api.creators.listCreators, {});
@@ -85,6 +86,8 @@ export default function CreateursPage() {
           Inviter un créateur
         </Button>
       </header>
+
+      <CreatorLeaderboard />
 
       {creators === undefined ? (
         <Skeleton className="h-64 w-full" />

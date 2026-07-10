@@ -593,6 +593,56 @@ export const getPaymentsAsAdmin = adminViewAsQuery({
     cyclePaymentsForCreator(ctx, ctx.projectId, ctx.creatorId, Date.now()),
 });
 
+/**
+ * Leaderboard du projet — créateurs classés sur les gains de LEUR cycle J+30 EN
+ * COURS (fenêtre perso ancrée sur firstPostAt). Métrique = `totalDue` du cycle
+ * courant (fixe/CPM + bonus paliers cash = le vrai « à payer »). Réutilise
+ * `cyclePaymentsForCreator` (le cycle courant y est TOUJOURS présent, même à 0 €)
+ * et n'en garde QUE ce cycle. Créateur sans firstPostAt (aucun post publié) → pas
+ * de cycle → exclu. Créateurs vivants uniquement (pas d'orphelins). Trié gains
+ * desc, départage par nom. Cycles désynchronisés entre créateurs (chacun ancré
+ * sur son 1er post) → chaque ligne porte SA fenêtre (cycleStart/cycleEnd).
+ */
+export const leaderboard = adminQuery({
+  args: {},
+  handler: async (ctx) => {
+    const creators = await ctx.db
+      .query("creators")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const now = Date.now();
+    const rows: Array<{
+      creatorId: Id<"creators">;
+      name: string;
+      totalDue: number;
+      cycleStart: number;
+      cycleEnd: number;
+    }> = [];
+    for (const c of creators) {
+      if (c.firstPostAt === undefined) continue; // aucun post → pas de cycle
+      const currentIndex = calcCycle(c.firstPostAt, now).cycleIndex;
+      const cycles = await cyclePaymentsForCreator(
+        ctx,
+        ctx.projectId,
+        c._id,
+        now,
+      );
+      const current = cycles.find((cy) => cy.cycleIndex === currentIndex);
+      if (!current) continue; // garde défensive (toujours présent en théorie)
+      rows.push({
+        creatorId: c._id,
+        name: c.name,
+        totalDue: current.totalDue,
+        cycleStart: current.cycleStart,
+        cycleEnd: current.cycleEnd,
+      });
+    }
+    return rows.sort(
+      (a, b) => b.totalDue - a.totalDue || a.name.localeCompare(b.name, "fr"),
+    );
+  },
+});
+
 // ─── Mutations admin — marquer payé (idempotent) ─────────────────────────────
 
 /**
