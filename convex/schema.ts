@@ -74,6 +74,13 @@ export default defineSchema({
         }),
       ),
     ),
+    // ─── Grille de bonus par DÉFAUT du projet (paliers cumul de vues) ──────────
+    // Grille (pricings) héritée par toute créatrice SANS grille perso
+    // (creators.bonusPricingId). Sert l'AFFICHAGE (progression) ET la PAIE
+    // (déblocages) via effectiveBonusPricing → cohérence garantie. La grille
+    // perso PRIME. undefined = pas de défaut (comportement historique : une
+    // créatrice sans grille perso n'a aucun palier). Optional → 0 migration.
+    defaultBonusPricingId: v.optional(v.id("pricings")),
   }).index("by_slug", ["slug"]),
 
   // Appartenance d'un user à un projet, avec rôle par-projet. Le superadmin
