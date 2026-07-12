@@ -327,6 +327,9 @@ function frozenBreakdownOf(p: Doc<"payments">): PricingBreakdown {
     fixedTotal,
     cpmTotal,
     bonusTierCashTotal,
+    // Gelé : lineItem bonus_tier AGRÉGÉE → pas de détail par palier récupérable.
+    // La vue retombe sur la ligne agrégée (bonusTierCashTotal).
+    bonusTierCashUnlocks: [],
     total: round2(fixedTotal + cpmTotal + bonusTierCashTotal),
     perPricing: [],
     perAssignment: [],

@@ -16,6 +16,7 @@ import {
   useCreatorProject,
 } from "@/components/portal/CreatorProjectProvider";
 import { CreatorProjectSwitcher } from "@/components/portal/CreatorProjectSwitcher";
+import { ProgressionCelebration } from "@/components/portal/ProgressionCelebration";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { getCreatorTools } from "@/lib/creator-tools";
 import { isSnytchProject } from "@/lib/snytch-drive";
@@ -112,6 +113,8 @@ function CreatorShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-slate-50 md:flex" style={accentVars}>
       <AccentStyle accent={accent} />
+      {/* Célébration globale à la traversée d'un palier (créateur uniquement). */}
+      <ProgressionCelebration projectId={current.projectId} />
 
       {/* Header MOBILE (< md) : switcher | (Guide si outils) + déconnexion. */}
       <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 md:hidden">

@@ -1095,6 +1095,13 @@ export default defineSchema({
     // "YYYY-MM" — période où la récompense cash compte (cf periodOf). Jamais une
     // période déjà payée (rollover sur la période ouverte courante).
     attributionPeriod: v.string(),
+    // ─── Marqueur "célébration vue" (progression créateur) ────────────────────
+    // UI SEULE : timestamp (ms) où la créatrice a vu l'overlay de célébration de
+    // CE palier. N'entre dans AUCUN calcul € (ni totalDue, ni breakdown) — seul
+    // le portail progression le lit. undefined = pas encore vu → candidat à la
+    // célébration (borné à CELEBRATION_MAX_AGE_MS pour ne pas rejouer l'historique
+    // au 1er déploiement). Optional → 0 migration. Cf convex/progression.ts.
+    celebrationSeenAt: v.optional(v.number()),
   })
     .index("by_creator", ["creatorId"])
     .index("by_project", ["projectId"])
