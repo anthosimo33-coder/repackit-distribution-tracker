@@ -391,6 +391,10 @@ export async function syncBonusForPublication(
 export interface PricingBreakdown extends MonthlyPayout {
   /** Bonus cash des paliers débloqués ATTRIBUÉS à cette période (persistés). */
   bonusTierCashTotal: number;
+  /** DÉTAIL par palier des unlocks cash de la période (AFFICHAGE seulement — la
+   *  somme = bonusTierCashTotal, `total` inchangé). Vide sur un breakdown gelé
+   *  (lineItems agrégées) → la vue retombe sur la ligne agrégée. */
+  bonusTierCashUnlocks: { seuilVues: number; montant: number }[];
 }
 
 /**
@@ -445,9 +449,15 @@ export async function computeLivePricingBreakdown(
   const bonusTierCashTotal = round2(
     cashUnlocks.reduce((s, u) => s + (u.montant ?? 0), 0),
   );
+  // Détail par palier (AFFICHAGE) — même liste `cashUnlocks` déjà sommée
+  // ci-dessus : la somme des montants = bonusTierCashTotal, `total` inchangé.
+  const bonusTierCashUnlocks = cashUnlocks
+    .map((u) => ({ seuilVues: u.seuilVues, montant: u.montant ?? 0 }))
+    .sort((a, b) => a.seuilVues - b.seuilVues);
   return {
     ...base,
     bonusTierCashTotal,
+    bonusTierCashUnlocks,
     total: round2(base.total + bonusTierCashTotal),
   };
 }
@@ -507,9 +517,15 @@ export async function computeCyclePricingBreakdown(
   const bonusTierCashTotal = round2(
     cashUnlocks.reduce((s, u) => s + (u.montant ?? 0), 0),
   );
+  // Détail par palier (AFFICHAGE) — même liste `cashUnlocks` déjà sommée
+  // ci-dessus : la somme des montants = bonusTierCashTotal, `total` inchangé.
+  const bonusTierCashUnlocks = cashUnlocks
+    .map((u) => ({ seuilVues: u.seuilVues, montant: u.montant ?? 0 }))
+    .sort((a, b) => a.seuilVues - b.seuilVues);
   return {
     ...base,
     bonusTierCashTotal,
+    bonusTierCashUnlocks,
     total: round2(base.total + bonusTierCashTotal),
   };
 }

@@ -1,17 +1,20 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { api } from "@/convex/_generated/api";
 import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
 import { PaymentInfoNudge } from "@/components/portal/PaymentInfoNudge";
 import { useMyPayments, useMyBonusStatus } from "@/components/portal/creator-data";
+import { usePortalBase } from "@/components/portal/ViewAsContext";
+import { portalHref } from "@/lib/view-as";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { formatEuros } from "@/lib/format-rate";
 import { formatDate } from "@/lib/format";
 import { formatCycleRange } from "@/lib/pay-cycle";
-import { ChevronRightIcon } from "lucide-react";
+import { ArrowRightIcon, ChevronRightIcon } from "lucide-react";
 import type { FunctionReturnType } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -34,6 +37,7 @@ const fmtViews = (n: number) => n.toLocaleString("fr-FR");
  */
 function BonusTierPanel({ projectId }: { projectId: Id<"projects"> }) {
   const status = useMyBonusStatus(projectId);
+  const base = usePortalBase();
   if (!status || (status.tiers.length === 0 && status.natureUnlocked.length === 0))
     return null;
   const next = status.nextTier;
@@ -101,6 +105,13 @@ function BonusTierPanel({ projectId }: { projectId: Id<"projects"> }) {
             ))}
           </div>
         )}
+        <Link
+          href={portalHref(base, "/progression")}
+          className="inline-flex items-center gap-1 pt-1 text-sm font-medium text-amber-900 underline underline-offset-4 hover:text-amber-700"
+        >
+          Voir ma progression
+          <ArrowRightIcon className="size-3.5" />
+        </Link>
       </CardContent>
     </Card>
   );
@@ -154,9 +165,21 @@ function PricingBreakdown({ b }: { b: Payment["pricingBreakdown"] }) {
         amount={b.fixedTotal}
       />
       <Row label="CPM accumulé (sur tes vues)" amount={b.cpmTotal} />
-      {b.bonusTierCashTotal > 0 && (
-        <Row label="Bonus paliers (cumul de vues)" amount={b.bonusTierCashTotal} />
-      )}
+      {b.bonusTierCashTotal > 0 &&
+        (b.bonusTierCashUnlocks.length > 0 ? (
+          // Une ligne par palier cash débloqué sur ce cycle (cohérent avec la
+          // paie : Σ montants = bonusTierCashTotal, sous-total inchangé).
+          b.bonusTierCashUnlocks.map((u, i) => (
+            <Row
+              key={i}
+              label={`Bonus palier ${fmtViews(u.seuilVues)} vues`}
+              amount={u.montant}
+            />
+          ))
+        ) : (
+          // Cycle gelé (payé) → détail par palier indisponible : ligne agrégée.
+          <Row label="Bonus paliers (cumul de vues)" amount={b.bonusTierCashTotal} />
+        ))}
       <div className="flex items-center justify-between border-t border-slate-100 pt-2 text-sm font-semibold">
         <span>Sous-total pricing</span>
         <span className="tabular-nums" data-testid="pricing-total">

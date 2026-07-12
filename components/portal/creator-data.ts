@@ -170,6 +170,21 @@ export function useMyProfile(projectId: Id<"projects">) {
   return va ? asAdmin : mine;
 }
 
+/** Progression (échelle des paliers + victoires + célébrations). View-as →
+ *  getProgressionAsAdmin (adminViewAsQuery : admin+projet+creator∈projet). */
+export function useMyProgression(projectId: Id<"projects">) {
+  const va = useViewAs();
+  const mine = useQuery(
+    api.progression.getMyProgression,
+    va ? "skip" : { projectId },
+  );
+  const asAdmin = useQuery(
+    api.progression.getProgressionAsAdmin,
+    va ? { projectId, creatorId: va.creatorId } : "skip",
+  );
+  return va ? asAdmin : mine;
+}
+
 /** Statut bonus (paliers). View-as → getCreatorBonusStatus (adminQuery existant). */
 export function useMyBonusStatus(projectId: Id<"projects">) {
   const va = useViewAs();

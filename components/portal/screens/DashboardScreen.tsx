@@ -13,9 +13,11 @@ import {
   useMyPayments,
   useOnboardingState,
   useMyVideoStats,
+  useMyProgression,
 } from "@/components/portal/creator-data";
 import { usePortalBase } from "@/components/portal/ViewAsContext";
 import { portalHref } from "@/lib/view-as";
+import { buildProgression } from "@/lib/progression";
 import {
   deriveOnboarding,
   type StepState,
@@ -43,6 +45,7 @@ import {
   PartyPopperIcon,
   RotateCcwIcon,
   SendIcon,
+  TrophyIcon,
   UsersIcon,
   WalletIcon,
   type LucideIcon,
@@ -208,6 +211,11 @@ export default function DashboardScreen() {
               <AssignmentList items={toProduce} base={base} />
             </ActionBlock>
           )}
+
+          {/* 1 bis. Prochain palier de récompense (compact) — sous « à produire »
+              qui reste la priorité. Tap → écran Progression. null si aucun
+              prochain palier (grille absente ou tout débloqué). */}
+          <NextTierCard projectId={projectId} base={base} />
 
           {/* 2. Warmups à cocher aujourd'hui — masqué pendant l'onboarding pur
               (la checklist porte déjà l'étape warmup). */}
@@ -629,6 +637,67 @@ function BlockCta({ href, label }: { href: string; label: string }) {
     >
       {label}
       <ArrowRightIcon className="size-4" />
+    </Link>
+  );
+}
+
+/**
+ * Carte COMPACTE « prochain palier » (Accueil) : récompense visée + barre de
+ * progression + « plus que X vues ». Tap → écran Progression. Accent = primary
+ * du projet. Rendu null si aucun prochain palier (grille absente / tout
+ * débloqué) → footprint minimal sur un Accueil déjà dense.
+ */
+function NextTierCard({
+  projectId,
+  base,
+}: {
+  projectId: Id<"projects">;
+  base: string;
+}) {
+  const raw = useMyProgression(projectId);
+  const p = raw ? buildProgression(raw) : null;
+  if (!p || !p.nextReward) return null;
+  const reward = p.nextReward;
+  const pct = Math.round(p.progressToNext * 100);
+  return (
+    <Link
+      href={portalHref(base, "/progression")}
+      className="block"
+      data-testid="next-tier-card"
+    >
+      <Card className="transition-colors hover:bg-slate-50">
+        <CardContent className="space-y-2.5 py-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <TrophyIcon className="size-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-slate-900">
+                Prochain palier
+              </p>
+              <p className="truncate text-xs text-slate-500">
+                {reward.kind === "cash"
+                  ? formatEuros(reward.amount)
+                  : `${reward.emoji} ${reward.label}`}
+              </p>
+            </div>
+            <ArrowRightIcon className="size-4 shrink-0 text-slate-400" />
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-primary/10">
+            <div
+              className="h-full rounded-full bg-primary transition-all"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <p className="text-xs text-slate-500">
+            Plus que{" "}
+            <span className="font-semibold tabular-nums text-slate-700">
+              {formatViews(p.remainingViews)}
+            </span>{" "}
+            vues.
+          </p>
+        </CardContent>
+      </Card>
     </Link>
   );
 }
