@@ -291,15 +291,37 @@ export async function creatorCumulViews(
   return cumul;
 }
 
-/** Grille de paliers du créateur (son bonusPricingId) — [] si aucune. */
+/**
+ * Grille de bonus EFFECTIVE d'un créateur : sa grille PERSO (bonusPricingId) si
+ * posée, SINON la grille par DÉFAUT du projet (projects.defaultBonusPricingId).
+ * Source UNIQUE partagée par l'AFFICHAGE (progression, bonusStatusFor) ET la PAIE
+ * (syncBonusUnlocks) → échelle et déblocages TOUJOURS cohérents (jamais de palier
+ * affiché mais non payé). La grille perso PRIME sur le défaut. null = aucune
+ * grille (ni perso ni défaut). `pricingId` = grille réellement utilisée (clé des
+ * unlocks). Lecture LIVE du doc pricing (aucun snapshot).
+ */
+export async function effectiveBonusPricing(
+  ctx: QueryCtx | MutationCtx,
+  creator: Doc<"creators">,
+): Promise<{ pricingId: Id<"pricings">; tiers: BonusTier[] } | null> {
+  let pricingId = creator.bonusPricingId;
+  if (!pricingId) {
+    const project = await ctx.db.get(creator.projectId);
+    pricingId = project?.defaultBonusPricingId;
+  }
+  if (!pricingId) return null;
+  const pricing = await ctx.db.get(pricingId);
+  if (!pricing || pricing.projectId !== creator.projectId) return null;
+  return { pricingId, tiers: tiersOf(pricing) };
+}
+
+/** Grille de paliers du créateur (perso, sinon défaut projet) — [] si aucune. */
 export async function creatorBonusTiers(
   ctx: QueryCtx | MutationCtx,
   creator: Doc<"creators">,
 ): Promise<BonusTier[]> {
-  if (!creator.bonusPricingId) return [];
-  const pricing = await ctx.db.get(creator.bonusPricingId);
-  if (!pricing || pricing.projectId !== creator.projectId) return [];
-  return tiersOf(pricing);
+  const eff = await effectiveBonusPricing(ctx, creator);
+  return eff?.tiers ?? [];
 }
 
 /**
@@ -316,9 +338,11 @@ export async function syncBonusUnlocks(
 ): Promise<{ unlocked: number }> {
   const creator = await ctx.db.get(creatorId);
   if (!creator || creator.projectId !== projectId) return { unlocked: 0 };
-  const tiers = await creatorBonusTiers(ctx, creator);
-  if (tiers.length === 0) return { unlocked: 0 };
-  const pricingId = creator.bonusPricingId!;
+  // Grille EFFECTIVE (perso ou défaut projet) → mêmes paliers que l'affichage,
+  // et `pricingId` de la grille réellement utilisée (clé d'idempotence).
+  const eff = await effectiveBonusPricing(ctx, creator);
+  if (!eff || eff.tiers.length === 0) return { unlocked: 0 };
+  const { pricingId, tiers } = eff;
   const cumul = await creatorCumulViews(ctx, projectId, creatorId);
   const now = Date.now();
   let unlocked = 0;
@@ -764,6 +788,53 @@ export const getCreatorBonusStatus = adminQuery({
     const creator = await ctx.db.get(creatorId);
     if (!creator || creator.projectId !== ctx.projectId) return null;
     return bonusStatusFor(ctx, ctx.projectId, creator);
+  },
+});
+
+/** ADMIN — grille de bonus par DÉFAUT du projet (id ou null). */
+export const getDefaultBonusPricingId = adminQuery({
+  args: {},
+  handler: async (ctx): Promise<Id<"pricings"> | null> => {
+    const project = await ctx.db.get(ctx.projectId);
+    return project?.defaultBonusPricingId ?? null;
+  },
+});
+
+/**
+ * ADMIN — désigne (ou retire avec null) la grille de bonus par DÉFAUT du projet.
+ * Toute créatrice SANS grille perso en hérite pour l'échelle ET la paie
+ * (cf effectiveBonusPricing). Matérialise IMMÉDIATEMENT (idempotent) les paliers
+ * déjà atteints par ces créatrices → leurs bonus cash entrent en paie au prochain
+ * cycle ouvert. N'affecte PAS les créatrices à grille perso, ni les cycles déjà
+ * payés (gel intact), ni Fixe/CPM.
+ * ⚠️ Changer le défaut X→Y peut re-débloquer un même seuil sous la nouvelle
+ * grille (clé d'idempotence = creatorId+pricingId+seuil) — même propriété qu'un
+ * changement de grille perso ; à réserver aux (rares) reconfigurations assumées.
+ */
+export const setDefaultBonusPricing = adminMutation({
+  args: { pricingId: v.union(v.id("pricings"), v.null()) },
+  handler: async (ctx, { pricingId }): Promise<{ synced: number }> => {
+    if (pricingId !== null) {
+      const pricing = await ctx.db.get(pricingId);
+      if (!pricing || pricing.projectId !== ctx.projectId) {
+        throw new ConvexError("Pricing introuvable dans le projet.");
+      }
+    }
+    await ctx.db.patch(ctx.projectId, {
+      defaultBonusPricingId: pricingId ?? undefined,
+    });
+    // Créatrices SANS grille perso → héritent du défaut : sync immédiat.
+    const creators = await ctx.db
+      .query("creators")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    let synced = 0;
+    for (const c of creators) {
+      if (c.bonusPricingId) continue;
+      await syncBonusUnlocks(ctx, ctx.projectId, c._id);
+      synced += 1;
+    }
+    return { synced };
   },
 });
 

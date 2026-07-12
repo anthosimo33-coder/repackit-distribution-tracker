@@ -37,6 +37,7 @@ import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { formatEuros } from "@/lib/format-rate";
 import type { FunctionReturnType } from "convex/server";
+import type { Id } from "@/convex/_generated/dataModel";
 
 type Pricing = FunctionReturnType<typeof api.pricing.listPricings>[number];
 
@@ -67,6 +68,11 @@ export default function PricingsPage() {
   const update = useProjectMutation(api.pricing.updatePricing);
   const archive = useProjectMutation(api.pricing.archivePricing);
   const remove = useProjectMutation(api.pricing.deletePricing);
+  const defaultBonusId = useProjectQuery(
+    api.pricing.getDefaultBonusPricingId,
+    {},
+  );
+  const setDefaultBonus = useProjectMutation(api.pricing.setDefaultBonusPricing);
 
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Pricing | null>(null);
@@ -158,6 +164,26 @@ export default function PricingsPage() {
     }
   }
 
+  async function handleSetDefaultBonus(value: string | null) {
+    const none = value === null || value === "none";
+    try {
+      const res = await setDefaultBonus({
+        pricingId: none ? null : (value as Id<"pricings">),
+      });
+      toast.success(
+        none
+          ? "Grille de bonus par défaut retirée"
+          : `Grille par défaut appliquée${
+              res.synced > 0
+                ? ` · ${res.synced} créatrice${res.synced > 1 ? "s" : ""} concernée${res.synced > 1 ? "s" : ""}`
+                : ""
+            }`,
+      );
+    } catch (e) {
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+    }
+  }
+
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
@@ -174,6 +200,56 @@ export default function PricingsPage() {
           Nouveau pricing
         </Button>
       </header>
+
+      {/* Grille de bonus par défaut du projet — héritée par les créatrices sans
+          grille perso (échelle de progression + déblocage des bonus). */}
+      {pricings &&
+        pricings.some(
+          (p) => p.status === "active" && (p.bonusTiers?.length ?? 0) > 0,
+        ) && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                Grille de bonus par défaut du projet
+              </CardTitle>
+              <CardDescription>
+                Les créatrices sans grille perso en héritent (échelle de
+                progression + déblocage des bonus). Ajouter un palier ici
+                s&apos;applique à toutes, sans réassignation. Une grille perso de
+                créatrice prime sur ce défaut.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Select
+                value={defaultBonusId ?? "none"}
+                onValueChange={handleSetDefaultBonus}
+              >
+                <SelectTrigger
+                  className="w-full sm:w-96"
+                  aria-label="Grille de bonus par défaut du projet"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">
+                    Aucune (grille par créatrice)
+                  </SelectItem>
+                  {pricings
+                    .filter(
+                      (p) =>
+                        p.status === "active" &&
+                        (p.bonusTiers?.length ?? 0) > 0,
+                    )
+                    .map((p) => (
+                      <SelectItem key={p._id} value={p._id}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </CardContent>
+          </Card>
+        )}
 
       {pricings === undefined ? (
         <Skeleton className="h-40 w-full" />
