@@ -52,4 +52,16 @@ crons.weekly(
   {},
 );
 
+// Revenu Whop (rentabilité P2) — ingestion HORAIRE des paiements de chaque projet
+// configuré (projects.whop) via l'API Whop. Un délai ~1h est acceptable (pas de
+// temps réel, pas de webhook). Idempotent (dédup par whopId) → re-synchroniser ne
+// duplique pas. minuteUTC:30 pour décaler des relevés de vues (07/08/09h UTC).
+// Aucun arg → tous les projets configurés. Cf convex/whopSync.ts.
+crons.hourly(
+  "whop-revenue-sync",
+  { minuteUTC: 30 },
+  internal.whopSync.runHourlySync,
+  {},
+);
+
 export default crons;

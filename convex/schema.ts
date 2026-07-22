@@ -81,6 +81,24 @@ export default defineSchema({
     // perso PRIME. undefined = pas de défaut (comportement historique : une
     // créatrice sans grille perso n'a aucun palier). Optional → 0 migration.
     defaultBonusPricingId: v.optional(v.id("pricings")),
+    // ─── Ingestion revenu Whop (rentabilité P2) — mapping projet ↔ compte Whop ─
+    // Chaque projet Jarvia peut être relié à UN compte Whop (company) et,
+    // optionnellement, à des plans/produits précis. La CLÉ API Whop n'est JAMAIS
+    // stockée ici (secret) : `apiKeyEnvVar` NOMME la variable d'environnement
+    // (Convex env) qui la porte — la clé vit uniquement dans l'env, jamais en base
+    // ni en dur. companyId (ex. Snytch "biz_e1zcXWKzcgHgt9") et planIds ne sont
+    // pas secrets. Absent = pas d'ingestion Whop pour ce projet. Posé via
+    // whopSync.setWhopConfigBySlug (interne, `npx convex run`).
+    whop: v.optional(
+      v.object({
+        companyId: v.string(),
+        // Restreint l'import à ces plans/produits (anti-mélange si une même
+        // company sert plusieurs projets). Vide/absent = tous les paiements.
+        planIds: v.optional(v.array(v.string())),
+        // NOM de la variable d'env portant la clé API (jamais la clé elle-même).
+        apiKeyEnvVar: v.string(),
+      }),
+    ),
   }).index("by_slug", ["slug"]),
 
   // Appartenance d'un user à un projet, avec rôle par-projet. Le superadmin
@@ -1187,6 +1205,52 @@ export default defineSchema({
   })
     .index("by_project_period", ["projectId", "period"])
     .index("by_creator", ["creatorId"]),
+
+  // ─── Revenu Whop importé (rentabilité P2) — 1 row = 1 paiement Whop ─────────
+  // Alimentée par le cron horaire (convex/whopSync) qui interroge l'API Whop du
+  // compte rattaché au projet (projects.whop). DÉDUPLIQUÉE par whopId (idempotent :
+  // re-synchroniser MET À JOUR statut/montants — ex. paid→refunded — sans jamais
+  // créer de doublon). Rattachée au bon projet via le mapping (jamais de mélange).
+  // Le NET (montant qui arrive réellement sur le solde après frais Whop) est le
+  // champ de PILOTAGE ; brut + frais conservés pour la transparence. Un
+  // remboursement (statut "refunded" et/ou refundedAmount > 0) FAIT BAISSER le net
+  // effectif ; un paiement échoué/pending ne compte pas (cf lib/whop-revenue).
+  whopPayments: defineTable({
+    projectId: v.id("projects"),
+    // ID Whop du paiement — clé de DÉDUP (unique côté Whop).
+    whopId: v.string(),
+    // Statut NORMALISÉ (cf lib/whop-revenue.normalizeWhopStatus) ; rawStatus garde
+    // la valeur brute de l'API pour l'audit/debug.
+    status: v.union(
+      v.literal("paid"),
+      v.literal("refunded"),
+      v.literal("failed"),
+      v.literal("pending"),
+      v.literal("disputed"),
+      v.literal("other"),
+    ),
+    rawStatus: v.string(),
+    currency: v.string(),
+    // Montants dans l'unité de la devise (nombre décimal, ex. USD). grossAmount =
+    // brut encaissé ; feeAmount = frais Whop ; netAmount = net réellement settlé
+    // (brut − frais) ; refundedAmount = montant remboursé (0 si aucun) → diminue
+    // le net EFFECTIF (netContribution). Le net est le chiffre de pilotage.
+    grossAmount: v.number(),
+    feeAmount: v.number(),
+    netAmount: v.number(),
+    refundedAmount: v.number(),
+    // Date du paiement (ms epoch) — quand l'argent est entré (ou a été tenté).
+    paidAt: v.number(),
+    // Produit/plan + membership Whop (rattachement fin + affichage) si l'API les
+    // fournit. planId sert AUSSI au filtrage anti-mélange (projects.whop.planIds).
+    planId: v.optional(v.string()),
+    membershipId: v.optional(v.string()),
+    importedAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_whopId", ["whopId"])
+    .index("by_project_paidAt", ["projectId", "paidAt"]),
 
   // ─── S1 — Système de scripts combinatoire ─────────────────────────────────
   // Refonte 3 briques — une vidéo = 1 hook + 1 flux + 1 cta. Une "campagne de

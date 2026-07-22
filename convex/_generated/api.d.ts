@@ -63,6 +63,9 @@ import type * as snytchDrive from "../snytchDrive.js";
 import type * as storage from "../storage.js";
 import type * as trackerData from "../trackerData.js";
 import type * as warmup from "../warmup.js";
+import type * as whopApi from "../whopApi.js";
+import type * as whopRevenue from "../whopRevenue.js";
+import type * as whopSync from "../whopSync.js";
 import type * as youtubeApi from "../youtubeApi.js";
 import type * as youtubeSync from "../youtubeSync.js";
 
@@ -128,6 +131,9 @@ declare const fullApi: ApiFromModules<{
   storage: typeof storage;
   trackerData: typeof trackerData;
   warmup: typeof warmup;
+  whopApi: typeof whopApi;
+  whopRevenue: typeof whopRevenue;
+  whopSync: typeof whopSync;
   youtubeApi: typeof youtubeApi;
   youtubeSync: typeof youtubeSync;
 }>;
