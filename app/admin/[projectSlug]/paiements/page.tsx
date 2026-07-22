@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format-rate";
 import { formatCycleRange } from "@/lib/pay-cycle";
 import { WhopRevenueCard } from "@/components/whop/WhopRevenueCard";
+import { ProfitabilityCard } from "@/components/ProfitabilityCard";
 import type { FunctionReturnType } from "convex/server";
 import {
   ChevronRightIcon,
@@ -164,6 +165,10 @@ export default function PaiementsPage() {
       {/* Revenu Whop NET entrant (rentabilité P2) — visible si le projet a un
           mapping Whop. Le net (après frais Whop) est le chiffre de pilotage. */}
       <WhopRevenueCard />
+
+      {/* Rentabilité (rentabilité P3) — revenu net vs coût créateurs → marge,
+          RPM business, toggle warmup (recalcule les vues/RPM, pas le revenu). */}
+      <ProfitabilityCard />
 
       {payments === undefined ? (
         <Skeleton className="h-64 w-full" />
