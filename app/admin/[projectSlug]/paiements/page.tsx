@@ -22,6 +22,7 @@ import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format-rate";
 import { formatCycleRange } from "@/lib/pay-cycle";
+import { WhopRevenueCard } from "@/components/whop/WhopRevenueCard";
 import type { FunctionReturnType } from "convex/server";
 import {
   ChevronRightIcon,
@@ -159,6 +160,10 @@ export default function PaiementsPage() {
           </Button>
         )}
       </header>
+
+      {/* Revenu Whop NET entrant (rentabilité P2) — visible si le projet a un
+          mapping Whop. Le net (après frais Whop) est le chiffre de pilotage. */}
+      <WhopRevenueCard />
 
       {payments === undefined ? (
         <Skeleton className="h-64 w-full" />
