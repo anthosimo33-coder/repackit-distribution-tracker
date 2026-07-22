@@ -10,6 +10,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { PlatformBadge } from "@/components/VerdictBadge";
+import { PostWarmupBadge } from "@/components/PostWarmupBadge";
 import { formatNumber, formatPercent, formatDate } from "@/lib/format";
 import { FORMAT_CONFIGS, type FormatKey } from "@/lib/format-config";
 import { engagementRate } from "@/lib/tracker-data";
@@ -43,6 +44,10 @@ export type TrackerPost = {
   vues: number;
   likes: number;
   comments: number;
+  /** Flag warmup (PR #119) — post exclu de la paie. Optionnel : seul le
+   *  producteur listTrackerPosts (dashboard) le renseigne ; le drill-down
+   *  scripts (postsForBrick) l'omet → pas de pastille là-bas. */
+  isWarmup?: boolean;
 };
 
 export type SortKey = "vues" | "date" | "likes" | "engagement";
@@ -91,11 +96,16 @@ export function PostsList({
   sortKey,
   sortDir,
   onToggleSort,
+  onRowClick,
 }: {
   posts: TrackerPost[];
   sortKey: SortKey;
   sortDir: SortDir;
   onToggleSort: (k: SortKey) => void;
+  /** Optionnel — rend chaque ligne cliquable (ouvre le détail du post).
+   *  Fourni par le dashboard tracker pour atteindre le toggle warmup ;
+   *  omis par le drill-down analytics scripts (lignes non cliquables). */
+  onRowClick?: (id: Id<"publications">) => void;
 }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
@@ -140,15 +150,25 @@ export function PostsList({
         <TableBody>
           {posts.map((p) => {
             const eng = engagementRate(p.likes, p.comments, p.vues);
+            const clickable = onRowClick !== undefined;
             return (
-              <TableRow key={p._id}>
+              <TableRow
+                key={p._id}
+                className={clickable ? "cursor-pointer" : undefined}
+                onClick={clickable ? () => onRowClick(p._id) : undefined}
+              >
                 <TableCell className="max-w-[420px]">
-                  <div
-                    className="truncate text-sm font-medium text-slate-900"
-                    title={p.label}
-                  >
-                    {p.label || (
-                      <span className="text-slate-400">(sans titre)</span>
+                  <div className="flex items-center gap-1.5">
+                    <div
+                      className="truncate text-sm font-medium text-slate-900"
+                      title={p.label}
+                    >
+                      {p.label || (
+                        <span className="text-slate-400">(sans titre)</span>
+                      )}
+                    </div>
+                    {p.isWarmup === true && (
+                      <PostWarmupBadge className="shrink-0" />
                     )}
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-slate-500">
@@ -182,6 +202,9 @@ export function PostsList({
                       href={p.postUrl}
                       target="_blank"
                       rel="noopener noreferrer"
+                      // Le lien externe ne doit pas déclencher l'ouverture du
+                      // détail quand la ligne est cliquable (dashboard).
+                      onClick={(e) => e.stopPropagation()}
                       className="inline-flex text-slate-400 hover:text-primary"
                       aria-label={`Ouvrir le post ${p.carouselId} sur ${p.plateforme}`}
                       title="Ouvrir le post"

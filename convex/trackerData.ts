@@ -273,6 +273,9 @@ export const listTrackerPosts = adminQuery({
         formatName: ref?.formatName ?? null,
         datePubli: p.datePubli,
         postUrl: p.postUrl ?? null,
+        // Flag warmup (PR #119) — pastille "hors paie" dans la liste tracker.
+        // Lecture seule : n'affecte pas les agrégats ni le moteur de paie.
+        isWarmup: p.isWarmup === true,
         // Métriques LATEST dénormalisées (null → 0 pour les agrégats).
         vues: p.vuesLatest ?? 0,
         likes: p.likesLatest ?? 0,
