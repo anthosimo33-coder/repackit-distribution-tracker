@@ -34,6 +34,11 @@ import {
   type SortKey,
   type SortDir,
 } from "./PostsList";
+import {
+  PublicationDetailDialog,
+  type PublicationWithImage,
+} from "@/components/PublicationDetailDialog";
+import { PublicationEditDialog } from "@/components/PublicationEditDialog";
 import { formatNumber, formatPercent } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { BarChart3Icon, ListIcon } from "lucide-react";
@@ -116,6 +121,28 @@ export function TrackerDataView() {
     api.trackerData.trackerViewsDaily,
     mode === "charts" ? queryArgs : "skip",
   );
+
+  // Docs complets (enrichis) pour ouvrir PublicationDetailDialog au clic sur une
+  // ligne → accès au toggle warmup. Même pattern que ShortSourcesTable :
+  // listPublications est déjà dédupliqué/caché par Convex. Cette vue tracker
+  // n'est montée que sur l'onglet "Tracker" du dashboard (pas la landing page).
+  const allPubs = useProjectQuery(api.publications.listPublications, {});
+  const pubMap = useMemo(() => {
+    const m = new Map<Id<"publications">, PublicationWithImage>();
+    for (const p of allPubs ?? []) m.set(p._id, p);
+    return m;
+  }, [allPubs]);
+  const [viewingPub, setViewingPub] = useState<PublicationWithImage | null>(
+    null,
+  );
+  const [editingPub, setEditingPub] = useState<PublicationWithImage | null>(
+    null,
+  );
+
+  function openDetail(publicationId: Id<"publications">) {
+    const doc = pubMap.get(publicationId);
+    if (doc) setViewingPub(doc);
+  }
 
   const filtersActive =
     dateFrom !== "" ||
@@ -347,6 +374,7 @@ export function TrackerDataView() {
           sortKey={sortKey}
           sortDir={sortDir}
           onToggleSort={toggleSort}
+          onRowClick={openDetail}
         />
       ) : (
         <ChartsPanel
@@ -354,6 +382,30 @@ export function TrackerDataView() {
           byPlatform={byPlatform}
           byCreator={byCreator}
           byFormat={byFormat}
+        />
+      )}
+
+      {/* Détail d'un post publié — porte le toggle warmup (WarmupControl) via
+          PublishedView. Réutilise le dialog existant (aucune logique warmup
+          dupliquée). onEdit bascule vers l'édition des stats, comme ailleurs. */}
+      {viewingPub && (
+        <PublicationDetailDialog
+          key={viewingPub._id}
+          publication={viewingPub}
+          open
+          onOpenChange={(o) => !o && setViewingPub(null)}
+          onEdit={() => {
+            setEditingPub(viewingPub);
+            setViewingPub(null);
+          }}
+        />
+      )}
+      {editingPub && (
+        <PublicationEditDialog
+          key={editingPub._id}
+          publication={editingPub}
+          open
+          onOpenChange={(o) => !o && setEditingPub(null)}
         />
       )}
     </div>
