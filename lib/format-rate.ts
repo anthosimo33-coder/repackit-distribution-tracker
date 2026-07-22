@@ -8,10 +8,15 @@ export type RateModel = {
   bounties?: Array<{ thresholdViews: number; amount: number }>;
 };
 
-export function formatEuros(n: number): string {
+export function formatMoney(n: number): string {
   return new Intl.NumberFormat("fr-FR", {
     style: "currency",
-    currency: "EUR",
+    currency: "USD",
+    // `narrowSymbol` force un symbole dollar propre : sinon, en locale fr-FR, le
+    // symbole USD par défaut accole « US » au dollar. Le reste du format
+    // (séparateurs, décimales, espace fine avant le symbole) reste identique à
+    // l'ancien rendu euro.
+    currencyDisplay: "narrowSymbol",
     maximumFractionDigits: 2,
   }).format(n);
 }
@@ -35,16 +40,16 @@ function trimZero(n: number): string {
  * Sert l'aperçu créateur ET la liste admin.
  */
 export function rateSummary(rate: RateModel): string[] {
-  const lines = [`${formatEuros(rate.basePerPost)} par post`];
+  const lines = [`${formatMoney(rate.basePerPost)} par post`];
   if (rate.viewBonusPer1k && rate.viewBonusPer1k > 0) {
-    lines.push(`+ ${formatEuros(rate.viewBonusPer1k)} / 1 000 vues`);
+    lines.push(`+ ${formatMoney(rate.viewBonusPer1k)} / 1 000 vues`);
   }
   const bounties = [...(rate.bounties ?? [])].sort(
     (a, b) => a.thresholdViews - b.thresholdViews,
   );
   for (const b of bounties) {
     lines.push(
-      `Prime ${formatEuros(b.amount)} à ${formatViews(b.thresholdViews)} vues`,
+      `Prime ${formatMoney(b.amount)} à ${formatViews(b.thresholdViews)} vues`,
     );
   }
   return lines;

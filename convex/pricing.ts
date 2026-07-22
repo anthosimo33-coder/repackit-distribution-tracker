@@ -100,7 +100,7 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
     const videoCount = groupItems.length;
     // Fixe du groupe (plafonné au budget montantFixe) — arrondi au niveau groupe.
     const fixedGroup = round2(Math.min(videoCount * perVideo, snapshot.montantFixe));
-    // Plafond 150 €/vidéo (RÉPLIQUE lib/pricing-engine) : dépassement rogné sur le
+    // Plafond 150 $/vidéo (RÉPLIQUE lib/pricing-engine) : dépassement rogné sur le
     // CPM d'abord, puis la part fixe (pathologique). Sans dépassement = inchangé.
     let remainingFixe = snapshot.montantFixe;
     let groupCpm = 0;
@@ -426,7 +426,7 @@ export interface PricingBreakdown extends MonthlyPayout {
  * par la lecture (getMyPayments/listPayments) ET le gel au paiement. FIXE/CPM :
  * assignments publiés/payés à pricingSnapshot dont le mois de publication =
  * `period`. BONUS CASH : Σ des bonusUnlocks CASH PERSISTÉS dont
- * `attributionPeriod === period` (Guard B — JAMAIS ré-évalué live ; le €
+ * `attributionPeriod === period` (Guard B — JAMAIS ré-évalué live ; le $
  * d'une période vient uniquement des unlocks persistés). Guard B (legacy) :
  * exclut les assignments déjà couverts par une lineItem legacy.
  */
@@ -490,7 +490,7 @@ export async function computeLivePricingBreakdown(
  * Paie PRICING (live) d'un (créateur, projet) pour UN CYCLE J+30 GLISSANT.
  * IDENTIQUE à computeLivePricingBreakdown mais le fenêtrage est PERSO au créateur
  * (cycleIndexOf(firstPostAt, …)) au lieu du mois calendaire. Le MONTANT est
- * inchangé : MÊME moteur `computeMonthlyPayout` (fixe/CPM, cap 150€/vidéo) — seul
+ * inchangé : MÊME moteur `computeMonthlyPayout` (fixe/CPM, cap 150$/vidéo) — seul
  * le prédicat de fenêtre change. FIXE/CPM : assignments publiés/payés à
  * pricingSnapshot dont le CYCLE de publication = `cycleIndex`. BONUS CASH : unlocks
  * cash dont le CYCLE de déblocage (unlockedAt) = `cycleIndex` (≠ attributionPeriod
@@ -612,7 +612,7 @@ function validatePricingFields(args: PricingInput): PricingInput {
     }
     if (t.rewardType === "cash") {
       if (!Number.isFinite(t.montant ?? NaN) || (t.montant ?? -1) < 0) {
-        throw new ConvexError("Un palier cash exige un montant € ≥ 0.");
+        throw new ConvexError("Un palier cash exige un montant $ ≥ 0.");
       }
     } else if (!(t.libelle ?? "").trim()) {
       throw new ConvexError("Un palier nature exige un libellé (ex. iPhone).");
@@ -725,7 +725,7 @@ export const listPricings = adminQuery({
 // ─── Statut des paliers de bonus (cumul + jauge + récompenses) ───────────────
 
 /**
- * Statut bonus d'un créateur (cumul + grille + récompenses débloquées). Le €
+ * Statut bonus d'un créateur (cumul + grille + récompenses débloquées). Le $
  * cash DÉBLOQUÉ (lifetime) vient des unlocks PERSISTÉS ; la jauge (prochain
  * palier) est calculée live sur le cumul courant. ISOLATION par creatorId.
  */

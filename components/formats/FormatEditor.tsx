@@ -235,7 +235,7 @@ export function FormatEditor({ format }: { format: FullFormat }) {
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="base-per-post">Tarif de base / post (€)</Label>
+              <Label htmlFor="base-per-post">Tarif de base / post ($)</Label>
               <Input
                 id="base-per-post"
                 type="number"
@@ -246,7 +246,7 @@ export function FormatEditor({ format }: { format: FullFormat }) {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="view-bonus">Bonus / 1 000 vues (€, optionnel)</Label>
+              <Label htmlFor="view-bonus">Bonus / 1 000 vues ($, optionnel)</Label>
               <Input
                 id="view-bonus"
                 type="number"
@@ -279,7 +279,7 @@ export function FormatEditor({ format }: { format: FullFormat }) {
                   type="number"
                   min={0}
                   step="0.01"
-                  placeholder="Montant €"
+                  placeholder="Montant $"
                   value={b.amount}
                   onChange={(e) =>
                     setBounties((prev) =>

@@ -13,7 +13,7 @@ import {
   useProjectSlug,
 } from "@/components/project/ProjectProvider";
 import { viewAsBase } from "@/lib/view-as";
-import { formatEuros } from "@/lib/format-rate";
+import { formatMoney } from "@/lib/format-rate";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { FunctionReturnType } from "convex/server";
@@ -636,7 +636,7 @@ function BonusGridSection({
             </p>
             {bonus.cashUnlockedTotal > 0 && (
               <p className="text-emerald-700">
-                Cash débloqué : {formatEuros(bonus.cashUnlockedTotal)}
+                Cash débloqué : {formatMoney(bonus.cashUnlockedTotal)}
               </p>
             )}
             {bonus.natureUnlocked.length > 0 && (
@@ -650,7 +650,7 @@ function BonusGridSection({
                 Prochain palier dans{" "}
                 {(bonus.viewsToNext ?? 0).toLocaleString("fr-FR")} vues (
                 {bonus.nextTier.rewardType === "cash"
-                  ? formatEuros(bonus.nextTier.montant ?? 0)
+                  ? formatMoney(bonus.nextTier.montant ?? 0)
                   : bonus.nextTier.libelle}
                 ).
               </p>

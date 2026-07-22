@@ -12,7 +12,7 @@
  *  3. BONUS À PALIERS — créateur-niveau, sur le CUMUL TOTAL À VIE de ses vues
  *     (somme de toutes ses vidéos publiées). Chaque palier (cash ou nature) se
  *     débloque UNE fois quand le cumul atteint son seuilVues. Le CASH compte
- *     dans le total € ; le NATURE est une récompense due (hors total €). La
+ *     dans le total $ ; le NATURE est une récompense due (hors total $). La
  *     PERSISTANCE du déblocage (idempotent, période d'attribution, freeze) est
  *     gérée côté serveur (bonusUnlocks) ; ici on fournit le PUR :
  *       - computeMonthlyPayout → fixe + CPM (PAS de bonus par vidéo en v2) ;
@@ -116,7 +116,7 @@ export function estimateMissionEarnings(
   const cpm = assignmentCpm(snapshot, views);
   const total = round2(fixed + cpm);
   if (total <= MAX_PAY_PER_VIDEO_EUR) return { fixed, cpm, total };
-  // Plafond 150 €/vidéo : on garde la part fixe et on rogne le CPM (puis le fixe
+  // Plafond 150 $/vidéo : on garde la part fixe et on rogne le CPM (puis le fixe
   // au cas pathologique fixe/vidéo > 150). Cohérent avec computeMonthlyPayout.
   const cappedFixed = Math.min(fixed, MAX_PAY_PER_VIDEO_EUR);
   const cappedCpm = round2(MAX_PAY_PER_VIDEO_EUR - cappedFixed);
@@ -149,7 +149,7 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
     // GROUPE, calcul INCHANGÉ hors plafond 150 (sous-cap = octet pour octet).
     const fixedGroup = round2(Math.min(videoCount * perVideo, snapshot.montantFixe));
 
-    // ─── Plafond 150 €/vidéo ───────────────────────────────────────────────
+    // ─── Plafond 150 $/vidéo ───────────────────────────────────────────────
     // Chaque vidéo = part fixe (répartie, bornée au budget montantFixe) + CPM.
     // Le dépassement au-delà de MAX_PAY_PER_VIDEO_EUR est rogné sur le CPM en
     // premier, puis sur la part fixe (cas pathologique fixe/vidéo > 150). Sans
@@ -233,7 +233,7 @@ export function tiersOf(pricing: {
 export interface BonusTierEvaluation {
   /** Paliers franchis (seuil ≤ cumul), triés par seuil croissant. */
   crossed: BonusTier[];
-  /** Total € des paliers CASH franchis (les nature sont exclus). */
+  /** Total $ des paliers CASH franchis (les nature sont exclus). */
   cashCrossedTotal: number;
   /** Paliers NATURE franchis (récompenses dues). */
   natureCrossed: BonusTier[];
@@ -244,7 +244,7 @@ export interface BonusTierEvaluation {
 }
 
 /**
- * État des paliers pour un cumul donné — AFFICHAGE (jauge) UNIQUEMENT. Le €
+ * État des paliers pour un cumul donné — AFFICHAGE (jauge) UNIQUEMENT. Le $
  * réellement crédité vient des bonusUnlocks persistés (serveur), jamais d'ici.
  */
 export function evaluateBonusTiers(

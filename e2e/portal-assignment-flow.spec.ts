@@ -89,7 +89,7 @@ test.describe("Portail créateur — boucle assignment", () => {
     await expect(page.getByText(`Hook E2E ${ts}`)).toBeVisible();
     await expect(page.getByText("Vidéos exemples")).toBeVisible();
     await expect(page.getByTestId("youtube-embed")).toBeVisible();
-    // Calculateur : 10k vues × (50 base + 2€/1k) = 70 € par défaut.
+    // Calculateur : 10k vues × (50 base + 2$/1k) = 70 $ par défaut.
     await expect(page.getByTestId("earnings-total")).toContainText("70");
 
     // Je commence → in_progress → l'action devient « Soumettre ma vidéo »

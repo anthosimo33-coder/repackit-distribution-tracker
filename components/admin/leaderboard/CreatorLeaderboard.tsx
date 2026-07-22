@@ -7,7 +7,7 @@ import { api } from "@/convex/_generated/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { formatEuros } from "@/lib/format-rate";
+import { formatMoney } from "@/lib/format-rate";
 import { formatCycleRange } from "@/lib/pay-cycle";
 
 /**
@@ -217,7 +217,7 @@ function PodiumSpot({ entry }: { entry: LeaderboardEntry }) {
           {entry.name}
         </p>
         <p className="text-sm font-bold tabular-nums text-foreground">
-          {formatEuros(entry.totalDue)}
+          {formatMoney(entry.totalDue)}
         </p>
         {/* Fenêtre de cycle — obligatoire (mitigation de la désynchro). */}
         <p className="mt-0.5 line-clamp-1 text-center text-[11px] text-muted-foreground">
@@ -273,7 +273,7 @@ function ListRow({ entry }: { entry: LeaderboardEntry }) {
         </p>
       </div>
       <span className="shrink-0 text-sm font-bold tabular-nums text-foreground">
-        {formatEuros(entry.totalDue)}
+        {formatMoney(entry.totalDue)}
       </span>
     </li>
   );

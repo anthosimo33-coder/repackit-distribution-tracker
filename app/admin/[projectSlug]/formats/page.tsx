@@ -19,7 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PlusIcon, LayersIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatEuros } from "@/lib/format-rate";
+import { formatMoney } from "@/lib/format-rate";
 import { NewFormatDialog } from "@/components/formats/NewFormatDialog";
 
 const TYPE_LABELS: Record<string, string> = {
@@ -112,7 +112,7 @@ export default function FormatsPage() {
                       {f.exampleVideos.length}
                     </TableCell>
                     <TableCell className="tabular-nums text-slate-700">
-                      {formatEuros(f.rateModel.basePerPost)}
+                      {formatMoney(f.rateModel.basePerPost)}
                     </TableCell>
                   </TableRow>
                 ))}

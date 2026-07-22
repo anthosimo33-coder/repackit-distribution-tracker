@@ -1049,7 +1049,7 @@ export default defineSchema({
   // ─── Pricing — barèmes de rémunération réutilisables (scopés projet) ───────
   // Un pricing = un barème nommé attribuable à des vidéos (assignments). Modèle
   // à 3 composantes (cf lib/pricing-engine.ts) : FIXE mensuel (montantFixe pour
-  // nbVideosCible vidéos uniques publiées, proratisé/plafonné), CPM (tauxCPM €
+  // nbVideosCible vidéos uniques publiées, proratisé/plafonné), CPM (tauxCPM $
   // par 1000 vues, toutes plateformes sommées), BONUS (montantBonus au-delà de
   // seuilBonusVues, par vidéo). À l'attribution les valeurs sont FIGÉES sur
   // l'assignment (pricingSnapshot) → modifier/archiver un pricing n'affecte que
@@ -1059,7 +1059,7 @@ export default defineSchema({
     name: v.string(),
     montantFixe: v.number(),
     nbVideosCible: v.number(), // >= 1 (imposé serveur, anti division par zéro)
-    tauxCPM: v.number(), // € par 1000 vues
+    tauxCPM: v.number(), // $ par 1000 vues
     // LEGACY (pricing v1, seuil de bonus UNIQUE par vidéo) — conservés en
     // lecture pour les pricings/snapshots existants ; `tiersOf()` les convertit
     // en 1 palier cash. 0 migration.
@@ -1067,8 +1067,8 @@ export default defineSchema({
     montantBonus: v.optional(v.number()),
     // Pricing v2 — PALIERS de bonus (0..N), évalués sur le CUMUL TOTAL À VIE des
     // vues du créateur (cf lib/pricing-engine.ts). Chaque palier récompense en
-    // CASH (montant €, compté dans le total) ou en NATURE (libelle, ex.
-    // "iPhone" — hors total €, suivi comme récompense due).
+    // CASH (montant $, compté dans le total) ou en NATURE (libelle, ex.
+    // "iPhone" — hors total $, suivi comme récompense due).
     bonusTiers: v.optional(
       v.array(
         v.object({
@@ -1104,7 +1104,7 @@ export default defineSchema({
     attributionPeriod: v.string(),
     // ─── Marqueur "célébration vue" (progression créateur) ────────────────────
     // UI SEULE : timestamp (ms) où la créatrice a vu l'overlay de célébration de
-    // CE palier. N'entre dans AUCUN calcul € (ni totalDue, ni breakdown) — seul
+    // CE palier. N'entre dans AUCUN calcul $ (ni totalDue, ni breakdown) — seul
     // le portail progression le lit. undefined = pas encore vu → candidat à la
     // célébration (borné à CELEBRATION_MAX_AGE_MS pour ne pas rejouer l'historique
     // au 1er déploiement). Optional → 0 migration. Cf convex/progression.ts.

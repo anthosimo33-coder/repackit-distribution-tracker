@@ -27,7 +27,7 @@ import type { Doc, Id } from "./_generated/dataModel";
  *
  * SOURCE UNIQUE du GAIN + des VUES : réservés aux vidéos EN LIGNE
  * (published/paid), calculés par le MÊME moteur cappé que « Mes paiements »
- * (computeMonthlyPayout v2 / computeEarnings legacy) → plafond 150 €/vidéo (#99,
+ * (computeMonthlyPayout v2 / computeEarnings legacy) → plafond 150 $/vidéo (#99,
  * MAX_PAY_PER_VIDEO_EUR) à l'identique, aucune divergence. Les vues viennent de
  * assignmentViewsAndMetrics (même source que le CPM). Avant publication
  * (submitted/rejected/to_publish), ni vues ni gain (rien n'est encore généré).
@@ -65,9 +65,9 @@ export type CreatorVideo = {
   trackingStatus: VideoTrackingStatus | null;
   /** Dernier compte de vues (published/paid, si métriques) ; null sinon. */
   views: number | null;
-  /** Gain de CETTE vidéo, plafonné 150 € (published/paid) ; null avant publication. */
+  /** Gain de CETTE vidéo, plafonné 150 $ (published/paid) ; null avant publication. */
   gain: number | null;
-  /** Le gain a atteint le plafond 150 € → afficher « gain max ». */
+  /** Le gain a atteint le plafond 150 $ → afficher « gain max ». */
   capped: boolean;
   /** Feedback admin de REFUS (video_rejected), si stocké ; null sinon. */
   rejectionReason: string | null;
@@ -201,7 +201,7 @@ export type VideoStats = {
   onlineCount: number;
   /** Vues cumulées de ces vidéos (0 pour les vidéos encore en cours de calcul). */
   totalViews: number;
-  /** Gains générés ce mois (somme des gains PAR VIDÉO déjà plafonnés à 150 €). */
+  /** Gains générés ce mois (somme des gains PAR VIDÉO déjà plafonnés à 150 $). */
   totalGain: number;
 };
 

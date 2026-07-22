@@ -15,9 +15,9 @@ const DAY = 86_400_000;
 
 /**
  * Pricing — nouveau calcul de paie, bout en bout (serveur, sans UI fragile).
- * Cas chiffré aligné sur les tests unitaires du moteur : pricing 100€/60 vidéos,
- * CPM 2€/1000, seuil 100k → bonus 50€. 1 vidéo publiée à 120 000 vues →
- * fixe 1,67€ + CPM 240€ + bonus 50€ = 291,67€. Vérifie aussi : snapshot figé
+ * Cas chiffré aligné sur les tests unitaires du moteur : pricing 100$/60 vidéos,
+ * CPM 2$/1000, seuil 100k → bonus 50$. 1 vidéo publiée à 120 000 vues →
+ * fixe 1,67$ + CPM 240$ + bonus 50$ = 291,67$. Vérifie aussi : snapshot figé
  * (modifier le pricing ne change pas la vidéo attribuée) + suppression bloquée
  * d'un pricing utilisé.
  */
@@ -32,7 +32,7 @@ test.describe("Pricing — calcul de paie (fixe + CPM + bonus, snapshot)", () =>
     });
     const projectId = creator.projectId;
 
-    // 1. Pricing 100€/60, CPM 2€/1000, seuil 100k → bonus 50€.
+    // 1. Pricing 100$/60, CPM 2$/1000, seuil 100k → bonus 50$.
     const { pricingId } = await admin.mutation(api.pricing.createPricing, {
       name: `[E2E_TEST] Pricing ${ts}`,
       montantFixe: 100,
@@ -92,7 +92,7 @@ test.describe("Pricing — calcul de paie (fixe + CPM + bonus, snapshot)", () =>
       likes: 5_000,
     });
 
-    // 4. Breakdown chiffré côté créateur — PLAFOND 150 €/vidéo (global tous
+    // 4. Breakdown chiffré côté créateur — PLAFOND 150 $/vidéo (global tous
     //    projets). Brut : fixe 1,67 + CPM 240 = 241,67 > 150 → la vidéo est capée :
     //    le CPM est rogné (240 → 148,33) pour un total de 150.
     // Cycle J+30 : la vidéo publiée « maintenant » tombe dans le cycle 0 du

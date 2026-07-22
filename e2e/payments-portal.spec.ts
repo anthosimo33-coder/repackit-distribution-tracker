@@ -160,7 +160,7 @@ test.describe("P9 — paiements & gains (cycle J+30)", () => {
     await cpage.getByRole("button", { name: /activer mon compte/i }).click();
     await cpage.waitForURL("**/app", { timeout: 20_000 });
 
-    // Client convex créateur (sign-in) + setup d'un paiement de 15 €.
+    // Client convex créateur (sign-in) + setup d'un paiement de 15 $.
     const creatorClient = createE2eClient(url, { email, password });
     const creatorId = (await admin.query(api.creators.listCreators, {})).find(
       (c) => c.email === email,
@@ -198,7 +198,7 @@ test.describe("P9 — paiements & gains (cycle J+30)", () => {
       ],
     });
 
-    // Dashboard créateur : bloc « Mes gains » montre 15 €.
+    // Dashboard créateur : bloc « Mes gains » montre 15 $.
     await cpage.goto("/app");
     await expect(cpage.getByTestId("dashboard-due")).toContainText("15", {
       timeout: 15_000,

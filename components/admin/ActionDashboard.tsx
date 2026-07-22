@@ -19,7 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/format";
-import { formatEuros } from "@/lib/format-rate";
+import { formatMoney } from "@/lib/format-rate";
 import { missedDays } from "@/lib/warmup";
 import {
   getEffectiveStatus,
@@ -211,7 +211,7 @@ export function ActionDashboard() {
           href={projectPath("/paiements")}
           icon={WalletIcon}
           label="Dû ce mois"
-          value={formatEuros(dueThisMonth)}
+          value={formatMoney(dueThisMonth)}
           hint="paiements en cours d'accumulation"
         />
         <ActionCard

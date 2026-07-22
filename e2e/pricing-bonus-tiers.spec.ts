@@ -15,8 +15,8 @@ const DAY = 86_400_000;
 
 /**
  * Pricing v2 — paliers de bonus sur le CUMUL des vues (cash/nature), serveur.
- * Paliers [2M → iPhone (nature), 5M → 500€ (cash)]. Cumul 2,3M → iPhone seul
- * (hors total €). Cumul 5,1M → +500€ au total €, iPhone toujours là. Re-sync →
+ * Paliers [2M → iPhone (nature), 5M → 500$ (cash)]. Cumul 2,3M → iPhone seul
+ * (hors total $). Cumul 5,1M → +500$ au total $, iPhone toujours là. Re-sync →
  * pas de double unlock. Isolation : un autre créateur ne voit rien.
  */
 test.describe("Pricing v2 — paliers de bonus (cumul, cash/nature)", () => {
@@ -85,7 +85,7 @@ test.describe("Pricing v2 — paliers de bonus (cumul, cash/nature)", () => {
     );
     const publicationId = publicationIds[0];
 
-    // 3. Cumul 2,3M → iPhone débloqué (nature, HORS total €), 5M non atteint.
+    // 3. Cumul 2,3M → iPhone débloqué (nature, HORS total $), 5M non atteint.
     const t1 = Date.now();
     await admin.mutation(api.metricSnapshots.createSnapshot, {
       publicationId,
@@ -97,12 +97,12 @@ test.describe("Pricing v2 — paliers de bonus (cumul, cash/nature)", () => {
       projectId,
     });
     expect(status!.cumulViews).toBe(2_300_000);
-    expect(status!.cashUnlockedTotal).toBe(0); // iPhone ne compte pas en €
+    expect(status!.cashUnlockedTotal).toBe(0); // iPhone ne compte pas en $
     expect(status!.natureUnlocked.map((r) => r.libelle)).toEqual(["iPhone"]);
     expect(status!.nextTier?.montant).toBe(500);
     expect(status!.viewsToNext).toBe(2_700_000);
 
-    // 4. Cumul 5,1M → 500€ débloqués (cash), iPhone toujours là.
+    // 4. Cumul 5,1M → 500$ débloqués (cash), iPhone toujours là.
     await admin.mutation(api.metricSnapshots.createSnapshot, {
       publicationId,
       capturedAt: t1 + 3_600_000,
@@ -116,7 +116,7 @@ test.describe("Pricing v2 — paliers de bonus (cumul, cash/nature)", () => {
     expect(status!.cashUnlockedTotal).toBe(500);
     expect(status!.natureUnlocked.map((r) => r.libelle)).toEqual(["iPhone"]);
 
-    // Le 500€ entre dans le total € du CYCLE COURANT (via bonusTierCashTotal) :
+    // Le 500$ entre dans le total $ du CYCLE COURANT (via bonusTierCashTotal) :
     // débloqué « maintenant » → cycle 0 du créateur (ex-« période du mois »).
     const pay = (
       await creator.client.query(api.payments.getMyPayments, { projectId })

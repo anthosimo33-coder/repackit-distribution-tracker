@@ -8,7 +8,7 @@ import { useMyPublishedVideos } from "@/components/portal/creator-data";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { formatEuros, formatViews } from "@/lib/format-rate";
+import { formatMoney, formatViews } from "@/lib/format-rate";
 import { publishedAgo } from "@/lib/video-tracking";
 import { isSnytchProject } from "@/lib/snytch-drive";
 import {
@@ -32,7 +32,7 @@ import {
 /**
  * « Mes vidéos » — suivi créatrice SNYTCH de TOUT le cycle de vie depuis la
  * soumission : en attente de validation, rejet (+ feedback), approuvé-à-publier,
- * en ligne (vues + gain plafonné 150 €, source unique = moteur paie). Filtre par
+ * en ligne (vues + gain plafonné 150 $, source unique = moteur paie). Filtre par
  * statut en tête (Toutes / En attente / Approuvé et en ligne / Rejeté), défaut
  * Toutes. PUREMENT en lecture → réutilisé tel quel en mode admin « voir l'espace
  * d'un créateur » (données scopées serveur via useMyPublishedVideos). Gate Snytch
@@ -143,7 +143,7 @@ function OnlineMetrics({ v }: { v: Video }) {
             v.capped ? "text-emerald-600" : "text-slate-900",
           )}
         >
-          {v.gain === null ? "—" : formatEuros(v.gain)}
+          {v.gain === null ? "—" : formatMoney(v.gain)}
         </p>
         {v.capped && (
           <span className="text-[0.65rem] font-semibold uppercase tracking-wide text-emerald-600">

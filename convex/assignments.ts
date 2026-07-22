@@ -1920,7 +1920,7 @@ export const confirmPublication = creatorMutation({
 /**
  * PUBLICATION (ADMIN) d'un assignment sur COMPTE GÉRÉ — l'admin colle le(s)
  * lien(s) à la place de la créatrice. MÊME cœur (materialize + accrue) → la
- * créatrice est CRÉDITÉE À L'IDENTIQUE (D3, pricing prédéfini, cap 150€). Gaté
+ * créatrice est CRÉDITÉE À L'IDENTIQUE (D3, pricing prédéfini, cap 150$). Gaté
  * sur a.managedByAdmin + projectId (aucune appartenance créatrice requise :
  * l'équipe tient le compte). Type de retour ANNOTÉ (TS7022).
  */

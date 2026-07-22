@@ -52,7 +52,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatEuros, formatViews } from "@/lib/format-rate";
+import { formatMoney, formatViews } from "@/lib/format-rate";
 import { isSnytchProject } from "@/lib/snytch-drive";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -683,7 +683,7 @@ function NextTierCard({
               </p>
               <p className="truncate text-xs text-slate-500">
                 {reward.kind === "cash"
-                  ? formatEuros(reward.amount)
+                  ? formatMoney(reward.amount)
                   : `${reward.emoji} ${reward.label}`}
               </p>
             </div>
@@ -832,7 +832,7 @@ function AssignmentItem({
  * Récap « Mes vidéos publiées » (Snytch) — 3 chiffres du MOIS (vidéos en ligne /
  * vues cumulées / gains générés) + lien vers le détail par vidéo. Rendu SEULEMENT
  * si au moins une vidéo est publiée ce mois-ci (jamais de carte vide). Les gains
- * = somme des gains PAR VIDÉO déjà plafonnés 150 € (source unique, cf VideosScreen).
+ * = somme des gains PAR VIDÉO déjà plafonnés 150 $ (source unique, cf VideosScreen).
  */
 function VideoStatsCard({
   projectId,
@@ -856,7 +856,7 @@ function VideoStatsCard({
         <div className="grid grid-cols-3 gap-2">
           <VideoStat label="En ligne" value={String(stats.onlineCount)} />
           <VideoStat label="Vues" value={formatViews(stats.totalViews)} />
-          <VideoStat label="Gains" value={formatEuros(stats.totalGain)} />
+          <VideoStat label="Gains" value={formatMoney(stats.totalGain)} />
         </div>
         <Link
           href={portalHref(base, "/videos")}
@@ -914,7 +914,7 @@ function EarningsOverview({
             className="text-3xl font-semibold tabular-nums text-slate-900"
             data-testid="dashboard-due"
           >
-            {formatEuros(dueNow)}
+            {formatMoney(dueNow)}
           </p>
         )}
         {nextPayoutTs !== null && payoutDays !== null && (

@@ -655,7 +655,7 @@ export const seedDemoCreator = internalMutation({
       now,
       platform: "TikTok",
     });
-    // Bonus de vues : 41k vues × 1 €/1k ≈ 41 € (somme sur les cibles — ici 1).
+    // Bonus de vues : 41k vues × 1 $/1k ≈ 41 $ (somme sur les cibles — ici 1).
     await upsertBonusLineItem(ctx, {
       projectId,
       creatorId,

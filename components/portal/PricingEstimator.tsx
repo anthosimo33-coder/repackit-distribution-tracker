@@ -5,7 +5,7 @@ import {
   estimateMissionEarnings,
   type PricingSnapshot,
 } from "@/lib/pricing-engine";
-import { formatEuros, formatViews } from "@/lib/format-rate";
+import { formatMoney, formatViews } from "@/lib/format-rate";
 
 /**
  * Estimation de rému d'une mission relevant du MODÈLE PRICING v2 (mission de
@@ -31,7 +31,7 @@ export function PricingEstimator({ snapshot }: { snapshot: PricingSnapshot }) {
           Estimation pour {formatViews(views)} vues
         </span>
         <span className="text-2xl font-semibold tabular-nums text-slate-900">
-          {formatEuros(e.total)}
+          {formatMoney(e.total)}
         </span>
       </div>
       <input
@@ -47,18 +47,18 @@ export function PricingEstimator({ snapshot }: { snapshot: PricingSnapshot }) {
       <ul className="space-y-1 text-sm text-slate-600">
         <li className="flex justify-between">
           <span>Base (fixe par vidéo)</span>
-          <span className="tabular-nums">{formatEuros(e.fixed)}</span>
+          <span className="tabular-nums">{formatMoney(e.fixed)}</span>
         </li>
         {snapshot.tauxCPM > 0 && (
           <li className="flex justify-between">
             <span>CPM (sur tes vues)</span>
-            <span className="tabular-nums">{formatEuros(e.cpm)}</span>
+            <span className="tabular-nums">{formatMoney(e.cpm)}</span>
           </li>
         )}
         <li className="flex justify-between border-t border-slate-100 pt-1 font-semibold text-slate-900">
           <span>Total estimé</span>
           <span className="tabular-nums" data-testid="earnings-total">
-            {formatEuros(e.total)}
+            {formatMoney(e.total)}
           </span>
         </li>
       </ul>

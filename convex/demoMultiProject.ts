@@ -211,9 +211,9 @@ function variantFor(i: number) {
   return {
     // Barème PRICING démo (distinct par projet) : fixe mensuel / nbVideosCible,
     // CPM, + paliers de bonus sur le CUMUL des vues.
-    montantFixe: 100 + i * 50, // 100, 150, 200 €
+    montantFixe: 100 + i * 50, // 100, 150, 200 $
     nbVideosCible: 60, // fixe/vidéo = montantFixe/60
-    tauxCPM: 2 + i, // 2, 3, 4 €/1000 vues
+    tauxCPM: 2 + i, // 2, 3, 4 $/1000 vues
     produceTodos: 1 + i, // 1, 2, 3… vidéos à produire
     tkViews: [3_000 * vk, 12_000 * vk, 41_000 * vk] as [number, number, number],
     ytViews: [1_200 * vk, 5_400 * vk, 18_900 * vk] as [number, number, number],

@@ -43,7 +43,7 @@ describe("rewardOf", () => {
       emoji: "💶",
     });
   });
-  it("nature → { kind: 'item', label, emoji } SANS montant € (jamais des euros)", () => {
+  it("nature → { kind: 'item', label, emoji } SANS montant $ (jamais des euros)", () => {
     const r = rewardOf({ rewardType: "nature", libelle: "iPhone" });
     expect(r.kind).toBe("item");
     expect(r).not.toHaveProperty("amount");
@@ -160,7 +160,7 @@ describe("buildProgression — échelle par projet", () => {
       unlocks,
       publishedPostsCount: 30,
     });
-    // …le total € n'inclut QUE les cash (200 + 1000), jamais la nature.
+    // …le total $ n'inclut QUE les cash (200 + 1000), jamais la nature.
     expect(p.cashUnlockedTotal).toBe(1200);
     expect(p.itemsUnlocked).toEqual([
       { label: "iPhone 15", emoji: "📱", unlockedAt: 2 },
