@@ -5,8 +5,10 @@ import {
   estimateMissionEarnings,
   tiersOf,
   evaluateBonusTiers,
+  payableAssignmentViews,
   type PricingSnapshot,
   type PayoutItem,
+  type PublicationViews,
   type BonusTier,
 } from "./pricing-engine";
 
@@ -227,5 +229,119 @@ describe("estimateMissionEarnings — fiche mission (fixe/vidéo + CPM, sans bon
     expect(e.total).toBe(150);
     expect(e.fixed).toBe(1.67);
     expect(e.cpm).toBe(148.33);
+  });
+});
+
+describe("payableAssignmentViews — exclusion warmup (par POST)", () => {
+  it("vidéo tout-warmup : payableViews 0, hasPayablePost false (exclue du fixe)", () => {
+    const r = payableAssignmentViews([{ views: 100_000, isWarmup: true }]);
+    expect(r).toEqual({ payableViews: 0, hasPayablePost: false });
+  });
+
+  it("aucun warmup : payableViews == Σ vues, hasPayablePost true → INCHANGÉ", () => {
+    const r = payableAssignmentViews([
+      { views: 5_000, isWarmup: false },
+      { views: 3_000, isWarmup: false },
+    ]);
+    expect(r).toEqual({ payableViews: 8_000, hasPayablePost: true });
+  });
+
+  it("partiel : seules les vues NON-warmup comptent, la vidéo reste payable", () => {
+    const r = payableAssignmentViews([
+      { views: 5_000, isWarmup: false },
+      { views: 100_000, isWarmup: true },
+    ]);
+    expect(r).toEqual({ payableViews: 5_000, hasPayablePost: true });
+  });
+
+  it("vidéo sans post (edge legacy) : compte pour le fixe (historique préservé)", () => {
+    expect(payableAssignmentViews([])).toEqual({
+      payableViews: 0,
+      hasPayablePost: true,
+    });
+  });
+});
+
+describe("warmup — un post warmup n'ajoute NI fixe, NI CPM, NI cumul palier", () => {
+  const TIERS: BonusTier[] = [
+    { seuilVues: 2_000_000, rewardType: "nature", libelle: "iPhone" },
+    { seuilVues: 5_000_000, rewardType: "cash", montant: 500 },
+  ];
+
+  /**
+   * Réplique la composition SERVEUR (convex/pricing) : chaque vidéo → vues
+   * payables ; une vidéo tout-warmup est EXCLUE des items (donc du fixe) ; le
+   * cumul de paliers = Σ des vues payables. C'est ce pipeline que le warmup doit
+   * neutraliser.
+   */
+  function buildPay(
+    videos: { snapshot: PricingSnapshot; pubs: PublicationViews[] }[],
+  ): { payout: ReturnType<typeof computeMonthlyPayout>; cumul: number } {
+    const payoutItems: PayoutItem[] = [];
+    let cumul = 0;
+    videos.forEach((vd, i) => {
+      const { payableViews, hasPayablePost } = payableAssignmentViews(vd.pubs);
+      cumul += payableViews;
+      if (hasPayablePost) {
+        payoutItems.push({
+          assignmentId: `a${i}`,
+          snapshot: vd.snapshot,
+          totalViews: payableViews,
+        });
+      }
+    });
+    return { payout: computeMonthlyPayout(payoutItems), cumul };
+  }
+
+  it("vidéo entièrement warmup : 0 fixe, 0 CPM, 0 cumul, aucun palier franchi", () => {
+    const { payout, cumul } = buildPay([
+      { snapshot: P, pubs: [{ views: 3_000_000, isWarmup: true }] },
+    ]);
+    expect(payout.fixedTotal).toBe(0);
+    expect(payout.cpmTotal).toBe(0);
+    expect(payout.total).toBe(0);
+    expect(cumul).toBe(0);
+    // Même 3M de vues warmup ne débloquent AUCUN palier.
+    expect(evaluateBonusTiers(cumul, TIERS).crossed).toHaveLength(0);
+  });
+
+  it("preuve a contrario : la MÊME vidéo NON-warmup paie et cumule bien", () => {
+    const { payout, cumul } = buildPay([
+      { snapshot: P, pubs: [{ views: 3_000_000, isWarmup: false }] },
+    ]);
+    expect(payout.fixedTotal).toBeGreaterThan(0);
+    expect(payout.cpmTotal).toBeGreaterThan(0);
+    expect(cumul).toBe(3_000_000);
+    // 3M franchit le palier iPhone (2M) — que le warmup ci-dessus supprimait.
+    expect(evaluateBonusTiers(cumul, TIERS).crossed).toHaveLength(1);
+  });
+
+  it("partiel : fixe compté UNE fois, CPM sur les seules vues payables (5000)", () => {
+    const { payout, cumul } = buildPay([
+      {
+        snapshot: P,
+        pubs: [
+          { views: 5_000, isWarmup: false },
+          { views: 100_000, isWarmup: true },
+        ],
+      },
+    ]);
+    // fixe = 1 vidéo × 100/60 = 1,67 (la vidéo reste payante).
+    expect(payout.fixedTotal).toBe(1.67);
+    // CPM sur 5000 vues (@2€/1000) = 10 — les 100k warmup sont EXCLUES.
+    expect(payout.cpmTotal).toBe(10);
+    // Cumul de paliers = 5000 (warmup exclu), pas 105 000.
+    expect(cumul).toBe(5_000);
+  });
+
+  it("cumul multi-vidéos : les vues warmup ne franchissent pas le palier", () => {
+    // 1,5M payable + 1,5M warmup. Sans warmup on serait à 3M (> 2M = iPhone) ;
+    // avec, le cumul reste 1,5M → aucun palier.
+    const { cumul } = buildPay([
+      { snapshot: P, pubs: [{ views: 1_500_000, isWarmup: false }] },
+      { snapshot: P, pubs: [{ views: 1_500_000, isWarmup: true }] },
+    ]);
+    expect(cumul).toBe(1_500_000);
+    expect(evaluateBonusTiers(cumul, TIERS).crossed).toHaveLength(0);
   });
 });

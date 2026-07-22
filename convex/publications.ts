@@ -12,6 +12,8 @@ import { internal } from "./_generated/api";
 import { coerceSnapshotAge } from "./snapshotMatching";
 import { resolveDisplayMetrics } from "./metricsDisplay";
 import { isTikTokShortlink } from "./modelVideoEmbeds";
+import { cycleIndexOf, cycleWindow, cyclePeriodKey } from "./payCycle";
+import { assignmentPublishedAt, syncBonusForPublication } from "./pricing";
 
 const mecaniqueValidator = v.union(
   v.literal("Erreur"),
@@ -765,6 +767,100 @@ export const updatePublishedAccount = adminMutation({
       accountModified: true,
     });
     return { ok: true };
+  },
+});
+
+// ─── Warmup — flag PAR POST excluant de la paie (rentabilité P1) ─────────────
+
+/**
+ * Contexte warmup d'un post. `locked` = le CYCLE de paie du post est DÉJÀ PAYÉ
+ * (flag figé). RÉUTILISE la logique de cycle existante (aucune réinvention) :
+ * résout la vidéo (assignment) propriétaire du post — même résolution que
+ * pricing.syncBonusForPublication — → son créateur (firstPostAt = ancre) →
+ * l'index de cycle de la date de publication (cycleIndexOf) → la clé de période
+ * (cyclePeriodKey), puis cherche une row payments `paid` sur cette période.
+ * `payLinked` = le post est rattaché à une vidéo (sinon le flag n'a aucun effet
+ * sur la paie). Un post sans vidéo / sans ancre n'a AUCUN cycle → jamais
+ * verrouillé (rien à geler).
+ */
+async function publicationWarmupContext(
+  ctx: QueryCtx | MutationCtx,
+  pub: Doc<"publications">,
+): Promise<{ payLinked: boolean; locked: boolean }> {
+  const assignments = await ctx.db
+    .query("assignments")
+    .withIndex("by_project", (q) => q.eq("projectId", pub.projectId))
+    .collect();
+  const a = assignments.find(
+    (x) =>
+      (x.targets ?? []).some((t) => t.publicationId === pub._id) ||
+      x.publicationId === pub._id,
+  );
+  if (!a) return { payLinked: false, locked: false };
+  const creator = await ctx.db.get(a.creatorId);
+  const firstPostAt = creator?.firstPostAt;
+  if (firstPostAt === undefined) return { payLinked: true, locked: false };
+  const cycleIndex = cycleIndexOf(firstPostAt, assignmentPublishedAt(a));
+  const period = cyclePeriodKey(cycleWindow(firstPostAt, cycleIndex).cycleStart);
+  const locked = (
+    await ctx.db
+      .query("payments")
+      .withIndex("by_creator", (q) => q.eq("creatorId", a.creatorId))
+      .collect()
+  ).some(
+    (p) =>
+      p.projectId === pub.projectId &&
+      p.period === period &&
+      p.status === "paid",
+  );
+  return { payLinked: true, locked };
+}
+
+/**
+ * ADMIN — état du flag warmup d'un post + verrou, pour piloter le toggle. null si
+ * le post n'existe pas / hors projet. `locked` grise le toggle (cycle payé) ;
+ * `payLinked` = false signale que le flag est sans effet sur la paie (post non
+ * rattaché à une vidéo rémunérée).
+ */
+export const getPublicationWarmup = adminQuery({
+  args: { publicationId: v.id("publications") },
+  handler: async (ctx, { publicationId }) => {
+    const pub = await ctx.db.get(publicationId);
+    if (!pub || pub.projectId !== ctx.projectId) return null;
+    const { payLinked, locked } = await publicationWarmupContext(ctx, pub);
+    return { isWarmup: pub.isWarmup === true, locked, payLinked };
+  },
+});
+
+/**
+ * ADMIN — pose/retire le flag warmup d'un post (jamais le créateur). Un post
+ * warmup reste publié et tracké normalement mais EXCLU de toute paie (fixe/CPM/
+ * paliers, cf convex/pricing). Réversible MAIS borné : VERROUILLÉ dès que le
+ * cycle du post est payé — garde SERVEUR, pas seulement l'UI. Ne touche JAMAIS
+ * un cycle déjà payé (il lit ses lineItems gelées, jamais recalculées). Re-sync
+ * des paliers ensuite : retirer le warmup peut refranchir un palier (idempotent,
+ * immuable — ne retire jamais un unlock déjà acquis).
+ */
+export const setPublicationWarmup = adminMutation({
+  args: { publicationId: v.id("publications"), isWarmup: v.boolean() },
+  handler: async (ctx, { publicationId, isWarmup }) => {
+    const pub = await ctx.db.get(publicationId);
+    if (!pub || pub.projectId !== ctx.projectId) {
+      throw new ConvexError("Publication introuvable.");
+    }
+    const { locked } = await publicationWarmupContext(ctx, pub);
+    if (locked) {
+      throw new ConvexError(
+        "Cycle déjà payé : le flag warmup est verrouillé sur ce post.",
+      );
+    }
+    if ((pub.isWarmup === true) === isWarmup) {
+      return { ok: true, isWarmup }; // déjà dans l'état voulu — no-op
+    }
+    await ctx.db.patch(publicationId, { isWarmup });
+    // Le cumul PAYABLE du créateur change → re-sync des paliers de bonus.
+    await syncBonusForPublication(ctx, publicationId);
+    return { ok: true, isWarmup };
   },
 });
 

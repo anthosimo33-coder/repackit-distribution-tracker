@@ -243,6 +243,20 @@ export default defineSchema({
     // (modification possible 1 fois), true = déjà modifié une fois (lecture
     // seule désormais). Cf updatePublishedAccount.
     accountModified: v.optional(v.boolean()),
+    // ─── Warmup — post EXCLU de la rémunération (rentabilité P1) ────────────
+    // Un post "warmup" est publié et TRACKÉ normalement (ses vues restent
+    // relevées + affichées dans le tracker et « Mes vidéos ») mais EXCLU de
+    // TOUTE paie : ni fixe/vidéo, ni CPM sur ses vues, ni cumul de vues pour
+    // les paliers bonus (cf convex/pricing.assignmentViewsAndMetrics →
+    // payableViews / hasPayablePost). Posé/retiré par l'ADMIN seul
+    // (setPublicationWarmup), VERROUILLÉ dès que le CYCLE du post est payé — le
+    // gel de paie garde alors sa valeur historique (garde serveur, pas juste
+    // l'UI). N'AGIT que sur le calcul en cours / futur (les cycles déjà payés
+    // lisent leurs lineItems gelées, jamais recalculées → inchangés).
+    // ⚠️ DISTINCT du warmup COMPTE (comptes.status "warmup" / warmupProtocol,
+    // rodage d'un compte) : ici c'est un flag PAR POST, aucune parenté.
+    // Optional → 0 migration ; absent/undefined = false (post payant normal).
+    isWarmup: v.optional(v.boolean()),
     // ─── S3 — Raccord combo de script ↔ publication ────────────────────────
     // Copié depuis assignment.scriptCombo + comboKey À LA MATÉRIALISATION d'un
     // post de SCRIPT validé (validateAssignment, branche script). C'EST le lien

@@ -47,6 +47,7 @@ import { Badge } from "@/components/ui/badge";
 import { VerdictBadge, PlatformBadge } from "@/components/VerdictBadge";
 import { PublicationEditDialog } from "@/components/PublicationEditDialog";
 import { PublicationDetailDialog } from "@/components/PublicationDetailDialog";
+import { PostWarmupBadge } from "@/components/PostWarmupBadge";
 import { calculateSaveRate, calculateVerdict } from "@/lib/verdict";
 import { formatDate, formatNumber, formatPercent } from "@/lib/format";
 import { isPublished } from "@/lib/publication-status";
@@ -1219,7 +1220,12 @@ function PublicationsSection({
                   )}
                   {visibleColumns.has("carouselId") && (
                     <TableCell className="font-mono text-xs">
-                      {p.carouselId}
+                      <span className="inline-flex items-center gap-1.5">
+                        {p.carouselId}
+                        {p.isWarmup === true && (
+                          <PostWarmupBadge className="font-sans" />
+                        )}
+                      </span>
                     </TableCell>
                   )}
                   {visibleColumns.has("source") && (

@@ -61,12 +61,15 @@ import { cn } from "@/lib/utils";
 import {
   CalendarIcon,
   ExternalLinkIcon,
+  FlameIcon,
   Loader2Icon,
   PencilIcon,
   RefreshCwIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { Switch } from "@/components/ui/switch";
+import { PostWarmupBadge } from "@/components/PostWarmupBadge";
 
 // Refinement SR — helper local pour afficher un badge Appareil avec
 // icône Lucide. Couleurs neutres (info ≠ verdict). Réutilisé par
@@ -155,6 +158,75 @@ export function PublicationDetailDialog({
   );
 }
 
+/**
+ * Toggle ADMIN "Warmup" d'un post publié (rentabilité P1). Un post warmup reste
+ * publié et suivi (vues trackées) mais est EXCLU de toute paie (fixe/CPM/paliers).
+ * Réversible TANT QUE le cycle du post n'est pas payé — au-delà le toggle est
+ * GRISÉ (le verrou est AUSSI côté serveur, cf setPublicationWarmup). Admin-only
+ * par construction (surface admin + adminMutation).
+ */
+function WarmupControl({ publication }: { publication: PublicationWithImage }) {
+  const state = useProjectQuery(api.publications.getPublicationWarmup, {
+    publicationId: publication._id,
+  });
+  const setWarmup = useProjectMutation(api.publications.setPublicationWarmup);
+  const [saving, setSaving] = useState(false);
+  // Le doc porte déjà isWarmup (affichage immédiat) ; l'état serveur affine le
+  // verrou + le rattachement paie dès qu'il arrive.
+  const isWarmup = state?.isWarmup ?? publication.isWarmup === true;
+  const locked = state?.locked ?? false;
+  const payLinked = state?.payLinked ?? true;
+  const pending = state === undefined || saving;
+
+  async function onToggle(next: boolean) {
+    setSaving(true);
+    try {
+      await setWarmup({ publicationId: publication._id, isWarmup: next });
+      toast.success(
+        next
+          ? "Post marqué warmup — exclu de la rémunération"
+          : "Warmup retiré — le post redevient payant",
+      );
+    } catch (e) {
+      toast.error(convexErrorMessage(e, "Impossible de modifier le warmup."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-md border border-amber-200 bg-amber-50/60 p-3">
+      <div className="space-y-0.5">
+        <div className="flex items-center gap-1.5 text-sm font-medium text-slate-900">
+          <FlameIcon className="size-4 text-amber-600" />
+          Warmup — exclu de la rémunération
+        </div>
+        <p className="text-xs text-slate-500">
+          Le post reste publié et suivi (ses vues sont trackées), mais il ne
+          compte NI dans le fixe, NI dans le CPM, NI dans le cumul des paliers.
+        </p>
+        {locked ? (
+          <p className="text-xs font-medium text-amber-700">
+            Cycle déjà payé — flag verrouillé.
+          </p>
+        ) : (
+          !payLinked && (
+            <p className="text-xs text-slate-400">
+              Post non rattaché à une vidéo rémunérée — sans effet sur la paie.
+            </p>
+          )
+        )}
+      </div>
+      <Switch
+        checked={isWarmup}
+        disabled={locked || pending}
+        onCheckedChange={onToggle}
+        aria-label="Marquer ce post comme warmup"
+      />
+    </div>
+  );
+}
+
 // ─── Mode publié : lecture seule (comportement existant) ───────────────────
 
 function PublishedView({
@@ -202,6 +274,7 @@ function PublishedView({
               <span className="font-mono">{publication.carouselId}</span>
             </span>
             <PlatformBadge plateforme={publication.plateforme} />
+            {publication.isWarmup === true && <PostWarmupBadge />}
           </DialogTitle>
         </DialogHeader>
 
@@ -242,6 +315,8 @@ function PublishedView({
                 </p>
               )}
           </div>
+
+          <WarmupControl publication={publication} />
 
           {/* Batch D — Section ScreenRecorder : image preview large +
               titre. Affiché uniquement pour ce mediaType (carousel/short
