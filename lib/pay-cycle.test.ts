@@ -115,7 +115,7 @@ describe("re-fenêtrage J+30 — INVARIANT du total (montant inchangé)", () => 
   });
 
   it("fixe SANS plafond atteint (≤ nbVideosCible/fenêtre) : Σ cycles == total", () => {
-    // montantFixe=100 / nbVideosCible=10 → 10 €/vidéo. ≤ 2 vidéos/fenêtre ici → jamais cappé.
+    // montantFixe=100 / nbVideosCible=10 → 10 $/vidéo. ≤ 2 vidéos/fenêtre ici → jamais cappé.
     const items = VIDS.map((v, i) => ({
       assignmentId: `a${i}`,
       snapshot: snap({ montantFixe: 100, nbVideosCible: 10 }),
@@ -130,12 +130,12 @@ describe("re-fenêtrage J+30 — INVARIANT du total (montant inchangé)", () => 
     expect(round2(sumCycles)).toBe(round2(totalGlobal));
   });
 
-  it("plafond 150 €/vidéo appliqué À LA VIDÉO → indépendant du fenêtrage", () => {
+  it("plafond 150 $/vidéo appliqué À LA VIDÉO → indépendant du fenêtrage", () => {
     // Vue énorme → CPM dépasserait 150, cappé par vidéo. Le cap est per-vidéo,
     // donc identique quel que soit le cycle qui la porte.
     const items = VIDS.map((v, i) => ({
       assignmentId: `a${i}`,
-      snapshot: snap({ tauxCPM: 50 }), // 50 €/1000 vues → cap 150 vite atteint
+      snapshot: snap({ tauxCPM: 50 }), // 50 $/1000 vues → cap 150 vite atteint
       totalViews: v.totalViews,
       publishedAt: v.publishedAt,
     }));

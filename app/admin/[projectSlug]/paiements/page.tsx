@@ -20,7 +20,7 @@ import {
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
-import { formatEuros } from "@/lib/format-rate";
+import { formatMoney } from "@/lib/format-rate";
 import { formatCycleRange } from "@/lib/pay-cycle";
 import type { FunctionReturnType } from "convex/server";
 import {
@@ -34,7 +34,7 @@ import {
  * sur son 1er post). 1 ligne = 1 (créateur, cycle) : le regroupement calendaire
  * global (« période du mois ») n'existe plus (chaque créateur a son propre cycle).
  * Marquer payé se fait PAR CYCLE (markCyclePaid). Le montant est inchangé (même
- * moteur cappé 150€/vidéo) — seul le découpage change.
+ * moteur cappé 150$/vidéo) — seul le découpage change.
  */
 
 type Payment = FunctionReturnType<typeof api.payments.listPayments>[number];
@@ -58,7 +58,7 @@ function BreakdownLine({ label, amount }: { label: string; amount: number }) {
   return (
     <li className="flex items-center justify-between gap-4 text-slate-600">
       <span>{label}</span>
-      <span className="tabular-nums text-slate-700">{formatEuros(amount)}</span>
+      <span className="tabular-nums text-slate-700">{formatMoney(amount)}</span>
     </li>
   );
 }
@@ -118,7 +118,7 @@ export default function PaiementsPage() {
               ? "Chargement…"
               : rows.length === 0
                 ? "Aucun paiement pour l'instant."
-                : `${rows.length} cycle${rows.length > 1 ? "s" : ""} · ${formatEuros(total)} dû (${formatEuros(unpaidTotal)} en attente)`}
+                : `${rows.length} cycle${rows.length > 1 ? "s" : ""} · ${formatMoney(total)} dû (${formatMoney(unpaidTotal)} en attente)`}
           </p>
           <p className="text-xs text-slate-400">
             Cycles de 30 jours propres à chaque créateur (ancrés sur son 1er
@@ -136,7 +136,7 @@ export default function PaiementsPage() {
                   "Méthode",
                   "Coordonnées",
                   "Cycle",
-                  "Total dû (€)",
+                  "Total dû ($)",
                   "Statut",
                 ],
                 ...rows.map((p) => [
@@ -253,7 +253,7 @@ function PaymentRow({ p }: { p: Payment }) {
           </span>
         </TableCell>
         <TableCell className="text-right font-medium tabular-nums text-slate-900">
-          {formatEuros(p.totalDue)}
+          {formatMoney(p.totalDue)}
         </TableCell>
         <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
           {p.status === "paid" ? (
@@ -313,7 +313,7 @@ function PaymentRow({ p }: { p: Payment }) {
                       {li.label}
                     </span>
                     <span className="tabular-nums text-slate-700">
-                      {formatEuros(li.amount)}
+                      {formatMoney(li.amount)}
                     </span>
                   </li>
                 ))}

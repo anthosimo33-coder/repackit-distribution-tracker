@@ -167,7 +167,7 @@ test.describe("Multi-plateforme — cibles warmup-gated, paiement par post", () 
       vues: 2000,
       likes: 0,
     });
-    // 5000 vues cumulées × 2 €/1k = 10 €.
+    // 5000 vues cumulées × 2 $/1k = 10 $.
     const bonus = await admin.mutation(api.assignments.computeViewBonus, {
       id: a._id,
       views: 5000,

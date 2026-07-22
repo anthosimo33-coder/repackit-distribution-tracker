@@ -7,7 +7,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { useViewAs } from "@/components/portal/ViewAsContext";
 import { useMyProgression } from "@/components/portal/creator-data";
 import { rewardEmoji } from "@/lib/progression";
-import { formatEuros, formatViews } from "@/lib/format-rate";
+import { formatMoney, formatViews } from "@/lib/format-rate";
 
 /**
  * Overlay GLOBAL de célébration de palier — monté dans le shell créateur, donc
@@ -96,7 +96,7 @@ export function ProgressionCelebration({
         <div className="mt-4 rounded-xl bg-primary/5 px-4 py-3">
           <p className="text-xl font-semibold text-slate-900">
             {headline.kind === "cash"
-              ? formatEuros(headline.amount ?? 0)
+              ? formatMoney(headline.amount ?? 0)
               : `${headline.emoji} ${headline.label}`}
           </p>
           <p className="mt-1 text-xs text-slate-500">

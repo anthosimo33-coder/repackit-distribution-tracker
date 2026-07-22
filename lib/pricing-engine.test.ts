@@ -10,7 +10,7 @@ import {
   type BonusTier,
 } from "./pricing-engine";
 
-/** Pricing de référence : fixe 100€/60 vidéos, CPM 2€/1000. */
+/** Pricing de référence : fixe 100$/60 vidéos, CPM 2$/1000. */
 const P: PricingSnapshot = {
   pricingId: "p1",
   montantFixe: 100,
@@ -30,13 +30,13 @@ function items(n: number, views: number, snapshot = P, prefix = "a"): PayoutItem
 }
 
 describe("computeMonthlyPayout — FIXE + CPM (v2, sans bonus par vidéo)", () => {
-  it("fixe : 30/60 → 50€, 60 → 100€, 75 → 100€ (plafond)", () => {
+  it("fixe : 30/60 → 50$, 60 → 100$, 75 → 100$ (plafond)", () => {
     expect(computeMonthlyPayout(items(30, 0)).fixedTotal).toBe(50);
     expect(computeMonthlyPayout(items(60, 0)).fixedTotal).toBe(100);
     expect(computeMonthlyPayout(items(75, 0)).fixedTotal).toBe(100);
   });
 
-  it("CPM 3000+2000 = 5000 vues @2€/1000 → 10€", () => {
+  it("CPM 3000+2000 = 5000 vues @2$/1000 → 10$", () => {
     expect(assignmentCpm(P, 5000)).toBe(10);
     expect(computeMonthlyPayout(items(1, 5000)).cpmTotal).toBe(10);
   });
@@ -44,7 +44,7 @@ describe("computeMonthlyPayout — FIXE + CPM (v2, sans bonus par vidéo)", () =
   it("RÉGRESSION : une vidéo à 1M vues ne déclenche PLUS de bonus par vidéo", () => {
     const r = computeMonthlyPayout(items(1, 1_000_000)); // ex-seuil v1 = 100k
     // fixe (1/60≈1,67) + CPM (1000×2=2000) — AUCUN bonus ; CPM rogné par le
-    // plafond 150 €/vidéo (2001,67 → 150 ; cf describe « plafond »).
+    // plafond 150 $/vidéo (2001,67 → 150 ; cf describe « plafond »).
     expect(r.fixedTotal).toBe(1.67);
     expect(r.cpmTotal).toBe(148.33);
     expect(r.total).toBe(150);
@@ -57,8 +57,8 @@ describe("computeMonthlyPayout — FIXE + CPM (v2, sans bonus par vidéo)", () =
   });
 });
 
-describe("plafond 150 €/vidéo — computeMonthlyPayout (global tous projets)", () => {
-  // Part fixe RONDE (120/60 = 2 €/vidéo) → totaux nets pour les assertions.
+describe("plafond 150 $/vidéo — computeMonthlyPayout (global tous projets)", () => {
+  // Part fixe RONDE (120/60 = 2 $/vidéo) → totaux nets pour les assertions.
   const P2: PricingSnapshot = {
     ...P,
     montantFixe: 120,
@@ -66,16 +66,16 @@ describe("plafond 150 €/vidéo — computeMonthlyPayout (global tous projets)"
     tauxCPM: 2,
   };
 
-  it("une vidéo dont le calcul dépasse 150 € → capée à 150 €", () => {
+  it("une vidéo dont le calcul dépasse 150 $ → capée à 150 $", () => {
     // fixe 2 + CPM (1000×2=2000) = 2002 → 150.
     expect(computeMonthlyPayout(items(1, 1_000_000, P2)).total).toBe(150);
   });
 
-  it("122M vues → 150 € (exemple fondateur)", () => {
+  it("122M vues → 150 $ (exemple fondateur)", () => {
     expect(computeMonthlyPayout(items(1, 122_000_000, P2)).total).toBe(150);
   });
 
-  it("une vidéo SOUS 150 € → calcul inchangé (CPM normal)", () => {
+  it("une vidéo SOUS 150 $ → calcul inchangé (CPM normal)", () => {
     // fixe 2 + CPM (5×2=10) = 12.
     expect(computeMonthlyPayout(items(1, 5000, P2)).total).toBe(12);
   });
@@ -130,16 +130,16 @@ describe("evaluateBonusTiers — cumul créateur", () => {
     expect(r.viewsToNext).toBe(500_000);
   });
 
-  it("cas chiffré 2,3M : iPhone franchi (nature, HORS total €), 5M non atteint", () => {
+  it("cas chiffré 2,3M : iPhone franchi (nature, HORS total $), 5M non atteint", () => {
     const r = evaluateBonusTiers(2_300_000, TIERS);
     expect(r.crossed).toHaveLength(1);
     expect(r.natureCrossed.map((t) => t.libelle)).toEqual(["iPhone"]);
-    expect(r.cashCrossedTotal).toBe(0); // l'iPhone ne compte pas en €
+    expect(r.cashCrossedTotal).toBe(0); // l'iPhone ne compte pas en $
     expect(r.nextTier?.montant).toBe(500);
     expect(r.viewsToNext).toBe(2_700_000);
   });
 
-  it("cas chiffré 5,1M : iPhone + 500€ franchis → cash 500€, MacBook prochain", () => {
+  it("cas chiffré 5,1M : iPhone + 500$ franchis → cash 500$, MacBook prochain", () => {
     const r = evaluateBonusTiers(5_100_000, TIERS);
     expect(r.crossed).toHaveLength(2);
     expect(r.cashCrossedTotal).toBe(500);
@@ -185,7 +185,7 @@ describe("evaluateBonusTiers — cumul créateur", () => {
 const round = (n: number) => Math.round(n * 100) / 100;
 
 describe("estimateMissionEarnings — fiche mission (fixe/vidéo + CPM, sans bonus)", () => {
-  // Pricing réel « Deal Créateur Face cam » (prod) : fixe 100€/60 vidéos, CPM 1,1.
+  // Pricing réel « Deal Créateur Face cam » (prod) : fixe 100$/60 vidéos, CPM 1,1.
   const DEAL: PricingSnapshot = {
     pricingId: "deal",
     montantFixe: 100,
@@ -195,7 +195,7 @@ describe("estimateMissionEarnings — fiche mission (fixe/vidéo + CPM, sans bon
     montantBonus: 0,
   };
 
-  it("fixe/vidéo + CPM ; ex. Marielle à 10k vues ≈ 12,67€ (et non 0€)", () => {
+  it("fixe/vidéo + CPM ; ex. Marielle à 10k vues ≈ 12,67$ (et non 0$)", () => {
     const e = estimateMissionEarnings(DEAL, 10_000);
     expect(e.fixed).toBe(1.67); // 100 / 60
     expect(e.cpm).toBe(11); // 10 × 1,1
@@ -221,7 +221,7 @@ describe("estimateMissionEarnings — fiche mission (fixe/vidéo + CPM, sans bon
     expect(e.total).toBe(11);
   });
 
-  it("plafond 150 €/vidéo : estimation > 150 → capée (fixe gardé, CPM rogné)", () => {
+  it("plafond 150 $/vidéo : estimation > 150 → capée (fixe gardé, CPM rogné)", () => {
     // CPM 1,1 × 1M/1000 = 1100 + fixe 1,67 → 1101,67 → 150.
     const e = estimateMissionEarnings(DEAL, 1_000_000);
     expect(e.total).toBe(150);

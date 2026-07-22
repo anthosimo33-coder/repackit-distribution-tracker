@@ -12,7 +12,7 @@ describe("computeEarnings", () => {
   });
 
   it("bonus aux vues continu", () => {
-    // 2 €/1k × 5000 vues = 10 €
+    // 2 $/1k × 5000 vues = 10 $
     expect(computeEarnings({ basePerPost: 50, viewBonusPer1k: 2 }, 5000)).toEqual(
       { base: 50, viewBonus: 10, bounty: 0, total: 60 },
     );
@@ -55,14 +55,14 @@ describe("computeEarnings", () => {
   });
 
   it("arrondi au centime", () => {
-    // 3 €/1k × 1234 vues = 3.702 → 3.70
+    // 3 $/1k × 1234 vues = 3.702 → 3.70
     expect(computeEarnings({ basePerPost: 0, viewBonusPer1k: 3 }, 1234).viewBonus).toBe(
       3.7,
     );
   });
 });
 
-describe("computeEarnings — plafond 150 €/vidéo (global tous projets)", () => {
+describe("computeEarnings — plafond 150 $/vidéo (global tous projets)", () => {
   it("total > 150 → capé à 150 (base gardée, viewBonus rogné)", () => {
     // brut : base 50 + viewBonus (2×1M/1000=2000) = 2050 → 150 ; viewBonus → 100.
     const r = computeEarnings({ basePerPost: 50, viewBonusPer1k: 2 }, 1_000_000);

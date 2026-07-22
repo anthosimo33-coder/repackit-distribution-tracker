@@ -9,16 +9,16 @@
  * réutilisée côté client. On RÉUTILISE `evaluateBonusTiers`/`BonusTier` du moteur
  * (jamais de duplication de la logique paliers).
  *
- * ARGENT : ce module ne calcule AUCUN euro dû. Le cash crédité vient des
+ * ARGENT : ce module ne calcule AUCUN dollar dû. Le cash crédité vient des
  * `bonusUnlocks` persistés (serveur) ; ici on n'expose que de l'AFFICHAGE. Une
- * récompense NATURE (physique) est `kind: "item"` SANS montant € — jamais
- * additionnée à des euros.
+ * récompense NATURE (physique) est `kind: "item"` SANS montant $ — jamais
+ * additionnée à des dollars.
  */
 import { evaluateBonusTiers, type BonusTier } from "./pricing-engine";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-/** Récompense d'un palier, prête à l'affichage. `item` = physique (jamais €). */
+/** Récompense d'un palier, prête à l'affichage. `item` = physique (jamais $). */
 export type ProgressionReward =
   | { kind: "cash"; amount: number; emoji: string }
   | { kind: "item"; label: string; emoji: string };
@@ -70,9 +70,9 @@ export type ProgressionView = {
   progressToNext: number;
   /** Vues restantes avant le prochain palier (0 si aucun). */
   remainingViews: number;
-  /** Total € des paliers CASH débloqués (persistés). Affichage seulement. */
+  /** Total $ des paliers CASH débloqués (persistés). Affichage seulement. */
   cashUnlockedTotal: number;
-  /** Récompenses PHYSIQUES débloquées (jamais des euros). */
+  /** Récompenses PHYSIQUES débloquées (jamais des dollars). */
   itemsUnlocked: { label: string; emoji: string; unlockedAt: number }[];
   victories: ProgressionVictory[];
 };
@@ -103,7 +103,7 @@ export function rewardEmoji(libelle?: string): string {
   return DEFAULT_ITEM_EMOJI;
 }
 
-/** Récompense d'affichage d'un palier (cash → €, nature → item physique). */
+/** Récompense d'affichage d'un palier (cash → $, nature → item physique). */
 export function rewardOf(tier: {
   rewardType: "cash" | "nature";
   montant?: number;

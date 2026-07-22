@@ -20,7 +20,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { formatEuros, formatViews } from "@/lib/format-rate";
+import { formatMoney, formatViews } from "@/lib/format-rate";
 import { formatDate } from "@/lib/format";
 
 /**
@@ -130,7 +130,7 @@ function Hero({ p }: { p: P }) {
           <div className="flex flex-wrap justify-center gap-1.5 border-t border-primary/15 pt-3">
             {p.cashUnlockedTotal > 0 && (
               <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
-                + {formatEuros(p.cashUnlockedTotal)} débloqués
+                + {formatMoney(p.cashUnlockedTotal)} débloqués
               </span>
             )}
             {p.itemsUnlocked.map((r, i) => (
@@ -282,13 +282,13 @@ function VictoriesSection({ victories }: { victories: ProgressionVictory[] }) {
   );
 }
 
-/** Libellé d'une récompense : cash → €, item → emoji + label. */
+/** Libellé d'une récompense : cash → $, item → emoji + label. */
 function RewardLabel({ reward }: { reward: ProgressionReward }) {
   if (reward.kind === "cash") {
     return (
       <>
         <TrophyIcon className="size-3.5 text-primary" aria-hidden />
-        {formatEuros(reward.amount)}
+        {formatMoney(reward.amount)}
       </>
     );
   }

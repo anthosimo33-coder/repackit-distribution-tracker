@@ -86,7 +86,7 @@ export function computeEarnings(rate: RateSnapshot, views: number): Earnings {
       .reduce((sum, b) => sum + b.amount, 0),
   );
   const rawTotal = round2(base + viewBonus + bounty);
-  // Plafond 150 €/vidéo (RÉPLIQUE lib/earnings, A6) : cape le bonus (viewBonus
+  // Plafond 150 $/vidéo (RÉPLIQUE lib/earnings, A6) : cape le bonus (viewBonus
   // puis primes) → l'accrual (assignments.computeViewBonus = viewBonus+bounty)
   // est capé À LA SOURCE, base + bonus ≤ 150.
   if (rawTotal <= MAX_PAY_PER_VIDEO_EUR) {
@@ -393,7 +393,7 @@ function frozenLineItemsFromBreakdown(b: PricingBreakdown): LineItem[] {
 /**
  * Paiements d'un créateur RE-FENÊTRÉS par ses cycles J+30 (ancre firstPostAt).
  * TOUS ses gains (existants accumulés + futurs) sont regroupés par sa fenêtre de
- * 30 j perso — MÊME moteur de montant (computeMonthlyPayout, cap 150€/vidéo) : seul
+ * 30 j perso — MÊME moteur de montant (computeMonthlyPayout, cap 150$/vidéo) : seul
  * le REGROUPEMENT change → le TOTAL dû est INVARIANT. Cycles du plus récent au plus
  * ancien ; on garde ceux avec gains + TOUJOURS le cycle courant (« prochaine paie »
  * = son cycleEnd). firstPostAt absent (aucun post) → aucun cycle (liste vide).
@@ -601,7 +601,7 @@ export const getPaymentsAsAdmin = adminViewAsQuery({
  * Logique PARTAGÉE entre l'adminQuery `leaderboard` (vue admin) et la creatorQuery
  * `projectLeaderboard` (portail créateur) — 0 duplication. Métrique = `totalDue`
  * du cycle courant (fixe/CPM + bonus paliers cash = le vrai « à payer »). Réutilise
- * `cyclePaymentsForCreator` (le cycle courant y est TOUJOURS présent, même à 0 €)
+ * `cyclePaymentsForCreator` (le cycle courant y est TOUJOURS présent, même à 0 $)
  * et n'en garde QUE ce cycle. Créateur sans firstPostAt (aucun post) → pas de cycle
  * → exclu. Créateurs vivants uniquement (pas d'orphelins). Trié gains desc,
  * départage par nom → `rank` (1-based). `isMe` marque la fiche de l'appelant

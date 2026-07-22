@@ -150,7 +150,7 @@ test.describe("Accrual & matérialisation à la publication", () => {
       id: a1._id,
       views: 5000,
     });
-    expect(b1.bonus).toBe(10); // 2 €/1k × 5000 = 10
+    expect(b1.bonus).toBe(10); // 2 $/1k × 5000 = 10
     pay = await payOf();
     expect(
       pay.lineItems.filter(

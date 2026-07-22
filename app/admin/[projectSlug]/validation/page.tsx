@@ -36,6 +36,7 @@ import { StreamPlayer } from "@/components/formats/StreamPlayer";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { formatMoney } from "@/lib/format-rate";
 import type { FunctionReturnType } from "convex/server";
 import {
   CheckIcon,
@@ -70,10 +71,6 @@ type ManagedToPublishRow =
  */
 
 const nf = new Intl.NumberFormat("fr-FR");
-const eur = (n: number) =>
-  new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(
-    n,
-  );
 const formatDate = (ts: number) => new Date(ts).toLocaleDateString("fr-FR");
 
 export default function ValidationPage() {
@@ -665,7 +662,7 @@ function BonusRow({ r }: { r: BonusRowData }) {
     setBusy(true);
     try {
       const res = await compute({ id: r.assignmentId, views: v });
-      toast.success(`Bonus crédité : ${eur(res.bonus)}`);
+      toast.success(`Bonus crédité : ${formatMoney(res.bonus)}`);
       setOpen(false);
     } catch (e) {
       toast.error(convexErrorMessage(e, "Échec du calcul du bonus"));
@@ -691,7 +688,7 @@ function BonusRow({ r }: { r: BonusRowData }) {
         )}
       </TableCell>
       <TableCell className="text-right tabular-nums text-slate-700">
-        {r.existingBonus !== null ? eur(r.existingBonus) : "—"}
+        {r.existingBonus !== null ? formatMoney(r.existingBonus) : "—"}
       </TableCell>
       <TableCell className="text-right">
         <Button

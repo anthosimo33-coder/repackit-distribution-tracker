@@ -1,7 +1,7 @@
 /**
  * SNYTCH — suivi des vidéos publiées créatrice : dérivations PURES (statut de
  * suivi, ancienneté, agrégation du récap dashboard), testées Vitest. Le calcul
- * du GAIN par vidéo (plafonné 150 €) vit dans le moteur de paie (lib/pricing-
+ * du GAIN par vidéo (plafonné 150 $) vit dans le moteur de paie (lib/pricing-
  * engine + convex, source unique) — PAS ici. `aggregateVideoStats` /
  * `videoTrackingStatus` sont RÉPLIQUÉS côté serveur (convex/creatorVideos, A6).
  */
@@ -38,7 +38,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  * Récap dashboard : agrège les vidéos dont `publishedAt` tombe dans la période
  * (prédicat `inPeriod`, typiquement le mois courant). Vues nulles (en cours de
  * calcul) comptées 0. Le total des gains est la SOMME des gains PAR VIDÉO déjà
- * plafonnés à 150 € (cohérent avec la liste et Mes paiements).
+ * plafonnés à 150 $ (cohérent avec la liste et Mes paiements).
  */
 export function aggregateVideoStats(
   videos: readonly TrackedVideoLike[],

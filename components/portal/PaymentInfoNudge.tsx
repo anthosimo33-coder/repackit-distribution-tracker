@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { Id } from "@/convex/_generated/dataModel";
 import { WalletIcon, ArrowRightIcon } from "lucide-react";
-import { formatEuros } from "@/lib/format-rate";
+import { formatMoney } from "@/lib/format-rate";
 import { amountOwed, shouldPromptPaymentInfo } from "@/lib/creator-payment";
 import { portalHref } from "@/lib/view-as";
 import { useMyProfile, useMyPayments } from "@/components/portal/creator-data";
@@ -42,7 +42,7 @@ export function PaymentInfoNudge({ projectId }: { projectId: Id<"projects"> }) {
         </p>
         <p className="text-sm text-amber-800">
           Sans elles, on ne peut pas te verser tes{" "}
-          {formatEuros(amountOwed(payments))}.
+          {formatMoney(amountOwed(payments))}.
         </p>
       </div>
       <ArrowRightIcon className="size-4 shrink-0 text-amber-700" />

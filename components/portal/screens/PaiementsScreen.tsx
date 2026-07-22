@@ -11,7 +11,7 @@ import { portalHref } from "@/lib/view-as";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { formatEuros } from "@/lib/format-rate";
+import { formatMoney } from "@/lib/format-rate";
 import { formatDate } from "@/lib/format";
 import { formatCycleRange } from "@/lib/pay-cycle";
 import { ArrowRightIcon, ChevronRightIcon } from "lucide-react";
@@ -77,7 +77,7 @@ function BonusTierPanel({ projectId }: { projectId: Id<"projects"> }) {
               vues avant{" "}
               <span className="font-semibold">
                 {next.rewardType === "cash"
-                  ? `${formatEuros(next.montant ?? 0)}`
+                  ? `${formatMoney(next.montant ?? 0)}`
                   : next.libelle}
               </span>
               .
@@ -92,7 +92,7 @@ function BonusTierPanel({ projectId }: { projectId: Id<"projects"> }) {
           <div className="flex flex-wrap gap-1.5 pt-1">
             {status.cashUnlockedTotal > 0 && (
               <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
-                + {formatEuros(status.cashUnlockedTotal)} débloqués
+                + {formatMoney(status.cashUnlockedTotal)} débloqués
               </span>
             )}
             {status.natureUnlocked.map((r, i) => (
@@ -145,7 +145,7 @@ function KindTag({
 
 /**
  * Aperçu PRICING temps réel d'une période non payée : fixe acquis (X/cible
- * vidéos → Y€ sur montantFixe), CPM accumulé (sur les vues), bonus, total.
+ * vidéos → Y$ sur montantFixe), CPM accumulé (sur les vues), bonus, total.
  */
 function PricingBreakdown({ b }: { b: Payment["pricingBreakdown"] }) {
   if (b.total <= 0 && b.perPricing.length === 0) return null;
@@ -161,7 +161,7 @@ function PricingBreakdown({ b }: { b: Payment["pricingBreakdown"] }) {
             ? `Fixe — ${g.videoCount}/${g.nbVideosCible} vidéos publiées`
             : "Fixe"
         }
-        sub={g ? `sur ${formatEuros(g.montantFixe)}` : undefined}
+        sub={g ? `sur ${formatMoney(g.montantFixe)}` : undefined}
         amount={b.fixedTotal}
       />
       <Row label="CPM accumulé (sur tes vues)" amount={b.cpmTotal} />
@@ -183,7 +183,7 @@ function PricingBreakdown({ b }: { b: Payment["pricingBreakdown"] }) {
       <div className="flex items-center justify-between border-t border-slate-100 pt-2 text-sm font-semibold">
         <span>Sous-total pricing</span>
         <span className="tabular-nums" data-testid="pricing-total">
-          {formatEuros(b.total)}
+          {formatMoney(b.total)}
         </span>
       </div>
     </div>
@@ -206,7 +206,7 @@ function Row({
         {sub ? <span className="text-slate-400"> {sub}</span> : null}
       </span>
       <span className="shrink-0 tabular-nums text-slate-900">
-        {formatEuros(amount)}
+        {formatMoney(amount)}
       </span>
     </div>
   );
@@ -225,13 +225,13 @@ function LineItems({ p }: { p: Payment }) {
             <span className="truncate text-slate-700">{li.label}</span>
           </span>
           <span className="shrink-0 tabular-nums text-slate-900">
-            {formatEuros(li.amount)}
+            {formatMoney(li.amount)}
           </span>
         </li>
       ))}
       <li className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm font-semibold">
         <span>Total</span>
-        <span className="tabular-nums">{formatEuros(p.totalDue)}</span>
+        <span className="tabular-nums">{formatMoney(p.totalDue)}</span>
       </li>
     </ul>
   );
@@ -267,7 +267,7 @@ function PastPeriod({ p }: { p: Payment }) {
           )}
         </span>
         <span className="shrink-0 tabular-nums font-medium text-slate-900">
-          {formatEuros(p.totalDue)}
+          {formatMoney(p.totalDue)}
         </span>
       </button>
       {open && (
@@ -324,7 +324,7 @@ export default function PaiementsScreen() {
                 className="text-4xl font-semibold tabular-nums text-slate-900"
                 data-testid="due-now"
               >
-                {formatEuros(dueNow)}
+                {formatMoney(dueNow)}
               </p>
               {nextTs !== null && days !== null ? (
                 <p className="text-sm text-slate-500">
