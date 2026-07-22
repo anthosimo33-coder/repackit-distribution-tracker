@@ -138,13 +138,23 @@ async function toCreatorVideo(
   let publishedAt: number | null = null;
 
   if (isOnline) {
-    const { totalViews, hasMetrics } = await assignmentViewsAndMetrics(ctx, a);
+    const { totalViews, payableViews, hasPayablePost, hasMetrics } =
+      await assignmentViewsAndMetrics(ctx, a);
     // Gain par vidéo — MÊME moteur cappé que Mes paiements (plafond 150 réutilisé).
-    const g = a.pricingSnapshot
-      ? computeMonthlyPayout([
-          { assignmentId: a._id, snapshot: a.pricingSnapshot, totalViews },
-        ]).total
-      : computeEarnings(a.rateSnapshot, totalViews).total;
+    // Warmup : posts warmup EXCLUS de la paie → gain sur les seules vues PAYABLES ;
+    // une vidéo entièrement warmup (hasPayablePost false) ne génère rien.
+    const g = !hasPayablePost
+      ? 0
+      : a.pricingSnapshot
+        ? computeMonthlyPayout([
+            {
+              assignmentId: a._id,
+              snapshot: a.pricingSnapshot,
+              totalViews: payableViews,
+            },
+          ]).total
+        : computeEarnings(a.rateSnapshot, payableViews).total;
+    // Vues AFFICHÉES = vues réelles trackées (warmup inclus) — le suivi reste normal.
     views = hasMetrics ? totalViews : null;
     gain = g;
     capped = g >= MAX_PAY_PER_VIDEO_EUR;

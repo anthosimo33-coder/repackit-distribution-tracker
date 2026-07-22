@@ -82,6 +82,34 @@ function fixePerVideo(snapshot: PricingSnapshot): number {
   return snapshot.montantFixe / snapshot.nbVideosCible;
 }
 
+// ─── Warmup — RÉPLIQUE de lib/pricing-engine.payableAssignmentViews (A6) ──────
+
+type PublicationViews = { views: number; isWarmup: boolean };
+
+/**
+ * Vues PAYABLES d'une vidéo = Σ des vues des posts NON-warmup (les posts warmup
+ * sont exclus du CPM ET du cumul de paliers). `hasPayablePost` pilote le FIXE
+ * (false = vidéo tout-warmup → exclue du fixe). RÉPLIQUE EXACTE de
+ * lib/pricing-engine.payableAssignmentViews (testée Vitest là-bas). Sans post
+ * warmup : payableViews === Σ vues, hasPayablePost === true → INCHANGÉ.
+ */
+function payableAssignmentViews(pubs: PublicationViews[]): {
+  payableViews: number;
+  hasPayablePost: boolean;
+} {
+  let payableViews = 0;
+  let nonWarmupCount = 0;
+  for (const p of pubs) {
+    if (p.isWarmup) continue;
+    nonWarmupCount += 1;
+    payableViews += Math.max(0, p.views);
+  }
+  return {
+    payableViews,
+    hasPayablePost: pubs.length === 0 || nonWarmupCount > 0,
+  };
+}
+
 /** RÉPLIQUE de lib/pricing-engine.computeMonthlyPayout (DOIT rester identique). */
 export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
   const groups = new Map<string, PayoutItem[]>();
@@ -217,23 +245,34 @@ export function assignmentPublishedAt(a: Doc<"assignments">): number {
 }
 
 /**
- * Vues TOTALES (somme des vuesLatest des publications) ET présence de métriques
- * (au moins un snapshot déjà relevé, via latestSnapshotAt) d'un assignment, en
- * UN SEUL passage sur les publications. SOURCE UNIQUE des vues d'une vidéo :
- * réutilisée par le CPM (assignmentTotalViews délègue ici) ET par le suivi
- * vidéos créatrice → aucune divergence de vues entre « Mes paiements » et
- * « Mes vidéos ». `hasMetrics` alimente le statut de suivi (actif vs en cours de
- * calcul) côté créatrice sans re-lire les publications.
+ * Vues d'un assignment ET présence de métriques (au moins un snapshot déjà
+ * relevé, via latestSnapshotAt), en UN SEUL passage sur les publications. SOURCE
+ * UNIQUE des vues d'une vidéo, réutilisée par le CPM/cumul (paie) ET par le suivi
+ * vidéos créatrice → aucune divergence de vues.
+ *
+ *  - `totalViews` : Σ de TOUTES les vues (warmup INCLUS) → AFFICHAGE/suivi (un
+ *    post warmup reste tracké normalement, ses vues restent visibles).
+ *  - `payableViews` : Σ des vues des posts NON-warmup → CPM + cumul de paliers.
+ *  - `hasPayablePost` : la vidéo compte-t-elle pour le FIXE (false = tout-warmup).
+ *  - `hasMetrics` : suivi actif vs en cours de calcul (côté créatrice).
+ *
+ * Sans aucun post warmup, payableViews === totalViews et hasPayablePost === true
+ * → la paie est INCHANGÉE. Cf lib/pricing-engine.payableAssignmentViews (A6).
  */
 export async function assignmentViewsAndMetrics(
   ctx: QueryCtx | MutationCtx,
   a: Doc<"assignments">,
-): Promise<{ totalViews: number; hasMetrics: boolean }> {
+): Promise<{
+  totalViews: number;
+  payableViews: number;
+  hasPayablePost: boolean;
+  hasMetrics: boolean;
+}> {
   const pubIds = [
     ...(a.targets ?? []).map((t) => t.publicationId),
     a.publicationId,
   ].filter((p): p is Id<"publications"> => p !== undefined);
-  let totalViews = 0;
+  const pubs: PublicationViews[] = [];
   let hasMetrics = false;
   const seen = new Set<string>();
   for (const pid of pubIds) {
@@ -241,19 +280,13 @@ export async function assignmentViewsAndMetrics(
     seen.add(pid);
     const pub = await ctx.db.get(pid);
     if (!pub) continue;
-    totalViews += pub.vuesLatest ?? 0;
+    pubs.push({ views: pub.vuesLatest ?? 0, isWarmup: pub.isWarmup === true });
     // Un snapshot a été relevé (Apify/YouTube/manuel) ⇒ suivi actif.
     if (pub.latestSnapshotAt !== undefined) hasMetrics = true;
   }
-  return { totalViews, hasMetrics };
-}
-
-/** Vues TOTALES d'un assignment (délègue à assignmentViewsAndMetrics). */
-async function assignmentTotalViews(
-  ctx: QueryCtx | MutationCtx,
-  a: Doc<"assignments">,
-): Promise<number> {
-  return (await assignmentViewsAndMetrics(ctx, a)).totalViews;
+  const totalViews = pubs.reduce((s, p) => s + p.views, 0);
+  const { payableViews, hasPayablePost } = payableAssignmentViews(pubs);
+  return { totalViews, payableViews, hasPayablePost, hasMetrics };
 }
 
 /** "YYYY-MM" → mois suivant ("YYYY-MM"), UTC (rollover Guard A). */
@@ -266,9 +299,10 @@ function nextPeriod(period: string): string {
 
 /**
  * CUMUL TOTAL À VIE des vues du créateur sur le projet (Guard D) : somme des
- * `assignmentTotalViews` de TOUTES ses vidéos publiées/payées à pricingSnapshot,
- * SANS filtre de période (≠ du fixe/CPM qui sont mensuels). Même base de vues
- * que le CPM → jauge et CPM cohérents.
+ * vues PAYABLES (posts warmup EXCLUS) de TOUTES ses vidéos publiées/payées à
+ * pricingSnapshot, SANS filtre de période (≠ du fixe/CPM qui sont mensuels).
+ * Même base de vues que le CPM → jauge, CPM et paliers cohérents (un post
+ * warmup ne fait avancer NI le CPM NI le cumul de paliers).
  */
 export async function creatorCumulViews(
   ctx: QueryCtx | MutationCtx,
@@ -287,7 +321,9 @@ export async function creatorCumulViews(
       (a.status === "published" || a.status === "paid"),
   );
   let cumul = 0;
-  for (const a of assignments) cumul += await assignmentTotalViews(ctx, a);
+  for (const a of assignments) {
+    cumul += (await assignmentViewsAndMetrics(ctx, a)).payableViews;
+  }
   return cumul;
 }
 
@@ -428,10 +464,17 @@ export async function computeLivePricingBreakdown(
   );
   const items: PayoutItem[] = [];
   for (const a of assignments) {
+    const { payableViews, hasPayablePost } = await assignmentViewsAndMetrics(
+      ctx,
+      a,
+    );
+    // Vidéo ENTIÈREMENT warmup → exclue (ni fixe compté, ni CPM). Partiellement
+    // warmup → CPM sur les seules vues payables ; compte une fois pour le fixe.
+    if (!hasPayablePost) continue;
     items.push({
       assignmentId: a._id,
       snapshot: a.pricingSnapshot!,
-      totalViews: await assignmentTotalViews(ctx, a),
+      totalViews: payableViews,
     });
   }
   const base = computeMonthlyPayout(items);
@@ -496,10 +539,17 @@ export async function computeCyclePricingBreakdown(
   );
   const items: PayoutItem[] = [];
   for (const a of assignments) {
+    const { payableViews, hasPayablePost } = await assignmentViewsAndMetrics(
+      ctx,
+      a,
+    );
+    // Vidéo ENTIÈREMENT warmup → exclue (ni fixe compté, ni CPM). Partiellement
+    // warmup → CPM sur les seules vues payables ; compte une fois pour le fixe.
+    if (!hasPayablePost) continue;
     items.push({
       assignmentId: a._id,
       snapshot: a.pricingSnapshot!,
-      totalViews: await assignmentTotalViews(ctx, a),
+      totalViews: payableViews,
     });
   }
   const base = computeMonthlyPayout(items);

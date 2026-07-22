@@ -123,6 +123,45 @@ export function estimateMissionEarnings(
   return { fixed: cappedFixed, cpm: cappedCpm, total: MAX_PAY_PER_VIDEO_EUR };
 }
 
+// ─── Warmup — exclusion des posts de la paie (par POST) ──────────────────────
+
+/** Un post publié d'une vidéo : ses vues + son flag warmup. */
+export type PublicationViews = { views: number; isWarmup: boolean };
+
+export interface PayableViews {
+  /** Σ des vues des posts NON-warmup — base du CPM ET du cumul de paliers. */
+  payableViews: number;
+  /**
+   * La vidéo compte-t-elle comme une VIDÉO PAYABLE (part fixe) ? true sauf si
+   * elle a ≥1 post ET qu'ils sont TOUS warmup (→ vidéo entièrement warmup,
+   * exclue du fixe). Une vidéo SANS post matérialisé garde le comportement
+   * historique (compte pour le fixe) → un post warmup ne peut que RETIRER.
+   */
+  hasPayablePost: boolean;
+}
+
+/**
+ * Vues PAYABLES d'une vidéo = somme des vues de ses posts NON-warmup. Les posts
+ * `isWarmup` sont EXCLUS : ni CPM sur leurs vues, ni cumul pour les paliers.
+ * `hasPayablePost` pilote le FIXE (une vidéo tout-warmup ne compte pas comme
+ * vidéo publiée). SOURCE UNIQUE de la règle warmup (pure, testée Vitest) —
+ * RÉPLIQUÉE dans convex/pricing.ts (règle A6). Sans aucun post warmup :
+ * payableViews === Σ vues et hasPayablePost === true → comportement INCHANGÉ.
+ */
+export function payableAssignmentViews(pubs: PublicationViews[]): PayableViews {
+  let payableViews = 0;
+  let nonWarmupCount = 0;
+  for (const p of pubs) {
+    if (p.isWarmup) continue;
+    nonWarmupCount += 1;
+    payableViews += Math.max(0, p.views);
+  }
+  return {
+    payableViews,
+    hasPayablePost: pubs.length === 0 || nonWarmupCount > 0,
+  };
+}
+
 /**
  * Paie du mois (FIXE + CPM) à partir des vidéos publiées (1 item par assignment
  * publié). PAS de bonus par vidéo en v2 (le bonus est créateur-niveau à paliers
