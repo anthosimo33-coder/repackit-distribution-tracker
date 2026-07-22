@@ -47,6 +47,7 @@ import type * as payments from "../payments.js";
 import type * as personnes from "../personnes.js";
 import type * as postUrlResolution from "../postUrlResolution.js";
 import type * as pricing from "../pricing.js";
+import type * as profitability from "../profitability.js";
 import type * as progression from "../progression.js";
 import type * as projects from "../projects.js";
 import type * as provisionAdmin from "../provisionAdmin.js";
@@ -115,6 +116,7 @@ declare const fullApi: ApiFromModules<{
   personnes: typeof personnes;
   postUrlResolution: typeof postUrlResolution;
   pricing: typeof pricing;
+  profitability: typeof profitability;
   progression: typeof progression;
   projects: typeof projects;
   provisionAdmin: typeof provisionAdmin;

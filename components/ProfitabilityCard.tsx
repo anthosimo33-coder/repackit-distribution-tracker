@@ -1,0 +1,197 @@
+"use client";
+
+import { useState } from "react";
+
+import { useProjectQuery } from "@/components/project/use-project-convex";
+import { api } from "@/convex/_generated/api";
+import { Card, CardContent } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
+import { Skeleton } from "@/components/ui/skeleton";
+import { formatMoney } from "@/lib/format-rate";
+import { formatNumber } from "@/lib/format";
+import { computeProfitability } from "@/lib/profitability";
+import { cn } from "@/lib/utils";
+import { InfoIcon, TrendingUpIcon } from "lucide-react";
+
+/** "2026-07" → "juillet 2026" (UTC, fr-FR). */
+function formatMonth(period: string): string {
+  const [y, m] = period.split("-").map(Number);
+  if (!y || !m) return period;
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("fr-FR", {
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function formatRpm(rpm: number | null): string {
+  return rpm === null ? "—" : formatMoney(rpm);
+}
+
+function Metric({
+  label,
+  value,
+  hint,
+  valueClass,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  valueClass?: string;
+}) {
+  return (
+    <div className="space-y-0.5">
+      <div className="text-xs font-medium text-slate-500">{label}</div>
+      <div className={cn("text-lg font-semibold text-slate-900", valueClass)}>
+        {value}
+      </div>
+      {hint && <div className="text-[11px] text-slate-400">{hint}</div>}
+    </div>
+  );
+}
+
+/**
+ * Rentabilité par projet (rentabilité P3) — REVENU net Whop vs COÛT créateurs →
+ * MARGE (mise en avant) + RPM business, avec un toggle « avec / sans warmup ».
+ *
+ * Le toggle change UNIQUEMENT le DÉNOMINATEUR (les vues) → il recalcule les vues
+ * et le RPM (dilué avec warmup, vrai RPM sans), JAMAIS le revenu Whop ni le coût
+ * (calcul dérivé côté client via lib/profitability). Rendue uniquement si le
+ * projet a un mapping Whop. Cumul (cf query : mois calendaires, même moteur de
+ * paie que les Paiements).
+ */
+export function ProfitabilityCard() {
+  const data = useProjectQuery(api.profitability.getProjectProfitability, {});
+  // Défaut = sans warmup → le VRAI RPM business (vues monétisées).
+  const [includeWarmup, setIncludeWarmup] = useState(false);
+
+  if (data === undefined) return <Skeleton className="h-56 w-full" />;
+  if (!data.configured) return null;
+
+  const total = computeProfitability(data.total, includeWarmup);
+  const marginPositive = total.margin >= 0;
+
+  return (
+    <Card>
+      <CardContent className="space-y-5 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
+            <TrendingUpIcon className="size-4" />
+            Rentabilité — cumul
+          </div>
+          <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-600">
+            <Switch
+              checked={includeWarmup}
+              onCheckedChange={setIncludeWarmup}
+              aria-label="Inclure les vues des posts warmup"
+            />
+            Inclure les vues warmup
+          </label>
+        </div>
+
+        {/* Marge — chiffre central */}
+        <div>
+          <div className="text-xs font-medium text-slate-500">Marge</div>
+          <div
+            className={cn(
+              "text-3xl font-semibold tracking-tight",
+              marginPositive ? "text-emerald-700" : "text-rose-600",
+            )}
+          >
+            {formatMoney(total.margin)}
+          </div>
+          <div className="text-[11px] text-slate-400">
+            revenu net − coût créateurs
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <Metric
+            label="Revenu Whop"
+            value={formatMoney(total.revenueNet)}
+            hint="net — après frais Whop"
+            valueClass="text-emerald-700"
+          />
+          <Metric
+            label="Coût créateurs"
+            value={formatMoney(total.creatorCost)}
+            hint="fixe + CPM + bonus"
+          />
+          <Metric
+            label={includeWarmup ? "RPM dilué" : "RPM business"}
+            value={formatRpm(total.rpm)}
+            hint={
+              includeWarmup ? "/ 1000 vues (warmup inclus)" : "/ 1000 vues monétisées"
+            }
+            valueClass="text-slate-900"
+          />
+          <Metric
+            label="Vues"
+            value={formatNumber(total.views)}
+            hint={includeWarmup ? "warmup inclus" : "monétisées (hors warmup)"}
+          />
+        </div>
+
+        <p className="flex items-start gap-1.5 text-[11px] text-slate-400">
+          <InfoIcon className="mt-px size-3.5 shrink-0" />
+          Le toggle warmup ne change que les vues (donc le RPM) — le revenu Whop
+          net et le coût créateurs sont identiques dans les deux cas.
+        </p>
+
+        {data.months.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-slate-500">
+                  <th className="py-1.5 pr-3 font-medium">Mois</th>
+                  <th className="py-1.5 px-3 text-right font-medium">
+                    Revenu net
+                  </th>
+                  <th className="py-1.5 px-3 text-right font-medium">Coût</th>
+                  <th className="py-1.5 px-3 text-right font-medium">Marge</th>
+                  <th className="py-1.5 px-3 text-right font-medium">Vues</th>
+                  <th className="py-1.5 pl-3 text-right font-medium">RPM</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.months.map((m) => {
+                  const row = computeProfitability(m, includeWarmup);
+                  return (
+                    <tr
+                      key={m.period}
+                      className="border-b border-slate-100 last:border-0"
+                    >
+                      <td className="py-1.5 pr-3 whitespace-nowrap text-slate-600">
+                        {formatMonth(m.period)}
+                      </td>
+                      <td className="py-1.5 px-3 text-right tabular-nums text-emerald-700">
+                        {formatMoney(row.revenueNet)}
+                      </td>
+                      <td className="py-1.5 px-3 text-right tabular-nums text-slate-600">
+                        {formatMoney(row.creatorCost)}
+                      </td>
+                      <td
+                        className={cn(
+                          "py-1.5 px-3 text-right font-medium tabular-nums",
+                          row.margin >= 0 ? "text-emerald-700" : "text-rose-600",
+                        )}
+                      >
+                        {formatMoney(row.margin)}
+                      </td>
+                      <td className="py-1.5 px-3 text-right tabular-nums text-slate-500">
+                        {formatNumber(row.views)}
+                      </td>
+                      <td className="py-1.5 pl-3 text-right tabular-nums text-slate-700">
+                        {formatRpm(row.rpm)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
