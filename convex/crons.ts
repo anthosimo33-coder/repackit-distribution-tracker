@@ -64,4 +64,17 @@ crons.hourly(
   {},
 );
 
+// Rappels de deadline créateur (email) — QUOTIDIEN. Relance les missions qui
+// échoient sous 48 h (retards inclus) et jamais encore relancées. 10:00 UTC :
+// clair des relevés de vues (07/08/09h) et de la sync Whop (:30), et heure
+// ouvrée en Europe. Anti-spam : marqueur assignments.deadlineReminderSentAt →
+// une mission ne génère qu'UN rappel. No-op complet si l'env Resend est absente
+// (dev/preview). Cf convex/emails.ts.
+crons.daily(
+  "creator-deadline-reminders",
+  { hourUTC: 10, minuteUTC: 0 },
+  internal.emails.runDeadlineReminders,
+  {},
+);
+
 export default crons;

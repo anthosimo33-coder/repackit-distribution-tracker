@@ -167,6 +167,13 @@ export const inviteCreator = adminMutation({
     await ctx.scheduler.runAfter(0, internal.snytchDrive.ensureCreatorFolder, {
       creatorId,
     });
+    // Envoi du lien d'activation par email (hors transaction : un Resend en
+    // panne ne doit pas faire échouer la création de la fiche). Le lien reste
+    // affiché dans l'UI pour un partage manuel de secours.
+    await ctx.scheduler.runAfter(0, internal.emails.sendCreatorInvite, {
+      creatorId,
+      token,
+    });
     return { creatorId, token };
   },
 });
@@ -194,6 +201,11 @@ export const regenerateInvitation = adminMutation({
       projectId: ctx.projectId,
       email: creator.email,
       expiresAt: now + INVITE_TTL_MS,
+    });
+    // Le nouveau lien part aussi par email (hors transaction).
+    await ctx.scheduler.runAfter(0, internal.emails.sendCreatorInvite, {
+      creatorId,
+      token,
     });
     return { token };
   },

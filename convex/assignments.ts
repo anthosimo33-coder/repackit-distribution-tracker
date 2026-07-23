@@ -768,6 +768,12 @@ export const reviewVideoApprove = adminMutation({
       throw new ConvexError("Seules les vidéos en revue peuvent être validées.");
     }
     await ctx.db.patch(id, { status: "to_publish" });
+    // Notification créateur — hors transaction : un échec d'email ne remet pas
+    // en cause la validation. Non atteint sur le retour idempotent ci-dessus,
+    // donc re-valider n'envoie pas de second mail.
+    await ctx.scheduler.runAfter(0, internal.emails.sendVideoApproved, {
+      assignmentId: id,
+    });
     return { ok: true, alreadyApproved: false };
   },
 });
@@ -788,6 +794,12 @@ export const reviewVideoReject = adminMutation({
       throw new ConvexError("Un motif de refus est requis.");
     }
     await ctx.db.patch(id, { status: "video_rejected", videoReviewFeedback: fb });
+    // Notification créateur avec le feedback DÉJÀ saisi ici (aucune ressaisie
+    // demandée à l'admin). Hors transaction : le refus reste acquis si l'email
+    // échoue.
+    await ctx.scheduler.runAfter(0, internal.emails.sendVideoRejected, {
+      assignmentId: id,
+    });
     return { ok: true };
   },
 });
