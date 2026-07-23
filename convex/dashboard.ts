@@ -11,6 +11,18 @@ import { resolveDisplayMetrics } from "./metricsDisplay";
  *
  * Save rate / winners = carrousels uniquement (pas de saves côté short/SR).
  * Engagement rate = (likes + comments) / vues, cross-format.
+ *
+ * ⚠️ NE PAS SUPPRIMER — ce N'EST PAS du code mort, malgré les apparences.
+ * Aucun composant applicatif ne l'appelle : le dashboard admin (ActionDashboard)
+ * calcule ses cartes côté client à partir de listAssignments / listComptes /
+ * listPayments / listCreators. Un grep de « consommateurs » scopé à app/ et
+ * components/ renvoie donc ZÉRO et conclut à tort à du code mort.
+ *
+ * En réalité e2e/validation-accrual.spec.ts l'interroge directement comme sonde :
+ * il compare totalPublished avant/après une publication pour vérifier l'accrual.
+ * La supprimer imposerait de réécrire une assertion du spec d'accrual de PAIE
+ * (logique d'argent) pour ne gagner qu'une query : mauvais ratio risque/valeur.
+ * Si le sujet revient, chercher les usages dans e2e/ AVANT de conclure.
  */
 export const dashboardKpis = adminQuery({
   args: {
