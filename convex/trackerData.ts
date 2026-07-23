@@ -25,6 +25,12 @@ import type { QueryCtx } from "./_generated/server";
  * Sémantique des filtres de dimension : OU à l'intérieur d'une dimension, ET
  * entre dimensions ; liste vide/absente = pas de filtre.
  *
+ * WARMUP — filtre tri-état à part (pas une dimension multi-select), appliqué
+ * dans publishedAndMatches donc commun aux deux queries. DÉFAUT = "exclude" :
+ * les posts de chauffe sont déjà hors paie et hors rentabilité, les inclure
+ * dans les vues/likes/commentaires gonflait les agrégats du tracker. C'est un
+ * filtre d'AFFICHAGE : ni le moteur de paie ni le flag lui-même ne bougent.
+ *
  * Dimensions "créateur" et "format NOMMÉ" : ABSENTES de la table publications.
  * Résolues via les assignments (targets[].publicationId / publicationId legacy →
  * creatorId + creatorNameSnapshot + formatId). Cf buildPublicationAssignmentMap.
@@ -48,6 +54,12 @@ const filterArgs = {
   plateformes: v.optional(v.array(plateformeArg)),
   formatIds: v.optional(v.array(v.id("formats"))),
   campaignIds: v.optional(v.array(v.id("scriptCampaigns"))),
+  // Tri-état warmup. ABSENT ⇒ "exclude" (cf DEFAULT_WARMUP_FILTER) : le défaut
+  // sûr est la lecture NON BIAISÉE, un appelant doit demander explicitement à
+  // réintégrer les posts de chauffe.
+  warmup: v.optional(
+    v.union(v.literal("exclude"), v.literal("all"), v.literal("only")),
+  ),
 } as const;
 
 type FilterArgs = {
@@ -58,6 +70,7 @@ type FilterArgs = {
   plateformes?: ("TikTok" | "Instagram" | "YouTube")[];
   formatIds?: Id<"formats">[];
   campaignIds?: Id<"scriptCampaigns">[];
+  warmup?: WarmupFilter;
 };
 
 type AssignmentRef = {
@@ -151,6 +164,16 @@ function activeFilter(list?: readonly string[]): list is readonly string[] {
   return Array.isArray(list) && list.length > 0;
 }
 
+// RÉPLIQUE de lib/tracker-data (WarmupFilter + matchesWarmupFilter), testée en
+// vitest là-bas. Garder les deux EXACTEMENT synchrones (A6).
+type WarmupFilter = "exclude" | "all" | "only";
+
+function matchesWarmupFilter(isWarmup: boolean, mode: WarmupFilter): boolean {
+  if (mode === "all") return true;
+  if (mode === "only") return isWarmup;
+  return !isWarmup;
+}
+
 function matchesDimensionFilters(
   d: PostDimensions,
   f: {
@@ -203,9 +226,13 @@ function dimensionsOf(
 
 /**
  * Règle d'inclusion d'une publication : publiée (postUrl non vide) + dates +
- * filtres de dimension multi-select. Les dimensions créateur/format viennent de
- * la map assignment (publications sans assignment → null → exclues si la
- * dimension correspondante est filtrée).
+ * warmup + filtres de dimension multi-select. Les dimensions créateur/format
+ * viennent de la map assignment (publications sans assignment → null → exclues
+ * si la dimension correspondante est filtrée).
+ *
+ * SOURCE UNIQUE d'inclusion des DEUX queries (liste + série temporelle) → le
+ * filtre warmup s'applique mécaniquement à TOUS les agrégats de la vue (4 KPI,
+ * compteur de posts, liste, charts), sans logique dupliquée par carte.
  */
 function publishedAndMatches(
   p: Doc<"publications">,
@@ -215,6 +242,9 @@ function publishedAndMatches(
   if (!(typeof p.postUrl === "string" && p.postUrl.length > 0)) return false;
   if (args.dateFrom !== undefined && p.datePubli < args.dateFrom) return false;
   if (args.dateTo !== undefined && p.datePubli > args.dateTo) return false;
+  if (!matchesWarmupFilter(p.isWarmup === true, args.warmup ?? "exclude")) {
+    return false;
+  }
   return matchesDimensionFilters(dimensionsOf(p, refOf(p._id as string)), {
     creatorIds: args.creatorIds,
     comptes: args.comptes,
@@ -274,7 +304,10 @@ export const listTrackerPosts = adminQuery({
         datePubli: p.datePubli,
         postUrl: p.postUrl ?? null,
         // Flag warmup (PR #119) — pastille "hors paie" dans la liste tracker.
-        // Lecture seule : n'affecte pas les agrégats ni le moteur de paie.
+        // Les posts warmup sont désormais EXCLUS par défaut de cette query (cf
+        // filterArgs.warmup) ; la pastille reste affichée sur les lignes quand
+        // l'utilisateur choisit de les voir ("Tous"/"Warmup seulement"). Le
+        // moteur de paie reste inchangé.
         isWarmup: p.isWarmup === true,
         // Métriques LATEST dénormalisées (null → 0 pour les agrégats).
         vues: p.vuesLatest ?? 0,

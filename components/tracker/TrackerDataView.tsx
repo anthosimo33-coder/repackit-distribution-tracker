@@ -23,9 +23,18 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FilterMultiSelect } from "@/components/filters/FilterMultiSelect";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   aggregateByCategory,
   computeGlobalStats,
+  DEFAULT_WARMUP_FILTER,
   type CategoryItem,
+  type WarmupFilter,
 } from "@/lib/tracker-data";
 import {
   PostsList,
@@ -74,6 +83,10 @@ export function TrackerDataView() {
   const [plateformes, setPlateformes] = useState<Set<string>>(new Set());
   const [formatIds, setFormatIds] = useState<Set<string>>(new Set());
   const [campaignIds, setCampaignIds] = useState<Set<string>>(new Set());
+  // Warmup : tri-état, défaut "Hors warmup" (cf DEFAULT_WARMUP_FILTER) — les
+  // posts de chauffe gonflaient vues/likes/commentaires et faussaient
+  // l'engagement. Filtre d'AFFICHAGE : le flag et la paie ne bougent pas.
+  const [warmup, setWarmup] = useState<WarmupFilter>(DEFAULT_WARMUP_FILTER);
 
   const [mode, setMode] = useState<ViewMode>("list");
   const [sortKey, setSortKey] = useState<SortKey>("vues");
@@ -94,6 +107,7 @@ export function TrackerDataView() {
       plateformes?: ("TikTok" | "Instagram" | "YouTube")[];
       formatIds?: Id<"formats">[];
       campaignIds?: Id<"scriptCampaigns">[];
+      warmup?: WarmupFilter;
     } = {};
     if (dateFrom) a.dateFrom = startOfDayMs(dateFrom);
     if (dateTo) a.dateTo = endOfDayMs(dateTo);
@@ -108,8 +122,20 @@ export function TrackerDataView() {
     if (formatIds.size) a.formatIds = [...formatIds] as Id<"formats">[];
     if (campaignIds.size)
       a.campaignIds = [...campaignIds] as Id<"scriptCampaigns">[];
+    // Toujours transmis (y compris le défaut) : la lecture affichée ne doit pas
+    // dépendre d'un défaut implicite côté serveur.
+    a.warmup = warmup;
     return a;
-  }, [dateFrom, dateTo, creatorIds, comptes_, plateformes, formatIds, campaignIds]);
+  }, [
+    dateFrom,
+    dateTo,
+    creatorIds,
+    comptes_,
+    plateformes,
+    formatIds,
+    campaignIds,
+    warmup,
+  ]);
 
   const posts = useProjectQuery(
     api.trackerData.listTrackerPosts,
@@ -151,7 +177,9 @@ export function TrackerDataView() {
     comptes_.size > 0 ||
     plateformes.size > 0 ||
     formatIds.size > 0 ||
-    campaignIds.size > 0;
+    campaignIds.size > 0 ||
+    // "Hors warmup" est le défaut : seul un écart au défaut compte comme filtre actif.
+    warmup !== DEFAULT_WARMUP_FILTER;
 
   function resetFilters() {
     setDateFrom("");
@@ -161,6 +189,7 @@ export function TrackerDataView() {
     setPlateformes(new Set());
     setFormatIds(new Set());
     setCampaignIds(new Set());
+    setWarmup(DEFAULT_WARMUP_FILTER);
   }
 
   const stats = useMemo(() => computeGlobalStats(posts ?? []), [posts]);
@@ -256,7 +285,7 @@ export function TrackerDataView() {
     <div className="space-y-6">
       {/* ZONE 1 — Filtres libres */}
       <div className="rounded-lg border border-slate-200 bg-white p-3">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="tracker-from" className="text-xs text-slate-600">
               Du
@@ -321,6 +350,7 @@ export function TrackerDataView() {
             allLabel="Toutes"
             width="w-full"
           />
+          <WarmupFilterSelect value={warmup} onChange={setWarmup} />
         </div>
         <div className="mt-3 flex justify-end">
           <Button
@@ -408,6 +438,48 @@ export function TrackerDataView() {
           onOpenChange={(o) => !o && setEditingPub(null)}
         />
       )}
+    </div>
+  );
+}
+
+const WARMUP_OPTIONS: { value: WarmupFilter; label: string }[] = [
+  { value: "exclude", label: "Hors warmup" },
+  { value: "all", label: "Tous" },
+  { value: "only", label: "Warmup seulement" },
+];
+
+/**
+ * Filtre warmup tri-état. Single-select : <FilterSelect> n'est pas réutilisable
+ * ici (il impose le sentinel "all" = « aucun filtre » et rend la valeur comme
+ * son propre libellé) alors que le défaut est ici « Hors warmup », pas « Tous ».
+ * Le gabarit (wrapper + label) est celui des autres filtres de la barre.
+ */
+function WarmupFilterSelect({
+  value,
+  onChange,
+}: {
+  value: WarmupFilter;
+  onChange: (v: WarmupFilter) => void;
+}) {
+  const current = WARMUP_OPTIONS.find((o) => o.value === value);
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-xs font-medium text-slate-600">Warmup</label>
+      <Select
+        value={value}
+        onValueChange={(v) => v !== null && onChange(v as WarmupFilter)}
+      >
+        <SelectTrigger className="w-full">
+          <SelectValue>{current?.label ?? "Hors warmup"}</SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {WARMUP_OPTIONS.map((o) => (
+            <SelectItem key={o.value} value={o.value}>
+              {o.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
 }

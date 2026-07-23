@@ -6,10 +6,38 @@ import {
   computeDailyViewDeltas,
   dayKeyUTC,
   matchesDimensionFilters,
+  matchesWarmupFilter,
+  DEFAULT_WARMUP_FILTER,
   type CategoryItem,
   type SnapshotPoint,
   type PostDimensions,
 } from "./tracker-data";
+
+describe("matchesWarmupFilter", () => {
+  it("exclut les posts warmup par défaut", () => {
+    expect(DEFAULT_WARMUP_FILTER).toBe("exclude");
+    expect(matchesWarmupFilter(true, "exclude")).toBe(false);
+    expect(matchesWarmupFilter(false, "exclude")).toBe(true);
+  });
+
+  it("laisse tout passer en mode « Tous »", () => {
+    expect(matchesWarmupFilter(true, "all")).toBe(true);
+    expect(matchesWarmupFilter(false, "all")).toBe(true);
+  });
+
+  it("ne garde que le warmup en mode « Warmup seulement »", () => {
+    expect(matchesWarmupFilter(true, "only")).toBe(true);
+    expect(matchesWarmupFilter(false, "only")).toBe(false);
+  });
+
+  it("partitionne strictement : exclude et only sont complémentaires", () => {
+    for (const isWarmup of [true, false]) {
+      expect(matchesWarmupFilter(isWarmup, "exclude")).toBe(
+        !matchesWarmupFilter(isWarmup, "only"),
+      );
+    }
+  });
+});
 
 describe("matchesDimensionFilters", () => {
   const base: PostDimensions = {

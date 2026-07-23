@@ -120,24 +120,49 @@ test.describe("Hooks — Vue variantes via Popover", () => {
     // Batch 3 Modif 6 — le bouton est désormais suffixé "carrousel" ou
     // "Shorts" selon le mediaType. Le test crée un carrousel + dup, donc
     // on cible le bouton "carrousel".
-    const variantsBtn = page.getByRole("button", {
-      name: /voir les \d+ variantes carrousel/i,
-    });
-    await expect(variantsBtn).toBeVisible({ timeout: 5000 });
-    await variantsBtn.click();
+    // `.first()` : la recherche peut laisser plusieurs cards si d'autres hooks
+    // contiennent le même texte — sans lui, le locator est ambigu (strict mode).
+    const variantsBtn = page
+      .getByRole("button", { name: /voir les \d+ variantes carrousel/i })
+      .first();
+    await expect(variantsBtn).toBeVisible({ timeout: 15_000 });
 
     // Popover ouvert : liste contient AU MOINS nos 2 carouselIds.
     const popover = page.locator('[data-slot="popover-content"]').last();
-    await expect(popover).toBeVisible();
-    await expect(popover.getByText(nextCid, { exact: false })).toBeVisible();
-    await expect(popover.getByText(dupCid, { exact: false })).toBeVisible();
+
+    // TD-018 — ne PAS asserter sur le 1er rendu. Deux courses coexistent ici :
+    //  1. le clic peut tomber pendant un re-render de la liste (le libellé du
+    //     bouton porte un COMPTEUR qui change quand getHookVariants se
+    //     rafraîchit) → le popover ne s'ouvre jamais ;
+    //  2. le popover peut s'ouvrir AVANT que la publication tout juste créée
+    //     soit propagée par la query réactive → il s'affiche sans nos ids.
+    // On réessaie donc l'ouverture jusqu'à ce que le CONTENU attendu soit là,
+    // au lieu d'attendre une visibilité ponctuelle. Le clic n'est rejoué que si
+    // le popover est fermé (le trigger est un toggle : re-cliquer le fermerait).
+    await expect(async () => {
+      if (!(await popover.isVisible())) {
+        await variantsBtn.click();
+      }
+      await expect(popover).toBeVisible({ timeout: 2_000 });
+      await expect(popover.getByText(nextCid, { exact: false })).toBeVisible({
+        timeout: 2_000,
+      });
+      await expect(popover.getByText(dupCid, { exact: false })).toBeVisible({
+        timeout: 2_000,
+      });
+    }).toPass({ timeout: 30_000 });
 
     // Click la 1ère entrée → navigation /carrousels?carouselId=… (Batch B :
     // HookVariantsPopover route directement vers la page format au lieu de
     // /tracker?carouselId qui passait par le redirect catch-all).
-    await popover.locator("button").first().click();
+    // toBeEnabled : attend que l'entrée soit réellement actionnable (le popover
+    // se re-rend au fil des résolutions de métriques) plutôt que de cliquer sur
+    // un élément encore instable.
+    const firstEntry = popover.locator("button").first();
+    await expect(firstEntry).toBeEnabled({ timeout: 10_000 });
+    await firstEntry.click();
     await expect(page).toHaveURL(/\/carrousels\?carouselId=C\d+/, {
-      timeout: 5000,
+      timeout: 15_000,
     });
 
     // Bannière visible + Effacer

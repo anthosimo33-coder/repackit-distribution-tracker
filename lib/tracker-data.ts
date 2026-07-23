@@ -33,6 +33,35 @@ function activeFilter(list?: readonly string[]): list is readonly string[] {
 }
 
 /**
+ * Lecture du warmup dans la vue tracker. Tri-état VOLONTAIREMENT distinct des
+ * filtres de dimension multi-select : ce n'est pas une appartenance à une liste
+ * de valeurs mais un mode de lecture des agrégats.
+ *  - "exclude" : posts monétisés seulement (défaut) ;
+ *  - "all"     : tout, warmup compris ;
+ *  - "only"    : warmup seulement (contrôle du volume de chauffe).
+ */
+export type WarmupFilter = "exclude" | "all" | "only";
+
+/**
+ * Défaut = "exclude". Le warmup sert à CHAUFFER des comptes, pas à mesurer la
+ * performance du contenu : ses vues/likes/commentaires gonflent les agrégats et
+ * faussent l'engagement. Les posts warmup sont déjà exclus de la paie et de la
+ * rentabilité — le tracker s'aligne. L'utilisateur peut les rendre visibles
+ * explicitement ("all"/"only"), jamais par accident.
+ */
+export const DEFAULT_WARMUP_FILTER: WarmupFilter = "exclude";
+
+/** Un post passe-t-il le filtre warmup ? Cf DEFAULT_WARMUP_FILTER pour le pourquoi. */
+export function matchesWarmupFilter(
+  isWarmup: boolean,
+  mode: WarmupFilter,
+): boolean {
+  if (mode === "all") return true;
+  if (mode === "only") return isWarmup;
+  return !isWarmup;
+}
+
+/**
  * Matching des filtres multi-select : OU À L'INTÉRIEUR d'une dimension
  * (appartenance à la liste), ET ENTRE dimensions (toutes les dimensions actives
  * doivent matcher). Une dimension sans sélection (vide/undefined) n'impose aucune
