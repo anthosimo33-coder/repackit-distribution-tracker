@@ -120,7 +120,10 @@ export const getAssignmentNotifyData = internalQuery({
     return {
       email: c.email,
       name: c.name,
-      missionLabel: format?.name ?? "ta mission",
+      // null = aucun format nommé rattaché. Chaque template formule sa phrase
+      // en conséquence (pas de repli « ta mission » qui donnait « ta vidéo pour
+      // ta mission »).
+      missionLabel: format?.name ?? null,
       dueDate: a.dueDate,
       feedback: a.videoReviewFeedback ?? null,
     };
@@ -140,7 +143,8 @@ export const listDeadlineReminderTargets = internalQuery({
       assignmentId: Id<"assignments">;
       email: string;
       name: string;
-      missionLabel: string;
+      /** null = pas de format nommé (cf getAssignmentNotifyData). */
+      missionLabel: string | null;
       dueDate: number;
     }[] = [];
     const creatorCache = new Map<string, Doc<"creators"> | null>();
@@ -167,7 +171,7 @@ export const listDeadlineReminderTargets = internalQuery({
             assignmentId: a._id,
             email: c.email,
             name: c.name,
-            missionLabel: format?.name ?? "ta mission",
+            missionLabel: format?.name ?? null,
             dueDate: a.dueDate,
           });
         }
@@ -202,25 +206,23 @@ export const sendCreatorInvite = internalAction({
       return { ok: false, reason: "test-recipient" };
     }
     const url = `${cfg.appBaseUrl}/join/${token}`;
+    const subject = "Bienvenue chez Jarvia 👋";
     const html = renderEmail({
-      title: "Ton accès à Jarvia Creator Studio",
+      title: subject,
       bodyHtml:
-        p(`Bonjour ${escapeHtml(c.name)},`) +
+        p(`Salut ${escapeHtml(c.name)},`) +
         p(
-          "Ton espace créateur est prêt. Le lien ci-dessous te permet de choisir " +
-            "ton mot de passe et d'accéder à tes missions, tes vidéos et tes paiements.",
+          "Ton espace créateur est prêt. Tu y retrouveras tes missions, tes vidéos " +
+            "et tes gains, tout au même endroit.",
+        ) +
+        p(
+          "Le lien ci-dessous te permet de choisir ton mot de passe et de commencer.",
         ),
       cta: { label: "Activer mon accès", url },
       footerNote:
-        "Ce lien est personnel et à usage unique. S'il a expiré, demande-nous un nouveau lien.",
+        "Le lien est personnel et à usage unique. S'il a expiré, écris-moi et je t'en renvoie un.",
     });
-    return deliver(
-      cfg,
-      "invitation créateur",
-      c.email,
-      "Ton accès à Jarvia Creator Studio",
-      html,
-    );
+    return deliver(cfg, "invitation créateur", c.email, subject, html);
   },
 });
 
@@ -239,17 +241,21 @@ export const sendVideoApproved = internalAction({
       return { ok: false, reason: "test-recipient" };
     }
     const url = `${cfg.appBaseUrl}/app/assignments/${assignmentId}`;
+    const subject = "Ta vidéo est validée ✅";
+    // Sans format nommé, on supprime le complément plutôt que d'écrire
+    // « C'est bon pour ta mission » (cf missionLabel null).
+    const intro =
+      d.missionLabel === null
+        ? "C'est bon, ta vidéo est validée."
+        : `C'est bon pour <strong>${escapeHtml(d.missionLabel)}</strong>, ta vidéo est validée.`;
     const html = renderEmail({
-      title: "Ta vidéo est validée",
+      title: subject,
       bodyHtml:
-        p(`Bonjour ${escapeHtml(d.name)},`) +
-        p(
-          `Ta vidéo pour <strong>${escapeHtml(d.missionLabel)}</strong> vient d'être validée. ` +
-            "Tu peux passer à la publication depuis ton espace.",
-        ),
+        p(`Salut ${escapeHtml(d.name)},`) +
+        p(`${intro} Tu peux passer à la publication depuis ton espace.`),
       cta: { label: "Voir la mission", url },
     });
-    return deliver(cfg, "vidéo validée", d.email, "Ta vidéo est validée", html);
+    return deliver(cfg, "vidéo validée", d.email, subject, html);
   },
 });
 
@@ -274,25 +280,24 @@ export const sendVideoRejected = internalAction({
         : `<blockquote style="margin:0 0 12px;padding:10px 14px;border-left:3px solid #cbd5e1;background:#f8fafc;color:#334155;white-space:pre-wrap">${escapeHtml(
             d.feedback,
           )}</blockquote>`;
+    // Aucun emoji sur cet email (consigne explicite).
+    const subject = "Petite correction sur ta vidéo";
+    const intro =
+      d.missionLabel === null
+        ? "J'ai regardé ta dernière vidéo"
+        : `J'ai regardé ta vidéo pour <strong>${escapeHtml(d.missionLabel)}</strong>`;
     const html = renderEmail({
-      title: "Ta vidéo demande une correction",
+      title: subject,
       bodyHtml:
-        p(`Bonjour ${escapeHtml(d.name)},`) +
-        p(
-          `Ta vidéo pour <strong>${escapeHtml(d.missionLabel)}</strong> n'a pas été retenue en l'état. ` +
-            "Voici le retour :",
-        ) +
+        p(`Salut ${escapeHtml(d.name)},`) +
+        p(`${intro}, il y a un ou deux trucs à ajuster avant de la publier :`) +
         feedbackBlock +
-        p("Tu peux corriger et re-soumettre directement depuis ta mission."),
+        p(
+          "Rien de grave, tu corriges et tu re-soumets directement depuis ta mission.",
+        ),
       cta: { label: "Corriger ma vidéo", url },
     });
-    return deliver(
-      cfg,
-      "vidéo refusée",
-      d.email,
-      "Ta vidéo demande une correction",
-      html,
-    );
+    return deliver(cfg, "vidéo refusée", d.email, subject, html);
   },
 });
 
@@ -320,25 +325,21 @@ export const sendPaymentPaid = internalAction({
     }
     const url = `${cfg.appBaseUrl}/app/paiements`;
     // cycleEnd est exclusif côté modèle → dernier jour inclus = cycleEnd - 1 j.
-    const period = `${formatDateFr(cycleStart)} – ${formatDateFr(cycleEnd - 86_400_000)}`;
+    // « du X au Y » plutôt qu'un tiret (aucun tiret cadratin dans les contenus).
+    const period = `${formatDateFr(cycleStart)} au ${formatDateFr(cycleEnd - 86_400_000)}`;
+    const money = formatAmount(amount);
+    const subject = `${money} en route 💸`;
     const html = renderEmail({
-      title: "Ton paiement est parti",
+      title: subject,
       bodyHtml:
-        p(`Bonjour ${escapeHtml(c.name)},`) +
+        p(`Salut ${escapeHtml(c.name)},`) +
         p(
-          `Ton cycle du <strong>${escapeHtml(period)}</strong> a été marqué payé, ` +
-            `pour un total de <strong>${escapeHtml(formatAmount(amount))}</strong>.`,
+          `Ton cycle du <strong>${escapeHtml(period)}</strong> est payé : <strong>${escapeHtml(money)}</strong>.`,
         ) +
-        p("Le détail ligne par ligne est disponible dans ton espace."),
+        p("Le détail vidéo par vidéo est dans ton espace."),
       cta: { label: "Voir mes paiements", url },
     });
-    return deliver(
-      cfg,
-      "paiement effectué",
-      c.email,
-      "Ton paiement est parti",
-      html,
-    );
+    return deliver(cfg, "paiement effectué", c.email, subject, html);
   },
 });
 
@@ -383,27 +384,33 @@ export const runDeadlineReminders = internalAction({
       }
       const late = t.dueDate < now;
       const url = `${cfg.appBaseUrl}/app/assignments/${t.assignmentId}`;
+      const dateFr = escapeHtml(formatDateFr(t.dueDate));
+      const missionStrong =
+        t.missionLabel === null
+          ? null
+          : `<strong>${escapeHtml(t.missionLabel)}</strong>`;
+      const subject = late
+        ? "On attend ta vidéo 👀"
+        : "Ta mission arrive à échéance";
       const html = renderEmail({
-        title: late ? "Une mission est en retard" : "Une mission arrive à échéance",
+        title: subject,
         bodyHtml:
-          p(`Bonjour ${escapeHtml(t.name)},`) +
-          p(
-            late
-              ? `Ta mission <strong>${escapeHtml(t.missionLabel)}</strong> était attendue pour le ` +
-                  `<strong>${escapeHtml(formatDateFr(t.dueDate))}</strong>.`
-              : `Ta mission <strong>${escapeHtml(t.missionLabel)}</strong> est attendue pour le ` +
-                  `<strong>${escapeHtml(formatDateFr(t.dueDate))}</strong>.`,
-          ) +
-          p("Tu peux déposer ta vidéo directement depuis ton espace."),
+          p(`Salut ${escapeHtml(t.name)},`) +
+          (late
+            ? // Tête de phrase → majuscule sur le repli sans format nommé.
+              p(
+                `${missionStrong ?? "Ta mission"} était attendue pour le <strong>${dateFr}</strong> et on ne l'a pas encore reçue.`,
+              ) +
+              p(
+                "Si tu as un souci ou besoin de plus de temps, réponds-moi directement, on trouvera une solution.",
+              )
+            : p(
+                `Petit rappel : ${missionStrong ?? "ta mission"} est attendue pour le <strong>${dateFr}</strong>.`,
+              ) +
+              p("Tu peux déposer ta vidéo directement depuis ton espace.")),
         cta: { label: "Ouvrir ma mission", url },
       });
-      const res = await deliver(
-        cfg,
-        "rappel de deadline",
-        t.email,
-        late ? "Une mission est en retard" : "Une mission arrive à échéance",
-        html,
-      );
+      const res = await deliver(cfg, "rappel de deadline", t.email, subject, html);
       if (res.ok) {
         await ctx.runMutation(internal.emails.markDeadlineReminderSent, {
           assignmentId: t.assignmentId,
