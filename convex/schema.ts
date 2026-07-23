@@ -934,6 +934,10 @@ export default defineSchema({
     // Feedback admin au REFUS d'une vidéo (visible créateur). Remplace le rôle de
     // l'ancien adminFeedback (migré).
     videoReviewFeedback: v.optional(v.string()),
+    // Anti-spam du rappel de deadline par email (cf convex/emails.ts) : posé au
+    // 1er rappel ENVOYÉ, jamais réécrit → une mission ne génère qu'un rappel.
+    // Optional : aucune migration, les assignments existants valent "jamais relancé".
+    deadlineReminderSentAt: v.optional(v.number()),
     // URL du post publié, fournie à l'étape `published` (= ancien submittedUrl,
     // migré). datePubli de la publication matérialisée = publishedAt.
     publishedUrl: v.optional(v.string()),

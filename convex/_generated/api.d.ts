@@ -24,6 +24,8 @@ import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
 import type * as demoMultiProject from "../demoMultiProject.js";
 import type * as demoSeed from "../demoSeed.js";
+import type * as emailApi from "../emailApi.js";
+import type * as emails from "../emails.js";
 import type * as filterPresets from "../filterPresets.js";
 import type * as folders from "../folders.js";
 import type * as formats from "../formats.js";
@@ -93,6 +95,8 @@ declare const fullApi: ApiFromModules<{
   dashboard: typeof dashboard;
   demoMultiProject: typeof demoMultiProject;
   demoSeed: typeof demoSeed;
+  emailApi: typeof emailApi;
+  emails: typeof emails;
   filterPresets: typeof filterPresets;
   folders: typeof folders;
   formats: typeof formats;

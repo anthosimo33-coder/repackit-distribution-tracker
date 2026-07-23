@@ -5,6 +5,7 @@ import {
   creatorQuery,
   e2eMutation,
 } from "./functions";
+import { internal } from "./_generated/api";
 import {
   computeLivePricingBreakdown,
   computeCyclePricingBreakdown,
@@ -765,26 +766,39 @@ export const markCyclePaid = adminMutation({
     const frozen = [...legacyOfCycle, ...frozenLineItemsFromBreakdown(breakdown)];
     const now = Date.now();
     const target = existingRows[0];
+    let paidTotal: number;
     if (target) {
       const lineItems = [...target.lineItems, ...frozen];
+      paidTotal = recomputeTotal(lineItems);
       await ctx.db.patch(target._id, {
         status: "paid",
         paidAt: now,
         lineItems,
-        totalDue: recomputeTotal(lineItems),
+        totalDue: paidTotal,
       });
     } else {
+      paidTotal = recomputeTotal(frozen);
       await ctx.db.insert("payments", {
         projectId: ctx.projectId,
         creatorId,
         period,
         lineItems: frozen,
-        totalDue: recomputeTotal(frozen),
+        totalDue: paidTotal,
         status: "paid",
         paidAt: now,
         createdAt: now,
       });
     }
+    // Notification créateur — hors transaction. En marquage EN MASSE (chantier A),
+    // chaque cycle planifie SON action : envois parallèles, la boucle n'est ni
+    // ralentie ni mise en échec par Resend. Non atteint sur le retour idempotent
+    // « déjà payé » plus haut → jamais de second mail pour un même cycle.
+    await ctx.scheduler.runAfter(0, internal.emails.sendPaymentPaid, {
+      creatorId,
+      amount: paidTotal,
+      cycleStart: w.cycleStart,
+      cycleEnd: w.cycleEnd,
+    });
     return { ok: true, alreadyPaid: false };
   },
 });
