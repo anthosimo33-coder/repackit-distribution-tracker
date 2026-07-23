@@ -99,6 +99,21 @@ export default defineSchema({
         apiKeyEnvVar: v.string(),
       }),
     ),
+    // ─── Ingestion PostHog (hub Analytics) — mapping projet ↔ projet PostHog ──
+    // MÊME contrat de secret que `whop` ci-dessus : la clé API personnelle
+    // PostHog n'est JAMAIS stockée ici — `apiKeyEnvVar` NOMME la variable d'env
+    // (Convex env) qui la porte. `posthogProjectId` (numérique côté PostHog,
+    // conservé en string) et `host` ne sont pas secrets. Absent = AUCUN appel
+    // PostHog pour ce projet et section Analytics en état « non configuré ».
+    // Posé via posthogSync.setPosthogConfigBySlug (interne, `npx convex run`).
+    posthog: v.optional(
+      v.object({
+        posthogProjectId: v.string(),
+        // Région d'hébergement du projet PostHog → base d'URL de l'API.
+        host: v.union(v.literal("eu"), v.literal("us")),
+        apiKeyEnvVar: v.string(),
+      }),
+    ),
   }).index("by_slug", ["slug"]),
 
   // Appartenance d'un user à un projet, avec rôle par-projet. Le superadmin
@@ -1264,6 +1279,23 @@ export default defineSchema({
     .index("by_project", ["projectId"])
     .index("by_whopId", ["whopId"])
     .index("by_project_paidAt", ["projectId", "paidAt"]),
+
+  // ─── Cache des agrégats PostHog (hub Analytics) ────────────────────────────
+  // L'API PostHog est LENTE et limitée en débit → elle n'est JAMAIS appelée dans
+  // le chemin de rendu. Le cron horaire (posthogSync.runHourlySync) écrit ici un
+  // agrégat par `key` ; les queries admin lisent UNIQUEMENT ce cache. `json` =
+  // payload sérialisé : les formes sont hétérogènes d'une key à l'autre, un
+  // validator par métrique figerait le schéma à chaque nouvelle carte.
+  // `error` porte le DERNIER échec pour cette key SANS effacer la dernière
+  // valeur connue → l'UI peut servir la donnée périmée en l'horodatant.
+  posthogCache: defineTable({
+    projectId: v.id("projects"),
+    // Identifiant de l'agrégat (cf POSTHOG_CACHE_KEYS dans convex/posthogSync).
+    key: v.string(),
+    json: v.string(),
+    computedAt: v.number(),
+    error: v.optional(v.string()),
+  }).index("by_project_key", ["projectId", "key"]),
 
   // ─── S1 — Système de scripts combinatoire ─────────────────────────────────
   // Refonte 3 briques — une vidéo = 1 hook + 1 flux + 1 cta. Une "campagne de

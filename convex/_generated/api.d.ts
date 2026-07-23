@@ -9,6 +9,7 @@
  */
 
 import type * as adminRecovery from "../adminRecovery.js";
+import type * as analyticsHub from "../analyticsHub.js";
 import type * as apifyApi from "../apifyApi.js";
 import type * as apifySync from "../apifySync.js";
 import type * as assets from "../assets.js";
@@ -48,6 +49,8 @@ import type * as payCycle from "../payCycle.js";
 import type * as payments from "../payments.js";
 import type * as personnes from "../personnes.js";
 import type * as postUrlResolution from "../postUrlResolution.js";
+import type * as posthogApi from "../posthogApi.js";
+import type * as posthogSync from "../posthogSync.js";
 import type * as pricing from "../pricing.js";
 import type * as profitability from "../profitability.js";
 import type * as progression from "../progression.js";
@@ -80,6 +83,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   adminRecovery: typeof adminRecovery;
+  analyticsHub: typeof analyticsHub;
   apifyApi: typeof apifyApi;
   apifySync: typeof apifySync;
   assets: typeof assets;
@@ -119,6 +123,8 @@ declare const fullApi: ApiFromModules<{
   payments: typeof payments;
   personnes: typeof personnes;
   postUrlResolution: typeof postUrlResolution;
+  posthogApi: typeof posthogApi;
+  posthogSync: typeof posthogSync;
   pricing: typeof pricing;
   profitability: typeof profitability;
   progression: typeof progression;

@@ -31,6 +31,7 @@ import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format-rate";
 import { formatCycleRange } from "@/lib/pay-cycle";
+import { downloadCsv } from "@/lib/csv";
 import { WhopRevenueCard } from "@/components/whop/WhopRevenueCard";
 import { ProfitabilityCard } from "@/components/ProfitabilityCard";
 import type { FunctionReturnType } from "convex/server";
@@ -113,23 +114,6 @@ const STATUS_BADGE: Record<string, { label: string; className: string }> = {
     className: "border-emerald-200 bg-emerald-50 text-emerald-700",
   },
 };
-
-const csvEscape = (v: string) => `"${v.replace(/"/g, '""')}"`;
-
-function downloadCsv(filename: string, rows: string[][]) {
-  const content = rows.map((r) => r.map(csvEscape).join(",")).join("\r\n");
-  // BOM pour qu'Excel ouvre l'UTF-8 correctement.
-  const blob = new Blob(["﻿" + content], {
-    type: "text/csv;charset=utf-8;",
-  });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(link.href);
-}
 
 export default function PaiementsPage() {
   const payments = useProjectQuery(api.payments.listPayments, {});

@@ -64,6 +64,21 @@ crons.hourly(
   {},
 );
 
+// Agrégats PostHog (hub Analytics) — ingestion HORAIRE des métriques produit de
+// chaque projet configuré (projects.posthog) via l'API HogQL. L'API est lente et
+// rate-limitée : on ne l'appelle JAMAIS dans le rendu, les queries lisent le
+// cache (posthogCache). Un délai ~1h est acceptable (pilotage, pas de temps
+// réel) et un bouton « Actualiser » replanifie à la demande. Idempotent (upsert
+// par (projet, key)). minuteUTC:45 pour décaler de la sync Whop (:30) et des
+// relevés de vues (07/08/09h UTC). Aucun arg → tous les projets configurés.
+// Cf convex/posthogSync.ts.
+crons.hourly(
+  "posthog-analytics-sync",
+  { minuteUTC: 45 },
+  internal.posthogSync.runHourlySync,
+  {},
+);
+
 // Rappels de deadline créateur (email) — QUOTIDIEN. Relance les missions qui
 // échoient sous 48 h (retards inclus) et jamais encore relancées. 10:00 UTC :
 // clair des relevés de vues (07/08/09h) et de la sync Whop (:30), et heure
