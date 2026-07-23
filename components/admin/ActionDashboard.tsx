@@ -53,12 +53,6 @@ const STAGNANT_REJECTION_DAYS = 3;
  * cartes sont cliquables et mènent à la page concernée.
  */
 
-// Période de paie courante "YYYY-MM" (UTC) — identique à convex/payments.periodOf
-// (réplique pure pour ne pas importer un module Convex côté client).
-function currentPeriod(now: number): string {
-  return new Date(now).toISOString().slice(0, 7);
-}
-
 function relativeAge(ts: number, now: number): string {
   const diff = now - ts;
   if (diff < 60_000) return "à l'instant";
@@ -131,8 +125,6 @@ export function ActionDashboard() {
     ) {
       return null;
     }
-    const period = currentPeriod(now);
-
     // Carte 1 + worklist — vidéos en attente de revue (plus anciennes en tête).
     const submitted = assignments
       .filter((a) => a.status === "video_submitted")
@@ -151,9 +143,17 @@ export function ActionDashboard() {
       );
     });
 
-    // Carte 3 — total accruing de la période de paie courante.
-    const dueThisMonth = payments
-      .filter((p) => p.period === period && p.status === "accruing")
+    // Carte 3 — total DÛ = tous les cycles non payés, exactement le même
+    // ensemble que le total de /paiements (les deux lisent listPayments).
+    //
+    // L'ancien calcul filtrait `p.period === currentPeriod(now)`, soit une clé
+    // MENSUELLE "YYYY-MM" héritée de payments.periodOf. Depuis les cycles J+30,
+    // une ligne de cycle porte `cyclePeriodKey(cycleStart)` = "YYYY-MM-DD" : la
+    // comparaison ne matchait JAMAIS et la carte affichait 0 en permanence. Il
+    // n'existe plus de « mois » en paie (chaque créateur est ancré sur son
+    // firstPostAt) — d'où le libellé « Dû » et non « Dû ce mois ».
+    const dueTotal = payments
+      .filter((p) => p.status !== "paid")
       .reduce((s, p) => s + p.totalDue, 0);
 
     // Carte 4 — assignments actionnables dont la deadline tombe sous 7 j.
@@ -225,7 +225,7 @@ export function ActionDashboard() {
     return {
       submitted,
       warmupLate,
-      dueThisMonth,
+      dueTotal,
       deadlines7,
       creatorActivity,
       totalCreators: creators.length,
@@ -241,7 +241,7 @@ export function ActionDashboard() {
   const {
     submitted,
     warmupLate,
-    dueThisMonth,
+    dueTotal,
     deadlines7,
     creatorActivity,
     totalCreators,
@@ -311,9 +311,9 @@ export function ActionDashboard() {
         <ActionCard
           href={projectPath("/paiements")}
           icon={WalletIcon}
-          label="Dû ce mois"
-          value={formatMoney(dueThisMonth)}
-          hint="paiements en cours d'accumulation"
+          label="Dû"
+          value={formatMoney(dueTotal)}
+          hint="cycles non payés"
         />
         <ActionCard
           href={projectPath("/assignments")}
