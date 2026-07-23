@@ -37,8 +37,12 @@ import {
  * no-op. Les destinataires de test/seed sont filtrés en plus (isNonNotifiableRecipient).
  */
 
-/** Statuts où la balle est dans le camp du CRÉATEUR (donc relançables). */
-const UNFINISHED_STATUSES = [
+/**
+ * Statuts où la balle est dans le camp du CRÉATEUR (donc relançables).
+ * SOURCE UNIQUE : utilisée par le cron de rappel ET par la relance manuelle
+ * (assignments.nudgeAssignment) — ne pas la dupliquer.
+ */
+export const UNFINISHED_STATUSES = [
   "todo",
   "in_progress",
   "video_rejected",
@@ -126,6 +130,9 @@ export const getAssignmentNotifyData = internalQuery({
       missionLabel: format?.name ?? null,
       dueDate: a.dueDate,
       feedback: a.videoReviewFeedback ?? null,
+      // Permet à la relance manuelle d'adapter son message (refus à corriger vs
+      // vidéo attendue).
+      status: a.status,
     };
   },
 });
@@ -340,6 +347,100 @@ export const sendPaymentPaid = internalAction({
       cta: { label: "Voir mes paiements", url },
     });
     return deliver(cfg, "paiement effectué", c.email, subject, html);
+  },
+});
+
+// ─── 6. Nouvelle mission assignée (unitaire ET masse) ────────────────────────
+
+/**
+ * Déclenché à CHAQUE appel d'assignation (assignScriptCampaign / assignFormat),
+ * donc UNE fois par créateur même quand la mutation crée N vidéos, et une fois
+ * par créateur en assignation de masse (le bulk boucle sur la mutation unitaire).
+ * Planifié : 30 assignations d'un coup = 30 envois parallèles hors transaction.
+ */
+export const sendAssignmentCreated = internalAction({
+  args: { assignmentId: v.id("assignments"), count: v.number() },
+  handler: async (ctx, { assignmentId, count }): Promise<Outcome> => {
+    const cfg = emailConfig();
+    if (!cfg) return warnDisabled("nouvelle mission assignée");
+    const d = await ctx.runQuery(internal.emails.getAssignmentNotifyData, {
+      assignmentId,
+    });
+    if (!d) return { ok: false, reason: "not-found" };
+    if (isNonNotifiableRecipient(d.email, d.name)) {
+      return { ok: false, reason: "test-recipient" };
+    }
+    const url = `${cfg.appBaseUrl}/app/assignments/${assignmentId}`;
+    const many = count > 1;
+    const subject = many
+      ? `${count} nouvelles vidéos pour toi 🎬`
+      : "Nouvelle mission pour toi 🎬";
+    const what = many
+      ? `${count} nouvelles vidéos à produire`
+      : "une nouvelle vidéo à produire";
+    const on =
+      d.missionLabel === null
+        ? ""
+        : ` sur <strong>${escapeHtml(d.missionLabel)}</strong>`;
+    const html = renderEmail({
+      title: subject,
+      bodyHtml:
+        p(`Salut ${escapeHtml(d.name)},`) +
+        p(`Tu as ${what}${on}.`) +
+        p(
+          `Le script, les consignes et l'échéance (${escapeHtml(formatDateFr(d.dueDate))}) sont dans ton espace.`,
+        ),
+      cta: { label: many ? "Voir mes missions" : "Voir ma mission", url },
+    });
+    return deliver(cfg, "nouvelle mission assignée", d.email, subject, html);
+  },
+});
+
+// ─── 7. Relance MANUELLE (bouton admin de la file « à traiter ») ──────────────
+
+/**
+ * Relance déclenchée à la main par l'admin. Ton encourageant, jamais
+ * sanctionnant : on propose de débloquer, on ne réprimande pas. Le message
+ * s'adapte au statut (retour à corriger vs vidéo attendue).
+ * L'anti-spam (1 / mission / 24 h) est porté par assignments.nudgeAssignment.
+ */
+export const sendManualNudge = internalAction({
+  args: { assignmentId: v.id("assignments") },
+  handler: async (ctx, { assignmentId }): Promise<Outcome> => {
+    const cfg = emailConfig();
+    if (!cfg) return warnDisabled("relance manuelle");
+    const d = await ctx.runQuery(internal.emails.getAssignmentNotifyData, {
+      assignmentId,
+    });
+    if (!d) return { ok: false, reason: "not-found" };
+    if (isNonNotifiableRecipient(d.email, d.name)) {
+      return { ok: false, reason: "test-recipient" };
+    }
+    const url = `${cfg.appBaseUrl}/app/assignments/${assignmentId}`;
+    const on =
+      d.missionLabel === null
+        ? "ta mission"
+        : `<strong>${escapeHtml(d.missionLabel)}</strong>`;
+    const rejected = d.status === "video_rejected";
+    const subject = rejected ? "Tu as un retour à traiter" : "Où en es-tu ? 🙂";
+    const html = renderEmail({
+      title: subject,
+      bodyHtml: rejected
+        ? p(`Salut ${escapeHtml(d.name)},`) +
+          p(
+            `J'ai laissé un retour sur ta vidéo pour ${on}, tu peux la corriger et la re-soumettre quand tu veux.`,
+          ) +
+          p("Si quelque chose n'est pas clair, réponds-moi, on en parle.")
+        : p(`Salut ${escapeHtml(d.name)},`) +
+          p(
+            `Je fais un point sur ${on}, attendue pour le <strong>${escapeHtml(formatDateFr(d.dueDate))}</strong>.`,
+          ) +
+          p(
+            "Si tu as besoin de quoi que ce soit pour avancer ou de plus de temps, réponds-moi, on trouvera une solution.",
+          ),
+      cta: { label: rejected ? "Corriger ma vidéo" : "Ouvrir ma mission", url },
+    });
+    return deliver(cfg, "relance manuelle", d.email, subject, html);
   },
 });
 

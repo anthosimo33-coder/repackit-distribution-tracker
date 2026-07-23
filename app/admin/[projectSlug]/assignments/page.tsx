@@ -37,6 +37,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import {
+  BellIcon,
   ClapperboardIcon,
   FileTextIcon,
   ImagesIcon,
@@ -115,6 +116,26 @@ export default function AssignmentsPage() {
     : null;
   // Suppression (hard-delete) — confirmation obligatoire, libère le combo.
   const deleteAssignment = useProjectMutation(api.assignments.deleteAssignment);
+  // Relance créateur (email du chantier B). La colonne « en retard » était
+  // purement passive : on voyait le problème sans pouvoir le traiter.
+  const nudge = useProjectMutation(api.assignments.nudgeAssignment);
+  const [nudgingId, setNudgingId] = useState<Id<"assignments"> | null>(null);
+
+  async function handleNudge(id: Id<"assignments">, creatorName: string) {
+    setNudgingId(id);
+    try {
+      const res = await nudge({ assignmentId: id });
+      if (res.sent) {
+        toast.success(`${creatorName} relancé par email.`);
+      } else {
+        toast.info(`${creatorName} a déjà été relancé il y a moins de 24 h.`);
+      }
+    } catch (e) {
+      toast.error(convexErrorMessage(e, "Relance impossible"));
+    } finally {
+      setNudgingId(null);
+    }
+  }
   const [deleteId, setDeleteId] = useState<Id<"assignments"> | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -361,6 +382,29 @@ export default function AssignmentsPage() {
                             (retard)
                           </span>
                         )}
+                        {/* Relance inline. Uniquement sur les statuts où la
+                            balle est au créateur (cf nudgeAssignment côté
+                            serveur) : to_publish géré par l'équipe est exclu. */}
+                        {overdue &&
+                          (a.status === "todo" ||
+                            a.status === "in_progress" ||
+                            a.status === "video_rejected") && (
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              className="ml-2 h-6 gap-1 px-1.5 text-rose-700 hover:bg-rose-100 hover:text-rose-800"
+                              onClick={() => handleNudge(a._id, a.creatorName)}
+                              disabled={nudgingId === a._id}
+                              data-testid={`nudge-${a._id}`}
+                            >
+                              {nudgingId === a._id ? (
+                                <Loader2Icon className="size-3 animate-spin" />
+                              ) : (
+                                <BellIcon className="size-3" />
+                              )}
+                              Relancer
+                            </Button>
+                          )}
                       </TableCell>
                       <TableCell>
                         <span

@@ -4,19 +4,28 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 import {
+  AlertTriangleIcon,
   ArrowRightIcon,
+  BellIcon,
   CalendarClockIcon,
   CheckCircle2Icon,
   FlameIcon,
+  Loader2Icon,
+  MessageSquareWarningIcon,
+  UploadCloudIcon,
   UserPlusIcon,
   WalletIcon,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
-import { useProjectQuery } from "@/components/project/use-project-convex";
+import {
+  useProjectQuery,
+  useProjectMutation,
+} from "@/components/project/use-project-convex";
 import { useProjectPath } from "@/components/project/ProjectProvider";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/format";
 import { formatMoney } from "@/lib/format-rate";
@@ -26,10 +35,15 @@ import {
   getEffectiveWarmupDuration,
 } from "@/lib/compte-status";
 import { creatorStatusBadge } from "@/lib/creator-status";
+import type { Id } from "@/convex/_generated/dataModel";
+import { toast } from "sonner";
+import { convexErrorMessage } from "@/lib/convex-error";
 
 const DAY_MS = 86_400_000;
 const WORKLIST_LIMIT = 6;
 const ACTIVITY_LIMIT = 8;
+/** Un refus est « stagnant » si le créateur n'a pas re-soumis depuis N jours. */
+const STAGNANT_REJECTION_DAYS = 3;
 
 /**
  * Dashboard d'accueil orienté ACTION — agrège des queries DÉJÀ existantes
@@ -64,6 +78,43 @@ export function ActionDashboard() {
   const comptes = useProjectQuery(api.comptes.listComptes, {});
   const payments = useProjectQuery(api.payments.listPayments, {});
   const creators = useProjectQuery(api.creators.listCreators, {});
+
+  // Actions INLINE de la file : relancer un créateur (email du chantier B) et
+  // marquer un cycle payé (MÊME mutation unitaire que /paiements et que le
+  // marquage en masse du chantier A — aucune logique de paie dupliquée ici).
+  const nudge = useProjectMutation(api.assignments.nudgeAssignment);
+  const markCyclePaid = useProjectMutation(api.payments.markCyclePaid);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+
+  async function handleNudge(id: Id<"assignments">, creatorName: string) {
+    setBusyKey(id);
+    try {
+      const res = await nudge({ assignmentId: id });
+      if (res.sent) toast.success(`${creatorName} relancé par email.`);
+      else toast.info(`${creatorName} a déjà été relancé il y a moins de 24 h.`);
+    } catch (e) {
+      toast.error(convexErrorMessage(e, "Relance impossible"));
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function handlePayCycle(
+    key: string,
+    creatorId: Id<"creators">,
+    cycleIndex: number,
+    creatorName: string,
+  ) {
+    setBusyKey(key);
+    try {
+      await markCyclePaid({ creatorId, cycleIndex });
+      toast.success(`${creatorName} — cycle marqué payé.`);
+    } catch (e) {
+      toast.error(convexErrorMessage(e, "Paiement impossible"));
+    } finally {
+      setBusyKey(null);
+    }
+  }
 
   const loading =
     assignments === undefined ||
@@ -136,6 +187,41 @@ export function ActionDashboard() {
       })
       .sort((a, b) => b.vues - a.vues);
 
+    // ── File « à traiter » étendue (chantier D) ─────────────────────────────
+    // Tout est dérivé des MÊMES queries déjà chargées : aucune query en plus.
+
+    // Comptes GÉRÉS par l'équipe : vidéo validée, en attente de publication.
+    // La vidéo existe et ne rapporte rien tant qu'elle n'est pas en ligne.
+    const toPublish = assignments
+      .filter((a) => a.status === "to_publish" && a.managedByAdmin === true)
+      .sort((a, b) => a.dueDate - b.dueDate);
+
+    // Cycles dus non payés (argent dû aux créateurs).
+    const unpaidCycles = payments
+      .filter((p) => p.status !== "paid" && p.totalDue > 0)
+      .sort((a, b) => b.totalDue - a.totalDue);
+
+    // Missions en retard : échéance dépassée, balle au créateur.
+    const overdueMissions = assignments
+      .filter(
+        (a) =>
+          (a.status === "todo" || a.status === "in_progress") &&
+          a.dueDate < now,
+      )
+      .sort((a, b) => a.dueDate - b.dueDate);
+
+    // Refus qui STAGNENT : refusés il y a >= N jours sans re-soumission (le
+    // statut serait repassé à video_submitted). videoRejectedAt absent = refus
+    // antérieur au chantier D → non remonté (cf schema).
+    const stagnantRejections = assignments
+      .filter(
+        (a) =>
+          a.status === "video_rejected" &&
+          a.videoRejectedAt !== undefined &&
+          now - a.videoRejectedAt >= STAGNANT_REJECTION_DAYS * DAY_MS,
+      )
+      .sort((a, b) => (a.videoRejectedAt ?? 0) - (b.videoRejectedAt ?? 0));
+
     return {
       submitted,
       warmupLate,
@@ -143,6 +229,10 @@ export function ActionDashboard() {
       deadlines7,
       creatorActivity,
       totalCreators: creators.length,
+      toPublish,
+      unpaidCycles,
+      overdueMissions,
+      stagnantRejections,
     };
   }, [assignments, comptes, payments, creators, now]);
 
@@ -155,7 +245,18 @@ export function ActionDashboard() {
     deadlines7,
     creatorActivity,
     totalCreators,
+    toPublish,
+    unpaidCycles,
+    overdueMissions,
+    stagnantRejections,
   } = data;
+
+  const worklistCount =
+    toPublish.length +
+    submitted.length +
+    unpaidCycles.length +
+    overdueMissions.length +
+    stagnantRejections.length;
 
   // État vide : ni créateur ni soumission → message d'accueil (pas des cartes à
   // zéro qui semblent cassées).
@@ -224,63 +325,193 @@ export function ActionDashboard() {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* À traiter maintenant — worklist des soumissions + raccourci warmups. */}
-        <Section
-          title="À traiter maintenant"
-          action={
-            submitted.length > 0
-              ? { label: "Voir tout", href: projectPath("/validation") }
-              : undefined
-          }
-        >
-          {submitted.length === 0 && warmupLate.length === 0 ? (
-            <EmptyRow icon={CheckCircle2Icon} label="Rien à traiter — tout est à jour." />
-          ) : (
-            <div className="divide-y divide-slate-100">
-              {submitted.slice(0, WORKLIST_LIMIT).map((a) => (
-                <div
-                  key={a._id}
-                  className="flex items-center justify-between gap-3 py-2.5"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-slate-900">
-                      {a.creatorName}
-                    </div>
-                    <div className="truncate text-xs text-slate-500">
-                      {a.formatName ?? (a.origin === "script" ? "Script" : "Format")}
-                      {" · "}
-                      {relativeAge(a.createdAt, now)}
-                    </div>
-                  </div>
-                  <Link
-                    href={projectPath("/validation")}
-                    className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-                  >
-                    Valider
-                  </Link>
+      {/*
+        File de travail — PLEINE LARGEUR : c'est le cœur du dashboard à 30+
+        créateurs. Groupes ordonnés du plus coûteux au moins coûteux :
+        1. à publier (la vidéo existe et ne rapporte rien tant qu'elle est hors
+           ligne), 2. à valider (le créateur attend l'admin, ça bloque la
+        chaîne), 3. cycles dus (argent dû), 4. missions en retard (production
+        en retard), 5. refus qui stagnent (créateur bloqué sur un retour).
+      */}
+      <Section title="À traiter maintenant">
+        {worklistCount === 0 && warmupLate.length === 0 ? (
+          <EmptyRow
+            icon={CheckCircle2Icon}
+            label="Rien à traiter, tout est à jour."
+          />
+        ) : (
+          <div className="space-y-1">
+            {toPublish.length > 0 && (
+              <>
+                <GroupHeader
+                  icon={UploadCloudIcon}
+                  label="À publier (comptes gérés)"
+                  count={toPublish.length}
+                  tone="text-violet-700"
+                />
+                <div className="divide-y divide-slate-100">
+                  {toPublish.slice(0, WORKLIST_LIMIT).map((a) => (
+                    <WorklistRow
+                      key={a._id}
+                      title={a.creatorName}
+                      subtitle={`${missionLabelOf(a)} · vidéo validée, en attente de mise en ligne`}
+                      href={projectPath("/validation")}
+                      hrefLabel="Publier"
+                      primary
+                    />
+                  ))}
                 </div>
-              ))}
-              {warmupLate.length > 0 && (
-                <Link
-                  href={projectPath("/comptes")}
-                  className="flex items-center justify-between gap-3 py-2.5 transition-colors hover:bg-slate-50"
-                >
-                  <div className="flex items-center gap-2 text-sm text-slate-700">
-                    <FlameIcon className="size-4 text-amber-600" />
-                    <span>
-                      <span className="font-medium">{warmupLate.length}</span>{" "}
-                      warmup{warmupLate.length > 1 ? "s" : ""} en retard à
-                      relancer
-                    </span>
-                  </div>
-                  <ArrowRightIcon className="size-4 shrink-0 text-slate-400" />
-                </Link>
-              )}
-            </div>
-          )}
-        </Section>
+              </>
+            )}
 
+            {submitted.length > 0 && (
+              <>
+                {/* Libellé volontairement distinct de la carte « À valider »
+                    (collision de texte exact côté tests + ambiguïté à l'écran). */}
+                <GroupHeader
+                  icon={CheckCircle2Icon}
+                  label="Vidéos à valider"
+                  count={submitted.length}
+                  tone="text-primary"
+                />
+                <div className="divide-y divide-slate-100">
+                  {submitted.slice(0, WORKLIST_LIMIT).map((a) => (
+                    <WorklistRow
+                      key={a._id}
+                      title={a.creatorName}
+                      subtitle={`${missionLabelOf(a)} · soumise ${relativeAge(a.createdAt, now)}`}
+                      href={projectPath("/validation")}
+                      hrefLabel="Valider"
+                      primary
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+
+            {unpaidCycles.length > 0 && (
+              <>
+                <GroupHeader
+                  icon={WalletIcon}
+                  label="Cycles dus"
+                  count={unpaidCycles.length}
+                  tone="text-emerald-700"
+                />
+                <div className="divide-y divide-slate-100">
+                  {unpaidCycles.slice(0, WORKLIST_LIMIT).map((p) => (
+                    <WorklistRow
+                      key={p.key}
+                      title={p.creatorName}
+                      subtitle={`${formatMoney(p.totalDue)} en attente de paiement`}
+                      href={projectPath("/paiements")}
+                      hrefLabel="Voir"
+                      action={
+                        // Rows orphelines exclues (créateur supprimé) : même
+                        // limite qu'au chantier A, markCyclePaid ne peut pas
+                        // les traiter.
+                        p.key.startsWith("orphan:") ? undefined : (
+                          <InlineAction
+                            icon={WalletIcon}
+                            label="Marquer payé"
+                            busy={busyKey === p.key}
+                            onClick={() =>
+                              handlePayCycle(
+                                p.key,
+                                p.creatorId,
+                                p.cycleIndex,
+                                p.creatorName,
+                              )
+                            }
+                          />
+                        )
+                      }
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+
+            {overdueMissions.length > 0 && (
+              <>
+                <GroupHeader
+                  icon={AlertTriangleIcon}
+                  label="Missions en retard"
+                  count={overdueMissions.length}
+                  tone="text-rose-700"
+                />
+                <div className="divide-y divide-slate-100">
+                  {overdueMissions.slice(0, WORKLIST_LIMIT).map((a) => (
+                    <WorklistRow
+                      key={a._id}
+                      title={a.creatorName}
+                      subtitle={`${missionLabelOf(a)} · attendue ${relativeAge(a.dueDate, now)}`}
+                      href={projectPath("/assignments")}
+                      hrefLabel="Voir"
+                      action={
+                        <InlineAction
+                          icon={BellIcon}
+                          label="Relancer"
+                          busy={busyKey === a._id}
+                          onClick={() => handleNudge(a._id, a.creatorName)}
+                        />
+                      }
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+
+            {stagnantRejections.length > 0 && (
+              <>
+                <GroupHeader
+                  icon={MessageSquareWarningIcon}
+                  label="Refus sans re-soumission"
+                  count={stagnantRejections.length}
+                  tone="text-amber-700"
+                />
+                <div className="divide-y divide-slate-100">
+                  {stagnantRejections.slice(0, WORKLIST_LIMIT).map((a) => (
+                    <WorklistRow
+                      key={a._id}
+                      title={a.creatorName}
+                      subtitle={`${missionLabelOf(a)} · refusée ${relativeAge(a.videoRejectedAt ?? a.createdAt, now)}`}
+                      href={projectPath("/assignments")}
+                      hrefLabel="Voir"
+                      action={
+                        <InlineAction
+                          icon={BellIcon}
+                          label="Relancer"
+                          busy={busyKey === a._id}
+                          onClick={() => handleNudge(a._id, a.creatorName)}
+                        />
+                      }
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+
+            {warmupLate.length > 0 && (
+              <Link
+                href={projectPath("/comptes")}
+                className="flex items-center justify-between gap-3 border-t border-slate-100 py-2.5 transition-colors hover:bg-slate-50"
+              >
+                <div className="flex items-center gap-2 text-sm text-slate-700">
+                  <FlameIcon className="size-4 text-amber-600" />
+                  <span>
+                    <span className="font-medium">{warmupLate.length}</span>{" "}
+                    warmup{warmupLate.length > 1 ? "s" : ""} en retard à
+                    relancer
+                  </span>
+                </div>
+                <ArrowRightIcon className="size-4 shrink-0 text-slate-400" />
+              </Link>
+            )}
+          </div>
+        )}
+      </Section>
+
+      <div className="grid grid-cols-1 gap-6">
         {/* Activité créateurs — agrégats existants (perf par compte). */}
         <Section
           title="Activité créateurs"
@@ -333,6 +564,111 @@ export function ActionDashboard() {
             </div>
           )}
         </Section>
+      </div>
+    </div>
+  );
+}
+
+/** Libellé lisible d'une mission : format nommé, sinon campagne, sinon générique. */
+function missionLabelOf(a: {
+  formatName: string | null;
+  scriptCampaignName: string | null;
+}): string {
+  return a.formatName ?? a.scriptCampaignName ?? "Mission";
+}
+
+/** En-tête d'un groupe de la file (libellé + compteur, teinté par urgence). */
+function GroupHeader({
+  icon: Icon,
+  label,
+  count,
+  tone,
+}: {
+  icon: LucideIcon;
+  label: string;
+  count: number;
+  tone: string;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide">
+      <Icon className={cn("size-3.5", tone)} />
+      <span className={tone}>{label}</span>
+      <span className="font-normal text-slate-400">({count})</span>
+    </div>
+  );
+}
+
+/** Bouton d'action INLINE d'une ligne de file (relance, paiement). */
+function InlineAction({
+  icon: Icon,
+  label,
+  busy,
+  onClick,
+}: {
+  icon: LucideIcon;
+  label: string;
+  busy: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      variant="outline"
+      size="xs"
+      className="h-7 gap-1 px-2"
+      onClick={onClick}
+      disabled={busy}
+    >
+      {busy ? (
+        <Loader2Icon className="size-3 animate-spin" />
+      ) : (
+        <Icon className="size-3" />
+      )}
+      {label}
+    </Button>
+  );
+}
+
+/**
+ * Ligne de la file : contexte à gauche, actions à droite. Toujours au moins un
+ * accès direct à la surface concernée (« agir sans naviguer au hasard »), plus
+ * une action inline quand elle existe (relancer, marquer payé).
+ */
+function WorklistRow({
+  title,
+  subtitle,
+  href,
+  hrefLabel,
+  action,
+  primary,
+}: {
+  title: string;
+  subtitle: string;
+  href: string;
+  hrefLabel: string;
+  action?: React.ReactNode;
+  primary?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-2.5">
+      <div className="min-w-0">
+        <div className="truncate text-sm font-medium text-slate-900">
+          {title}
+        </div>
+        <div className="truncate text-xs text-slate-500">{subtitle}</div>
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        {action}
+        <Link
+          href={href}
+          className={cn(
+            "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+            primary
+              ? "bg-primary text-primary-foreground hover:bg-primary/90"
+              : "border border-slate-200 text-slate-700 hover:bg-slate-50",
+          )}
+        >
+          {hrefLabel}
+        </Link>
       </div>
     </div>
   );
