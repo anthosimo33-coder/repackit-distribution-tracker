@@ -168,6 +168,62 @@ export const listAssignableCreators = adminQuery({
 });
 
 /**
+ * Assignation EN MASSE — créateurs assignables AVEC leurs comptes DISPONIBLES.
+ *
+ * Mêmes règles que l'existant, pas de dérive : éligibilité créateur identique à
+ * listAssignableCreators (onboardé + actif/onboarding), disponibilité de compte
+ * identique à listCreatorAvailableComptes (isAccountAvailable, strict pour Snytch).
+ *
+ * Sert au picker multi-créateurs : l'admin choisit des PLATEFORMES (et non des
+ * comptes, qui sont propres à chaque créateur), et chaque créateur sélectionné est
+ * assigné sur SON compte disponible de chacune de ces plateformes. Un créateur sans
+ * compte disponible sur les plateformes choisies est signalé INÉLIGIBLE côté UI
+ * plutôt que de le laisser échouer à l'assignation.
+ */
+export const listAssignableCreatorsWithAccounts = adminQuery({
+  args: {},
+  handler: async (ctx) => {
+    const strict = await isSnytchProject(ctx, ctx.projectId);
+    const creators = await ctx.db
+      .query("creators")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const assignable = creators
+      .filter(
+        (c) =>
+          c.userId !== undefined &&
+          (c.status === "active" || c.status === "onboarding"),
+      )
+      .sort((a, b) => a.name.localeCompare(b.name, "fr"));
+    const out = [];
+    for (const c of assignable) {
+      const comptes = await ctx.db
+        .query("comptes")
+        .withIndex("by_project_creator", (q) =>
+          q.eq("projectId", ctx.projectId).eq("creatorId", c._id),
+        )
+        .collect();
+      out.push({
+        _id: c._id,
+        name: c.name,
+        status: c.status,
+        accounts: comptes
+          .filter((a) => isAccountAvailable(a, { strict }))
+          .map((a) => ({
+            _id: a._id,
+            handle: a.handle,
+            plateforme: a.plateforme,
+          }))
+          .sort((a, b) =>
+            a.handle.localeCompare(b.handle, "fr", { sensitivity: "base" }),
+          ),
+      });
+    }
+    return out;
+  },
+});
+
+/**
  * Chantier C — assignation d'un FORMAT à UN créateur, sur 1 à 3 CIBLES
  * (1 compte par plateforme, choisi parmi ses comptes DISPONIBLES). `postsPerCreator`
  * vidéos → autant de rows "todo", chacune portant les MÊMES cibles (1 vidéo →
