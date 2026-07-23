@@ -77,7 +77,7 @@ test.describe("Dashboard — vue action", () => {
     await expect(
       page.getByText("Warmups en retard", { exact: true }),
     ).toBeVisible();
-    await expect(page.getByText("Dû ce mois", { exact: true })).toBeVisible();
+    await expect(page.getByText("Dû", { exact: true })).toBeVisible();
     await expect(page.getByText("Deadlines 7 j", { exact: true })).toBeVisible();
 
     // Worklist : la soumission seedée surface (au moins un bouton Valider).
