@@ -20,6 +20,8 @@ import {
 import { buildPricingSnapshot, syncBonusUnlocks } from "./pricing";
 import { isAccountAvailable } from "./warmup";
 import { isSnytchProject } from "./projects";
+// Statuts « balle au créateur » — source unique partagée avec le cron de rappel.
+import { UNFINISHED_STATUSES } from "./emails";
 import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
@@ -316,8 +318,9 @@ export const assignFormat = adminMutation({
     const overlayText = normalizeOverlayText(args.overlayText);
     const now = Date.now();
     let created = 0;
+    let firstAssignmentId: Id<"assignments"> | null = null;
     for (let i = 0; i < args.postsPerCreator; i++) {
-      await ctx.db.insert("assignments", {
+      const insertedId = await ctx.db.insert("assignments", {
         projectId: ctx.projectId,
         creatorId: args.creatorId,
         formatId: args.formatId,
@@ -331,7 +334,16 @@ export const assignFormat = adminMutation({
         overlayText,
         createdAt: now,
       });
+      if (firstAssignmentId === null) firstAssignmentId = insertedId;
       created++;
+    }
+    // 6e événement email — une seule notification par appel (cf assignScriptCampaign).
+    // Cibles gérées par l'équipe : pas de mail (rien à produire côté créateur).
+    if (firstAssignmentId !== null && !managed) {
+      await ctx.scheduler.runAfter(0, internal.emails.sendAssignmentCreated, {
+        assignmentId: firstAssignmentId,
+        count: created,
+      });
     }
     return { created };
   },
@@ -849,7 +861,12 @@ export const reviewVideoReject = adminMutation({
     if (fb.length === 0) {
       throw new ConvexError("Un motif de refus est requis.");
     }
-    await ctx.db.patch(id, { status: "video_rejected", videoReviewFeedback: fb });
+    await ctx.db.patch(id, {
+      status: "video_rejected",
+      videoReviewFeedback: fb,
+      // Horodate le refus → la file « à traiter » peut repérer ceux qui stagnent.
+      videoRejectedAt: Date.now(),
+    });
     // Notification créateur avec le feedback DÉJÀ saisi ici (aucune ressaisie
     // demandée à l'admin). Hors transaction : le refus reste acquis si l'email
     // échoue.
@@ -857,6 +874,49 @@ export const reviewVideoReject = adminMutation({
       assignmentId: id,
     });
     return { ok: true };
+  },
+});
+
+/** Fenêtre anti-spam d'une relance MANUELLE : 1 par mission et par 24 h. */
+export const NUDGE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Relance MANUELLE d'un créateur sur une mission (bouton « Relancer » de la file
+ * à traiter et de /assignments). L'email part via le canal du chantier B, donc
+ * hors transaction : un Resend en panne ne fait pas échouer la relance côté DB.
+ *
+ * Anti-spam : une seule relance par mission et par fenêtre de 24 h. Le marqueur
+ * est posé DANS la mutation — l'envoi étant asynchrone, on ne peut pas attendre
+ * son issue, et il vaut mieux rater une relance qu'en envoyer dix.
+ *
+ * Ne relance QUE les missions où la balle est dans le camp du créateur
+ * (UNFINISHED_STATUSES, partagé avec le cron de rappel).
+ */
+export const nudgeAssignment = adminMutation({
+  args: { assignmentId: v.id("assignments") },
+  handler: async (ctx, { assignmentId }) => {
+    const a = await ctx.db.get(assignmentId);
+    if (!a || a.projectId !== ctx.projectId) {
+      throw new ConvexError("Mission introuvable.");
+    }
+    const relançable = (UNFINISHED_STATUSES as readonly string[]).includes(
+      a.status,
+    );
+    if (!relançable) {
+      throw new ConvexError("Cette mission n'attend pas le créateur.");
+    }
+    const now = Date.now();
+    if (
+      a.lastNudgeAt !== undefined &&
+      now - a.lastNudgeAt < NUDGE_COOLDOWN_MS
+    ) {
+      return { sent: false, reason: "cooldown" as const };
+    }
+    await ctx.db.patch(assignmentId, { lastNudgeAt: now });
+    await ctx.scheduler.runAfter(0, internal.emails.sendManualNudge, {
+      assignmentId,
+    });
+    return { sent: true, reason: null };
   },
 });
 

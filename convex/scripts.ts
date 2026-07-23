@@ -1,5 +1,6 @@
 import { adminMutation, adminQuery, e2eMutation } from "./functions";
 import { internalMutation } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { CAMPAIGN_NAME, DEMO_BLOCK, SEED_BRICKS } from "./scriptSeedData";
 import {
   targetInputValidator,
@@ -633,8 +634,9 @@ export const assignScriptCampaign = adminMutation({
     }
 
     let created = 0;
+    let firstAssignmentId: Id<"assignments"> | null = null;
     for (const combo of picked) {
-      await ctx.db.insert("assignments", {
+      const insertedId = await ctx.db.insert("assignments", {
         projectId: ctx.projectId,
         creatorId: args.creatorId,
         scriptCombo: {
@@ -655,7 +657,19 @@ export const assignScriptCampaign = adminMutation({
         overlayText,
         createdAt: now,
       });
+      if (firstAssignmentId === null) firstAssignmentId = insertedId;
       created++;
+    }
+    // 6e événement email — UNE notification par appel (donc par créateur), même
+    // quand N vidéos sont créées. En assignation de MASSE, le bulk boucle sur
+    // cette mutation → un envoi planifié par créateur, parallèles et hors
+    // transaction : 30 assignations ne ralentissent ni ne font échouer la boucle.
+    // Cibles GÉRÉES par l'équipe : le créateur n'a rien à produire, pas de mail.
+    if (firstAssignmentId !== null && !managed) {
+      await ctx.scheduler.runAfter(0, internal.emails.sendAssignmentCreated, {
+        assignmentId: firstAssignmentId,
+        count: created,
+      });
     }
     return { created, shortages, totalCombos: combos.length };
   },

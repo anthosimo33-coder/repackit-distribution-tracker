@@ -938,6 +938,15 @@ export default defineSchema({
     // 1er rappel ENVOYÉ, jamais réécrit → une mission ne génère qu'un rappel.
     // Optional : aucune migration, les assignments existants valent "jamais relancé".
     deadlineReminderSentAt: v.optional(v.number()),
+    // Horodatage du REFUS vidéo (posé par reviewVideoReject). Sert à repérer les
+    // refus qui STAGNENT (créateur qui n'a pas re-soumis depuis X jours) dans la
+    // file « à traiter ». Optional : les refus antérieurs n'en ont pas et ne
+    // remontent donc pas tant qu'ils ne sont pas re-refusés (dégradation assumée,
+    // aucune migration).
+    videoRejectedAt: v.optional(v.number()),
+    // Anti-spam des relances MANUELLES admin (bouton « Relancer ») : 1 relance
+    // par mission et par fenêtre de 24 h. Même approche que deadlineReminderSentAt.
+    lastNudgeAt: v.optional(v.number()),
     // URL du post publié, fournie à l'étape `published` (= ancien submittedUrl,
     // migré). datePubli de la publication matérialisée = publishedAt.
     publishedUrl: v.optional(v.string()),
