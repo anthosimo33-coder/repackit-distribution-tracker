@@ -39,6 +39,16 @@ type Row = AttributionData["rows"][number];
  *
  * Vues et coûts viennent de Jarvia et s'affichent TOUJOURS ; seules les colonnes
  * inscrits/abonnés attendent les events PostHog.
+ *
+ * ⚠️ BASE DE VUES — cet onglet raisonne en vues PAYABLES (`payableViews`, posts
+ * warmup exclus) et NON en vues totales, partout : ligne vidéo, agrégats par
+ * créatrice, par format, et tous les ratios dérivés. Raison : le coût vient du
+ * moteur de paie, qui exclut déjà le warmup ; mélanger un coût hors-warmup avec
+ * des vues warmup-incluses produit un coût par abonné et un « abonnés/1 000
+ * vues » faux par construction — or c'est précisément le chiffre sur lequel on
+ * décide où mettre le budget. Les vues totales restent disponibles à l'export
+ * (colonne « Vues totales »). Ne PAS réintroduire `totalViews` ici sans traiter
+ * le coût de la même manière.
  */
 
 /** Somme tolérante au null : tout-null ⇒ null (inconnu), pas 0. */
@@ -81,7 +91,7 @@ export function AttributionTab({ data }: { data: AttributionData }) {
           creatorId: id,
           creatorName: list[0].creatorName,
           videos: list.length,
-          views: list.reduce((s, r) => s + r.totalViews, 0),
+          views: list.reduce((s, r) => s + r.payableViews, 0),
           cost,
           subs,
           costPerSub: cost !== null && subs !== null ? costPerAcquisition(cost, subs) : null,
@@ -100,7 +110,7 @@ export function AttributionTab({ data }: { data: AttributionData }) {
     }
     return [...groups.entries()]
       .map(([key, list]) => {
-        const views = list.reduce((s, r) => s + r.totalViews, 0);
+        const views = list.reduce((s, r) => s + r.payableViews, 0);
         const subs = sumNullable(list, (r) => r.attributedSubs);
         return {
           key,
@@ -122,7 +132,7 @@ export function AttributionTab({ data }: { data: AttributionData }) {
         "Langue",
         "Plateformes",
         "Posts",
-        "Vues",
+        "Vues totales",
         "Vues payables",
         "Inscrits attribués",
         "Abonnés attribués",
@@ -289,7 +299,7 @@ export function AttributionTab({ data }: { data: AttributionData }) {
                         {r.creatorName}
                       </TableCell>
                       <TableCell className="text-right text-xs tabular-nums">
-                        {formatNumber(r.totalViews)}
+                        {formatNumber(r.payableViews)}
                       </TableCell>
                       <TableCell className="text-right text-xs tabular-nums text-slate-500">
                         {dash(r.attributedSignups)}
@@ -310,9 +320,11 @@ export function AttributionTab({ data }: { data: AttributionData }) {
             </Table>
           </div>
           <p className="text-xs text-slate-400">
-            Coût = fixe/vidéo + CPM du moteur de paie (posts warmup déjà exclus).
-            Le bonus paliers est attribué à la créatrice, pas à une vidéo : il
-            n&apos;entre pas dans cette colonne.
+            Vues <strong>payables</strong> (posts warmup exclus), même base que le
+            coût : fixe/vidéo + CPM du moteur de paie. Une vidéo entièrement
+            warmup compte donc 0 vue ici — elle n&apos;est pas rémunérée. Le bonus
+            paliers est attribué à la créatrice, pas à une vidéo : il n&apos;entre
+            pas dans cette colonne. Les vues totales restent dans l&apos;export.
           </p>
         </CardContent>
       </Card>
@@ -323,7 +335,7 @@ export function AttributionTab({ data }: { data: AttributionData }) {
           <CardContent className="space-y-3 p-4">
             <HubCardHeader
               title="Coût par abonné, par créatrice"
-              subtitle="Agrégat de la table ci-dessus."
+              subtitle="Agrégat de la table ci-dessus (vues payables, hors warmup)."
             />
             <Table>
               <TableHeader>
@@ -370,7 +382,7 @@ export function AttributionTab({ data }: { data: AttributionData }) {
           <CardContent className="space-y-3 p-4">
             <HubCardHeader
               title="Format qui convertit"
-              subtitle="Abonnés pour 1 000 vues, par format et par langue."
+              subtitle="Abonnés pour 1 000 vues payables (hors warmup), par format et par langue."
             />
             <Table>
               <TableHeader>

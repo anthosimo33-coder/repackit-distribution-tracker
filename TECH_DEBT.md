@@ -62,9 +62,34 @@ Ce fichier liste les anti-patterns repérés dans la zone touchée par chaque fe
 
 ## Détectés pendant P2 (multi-tenant)
 
-### TD-018 — Déflaker 3 specs e2e qui tombent sous charge CI
-- **Specs** : `carrousel-biblio.spec.ts:30` (flow biblio → carrousel), `compte-assign-personne.spec.ts:27` (assignation gestionnaire), `compte-calendar-navigation.spec.ts:58` (navigation calendrier).
+### TD-018 — Déflaker les specs e2e qui tombent sous charge CI
+- **Specs restants** : `carrousel-biblio.spec.ts:30` (flow biblio → carrousel), `compte-assign-personne.spec.ts:27` (assignation gestionnaire), `compte-calendar-navigation.spec.ts:58` (navigation calendrier).
+- **Spec traité** : `hook-variants-view.spec.ts:24` ✅ **DÉFLAKÉ (juillet 2026, PR #134)** — voir ci-dessous.
 - **Symptôme** : échecs `toBeVisible`/`toHaveURL` **sous charge CI** (run 27439582935 : 2 failed malgré `retries:2`), mais **verts en local** sur le même déploiement (laudable-viper-831) et **verts au simple rerun** (même commit). `compte-calendar-navigation` est un flake déjà connu de longue date.
 - **Cause probable** : instabilité de timing sur la DB de test partagée (re-render après mutation), amplifiée par la charge/latence du runner GitHub. PAS une régression P2 (la phase 2 ne change que le schéma, aucun comportement runtime).
-- **Reco** : stabiliser ces 3 specs (attentes explicites `waitFor` sur l'état post-mutation plutôt que sur le 1er rendu ; éventuellement isoler les données par projet e2e dédié au lieu du marker `[E2E_TEST]`). Pas urgent — un rerun suffit pour le gate vert en attendant.
-- **Trigger** : si la fréquence de flake augmente (> 1 rerun nécessaire régulièrement), prioriser.
+- **⚠️ Le trigger est ATTEINT (juillet 2026)** : sur `hook-variants-view.spec.ts`, **le rerun n'a PAS suffi** — 2 échecs consécutifs (~6 tentatives avec `retries:2`), après un premier échec sur `main` (run 30008290752). La ligne d'échec bougeait d'un run à l'autre (131/132/133 puis 131/138), signature d'une course et non d'une régression. Le « un rerun suffit » de la reco initiale n'est donc plus une hypothèse fiable.
+- **Correction appliquée à `hook-variants-view`** — deux courses RÉELLES, pas un simple timing :
+  1. le clic sur « Voir les N variantes » pouvait tomber pendant un re-render (le libellé du bouton porte un **compteur** qui change quand `getHookVariants` se rafraîchit) → le popover ne s'ouvrait jamais ;
+  2. le popover pouvait s'ouvrir **avant** que la publication tout juste créée soit propagée par la query réactive → il s'affichait sans les `carouselId` attendus (cas observé : popover visible, ids absents).
+  Remèdes : `.first()` sur un locator ambigu en strict mode ; ouverture **réessayée** via `expect().toPass()` jusqu'à présence du CONTENU attendu (le clic n'étant rejoué que si le popover est fermé — le trigger est un toggle) ; `toBeEnabled` avant de cliquer une entrée ; timeouts élargis. **Aucune assertion affaiblie** — déflaker en relâchant ce qui est vérifié ne ferait que masquer le problème.
+- **Reco** : appliquer le même traitement aux 3 specs restants (attendre l'ÉTAT post-mutation, pas le 1er rendu ; réessayer l'action plutôt que d'allonger un timeout ; éventuellement isoler les données par projet e2e dédié au lieu du marker `[E2E_TEST]`).
+
+---
+
+## Détectés pendant le chantier warmup / analytics (juillet 2026)
+
+### TD-019 — Biais warmup systémique dans les agrégats analytics
+- **Constat** : `publications.isWarmup` (flag PAR POST, cf PR #119) est correctement exclu de la **paie** et de la **rentabilité**, mais **~20 agrégats analytics somment les métriques de publications sans jamais le lire**. Les posts de chauffe gonflent donc vues/likes/commentaires — et faussent les ratios **dans les deux sens** selon que le warmup tombe au numérateur ou au dénominateur.
+- **Déjà traité** : `convex/trackerData.ts` (Vue tracker du Dashboard) — filtre tri-état, défaut « Hors warmup », appliqué dans `publishedAndMatches`, source unique d'inclusion des 2 queries (PR #134). `components/analytics/hub/AttributionTab.tsx` + `convex/assignments.ts:listValidatedForBonus` — bascule sur les vues PAYABLES (PR #135).
+- **Surfaces atteintes, non corrigées** :
+  - `convex/metricSnapshots.ts:130` `aggregateTimeseries` — **la plus large** : chart « Évolution » de CHAQUE page format. Somme les `metricSnapshots` sans jamais charger `isWarmup` ; le join `mediaType` déjà présent (:156-167) montre le pattern à suivre.
+  - `convex/scriptAnalytics.ts` `perfByBrick` / `perfByTier` / `perfByCombo` (échantillon commun `gatherCampaignViews:129`) — **surface de DÉCISION** (verdicts de bulk-testing, `signal`, alimente `scriptDecision`). Le warmup pollue les médianes par variable **ET** la médiane de campagne qui leur sert de référence → le biais est compté **deux fois**.
+  - `components/analytics/KpiGrid.tsx:85` + `lib/dashboard-stats.ts` (`getGlobalStats*`, `getTopHooks*`, `aggregateBy*`) — les KPI en tête de chaque page format. **Cas contre-intuitif** : sur `engagementRate` et `ratioSubsViews`, le warmup est au **DÉNOMINATEUR** → ces ratios sont **sous-estimés**, pas gonflés comme ailleurs. Un post warmup peut aussi prendre la 1re place du « Top hooks ».
+  - `convex/comptes.ts:82` `buildPerfMap` → `components/admin/ActionDashboard.tsx:181` + `app/admin/[projectSlug]/comptes/page.tsx:166` — les vues cumulées servent de **clé de tri** → le warmup **réordonne des classements** de comptes et de créateurs.
+- **⚠️ Ce n'est PAS un patch mécanique.** La correction demande de trancher **surface par surface**, et c'est une **décision produit**, pas technique. Trois options selon l'usage de la surface :
+  1. **exclusion par défaut** (la surface juge la performance du contenu → le warmup n'a rien à y faire) ;
+  2. **filtre tri-état** comme le tracker (l'utilisateur doit pouvoir vérifier le volume de chauffe explicitement) ;
+  3. **affichage des deux** (ségrégation monetized/warmup, modèle `convex/profitability.ts:161`) quand les deux lectures ont une valeur propre.
+  Choisir « exclusion partout » sans réfléchir casserait les surfaces de suivi où le warmup DOIT rester visible (ex. `convex/creatorVideos.ts:158`, où l'inclusion est délibérée et documentée : un post warmup reste tracké normalement côté créatrice).
+- **Helper** : réutiliser l'existant, **ne pas créer une seconde logique d'exclusion**. `payableAssignmentViews` (`lib/pricing-engine.ts:151`, réplique privée `convex/pricing.ts:97`) rend une SOMME de vues payables, keyée assignment ; `assignmentViewsAndMetrics` (`convex/pricing.ts:262`) est son pendant serveur. Pour filtrer une LISTE de publications, le prédicat est `matchesWarmupFilter(isWarmup, mode)` (`lib/tracker-data.ts` + réplique convex, A6).
+- **⚠️ Piège** : `lib/warmup.ts` est le warmup de **COMPTE** (rodage d'un compte : `warmupProtocol`, `isWarmupComplete`) — concept **sans aucun rapport** avec le flag par post. Ne jamais l'utiliser pour ces agrégats.

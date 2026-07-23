@@ -17,7 +17,11 @@ import {
   getOrCreatePayment,
   periodOf,
 } from "./payments";
-import { buildPricingSnapshot, syncBonusUnlocks } from "./pricing";
+import {
+  assignmentViewsAndMetrics,
+  buildPricingSnapshot,
+  syncBonusUnlocks,
+} from "./pricing";
 import { isAccountAvailable } from "./warmup";
 import { isSnytchProject } from "./projects";
 // Statuts « balle au créateur » — source unique partagée avec le cron de rappel.
@@ -1411,14 +1415,17 @@ export const listValidatedForBonus = adminQuery({
         const pubIds = (a.targets ?? [])
           .map((t) => t.publicationId)
           .filter((p): p is Id<"publications"> => p !== undefined);
-        let latestViews = 0;
-        let hasSnapshot = false;
-        for (const pid of pubIds) {
-          const pub = await ctx.db.get(pid);
-          if (!pub) continue;
-          latestViews += pub.vuesLatest ?? 0;
-          if (pub.latestSnapshotAt !== undefined) hasSnapshot = true;
-        }
+        // Le préremplissage du bonus est un montant PROPOSÉ À LA PAIE : il doit
+        // lire les MÊMES vues que le moteur, donc les vues PAYABLES (posts
+        // warmup exclus — le warmup existe précisément pour n'être jamais
+        // rémunéré). assignmentViewsAndMetrics est la source unique partagée
+        // avec le CPM et les paliers : aucune logique d'exclusion dupliquée ici.
+        const { payableViews, hasMetrics } = await assignmentViewsAndMetrics(
+          ctx,
+          a,
+        );
+        const latestViews = payableViews;
+        const hasSnapshot = hasMetrics;
         return {
           assignmentId: a._id,
           creatorName: creatorMap.get(a.creatorId) ?? a.creatorNameSnapshot ?? "—",

@@ -244,12 +244,15 @@ export const getAttribution = adminQuery({
       });
     }
 
-    // Tri par abonnés attribués décroissants (défaut du chantier), vues en
-    // départage — une ligne sans attribution retombe derrière.
+    // Tri par abonnés attribués décroissants (défaut du chantier), vues PAYABLES
+    // en départage — une ligne sans attribution retombe derrière. Le départage
+    // utilise la même base que l'onglet (hors warmup) : classer sur les vues
+    // totales ferait remonter une vidéo de chauffe au-dessus de sa performance
+    // réellement monétisée.
     rows.sort(
       (x, y) =>
         (y.attributedSubs ?? -1) - (x.attributedSubs ?? -1) ||
-        y.totalViews - x.totalViews,
+        y.payableViews - x.payableViews,
     );
 
     return {
