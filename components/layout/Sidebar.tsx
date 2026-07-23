@@ -13,7 +13,6 @@ import {
   ClipboardListIcon,
   CoinsIcon,
   HelpCircleIcon,
-  LayersIcon,
   LayoutDashboardIcon,
   LogOutIcon,
   RadarIcon,
@@ -135,11 +134,6 @@ export function Sidebar({
       icon: ClapperboardIcon,
       label: "Scripts",
       ...item(projectPath("/scripts")),
-    },
-    {
-      icon: LayersIcon,
-      label: "Formats",
-      ...item(projectPath("/formats")),
     },
     {
       icon: BookmarkIcon,

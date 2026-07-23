@@ -13,11 +13,13 @@ if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
 const admin = createE2eClient(convexUrl);
 
 /**
- * P7 — geste admin : assignation en masse via le modal (depuis un format), et
- * mise en évidence des assignments en retard dans la table /admin/.../assignments.
+ * P7 — geste admin : mise en évidence des assignments en retard dans la table
+ * /admin/.../assignments + filtre « en retard seulement ». L'assignation en
+ * masse est posée côté serveur (le modal AssignFormatDialog, lancé depuis la
+ * fiche format, a été retiré avec la page Formats).
  */
 test.describe("Admin — assignation + table", () => {
-  test("modal d'assignation crée N rows + l'en-retard ressort", async ({
+  test("assignation crée N rows + l'en-retard ressort dans la table", async ({
     page,
   }) => {
     test.setTimeout(90_000);
@@ -51,20 +53,16 @@ test.describe("Admin — assignation + table", () => {
       dueDate: ts - 3 * 86_400_000,
     });
 
-    // Modal d'assignation depuis la fiche format : 1 créateur → cible TikTok → 2 vidéos.
-    await page.goto(adminPath(`/formats/${fid}`));
-    await page.getByRole("button", { name: /^assigner$/i }).first().click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible();
-    // Sélectionne le créateur (Select).
-    await dialog.getByLabel("Créateur").click();
-    await page.getByRole("option", { name: creatorName }).click();
-    // Sélectionne le compte TikTok cible.
-    await dialog.getByLabel("Compte TikTok").click();
-    await page.getByRole("option", { name: tkHandle }).click();
-    await dialog.getByLabel("Vidéos à produire").fill("2");
-    await dialog.getByRole("button", { name: "Assigner", exact: true }).click();
-    await expect(dialog).toBeHidden({ timeout: 8000 });
+    // Assignation en masse (2 vidéos) posée côté serveur — équivalent du modal
+    // AssignFormatDialog retiré avec la page Formats (api.assignments.assignFormat).
+    // Total attendu pour ce format : 1 (retard) + 2 = 3.
+    await admin.mutation(api.assignments.assignFormat, {
+      formatId: fid,
+      creatorId: C.creatorId,
+      targets: [target],
+      postsPerCreator: 2,
+      dueDate: ts + 7 * 86_400_000,
+    });
 
     // Serveur : 1 (retard) + 2 (modal) = 3 rows pour ce format. Même course de
     // propagation cross-client que pour la suppression → poll au lieu d'un
