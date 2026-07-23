@@ -56,7 +56,6 @@ import {
 } from "@/lib/format-config";
 import { IcpCombobox } from "@/components/icps/IcpCombobox";
 import { SourceIdCombobox } from "@/components/shorts/SourceIdCombobox";
-import { getFolderColor } from "@/lib/folder-colors";
 import { cn } from "@/lib/utils";
 import {
   CalendarIcon,
@@ -280,19 +279,11 @@ function PublishedView({
 
         <div className="space-y-4">
           {/*
-            Refinement SR — section Hook masquée pour SR (concept hook-level
-            retiré). Le titre se substitue (affiché séparément ci-dessous).
-            Pour carousel/short : comportement inchangé.
+            Nettoyage vue publiée : le bloc Hook a été retiré (hookText est
+            requis au schéma, donc toujours rendu = bruit ici). Le hook reste
+            visible dans la colonne Hook du tracker et éditable sur un draft
+            (DraftEditView) ; la donnée est inchangée.
           */}
-          {!isScreenRecorder && (
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-              <div className="text-xs font-medium text-slate-500">Hook</div>
-              <p className="mt-1 text-sm font-medium text-slate-900">
-                {publication.hookText}
-              </p>
-            </div>
-          )}
-
           <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3">
             <div className="text-xs font-medium text-emerald-700">
               Lien de publication
@@ -361,43 +352,10 @@ function PublishedView({
                 <Field label="Langue">{publication.langue}</Field>
               </>
             )}
-            {isShort && (
-              <>
-                <Field label="Source">
-                  {publication.sourceId ? (
-                    <span className="font-mono text-xs">
-                      {publication.sourceId}
-                    </span>
-                  ) : (
-                    <Badge
-                      variant="outline"
-                      className="border-amber-200 bg-amber-50 text-amber-700"
-                    >
-                      ⚠ Sans source
-                    </Badge>
-                  )}
-                </Field>
-                <Field label="ICP ciblé">
-                  {publication.icp ? (
-                    <Badge
-                      variant="outline"
-                      className="gap-1.5 text-slate-700"
-                    >
-                      <span
-                        className={cn(
-                          "size-2 rounded-full",
-                          getFolderColor(publication.icp.color).dotClass,
-                        )}
-                      />
-                      {publication.icp.nom}
-                    </Badge>
-                  ) : (
-                    <span className="text-slate-400">—</span>
-                  )}
-                </Field>
-                <Field label="Langue">{publication.langue}</Field>
-              </>
-            )}
+            {/* Nettoyage : Source (+ badge « ⚠ Sans source ») et ICP ciblé
+                retirés — tous deux restent affichés dans les colonnes Source
+                et ICP du tracker, filtrables, et éditables sur un draft. */}
+            {isShort && <Field label="Langue">{publication.langue}</Field>}
             {isScreenRecorder && publication.recordingDevice && (
               <Field label="Appareil">
                 <RecordingDeviceInlineBadge
@@ -445,35 +403,35 @@ function PublishedView({
                 year: "numeric",
               })}
             </Field>
-            <Field label="Nb slides">
-              {isVideoFormat ? (
-                <span className="text-slate-400">—</span>
-              ) : (
-                // Une publication matérialisée depuis un assignment (P8) n'a pas
-                // de slides → nbSlides undefined : afficher "—" plutôt qu'un vide.
-                (publication.nbSlides ?? <span className="text-slate-400">—</span>)
-              )}
-            </Field>
+            {/* Nb slides : CARROUSEL uniquement, et seulement s'il a une
+                valeur. La notion n'existe pas pour un Short/SR (le champ
+                affichait un "—" permanent) ; une publication matérialisée
+                depuis un assignment (P8) n'a pas de slides non plus → masqué
+                plutôt qu'un tiret. */}
+            {!isVideoFormat && publication.nbSlides !== undefined && (
+              <Field label="Nb slides">{publication.nbSlides}</Field>
+            )}
           </div>
 
           {/*
-            Batch 2 Modif 4c — script (Short) ou liste de slides (Carousel).
+            Batch 2 Modif 4c — script (Short/SR) ou liste de slides (Carousel).
             Le script préserve les sauts de ligne via whitespace-pre-wrap.
+            Nettoyage : le bloc Script n'est rendu QUE s'il y a un script — il
+            affichait « (vide) » sur la plupart des posts publiés. Un script
+            réellement saisi reste utile à la relecture, d'où le masquage
+            conditionnel plutôt qu'une suppression.
           */}
-          {isVideoFormat ? (
+          {isVideoFormat && publication.script && (
             <div>
               <div className="mb-2 text-xs font-medium text-slate-500">
                 Script
               </div>
               <div className="whitespace-pre-wrap rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-700">
-                {publication.script ? (
-                  publication.script
-                ) : (
-                  <em className="text-slate-400">(vide)</em>
-                )}
+                {publication.script}
               </div>
             </div>
-          ) : (
+          )}
+          {!isVideoFormat && (
             <div>
               <div className="mb-2 text-xs font-medium text-slate-500">
                 Slides ({(publication.slides ?? []).length})
