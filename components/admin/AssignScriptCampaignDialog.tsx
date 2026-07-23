@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   useProjectQuery,
   useProjectMutation,
@@ -8,6 +8,7 @@ import {
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -87,6 +88,27 @@ export function AssignScriptCampaignDialog({
   const [overlayText, setOverlayText] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // ── Mode MASSE ────────────────────────────────────────────────────────────
+  // "single" par DÉFAUT : le flux existant (choix explicite d'un compte par
+  // plateforme) reste intact. En masse, les comptes étant propres à chaque
+  // créateur, l'admin choisit des PLATEFORMES et chaque créateur est assigné
+  // sur SON compte disponible — sinon il faudrait 3 sélecteurs × 30 créateurs.
+  const [mode, setMode] = useState<"single" | "bulk">("single");
+  const [bulkPlatforms, setBulkPlatforms] = useState<Set<Platform>>(
+    new Set<Platform>(["TikTok"]),
+  );
+  const [selectedCreators, setSelectedCreators] = useState<Set<string>>(
+    new Set(),
+  );
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [bulkDone, setBulkDone] = useState(0);
+  const [bulkTotal, setBulkTotal] = useState(0);
+
+  const bulkCreators = useProjectQuery(
+    api.assignments.listAssignableCreatorsWithAccounts,
+    open && mode === "bulk" ? {} : "skip",
+  );
+
   // Reset à l'ouverture.
   const [lastOpen, setLastOpen] = useState(false);
   if (open !== lastOpen) {
@@ -99,6 +121,10 @@ export function AssignScriptCampaignDialog({
       setTier(TIER_ALL);
       setPricingId(NONE);
       setOverlayText("");
+      setMode("single");
+      setBulkPlatforms(new Set<Platform>(["TikTok"]));
+      setSelectedCreators(new Set());
+      setConfirmOpen(false);
     }
   }
 
@@ -183,6 +209,141 @@ export function AssignScriptCampaignDialog({
     }
   }
 
+  // ── Assignation EN MASSE ──────────────────────────────────────────────────
+  // Une ligne par créateur assignable, avec ses cibles RÉSOLUES sur les
+  // plateformes choisies. eligible=false → aucun compte disponible sur ces
+  // plateformes : on le grise au lieu de le laisser échouer à l'assignation.
+  const bulkRows = useMemo(() => {
+    return (bulkCreators ?? []).map((c) => {
+      const resolved: { platform: Platform; accountId: Id<"comptes"> }[] = [];
+      for (const pf of PLATFORMS) {
+        if (!bulkPlatforms.has(pf)) continue;
+        // Plusieurs comptes sur une plateforme → le 1er (tri serveur par handle).
+        // Le mode « 1 créateur » reste là quand il faut choisir précisément.
+        const acc = c.accounts.find((a) => a.plateforme === pf);
+        if (acc) resolved.push({ platform: pf, accountId: acc._id });
+      }
+      return { creator: c, targets: resolved, eligible: resolved.length > 0 };
+    });
+  }, [bulkCreators, bulkPlatforms]);
+
+  const eligibleRows = bulkRows.filter((r) => r.eligible);
+  const selectedRows = eligibleRows.filter((r) =>
+    selectedCreators.has(r.creator._id),
+  );
+  const allEligibleSelected =
+    eligibleRows.length > 0 && selectedRows.length === eligibleRows.length;
+  const videosNum = Number(videos) || 0;
+  const plannedAssignments = selectedRows.length * videosNum;
+  const plannedPosts = selectedRows.reduce(
+    (s, r) => s + videosNum * r.targets.length,
+    0,
+  );
+
+  function toggleCreator(id: string) {
+    setSelectedCreators((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllCreators() {
+    setSelectedCreators(
+      allEligibleSelected
+        ? new Set()
+        : new Set(eligibleRows.map((r) => r.creator._id)),
+    );
+  }
+
+  function togglePlatform(pf: Platform) {
+    setBulkPlatforms((prev) => {
+      const next = new Set(prev);
+      if (next.has(pf)) next.delete(pf);
+      else next.add(pf);
+      return next;
+    });
+  }
+
+  /** Validations partagées avec le mode single, avant d'ouvrir le récap. */
+  function bulkPreflightError(): string | null {
+    if (selectedRows.length === 0) return "Sélectionne au moins un créateur.";
+    if (!Number.isInteger(videosNum) || videosNum < 1) {
+      return "Nombre de vidéos invalide.";
+    }
+    if (!Number.isFinite(new Date(`${due}T23:59:59`).getTime())) {
+      return "Échéance invalide.";
+    }
+    if (pricingId === NONE) return "Le barème de paie est requis.";
+    return null;
+  }
+
+  /**
+   * Boucle sur la mutation UNITAIRE existante (assignScriptCampaign) : une
+   * assignation par créateur en base, aucun modèle parallèle. Un créateur qui
+   * échoue n'interrompt pas les autres et reste sélectionné pour être re-tenté.
+   */
+  async function runBulkAssign() {
+    const dueMs = new Date(`${due}T23:59:59`).getTime();
+    const batch = selectedRows.map((r) => ({
+      id: r.creator._id,
+      name: r.creator.name,
+      targets: r.targets,
+    }));
+    if (batch.length === 0) return;
+    setSubmitting(true);
+    setBulkTotal(batch.length);
+    setBulkDone(0);
+    let created = 0;
+    const failed: { id: string; name: string }[] = [];
+    const shortNames: string[] = [];
+    for (const b of batch) {
+      try {
+        const res = await assign({
+          campaignId,
+          creatorId: b.id as Id<"creators">,
+          targets: b.targets,
+          videosPerCreator: videosNum,
+          dueDate: dueMs,
+          tier: tier === TIER_ALL ? undefined : (tier as "S" | "A"),
+          pricingId: pricingId as Id<"pricings">,
+          overlayText: overlayText.trim() || undefined,
+        });
+        created += res.created;
+        if (res.shortages.length > 0) shortNames.push(b.name);
+      } catch {
+        failed.push({ id: b.id, name: b.name });
+      }
+      setBulkDone((d) => d + 1);
+    }
+    // Ne restent sélectionnés que les échecs → re-tentables en un clic.
+    setSelectedCreators(new Set(failed.map((f) => f.id)));
+    setSubmitting(false);
+    setConfirmOpen(false);
+    const okCount = batch.length - failed.length;
+    if (created > 0) {
+      toast.success(
+        `${created} assignment${created > 1 ? "s" : ""} créé${created > 1 ? "s" : ""} pour ${okCount} créateur${okCount > 1 ? "s" : ""}.`,
+      );
+    }
+    if (shortNames.length > 0) {
+      toast.warning(
+        `Combos uniques insuffisants pour : ${shortNames.slice(0, 3).join(", ")}${shortNames.length > 3 ? "…" : ""}.`,
+      );
+    }
+    if (failed.length > 0) {
+      toast.error(
+        `${failed.length} échec${failed.length > 1 ? "s" : ""} : ${failed
+          .slice(0, 3)
+          .map((f) => f.name)
+          .join(", ")}${failed.length > 3 ? "…" : ""}. Ils restent sélectionnés.`,
+      );
+    } else {
+      onOpenChange(false);
+    }
+  }
+
   const total = (Number(videos) || 0) * targets.length;
   const need = Number(videos) || 0;
   const platformsLabel = targets.map((t) => t.platform).join(", ");
@@ -201,7 +362,39 @@ export function AssignScriptCampaignDialog({
         </DialogHeader>
 
         <div className="space-y-5 py-1">
+          {/* Mode d'assignation — « 1 créateur » par DÉFAUT : le flux existant
+              (choix explicite d'un compte par plateforme) reste inchangé. */}
+          <div
+            role="radiogroup"
+            aria-label="Mode d'assignation"
+            className="inline-flex rounded-md border border-slate-200 bg-white p-0.5"
+          >
+            {(
+              [
+                { value: "single", label: "1 créateur" },
+                { value: "bulk", label: "Plusieurs créateurs" },
+              ] as const
+            ).map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                role="radio"
+                aria-checked={mode === opt.value}
+                onClick={() => setMode(opt.value)}
+                disabled={submitting}
+                className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                  mode === opt.value
+                    ? "bg-primary text-primary-foreground"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
           {/* Créateur (un seul) */}
+          {mode === "single" && (
           <div className="space-y-1.5">
             <Label>Créateur</Label>
             {creators === undefined ? (
@@ -233,9 +426,10 @@ export function AssignScriptCampaignDialog({
               </Select>
             )}
           </div>
+          )}
 
           {/* Cibles : 1 compte par plateforme (disponibles uniquement) */}
-          {creatorId !== NONE && (
+          {mode === "single" && creatorId !== NONE && (
             <div className="space-y-2">
               <Label>Cibles (1 compte par plateforme)</Label>
               {available === undefined ? (
@@ -286,6 +480,102 @@ export function AssignScriptCampaignDialog({
                   );
                 })
               )}
+            </div>
+          )}
+
+          {/* Sélection EN MASSE : plateformes + créateurs éligibles */}
+          {mode === "bulk" && (
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label>Plateformes de publication</Label>
+                <div className="flex flex-wrap items-center gap-4">
+                  {PLATFORMS.map((pf) => (
+                    <label
+                      key={pf}
+                      className="flex cursor-pointer items-center gap-2 text-sm text-slate-700"
+                    >
+                      <Checkbox
+                        checked={bulkPlatforms.has(pf)}
+                        onCheckedChange={() => togglePlatform(pf)}
+                        disabled={submitting}
+                        aria-label={pf}
+                      />
+                      {pf}
+                    </label>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-500">
+                  Chaque créateur est assigné sur SON compte disponible de ces
+                  plateformes (les comptes sont propres à chaque créateur).
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label>Créateurs</Label>
+                  {eligibleRows.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={toggleAllCreators}
+                      disabled={submitting}
+                      data-testid="bulk-select-all-creators"
+                    >
+                      {allEligibleSelected
+                        ? "Tout désélectionner"
+                        : `Tout sélectionner (${eligibleRows.length})`}
+                    </Button>
+                  )}
+                </div>
+                {bulkCreators === undefined ? (
+                  <Skeleton className="h-40 w-full" />
+                ) : bulkPlatforms.size === 0 ? (
+                  <p className="text-sm text-amber-600">
+                    Choisis au moins une plateforme.
+                  </p>
+                ) : bulkRows.length === 0 ? (
+                  <p className="text-sm text-slate-500">
+                    Aucun créateur assignable (onboardé + actif).
+                  </p>
+                ) : (
+                  <ul className="max-h-56 space-y-0.5 overflow-y-auto rounded-md border border-slate-200 p-1">
+                    {bulkRows.map((r) => (
+                      <li key={r.creator._id}>
+                        <label
+                          className={`flex items-center gap-2 rounded px-2 py-1.5 text-sm ${
+                            r.eligible
+                              ? "cursor-pointer hover:bg-slate-50"
+                              : "cursor-not-allowed opacity-50"
+                          }`}
+                        >
+                          <Checkbox
+                            checked={selectedCreators.has(r.creator._id)}
+                            onCheckedChange={() => toggleCreator(r.creator._id)}
+                            disabled={!r.eligible || submitting}
+                            aria-label={`Sélectionner ${r.creator.name}`}
+                          />
+                          <span className="flex-1 truncate text-slate-800">
+                            {r.creator.name}
+                          </span>
+                          <span className="shrink-0 text-xs text-slate-500">
+                            {r.eligible
+                              ? r.targets.map((t) => t.platform).join(" · ")
+                              : "aucun compte disponible"}
+                          </span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {selectedRows.length > 0 && (
+                  <p className="text-xs text-slate-500">
+                    {selectedRows.length} créateur
+                    {selectedRows.length > 1 ? "s" : ""} · {plannedAssignments}{" "}
+                    assignment{plannedAssignments > 1 ? "s" : ""} ·{" "}
+                    {plannedPosts} post{plannedPosts > 1 ? "s" : ""}.
+                  </p>
+                )}
+              </div>
             </div>
           )}
 
@@ -410,14 +700,92 @@ export function AssignScriptCampaignDialog({
           >
             Annuler
           </Button>
-          <Button
-            onClick={handleSubmit}
-            disabled={submitting || pricingId === NONE}
-          >
-            {submitting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-            Assigner
-          </Button>
+          {mode === "single" ? (
+            <Button
+              onClick={handleSubmit}
+              disabled={submitting || pricingId === NONE}
+            >
+              {submitting && (
+                <Loader2Icon className="mr-2 size-4 animate-spin" />
+              )}
+              Assigner
+            </Button>
+          ) : (
+            <Button
+              onClick={() => {
+                const err = bulkPreflightError();
+                if (err) {
+                  toast.error(err);
+                  return;
+                }
+                setConfirmOpen(true);
+              }}
+              disabled={submitting || selectedRows.length === 0}
+              data-testid="bulk-assign"
+            >
+              {submitting && (
+                <Loader2Icon className="mr-2 size-4 animate-spin" />
+              )}
+              Assigner ({selectedRows.length})
+            </Button>
+          )}
         </DialogFooter>
+
+        {/* Récapitulatif chiffré avant exécution (même pattern que le paiement
+            en masse) : on crée des engagements de production, pas d'action en
+            masse sans récap. */}
+        <Dialog
+          open={confirmOpen}
+          onOpenChange={(o) => !submitting && setConfirmOpen(o)}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                Assigner à {selectedRows.length} créateur
+                {selectedRows.length > 1 ? "s" : ""} ?
+              </DialogTitle>
+              <DialogDescription>
+                {plannedAssignments} assignment
+                {plannedAssignments > 1 ? "s" : ""} créé
+                {plannedAssignments > 1 ? "s" : ""} ({videosNum} vidéo
+                {videosNum > 1 ? "s" : ""} par créateur) · {plannedPosts} post
+                {plannedPosts > 1 ? "s" : ""} au total.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 text-sm text-slate-600">
+              <p className="max-h-24 overflow-y-auto">
+                {selectedRows.map((r) => r.creator.name).join(", ")}
+              </p>
+              <p className="text-xs text-slate-500">
+                Une assignation par créateur, échéance au {due}. Si un créateur
+                manque de combos uniques, il en reçoit moins (signalé après
+                coup) ; un créateur en échec n&apos;interrompt pas les autres et
+                reste sélectionné.
+              </p>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setConfirmOpen(false)}
+                disabled={submitting}
+              >
+                Annuler
+              </Button>
+              <Button
+                onClick={runBulkAssign}
+                disabled={submitting || selectedRows.length === 0}
+                data-testid="bulk-assign-confirm"
+              >
+                {submitting && (
+                  <Loader2Icon className="mr-2 size-4 animate-spin" />
+                )}
+                {submitting
+                  ? `Traitement… ${bulkDone}/${bulkTotal}`
+                  : "Confirmer l'assignation"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </DialogContent>
     </Dialog>
   );
