@@ -1815,26 +1815,55 @@ function spreadServer<T>(
   return cands[stableHashServer(`${seed}:pick`) % cands.length];
 }
 
+// Rang d'urgence — réplique de lib/assignment-status (isActionable +
+// assignmentUrgency + urgencyRank, règle A6). 0 = le plus urgent : en retard →
+// < 48 h → dans les temps → non actionnable. DOIT rester aligné sur lib.
+const ORDER_DAY = 86_400_000;
+function isActionableServer(status: string): boolean {
+  return (
+    status === "todo" ||
+    status === "in_progress" ||
+    status === "video_rejected" ||
+    status === "to_publish" ||
+    status === "rejected" // legacy
+  );
+}
+function urgencyTierServer(a: Doc<"assignments">, now: number): number {
+  if (!isActionableServer(a.status)) return 3; // none
+  if (a.dueDate < now) return 0; // overdue
+  if (a.dueDate - now < 2 * ORDER_DAY) return 1; // soon (< 48 h)
+  return 2; // ok
+}
+
 /**
- * Entrelace les formats d'une liste d'assignments, échéance croissante d'abord,
- * puis alternance des formats DANS chaque paquet d'échéance. Graine = creatorId
- * → ordre propre à chaque créatrice, stable. Réplique de lib/assignment-order.
+ * Entrelace les formats d'une liste d'assignments PAR RANG D'URGENCE : dans un
+ * rang, les formats s'alternent quelles que soient leurs échéances ; les rangs
+ * (en retard → < 48 h → dans les temps → non actionnable) restent ordonnés.
+ * Graine = creatorId → ordre propre à chaque créatrice, stable. Réplique de
+ * lib/assignment-order.interleaveByGroup.
  */
 function interleaveByGroupServer(
   items: Doc<"assignments">[],
   seed: string,
+  now: number,
 ): Doc<"assignments">[] {
   if (items.length < 2) return [...items];
   const buckets = new Map<number, Doc<"assignments">[]>();
   for (const item of items) {
-    const b = buckets.get(item.dueDate);
+    const t = urgencyTierServer(item, now);
+    const b = buckets.get(t);
     if (b) b.push(item);
-    else buckets.set(item.dueDate, [item]);
+    else buckets.set(t, [item]);
   }
-  const dueDates = [...buckets.keys()].sort((a, b) => a - b);
+  const tiers = [...buckets.keys()].sort((a, b) => a - b);
   const out: Doc<"assignments">[] = [];
-  for (const d of dueDates) {
-    out.push(...spreadServer(buckets.get(d)!, assignmentGroupKeyServer, seed));
+  for (const t of tiers) {
+    // Tri DOUX par échéance dans le rang (base du peigne + repli mono-format).
+    const bucket = buckets
+      .get(t)!
+      .slice()
+      .sort((x, y) => x.dueDate - y.dueDate);
+    out.push(...spreadServer(bucket, assignmentGroupKeyServer, seed));
   }
   return out;
 }
@@ -1847,12 +1876,15 @@ async function assignmentsForCreator(
     .query("assignments")
     .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
     .collect();
-  // Ordre stable par créatrice : échéance croissante d'abord, PUIS alternance
-  // des formats à échéance égale (fini les blocs « 7 carrousels d'affilée »).
-  // On entrelace les assignments BRUTS (ils portent campagne/formatId) AVANT
-  // d'enrichir — enrichForCreator retire scriptCombo (isolation créatrice), donc
-  // la campagne ne serait plus distinguable après coup. Le map préserve l'ordre.
-  const ordered = interleaveByGroupServer(assignments, creatorId);
+  // Ordre stable par créatrice : entrelacement des FORMATS par rang d'urgence
+  // (en retard → < 48 h → dans les temps → non actionnable). Le mélange des
+  // formats PRIME sur l'échéance — deux formats d'échéances différentes mais de
+  // même urgence s'alternent (fini les blocs par date) — sans noyer les échéances
+  // proches (rangs ordonnés). `now` comme getMyPayments/videoStats (Date.now en
+  // query = pratique établie). On entrelace les assignments BRUTS avant d'enrichir
+  // (enrichForCreator retire scriptCombo → campagne indistinguable après). Le map
+  // préserve l'ordre.
+  const ordered = interleaveByGroupServer(assignments, creatorId, Date.now());
   return Promise.all(ordered.map((a) => enrichForCreator(ctx, a)));
 }
 

@@ -64,6 +64,7 @@ import {
 import {
   ASSIGNMENT_STATUS,
   assignmentUrgency,
+  urgencyRank,
   type AssignmentStatus,
 } from "@/lib/assignment-status";
 
@@ -83,6 +84,10 @@ function formatDate(ts: number) {
 
 export default function AssignmentsPage() {
   const assignments = useProjectQuery(api.assignments.listAssignments, {});
+  // Ancre temporelle stable au montage (rang d'urgence de l'ordre + filtre
+  // « en retard »). Impure au render sinon (cf react-hooks/purity, comme le
+  // dashboard créateur) → l'ordre ne se réordonne pas à chaque re-render.
+  const [nowMs] = useState(() => Date.now());
   const [creatorFilter, setCreatorFilter] = useState("all");
   const [formatFilter, setFormatFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -173,23 +178,26 @@ export default function AssignmentsPage() {
   }, [assignments]);
 
   const rows = useMemo(() => {
+    const now = nowMs;
     const filtered = (assignments ?? []).filter((a) => {
       if (creatorFilter !== "all" && a.creatorId !== creatorFilter) return false;
       if (formatFilter !== "all" && a.formatId !== formatFilter) return false;
       if (statusFilter !== "all" && a.status !== statusFilter) return false;
       if (
         overdueOnly &&
-        assignmentUrgency(a.dueDate, a.status as AssignmentStatus) !== "overdue"
+        assignmentUrgency(a.dueDate, a.status as AssignmentStatus, now) !==
+          "overdue"
       )
         return false;
       return true;
     });
-    // Les FORMATS d'une créatrice ALTERNENT (fini les blocs « 7 carrousels
-    // d'affilée »). On groupe par créatrice — dans l'ordre où elles apparaissent
-    // (listAssignments = createdAt décroissant → activité la plus récente en
-    // tête) — puis on entrelace SES missions (échéance croissante, formats
-    // alternés, ordre propre à chaque créatrice via seed = creatorId). MÊME
-    // moteur que l'espace créatrice (lib/assignment-order).
+    // Les FORMATS d'une créatrice ALTERNENT quelle que soit leur ÉCHÉANCE (fini
+    // les blocs « 7 carrousels d'échéance 31/07 collés à la fin »). On groupe par
+    // créatrice — dans l'ordre où elles apparaissent (listAssignments = createdAt
+    // décroissant → activité la plus récente en tête) — puis on entrelace SES
+    // missions PAR RANG D'URGENCE (en retard → < 48 h → dans les temps → non
+    // actionnable ; formats alternés dans chaque rang). MÊME moteur que l'espace
+    // créatrice (lib/assignment-order), seed = creatorId → ordre stable.
     const byCreator = new Map<string, typeof filtered>();
     for (const a of filtered) {
       const g = byCreator.get(a.creatorId);
@@ -199,11 +207,13 @@ export default function AssignmentsPage() {
     return [...byCreator.entries()].flatMap(([creatorId, group]) =>
       interleaveByGroup(group, {
         keyOf: (a) => assignmentGroupKey(a),
+        tierOf: (a) =>
+          urgencyRank(assignmentUrgency(a.dueDate, a.status as AssignmentStatus, now)),
         dueDateOf: (a) => a.dueDate,
         seed: creatorId,
       }),
     );
-  }, [assignments, creatorFilter, formatFilter, statusFilter, overdueOnly]);
+  }, [assignments, creatorFilter, formatFilter, statusFilter, overdueOnly, nowMs]);
 
   return (
     <div className="space-y-6">

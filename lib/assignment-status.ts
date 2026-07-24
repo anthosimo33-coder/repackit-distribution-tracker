@@ -65,6 +65,27 @@ export function assignmentUrgency(
   return "ok";
 }
 
+/**
+ * Rang d'urgence pour l'ORDRE d'affichage (0 = le plus urgent). Sert de bucket
+ * EXTÉRIEUR à l'entrelacement des formats (lib/assignment-order) : on alterne
+ * les formats DANS un rang, quelles que soient leurs échéances, mais les rangs
+ * restent ordonnés — en retard, puis < 48 h, puis dans les temps, puis les
+ * missions non actionnables (en revue / publiées / payées). Cohérent avec les
+ * badges (`assignmentUrgency`) : ce qui est badgé « En retard » remonte en tête.
+ */
+export function urgencyRank(u: Urgency): number {
+  switch (u) {
+    case "overdue":
+      return 0;
+    case "soon":
+      return 1;
+    case "ok":
+      return 2;
+    case "none":
+      return 3;
+  }
+}
+
 export const URGENCY_BADGE: Record<
   Exclude<Urgency, "none">,
   { label: string; className: string }
