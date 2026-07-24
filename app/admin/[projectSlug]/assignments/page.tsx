@@ -58,6 +58,10 @@ import { AssignmentOverlayDialog } from "@/components/admin/AssignmentOverlayDia
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
 import { canDeleteAssignment } from "@/lib/assignment-delete";
 import {
+  assignmentGroupKey,
+  interleaveByGroup,
+} from "@/lib/assignment-order";
+import {
   ASSIGNMENT_STATUS,
   assignmentUrgency,
   type AssignmentStatus,
@@ -169,7 +173,7 @@ export default function AssignmentsPage() {
   }, [assignments]);
 
   const rows = useMemo(() => {
-    return (assignments ?? []).filter((a) => {
+    const filtered = (assignments ?? []).filter((a) => {
       if (creatorFilter !== "all" && a.creatorId !== creatorFilter) return false;
       if (formatFilter !== "all" && a.formatId !== formatFilter) return false;
       if (statusFilter !== "all" && a.status !== statusFilter) return false;
@@ -180,6 +184,25 @@ export default function AssignmentsPage() {
         return false;
       return true;
     });
+    // Les FORMATS d'une créatrice ALTERNENT (fini les blocs « 7 carrousels
+    // d'affilée »). On groupe par créatrice — dans l'ordre où elles apparaissent
+    // (listAssignments = createdAt décroissant → activité la plus récente en
+    // tête) — puis on entrelace SES missions (échéance croissante, formats
+    // alternés, ordre propre à chaque créatrice via seed = creatorId). MÊME
+    // moteur que l'espace créatrice (lib/assignment-order).
+    const byCreator = new Map<string, typeof filtered>();
+    for (const a of filtered) {
+      const g = byCreator.get(a.creatorId);
+      if (g) g.push(a);
+      else byCreator.set(a.creatorId, [a]);
+    }
+    return [...byCreator.entries()].flatMap(([creatorId, group]) =>
+      interleaveByGroup(group, {
+        keyOf: (a) => assignmentGroupKey(a),
+        dueDateOf: (a) => a.dueDate,
+        seed: creatorId,
+      }),
+    );
   }, [assignments, creatorFilter, formatFilter, statusFilter, overdueOnly]);
 
   return (
