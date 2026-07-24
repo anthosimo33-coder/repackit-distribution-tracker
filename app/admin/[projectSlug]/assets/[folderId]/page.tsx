@@ -15,7 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AssetUploader } from "@/components/admin/AssetUploader";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
-import { ArrowLeftIcon, Trash2Icon } from "lucide-react";
+import { ArrowLeftIcon, SparklesIcon, Trash2Icon } from "lucide-react";
 
 export default function AssetFolderDetailPage() {
   const params = useParams<{ folderId: string }>();
@@ -56,7 +56,24 @@ export default function AssetFolderDetailPage() {
         </p>
       </header>
 
-      {folder && <AssetUploader folderId={folderId} />}
+      {folder?.postprocessImages === true && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+          <SparklesIcon className="mt-0.5 size-4 shrink-0" />
+          <p>
+            <span className="font-medium">Contenu à publier.</span> Les images
+            déposées ici sont nettoyées de leurs métadonnées (C2PA, EXIF, XMP) et
+            ré-encodées en JPEG à l&apos;ingestion. La recompression est
+            irréversible — n&apos;y dépose pas de matériel source.
+          </p>
+        </div>
+      )}
+
+      {folder && (
+        <AssetUploader
+          folderId={folderId}
+          postprocess={folder.postprocessImages === true}
+        />
+      )}
 
       {assets === undefined ? (
         <Skeleton className="h-48 w-full" />

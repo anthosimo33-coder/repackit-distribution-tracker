@@ -47,7 +47,7 @@ export const listAssetFolders = adminQuery({
 });
 
 export const createAssetFolder = adminMutation({
-  args: { name: v.string() },
+  args: { name: v.string(), postprocessImages: v.optional(v.boolean()) },
   handler: async (ctx, args) => {
     const name = args.name.trim();
     if (name.length === 0) throw new ConvexError("Nom de dossier requis.");
@@ -65,7 +65,27 @@ export const createAssetFolder = adminMutation({
       projectId: ctx.projectId,
       name,
       createdAt: Date.now(),
+      postprocessImages: args.postprocessImages === true,
     });
+  },
+});
+
+/**
+ * Bascule « contenu à publier » d'un dossier (cf. schema.assetFolders).
+ * N'AFFECTE QUE LES UPLOADS À VENIR : les fichiers déjà stockés ne sont pas
+ * retraités — c'est le rôle du script scripts/postprocess-existing-assets.ts.
+ */
+export const setAssetFolderPostprocess = adminMutation({
+  args: { id: v.id("assetFolders"), postprocessImages: v.boolean() },
+  handler: async (ctx, args) => {
+    const folder = await ctx.db.get(args.id);
+    if (!folder || folder.projectId !== ctx.projectId) {
+      throw new ConvexError("Dossier introuvable.");
+    }
+    await ctx.db.patch(args.id, {
+      postprocessImages: args.postprocessImages,
+    });
+    return { ok: true };
   },
 });
 
@@ -161,6 +181,11 @@ export const listAssets = adminQuery({
  * SERVEUR le type (image jpg/png/webp OU vidéo mp4/mov/webm) + la taille ≤ max
  * SELON le type (image 10 Mo / vidéo 100 Mo) ; rejette sinon en supprimant le
  * blob orphelin. Le créateur n'uploade jamais — admin only.
+ *
+ * `replacedStorageId` : blob SUPPLANTÉ par sa version post-traitée (métadonnées
+ * de provenance retirées, cf. app/api/assets/postprocess/route.ts). Il n'est
+ * référencé par aucune row → on le purge, y compris sur les chemins de rejet,
+ * pour ne jamais laisser derrière soi l'original porteur d'EXIF/C2PA.
  */
 export const createAsset = adminMutation({
   args: {
@@ -169,12 +194,20 @@ export const createAsset = adminMutation({
     fileName: v.string(),
     contentType: v.string(),
     size: v.number(),
+    replacedStorageId: v.optional(v.id("_storage")),
+    /** Le fichier a traversé le pipeline → horodaté SERVEUR (idempotence). */
+    postprocessed: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    const superseded =
+      args.replacedStorageId && args.replacedStorageId !== args.storageId
+        ? args.replacedStorageId
+        : null;
     const folder = await ctx.db.get(args.folderId);
     if (!folder || folder.projectId !== ctx.projectId) {
       // Blob orphelin (uploadé mais dossier invalide) → purge.
       await ctx.storage.delete(args.storageId);
+      if (superseded) await ctx.storage.delete(superseded);
       throw new ConvexError("Dossier introuvable.");
     }
     const max = maxBytesForAssetType(args.contentType);
@@ -185,10 +218,13 @@ export const createAsset = adminMutation({
       args.size > max;
     if (invalid) {
       await ctx.storage.delete(args.storageId);
+      if (superseded) await ctx.storage.delete(superseded);
       throw new ConvexError(
         "Fichier refusé : images JPG/PNG/WebP (10 Mo) ou vidéos MP4/MOV/WebM (100 Mo).",
       );
     }
+    // L'original n'a plus de raison d'exister une fois sa version nettoyée validée.
+    if (superseded) await ctx.storage.delete(superseded);
     const fileName = args.fileName.trim() || "fichier";
     return await ctx.db.insert("assets", {
       projectId: ctx.projectId,
@@ -198,6 +234,7 @@ export const createAsset = adminMutation({
       contentType: args.contentType,
       size: args.size,
       createdAt: Date.now(),
+      postprocessedAt: args.postprocessed === true ? Date.now() : undefined,
     });
   },
 });

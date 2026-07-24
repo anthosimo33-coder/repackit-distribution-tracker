@@ -13,6 +13,7 @@ import type * as analyticsHub from "../analyticsHub.js";
 import type * as apifyApi from "../apifyApi.js";
 import type * as apifySync from "../apifySync.js";
 import type * as assets from "../assets.js";
+import type * as assetsMigration from "../assetsMigration.js";
 import type * as assignments from "../assignments.js";
 import type * as auth from "../auth.js";
 import type * as cloudflareStream from "../cloudflareStream.js";
@@ -87,6 +88,7 @@ declare const fullApi: ApiFromModules<{
   apifyApi: typeof apifyApi;
   apifySync: typeof apifySync;
   assets: typeof assets;
+  assetsMigration: typeof assetsMigration;
   assignments: typeof assignments;
   auth: typeof auth;
   cloudflareStream: typeof cloudflareStream;

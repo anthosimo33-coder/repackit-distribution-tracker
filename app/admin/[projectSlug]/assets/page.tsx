@@ -36,7 +36,9 @@ import {
   Loader2Icon,
   MoreHorizontalIcon,
   PlusIcon,
+  SparklesIcon,
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 
 type Folder = FunctionReturnType<typeof api.assets.listAssetFolders>[number];
 
@@ -91,8 +93,16 @@ export default function AssetsPage() {
                     <p className="truncate font-medium text-slate-900">
                       {f.name}
                     </p>
-                    <p className="text-xs text-slate-500">
+                    <p className="flex items-center gap-1.5 text-xs text-slate-500">
                       {f.assetCount} fichier{f.assetCount > 1 ? "s" : ""}
+                      {f.postprocessImages === true && (
+                        <span
+                          className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 font-medium text-amber-900"
+                          title="Les images déposées sont nettoyées de leurs métadonnées et ré-encodées"
+                        >
+                          <SparklesIcon className="size-3" />À publier
+                        </span>
+                      )}
                     </p>
                   </div>
                 </Link>
@@ -167,14 +177,19 @@ function FolderDialog({
 }) {
   const create = useProjectMutation(api.assets.createAssetFolder);
   const rename = useProjectMutation(api.assets.renameAssetFolder);
+  const setPostprocess = useProjectMutation(api.assets.setAssetFolderPostprocess);
   const isEdit = folder !== null;
   const [name, setName] = useState("");
+  const [postprocessImages, setPostprocessImages] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const [lastOpen, setLastOpen] = useState(false);
   if (open !== lastOpen) {
     setLastOpen(open);
-    if (open) setName(folder?.name ?? "");
+    if (open) {
+      setName(folder?.name ?? "");
+      setPostprocessImages(folder?.postprocessImages === true);
+    }
   }
 
   async function onSubmit() {
@@ -186,9 +201,12 @@ function FolderDialog({
     try {
       if (isEdit) {
         await rename({ id: folder._id, name });
-        toast.success("Dossier renommé.");
+        if ((folder.postprocessImages === true) !== postprocessImages) {
+          await setPostprocess({ id: folder._id, postprocessImages });
+        }
+        toast.success("Dossier mis à jour.");
       } else {
-        await create({ name });
+        await create({ name, postprocessImages });
         toast.success("Dossier créé.");
       }
       onOpenChange(false);
@@ -204,13 +222,13 @@ function FolderDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {isEdit ? "Renommer le dossier" : "Nouveau dossier"}
+            {isEdit ? "Modifier le dossier" : "Nouveau dossier"}
           </DialogTitle>
           <DialogDescription>
             Un dossier regroupe des images et vidéos à fournir aux créateurs.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-1.5">
+        <div className="min-w-0 space-y-1.5">
           <Label htmlFor="folder-name">Nom</Label>
           <Input
             id="folder-name"
@@ -219,6 +237,23 @@ function FolderDialog({
             placeholder="Ex. Logos & overlays"
           />
         </div>
+        <label className="flex min-w-0 cursor-pointer items-start gap-3 rounded-lg border border-slate-200 p-3">
+          <Switch
+            checked={postprocessImages}
+            onCheckedChange={setPostprocessImages}
+            aria-label="Contenu à publier — nettoyer les métadonnées des images"
+            className="mt-0.5"
+          />
+          <span className="min-w-0 text-xs text-slate-600">
+            <span className="block text-sm font-medium text-slate-900">
+              Contenu à publier
+            </span>
+            Les images déposées seront nettoyées de leurs métadonnées (C2PA,
+            EXIF, XMP) et ré-encodées en JPEG. À laisser DÉSACTIVÉ pour du
+            matériel source que les créatrices retravaillent : la recompression
+            est irréversible.
+          </span>
+        </label>
         <DialogFooter>
           <Button
             variant="outline"
@@ -229,7 +264,7 @@ function FolderDialog({
           </Button>
           <Button onClick={onSubmit} disabled={busy}>
             {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-            {isEdit ? "Renommer" : "Créer"}
+            {isEdit ? "Enregistrer" : "Créer"}
           </Button>
         </DialogFooter>
       </DialogContent>
