@@ -99,10 +99,27 @@ const EMPTY_PERF: ComptePerf = {
 export interface CompteUsage {
   inUse: boolean;
   assignments: number;
+  /** Sous-ensemble d'`assignments` NON publiés/payés (missions encore en cours). */
+  openAssignments: number;
   publications: number;
+  /** Somme des vues du dernier relevé des publications du compte (récap UI). */
+  views: number;
   snapshots: number;
   payments: number;
 }
+
+/**
+ * Statuts d'assignment portant une publication matérialisée et/ou de la paie —
+ * ⚠️ DUPLIQUÉ du complément de assignments.DELETABLE_STATUSES (import
+ * cross-module évité, même idiome que effectiveStatus/isPublishedDoc). Sert
+ * UNIQUEMENT à distinguer « mission en cours » de « historique » dans le récap
+ * de réassignation ; aucune décision de paie ne s'appuie dessus.
+ */
+const CLOSED_ASSIGNMENT_STATUSES = new Set<string>([
+  "published",
+  "paid",
+  "validated", // legacy
+]);
 
 /**
  * Chantier D — RÉFÉRENCES d'un compte (garde des mutations destructives). Un
@@ -159,10 +176,25 @@ async function compteUsage(
     pubs.length > 0 ||
     snapshots > 0 ||
     payments > 0;
-  return { inUse, assignments: refAssignments.length, publications: pubs.length, snapshots, payments };
+  return {
+    inUse,
+    assignments: refAssignments.length,
+    openAssignments: refAssignments.filter(
+      (a) => !CLOSED_ASSIGNMENT_STATUSES.has(a.status),
+    ).length,
+    publications: pubs.length,
+    views: pubs.reduce((sum, p) => sum + (p.vuesLatest ?? 0), 0),
+    snapshots,
+    payments,
+  };
 }
 
-/** Détail des références d'un compte (pour l'UI admin : delete vs archive). */
+/**
+ * Détail des références d'un compte : arbitre l'UI admin (supprimer vs archiver)
+ * et alimente le RÉCAP obligatoire avant action destructive / réassignation
+ * (handle + publications + vues + missions en cours). Le serveur re-vérifie de
+ * toute façon dans deleteCompte — cette query n'est qu'un affichage.
+ */
 export const getCompteUsage = adminQuery({
   args: { id: v.id("comptes") },
   handler: async (ctx, { id }) => {
@@ -357,6 +389,17 @@ export const updateCompte = adminMutation({
     // assignments DÉJÀ créés n'est pas réécrit ; seuls les futurs assignments
     // captent le nouveau mode (sémantique snapshot du repo).
     managedByAdmin: v.optional(v.boolean()),
+    // ─── RÉASSIGNATION du propriétaire (admin) ───────────────────────────────
+    // Id = rattacher le compte à cette créatrice, null = détacher (compte
+    // INTERNE équipe), absent = ne pas toucher (pattern personneId).
+    // PUREMENT PROSPECTIF : ne réécrit NI les assignments existants (chacun
+    // porte SON creatorId + rateSnapshot figés) NI les publications (rapprochées
+    // par HANDLE, sans lien créateur) → l'historique et la paie déjà calculée ne
+    // bougent pas. N'agit que sur l'éligibilité FUTURE (listCreatorAvailableComptes,
+    // listAssignableCreatorsWithAccounts), « Mes comptes »/warmup côté portail et
+    // la bio (le protocole warmup + la bio restent attachés au compte PHYSIQUE :
+    // ni reset ni purge, la nouvelle propriétaire reprend l'état en place).
+    creatorId: v.optional(v.union(v.id("creators"), v.null())),
     // Pays ciblé (label informatif) : code de la liste fermée = set, null = unset
     // (« non défini »), absent = ne pas toucher. Validé par countryValidator.
     targetCountry: v.optional(v.union(countryValidator, v.null())),
@@ -367,7 +410,22 @@ export const updateCompte = adminMutation({
     if (!compte || compte.projectId !== ctx.projectId) {
       throw new ConvexError("Compte introuvable.");
     }
-    if (args.managedByAdmin === true && compte.creatorId === undefined) {
+    // Rattachement RÉSULTANT (après application des args) : la garde « géré ⇒
+    // créatrice » est évaluée sur l'ÉTAT CIBLE, pas sur l'état courant — sinon
+    // détacher la créatrice d'un compte géré laisserait un managed orphelin.
+    if (args.creatorId !== undefined && args.creatorId !== null) {
+      const creator = await ctx.db.get(args.creatorId);
+      if (!creator || creator.projectId !== ctx.projectId) {
+        throw new ConvexError("Créateur introuvable dans le projet.");
+      }
+    }
+    const nextCreatorId =
+      args.creatorId === undefined
+        ? compte.creatorId
+        : (args.creatorId ?? undefined);
+    const nextManagedByAdmin =
+      args.managedByAdmin ?? compte.managedByAdmin ?? false;
+    if (nextManagedByAdmin && nextCreatorId === undefined) {
       throw new ConvexError(
         "Un compte géré par l'équipe doit être rattaché à une créatrice.",
       );
@@ -401,6 +459,10 @@ export const updateCompte = adminMutation({
     }
     if (args.managedByAdmin !== undefined) {
       update.managedByAdmin = args.managedByAdmin;
+    }
+    if (args.creatorId !== undefined) {
+      // null → compte INTERNE (unset), Id → nouvelle propriétaire.
+      update.creatorId = args.creatorId === null ? undefined : args.creatorId;
     }
     if (args.targetCountry !== undefined) {
       // null → « non défini » (unset) ; sinon code validé (countryValidator).
@@ -855,8 +917,9 @@ export const declareCompte = creatorMutation({
 
 /**
  * Déclaration d'un compte GÉRÉ PAR L'ÉQUIPE (admin) rattaché à une créatrice.
- * SEUL point d'écriture de comptes.creatorId côté admin (declareCompte, côté
- * créatrice, reste l'autre). L'appartenance = la créatrice ciblée (elle voit
+ * Point d'écriture de comptes.creatorId à la CRÉATION côté admin (declareCompte,
+ * côté créatrice, reste l'autre ; la RÉASSIGNATION d'un compte existant passe par
+ * updateCompte.creatorId). L'appartenance = la créatrice ciblée (elle voit
  * scripts + Mes vidéos + perfs), le MODE = managedByAdmin:true (l'équipe coche le
  * warmup, soumet, publie). Créé en "warmup" (l'admin cochera puis activera) —
  * même init que declareCompte pour rester en phase avec le gate strict #98.

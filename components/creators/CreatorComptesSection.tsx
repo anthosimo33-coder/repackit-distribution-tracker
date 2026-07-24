@@ -27,8 +27,9 @@ import { countryLabel } from "@/lib/countries";
 /**
  * P5 — section « Comptes » de la fiche créateur (admin). Alimentée depuis
  * listComptes filtré par creatorId. Chantier D : actions admin par compte
- * (Modifier — plateforme incl. si vierge —, Archiver/Réactiver, Supprimer si
- * vierge). Comptes archivés grisés.
+ * (Modifier — plateforme incl. si vierge —, Réassigner, Archiver/Réactiver,
+ * Supprimer si vierge). Réassigner un compte le fait SORTIR de cette liste (il
+ * change de propriétaire). Comptes archivés grisés.
  */
 export function CreatorComptesSection({
   creatorId,

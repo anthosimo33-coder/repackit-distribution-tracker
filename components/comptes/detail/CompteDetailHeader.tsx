@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ChevronLeftIcon,
   PencilIcon,
@@ -13,6 +14,7 @@ import { PlatformBadge } from "@/components/VerdictBadge";
 import { useProjectPath } from "@/components/project/ProjectProvider";
 import { SnapshotAgeSelector } from "@/components/snapshot-age-selector/SnapshotAgeSelector";
 import CompteDialog, { type Compte } from "@/components/comptes/CompteDialog";
+import { CompteAdminActions } from "@/components/comptes/CompteAdminActions";
 import {
   getEffectiveStatus,
   getStatusBadge,
@@ -24,12 +26,15 @@ import { cn } from "@/lib/utils";
 
 /**
  * Header de la vue détail compte : retour /comptes, handle + plateforme +
- * gestionnaire, sélecteur de période (global, pilote les Vues/Likes affichés)
- * et bouton d'édition (réouvre le CompteDialog en mode edit).
+ * rattachement (créatrice propriétaire / gestionnaire), sélecteur de période
+ * (global, pilote les Vues/Likes affichés), bouton d'édition (réouvre le
+ * CompteDialog en mode edit) et menu ⋯ admin (réassigner / archiver /
+ * supprimer, partagé avec la table /comptes).
  */
 export function CompteDetailHeader({ compte }: { compte: Compte }) {
   const [editOpen, setEditOpen] = useState(false);
   const projectPath = useProjectPath();
+  const router = useRouter();
 
   const effStatus = getEffectiveStatus(compte);
   const badge = getStatusBadge(compte);
@@ -93,6 +98,21 @@ export function CompteDetailHeader({ compte }: { compte: Compte }) {
               Passer en actif
             </Button>
           )}
+          {/* Rattachement : propriétaire (créatrice ou interne) + gestionnaire.
+              Rendu lisible ici parce que c'est ce que « Réassigner… » (menu ⋯)
+              modifie. */}
+          <span className="text-sm text-slate-500" data-testid="compte-owner">
+            {compte.creator ? (
+              <>
+                Créatrice{" "}
+                <span className="font-medium text-slate-700">
+                  {compte.creator.name}
+                </span>
+              </>
+            ) : (
+              "Compte interne"
+            )}
+          </span>
           {compte.personne && (
             <span className="text-sm text-slate-500">
               Géré par{" "}
@@ -115,6 +135,13 @@ export function CompteDetailHeader({ compte }: { compte: Compte }) {
           <PencilIcon className="mr-2 size-4" />
           Modifier le compte
         </Button>
+        {/* Réassigner / Archiver / Supprimer — même menu que la table /comptes.
+            Après suppression la fiche n'existe plus → retour à la liste. */}
+        <CompteAdminActions
+          compte={compte}
+          onEdit={() => setEditOpen(true)}
+          onDeleted={() => router.replace(projectPath("/comptes"))}
+        />
       </div>
 
       <CompteDialog
