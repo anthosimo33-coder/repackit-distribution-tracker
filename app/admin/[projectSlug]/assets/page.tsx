@@ -154,7 +154,10 @@ function FolderActions({
         }
       />
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={onRename}>Renommer</DropdownMenuItem>
+        {/* « Modifier » et pas « Renommer » : le dialog porte AUSSI le réglage
+            « Contenu à publier », qu'on ne penserait jamais à chercher
+            derrière un intitulé de renommage. */}
+        <DropdownMenuItem onClick={onRename}>Modifier</DropdownMenuItem>
         <DropdownMenuItem
           onClick={onDelete}
           className="text-rose-600 focus:text-rose-700"
