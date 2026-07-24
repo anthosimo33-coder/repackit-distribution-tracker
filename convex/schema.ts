@@ -1368,6 +1368,18 @@ export default defineSchema({
     projectId: v.id("projects"),
     name: v.string(),
     createdAt: v.number(),
+    /**
+     * « Contenu à publier » : les IMAGES déposées dans ce dossier sont
+     * post-traitées à l'ingestion (retrait C2PA/EXIF/XMP + ré-encodage, cf.
+     * lib/image-postprocess.ts).
+     *
+     * OPT-IN, absent = false. Assets mélange deux natures de fichiers : du
+     * matériel de campagne final (à traiter) et du matériel SOURCE que les
+     * créatrices retravaillent — le pipeline est destructif (recompression
+     * JPEG irréversible), il ne doit jamais s'appliquer par défaut. Un dossier
+     * non marqué reste donc intact, y compris tout le stock antérieur au flag.
+     */
+    postprocessImages: v.optional(v.boolean()),
   }).index("by_project", ["projectId"]),
 
   assets: defineTable({
@@ -1381,6 +1393,37 @@ export default defineSchema({
     contentType: v.string(),
     size: v.number(),
     createdAt: v.number(),
+    /**
+     * Horodatage du post-traitement, posé par la route d'ingestion ET par le
+     * script de migration. Marqueur PERSISTÉ, et pas une détection : le
+     * pipeline corrigé n'écrit AUCUNE métadonnée (c'est tout l'intérêt d'avoir
+     * supprimé `withMetadata`), il ne reste donc rien d'intrinsèque à
+     * reconnaître — et l'absence d'EXIF ne prouve rien (un PNG exporté n'en a
+     * jamais eu). Sans ce champ, une 2ᵉ passe de migration recompresserait une
+     * image déjà recompressée.
+     */
+    postprocessedAt: v.optional(v.number()),
+    /**
+     * SAUVEGARDE de l'original, posée UNIQUEMENT par le script de rattrapage du
+     * stock (scripts/postprocess-existing-assets.ts) : le blob d'origine n'est
+     * pas purgé mais mis de côté, avec ses métadonnées de row, pour permettre un
+     * retour arrière (`--restore`) tant que le rendu n'est pas validé.
+     *
+     * ⚠️ Ces blobs CONSERVENT les métadonnées de provenance qu'on cherche à
+     * retirer — c'est une rétention TEMPORAIRE, à purger (`--purge-backups`) une
+     * fois le rendu validé. Ils doublent aussi l'espace de stockage occupé.
+     *
+     * L'ingestion normale, elle, ne sauvegarde RIEN : l'admin a encore le
+     * fichier en local, et garder l'original annulerait l'intérêt du nettoyage.
+     */
+    postprocessBackup: v.optional(
+      v.object({
+        storageId: v.id("_storage"),
+        fileName: v.string(),
+        contentType: v.string(),
+        size: v.number(),
+      }),
+    ),
   })
     .index("by_folder", ["folderId"])
     .index("by_project", ["projectId"]),
