@@ -7,6 +7,7 @@ import {
   MAX_PAY_PER_VIDEO_EUR,
 } from "./pricing";
 import { computeEarnings } from "./payments";
+import { missionLabelFor } from "./assignments";
 import { calcCycle, cycleIndexOf } from "./payCycle";
 import type { QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -76,6 +77,11 @@ export type CreatorVideo = {
   /** Compte GÉRÉ par l'équipe : la créatrice suit (script + post + perfs) mais ne
    *  publie pas — l'UI affiche « géré par l'équipe » au lieu d'un CTA publier. */
   managedByAdmin: boolean;
+  /** Nom de campagne (script) / format — pour distinguer ses vidéos d'un coup
+   *  d'œil. MÊME libellé que la mission (missionLabelFor) : aucune décomposition. */
+  formatName: string;
+  /** Type de format (short/carousel…) ; null pour un script. */
+  formatType: string | null;
 };
 
 /** Une publication est matérialisée (cible OU legacy) → la vidéo est réellement en ligne. */
@@ -162,6 +168,7 @@ async function toCreatorVideo(
     publishedAt = assignmentPublishedAt(a);
   }
 
+  const label = await missionLabelFor(ctx, a);
   return {
     id: a._id,
     status,
@@ -177,6 +184,8 @@ async function toCreatorVideo(
       a.submittedVideoStorageId !== undefined ||
       a.submittedVideoStreamUid !== undefined,
     managedByAdmin: a.managedByAdmin === true,
+    formatName: label.formatName,
+    formatType: label.formatType,
   };
 }
 

@@ -1497,9 +1497,11 @@ export const computeViewBonus = adminMutation({
 
 /**
  * Enrichit un assignment pour le CRÉATEUR. ISOLATION : on retire `scriptCombo`
- * et `comboKey` (décomposition/brick ids/campagne) — le créateur ne reçoit
- * QUE le script monté (`assembledScript`), jamais les briques ni le tier. Un
- * assignment script s'affiche « Vidéo à tourner » (pas de type, pas de campagne).
+ * et `comboKey` (décomposition/brick ids/tier/perf) — le créateur ne reçoit QUE
+ * le script monté (`assembledScript`) et le NOM DE CAMPAGNE (via missionLabelFor),
+ * jamais les briques ni le tier. Le nom de campagne est le libellé de la mission
+ * côté créateur (ex. « Format 3 - POV Demo »), pour qu'elle sache quel format
+ * produire ; il reste distinct de la paie, où il ne fuite pas (lineItems génériques).
  */
 /** Cibles enrichies côté créateur : plateforme + handle de SON compte + URL. */
 async function enrichTargets(ctx: QueryCtx, a: Doc<"assignments">) {
@@ -1625,28 +1627,49 @@ async function splitScriptZones(
   };
 }
 
-async function enrichForCreator(ctx: QueryCtx, a: Doc<"assignments">) {
-  const targets = await enrichTargets(ctx, a);
-  const { scriptCombo, comboKey, ...safe } = a;
-  void comboKey;
-  if (scriptCombo) {
+/**
+ * Libellé de mission RÉEXPOSÉ au créateur — le SEUL élément du `scriptCombo`
+ * qu'il reçoit. Script → NOM DE CAMPAGNE (ex. « Format 3 - POV Demo ») ; format
+ * → nom + type du format. La décomposition (bricks/tier/comboKey) et les données
+ * de perf restent STRICTEMENT côté admin : on ne lit ici que le `name` de la
+ * campagne. `formatType` est null pour un script (le type de contenu est porté
+ * par le nom de campagne, pas par un champ dédié). Fallback « Vidéo à tourner »
+ * si la campagne a disparu → jamais de libellé vide.
+ */
+export async function missionLabelFor(
+  ctx: QueryCtx,
+  a: Doc<"assignments">,
+): Promise<{
+  formatName: string;
+  formatType: string | null;
+  origin: "script" | "format";
+}> {
+  if (a.scriptCombo) {
+    const campaign = await ctx.db.get(a.scriptCombo.campaignId);
     return {
-      ...safe,
-      targets,
-      formatName: "Vidéo à tourner",
-      formatType: null as string | null,
-      origin: "script" as const,
-      assembledScript: scriptCombo.assembledScript,
+      formatName: campaign?.name ?? "Vidéo à tourner",
+      formatType: null,
+      origin: "script",
     };
   }
   const format = a.formatId ? await ctx.db.get(a.formatId) : null;
   return {
+    formatName: format?.name ?? "—",
+    formatType: format?.type ?? "custom",
+    origin: "format",
+  };
+}
+
+async function enrichForCreator(ctx: QueryCtx, a: Doc<"assignments">) {
+  const targets = await enrichTargets(ctx, a);
+  const { scriptCombo, comboKey, ...safe } = a;
+  void comboKey;
+  const label = await missionLabelFor(ctx, a);
+  return {
     ...safe,
     targets,
-    formatName: format?.name ?? "—",
-    formatType: (format?.type ?? "custom") as string | null,
-    origin: "format" as const,
-    assembledScript: null as string | null,
+    ...label,
+    assembledScript: scriptCombo ? scriptCombo.assembledScript : null,
   };
 }
 
@@ -1879,10 +1902,13 @@ async function assignmentDetailFor(
   const submittedVideoMimeType = a.submittedVideoMimeType ?? "video/mp4";
   // Assets liés (images à télécharger) — dossier de SON assignment uniquement.
   const assets = await resolveAssignmentAssets(ctx, a);
+  // Libellé de mission (nom de campagne / format) — MÊME source que la liste.
+  const label = await missionLabelFor(ctx, a);
   if (scriptCombo) {
     const scriptZones = await splitScriptZones(ctx, a, scriptCombo);
     return {
       assignment: safe,
+      ...label,
       format: null,
       assembledScript: scriptCombo.assembledScript,
       scriptZones,
@@ -1896,6 +1922,7 @@ async function assignmentDetailFor(
   const brief = format ? await withResolvedExamples(ctx, format) : null;
   return {
     assignment: safe,
+    ...label,
     format: brief,
     assembledScript: null as string | null,
     scriptZones: null as ScriptZones | null,

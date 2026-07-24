@@ -6,6 +6,7 @@ import type { FunctionReturnType } from "convex/server";
 import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
 import { useMyPublishedVideos } from "@/components/portal/creator-data";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { formatMoney, formatViews } from "@/lib/format-rate";
@@ -47,6 +48,15 @@ const PLATFORM_STYLE: Record<string, string> = {
   TikTok: "bg-slate-900 text-white",
   Instagram: "bg-fuchsia-600 text-white",
   YouTube: "bg-red-600 text-white",
+};
+
+// Types de FORMAT lisibles (aligné sur le tableau de bord). Script → formatType
+// null (pas de badge, le nom de campagne porte déjà le type).
+const TYPE_LABELS: Record<string, string> = {
+  carousel: "Carrousel",
+  short: "Short",
+  screenrecorder: "ScreenRecorder",
+  custom: "Custom",
 };
 
 function PlatformBadge({ platform }: { platform: string }) {
@@ -160,6 +170,18 @@ function VideoRow({ v, now }: { v: Video; now: number }) {
   return (
     <Card data-testid="video-row" data-status={v.status}>
       <CardContent className="space-y-3 py-4">
+        {/* NOM DE CAMPAGNE / FORMAT — pour distinguer ses vidéos d'un coup d'œil
+            (quel type de contenu était produit). Script → pas de badge de type. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="truncate font-medium text-slate-900">
+            {v.formatName}
+          </span>
+          {v.formatType && v.formatType !== "custom" && (
+            <Badge variant="secondary" className="shrink-0">
+              {TYPE_LABELS[v.formatType] ?? v.formatType}
+            </Badge>
+          )}
+        </div>
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             {v.platforms.map((p) => (

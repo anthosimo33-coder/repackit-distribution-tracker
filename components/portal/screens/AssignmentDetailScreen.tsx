@@ -56,6 +56,20 @@ export default function AssignmentDetailScreen({
         </Card>
       ) : (
         <div className="space-y-6">
+          {/* En-tête de mission SCRIPT : NOM DE CAMPAGNE (ex. « Format 3 - POV
+              Demo ») — la première chose que la créatrice voit, pour savoir quel
+              type de contenu produire (un carrousel, un POV et une pensée
+              relatable ne se tournent pas pareil). Le nom de campagne porte déjà
+              le type (pas de champ dédié). Pour un FORMAT, le nom + type sont déjà
+              affichés en tête du brief (FormatBriefPreview) → pas de doublon ici. */}
+          {data.origin === "script" && (
+            <header>
+              <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+                {data.formatName}
+              </h1>
+            </header>
+          )}
+
           {data.targets.length > 0 && (
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500">
               <span>{data.targets.length > 1 ? "Cibles :" : "Cible :"}</span>

@@ -201,12 +201,17 @@ test.describe("S2 — assignation anti-coordination", () => {
     // Script naturel : pas d'étiquette de section ni de tier.
     expect(myA!.assembledScript).not.toContain("## Hook");
     expect(myA!.assembledScript).not.toContain("Tier");
-    // listMyAssignments : pas de scriptCombo non plus.
+    // Le NOM DE CAMPAGNE est réexposé comme libellé de mission (pour savoir quel
+    // format produire) — SANS la décomposition. Fiche détail : formatName + origin.
+    expect(myA!.formatName).toBe(`[E2E_TEST] Assign ${ts}`);
+    expect(myA!.origin).toBe("script");
+    // listMyAssignments : pas de scriptCombo, MAIS le nom de campagne en formatName.
     const myList = await a.client.query(api.assignments.listMyAssignments, {
       projectId,
     });
     for (const it of myList) {
       expect((it as Record<string, unknown>).scriptCombo).toBeUndefined();
+      expect(it.formatName).toBe(`[E2E_TEST] Assign ${ts}`);
     }
 
     // B ne voit pas l'assignment de A (isolation serveur).
@@ -240,7 +245,9 @@ test.describe("S2 — assignation anti-coordination", () => {
     // Plus aucune lineItem legacy "Vidéo —" (modèle pricing, pas base-par-post).
     const labels = myPayments.flatMap((p) => p.lineItems.map((li) => li.label));
     expect(labels.some((l) => l.startsWith("Vidéo —"))).toBe(false);
-    // Isolation : le nom de campagne ne fuite NULLE PART côté créateur.
+    // Isolation PAIE : le nom de campagne ne fuite PAS dans les PAIEMENTS
+    // (lineItems génériques). Il est en revanche affiché comme libellé de mission
+    // côté créateur (cf. formatName ci-dessus) — ce sont deux surfaces distinctes.
     expect(JSON.stringify(myPayments)).not.toContain(`[E2E_TEST] Assign ${ts}`);
 
     // ADMIN : la décomposition du combo est visible (résumé).
