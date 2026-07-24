@@ -1650,6 +1650,172 @@ async function enrichForCreator(ctx: QueryCtx, a: Doc<"assignments">) {
   };
 }
 
+// ─── Ordre d'affichage : ALTERNANCE des formats (réplique de lib/assignment-order,
+//     règle A6 — convex/ ne peut pas importer lib/). Toute évolution ici DOIT
+//     l'être dans lib/assignment-order.ts ; les tests vivent là-bas. Voir ce
+//     module pour la justification complète de l'algorithme. ────────────────────
+
+/** Hash FNV-1a 32 bits (déterministe). */
+function stableHashServer(input: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+
+/** Axe « format » d'une mission : campagne (script) OU formatId, sinon "none". */
+function assignmentGroupKeyServer(a: Doc<"assignments">): string {
+  if (a.scriptCombo) return `campaign:${a.scriptCombo.campaignId}`;
+  if (a.formatId) return `format:${a.formatId}`;
+  return "none";
+}
+
+const ORDER_SCALE = 1_000_000;
+const ORDER_MAX_ROTATIONS = 64;
+const ORDER_MAX_REPAIR_PASSES = 6;
+
+function longestRunServer(keys: string[]): number {
+  let best = 0;
+  let run = 0;
+  let prev: string | null = null;
+  for (const k of keys) {
+    run = k === prev ? run + 1 : 1;
+    prev = k;
+    best = Math.max(best, run);
+  }
+  return best;
+}
+
+function repairAdjacentServer<T>(seq: T[], keyOf: (item: T) => string): T[] {
+  const out = [...seq];
+  const keyAt = (i: number) => (i >= 0 && i < out.length ? keyOf(out[i]) : null);
+  const swappable = (i: number, j: number): boolean => {
+    const ki = keyAt(i);
+    const kj = keyAt(j);
+    if (ki === kj) return false;
+    if (j !== i - 1 && kj === keyAt(i - 1)) return false;
+    if (j !== i + 1 && kj === keyAt(i + 1)) return false;
+    if (i !== j - 1 && ki === keyAt(j - 1)) return false;
+    if (i !== j + 1 && ki === keyAt(j + 1)) return false;
+    return true;
+  };
+  for (let pass = 0; pass < ORDER_MAX_REPAIR_PASSES; pass++) {
+    let changed = false;
+    for (let i = 1; i < out.length; i++) {
+      if (keyAt(i) !== keyAt(i - 1)) continue;
+      let partner = -1;
+      for (let d = 1; d < out.length && partner === -1; d++) {
+        if (i + d < out.length && swappable(i, i + d)) partner = i + d;
+        else if (i - d >= 0 && swappable(i, i - d)) partner = i - d;
+      }
+      if (partner === -1) continue;
+      const tmp = out[i];
+      out[i] = out[partner];
+      out[partner] = tmp;
+      changed = true;
+    }
+    if (!changed) break;
+  }
+  return out;
+}
+
+function spreadServer<T>(
+  items: T[],
+  keyOf: (item: T) => string,
+  seed: string,
+): T[] {
+  if (items.length < 2) return items;
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const k = keyOf(item);
+    const g = groups.get(k);
+    if (g) g.push(item);
+    else groups.set(k, [item]);
+  }
+  if (groups.size < 2) return items;
+
+  type Placed = {
+    item: T;
+    num: number;
+    den: number;
+    size: number;
+    rank: number;
+    seq: number;
+  };
+  const placed: Placed[] = [];
+  let seq = 0;
+  for (const [key, group] of groups) {
+    const rank = stableHashServer(`${seed}:${key}`);
+    const den = group.length * ORDER_SCALE;
+    group.forEach((item, i) => {
+      placed.push({
+        item,
+        num: i * ORDER_SCALE,
+        den,
+        size: group.length,
+        rank,
+        seq: seq++,
+      });
+    });
+  }
+  placed.sort((a, b) => {
+    const cross = a.num * b.den - b.num * a.den;
+    if (cross !== 0) return cross;
+    if (a.size !== b.size) return b.size - a.size;
+    if (a.rank !== b.rank) return a.rank - b.rank;
+    return a.seq - b.seq;
+  });
+  const comb = placed.map((p) => p.item);
+  const n = comb.length;
+
+  const stride = n <= ORDER_MAX_ROTATIONS ? 1 : Math.ceil(n / ORDER_MAX_ROTATIONS);
+  let minRun = Infinity;
+  const distinct = new Map<string, T[]>();
+  for (let o = 0; o < n; o += stride) {
+    const rotated = o === 0 ? comb : [...comb.slice(o), ...comb.slice(0, o)];
+    const rep = repairAdjacentServer(rotated, keyOf);
+    const keys = rep.map(keyOf);
+    const sig = keys.join(" ");
+    const run = longestRunServer(keys);
+    if (run < minRun) {
+      minRun = run;
+      distinct.clear();
+      distinct.set(sig, rep);
+    } else if (run === minRun && !distinct.has(sig)) {
+      distinct.set(sig, rep);
+    }
+    if (minRun === 1 && stride === 1 && distinct.size >= n) break;
+  }
+  const cands = [...distinct.values()];
+  return cands[stableHashServer(`${seed}:pick`) % cands.length];
+}
+
+/**
+ * Entrelace les formats d'une liste d'assignments, échéance croissante d'abord,
+ * puis alternance des formats DANS chaque paquet d'échéance. Graine = creatorId
+ * → ordre propre à chaque créatrice, stable. Réplique de lib/assignment-order.
+ */
+function interleaveByGroupServer(
+  items: Doc<"assignments">[],
+  seed: string,
+): Doc<"assignments">[] {
+  if (items.length < 2) return [...items];
+  const buckets = new Map<number, Doc<"assignments">[]>();
+  for (const item of items) {
+    const b = buckets.get(item.dueDate);
+    if (b) b.push(item);
+    else buckets.set(item.dueDate, [item]);
+  }
+  const dueDates = [...buckets.keys()].sort((a, b) => a - b);
+  const out: Doc<"assignments">[] = [];
+  for (const d of dueDates) {
+    out.push(...spreadServer(buckets.get(d)!, assignmentGroupKeyServer, seed));
+  }
+  return out;
+}
+
 async function assignmentsForCreator(
   ctx: QueryCtx,
   creatorId: Id<"creators">,
@@ -1658,10 +1824,13 @@ async function assignmentsForCreator(
     .query("assignments")
     .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
     .collect();
-  const enriched = await Promise.all(
-    assignments.map((a) => enrichForCreator(ctx, a)),
-  );
-  return enriched.sort((a, b) => a.dueDate - b.dueDate);
+  // Ordre stable par créatrice : échéance croissante d'abord, PUIS alternance
+  // des formats à échéance égale (fini les blocs « 7 carrousels d'affilée »).
+  // On entrelace les assignments BRUTS (ils portent campagne/formatId) AVANT
+  // d'enrichir — enrichForCreator retire scriptCombo (isolation créatrice), donc
+  // la campagne ne serait plus distinguable après coup. Le map préserve l'ordre.
+  const ordered = interleaveByGroupServer(assignments, creatorId);
+  return Promise.all(ordered.map((a) => enrichForCreator(ctx, a)));
 }
 
 /** Mes assignments UNIQUEMENT (filtre serveur par creatorId), triés deadline. */
