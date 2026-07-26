@@ -183,8 +183,15 @@ LIMIT ${SEGMENT_LIMIT}`,
 
   /**
    * Délais médians/p90 (en secondes) entre les jalons d'activation, par personne.
-   * Chaque delta n'est compté que s'il est POSITIF (jalon aval après le jalon
-   * amont) → une personne sans le jalon aval n'entre pas dans le quantile.
+   * Un delta n'entre dans le quantile que si les DEUX jalons existent pour la
+   * personne ET que l'aval suit l'amont (delta > 0).
+   *
+   * ⚠️ Le garde-fou de PRÉSENCE (has_*) est indispensable : `minIf` rend l'epoch 0
+   * (1970-01-01), et NON null, quand aucun event ne matche. Un jalon AMONT manquant
+   * donnerait alors `dateDiff(1970, aujourd'hui)` ≈ 20 000 j — un delta faussement
+   * POSITIF que le seul filtre `> 0` laisserait passer (il n'exclut que le jalon
+   * AVAL manquant, qui rend un delta négatif). On gate donc chaque delta à NULL
+   * hors des deux jalons présents, puis on conserve `> 0` pour l'ordre chronologique.
    */
   timeToValue: `
 SELECT
@@ -199,15 +206,19 @@ SELECT
   countIf(d_alert_payment > 0) AS n_alert_payment
 FROM (
   SELECT
-    dateDiff('second', t_signup, t_target) AS d_signup_target,
-    dateDiff('second', t_target, t_alert) AS d_target_alert,
-    dateDiff('second', t_alert, t_sub) AS d_alert_payment
+    if(has_signup > 0 AND has_target > 0, dateDiff('second', t_signup, t_target), NULL) AS d_signup_target,
+    if(has_target > 0 AND has_alert > 0, dateDiff('second', t_target, t_alert), NULL) AS d_target_alert,
+    if(has_alert > 0 AND has_sub > 0, dateDiff('second', t_alert, t_sub), NULL) AS d_alert_payment
   FROM (
     SELECT person_id,
       minIf(timestamp, event = 'signup_completed') AS t_signup,
       minIf(timestamp, event = 'target_added') AS t_target,
       minIf(timestamp, event = 'first_alert_received') AS t_alert,
-      minIf(timestamp, event = 'subscription_completed') AS t_sub
+      minIf(timestamp, event = 'subscription_completed') AS t_sub,
+      countIf(event = 'signup_completed') AS has_signup,
+      countIf(event = 'target_added') AS has_target,
+      countIf(event = 'first_alert_received') AS has_alert,
+      countIf(event = 'subscription_completed') AS has_sub
     FROM events
     WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
     GROUP BY person_id
