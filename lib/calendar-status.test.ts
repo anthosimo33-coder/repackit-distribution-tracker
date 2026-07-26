@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   calendarStatus,
   isPastPost,
+  isSameLocalDay,
+  representativePostedAt,
   CALENDAR_STATUS_LABEL,
   type CalendarStatus,
 } from "./calendar-status";
@@ -121,5 +123,42 @@ describe("helpers", () => {
     (
       ["on_time", "late", "missed", "scheduled", "none"] as CalendarStatus[]
     ).forEach((s) => expect(CALENDAR_STATUS_LABEL[s]).toBeTruthy());
+  });
+
+  it("isSameLocalDay : même jour vs jours différents", () => {
+    expect(isSameLocalDay(at(2026, 7, 15, 0), at(2026, 7, 15, 23))).toBe(true);
+    expect(isSameLocalDay(at(2026, 7, 15), at(2026, 7, 16))).toBe(false);
+  });
+});
+
+describe("representativePostedAt", () => {
+  it("plus ancienne target.publishedAt", () => {
+    expect(
+      representativePostedAt({
+        targets: [{ publishedAt: 300 }, { publishedAt: 100 }, { publishedAt: 200 }],
+      }),
+    ).toBe(100);
+  });
+
+  it("ignore les cibles non publiées (null/undefined)", () => {
+    expect(
+      representativePostedAt({
+        targets: [{ publishedAt: null }, { publishedAt: 500 }, {}],
+      }),
+    ).toBe(500);
+  });
+
+  it("fallback sur le legacy top-level publishedAt", () => {
+    expect(
+      representativePostedAt({ targets: [{ publishedAt: null }], publishedAt: 42 }),
+    ).toBe(42);
+  });
+
+  it("null si rien de publié", () => {
+    expect(representativePostedAt({ targets: [] })).toBeNull();
+    expect(representativePostedAt({})).toBeNull();
+    expect(
+      representativePostedAt({ targets: [{ publishedAt: null }] }),
+    ).toBeNull();
   });
 });

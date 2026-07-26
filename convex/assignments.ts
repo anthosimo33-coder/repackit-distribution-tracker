@@ -701,6 +701,9 @@ export const deleteAssignment = adminMutation({
  * a.publishedAt, sinon null (pas publié). Sert au statut CALENDRIER (brique B).
  * confirmPublication horodate TOUTES les cibles au même instant → min = max en
  * pratique ; le min ne diffère que si des cibles sont confirmées séparément.
+ *
+ * ⚠️ Règle A6 — RÉPLIQUE de lib/calendar-status.representativePostedAt (convex/ ne
+ * peut pas importer lib/). Toute évolution ici DOIT l'être là-bas (tests Vitest).
  */
 function representativePostedAt(a: Doc<"assignments">): number | null {
   const stamps = (a.targets ?? [])

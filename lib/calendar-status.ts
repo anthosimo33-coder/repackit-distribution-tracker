@@ -34,6 +34,29 @@ function localDayIndex(ms: number): number {
   return d.getFullYear() * 10000 + d.getMonth() * 100 + d.getDate();
 }
 
+/** true si deux instants tombent le MÊME jour calendaire local. */
+export function isSameLocalDay(a: number, b: number): boolean {
+  return localDayIndex(a) === localDayIndex(b);
+}
+
+/**
+ * Date de publication RÉELLE représentative d'un assignment (= CONFIRMATION,
+ * décision cadrée) : la PLUS ANCIENNE date parmi ses cibles (target.publishedAt),
+ * sinon le legacy top-level publishedAt, sinon null (pas publié). Logique PURE,
+ * partagée admin (via la réplique convex representativePostedAt, règle A6) et
+ * créatrice → statut calendrier IDENTIQUE des deux côtés.
+ */
+export function representativePostedAt(a: {
+  targets?: { publishedAt?: number | null }[] | null;
+  publishedAt?: number | null;
+}): number | null {
+  const stamps = (a.targets ?? [])
+    .map((t) => t.publishedAt)
+    .filter((x): x is number => typeof x === "number");
+  if (stamps.length > 0) return Math.min(...stamps);
+  return typeof a.publishedAt === "number" ? a.publishedAt : null;
+}
+
 export function calendarStatus(input: {
   /** Jour de publication PLANIFIÉ (ms), ou absent → hors calendrier. */
   postDate: number | null | undefined;

@@ -93,3 +93,14 @@ Ce fichier liste les anti-patterns repérés dans la zone touchée par chaque fe
   Choisir « exclusion partout » sans réfléchir casserait les surfaces de suivi où le warmup DOIT rester visible (ex. `convex/creatorVideos.ts:158`, où l'inclusion est délibérée et documentée : un post warmup reste tracké normalement côté créatrice).
 - **Helper** : réutiliser l'existant, **ne pas créer une seconde logique d'exclusion**. `payableAssignmentViews` (`lib/pricing-engine.ts:151`, réplique privée `convex/pricing.ts:97`) rend une SOMME de vues payables, keyée assignment ; `assignmentViewsAndMetrics` (`convex/pricing.ts:262`) est son pendant serveur. Pour filtrer une LISTE de publications, le prédicat est `matchesWarmupFilter(isWarmup, mode)` (`lib/tracker-data.ts` + réplique convex, A6).
 - **⚠️ Piège** : `lib/warmup.ts` est le warmup de **COMPTE** (rodage d'un compte : `warmupProtocol`, `isWarmupComplete`) — concept **sans aucun rapport** avec le flag par post. Ne jamais l'utiliser pour ces agrégats.
+
+---
+
+## Détecté pendant le chantier calendrier de publication (juillet 2026)
+
+### TD-020 — Statut calendrier basé sur la date de CONFIRMATION, pas le go-live réel
+- **Constat** : le statut calendrier (à l'heure / en retard / manqué / prévu, `lib/calendar-status.ts`) compare la date de post **planifiée** (`assignments.postDate`) à la date de publication **réelle**. Mais cette « date réelle » est la date de **CONFIRMATION** de publication (`target.publishedAt`, posée à `Date.now()` quand la créatrice/l'admin confirme via `confirmPublication`), **PAS** le vrai timestamp de mise en ligne sur la plateforme.
+- **Décision cadrée** (chantier, PR #145) : on accepte la date de confirmation — dans le workflow managé, confirmation ≈ posting. C'est **suffisant** tant que la confirmation se fait au moment du post.
+- **Imprécision** : si la confirmation est **décalée** (créatrice qui poste lundi mais confirme mercredi), le statut affichera « en retard » à tort (ou « à l'heure » si le décalage compense). Aucune tolérance dans le calcul → le décalage de confirmation se voit directement, côté pilotage admin **ET** côté créatrice (mêmes statuts, `CALENDAR_STATUS_META` partagé).
+- **Vrai fix (non fait, scope volontairement exclu)** : ingérer le vrai timestamp plateforme. Il est **déjà récupéré mais jeté** par la synchro — `convex/apifyApi.ts` (Apify `createTime`) et `convex/youtubeApi.ts` (`snippet.publishedAt`, `part: "snippet"` déjà demandé). Le persister (nouveau champ, p.ex. `publications.platformPublishedAt` + backfill) puis le préférer à `target.publishedAt` dans `representativePostedAt` (`lib/calendar-status.ts` + réplique convex A6). La fonction de statut ne bouge pas (elle prend `postedAt` en paramètre).
+- **Où** : `lib/calendar-status.ts` (`calendarStatus`, `representativePostedAt`), réplique convex `convex/assignments.ts:representativePostedAt` (exposé en `listAssignments.postedAt`).

@@ -14,19 +14,13 @@ import {
   subMonths,
 } from "date-fns";
 import { fr } from "date-fns/locale";
-import {
-  AlertCircleIcon,
-  CalendarClockIcon,
-  CheckCircle2Icon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  ClockIcon,
-} from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
 import { calendarStatus, type CalendarStatus } from "@/lib/calendar-status";
+import { CALENDAR_STATUS_META } from "@/components/calendar/calendar-status-meta";
 
 const WEEKDAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
@@ -58,34 +52,6 @@ function creatorDot(id: string): string {
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
   return CREATOR_DOTS[h % CREATOR_DOTS.length];
 }
-
-// Rendu du STATUT calendrier (couleur + icône). « none » n'apparaît pas (les rows
-// sans postDate ne sont pas placées).
-const STATUS_META: Record<
-  Exclude<CalendarStatus, "none">,
-  { chip: string; Icon: typeof CheckCircle2Icon; label: string }
-> = {
-  on_time: {
-    chip: "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
-    Icon: CheckCircle2Icon,
-    label: "À l'heure",
-  },
-  late: {
-    chip: "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100",
-    Icon: ClockIcon,
-    label: "En retard",
-  },
-  missed: {
-    chip: "border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100",
-    Icon: AlertCircleIcon,
-    label: "Manqué",
-  },
-  scheduled: {
-    chip: "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100",
-    Icon: CalendarClockIcon,
-    label: "Prévu",
-  },
-};
 
 const ON_TIME_THRESHOLD = 0.8; // sous ce taux → alerte visuelle.
 
@@ -298,7 +264,7 @@ export function AssignmentsCalendar({
                   </div>
                   <div className="space-y-0.5">
                     {items.slice(0, 3).map(({ row, status }) => {
-                      const meta = STATUS_META[status];
+                      const meta = CALENDAR_STATUS_META[status];
                       return (
                         <button
                           key={row._id}

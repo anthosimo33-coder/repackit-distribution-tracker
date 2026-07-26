@@ -7,6 +7,8 @@ import { api } from "@/convex/_generated/api";
 import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
 import { PaymentInfoNudge } from "@/components/portal/PaymentInfoNudge";
 import { PortalLeaderboard } from "@/components/portal/PortalLeaderboard";
+import { TodayPostBanner } from "@/components/portal/TodayPostBanner";
+import { CreatorPublicationCalendar } from "@/components/portal/CreatorPublicationCalendar";
 import {
   useMyAssignments,
   useWarmupDue,
@@ -185,6 +187,10 @@ export default function DashboardScreen() {
         </div>
       ) : (
         <>
+          {/* Bandeau « aujourd'hui tu postes X » (brique D) — LA réponse à « je
+              poste quoi ? ». Null si aucune publication planifiée. */}
+          <TodayPostBanner list={list} now={nowMs} base={base} />
+
           {/* 0. Checklist d'onboarding (Snytch) — tant que le compte n'est pas
               activé, on guide au lieu d'afficher un faux « tout à jour ». */}
           {showChecklist && onboarding && (
@@ -299,6 +305,11 @@ export default function DashboardScreen() {
               </CardContent>
             </Card>
           )}
+
+          {/* Mini-calendrier de publication (brique D) — vue d'ensemble de SES
+              posts planifiés + statuts (mêmes couleurs que le pilotage admin).
+              Clic → brief. Null si aucune publication planifiée. */}
+          <CreatorPublicationCalendar list={list} now={nowMs} base={base} />
         </>
       )}
 
