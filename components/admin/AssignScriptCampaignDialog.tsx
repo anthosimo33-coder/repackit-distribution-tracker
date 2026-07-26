@@ -32,6 +32,7 @@ import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { Loader2Icon, VideoIcon } from "lucide-react";
 import { SCRIPT_TIERS, tierLabel } from "@/lib/script-tier";
+import { AssignmentPlanningCalendar } from "@/components/admin/AssignmentPlanningCalendar";
 
 /**
  * Chantier C — assigne une campagne de scripts à UN créateur, sur 1 à 3 CIBLES
@@ -49,6 +50,17 @@ type Platform = (typeof PLATFORMS)[number];
 function defaultDue(): string {
   const d = new Date(Date.now() + 7 * 86_400_000);
   return d.toLocaleDateString("en-CA"); // YYYY-MM-DD, heure locale
+}
+
+const DEFAULT_VIDEOS = 5;
+
+/** Redimensionne le tableau de dates de post quand le nombre de vidéos change :
+ *  conserve les placements existants (slots < n), ajoute des null pour les
+ *  nouveaux, tronque au-delà. */
+function resizeSlots(prev: (number | null)[], n: number): (number | null)[] {
+  const next = prev.slice(0, n);
+  while (next.length < n) next.push(null);
+  return next;
 }
 
 export function AssignScriptCampaignDialog({
@@ -92,7 +104,12 @@ export function AssignScriptCampaignDialog({
     YouTube: NONE,
     Instagram: NONE,
   });
-  const [videos, setVideos] = useState("5");
+  const [videos, setVideos] = useState(String(DEFAULT_VIDEOS));
+  // Dates de post planifiées, une par vidéo (null = pas encore placée sur un
+  // jour). Longueur maintenue égale au nombre de vidéos via changeVideos.
+  const [slotDates, setSlotDates] = useState<(number | null)[]>(() =>
+    Array(DEFAULT_VIDEOS).fill(null),
+  );
   const [due, setDue] = useState(defaultDue());
   const [tier, setTier] = useState<string>(TIER_ALL);
   const [pricingId, setPricingId] = useState<string>(NONE);
@@ -134,7 +151,8 @@ export function AssignScriptCampaignDialog({
     if (open) {
       setCreatorId(NONE);
       setPicks({ TikTok: NONE, YouTube: NONE, Instagram: NONE });
-      setVideos("5");
+      setVideos(String(DEFAULT_VIDEOS));
+      setSlotDates(Array(DEFAULT_VIDEOS).fill(null));
       setDue(defaultDue());
       setTier(TIER_ALL);
       setPricingId(NONE);
@@ -151,6 +169,16 @@ export function AssignScriptCampaignDialog({
   function changeCreator(v: string) {
     setCreatorId(v);
     setPicks({ TikTok: NONE, YouTube: NONE, Instagram: NONE });
+  }
+
+  // Le nombre de vidéos pilote la taille du pool de planification : on
+  // redimensionne slotDates en conservant les placements déjà faits.
+  function changeVideos(v: string) {
+    setVideos(v);
+    const n = Number(v);
+    if (Number.isInteger(n) && n >= 1 && n <= 50) {
+      setSlotDates((prev) => resizeSlots(prev, n));
+    }
   }
 
   const optionsByPlatform = (p: Platform) =>
@@ -199,6 +227,10 @@ export function AssignScriptCampaignDialog({
       toast.error("Le barème de paie est requis.");
       return;
     }
+    if (!slotsComplete) {
+      toast.error("Place chaque vidéo sur un jour du calendrier.");
+      return;
+    }
     setSubmitting(true);
     try {
       const res = await assign({
@@ -216,6 +248,7 @@ export function AssignScriptCampaignDialog({
             : undefined,
         modelVideos:
           selectedModelVideos.length > 0 ? selectedModelVideos : undefined,
+        postDates: postDatesPayload,
       });
       toast.success(
         `${res.created} vidéo${res.created > 1 ? "s" : ""} × ${targets.length} post${targets.length > 1 ? "s" : ""} assignée${res.created > 1 ? "s" : ""}.`,
@@ -327,6 +360,8 @@ export function AssignScriptCampaignDialog({
       return "Échéance invalide.";
     }
     if (pricingId === NONE) return "Le barème de paie est requis.";
+    if (!slotsComplete)
+      return "Place chaque vidéo sur un jour du calendrier.";
     return null;
   }
 
@@ -366,6 +401,8 @@ export function AssignScriptCampaignDialog({
               : undefined,
           modelVideos:
             selectedModelVideos.length > 0 ? selectedModelVideos : undefined,
+          // Même répartition de dates pour chaque créateur (décision groupé).
+          postDates: postDatesPayload,
         });
         created += res.created;
         if (res.shortages.length > 0) shortNames.push(b.name);
@@ -405,6 +442,19 @@ export function AssignScriptCampaignDialog({
   const need = Number(videos) || 0;
   const platformsLabel = targets.map((t) => t.platform).join(", ");
   const lacksCombos = combosInfo !== undefined && need > combosInfo.available;
+
+  // Planning complet = chaque vidéo a une date de post. Requis pour activer
+  // « Assigner » (c'est le but du chantier). postDates n'est envoyé que dans ce
+  // cas ; sinon undefined → l'assignation reste possible sans dates programmées.
+  const videoCount = Number(videos);
+  const slotsComplete =
+    Number.isInteger(videoCount) &&
+    videoCount >= 1 &&
+    slotDates.length === videoCount &&
+    slotDates.every((d) => d != null);
+  const postDatesPayload = slotsComplete
+    ? (slotDates as number[])
+    : undefined;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -646,7 +696,7 @@ export function AssignScriptCampaignDialog({
                 min={1}
                 max={50}
                 value={videos}
-                onChange={(e) => setVideos(e.target.value)}
+                onChange={(e) => changeVideos(e.target.value)}
               />
             </div>
             <div className="space-y-1.5">
@@ -658,6 +708,31 @@ export function AssignScriptCampaignDialog({
                 onChange={(e) => setDue(e.target.value)}
               />
             </div>
+          </div>
+
+          {/* Planification des dates de PUBLICATION (drag & drop / clic). Le pool
+              suit le nombre de vidéos à produire ; une date par vidéo est requise
+              pour activer « Assigner ». En masse, la MÊME répartition s'applique à
+              chaque créateur (ajustable ensuite par ligne dans Assignments). */}
+          <div className="space-y-1.5">
+            <Label>Dates de publication</Label>
+            <AssignmentPlanningCalendar
+              count={
+                Number.isInteger(videoCount) &&
+                videoCount >= 1 &&
+                videoCount <= 50
+                  ? videoCount
+                  : 0
+              }
+              dates={slotDates}
+              onChange={setSlotDates}
+              disabled={submitting}
+            />
+            {!slotsComplete && (
+              <p className="text-xs text-amber-600">
+                Place chaque vidéo sur un jour pour activer l&apos;assignation.
+              </p>
+            )}
           </div>
 
           {/* Combos uniques disponibles (unicité comboKey × créateur × plateforme) */}
@@ -864,7 +939,7 @@ export function AssignScriptCampaignDialog({
           {mode === "single" ? (
             <Button
               onClick={handleSubmit}
-              disabled={submitting || pricingId === NONE}
+              disabled={submitting || pricingId === NONE || !slotsComplete}
             >
               {submitting && (
                 <Loader2Icon className="mr-2 size-4 animate-spin" />
@@ -881,7 +956,9 @@ export function AssignScriptCampaignDialog({
                 }
                 setConfirmOpen(true);
               }}
-              disabled={submitting || selectedRows.length === 0}
+              disabled={
+                submitting || selectedRows.length === 0 || !slotsComplete
+              }
               data-testid="bulk-assign"
             >
               {submitting && (

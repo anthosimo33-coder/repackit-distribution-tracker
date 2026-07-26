@@ -547,6 +547,12 @@ export const assignScriptCampaign = adminMutation({
         }),
       ),
     ),
+    // Dates de PUBLICATION planifiées (brique A), une par vidéo demandée, dans
+    // l'ORDRE : postDates[i] va sur la i-ème vidéo créée (i-ème combo pioché).
+    // Optionnel (assignation possible sans planning) ; si moins de combos que
+    // demandé (pénurie), les dates en trop sont ignorées. En masse, le client
+    // passe le MÊME tableau pour chaque créateur (même répartition pour toutes).
+    postDates: v.optional(v.array(v.number())),
   },
   handler: async (ctx, args) => {
     const campaign = await requireCampaign(ctx, args.campaignId, ctx.projectId);
@@ -666,7 +672,10 @@ export const assignScriptCampaign = adminMutation({
 
     let created = 0;
     let firstAssignmentId: Id<"assignments"> | null = null;
-    for (const combo of picked) {
+    // Positionnel : la i-ème vidéo créée reçoit postDates[i] (undefined sinon).
+    for (let i = 0; i < picked.length; i++) {
+      const combo = picked[i];
+      const postDate = args.postDates?.[i];
       const insertedId = await ctx.db.insert("assignments", {
         projectId: ctx.projectId,
         creatorId: args.creatorId,
@@ -693,6 +702,8 @@ export const assignScriptCampaign = adminMutation({
         ...(linkedModelVideos.length > 0
           ? { modelVideos: linkedModelVideos }
           : {}),
+        // Date de post planifiée (undefined si non planifiée → row inchangée).
+        ...(postDate !== undefined ? { postDate } : {}),
         createdAt: now,
       });
       if (firstAssignmentId === null) firstAssignmentId = insertedId;

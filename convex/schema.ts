@@ -896,6 +896,14 @@ export default defineSchema({
     comboKey: v.optional(v.string()),
     accountId: v.optional(v.id("comptes")),
     dueDate: v.number(),
+    // ─── Date de PUBLICATION planifiée (« poste-la ce jour-là ») ───────────────
+    // DISTINCTE de dueDate (échéance de PRODUCTION = « la vidéo doit être prête »).
+    // Les deux coexistent. Optionnelle → additif, 0 migration : les assignments
+    // existants restent sans date de post. Stockée en ms (minuit local du jour
+    // choisi) ; le statut calendrier (à l'heure/en retard/manqué/prévu, brique B)
+    // se calcule en la comparant à la date de publication réelle. NE remplace PAS
+    // le statut de production (deux notions séparées).
+    postDate: v.optional(v.number()),
     // ─── Compte GÉRÉ PAR L'ADMIN — flag DÉNORMALISÉ (copié du compte cible) ────
     // Posé à la CRÉATION de l'assignment (assignFormat) en copiant
     // comptes.managedByAdmin de la/les cible(s). FIGÉ ensuite (snapshot, comme

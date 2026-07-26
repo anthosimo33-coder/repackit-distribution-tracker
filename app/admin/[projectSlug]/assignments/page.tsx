@@ -38,6 +38,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import {
   BellIcon,
+  CalendarIcon,
   ClapperboardIcon,
   FileTextIcon,
   ImagesIcon,
@@ -55,6 +56,7 @@ import { EditScriptComboDialog } from "@/components/admin/EditScriptComboDialog"
 import { EditBrickTextDialog } from "@/components/admin/EditBrickTextDialog";
 import { LinkAssetFolderDialog } from "@/components/admin/LinkAssetFolderDialog";
 import { AssignmentOverlayDialog } from "@/components/admin/AssignmentOverlayDialog";
+import { AssignmentPostDateDialog } from "@/components/admin/AssignmentPostDateDialog";
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
 import { canDeleteAssignment } from "@/lib/assignment-delete";
 import {
@@ -122,6 +124,12 @@ export default function AssignmentsPage() {
   const [overlayId, setOverlayId] = useState<Id<"assignments"> | null>(null);
   const overlayRow = overlayId
     ? ((assignments ?? []).find((a) => a._id === overlayId) ?? null)
+    : null;
+  // Date de publication planifiée — édition après coup (row dérivée live).
+  // Hoistée au niveau page → réutilisable depuis la future vue calendrier (C).
+  const [postDateId, setPostDateId] = useState<Id<"assignments"> | null>(null);
+  const postDateRow = postDateId
+    ? ((assignments ?? []).find((a) => a._id === postDateId) ?? null)
     : null;
   // Suppression (hard-delete) — confirmation obligatoire, libère le combo.
   const deleteAssignment = useProjectMutation(api.assignments.deleteAssignment);
@@ -307,6 +315,7 @@ export default function AssignmentsPage() {
                   <TableHead>Format</TableHead>
                   <TableHead>Compte</TableHead>
                   <TableHead>Échéance</TableHead>
+                  <TableHead>Post</TableHead>
                   <TableHead>Statut</TableHead>
                   <TableHead>Soumis</TableHead>
                   <TableHead>Modèles</TableHead>
@@ -438,6 +447,21 @@ export default function AssignmentsPage() {
                               Relancer
                             </Button>
                           )}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className={cn(
+                            "h-8 gap-1.5 px-2",
+                            a.postDate ? "text-slate-700" : "text-slate-500",
+                          )}
+                          onClick={() => setPostDateId(a._id)}
+                          aria-label="Modifier la date de publication"
+                        >
+                          <CalendarIcon className="size-4" />
+                          {a.postDate ? formatDate(a.postDate) : "—"}
+                        </Button>
                       </TableCell>
                       <TableCell>
                         <span
@@ -600,6 +624,17 @@ export default function AssignmentsPage() {
           assignmentId={overlayRow._id}
           creatorName={overlayRow.creatorName}
           currentOverlayText={overlayRow.overlayText}
+        />
+      )}
+
+      {postDateRow && (
+        <AssignmentPostDateDialog
+          key={postDateRow._id}
+          open
+          onOpenChange={(o) => !o && setPostDateId(null)}
+          assignmentId={postDateRow._id}
+          creatorName={postDateRow.creatorName}
+          currentPostDate={postDateRow.postDate}
         />
       )}
 

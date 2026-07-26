@@ -374,6 +374,27 @@ export const setAssignmentOverlayText = adminMutation({
   },
 });
 
+/**
+ * Édite la DATE DE PUBLICATION planifiée (postDate) d'un assignment EXISTANT.
+ * Admin only, scopé projet. `postDate` absent → efface la date (undefined).
+ * Distincte de dueDate (production) : les deux coexistent. Permet de replanifier
+ * après coup depuis la page Assignments (édition simple par ligne).
+ */
+export const setAssignmentPostDate = adminMutation({
+  args: {
+    id: v.id("assignments"),
+    postDate: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const a = await ctx.db.get(args.id);
+    if (!a || a.projectId !== ctx.projectId) {
+      throw new ConvexError("Assignment introuvable.");
+    }
+    await ctx.db.patch(args.id, { postDate: args.postDate });
+    return { ok: true };
+  },
+});
+
 // ─── Vidéos modèles (liens à reproduire) — gérées par l'admin, vues créateur ──
 // Liens vers des vidéos existantes que le créateur doit reproduire avec son
 // script. Ajout/suppression à l'unité APRÈS l'assignation. PAS de fichiers
