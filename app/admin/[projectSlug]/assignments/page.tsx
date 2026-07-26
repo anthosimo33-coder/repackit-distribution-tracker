@@ -38,10 +38,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import {
   BellIcon,
+  CalendarDaysIcon,
   CalendarIcon,
   ClapperboardIcon,
   FileTextIcon,
   ImagesIcon,
+  ListIcon,
   Loader2Icon,
   PencilIcon,
   Trash2Icon,
@@ -57,6 +59,8 @@ import { EditBrickTextDialog } from "@/components/admin/EditBrickTextDialog";
 import { LinkAssetFolderDialog } from "@/components/admin/LinkAssetFolderDialog";
 import { AssignmentOverlayDialog } from "@/components/admin/AssignmentOverlayDialog";
 import { AssignmentPostDateDialog } from "@/components/admin/AssignmentPostDateDialog";
+import { AssignmentsCalendar } from "@/components/admin/AssignmentsCalendar";
+import { FilterMultiSelect } from "@/components/filters/FilterMultiSelect";
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
 import { canDeleteAssignment } from "@/lib/assignment-delete";
 import {
@@ -90,7 +94,11 @@ export default function AssignmentsPage() {
   // « en retard »). Impure au render sinon (cf react-hooks/purity, comme le
   // dashboard créateur) → l'ordre ne se réordonne pas à chaque re-render.
   const [nowMs] = useState(() => Date.now());
-  const [creatorFilter, setCreatorFilter] = useState("all");
+  // Filtre créateur MULTI (Set vide = tous) — partagé par la liste ET le
+  // calendrier. Étendu depuis un mono-select : le calendrier a besoin du multi.
+  const [creatorIds, setCreatorIds] = useState<Set<string>>(new Set());
+  // Vue Liste (table actuelle) / Calendrier (pilotage) — mêmes filtres partagés.
+  const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
   const [formatFilter, setFormatFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [overdueOnly, setOverdueOnly] = useState(false);
@@ -188,7 +196,7 @@ export default function AssignmentsPage() {
   const rows = useMemo(() => {
     const now = nowMs;
     const filtered = (assignments ?? []).filter((a) => {
-      if (creatorFilter !== "all" && a.creatorId !== creatorFilter) return false;
+      if (creatorIds.size > 0 && !creatorIds.has(a.creatorId)) return false;
       if (formatFilter !== "all" && a.formatId !== formatFilter) return false;
       if (statusFilter !== "all" && a.status !== statusFilter) return false;
       if (
@@ -221,7 +229,7 @@ export default function AssignmentsPage() {
         seed: creatorId,
       }),
     );
-  }, [assignments, creatorFilter, formatFilter, statusFilter, overdueOnly, nowMs]);
+  }, [assignments, creatorIds, formatFilter, statusFilter, overdueOnly, nowMs]);
 
   return (
     <div className="space-y-6">
@@ -236,24 +244,16 @@ export default function AssignmentsPage() {
         </p>
       </header>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Select value={creatorFilter} onValueChange={(v) => v && setCreatorFilter(v)}>
-          <SelectTrigger className="w-44" aria-label="Filtrer par créateur">
-            <SelectValue>
-              {creatorFilter === "all"
-                ? "Tous créateurs"
-                : (creators.find((c) => c[0] === creatorFilter)?.[1] ?? "Créateur")}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Tous créateurs</SelectItem>
-            {creators.map(([id, name]) => (
-              <SelectItem key={id} value={id}>
-                {name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="flex flex-wrap items-end gap-2">
+        {/* Créateur MULTI (Set vide = tous) — partagé liste + calendrier. */}
+        <FilterMultiSelect
+          label="Créateur"
+          selectedValues={creatorIds}
+          onChange={setCreatorIds}
+          options={creators.map(([id, name]) => ({ value: id, label: name }))}
+          allLabel="Tous créateurs"
+          width="w-44"
+        />
 
         <Select value={formatFilter} onValueChange={(v) => v && setFormatFilter(v)}>
           <SelectTrigger className="w-44" aria-label="Filtrer par format">
@@ -295,10 +295,47 @@ export default function AssignmentsPage() {
           />
           En retard seulement
         </label>
+
+        {/* Bascule Liste / Calendrier (mêmes filtres partagés). */}
+        <div
+          role="radiogroup"
+          aria-label="Mode d'affichage"
+          className="ml-auto inline-flex rounded-md border border-slate-200 bg-white p-0.5"
+        >
+          {(
+            [
+              { value: "list", label: "Liste", Icon: ListIcon },
+              { value: "calendar", label: "Calendrier", Icon: CalendarDaysIcon },
+            ] as const
+          ).map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              role="radio"
+              aria-checked={viewMode === opt.value}
+              onClick={() => setViewMode(opt.value)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded px-3 py-1 text-xs font-medium transition-colors",
+                viewMode === opt.value
+                  ? "bg-primary text-primary-foreground"
+                  : "text-slate-600 hover:text-slate-900",
+              )}
+            >
+              <opt.Icon className="size-3.5" />
+              {opt.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {assignments === undefined ? (
         <Skeleton className="h-64 w-full" />
+      ) : viewMode === "calendar" ? (
+        <AssignmentsCalendar
+          rows={rows}
+          now={nowMs}
+          onOpen={(id) => setPostDateId(id)}
+        />
       ) : rows.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-sm text-slate-500">
