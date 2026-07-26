@@ -694,6 +694,22 @@ export const deleteAssignment = adminMutation({
 });
 
 /** Table admin : tous les assignments du projet, enrichis. */
+/**
+ * Date de publication RÉELLE représentative d'un assignment (= CONFIRMATION,
+ * décision cadrée du chantier calendrier) : la PLUS ANCIENNE date parmi ses cibles
+ * (target.publishedAt, posée par confirmPublication), sinon le legacy top-level
+ * a.publishedAt, sinon null (pas publié). Sert au statut CALENDRIER (brique B).
+ * confirmPublication horodate TOUTES les cibles au même instant → min = max en
+ * pratique ; le min ne diffère que si des cibles sont confirmées séparément.
+ */
+function representativePostedAt(a: Doc<"assignments">): number | null {
+  const stamps = (a.targets ?? [])
+    .map((t) => t.publishedAt)
+    .filter((x): x is number => typeof x === "number");
+  if (stamps.length > 0) return Math.min(...stamps);
+  return typeof a.publishedAt === "number" ? a.publishedAt : null;
+}
+
 export const listAssignments = adminQuery({
   args: {},
   handler: async (ctx) => {
@@ -783,6 +799,9 @@ export const listAssignments = adminQuery({
           origin: (a.scriptCombo ? "script" : "format") as "script" | "format",
           scriptCampaignName,
           comboSummary,
+          // Date de publication réelle (confirmation) → statut calendrier (B) et
+          // vue calendrier (C). null si pas encore publié.
+          postedAt: representativePostedAt(a),
           // Assets — N dossiers liés (badge admin). linkedFolderIds = source
           // résolue (dual-read) pour pré-cocher la modale ; total = somme des
           // fichiers across dossiers liés.
