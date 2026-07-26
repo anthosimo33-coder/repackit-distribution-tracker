@@ -7,6 +7,8 @@ import {
   validateTargets,
   resolveManagedTargets,
   normalizeOverlayText,
+  validateProjectFolderIds,
+  buildModelVideoItemsServer,
 } from "./assignments";
 import { buildPricingSnapshot } from "./pricing";
 import { ConvexError, v } from "convex/values";
@@ -529,6 +531,22 @@ export const assignScriptCampaign = adminMutation({
     pricingId: v.optional(v.id("pricings")),
     // Texte overlay optionnel à incruster en haut de la vidéo (cf schema).
     overlayText: v.optional(v.string()),
+    // Pièces jointes optionnelles attachées DÈS l'assignation, via les MÊMES
+    // champs/mécanisme que l'attachement manuel post-assignation (setAssetFolders
+    // + addModelVideoToAssignment) : dossiers d'assets (bibliothèque Assets) et
+    // vidéos modèles (liens « à reproduire », p.ex. inspirations). Optionnels →
+    // sans eux, l'assignation est strictement inchangée. En masse, la boucle
+    // client rappelle cette mutation par créateur → chacun reçoit les mêmes.
+    assetFolderIds: v.optional(v.array(v.id("assetFolders"))),
+    modelVideos: v.optional(
+      v.array(
+        v.object({
+          url: v.string(),
+          title: v.optional(v.string()),
+          note: v.optional(v.string()),
+        }),
+      ),
+    ),
   },
   handler: async (ctx, args) => {
     const campaign = await requireCampaign(ctx, args.campaignId, ctx.projectId);
@@ -605,6 +623,19 @@ export const assignScriptCampaign = adminMutation({
     );
     const overlayText = normalizeOverlayText(args.overlayText);
     const now = Date.now();
+    // Pièces jointes optionnelles — validées/normalisées via les MÊMES helpers que
+    // l'attachement manuel (validateProjectFolderIds / buildModelVideoItemsServer),
+    // AVANT toute insertion : en masse (une mutation par créateur), une entrée
+    // invalide fait échouer CE créateur seul (try/catch client) sans toucher les
+    // autres. Attachées à CHAQUE assignment créé pour ce créateur (une par vidéo).
+    const linkedFolderIds =
+      args.assetFolderIds && args.assetFolderIds.length > 0
+        ? await validateProjectFolderIds(ctx, args.assetFolderIds, ctx.projectId)
+        : [];
+    const linkedModelVideos =
+      args.modelVideos && args.modelVideos.length > 0
+        ? buildModelVideoItemsServer(args.modelVideos)
+        : [];
     const shortages: { name: string; requested: number; assigned: number }[] =
       [];
 
@@ -655,6 +686,13 @@ export const assignScriptCampaign = adminMutation({
         rateSnapshot,
         pricingSnapshot,
         overlayText,
+        // Undefined si aucune pièce jointe → rows inchangées vs aujourd'hui.
+        ...(linkedFolderIds.length > 0
+          ? { assetFolderIds: linkedFolderIds }
+          : {}),
+        ...(linkedModelVideos.length > 0
+          ? { modelVideos: linkedModelVideos }
+          : {}),
         createdAt: now,
       });
       if (firstAssignmentId === null) firstAssignmentId = insertedId;

@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
-import { Loader2Icon } from "lucide-react";
+import { Loader2Icon, VideoIcon } from "lucide-react";
 import { SCRIPT_TIERS, tierLabel } from "@/lib/script-tier";
 
 /**
@@ -75,6 +75,17 @@ export function AssignScriptCampaignDialog({
   );
   const assign = useProjectMutation(api.scripts.assignScriptCampaign);
   const pricings = useProjectQuery(api.pricing.listPricings, open ? {} : "skip");
+  // Pièces jointes optionnelles — MÊMES bibliothèques que l'attachement manuel :
+  // dossiers d'assets (page Assets) + inspirations vidéo (« vidéos à reproduire »).
+  // Chargées dans les DEUX modes (elles s'attachent à toutes les assignations).
+  const assetFolders = useProjectQuery(
+    api.assets.listAssetFolders,
+    open ? {} : "skip",
+  );
+  const videoInspirations = useProjectQuery(
+    api.inspirations.listInspirations,
+    open ? { types: ["video"] } : "skip",
+  );
 
   const [picks, setPicks] = useState<Record<Platform, string>>({
     TikTok: NONE,
@@ -87,6 +98,13 @@ export function AssignScriptCampaignDialog({
   const [pricingId, setPricingId] = useState<string>(NONE);
   const [overlayText, setOverlayText] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // Sélections de pièces jointes (dossiers d'assets + inspirations vidéo).
+  const [selectedFolderIds, setSelectedFolderIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [selectedVideoIds, setSelectedVideoIds] = useState<Set<string>>(
+    new Set(),
+  );
 
   // ── Mode MASSE ────────────────────────────────────────────────────────────
   // "single" par DÉFAUT : le flux existant (choix explicite d'un compte par
@@ -121,6 +139,8 @@ export function AssignScriptCampaignDialog({
       setTier(TIER_ALL);
       setPricingId(NONE);
       setOverlayText("");
+      setSelectedFolderIds(new Set());
+      setSelectedVideoIds(new Set());
       setMode("single");
       setBulkPlatforms(new Set<Platform>(["TikTok"]));
       setSelectedCreators(new Set());
@@ -190,6 +210,12 @@ export function AssignScriptCampaignDialog({
         tier: tier === TIER_ALL ? undefined : (tier as "S" | "A"),
         pricingId: pricingId as Id<"pricings">,
         overlayText: overlayText.trim() || undefined,
+        assetFolderIds:
+          selectedFolderIds.size > 0
+            ? ([...selectedFolderIds] as Id<"assetFolders">[])
+            : undefined,
+        modelVideos:
+          selectedModelVideos.length > 0 ? selectedModelVideos : undefined,
       });
       toast.success(
         `${res.created} vidéo${res.created > 1 ? "s" : ""} × ${targets.length} post${targets.length > 1 ? "s" : ""} assignée${res.created > 1 ? "s" : ""}.`,
@@ -266,6 +292,31 @@ export function AssignScriptCampaignDialog({
     });
   }
 
+  function toggleFolder(id: string) {
+    setSelectedFolderIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleVideo(id: string) {
+    setSelectedVideoIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  // Inspirations vidéo sélectionnées → payload modelVideos (url + titre), MÊME
+  // forme que l'attachement manuel. Titre omis si vide (pas de champ undefined).
+  // Const dérivée simple (React Compiler mémoïse) — pas de useMemo manuel.
+  const selectedModelVideos = (videoInspirations ?? [])
+    .filter((i) => selectedVideoIds.has(i._id))
+    .map((i) => (i.titre ? { url: i.url, title: i.titre } : { url: i.url }));
+
   /** Validations partagées avec le mode single, avant d'ouvrir le récap. */
   function bulkPreflightError(): string | null {
     if (selectedRows.length === 0) return "Sélectionne au moins un créateur.";
@@ -309,6 +360,12 @@ export function AssignScriptCampaignDialog({
           tier: tier === TIER_ALL ? undefined : (tier as "S" | "A"),
           pricingId: pricingId as Id<"pricings">,
           overlayText: overlayText.trim() || undefined,
+          assetFolderIds:
+            selectedFolderIds.size > 0
+              ? ([...selectedFolderIds] as Id<"assetFolders">[])
+              : undefined,
+          modelVideos:
+            selectedModelVideos.length > 0 ? selectedModelVideos : undefined,
         });
         created += res.created;
         if (res.shortages.length > 0) shortNames.push(b.name);
@@ -689,6 +746,110 @@ export function AssignScriptCampaignDialog({
               Apparaîtra en overlay permanent en haut de la vidéo, au-dessus du
               hook côté créateur.
             </p>
+          </div>
+
+          {/* Pièces jointes optionnelles — MÊME mécanisme que l'attachement
+              manuel post-assignation (dossiers d'assets + vidéos à reproduire) et
+              MÊMES bibliothèques (Assets + inspirations vidéo). S'appliquent aux
+              DEUX modes ; en masse, chaque créateur reçoit les mêmes. Le créateur
+              les retrouve dans son brief (« Assets à utiliser » / « Vidéos à
+              reproduire »), au même endroit qu'un attachement fait après coup. */}
+          <div className="min-w-0 space-y-3 border-t border-slate-200 pt-4">
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label>Dossiers d&apos;assets (optionnel)</Label>
+                {selectedFolderIds.size > 0 && (
+                  <span className="text-xs text-slate-500">
+                    {selectedFolderIds.size} sélectionné
+                    {selectedFolderIds.size > 1 ? "s" : ""}
+                  </span>
+                )}
+              </div>
+              {assetFolders === undefined ? (
+                <Skeleton className="h-16 w-full" />
+              ) : assetFolders.length === 0 ? (
+                <p className="text-xs text-slate-400">
+                  Aucun dossier d&apos;assets — crées-en un dans Assets.
+                </p>
+              ) : (
+                <ul className="max-h-40 space-y-0.5 overflow-y-auto rounded-md border border-slate-200 p-1">
+                  {assetFolders.map((f) => (
+                    <li key={f._id}>
+                      <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-slate-50">
+                        <Checkbox
+                          checked={selectedFolderIds.has(f._id)}
+                          onCheckedChange={() => toggleFolder(f._id)}
+                          disabled={submitting}
+                          aria-label={`Dossier ${f.name}`}
+                        />
+                        <span className="min-w-0 flex-1 truncate text-slate-800">
+                          {f.name}
+                        </span>
+                        <span className="shrink-0 text-xs text-slate-400">
+                          {f.assetCount} fichier{f.assetCount > 1 ? "s" : ""}
+                        </span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label>Vidéos exemples (optionnel)</Label>
+                {selectedVideoIds.size > 0 && (
+                  <span className="text-xs text-slate-500">
+                    {selectedVideoIds.size} sélectionnée
+                    {selectedVideoIds.size > 1 ? "s" : ""}
+                  </span>
+                )}
+              </div>
+              {videoInspirations === undefined ? (
+                <Skeleton className="h-16 w-full" />
+              ) : videoInspirations.length === 0 ? (
+                <p className="text-xs text-slate-400">
+                  Aucune inspiration vidéo — ajoutes-en dans la veille.
+                </p>
+              ) : (
+                <ul className="max-h-44 space-y-0.5 overflow-y-auto rounded-md border border-slate-200 p-1">
+                  {videoInspirations.map((insp) => (
+                    <li key={insp._id}>
+                      <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-slate-50">
+                        <Checkbox
+                          checked={selectedVideoIds.has(insp._id)}
+                          onCheckedChange={() => toggleVideo(insp._id)}
+                          disabled={submitting}
+                          aria-label={`Vidéo ${insp.titre ?? insp.url}`}
+                        />
+                        {insp.thumbnailUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={insp.thumbnailUrl}
+                            alt=""
+                            className="size-9 shrink-0 rounded object-cover"
+                          />
+                        ) : (
+                          <div className="grid size-9 shrink-0 place-items-center rounded bg-slate-100">
+                            <VideoIcon className="size-4 text-slate-400" />
+                          </div>
+                        )}
+                        <span className="min-w-0 flex-1 truncate text-slate-800">
+                          {insp.titre ?? insp.url}
+                        </span>
+                        <span className="shrink-0 text-xs text-slate-400">
+                          {insp.plateforme}
+                        </span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="text-xs text-slate-500">
+                Depuis tes inspirations vidéo — le créateur les voit dans son
+                brief comme « vidéos à reproduire ».
+              </p>
+            </div>
           </div>
         </div>
 

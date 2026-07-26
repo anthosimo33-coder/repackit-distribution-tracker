@@ -390,6 +390,58 @@ function normalizeModelVideoUrlServer(raw: string): string | null {
   return url;
 }
 
+/**
+ * Construit une liste d'items « vidéos modèles » à partir d'entrées
+ * {url, title?, note?} — MÊME logique que addModelVideoToAssignment (normalisation
+ * d'URL, dédoublonnage par URL, plafond MAX_MODEL_VIDEOS), mais en LOT pour
+ * l'attachement à la CRÉATION (assignScriptCampaign). Chaque item reçoit un id +
+ * addedAt. Throw ConvexError sur URL invalide ou dépassement. Partagé pour que
+ * « attaché pendant l'assignation » et « attaché après » produisent la MÊME
+ * structure (assignments.modelVideos).
+ */
+export function buildModelVideoItemsServer(
+  inputs: { url: string; title?: string; note?: string }[],
+): {
+  id: string;
+  url: string;
+  title?: string;
+  note?: string;
+  addedAt: number;
+}[] {
+  const now = Date.now();
+  const seen = new Set<string>();
+  const items: {
+    id: string;
+    url: string;
+    title?: string;
+    note?: string;
+    addedAt: number;
+  }[] = [];
+  for (const input of inputs) {
+    const url = normalizeModelVideoUrlServer(input.url);
+    if (!url) {
+      throw new ConvexError(
+        "L'URL d'une vidéo modèle est invalide (lien http(s) attendu).",
+      );
+    }
+    if (seen.has(url)) continue; // dédoublonnage par URL (idempotent)
+    seen.add(url);
+    if (items.length >= MAX_MODEL_VIDEOS) {
+      throw new ConvexError(`Trop de vidéos modèles (max ${MAX_MODEL_VIDEOS}).`);
+    }
+    const title = input.title?.trim();
+    const note = input.note?.trim();
+    items.push({
+      id: crypto.randomUUID(),
+      url,
+      ...(title ? { title } : {}),
+      ...(note ? { note } : {}),
+      addedAt: now,
+    });
+  }
+  return items;
+}
+
 /** Récupère un assignment du projet courant ou rejette (isolation projet). */
 async function requireProjectAssignment(
   ctx: MutationCtx,
@@ -465,6 +517,32 @@ function effectiveAssetFolderIds(a: Doc<"assignments">): Id<"assetFolders">[] {
 }
 
 /**
+ * Valide + dédoublonne une liste de dossiers d'assets pour un projet : chaque
+ * dossier doit exister ET appartenir au projet, sinon ConvexError. Renvoie la
+ * liste dédoublonnée (ordre d'entrée préservé). Partagé par setAssetFolders
+ * (attachement manuel) et assignScriptCampaign (attachement à la création) → un
+ * seul mécanisme de lien assignment ↔ dossiers d'assets.
+ */
+export async function validateProjectFolderIds(
+  ctx: MutationCtx,
+  folderIds: Id<"assetFolders">[],
+  projectId: Id<"projects">,
+): Promise<Id<"assetFolders">[]> {
+  const seen = new Set<string>();
+  const valid: Id<"assetFolders">[] = [];
+  for (const fid of folderIds) {
+    if (seen.has(fid)) continue;
+    seen.add(fid);
+    const folder = await ctx.db.get(fid);
+    if (!folder || folder.projectId !== projectId) {
+      throw new ConvexError("Dossier d'assets introuvable.");
+    }
+    valid.push(fid);
+  }
+  return valid;
+}
+
+/**
  * Définit l'ensemble des dossiers d'assets liés à un assignment (MULTI). Remplace
  * toute la liste (le multi-select admin soumet l'ensemble) ; [] = délié. Admin
  * only, scopé projet : chaque dossier doit appartenir au projet de l'assignment.
@@ -477,17 +555,11 @@ export const setAssetFolders = adminMutation({
   },
   handler: async (ctx, args) => {
     await requireProjectAssignment(ctx, args.id, ctx.projectId);
-    const seen = new Set<string>();
-    const valid: Id<"assetFolders">[] = [];
-    for (const fid of args.folderIds) {
-      if (seen.has(fid)) continue;
-      seen.add(fid);
-      const folder = await ctx.db.get(fid);
-      if (!folder || folder.projectId !== ctx.projectId) {
-        throw new ConvexError("Dossier d'assets introuvable.");
-      }
-      valid.push(fid);
-    }
+    const valid = await validateProjectFolderIds(
+      ctx,
+      args.folderIds,
+      ctx.projectId,
+    );
     await ctx.db.patch(args.id, {
       assetFolderIds: valid,
       assetFolderId: undefined, // la source unique devient assetFolderIds
