@@ -1,4 +1,5 @@
 import { internalMutation } from "./_generated/server";
+import { passesWarmupMode } from "./warmupMode";
 import {
   e2eMutation,
   adminMutation,
@@ -79,7 +80,11 @@ function buildPerfMap(pubs: Doc<"publications">[]): Map<string, ComptePerf> {
       perf = { vuesCumulees: 0, nbPublies: 0, dernierPost: null };
       map.set(p.compte, perf);
     }
-    perf.vuesCumulees += p.vuesLatest ?? 0;
+    // vues de PERF hors warmup (TD-019, helper unique) ; nbPublies/dernierPost
+    // restent sur TOUS les posts (un post de chauffe est bien publié).
+    if (passesWarmupMode(p.isWarmup === true, "exclude")) {
+      perf.vuesCumulees += p.vuesLatest ?? 0;
+    }
     if (isPublishedDoc(p)) {
       perf.nbPublies += 1;
       if (perf.dernierPost === null || p.datePubli > perf.dernierPost) {
@@ -183,7 +188,15 @@ async function compteUsage(
       (a) => !CLOSED_ASSIGNMENT_STATUSES.has(a.status),
     ).length,
     publications: pubs.length,
-    views: pubs.reduce((sum, p) => sum + (p.vuesLatest ?? 0), 0),
+    // vues de PERF hors warmup (TD-019) ; `inUse`/`publications` comptent tout.
+    views: pubs.reduce(
+      (sum, p) =>
+        sum +
+        (passesWarmupMode(p.isWarmup === true, "exclude")
+          ? (p.vuesLatest ?? 0)
+          : 0),
+      0,
+    ),
     snapshots,
     payments,
   };

@@ -51,6 +51,7 @@ import { PostWarmupBadge } from "@/components/PostWarmupBadge";
 import { calculateSaveRate, calculateVerdict } from "@/lib/verdict";
 import { formatDate, formatNumber, formatPercent } from "@/lib/format";
 import { isPublished } from "@/lib/publication-status";
+import { filterByWarmupMode } from "@/lib/warmup-mode";
 import {
   getMediaType,
   ALLOWED_PLATFORMS_FOR_CAROUSEL,
@@ -604,10 +605,17 @@ export function TrackerListSection({
     );
     const publishedPubs = formatPubs.filter(isPublished);
     const draftCount = formatPubs.length - publishedPubs.length;
+    // TD-019 : les COUNTS (publishedCount/draftCount) restent sur tous les posts ;
+    // les métriques et ratios de perf excluent le warmup (helper unique).
+    const monetized = filterByWarmupMode(
+      publishedPubs,
+      (p) => p.isWarmup === true,
+      "exclude",
+    );
     let vuesTotal = 0;
     const rates: number[] = [];
     let winners = 0;
-    for (const p of publishedPubs) {
+    for (const p of monetized) {
       const dm = metricsOf(p);
       if (dm.vues !== null) vuesTotal += dm.vues;
       const r = calculateSaveRate(dm.saves, dm.vues);

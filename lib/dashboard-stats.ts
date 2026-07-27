@@ -1,6 +1,7 @@
 import type { Doc } from "@/convex/_generated/dataModel";
 import type { DisplayMetrics } from "@/convex/metricsDisplay";
 import { calculateSaveRate, calculateVerdict, type Verdict } from "./verdict";
+import { filterByWarmupMode } from "./warmup-mode";
 
 /**
  * Refactor multi-snapshots — toutes les agrégations lisent désormais
@@ -38,8 +39,14 @@ function aggregateBy(
   publications: Publication[],
   keyFn: (p: Publication) => string,
 ): AggregateRow[] {
+  // TD-019 : surface de perf/classement → warmup exclu (helper unique).
+  const monetized = filterByWarmupMode(
+    publications,
+    (p) => p.isWarmup === true,
+    "exclude",
+  );
   const groups = new Map<string, Publication[]>();
-  for (const pub of publications) {
+  for (const pub of monetized) {
     const k = keyFn(pub);
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k)!.push(pub);
@@ -111,7 +118,8 @@ export function getTopHooks(
   publications: Publication[],
   n: number = 10,
 ): TopHook[] {
-  return publications
+  // TD-019 : top hooks = classement de perf → warmup exclu.
+  return filterByWarmupMode(publications, (p) => p.isWarmup === true, "exclude")
     .flatMap<TopHook>((p) => {
       const saveRate = calculateSaveRate(m(p).saves, m(p).vues);
       const verdict = calculateVerdict(saveRate);
@@ -139,10 +147,16 @@ export type GlobalStats = {
 };
 
 export function getGlobalStats(publications: Publication[]): GlobalStats {
+  // TD-019 : KPI de perf → warmup exclu (total, vues, save rate, winners).
+  const pubs = filterByWarmupMode(
+    publications,
+    (p) => p.isWarmup === true,
+    "exclude",
+  );
   let totalVues = 0;
   const rates: number[] = [];
   let winners = 0;
-  for (const p of publications) {
+  for (const p of pubs) {
     const vues = m(p).vues;
     if (vues !== null) totalVues += vues;
     const r = calculateSaveRate(m(p).saves, vues);
@@ -150,6 +164,8 @@ export function getGlobalStats(publications: Publication[]): GlobalStats {
     if (calculateVerdict(r) === "WINNER") winners++;
   }
   return {
+    // COUNT = tous les publiés (un post de chauffe est bien publié) ; seules les
+    // MÉTRIQUES/RATIOS excluent le warmup (TD-019).
     total: publications.length,
     totalVues,
     avgSaveRate:
@@ -171,16 +187,23 @@ export type GlobalStatsShorts = {
 export function getGlobalStatsShorts(
   publications: Publication[],
 ): GlobalStatsShorts {
+  // TD-019 : KPI de perf → warmup exclu.
+  const pubs = filterByWarmupMode(
+    publications,
+    (p) => p.isWarmup === true,
+    "exclude",
+  );
   let totalVuesJ7 = 0;
   let totalSubsGained = 0;
   const likesValues: number[] = [];
-  for (const p of publications) {
+  for (const p of pubs) {
     const dm = m(p);
     if (dm.vues !== null) totalVuesJ7 += dm.vues;
     if (dm.subsGained !== null) totalSubsGained += dm.subsGained;
     if (dm.likes !== null) likesValues.push(dm.likes);
   }
   return {
+    // COUNT = tous les publiés ; seules les MÉTRIQUES/RATIOS excluent le warmup.
     total: publications.length,
     totalVuesJ7,
     avgLikes:
@@ -205,7 +228,8 @@ export function getTopHooksShorts(
   publications: Publication[],
   n: number = 10,
 ): TopHookShort[] {
-  return publications
+  // TD-019 : top hooks = classement de perf → warmup exclu.
+  return filterByWarmupMode(publications, (p) => p.isWarmup === true, "exclude")
     .flatMap<TopHookShort>((p) => {
       const dm = m(p);
       if (dm.subsGained === null) return [];
@@ -240,8 +264,14 @@ function aggregateByShorts(
   publications: Publication[],
   keyFn: (p: Publication) => string,
 ): AggregateRowShort[] {
+  // TD-019 : surface de perf/classement → warmup exclu (helper unique).
+  const monetized = filterByWarmupMode(
+    publications,
+    (p) => p.isWarmup === true,
+    "exclude",
+  );
   const groups = new Map<string, Publication[]>();
-  for (const pub of publications) {
+  for (const pub of monetized) {
     const k = keyFn(pub);
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k)!.push(pub);

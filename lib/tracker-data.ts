@@ -7,6 +7,12 @@
  * doit être répliquée dans les deux.
  */
 
+import {
+  passesWarmupMode,
+  DEFAULT_WARMUP_MODE,
+  type WarmupMode,
+} from "./warmup-mode";
+
 export type PostDimensions = {
   creatorId: string | null;
   compte: string;
@@ -33,33 +39,19 @@ function activeFilter(list?: readonly string[]): list is readonly string[] {
 }
 
 /**
- * Lecture du warmup dans la vue tracker. Tri-état VOLONTAIREMENT distinct des
- * filtres de dimension multi-select : ce n'est pas une appartenance à une liste
- * de valeurs mais un mode de lecture des agrégats.
- *  - "exclude" : posts monétisés seulement (défaut) ;
- *  - "all"     : tout, warmup compris ;
- *  - "only"    : warmup seulement (contrôle du volume de chauffe).
+ * Lecture du warmup dans la vue tracker — ALIAS historiques du helper UNIQUE
+ * `lib/warmup-mode.ts` (TD-019 : une seule logique d'exclusion, partagée par
+ * tous les agrégats). Conservés pour ne pas casser les appelants du tracker. Le
+ * tri-état reste VOLONTAIREMENT distinct des filtres de dimension multi-select :
+ * ce n'est pas une appartenance à une liste mais un mode de lecture des agrégats.
  */
-export type WarmupFilter = "exclude" | "all" | "only";
+export type WarmupFilter = WarmupMode;
 
-/**
- * Défaut = "exclude". Le warmup sert à CHAUFFER des comptes, pas à mesurer la
- * performance du contenu : ses vues/likes/commentaires gonflent les agrégats et
- * faussent l'engagement. Les posts warmup sont déjà exclus de la paie et de la
- * rentabilité — le tracker s'aligne. L'utilisateur peut les rendre visibles
- * explicitement ("all"/"only"), jamais par accident.
- */
-export const DEFAULT_WARMUP_FILTER: WarmupFilter = "exclude";
+/** Défaut = "exclude". Cf `DEFAULT_WARMUP_MODE` (`lib/warmup-mode.ts`). */
+export const DEFAULT_WARMUP_FILTER: WarmupFilter = DEFAULT_WARMUP_MODE;
 
-/** Un post passe-t-il le filtre warmup ? Cf DEFAULT_WARMUP_FILTER pour le pourquoi. */
-export function matchesWarmupFilter(
-  isWarmup: boolean,
-  mode: WarmupFilter,
-): boolean {
-  if (mode === "all") return true;
-  if (mode === "only") return isWarmup;
-  return !isWarmup;
-}
+/** Un post passe-t-il le filtre warmup ? Délègue au helper unique. */
+export const matchesWarmupFilter = passesWarmupMode;
 
 /**
  * Matching des filtres multi-select : OU À L'INTÉRIEUR d'une dimension

@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatNumber } from "@/lib/format";
 import { getMediaType } from "@/lib/media-type";
+import { passesWarmupMode } from "@/lib/warmup-mode";
 import { FORMAT_CONFIGS, type FormatKey } from "@/lib/format-config";
 import type { PublicationWithImage } from "@/components/PublicationDetailDialog";
 
@@ -29,9 +30,14 @@ export function CompteStatsGrid({
     let vues = 0;
     let likes = 0;
     for (const p of publications) {
+      // COUNT (total, byFormat) = tous les posts du compte (cohérent avec la
+      // liste co-localisée, warmup badgé). Les VUES/LIKES de perf excluent le
+      // warmup (TD-019, cohérent avec le leaderboard buildPerfMap).
       byFormat[getMediaType(p) as FormatKey] += 1;
-      vues += p.displayMetrics?.vues ?? 0;
-      likes += p.displayMetrics?.likes ?? 0;
+      if (passesWarmupMode(p.isWarmup === true, "exclude")) {
+        vues += p.displayMetrics?.vues ?? 0;
+        likes += p.displayMetrics?.likes ?? 0;
+      }
     }
     return { total: publications.length, byFormat, vues, likes };
   }, [publications]);
