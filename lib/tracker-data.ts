@@ -108,31 +108,68 @@ export type MetricTriple = {
   vues: number;
   likes: number;
   comments: number;
+  /**
+   * Warmup PAR POST. Le tri-état définit la POPULATION AFFICHÉE (sommes/counts) ;
+   * ce flag pilote le DÉNOMINATEUR des TAUX (jamais les sommes). Absent = non-warmup.
+   */
+  isWarmup?: boolean;
 };
 
 export type GlobalStats = {
   vues: number;
   likes: number;
   comments: number;
-  /** (Σlikes + Σcomments) / Σvues, null si Σvues <= 0. */
+  /** (Σlikes + Σcomments) / Σvues du sous-ensemble ratio, null si Σvues <= 0. */
   engagement: number | null;
+  /** Vues du SOUS-ENSEMBLE servant de dénominateur à l'engagement (cf mode). */
+  engagementVues: number;
 };
 
 /**
- * Stats globales (zone 2) : somme des vues/likes/commentaires des posts
- * filtrés + engagement agrégé. L'engagement agrégé se calcule sur les SOMMES
- * (Σlikes + Σcomments) / Σvues — PAS une moyenne des engagements par post.
+ * Sous-ensemble de lecture d'un TAUX pour un mode donné : hors warmup partout,
+ * SAUF en mode "only" où le warmup EST l'objet mesuré. Le tri-état pilote la
+ * population AFFICHÉE ; un taux, lui, ne mélange jamais chauffe et promo (TD-019).
  */
-export function computeGlobalStats(posts: MetricTriple[]): GlobalStats {
+function ratioModeOf(mode: WarmupMode): WarmupMode {
+  return mode === "only" ? "only" : "exclude";
+}
+
+/**
+ * Stats globales (zone 2). Sommes des vues/likes/commentaires sur TOUS les posts
+ * fournis (la population du mode). L'engagement agrégé — (Σlikes + Σcomments) /
+ * Σvues, PAS une moyenne par post — se calcule sur le sous-ensemble HORS warmup
+ * (SAUF mode "only"), parce qu'un taux mélangeant contenu de chauffe et promo
+ * n'est pas interprétable et pénalise une créatrice pour la chauffe demandée.
+ * `engagementVues` = le dénominateur réellement utilisé (à afficher près du taux).
+ */
+export function computeGlobalStats(
+  posts: MetricTriple[],
+  mode: WarmupMode = DEFAULT_WARMUP_MODE,
+): GlobalStats {
+  const ratioMode = ratioModeOf(mode);
   let vues = 0;
   let likes = 0;
   let comments = 0;
+  let rVues = 0;
+  let rLikes = 0;
+  let rComments = 0;
   for (const p of posts) {
     vues += p.vues;
     likes += p.likes;
     comments += p.comments;
+    if (passesWarmupMode(p.isWarmup === true, ratioMode)) {
+      rVues += p.vues;
+      rLikes += p.likes;
+      rComments += p.comments;
+    }
   }
-  return { vues, likes, comments, engagement: engagementRate(likes, comments, vues) };
+  return {
+    vues,
+    likes,
+    comments,
+    engagement: engagementRate(rLikes, rComments, rVues),
+    engagementVues: rVues,
+  };
 }
 
 export type CategoryItem = MetricTriple & {
@@ -148,40 +185,72 @@ export type CategoryAggregate = {
   vues: number;
   likes: number;
   comments: number;
-  /** Engagement agrégé de la catégorie = (Σlikes + Σcomments) / Σvues. */
+  /** Engagement agrégé = (Σlikes + Σcomments) / Σvues du sous-ensemble ratio. */
   engagement: number | null;
+  /** Vues du sous-ensemble servant de dénominateur à l'engagement (cf mode). */
+  engagementVues: number;
+};
+
+type CategoryAcc = {
+  key: string;
+  label: string;
+  vues: number;
+  likes: number;
+  comments: number;
+  rVues: number;
+  rLikes: number;
+  rComments: number;
 };
 
 /**
  * Agrège une liste de posts (déjà projetés sur une dimension via {key,label})
  * en lignes par catégorie, triées par vues décroissantes. Sert aux 4 charts de
  * comparaison (Vues par plateforme/créateur/format + Engagement par plateforme).
- * Le label de la 1re occurrence d'une clé fait foi.
+ * Le label de la 1re occurrence d'une clé fait foi. Même règle que
+ * `computeGlobalStats` : sommes sur TOUTE la catégorie, engagement sur son
+ * sous-ensemble HORS warmup (SAUF mode "only").
  */
-export function aggregateByCategory(items: CategoryItem[]): CategoryAggregate[] {
-  const map = new Map<string, CategoryAggregate>();
+export function aggregateByCategory(
+  items: CategoryItem[],
+  mode: WarmupMode = DEFAULT_WARMUP_MODE,
+): CategoryAggregate[] {
+  const ratioMode = ratioModeOf(mode);
+  const map = new Map<string, CategoryAcc>();
   for (const it of items) {
-    const cur = map.get(it.key);
-    if (cur) {
-      cur.vues += it.vues;
-      cur.likes += it.likes;
-      cur.comments += it.comments;
-    } else {
-      map.set(it.key, {
+    let cur = map.get(it.key);
+    if (!cur) {
+      cur = {
         key: it.key,
         label: it.label,
-        vues: it.vues,
-        likes: it.likes,
-        comments: it.comments,
-        engagement: null,
-      });
+        vues: 0,
+        likes: 0,
+        comments: 0,
+        rVues: 0,
+        rLikes: 0,
+        rComments: 0,
+      };
+      map.set(it.key, cur);
+    }
+    cur.vues += it.vues;
+    cur.likes += it.likes;
+    cur.comments += it.comments;
+    if (passesWarmupMode(it.isWarmup === true, ratioMode)) {
+      cur.rVues += it.vues;
+      cur.rLikes += it.likes;
+      cur.rComments += it.comments;
     }
   }
-  const rows = [...map.values()].map((r) => ({
-    ...r,
-    engagement: engagementRate(r.likes, r.comments, r.vues),
-  }));
-  return rows.sort((a, b) => b.vues - a.vues);
+  return [...map.values()]
+    .map((r) => ({
+      key: r.key,
+      label: r.label,
+      vues: r.vues,
+      likes: r.likes,
+      comments: r.comments,
+      engagement: engagementRate(r.rLikes, r.rComments, r.rVues),
+      engagementVues: r.rVues,
+    }))
+    .sort((a, b) => b.vues - a.vues);
 }
 
 export type SnapshotPoint = {
