@@ -143,6 +143,8 @@ test.describe("Voir le script monté + vidéo modèle depuis inspiration", () =>
 
     // PART A (UI) : la modale « Voir le script » montre le script monté.
     await page.goto(adminPath("/assignments"));
+    // La vue par DÉFAUT est le calendrier → basculer en Liste pour la table.
+    await page.getByRole("radio", { name: "Liste" }).click();
     const rowLoc = page.locator("tr", {
       hasText: `[E2E_TEST] ScrInsp ${ts}`,
     });

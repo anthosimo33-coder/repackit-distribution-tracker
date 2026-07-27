@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useProjectQuery,
   useProjectMutation,
@@ -60,6 +60,7 @@ import { LinkAssetFolderDialog } from "@/components/admin/LinkAssetFolderDialog"
 import { AssignmentOverlayDialog } from "@/components/admin/AssignmentOverlayDialog";
 import { AssignmentPostDateDialog } from "@/components/admin/AssignmentPostDateDialog";
 import { AssignmentsCalendar } from "@/components/admin/AssignmentsCalendar";
+import { AssignmentDetailSheet } from "@/components/admin/AssignmentDetailSheet";
 import { FilterMultiSelect } from "@/components/filters/FilterMultiSelect";
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
 import { canDeleteAssignment } from "@/lib/assignment-delete";
@@ -88,6 +89,9 @@ function formatDate(ts: number) {
   return new Date(ts).toLocaleDateString("fr-FR");
 }
 
+/** Clé de mémorisation du dernier mode d'affichage (défaut = calendrier). */
+const VIEW_MODE_KEY = "repackit.assignments.viewMode";
+
 export default function AssignmentsPage() {
   const assignments = useProjectQuery(api.assignments.listAssignments, {});
   // Ancre temporelle stable au montage (rang d'urgence de l'ordre + filtre
@@ -97,8 +101,30 @@ export default function AssignmentsPage() {
   // Filtre créateur MULTI (Set vide = tous) — partagé par la liste ET le
   // calendrier. Étendu depuis un mono-select : le calendrier a besoin du multi.
   const [creatorIds, setCreatorIds] = useState<Set<string>>(new Set());
-  // Vue Liste (table actuelle) / Calendrier (pilotage) — mêmes filtres partagés.
-  const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
+  // Vue Liste (table) / Calendrier (pilotage) — mêmes filtres partagés. Le
+  // CALENDRIER est la vue par DÉFAUT ; le dernier choix est mémorisé.
+  const [viewMode, setViewMode] = useState<"list" | "calendar">("calendar");
+  // Restaure le dernier choix APRÈS montage (aucun écart d'hydratation SSR ; le
+  // défaut reste calendrier si rien de mémorisé ou localStorage indisponible).
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(VIEW_MODE_KEY);
+      // Hydratation post-mount depuis localStorage (même pattern best-effort que
+      // SidebarLayout) → pas de mismatch SSR ; setState post-mount assumé.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (saved === "list" || saved === "calendar") setViewMode(saved);
+    } catch {
+      // localStorage indisponible (mode privé strict) → on garde le défaut.
+    }
+  }, []);
+  function changeViewMode(next: "list" | "calendar") {
+    setViewMode(next);
+    try {
+      localStorage.setItem(VIEW_MODE_KEY, next);
+    } catch {
+      // idem : on tolère l'absence de persistance.
+    }
+  }
   const [formatFilter, setFormatFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [overdueOnly, setOverdueOnly] = useState(false);
@@ -138,6 +164,12 @@ export default function AssignmentsPage() {
   const [postDateId, setPostDateId] = useState<Id<"assignments"> | null>(null);
   const postDateRow = postDateId
     ? ((assignments ?? []).find((a) => a._id === postDateId) ?? null)
+    : null;
+  // Détail d'une assignation — panneau ouvert au clic sur un post du CALENDRIER
+  // (script + publication + date éditable). Row dérivée LIVE → statut/pub à jour.
+  const [detailId, setDetailId] = useState<Id<"assignments"> | null>(null);
+  const detailRow = detailId
+    ? ((assignments ?? []).find((a) => a._id === detailId) ?? null)
     : null;
   // Suppression (hard-delete) — confirmation obligatoire, libère le combo.
   const deleteAssignment = useProjectMutation(api.assignments.deleteAssignment);
@@ -313,7 +345,7 @@ export default function AssignmentsPage() {
               type="button"
               role="radio"
               aria-checked={viewMode === opt.value}
-              onClick={() => setViewMode(opt.value)}
+              onClick={() => changeViewMode(opt.value)}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded px-3 py-1 text-xs font-medium transition-colors",
                 viewMode === opt.value
@@ -334,7 +366,7 @@ export default function AssignmentsPage() {
         <AssignmentsCalendar
           rows={rows}
           now={nowMs}
-          onOpen={(id) => setPostDateId(id)}
+          onOpen={(id) => setDetailId(id)}
         />
       ) : rows.length === 0 ? (
         <Card>
@@ -672,6 +704,16 @@ export default function AssignmentsPage() {
           assignmentId={postDateRow._id}
           creatorName={postDateRow.creatorName}
           currentPostDate={postDateRow.postDate}
+        />
+      )}
+
+      {detailRow && (
+        <AssignmentDetailSheet
+          key={detailRow._id}
+          open
+          onOpenChange={(o) => !o && setDetailId(null)}
+          row={detailRow}
+          now={nowMs}
         />
       )}
 

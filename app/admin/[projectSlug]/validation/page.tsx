@@ -34,6 +34,7 @@ import {
 import { VideoExample } from "@/components/formats/VideoExample";
 import { StreamPlayer } from "@/components/formats/StreamPlayer";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
+import { ManagedPublishForm } from "@/components/admin/ManagedPublishForm";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { formatMoney } from "@/lib/format-rate";
@@ -49,7 +50,6 @@ import {
   FilmIcon,
   FileTextIcon,
   ChevronDownIcon,
-  SendIcon,
 } from "lucide-react";
 
 type VideoSubmittedRow =
@@ -486,30 +486,7 @@ function VideoReviewCard({ a }: { a: VideoSubmittedRow }) {
  * → la créatrice est créditée à l'identique et voit le post + ses perfs.
  */
 function ManagedPublishCard({ a }: { a: ManagedToPublishRow }) {
-  const publish = useProjectMutation(api.assignments.confirmPublicationAsAdmin);
-  const [urls, setUrls] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState(false);
   const [scriptOpen, setScriptOpen] = useState(false);
-
-  async function onPublish() {
-    const payload = a.targets.map((t) => ({
-      platform: t.platform,
-      url: (urls[t.platform] ?? "").trim(),
-    }));
-    if (payload.some((u) => u.url.length === 0)) {
-      toast.error("Colle l'URL du post pour chaque plateforme.");
-      return;
-    }
-    setBusy(true);
-    try {
-      await publish({ id: a._id, urls: payload });
-      toast.success("Publié — la créatrice voit le post et ses performances.");
-    } catch (e) {
-      toast.error(convexErrorMessage(e, "Échec de la publication"));
-    } finally {
-      setBusy(false);
-    }
-  }
 
   return (
     <Card>
@@ -556,42 +533,11 @@ function ManagedPublishCard({ a }: { a: ManagedToPublishRow }) {
           </div>
         )}
 
-        <div className="space-y-2">
-          {a.targets.map((t) => (
-            <div key={t.platform} className="space-y-1">
-              <Label htmlFor={`managed-url-${a._id}-${t.platform}`} className="text-xs">
-                {t.platform}
-                {t.accountHandle ? (
-                  <span className="ml-1 font-mono text-slate-400">
-                    {t.accountHandle}
-                  </span>
-                ) : null}
-              </Label>
-              <Input
-                id={`managed-url-${a._id}-${t.platform}`}
-                placeholder="https://…"
-                value={urls[t.platform] ?? ""}
-                onChange={(e) =>
-                  setUrls((u) => ({ ...u, [t.platform]: e.target.value }))
-                }
-              />
-            </div>
-          ))}
-        </div>
-
-        <Button
-          onClick={onPublish}
-          disabled={busy}
-          className="w-full"
-          data-testid={`managed-publish-${a._id}`}
-        >
-          {busy ? (
-            <Loader2Icon className="mr-2 size-4 animate-spin" />
-          ) : (
-            <SendIcon className="mr-2 size-4" />
-          )}
-          Publier (coller le lien)
-        </Button>
+        <ManagedPublishForm
+          assignmentId={a._id}
+          targets={a.targets}
+          buttonTestId={`managed-publish-${a._id}`}
+        />
       </CardContent>
     </Card>
   );

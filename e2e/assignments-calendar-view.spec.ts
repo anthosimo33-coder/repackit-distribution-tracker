@@ -24,9 +24,10 @@ const todayMidnight = () => {
  * PARTAGÉS (dont le filtre créateur MULTI). Filtrer sur une créatrice restreint
  * la liste ET le calendrier. Le calendrier affiche le post planifié (statut). On
  * filtre sur la créatrice de test pour être robuste à la base e2e partagée.
+ * Le CALENDRIER est désormais la vue par DÉFAUT ; le dernier choix est mémorisé.
  */
 test.describe("Admin — vue calendrier de publication", () => {
-  test("bascule Liste/Calendrier + filtre créateur partagé", async ({
+  test("calendrier par défaut + bascule Liste + filtre partagé + persistance", async ({
     page,
   }) => {
     test.setTimeout(90_000);
@@ -66,11 +67,9 @@ test.describe("Admin — vue calendrier de publication", () => {
 
     await page.goto(adminPath("/assignments"));
 
-    // Attendre le chargement (la ligne de la créatrice apparaît dans la liste
-    // non filtrée → assignments chargés, options du filtre peuplées).
-    await expect(
-      page.getByRole("cell").filter({ hasText: creatorName }),
-    ).toBeVisible();
+    // Attendre le chargement des assignments — signal INDÉPENDANT de la vue
+    // (compteur d'en-tête « N / M livrables », qui remplace « Chargement… »).
+    await expect(page.getByText(/\d+ \/ \d+ livrable/)).toBeVisible();
 
     // Filtre créateur MULTI (partagé) → ne garder que la créatrice de test.
     // Trigger ciblé par le TAG button + libellé (role varie selon base-ui).
@@ -78,9 +77,12 @@ test.describe("Admin — vue calendrier de publication", () => {
     await page.locator('[role="option"]').filter({ hasText: creatorName }).click();
     await page.keyboard.press("Escape");
 
-    // Bascule CALENDRIER : le filtre restreint la vue à 1 post → chip trouvable ;
-    // stats + navigation mensuelle rendues.
-    await page.getByRole("radio", { name: "Calendrier" }).click();
+    // Le CALENDRIER est la vue par DÉFAUT (aucun choix mémorisé) : radio coché,
+    // stats + navigation mensuelle rendues, chip du post filtré trouvable.
+    await expect(page.getByRole("radio", { name: "Calendrier" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
     await expect(
       page.getByRole("button", { name: "Mois suivant" }),
     ).toBeVisible();
@@ -92,8 +94,21 @@ test.describe("Admin — vue calendrier de publication", () => {
     );
     await expect(page.getByTitle(chipTitle)).toBeVisible();
 
-    // Retour LISTE : la colonne « Post » de la table réapparaît.
+    // Bascule LISTE : la colonne « Post » + la ligne de la créatrice apparaissent.
     await page.getByRole("radio", { name: "Liste" }).click();
+    await expect(
+      page.getByRole("columnheader", { name: "Post" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("cell").filter({ hasText: creatorName }),
+    ).toBeVisible();
+
+    // Persistance : le dernier choix (Liste) survit au rechargement (localStorage).
+    await page.reload();
+    await expect(page.getByRole("radio", { name: "Liste" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
     await expect(
       page.getByRole("columnheader", { name: "Post" }),
     ).toBeVisible();

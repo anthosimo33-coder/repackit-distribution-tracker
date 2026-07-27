@@ -80,6 +80,8 @@ test.describe("Admin — assignation + table", () => {
 
     // Table admin : 3 lignes pour ce format, dont une en retard.
     await page.goto(adminPath("/assignments"));
+    // La vue par DÉFAUT est le calendrier → basculer en Liste pour la table.
+    await page.getByRole("radio", { name: "Liste" }).click();
     const rowsForFormat = page.getByRole("row").filter({ hasText: formatName });
     await expect(rowsForFormat).toHaveCount(3, { timeout: 10_000 });
     await expect(page.getByText("(retard)").first()).toBeVisible();
@@ -132,6 +134,8 @@ test.describe("Admin — assignation + table", () => {
     });
 
     await page.goto(adminPath("/assignments"));
+    // La vue par DÉFAUT est le calendrier → basculer en Liste pour la table.
+    await page.getByRole("radio", { name: "Liste" }).click();
     const row = page.getByRole("row").filter({ hasText: formatName });
     await expect(row).toHaveCount(1, { timeout: 10_000 });
 
