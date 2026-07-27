@@ -5,6 +5,7 @@ import type { QueryCtx } from "./_generated/server";
 import { findMatchingSnapshot, type SnapshotAge } from "./snapshotMatching";
 import { normalizeTier } from "./scriptTier";
 import { buildPublicationAssignmentMap, postLabel } from "./trackerData";
+import { passesWarmupMode } from "./warmupMode";
 
 /**
  * S3 — Analytics par VARIABLE de script (lecture du bulk testing). Pour une
@@ -155,8 +156,14 @@ export async function gatherCampaignViews(
     .query("publications")
     .withIndex("by_project", (q) => q.eq("projectId", projectId))
     .collect();
+  // TD-019 : surface de DÉCISION (verdicts de bulk-testing). Warmup exclu ICI,
+  // à la source unique des échantillons → les médianes PAR VARIABLE et la
+  // médiane de CAMPAGNE qui leur sert de référence sont filtrées d'un seul coup
+  // (sinon le biais warmup est compté deux fois). Helper unique.
   const scriptPubs = pubs.filter(
-    (p) => p.scriptCombo?.campaignId === campaignId,
+    (p) =>
+      p.scriptCombo?.campaignId === campaignId &&
+      passesWarmupMode(p.isWarmup === true, "exclude"),
   );
   const pubIds = new Set(scriptPubs.map((p) => p._id as string));
 

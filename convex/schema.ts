@@ -290,6 +290,16 @@ export default defineSchema({
     // rodage d'un compte) : ici c'est un flag PAR POST, aucune parenté.
     // Optional → 0 migration ; absent/undefined = false (post payant normal).
     isWarmup: v.optional(v.boolean()),
+    // ─── Rémunéré — post PAYÉ (fait FINANCIER), INDÉPENDANT de isWarmup ──────
+    // LOT 2 (séparation des flags). `isWarmup` = fait ÉDITORIAL (le contenu ne
+    // mentionne pas l'app) ; `remunere` = fait FINANCIER (ce post est payé).
+    // Le moteur de paie lit `remunere` (via isRemunerated → payableViews /
+    // hasPayablePost). Optional → 0 migration ; absent/undefined retombe sur
+    // l'ancienne règle « payé ssi pas warmup » (isRemunerated) → paie
+    // STRICTEMENT inchangée tant que le champ n'est pas backfillé. Cas Kelly :
+    // isWarmup=true + remunere=true → PAYÉ (remunere) mais HORS promo (isWarmup,
+    // cf vues_promo LOT 3/4). Posé par l'ADMIN ; même verrou de paie que isWarmup.
+    remunere: v.optional(v.boolean()),
     // ─── S3 — Raccord combo de script ↔ publication ────────────────────────
     // Copié depuis assignment.scriptCombo + comboKey À LA MATÉRIALISATION d'un
     // post de SCRIPT validé (validateAssignment, branche script). C'EST le lien

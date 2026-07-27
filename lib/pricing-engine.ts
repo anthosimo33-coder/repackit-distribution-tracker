@@ -22,6 +22,8 @@
  * Tous les montants sont arrondis au centime pour que la somme soit exacte.
  */
 
+import { isRemunerated, type RemunerationFlags } from "./remunerate";
+
 export type PricingSnapshot = {
   pricingId: string;
   montantFixe: number;
@@ -126,7 +128,8 @@ export function estimateMissionEarnings(
 // ─── Warmup — exclusion des posts de la paie (par POST) ──────────────────────
 
 /** Un post publié d'une vidéo : ses vues + son flag warmup. */
-export type PublicationViews = { views: number; isWarmup: boolean };
+/** Vues d'un post + ses flags de rémunération (isRemunerated → paie). */
+export type PublicationViews = RemunerationFlags & { views: number };
 
 export interface PayableViews {
   /** Σ des vues des posts NON-warmup — base du CPM ET du cumul de paliers. */
@@ -141,24 +144,24 @@ export interface PayableViews {
 }
 
 /**
- * Vues PAYABLES d'une vidéo = somme des vues de ses posts NON-warmup. Les posts
- * `isWarmup` sont EXCLUS : ni CPM sur leurs vues, ni cumul pour les paliers.
- * `hasPayablePost` pilote le FIXE (une vidéo tout-warmup ne compte pas comme
- * vidéo publiée). SOURCE UNIQUE de la règle warmup (pure, testée Vitest) —
- * RÉPLIQUÉE dans convex/pricing.ts (règle A6). Sans aucun post warmup :
- * payableViews === Σ vues et hasPayablePost === true → comportement INCHANGÉ.
+ * Vues PAYABLES d'une vidéo = somme des vues de ses posts RÉMUNÉRÉS (isRemunerated).
+ * Les posts non rémunérés sont EXCLUS : ni CPM sur leurs vues, ni cumul pour les
+ * paliers. `hasPayablePost` pilote le FIXE (une vidéo sans aucun post rémunéré ne
+ * compte pas comme vidéo publiée). SOURCE UNIQUE (pure, testée Vitest) — RÉPLIQUÉE
+ * dans convex/pricing.ts (règle A6). Tant que `remunere` est absent, isRemunerated
+ * retombe sur !isWarmup → payableViews et hasPayablePost STRICTEMENT INCHANGÉS.
  */
 export function payableAssignmentViews(pubs: PublicationViews[]): PayableViews {
   let payableViews = 0;
-  let nonWarmupCount = 0;
+  let remuneratedCount = 0;
   for (const p of pubs) {
-    if (p.isWarmup) continue;
-    nonWarmupCount += 1;
+    if (!isRemunerated(p)) continue;
+    remuneratedCount += 1;
     payableViews += Math.max(0, p.views);
   }
   return {
     payableViews,
-    hasPayablePost: pubs.length === 0 || nonWarmupCount > 0,
+    hasPayablePost: pubs.length === 0 || remuneratedCount > 0,
   };
 }
 

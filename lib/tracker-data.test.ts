@@ -147,7 +147,13 @@ describe("computeGlobalStats", () => {
   });
   it("empty list → zeros and null engagement", () => {
     const stats = computeGlobalStats([]);
-    expect(stats).toEqual({ vues: 0, likes: 0, comments: 0, engagement: null });
+    expect(stats).toEqual({
+      vues: 0,
+      likes: 0,
+      comments: 0,
+      engagement: null,
+      engagementVues: 0,
+    });
   });
   it("aggregated engagement differs from a naive per-post mean", () => {
     // Post A: 100 vues, engagement 0.5 ; Post B: 1 vue, engagement 1.0.
@@ -158,6 +164,48 @@ describe("computeGlobalStats", () => {
     ]);
     expect(stats.engagement).toBeCloseTo(51 / 101, 10);
     expect(stats.engagement).not.toBeCloseTo(0.75, 3);
+  });
+});
+
+describe("point 1 — le tri-état pilote la POPULATION, pas le DÉNOMINATEUR du taux", () => {
+  // 1 post promo (engagement 10 %) + 1 post warmup (engagement 1 %). Le naïf
+  // « tout confondu » donnerait 190/10000 = 1,9 % — le warmup au dénominateur
+  // écrase le taux (le biais TD-019 exact). La règle : l'engagement l'exclut.
+  const promo = { vues: 1000, likes: 100, comments: 0, isWarmup: false };
+  const warm = { vues: 9000, likes: 90, comments: 0, isWarmup: true };
+
+  it('mode "all" : sommes sur TOUT, engagement HORS warmup', () => {
+    const s = computeGlobalStats([promo, warm], "all");
+    expect(s.vues).toBe(10000); // la somme inclut le warmup
+    expect(s.engagementVues).toBe(1000); // le dénominateur du taux l'exclut
+    expect(s.engagement).toBeCloseTo(100 / 1000, 10); // 10 %, pas 1,9 %
+  });
+
+  it('mode "only" : engagement SUR le warmup (c\'est l\'objet mesuré)', () => {
+    const s = computeGlobalStats([warm], "only");
+    expect(s.engagementVues).toBe(9000);
+    expect(s.engagement).toBeCloseTo(90 / 9000, 10); // 1 %
+  });
+
+  it("défaut = exclude : un post warmup ne pollue jamais le taux", () => {
+    const s = computeGlobalStats([promo, warm]);
+    expect(s.vues).toBe(10000);
+    expect(s.engagementVues).toBe(1000);
+    expect(s.engagement).toBeCloseTo(100 / 1000, 10);
+  });
+
+  it("aggregateByCategory applique la même règle par catégorie", () => {
+    const rows = aggregateByCategory(
+      [
+        { key: "k", label: "K", vues: 1000, likes: 100, comments: 0, isWarmup: false },
+        { key: "k", label: "K", vues: 9000, likes: 90, comments: 0, isWarmup: true },
+      ],
+      "all",
+    );
+    const k = rows.find((r) => r.key === "k")!;
+    expect(k.vues).toBe(10000);
+    expect(k.engagementVues).toBe(1000);
+    expect(k.engagement).toBeCloseTo(100 / 1000, 10);
   });
 });
 

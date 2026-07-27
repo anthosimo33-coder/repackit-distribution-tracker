@@ -275,3 +275,92 @@ export const backfillSnytchWarmupDoneToActif = internalMutation({
     };
   },
 });
+
+/**
+ * LOT 2 — Backfill `remunere` = valeur ACTUELLE du moteur de paie (`!isWarmup`)
+ * sur les publications où `remunere` est absent. IDEMPOTENT. La paie ne change
+ * sur AUCUNE vidéo : `isRemunerated(p) = remunere ?? !isWarmup`, donc poser
+ * `remunere = !isWarmup` donne exactement le même résultat que le fallback.
+ * dryRun par défaut (compte seulement) ; commit=true patche.
+ *   ./node_modules/.bin/convex run migrations:backfillRemunere '{"commit":true}' [--prod]
+ */
+export const backfillRemunere = internalMutation({
+  args: { commit: v.optional(v.boolean()) },
+  handler: async (ctx, { commit }) => {
+    const dryRun = commit !== true;
+    const pubs = await ctx.db.query("publications").collect();
+    const toSet = pubs.filter((p) => p.remunere === undefined);
+    if (!dryRun) {
+      for (const p of toSet) {
+        await ctx.db.patch(p._id, { remunere: p.isWarmup !== true });
+      }
+    }
+    return {
+      dryRun,
+      totalPublications: pubs.length,
+      missingRemunere: toSet.length,
+      wouldSetTrue: toSet.filter((p) => p.isWarmup !== true).length,
+      wouldSetFalse: toSet.filter((p) => p.isWarmup === true).length,
+      patched: dryRun ? 0 : toSet.length,
+    };
+  },
+});
+
+/**
+ * LOT 2 — Backfill « cas Kelly » CAS PAR CAS : marque une LISTE EXPLICITE de
+ * publications comme `isWarmup=true` (éditorial : ne mentionnaient pas l'app) ET
+ * `remunere=true` (financier : restent PAYÉES). Sur ce petit volume (17 posts),
+ * la liste d'IDs validée à la main est plus juste qu'un seuil de date — le champ
+ * `creators.datePromoStart` (LOT 3) prendra le relais à 30 créatrices. dryRun par
+ * défaut → LISTE l'état actuel des publications ciblées pour validation ;
+ * commit=true patche. Les cycles déjà payés lisent leurs lineItems gelées → aucun
+ * montant ne bouge (remunere=true garde le post payé). Patch direct = bypass
+ * volontaire du verrou UI setPublicationWarmup (migration admin).
+ *   convex run migrations:backfillCreatorPrePromoWarmup '{"publicationIds":["..."],"commit":true}' [--prod]
+ */
+export const backfillCreatorPrePromoWarmup = internalMutation({
+  args: {
+    publicationIds: v.array(v.id("publications")),
+    commit: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { publicationIds, commit }) => {
+    const dryRun = commit !== true;
+    const affected: Array<{
+      publicationId: string;
+      carouselId: string;
+      compte: string;
+      datePubli: number;
+      vuesLatest: number;
+      isWarmup: boolean;
+      remunere: boolean | undefined;
+    }> = [];
+    const missing: string[] = [];
+    for (const pid of publicationIds) {
+      const p = await ctx.db.get(pid);
+      if (!p) {
+        missing.push(pid);
+        continue;
+      }
+      affected.push({
+        publicationId: pid,
+        carouselId: p.carouselId,
+        compte: p.compte,
+        datePubli: p.datePubli,
+        vuesLatest: p.vuesLatest ?? 0,
+        isWarmup: p.isWarmup === true,
+        remunere: p.remunere,
+      });
+      if (!dryRun) await ctx.db.patch(pid, { isWarmup: true, remunere: true });
+    }
+    affected.sort((a, b) => a.datePubli - b.datePubli);
+
+    return {
+      dryRun,
+      requested: publicationIds.length,
+      missing,
+      affectedCount: affected.length,
+      patched: dryRun ? 0 : affected.length,
+      publications: affected,
+    };
+  },
+});

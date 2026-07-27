@@ -15,6 +15,7 @@ import {
   getGlobalStatsShorts,
   getGlobalStatsScreenRecorder,
 } from "@/lib/dashboard-stats";
+import { filterByWarmupMode } from "@/lib/warmup-mode";
 import { formatNumber, formatPercent } from "@/lib/format";
 import { isPublished } from "@/lib/publication-status";
 import { calculateSaveRate, calculateVerdict } from "@/lib/verdict";
@@ -87,6 +88,14 @@ function computeKpis(
   mediaType: FormatKey,
 ): Record<KpiKey, number | null> {
   const published = publications.filter(isPublished);
+  // TD-019 : publishedCount reste sur TOUS les publiés ; les SOMMES et RATIOS de
+  // métriques (y c. le numérateur de l'engagement, aligné sur totalVues déjà
+  // filtré par getGlobalStats*) excluent le warmup (helper unique).
+  const monetized = filterByWarmupMode(
+    published,
+    (p) => p.isWarmup === true,
+    "exclude",
+  );
 
   // Init avec null partout. Seules les keys présentes dans FORMAT_CONFIGS
   // pour ce mediaType seront effectivement lues, mais le Record TS demande
@@ -112,7 +121,7 @@ function computeKpis(
     let savesTotal = 0;
     let likesSum = 0;
     let commentsSum = 0;
-    for (const p of published) {
+    for (const p of monetized) {
       const dmp = p.displayMetrics;
       if (dmp?.saves != null) savesTotal += dmp.saves;
       if (dmp?.likes != null) likesSum += dmp.likes;
@@ -137,7 +146,7 @@ function computeKpis(
     result.subsGainedTotal = stats.totalSubsGained;
     result.ratioSubsViews = stats.ratioSubsViews;
     let commentsSum = 0;
-    for (const p of published) {
+    for (const p of monetized) {
       if (p.displayMetrics?.comments != null) {
         commentsSum += p.displayMetrics.comments;
       }
@@ -149,7 +158,7 @@ function computeKpis(
   // getGlobalStats mais isolé ici pour éviter une dépendance forte).
   if (mediaType === "carousel" && result.winners === null) {
     let winners = 0;
-    for (const p of published) {
+    for (const p of monetized) {
       const sr = calculateSaveRate(
         p.displayMetrics?.saves ?? null,
         p.displayMetrics?.vues ?? null,

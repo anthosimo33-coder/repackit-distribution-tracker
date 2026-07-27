@@ -192,7 +192,10 @@ export function TrackerDataView() {
     setWarmup(DEFAULT_WARMUP_FILTER);
   }
 
-  const stats = useMemo(() => computeGlobalStats(posts ?? []), [posts]);
+  const stats = useMemo(
+    () => computeGlobalStats(posts ?? [], warmup),
+    [posts, warmup],
+  );
 
   const byPlatform = useMemo(
     () =>
@@ -204,10 +207,12 @@ export function TrackerDataView() {
             vues: p.vues,
             likes: p.likes,
             comments: p.comments,
+            isWarmup: p.isWarmup,
           }),
         ),
+        warmup,
       ),
-    [posts],
+    [posts, warmup],
   );
   const byCreator = useMemo(
     () =>
@@ -219,10 +224,12 @@ export function TrackerDataView() {
             vues: p.vues,
             likes: p.likes,
             comments: p.comments,
+            isWarmup: p.isWarmup,
           }),
         ),
+        warmup,
       ),
-    [posts],
+    [posts, warmup],
   );
   // "Vues par format" = par format NOMMÉ (cohérent avec le filtre Format) ; les
   // posts sans format nommé tombent dans un bucket "Sans format".
@@ -236,10 +243,12 @@ export function TrackerDataView() {
             vues: p.vues,
             likes: p.likes,
             comments: p.comments,
+            isWarmup: p.isWarmup,
           }),
         ),
+        warmup,
       ),
-    [posts],
+    [posts, warmup],
   );
 
   const sortedPosts = useMemo(
@@ -379,7 +388,9 @@ export function TrackerDataView() {
           <StatCard
             label="Engagement rate"
             value={formatPercent(stats.engagement, 2)}
-            secondary="(likes + comments) / vues"
+            secondary={`(likes + comments) / ${formatNumber(stats.engagementVues)} vues ${
+              warmup === "only" ? "warmup" : "hors warmup"
+            }`}
           />
         </div>
       )}
@@ -663,6 +674,7 @@ function ComparisonChart({
           ? 0
           : r.engagement * 100,
     raw: metric === "vues" ? r.vues : r.engagement,
+    engVues: r.engagementVues,
   }));
   const height = Math.max(140, data.length * 40 + 40);
 
@@ -714,12 +726,17 @@ function ComparisonChart({
                   fontSize: 12,
                 }}
                 formatter={(_v, _n, item) => {
-                  const raw = (item?.payload as { raw: number | null })?.raw;
+                  const payload = item?.payload as {
+                    raw: number | null;
+                    engVues: number;
+                  };
                   return [
                     metric === "engagement"
-                      ? formatPercent(raw, 2)
-                      : formatNumber(raw),
-                    metric === "engagement" ? "Engagement" : "Vues",
+                      ? formatPercent(payload?.raw ?? null, 2)
+                      : formatNumber(payload?.raw ?? null),
+                    metric === "engagement"
+                      ? `Engagement · ${formatNumber(payload?.engVues ?? 0)} vues`
+                      : "Vues",
                   ];
                 }}
               />

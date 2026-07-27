@@ -2,6 +2,7 @@ import { adminQuery } from "./functions";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
+import { passesWarmupMode, type WarmupMode } from "./warmupMode";
 
 /**
  * Vue TRACKER (refonte) — data des posts publiés. Deux queries scopées projet :
@@ -164,15 +165,10 @@ function activeFilter(list?: readonly string[]): list is readonly string[] {
   return Array.isArray(list) && list.length > 0;
 }
 
-// RÉPLIQUE de lib/tracker-data (WarmupFilter + matchesWarmupFilter), testée en
-// vitest là-bas. Garder les deux EXACTEMENT synchrones (A6).
-type WarmupFilter = "exclude" | "all" | "only";
-
-function matchesWarmupFilter(isWarmup: boolean, mode: WarmupFilter): boolean {
-  if (mode === "all") return true;
-  if (mode === "only") return isWarmup;
-  return !isWarmup;
-}
+// Warmup : ALIAS du helper UNIQUE convex/warmupMode.ts (jumeau de lib/warmup-mode,
+// parité verrouillée par lib/warmup-mode.test.ts). Plus de logique locale (TD-019).
+type WarmupFilter = WarmupMode;
+const matchesWarmupFilter = passesWarmupMode;
 
 function matchesDimensionFilters(
   d: PostDimensions,

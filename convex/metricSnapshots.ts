@@ -3,6 +3,7 @@ import { e2eMutation, adminMutation, adminQuery } from "./functions";
 import { syncBonusForPublication } from "./pricing";
 import { v, ConvexError } from "convex/values";
 import type { Id } from "./_generated/dataModel";
+import { passesWarmupMode } from "./warmupMode";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -152,19 +153,29 @@ export const aggregateTimeseries = adminQuery({
       )
       .collect();
 
-    let filtered = snaps;
-    if (args.mediaType !== undefined) {
-      const pubs = await ctx.db
-        .query("publications")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect();
-      const mtById = new Map(
-        pubs.map((p) => [p._id, p.mediaType ?? "carousel"]),
-      );
-      filtered = snaps.filter(
-        (s) => mtById.get(s.publicationId) === args.mediaType,
-      );
-    }
+    // isWarmup vit sur publications (pas sur les snapshots) → jointure, de toute
+    // façon nécessaire pour le filtre mediaType. TD-019 : le graphe Évolution est
+    // une surface de perf → warmup EXCLU. On n'exclut QUE ce qu'on sait être
+    // warmup ; un snapshot dont la publication est introuvable reste inclus
+    // (comportement inchangé hors warmup).
+    const pubs = await ctx.db
+      .query("publications")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const pubById = new Map(pubs.map((p) => [p._id, p]));
+    const filtered = snaps.filter((s) => {
+      const pub = pubById.get(s.publicationId);
+      if (pub && !passesWarmupMode(pub.isWarmup === true, "exclude")) {
+        return false;
+      }
+      if (
+        args.mediaType !== undefined &&
+        (pub ? (pub.mediaType ?? "carousel") : undefined) !== args.mediaType
+      ) {
+        return false;
+      }
+      return true;
+    });
 
     const buckets = new Map<string, number>();
     for (const s of filtered) {

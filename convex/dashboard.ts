@@ -2,6 +2,7 @@ import { adminQuery } from "./functions";
 import { v } from "convex/values";
 import { coerceSnapshotAge } from "./snapshotMatching";
 import { resolveDisplayMetrics } from "./metricsDisplay";
+import { passesWarmupMode } from "./warmupMode";
 
 /**
  * KPIs cross-format du dashboard, calculés à partir des snapshots résolus
@@ -11,6 +12,12 @@ import { resolveDisplayMetrics } from "./metricsDisplay";
  *
  * Save rate / winners = carrousels uniquement (pas de saves côté short/SR).
  * Engagement rate = (likes + comments) / vues, cross-format.
+ *
+ * ⚠️ Warmup (TD-019, helper unique convex/warmupMode) : les SOMMES de métriques
+ * (vues/likes/saves/subs/comments) et les RATIOS (engagement, save rate, winners)
+ * EXCLUENT les posts de chauffe. Les COUNTS structurels (totalPublished/
+ * totalDrafts) restent sur TOUS les posts — totalPublished est une sonde
+ * d'accrual e2e (validation-accrual.spec.ts) qui ne doit pas bouger.
  *
  * ⚠️ NE PAS SUPPRIMER — ce N'EST PAS du code mort, malgré les apparences.
  * Aucun composant applicatif ne l'appelle : le dashboard admin (ActionDashboard)
@@ -61,7 +68,12 @@ export const dashboardKpis = adminQuery({
     for (let i = 0; i < publishedPubs.length; i++) {
       const p = publishedPubs[i];
       const dm = dms[i];
-      totalPublished += 1;
+      totalPublished += 1; // compte TOUS les publiés (sonde d'accrual e2e)
+
+      // Perf hors warmup (TD-019, helper unique) : un post de chauffe est publié
+      // — il compte dans totalPublished — mais ses métriques ne mesurent pas la
+      // perf du contenu et fausseraient vues/engagement/save rate/winners.
+      if (!passesWarmupMode(p.isWarmup === true, "exclude")) continue;
 
       if (dm.vues !== null) vuesTotal += dm.vues;
       if (dm.likes !== null) likesTotal += dm.likes;
