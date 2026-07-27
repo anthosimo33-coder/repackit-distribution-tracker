@@ -262,8 +262,12 @@ export function AssignmentsCalendar({
                   >
                     {format(day, "d")}
                   </div>
-                  <div className="space-y-0.5">
-                    {items.slice(0, 3).map(({ row, status }) => {
+                  {/* Vue de pilotage : on affiche TOUS les posts du jour (pas de
+                      « +N » tronqué). La case grandit avec son contenu ; un jour
+                      très chargé scrolle en interne au-delà d'un plafond confortable
+                      (~10 posts) plutôt que d'étirer sans fin la ligne de semaine. */}
+                  <div className="max-h-64 space-y-0.5 overflow-y-auto">
+                    {items.map(({ row, status }) => {
                       const meta = CALENDAR_STATUS_META[status];
                       return (
                         <button
@@ -288,11 +292,6 @@ export function AssignmentsCalendar({
                         </button>
                       );
                     })}
-                    {items.length > 3 && (
-                      <div className="px-1 text-[10px] font-medium text-slate-400">
-                        +{items.length - 3}
-                      </div>
-                    )}
                   </div>
                 </div>
               );
