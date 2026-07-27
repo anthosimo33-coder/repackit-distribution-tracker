@@ -33,3 +33,17 @@ export function countryLabel(code: string | null | undefined): string | null {
   if (!code) return null;
   return COUNTRY_LABELS[code] ?? code;
 }
+
+/**
+ * Drapeau emoji SEUL (compact, ex. pastille du calendrier de pilotage), dérivé du
+ * code ISO-3166-α2 via les Regional Indicator Symbols (A→🇦…). null si absent ou
+ * hors liste fermée → l'appelant n'affiche alors aucun drapeau.
+ */
+export function countryFlag(code: string | null | undefined): string | null {
+  if (!code) return null;
+  const cc = code.trim().toUpperCase();
+  if (!(COUNTRY_CODES as readonly string[]).includes(cc)) return null;
+  return String.fromCodePoint(
+    ...[...cc].map((ch) => 0x1f1e6 + ch.charCodeAt(0) - 65),
+  );
+}

@@ -59,7 +59,11 @@ import { EditBrickTextDialog } from "@/components/admin/EditBrickTextDialog";
 import { LinkAssetFolderDialog } from "@/components/admin/LinkAssetFolderDialog";
 import { AssignmentOverlayDialog } from "@/components/admin/AssignmentOverlayDialog";
 import { AssignmentPostDateDialog } from "@/components/admin/AssignmentPostDateDialog";
-import { AssignmentsCalendar } from "@/components/admin/AssignmentsCalendar";
+import {
+  AssignmentsCalendar,
+  type CalendarStatusFilter,
+} from "@/components/admin/AssignmentsCalendar";
+import { AssignmentAttachments } from "@/components/admin/AssignmentAttachments";
 import { AssignmentDetailSheet } from "@/components/admin/AssignmentDetailSheet";
 import { FilterMultiSelect } from "@/components/filters/FilterMultiSelect";
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
@@ -83,6 +87,16 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "validated", label: "Validé" },
   { value: "rejected", label: "Rejeté" },
   { value: "paid", label: "Payé" },
+];
+
+/** Options du filtre de STATUT CALENDRIER (vue calendrier). Même axe que la
+ *  pastille : à l'heure / en retard / manqué / prévu (≠ statut de PRODUCTION). */
+const CAL_STATUS_OPTIONS: { value: CalendarStatusFilter; label: string }[] = [
+  { value: "all", label: "Tous statuts" },
+  { value: "on_time", label: "À l'heure" },
+  { value: "late", label: "En retard" },
+  { value: "missed", label: "Manqué" },
+  { value: "scheduled", label: "Prévu" },
 ];
 
 function formatDate(ts: number) {
@@ -127,6 +141,11 @@ export default function AssignmentsPage() {
   }
   const [formatFilter, setFormatFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  // Filtre de STATUT CALENDRIER (vue calendrier uniquement) — MÊME emplacement
+  // que le filtre de statut de production, mais axe distinct (dérivé). On ne crée
+  // pas un second contrôle : le Select s'adapte à la vue.
+  const [calStatusFilter, setCalStatusFilter] =
+    useState<CalendarStatusFilter>("all");
   const [overdueOnly, setOverdueOnly] = useState(false);
   // Vidéos modèles : gestion à chaud d'un assignment (dialog). On dérive la row
   // LIVE depuis `assignments` (réactif) → la liste se rafraîchit après ajout/retrait.
@@ -230,7 +249,14 @@ export default function AssignmentsPage() {
     const filtered = (assignments ?? []).filter((a) => {
       if (creatorIds.size > 0 && !creatorIds.has(a.creatorId)) return false;
       if (formatFilter !== "all" && a.formatId !== formatFilter) return false;
-      if (statusFilter !== "all" && a.status !== statusFilter) return false;
+      // Statut de PRODUCTION : filtre la LISTE. En vue calendrier, c'est le statut
+      // CALENDRIER (calStatusFilter, appliqué dans AssignmentsCalendar) qui filtre.
+      if (
+        viewMode === "list" &&
+        statusFilter !== "all" &&
+        a.status !== statusFilter
+      )
+        return false;
       if (
         overdueOnly &&
         assignmentUrgency(a.dueDate, a.status as AssignmentStatus, now) !==
@@ -261,7 +287,15 @@ export default function AssignmentsPage() {
         seed: creatorId,
       }),
     );
-  }, [assignments, creatorIds, formatFilter, statusFilter, overdueOnly, nowMs]);
+  }, [
+    assignments,
+    creatorIds,
+    formatFilter,
+    statusFilter,
+    overdueOnly,
+    nowMs,
+    viewMode,
+  ]);
 
   return (
     <div className="space-y-6">
@@ -305,20 +339,45 @@ export default function AssignmentsPage() {
           </SelectContent>
         </Select>
 
-        <Select value={statusFilter} onValueChange={(v) => v && setStatusFilter(v)}>
-          <SelectTrigger className="w-40" aria-label="Filtrer par statut">
-            <SelectValue>
-              {STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {STATUS_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* Filtre STATUT — MÊME emplacement, axe selon la vue : production en
+            liste, calendrier (à l'heure/en retard/manqué/prévu) en calendrier. */}
+        {viewMode === "calendar" ? (
+          <Select
+            value={calStatusFilter}
+            onValueChange={(v) => v && setCalStatusFilter(v as CalendarStatusFilter)}
+          >
+            <SelectTrigger
+              className="w-40"
+              aria-label="Filtrer par statut calendrier"
+            >
+              <SelectValue>
+                {CAL_STATUS_OPTIONS.find((o) => o.value === calStatusFilter)?.label}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {CAL_STATUS_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <Select value={statusFilter} onValueChange={(v) => v && setStatusFilter(v)}>
+            <SelectTrigger className="w-40" aria-label="Filtrer par statut">
+              <SelectValue>
+                {STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {STATUS_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
 
         <label className="flex items-center gap-2 text-sm text-slate-600">
           <Checkbox
@@ -367,6 +426,7 @@ export default function AssignmentsPage() {
           rows={rows}
           now={nowMs}
           onOpen={(id) => setDetailId(id)}
+          statusFilter={calStatusFilter}
         />
       ) : rows.length === 0 ? (
         <Card>
@@ -410,7 +470,8 @@ export default function AssignmentsPage() {
                         {a.creatorName}
                       </TableCell>
                       <TableCell className="text-slate-700">
-                        {a.origin === "script" ? (
+                        <div className="space-y-1.5">
+                          {a.origin === "script" ? (
                           <div className="space-y-1">
                             <div className="font-medium text-slate-900">
                               {a.scriptCampaignName}
@@ -459,9 +520,18 @@ export default function AssignmentsPage() {
                               </div>
                             )}
                           </div>
-                        ) : (
-                          a.formatName
-                        )}
+                          ) : (
+                            <div>{a.formatName}</div>
+                          )}
+                          {/* Assets + vidéos modèles rattachés — compact, visible
+                              seulement s'il y en a (mêmes données que le brief). */}
+                          <AssignmentAttachments
+                            variant="list"
+                            assetFolderNames={a.assetFolderNames}
+                            assetFolderCount={a.assetFolderCount}
+                            modelVideos={a.modelVideos ?? []}
+                          />
+                        </div>
                       </TableCell>
                       <TableCell className="text-sm text-slate-500">
                         {a.targets.length === 0 ? (

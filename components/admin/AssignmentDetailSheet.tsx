@@ -39,7 +39,9 @@ import {
   type AssignmentStatus,
 } from "@/lib/assignment-status";
 import { ManagedPublishForm } from "@/components/admin/ManagedPublishForm";
+import { AssignmentAttachments } from "@/components/admin/AssignmentAttachments";
 import { dayStartMs } from "@/components/admin/AssignmentPlanningCalendar";
+import { countryFlag } from "@/lib/countries";
 
 /** Row LIVE de listAssignments (dérivée côté page → réactive : statut/pub à jour). */
 type AssignmentRow =
@@ -128,19 +130,23 @@ export function AssignmentDetailSheet({
                 <span className="text-slate-400">—</span>
               ) : (
                 <div className="space-y-0.5">
-                  {row.targets.map((t) => (
-                    <div
-                      key={t.platform}
-                      className="flex items-center gap-1.5"
-                    >
-                      <span className="text-xs text-slate-400">
-                        {t.platform}
-                      </span>
-                      <span className="font-mono text-slate-600">
-                        {t.accountHandle ?? "—"}
-                      </span>
-                    </div>
-                  ))}
+                  {row.targets.map((t) => {
+                    const flag = countryFlag(t.country);
+                    return (
+                      <div
+                        key={t.platform}
+                        className="flex items-center gap-1.5"
+                      >
+                        <span className="text-xs text-slate-400">
+                          {t.platform}
+                        </span>
+                        {flag && <span aria-hidden>{flag}</span>}
+                        <span className="font-mono text-slate-600">
+                          {t.accountHandle ?? "—"}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </DetailRow>
@@ -188,6 +194,15 @@ export function AssignmentDetailSheet({
               Pas de script monté pour cet assignment.
             </p>
           )}
+
+          {/* Assets + vidéos modèles rattachés (mêmes données que le brief
+              créateur). Rendu UNIQUEMENT s'il y en a (aucun bloc vide). */}
+          <AssignmentAttachments
+            assetFolderNames={row.assetFolderNames}
+            assetFolderCount={row.assetFolderCount}
+            modelVideos={row.modelVideos ?? []}
+            variant="panel"
+          />
 
           {/* Publication */}
           <section className="space-y-2">

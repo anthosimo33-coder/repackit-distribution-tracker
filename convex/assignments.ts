@@ -761,6 +761,11 @@ export const listAssignments = adminQuery({
     const creatorMap = new Map(creators.map((c) => [c._id, c.name]));
     const formatMap = new Map(formats.map((f) => [f._id, f.name]));
     const compteMap = new Map(comptes.map((c) => [c._id, c.handle]));
+    // Pays CIBLÉ par compte (label informatif) → drapeau FR/US par post au
+    // calendrier de pilotage. Additif ; absent = pas de drapeau affiché.
+    const compteCountryMap = new Map(
+      comptes.map((c) => [c._id, c.targetCountry ?? null]),
+    );
     const campaignMap = new Map(campaigns.map((c) => [c._id, c.name]));
     const brickMap = new Map(scriptBricks.map((b) => [b._id, b]));
     const assetFolderMap = new Map(assetFolders.map((f) => [f._id, f.name]));
@@ -785,11 +790,15 @@ export const listAssignments = adminQuery({
           const cta = brickMap.get(a.scriptCombo.ctaBrickId);
           comboSummary = `${tierLabel(hook?.tier)} · ${flux?.label ?? "?"} · ${cta?.label ?? "?"}`;
         }
-        // Chantier C — cibles enrichies (handle + URL par plateforme).
+        // Chantier C — cibles enrichies (handle + pays + URL par plateforme).
         const targets = (a.targets ?? []).map((t) => ({
           platform: t.platform,
           accountHandle: t.accountId
             ? (compteMap.get(t.accountId) ?? null)
+            : null,
+          // Pays du compte cible (drapeau FR/US par post au calendrier).
+          country: t.accountId
+            ? (compteCountryMap.get(t.accountId) ?? null)
             : null,
           publishedUrl: t.publishedUrl ?? null,
         }));

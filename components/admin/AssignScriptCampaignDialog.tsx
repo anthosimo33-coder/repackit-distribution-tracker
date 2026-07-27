@@ -458,7 +458,10 @@ export function AssignScriptCampaignDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
+      {/* Modale ÉLARGIE : beaucoup de champs (créateur, dates, planification,
+          tier, barème, overlay, assets, vidéos exemples). max-w-3xl évite la
+          troncation horizontale ; le contenu scrolle verticalement (max-h). */}
+      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Assigner « {campaignName} »</DialogTitle>
           <DialogDescription>
