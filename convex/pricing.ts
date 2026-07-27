@@ -9,6 +9,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { periodOf } from "./payments";
 import { cycleIndexOf } from "./payCycle";
+import { isRemunerated, type RemunerationFlags } from "./remunerate";
 
 /**
  * Pricing v2 — barèmes + MOTEUR de paie (réplique serveur).
@@ -84,29 +85,29 @@ function fixePerVideo(snapshot: PricingSnapshot): number {
 
 // ─── Warmup — RÉPLIQUE de lib/pricing-engine.payableAssignmentViews (A6) ──────
 
-type PublicationViews = { views: number; isWarmup: boolean };
+type PublicationViews = RemunerationFlags & { views: number };
 
 /**
- * Vues PAYABLES d'une vidéo = Σ des vues des posts NON-warmup (les posts warmup
- * sont exclus du CPM ET du cumul de paliers). `hasPayablePost` pilote le FIXE
- * (false = vidéo tout-warmup → exclue du fixe). RÉPLIQUE EXACTE de
- * lib/pricing-engine.payableAssignmentViews (testée Vitest là-bas). Sans post
- * warmup : payableViews === Σ vues, hasPayablePost === true → INCHANGÉ.
+ * Vues PAYABLES d'une vidéo = Σ des vues des posts RÉMUNÉRÉS (isRemunerated) —
+ * exclus du CPM ET du cumul de paliers sinon. `hasPayablePost` pilote le FIXE
+ * (false = aucune vidéo rémunérée → exclue du fixe). RÉPLIQUE EXACTE de
+ * lib/pricing-engine.payableAssignmentViews (testée Vitest là-bas). Tant que
+ * `remunere` est absent : isRemunerated = !isWarmup → INCHANGÉ.
  */
 function payableAssignmentViews(pubs: PublicationViews[]): {
   payableViews: number;
   hasPayablePost: boolean;
 } {
   let payableViews = 0;
-  let nonWarmupCount = 0;
+  let remuneratedCount = 0;
   for (const p of pubs) {
-    if (p.isWarmup) continue;
-    nonWarmupCount += 1;
+    if (!isRemunerated(p)) continue;
+    remuneratedCount += 1;
     payableViews += Math.max(0, p.views);
   }
   return {
     payableViews,
-    hasPayablePost: pubs.length === 0 || nonWarmupCount > 0,
+    hasPayablePost: pubs.length === 0 || remuneratedCount > 0,
   };
 }
 
@@ -280,7 +281,11 @@ export async function assignmentViewsAndMetrics(
     seen.add(pid);
     const pub = await ctx.db.get(pid);
     if (!pub) continue;
-    pubs.push({ views: pub.vuesLatest ?? 0, isWarmup: pub.isWarmup === true });
+    pubs.push({
+      views: pub.vuesLatest ?? 0,
+      isWarmup: pub.isWarmup === true,
+      remunere: pub.remunere,
+    });
     // Un snapshot a été relevé (Apify/YouTube/manuel) ⇒ suivi actif.
     if (pub.latestSnapshotAt !== undefined) hasMetrics = true;
   }
