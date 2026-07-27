@@ -307,40 +307,24 @@ export const backfillRemunere = internalMutation({
 });
 
 /**
- * LOT 2 — Backfill « cas Kelly » : marque les posts d'UNE créatrice ANTÉRIEURS à
- * son passage en promo comme `isWarmup=true` (fait éditorial : ne mentionnaient
- * pas l'app) ET `remunere=true` (fait financier : restent PAYÉS). NE PAS DEVINER
- * la date : `cutoffDate` (ms) = `datePromoStart` de la créatrice, fournie et
- * VALIDÉE par l'humain. Publications reliées via `assignments` (publications n'a
- * pas de creatorId). dryRun par défaut → LISTE les publications concernées pour
- * validation ; commit=true patche. Les cycles déjà payés lisent leurs lineItems
- * gelées → aucun montant ne bouge (remunere=true garde le post payé). Patch
- * direct = bypass volontaire du verrou UI setPublicationWarmup (migration admin).
- *   convex run migrations:backfillCreatorPrePromoWarmup '{"creatorId":"...","cutoffDate":123,"commit":true}' [--prod]
+ * LOT 2 — Backfill « cas Kelly » CAS PAR CAS : marque une LISTE EXPLICITE de
+ * publications comme `isWarmup=true` (éditorial : ne mentionnaient pas l'app) ET
+ * `remunere=true` (financier : restent PAYÉES). Sur ce petit volume (17 posts),
+ * la liste d'IDs validée à la main est plus juste qu'un seuil de date — le champ
+ * `creators.datePromoStart` (LOT 3) prendra le relais à 30 créatrices. dryRun par
+ * défaut → LISTE l'état actuel des publications ciblées pour validation ;
+ * commit=true patche. Les cycles déjà payés lisent leurs lineItems gelées → aucun
+ * montant ne bouge (remunere=true garde le post payé). Patch direct = bypass
+ * volontaire du verrou UI setPublicationWarmup (migration admin).
+ *   convex run migrations:backfillCreatorPrePromoWarmup '{"publicationIds":["..."],"commit":true}' [--prod]
  */
 export const backfillCreatorPrePromoWarmup = internalMutation({
   args: {
-    creatorId: v.id("creators"),
-    cutoffDate: v.number(),
+    publicationIds: v.array(v.id("publications")),
     commit: v.optional(v.boolean()),
   },
-  handler: async (ctx, { creatorId, cutoffDate, commit }) => {
+  handler: async (ctx, { publicationIds, commit }) => {
     const dryRun = commit !== true;
-    const creator = await ctx.db.get(creatorId);
-    if (!creator) throw new Error("Créatrice introuvable.");
-
-    const assignments = await ctx.db
-      .query("assignments")
-      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
-      .collect();
-    const pubIds = new Set<Id<"publications">>();
-    for (const a of assignments) {
-      for (const t of a.targets ?? []) {
-        if (t.publicationId) pubIds.add(t.publicationId);
-      }
-      if (a.publicationId) pubIds.add(a.publicationId);
-    }
-
     const affected: Array<{
       publicationId: string;
       carouselId: string;
@@ -350,10 +334,13 @@ export const backfillCreatorPrePromoWarmup = internalMutation({
       isWarmup: boolean;
       remunere: boolean | undefined;
     }> = [];
-    for (const pid of pubIds) {
+    const missing: string[] = [];
+    for (const pid of publicationIds) {
       const p = await ctx.db.get(pid);
-      if (!p || p.projectId !== creator.projectId) continue;
-      if (p.datePubli >= cutoffDate) continue; // seulement AVANT le passage promo
+      if (!p) {
+        missing.push(pid);
+        continue;
+      }
       affected.push({
         publicationId: pid,
         carouselId: p.carouselId,
@@ -369,8 +356,8 @@ export const backfillCreatorPrePromoWarmup = internalMutation({
 
     return {
       dryRun,
-      creator: creator.name,
-      cutoffDate,
+      requested: publicationIds.length,
+      missing,
       affectedCount: affected.length,
       patched: dryRun ? 0 : affected.length,
       publications: affected,
