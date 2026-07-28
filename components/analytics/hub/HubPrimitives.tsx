@@ -40,9 +40,11 @@ export function factor(value: number | null | undefined): string {
   return value === null || value === undefined ? "—" : `×${value}`;
 }
 
-/** Durée lisible depuis des millisecondes (min / h / j). */
+/** Durée lisible depuis des millisecondes (s / min / h / j). */
 export function formatDuration(ms: number | null): string {
   if (ms === null || !Number.isFinite(ms) || ms < 0) return "—";
+  // Latence / délais de paiement se lisent en SECONDES (jusqu'à ~10 min).
+  if (ms < 600000) return `${Math.round(ms / 1000)} s`;
   const min = ms / 60000;
   if (min < 60) return `${Math.round(min)} min`;
   const h = min / 60;

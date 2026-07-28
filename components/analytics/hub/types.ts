@@ -16,3 +16,9 @@ export type AttributionData = FunctionReturnType<
 export type RevenueData = FunctionReturnType<
   typeof api.analyticsHub.getRevenueBreakdown
 >;
+export type ReliabilityData = FunctionReturnType<
+  typeof api.analyticsHub.getReliability
+>;
+export type ViewCountersData = FunctionReturnType<
+  typeof api.analyticsHub.getViewCounters
+>;
