@@ -78,6 +78,92 @@ export function buildFunnel(steps: FunnelStepInput[]): FunnelStep[] {
   });
 }
 
+// ─── Cohérence des funnels (garde A6, sans FORCER la monotonie) ───────────────
+
+export interface MonotonicityReport {
+  monotone: boolean;
+  /** Étapes dont le compte DÉPASSE l'étape précédente (rupture de monotonie). */
+  breaks: {
+    key: string;
+    count: number;
+    prevKey: string;
+    prevCount: number;
+    excess: number;
+  }[];
+}
+
+/**
+ * Repère les ruptures de monotonie d'un funnel (étape > étape précédente). Deux
+ * usages OPPOSÉS — on ne force JAMAIS la monotonie, on la CONTRÔLE :
+ *  - tunnel SÉQUENTIEL : `monotone` DOIT être true (sinon bug de calcul) ;
+ *  - atteinte BRUTE : les ruptures sont ATTENDUES et porteuses de sens (ex.
+ *    paywall > inscription = visiteurs anonymes voyant l'offre) → info, jamais
+ *    masquée sous un compte raboté.
+ */
+export function checkMonotonicity(steps: FunnelStepInput[]): MonotonicityReport {
+  const breaks: MonotonicityReport["breaks"] = [];
+  for (let i = 1; i < steps.length; i++) {
+    const prev = steps[i - 1];
+    const cur = steps[i];
+    if (cur.count > prev.count) {
+      breaks.push({
+        key: cur.key,
+        count: cur.count,
+        prevKey: prev.key,
+        prevCount: prev.count,
+        excess: cur.count - prev.count,
+      });
+    }
+  }
+  return { monotone: breaks.length === 0, breaks };
+}
+
+export type CoherenceStatus = "ok" | "info" | "violation";
+
+/** Un contrôle de cohérence (spine réutilisée par la carte Fiabilité, phase C). */
+export interface CoherenceCheck {
+  key: string;
+  label: string;
+  status: CoherenceStatus;
+  /** Détail chiffré, ou "" si rien à signaler. */
+  detail: string;
+}
+
+function describeBreaks(r: MonotonicityReport): string {
+  return r.breaks
+    .map((b) => `${b.key} dépasse ${b.prevKey} de ${b.excess}`)
+    .join(" ; ");
+}
+
+/**
+ * Contrôles de cohérence des DEUX vues de funnel. Le séquentiel monotone est une
+ * garantie (violation = bug) ; la non-monotonie de l'atteinte brute est signalée
+ * en info (elle documente les anonymes), pas corrigée.
+ */
+export function funnelCoherenceChecks(
+  sequential: FunnelStepInput[],
+  reach: FunnelStepInput[],
+): CoherenceCheck[] {
+  const checks: CoherenceCheck[] = [];
+  const seq = checkMonotonicity(sequential);
+  checks.push({
+    key: "funnel_sequential_monotone",
+    label: "Tunnel séquentiel monotone",
+    status: seq.monotone ? "ok" : "violation",
+    detail: seq.monotone ? "" : describeBreaks(seq),
+  });
+  const reachReport = checkMonotonicity(reach);
+  if (reachReport.breaks.length > 0) {
+    checks.push({
+      key: "funnel_reach_nonmonotone",
+      label: "Atteinte brute non monotone (attendu)",
+      status: "info",
+      detail: describeBreaks(reachReport),
+    });
+  }
+  return checks;
+}
+
 // ─── Évolution vs période précédente ─────────────────────────────────────────
 
 export interface Delta {

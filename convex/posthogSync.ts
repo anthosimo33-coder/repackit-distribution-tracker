@@ -64,6 +64,7 @@ const SEGMENT_LIMIT = 20;
 export const POSTHOG_CACHE_KEYS = {
   overview: "overview",
   funnelGlobal: "funnel:global",
+  funnelSequential: "funnel:sequential",
   funnelSource: "funnel:source",
   funnelLanguage: "funnel:language",
   timeToValue: "timeToValue",
@@ -184,14 +185,21 @@ export interface InternalExcludedPayload {
   totalPersons: number;
 }
 
-/** Étapes du funnel principal (l'UI mappe ces clés vers des libellés). */
+/**
+ * Étapes du funnel de CONVERSION (chemin de monétisation), dans l'ORDRE ÉTABLI
+ * EMPIRIQUEMENT (diagnostic A6, médiane des délais depuis l'inscription) :
+ * paywall (1 s) précède le checkout (18 s) et l'abonnement (97 s). L'ancien
+ * ordre plaçait target_added (64 s) et first_alert (~14 h) AVANT le paywall —
+ * les taux séquentiels calculés dessus étaient faux. Les jalons d'activation
+ * (recherche, cible, alerte) ne sont PAS sur le chemin de monétisation : ils
+ * vivent dans predictors / timeToValue, pas ici. Mêmes clés pour l'atteinte
+ * brute (funnelGlobal) et le séquentiel (funnelSequential) → comparables côte à côte.
+ */
 export const FUNNEL_STEP_KEYS = [
   "visit",
-  "username_entered",
   "signup_completed",
-  "target_added",
-  "first_alert_received",
   "paywall_viewed",
+  "checkout_started",
   "subscription_completed",
 ] as const;
 
@@ -215,14 +223,18 @@ export const PREDICTOR_KEYS = [
 // Toutes AGRÉGÉES (count/uniq/quantile + group by) : aucun event brut, aucune
 // propriété nominative ne sort de PostHog.
 
-/** Colonnes `uniqIf` d'atteinte d'étape, réutilisées par les 3 variantes de funnel. */
+/**
+ * Colonnes `uniqIf` d'ATTEINTE BRUTE d'étape (personnes distinctes ayant réalisé
+ * l'étape, indépendamment des autres), réutilisées par les 3 variantes de funnel
+ * de reach. NON monotone par nature — le paywall peut dépasser l'inscription
+ * (visiteurs anonymes voyant l'offre sans signup). C'est une INFORMATION, pas une
+ * erreur ; le tunnel séquentiel (funnelSequential) sert, lui, aux taux.
+ */
 const FUNNEL_COLUMNS = `
     uniqIf(person_id, event = '$pageview') AS visit,
-    uniqIf(person_id, event = 'username_entered') AS username_entered,
     uniqIf(person_id, event = 'signup_completed') AS signup_completed,
-    uniqIf(person_id, event = 'target_added') AS target_added,
-    uniqIf(person_id, event = 'first_alert_received') AS first_alert_received,
     uniqIf(person_id, event = 'paywall_viewed') AS paywall_viewed,
+    uniqIf(person_id, event = 'checkout_started') AS checkout_started,
     uniqIf(person_id, event = 'subscription_completed') AS subscription_completed`;
 
 /** Expression de segment robuste au vide/null (→ libellé explicite). */
@@ -294,6 +306,33 @@ ORDER BY d`,
 SELECT 'global' AS seg,${FUNNEL_COLUMNS}
 FROM events
 WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}`,
+
+  /**
+   * Funnel SÉQUENTIEL (chemin de monétisation) — sous-ensemble STRICT : l'étape k
+   * ne compte que les personnes ayant franchi TOUTES les étapes amont. Monotone
+   * PAR CONSTRUCTION (aucune étape ne peut dépasser la précédente) → c'est LUI qui
+   * porte les taux de conversion. Diffère de l'atteinte brute (funnelGlobal) : les
+   * abonnés sans checkout/paywall tracké n'y figurent pas — l'écart entre les deux
+   * vues est justement l'information (ex. paiement sans checkout tracké).
+   */
+  funnelSequential: `
+SELECT 'global' AS seg,
+  countIf(b_visit) AS visit,
+  countIf(b_visit AND b_signup) AS signup_completed,
+  countIf(b_visit AND b_signup AND b_paywall) AS paywall_viewed,
+  countIf(b_visit AND b_signup AND b_paywall AND b_checkout) AS checkout_started,
+  countIf(b_visit AND b_signup AND b_paywall AND b_checkout AND b_sub) AS subscription_completed
+FROM (
+  SELECT person_id,
+    countIf(event = '$pageview') > 0 AS b_visit,
+    countIf(event = 'signup_completed') > 0 AS b_signup,
+    countIf(event = 'paywall_viewed') > 0 AS b_paywall,
+    countIf(event = 'checkout_started') > 0 AS b_checkout,
+    countIf(event = 'subscription_completed') > 0 AS b_sub
+  FROM events
+  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+  GROUP BY person_id
+)`,
 
   funnelSource: `
 SELECT ${segExpr("person.properties.source")} AS seg,${FUNNEL_COLUMNS}
@@ -902,6 +941,13 @@ export const runHourlySync = internalAction({
           shapeFunnel,
         ),
         await collect(
+          POSTHOG_CACHE_KEYS.funnelSequential,
+          apiKey,
+          target,
+          QUERIES.funnelSequential,
+          shapeFunnel,
+        ),
+        await collect(
           POSTHOG_CACHE_KEYS.funnelSource,
           apiKey,
           target,
@@ -1160,7 +1206,14 @@ export interface ProductAnalytics {
   /** Erreurs de la dernière sync, par clé d'agrégat (affichage discret). */
   errors: { key: string; message: string }[];
   overview: OverviewPayload;
-  funnels: { global: FunnelPayload; source: FunnelPayload; language: FunnelPayload };
+  funnels: {
+    /** Atteinte BRUTE par étape (peut être non monotone — information). */
+    global: FunnelPayload;
+    /** Chemin séquentiel strict (monotone) — porte les taux de conversion. */
+    sequential: FunnelPayload;
+    source: FunnelPayload;
+    language: FunnelPayload;
+  };
   timeToValue: TimeToValuePayload;
   paywall: ConversionPayload;
   sources: ConversionPayload;
@@ -1202,6 +1255,7 @@ export const getProductAnalytics = adminQuery({
       overview: { daily: [] },
       funnels: {
         global: EMPTY_FUNNEL,
+        sequential: EMPTY_FUNNEL,
         source: EMPTY_FUNNEL,
         language: EMPTY_FUNNEL,
       },
@@ -1241,6 +1295,7 @@ export const getProductAnalytics = adminQuery({
       overview: read(POSTHOG_CACHE_KEYS.overview, empty.overview),
       funnels: {
         global: read(POSTHOG_CACHE_KEYS.funnelGlobal, EMPTY_FUNNEL),
+        sequential: read(POSTHOG_CACHE_KEYS.funnelSequential, EMPTY_FUNNEL),
         source: read(POSTHOG_CACHE_KEYS.funnelSource, EMPTY_FUNNEL),
         language: read(POSTHOG_CACHE_KEYS.funnelLanguage, EMPTY_FUNNEL),
       },
