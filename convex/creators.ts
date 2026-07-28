@@ -14,6 +14,7 @@ import { getProjectBySlug, REPACKIT_SLUG } from "./projects";
 import { internal } from "./_generated/api";
 import { syncBonusUnlocks } from "./pricing";
 import { isPromo } from "./promoPhase";
+import { floorToUtcMidnight } from "./promoDate";
 import { DELETABLE_STATUSES, purgeAndDeleteAssignment } from "./assignments";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -135,10 +136,13 @@ export const setCreatorDatePromoStart = adminMutation({
     if (!creator || creator.projectId !== ctx.projectId) {
       throw new ConvexError("Créateur introuvable.");
     }
-    await ctx.db.patch(creatorId, {
-      datePromoStart: datePromoStart === null ? undefined : datePromoStart,
-    });
-    return { ok: true, datePromoStart };
+    // Défense TZ : on force minuit UTC du jour (no-op si le client envoie déjà
+    // minuit UTC via lib/promo-date.dateInputToMs). datePromoStart et datePubli
+    // restent ainsi dans le même référentiel (ms epoch UTC).
+    const normalized =
+      datePromoStart === null ? undefined : floorToUtcMidnight(datePromoStart);
+    await ctx.db.patch(creatorId, { datePromoStart: normalized });
+    return { ok: true, datePromoStart: normalized ?? null };
   },
 });
 

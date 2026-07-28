@@ -14,6 +14,7 @@ import {
 } from "@/components/project/ProjectProvider";
 import { viewAsBase } from "@/lib/view-as";
 import { formatMoney, formatViews } from "@/lib/format-rate";
+import { dateInputToMs, msToDateInput } from "@/lib/promo-date";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { FunctionReturnType } from "convex/server";
@@ -666,21 +667,7 @@ function BonusGridSection({
 }
 
 // ─── LOT 3 — Phase promo de la créatrice (date + compteur de bascule) ─────────
-
-/** ms (UTC) → "YYYY-MM-DD" pour <input type="date"> ; "" si absent. */
-function msToDateInput(ms: number | null | undefined): string {
-  if (ms == null) return "";
-  const d = new Date(ms);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`;
-}
-
-/** "YYYY-MM-DD" → ms UTC (minuit) ; null si vide. */
-function dateInputToMs(s: string): number | null {
-  if (!s) return null;
-  const [y, m, d] = s.split("-").map(Number);
-  return Date.UTC(y, m - 1, d);
-}
+// Conversions date ↔ ms TZ-safe : lib/promo-date (testées Vitest).
 
 /**
  * Carte « Phase promo » (LOT 3) : date éditable + compteur LIVE des publications qui

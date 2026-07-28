@@ -56,6 +56,7 @@ import type * as pricing from "../pricing.js";
 import type * as profitability from "../profitability.js";
 import type * as progression from "../progression.js";
 import type * as projects from "../projects.js";
+import type * as promoDate from "../promoDate.js";
 import type * as promoPhase from "../promoPhase.js";
 import type * as provisionAdmin from "../provisionAdmin.js";
 import type * as publications from "../publications.js";
@@ -134,6 +135,7 @@ declare const fullApi: ApiFromModules<{
   profitability: typeof profitability;
   progression: typeof progression;
   projects: typeof projects;
+  promoDate: typeof promoDate;
   promoPhase: typeof promoPhase;
   provisionAdmin: typeof provisionAdmin;
   publications: typeof publications;
