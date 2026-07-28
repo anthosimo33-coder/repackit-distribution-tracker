@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Table,
@@ -10,26 +10,31 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/format";
 import { buildFunnel, computeConversion } from "@/lib/analytics-hub";
 import { FunnelChart } from "./HubCharts";
 import {
   HubCardHeader,
   HubNotice,
+  InfoDot,
+  ColLabel,
   WebhookFixNotice,
   dash,
   pct,
   formatDuration,
 } from "./HubPrimitives";
+import { EXPLAIN } from "./explanations";
 import type { ProductAnalyticsData, ReliabilityData } from "./types";
 
 /**
  * Onglet PARCOURS (B1) — le tunnel de CONVERSION corrigé (chemin de monétisation)
  * avec ses taux, l'atteinte brute par étape à côté, et la perte au checkout.
  *
- * Le tunnel a été RÉORDONNÉ le 29/07 (diagnostic A6) : target_added et
- * first_alert n'étaient PAS sur le chemin de paiement — les séries d'avant ne sont
- * pas comparables à celles d'après. L'activation a sa propre carte, séparée.
+ * Deux notions de « clients » cohabitent et sont désormais EXPLIQUÉES à l'écran :
+ * le tunnel (20, séquentiel strict) et l'atteinte brute (25, ordre libre). L'écart
+ * vient du double comptage de subscription_completed (navigateur + serveur). La
+ * mention est posée à l'endroit exact de l'écart, pas seulement en Fiabilité.
  */
 
 /** Libellés du chemin de monétisation (mockup). */
@@ -41,6 +46,17 @@ const FUNNEL_LABELS: Record<string, string> = {
   subscription_completed: "Ont payé",
 };
 
+/**
+ * Libellés de l'ATTEINTE BRUTE : la dernière étape est renommée « Paiements
+ * déclenchés » (elle compte des ÉVÉNEMENTS, double-émis client + serveur), pour ne
+ * pas la confondre avec « Clients payants » (Whop, la vérité comptable). Un seul
+ * chiffre du dashboard porte le nom « clients ».
+ */
+const REACH_LABELS: Record<string, string> = {
+  ...FUNNEL_LABELS,
+  subscription_completed: "Paiements déclenchés",
+};
+
 /** Seuil de timeout de confirmation de l'app (hypothèse produit, ancien réglage). */
 const APP_TIMEOUT_MS = 60_000;
 
@@ -49,6 +65,23 @@ const DEVICE_LABELS: Record<string, string> = {
   webview: "Webview in-app",
   inconnu: "Inconnu (is_webview absent)",
 };
+
+/** Libellés + ordre des segments d'activation (l'anonyme 'hors_inscription' est écarté). */
+const SEGMENT_LABELS: Record<string, string> = {
+  payant: "Payant",
+  gratuit: "Gratuit",
+  sans_acces: "Inscrits sans accès",
+  autre: "Inscrits sans accès", // cache antérieur à la restriction aux inscrits
+};
+const SEGMENT_ORDER = ["payant", "gratuit", "sans_acces", "autre"];
+
+interface ActivationRow {
+  segment: string;
+  persons: number;
+  targetAdded: number;
+  firstAlert: number;
+  usernameEntered: number;
+}
 
 export function ParcoursTab({
   analytics,
@@ -59,6 +92,8 @@ export function ParcoursTab({
   reliability: ReliabilityData | undefined;
   now: number;
 }) {
+  const [recentOnly, setRecentOnly] = useState(false);
+
   const seqSteps = useMemo(
     () => analytics.funnels.sequential.segments[0]?.steps ?? [],
     [analytics.funnels.sequential.segments],
@@ -83,6 +118,10 @@ export function ParcoursTab({
     () => new Map(reachSteps.map((s) => [s.key, s.count])),
     [reachSteps],
   );
+  const seqByKey = useMemo(
+    () => new Map(seqSteps.map((s) => [s.key, s.count])),
+    [seqSteps],
+  );
 
   const devices = useMemo(
     () =>
@@ -105,16 +144,18 @@ export function ParcoursTab({
     return total > 0 ? Math.round((known / total) * 1000) / 10 : null;
   }, [analytics.checkoutReliability.rows]);
 
-  // « Où se perdent les checkouts » — motifs assemblés depuis la phase A.
+  // « Où se perdent les checkouts » — ventilation MUTUELLEMENT EXCLUSIVE des NON
+  // payeurs (total = non payeurs). L'échec de paiement est une sous-part des
+  // disparus, pas une 4e ligne additionnelle (l'ancienne carte double-comptait :
+  // 78 + 28 + 20 = 126 = tous les checkouts, alors que les non payeurs sont 106).
   const loss = useMemo(() => {
     const rows = analytics.checkoutReliability.rows;
     const disappeared = rows.reduce((s, r) => s + r.disappeared, 0);
     const divertedFree = rows.reduce((s, r) => s + r.divertedFree, 0);
-    const paymentFailed =
-      analytics.instrumentation.events.find((e) => e.name === "payment_failed")
-        ?.persons ?? null;
-    return { disappeared, divertedFree, paymentFailed };
-  }, [analytics.checkoutReliability.rows, analytics.instrumentation.events]);
+    const failedPayment = rows.reduce((s, r) => s + (r.failedPayment ?? 0), 0);
+    const total = disappeared + divertedFree + failedPayment;
+    return { disappeared, divertedFree, failedPayment, total };
+  }, [analytics.checkoutReliability.rows]);
 
   // Délai médian/p90 jusqu'au paiement, tous appareils (le plus grand échantillon).
   const delay = useMemo(() => {
@@ -122,7 +163,6 @@ export function ParcoursTab({
       (r) => r.paid > 0 && r.medPayMs !== null,
     );
     if (rows.length === 0) return { medMs: null, p90Ms: null };
-    // On prend la ligne au plus gros volume de payés (représentative).
     const top = [...rows].sort((a, b) => b.paid - a.paid)[0];
     return { medMs: top.medPayMs, p90Ms: top.p90PayMs };
   }, [analytics.checkoutReliability.rows]);
@@ -132,6 +172,31 @@ export function ParcoursTab({
     if (!c || c.whopMembers === null || c.dashboardClients === null) return null;
     return { whop: c.whopMembers, app: c.dashboardClients, gap: c.whopMembers - c.dashboardClients };
   }, [reliability]);
+
+  // Activation : agrégée par segment, « tous » ou « depuis le 28/07 » (recent=1).
+  const activation = useMemo(() => {
+    const agg = (recentFlag: boolean): ActivationRow[] => {
+      const bySeg = new Map<string, ActivationRow>();
+      for (const r of analytics.activation.rows) {
+        if (r.segment === "hors_inscription") continue;
+        if (recentFlag && r.recent !== 1) continue;
+        const cur =
+          bySeg.get(r.segment) ??
+          { segment: r.segment, persons: 0, targetAdded: 0, firstAlert: 0, usernameEntered: 0 };
+        cur.persons += r.persons;
+        cur.targetAdded += r.targetAdded;
+        cur.firstAlert += r.firstAlert;
+        cur.usernameEntered += r.usernameEntered;
+        bySeg.set(r.segment, cur);
+      }
+      return [...bySeg.values()].sort(
+        (a, b) => SEGMENT_ORDER.indexOf(a.segment) - SEGMENT_ORDER.indexOf(b.segment),
+      );
+    };
+    return { all: agg(false), recent: agg(true) };
+  }, [analytics.activation.rows]);
+  const activationRows = recentOnly ? activation.recent : activation.all;
+  const hasRecent = activation.recent.length > 0;
 
   return (
     <div className="space-y-6">
@@ -151,6 +216,7 @@ export function ParcoursTab({
             <HubCardHeader
               title="Tunnel de conversion"
               subtitle="Chemin de paiement, sous-ensemble strict : chaque taux porte sur l'étape juste au-dessus. Monotone par construction."
+              info={EXPLAIN.tunnelVsAtteinte}
             />
             {funnel.length > 0 ? (
               <FunnelChart steps={funnel} labels={FUNNEL_LABELS} />
@@ -166,32 +232,61 @@ export function ParcoursTab({
         <Card>
           <CardContent className="space-y-3 p-4">
             <HubCardHeader
-              title="Atteinte brute"
-              subtitle="Personnes distinctes par étape, indépendamment de l'ordre. Peut dépasser l'étape amont (visiteurs anonymes)."
+              title="Atteinte brute (comptage large)"
+              subtitle="Personnes distinctes par étape, quel que soit l'ordre. Peut dépasser le tunnel (visiteurs anonymes, doublons de mesure)."
+              info={EXPLAIN.tunnelVsAtteinte}
             />
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Étape</TableHead>
-                  <TableHead className="text-right">Personnes</TableHead>
+                  <TableHead className="text-right">
+                    <ColLabel
+                      label="Atteint, tous chemins"
+                      info={EXPLAIN.tunnelVsAtteinte}
+                    />
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {seqSteps.map((s) => (
-                  <TableRow key={s.key}>
-                    <TableCell className="text-xs text-slate-600">
-                      {FUNNEL_LABELS[s.key] ?? s.key}
-                    </TableCell>
-                    <TableCell className="text-right text-xs tabular-nums font-medium">
-                      {dash(reachByKey.get(s.key) ?? null)}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {seqSteps.map((s) => {
+                  const reach = reachByKey.get(s.key) ?? null;
+                  const seq = seqByKey.get(s.key) ?? null;
+                  // À l'endroit EXACT de l'écart 20/25 : mention + « i » dédié.
+                  const gap =
+                    s.key === "subscription_completed" &&
+                    reach !== null &&
+                    seq !== null &&
+                    reach !== seq;
+                  return (
+                    <TableRow key={s.key}>
+                      <TableCell className="text-xs text-slate-600">
+                        {REACH_LABELS[s.key] ?? s.key}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums font-medium">
+                        <span className="inline-flex items-center justify-end gap-1">
+                          {dash(reach)}
+                          {gap ? (
+                            <>
+                              <span className="font-normal text-slate-400">
+                                (vs {formatNumber(seq)} au tunnel)
+                              </span>
+                              <InfoDot label="Écart 20 / 25" side="left">
+                                {EXPLAIN.ecartPaye}
+                              </InfoDot>
+                            </>
+                          ) : null}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
             <p className="text-xs text-slate-400">
               L&apos;écart avec le tunnel = les personnes qui atteignent une étape
-              sans avoir franchi les précédentes (souvent anonymes).
+              sans avoir franchi les précédentes (souvent anonymes), plus les
+              doublons de mesure.
             </p>
           </CardContent>
         </Card>
@@ -203,7 +298,8 @@ export function ParcoursTab({
           <CardContent className="space-y-3 p-4">
             <HubCardHeader
               title="Où se perdent les checkouts"
-              subtitle="Ventilation des personnes qui ouvrent le checkout sans payer."
+              subtitle="Ventilation des personnes qui ouvrent le checkout sans payer. Chaque personne dans une seule ligne."
+              info={EXPLAIN.ouSePerdentCheckouts}
             />
             <Table>
               <TableHeader>
@@ -215,14 +311,6 @@ export function ParcoursTab({
               <TableBody>
                 <TableRow>
                   <TableCell className="text-xs text-slate-600">
-                    Disparition sans tentative
-                  </TableCell>
-                  <TableCell className="text-right text-xs tabular-nums font-medium">
-                    {formatNumber(loss.disappeared)}
-                  </TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell className="text-xs text-slate-600">
                     Détournés vers le gratuit
                   </TableCell>
                   <TableCell className="text-right text-xs tabular-nums font-medium">
@@ -231,19 +319,35 @@ export function ParcoursTab({
                 </TableRow>
                 <TableRow>
                   <TableCell className="text-xs text-slate-600">
-                    Échec de paiement
+                    Échec de paiement resté sans suite
                   </TableCell>
                   <TableCell className="text-right text-xs tabular-nums font-medium">
-                    {dash(loss.paymentFailed)}
+                    {formatNumber(loss.failedPayment)}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-xs text-slate-600">
+                    Disparition sans aucune tentative
+                  </TableCell>
+                  <TableCell className="text-right text-xs tabular-nums font-medium">
+                    {formatNumber(loss.disappeared)}
+                  </TableCell>
+                </TableRow>
+                <TableRow className="border-t-2">
+                  <TableCell className="text-xs font-semibold text-slate-700">
+                    Total (n&apos;ont pas payé)
+                  </TableCell>
+                  <TableCell className="text-right text-xs tabular-nums font-semibold">
+                    {formatNumber(loss.total)}
                   </TableCell>
                 </TableRow>
               </TableBody>
             </Table>
             <p className="text-xs text-slate-400">
-              Le détail des échecs (timeout de confirmation vs refus de carte réel)
-              n&apos;est pas mesurable : la propriété <code>cause</code> n&apos;est
-              pas émise sur <code>payment_failed</code>. Chiffre non ventilé plutôt
-              qu&apos;inventé.
+              Le détail des échecs (timeout de confirmation contre refus de carte
+              réel) n&apos;est pas mesurable : la propriété <code>cause</code>{" "}
+              n&apos;est pas émise sur <code>payment_failed</code>. Motif non
+              ventilé plutôt qu&apos;inventé.
             </p>
           </CardContent>
         </Card>
@@ -254,6 +358,7 @@ export function ParcoursTab({
             <HubCardHeader
               title="Par appareil"
               subtitle="Le webview convertit-il moins que le navigateur natif ?"
+              info={EXPLAIN.parAppareil}
             />
             {coverage !== null && coverage < 100 ? (
               <HubNotice>
@@ -299,17 +404,22 @@ export function ParcoursTab({
             <HubCardHeader
               title="Délai jusqu'au paiement"
               subtitle="Chez ceux qui aboutissent, comparé à l'ancien seuil de timeout de l'app."
+              info={EXPLAIN.delaiPaiement}
             />
             <Table>
               <TableBody>
                 <TableRow>
-                  <TableCell className="text-xs text-slate-600">Médiane</TableCell>
+                  <TableCell className="text-xs text-slate-600">
+                    <ColLabel label="Médiane" info={EXPLAIN.medianeP90} />
+                  </TableCell>
                   <TableCell className="text-right text-xs tabular-nums font-semibold">
                     {formatDuration(delay.medMs)}
                   </TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell className="text-xs text-slate-600">9 sur 10 sous</TableCell>
+                  <TableCell className="text-xs text-slate-600">
+                    <ColLabel label="9 sur 10 sous" info={EXPLAIN.medianeP90} />
+                  </TableCell>
                   <TableCell className="text-right text-xs tabular-nums font-semibold">
                     {formatDuration(delay.p90Ms)}
                   </TableCell>
@@ -337,6 +447,7 @@ export function ParcoursTab({
             <HubCardHeader
               title="Paiements Whop sans accès applicatif"
               subtitle="Contrôle permanent : tout paiement encaissé doit avoir sa contrepartie dans l'app."
+              info={EXPLAIN.whopSansAcces}
             />
             {whopGap === null ? (
               <p className="text-sm text-slate-400">
@@ -369,13 +480,45 @@ export function ParcoursTab({
         </Card>
       </div>
 
-      {/* Activation — hors tunnel de paiement, séparée gratuit/payant */}
+      {/* Activation — hors tunnel de paiement, séparée par type d'inscrit */}
       <Card>
         <CardContent className="space-y-3 p-4">
           <HubCardHeader
             title="Activation (hors tunnel de paiement)"
             subtitle="Recherche, cible, alerte ne sont PAS sur le chemin de paiement. Un gratuit et un payant ne s'activent pas pareil."
+            info={EXPLAIN.activation}
+            action={
+              <div className="flex items-center gap-1">
+                {[
+                  { key: false, label: "Tous les inscrits" },
+                  { key: true, label: "Depuis le 28/07" },
+                ].map((opt) => (
+                  <button
+                    key={String(opt.key)}
+                    type="button"
+                    onClick={() => setRecentOnly(opt.key)}
+                    disabled={opt.key && !hasRecent}
+                    className={cn(
+                      "rounded-md border px-2 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+                      recentOnly === opt.key
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            }
           />
+          <HubNotice>
+            Chiffres d&apos;activation à lire avec prudence. La recherche de compte
+            n&apos;existe que depuis le 28/07 (vers 1 h) et le plan gratuit depuis le
+            27/07 (vers 16 h) : la plupart des « inscrits sans accès » se sont
+            inscrits AVANT, donc leurs 2 recherches sur des centaines de personnes ne
+            reflètent pas leur comportement réel. La vue « depuis le 28/07 » ne garde
+            que la période où les trois groupes sont comparables.
+          </HubNotice>
           <Table>
             <TableHeader>
               <TableRow>
@@ -387,36 +530,44 @@ export function ParcoursTab({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {analytics.activation.rows.length === 0 ? (
+              {activationRows.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="text-xs text-slate-400">
-                    — en attente de la synchro PostHog.
+                    {recentOnly
+                      ? "— aucun inscrit depuis le 28/07 sur la fenêtre."
+                      : "— en attente de la synchro PostHog."}
                   </TableCell>
                 </TableRow>
               ) : (
-                analytics.activation.rows.map((r) => (
-                  <TableRow key={r.segment}>
-                    <TableCell className="text-xs font-medium text-slate-700">
-                      {r.segment === "payant"
-                        ? "Payant"
-                        : r.segment === "gratuit"
-                          ? "Gratuit"
-                          : "Autre"}
-                    </TableCell>
-                    <TableCell className="text-right text-xs tabular-nums">
-                      {formatNumber(r.persons)}
-                    </TableCell>
-                    <TableCell className="text-right text-xs tabular-nums">
-                      {formatNumber(r.usernameEntered)}
-                    </TableCell>
-                    <TableCell className="text-right text-xs tabular-nums">
-                      {formatNumber(r.targetAdded)}
-                    </TableCell>
-                    <TableCell className="text-right text-xs tabular-nums">
-                      {formatNumber(r.firstAlert)}
-                    </TableCell>
-                  </TableRow>
-                ))
+                activationRows.map((r) => {
+                  const sansAcces = r.segment === "sans_acces" || r.segment === "autre";
+                  return (
+                    <TableRow key={r.segment}>
+                      <TableCell className="text-xs font-medium text-slate-700">
+                        <span className="inline-flex items-center gap-1">
+                          {SEGMENT_LABELS[r.segment] ?? r.segment}
+                          {sansAcces ? (
+                            <InfoDot label="Inscrits sans accès">
+                              {EXPLAIN.inscritsSansAcces}
+                            </InfoDot>
+                          ) : null}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums font-medium">
+                        {formatNumber(r.persons)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {formatNumber(r.usernameEntered)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {formatNumber(r.targetAdded)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {formatNumber(r.firstAlert)}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
               )}
             </TableBody>
           </Table>

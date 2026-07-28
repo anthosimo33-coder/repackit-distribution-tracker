@@ -28,8 +28,10 @@ export interface InternalAccountsConfig {
 const EMPTY: InternalAccountsConfig = { handles: [], whopMembershipIds: [] };
 
 const BY_SLUG: Record<string, InternalAccountsConfig> = {
-  // is_internal suffit en prod (6 personnes) → aucun handle en dur nécessaire.
-  snytch: { handles: [], whopMembershipIds: [] },
+  // is_internal suffit en prod côté PostHog (6 personnes) → aucun handle en dur.
+  // Côté Whop, le compte de TEST de l'admin (vérifié : mem_4Hrv8RLuDels71, plan
+  // 7,99 €, encaissé) doit être exclu du revenu ET du compte « clients payants ».
+  snytch: { handles: [], whopMembershipIds: ["mem_4Hrv8RLuDels71"] },
 };
 
 export function internalAccountsFor(slug: string): InternalAccountsConfig {

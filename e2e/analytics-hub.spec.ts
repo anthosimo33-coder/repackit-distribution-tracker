@@ -1,17 +1,28 @@
 import { test, expect, adminPath } from "./fixtures/auth-fixture";
 
 /**
- * Hub Analytics (admin) — smoke de la section et de ses 4 onglets.
+ * Hub Analytics (admin) — smoke de la section et de ses 6 onglets.
  *
  * Le projet e2e n'a PAS de config PostHog : ce spec couvre donc précisément le
  * chemin « non configuré », qui est la garantie centrale du chantier —
  *  - la section se rend malgré tout (ni écran blanc, ni crash),
  *  - un état « non configuré » explicite est affiché,
- *  - l'onglet Attribution reste exploitable car ses vues/coûts viennent de
+ *  - l'en-tête montre la fraîcheur de synchro (« Jamais synchronisé » ici),
+ *  - les « i » explicatifs s'ouvrent au clic (le point le plus important),
+ *  - l'onglet Acquisition reste exploitable car ses vues/coûts viennent de
  *    Jarvia (indépendant de PostHog et de Whop).
  */
 test.describe("Analytics — hub produit", () => {
-  test("la nav mène à la section et affiche les 4 onglets", async ({ page }) => {
+  const TABS = [
+    /vue d'ensemble/i,
+    /parcours/i,
+    /acquisition/i,
+    /santé produit/i,
+    /offres/i,
+    /fiabilité/i,
+  ];
+
+  test("la nav mène à la section et affiche les 6 onglets", async ({ page }) => {
     await page.goto(adminPath("/dashboard"));
 
     const navLink = page.getByRole("link", { name: /^analytics$/i }).first();
@@ -23,17 +34,12 @@ test.describe("Analytics — hub produit", () => {
       page.getByRole("heading", { name: /^analytics$/i }),
     ).toBeVisible({ timeout: 10000 });
 
-    for (const name of [
-      /vue d'ensemble/i,
-      /attribution/i,
-      /revenus/i,
-      /cohortes/i,
-    ]) {
+    for (const name of TABS) {
       await expect(page.getByRole("tab", { name })).toBeVisible();
     }
   });
 
-  test("sans config PostHog : état « non configuré », aucun écran cassé", async ({
+  test("sans config PostHog : état « non configuré » + fraîcheur de synchro", async ({
     page,
   }) => {
     await page.goto(adminPath("/analytics"));
@@ -47,9 +53,12 @@ test.describe("Analytics — hub produit", () => {
       page.getByText(/posthog n'est pas configuré/i).first(),
     ).toBeVisible();
     await expect(page.getByRole("button", { name: /actualiser/i })).toBeDisabled();
+
+    // Régression corrigée : la date de synchro est de retour dans l'en-tête.
+    await expect(page.getByText(/jamais synchronisé|dernière synchro/i)).toBeVisible();
   });
 
-  test("l'onglet Attribution se rend sans PostHog (données Jarvia)", async ({
+  test("un « i » explicatif s'ouvre au clic et affiche une explication", async ({
     page,
   }) => {
     await page.goto(adminPath("/analytics"));
@@ -57,14 +66,30 @@ test.describe("Analytics — hub produit", () => {
       page.getByRole("heading", { name: /^analytics$/i }),
     ).toBeVisible({ timeout: 10000 });
 
-    await page.getByRole("tab", { name: /attribution/i }).click();
-
-    // Soit des vidéos publiées (table + mention de la limite d'attribution),
-    // soit l'état vide « aucune vidéo publiée » — jamais une erreur.
+    // La Vue d'ensemble se rend même sans PostHog : ses KPI portent un « i ».
+    const info = page
+      .getByRole("button", { name: /explication : clients payants/i })
+      .first();
+    await expect(info).toBeVisible();
+    await info.click();
     await expect(
-      page
-        .getByText(/attribution par fenêtre 24 h|aucune vidéo publiée/i)
-        .first(),
+      page.getByText(/compté chez Whop qui encaisse/i),
+    ).toBeVisible();
+  });
+
+  test("l'onglet Acquisition se rend sans PostHog (données Jarvia)", async ({
+    page,
+  }) => {
+    await page.goto(adminPath("/analytics"));
+    await expect(
+      page.getByRole("heading", { name: /^analytics$/i }),
+    ).toBeVisible({ timeout: 10000 });
+
+    await page.getByRole("tab", { name: /acquisition/i }).click();
+
+    // Les trois compteurs de vues (Jarvia) sont toujours présents, ou l'état vide.
+    await expect(
+      page.getByText(/trois compteurs|aucune vidéo/i).first(),
     ).toBeVisible({ timeout: 10000 });
   });
 });

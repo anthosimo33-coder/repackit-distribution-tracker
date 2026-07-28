@@ -331,7 +331,7 @@ export default function PricingsPage() {
               />
             </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Montant fixe ($)" id="montantFixe">
+              <Field label="Montant fixe (€)" id="montantFixe">
                 <Input
                   id="montantFixe"
                   type="number"
@@ -356,7 +356,7 @@ export default function PricingsPage() {
                   required
                 />
               </Field>
-              <Field label="CPM ($/1000 vues)" id="tauxCPM">
+              <Field label="CPM (€/1000 vues)" id="tauxCPM">
                 <Input
                   id="tauxCPM"
                   type="number"
@@ -381,7 +381,7 @@ export default function PricingsPage() {
               </div>
               {tiers.length === 0 && (
                 <p className="text-xs text-slate-400">
-                  Aucun palier. Ajoute des paliers cash ($) ou nature (iPhone…).
+                  Aucun palier. Ajoute des paliers cash (€) ou nature (iPhone…).
                 </p>
               )}
               {tiers.map((t, i) => (
@@ -406,11 +406,11 @@ export default function PricingsPage() {
                     >
                       <SelectTrigger aria-label="Type de récompense" className="w-28">
                         <SelectValue>
-                          {t.rewardType === "cash" ? "Cash $" : "Nature"}
+                          {t.rewardType === "cash" ? "Cash €" : "Nature"}
                         </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="cash">Cash $</SelectItem>
+                        <SelectItem value="cash">Cash €</SelectItem>
                         <SelectItem value="nature">Nature</SelectItem>
                       </SelectContent>
                     </Select>

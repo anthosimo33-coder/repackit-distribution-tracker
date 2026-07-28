@@ -29,7 +29,11 @@ import { AcquisitionTab } from "@/components/analytics/hub/AcquisitionTab";
 import { SanteProduitTab } from "@/components/analytics/hub/SanteProduitTab";
 import { OffresTab } from "@/components/analytics/hub/OffresTab";
 import { FiabiliteTab } from "@/components/analytics/hub/FiabiliteTab";
-import { HubEmptyState, HubNotice } from "@/components/analytics/hub/HubPrimitives";
+import {
+  HubEmptyState,
+  HubNotice,
+  LastSyncIndicator,
+} from "@/components/analytics/hub/HubPrimitives";
 
 /**
  * HUB ANALYTICS (ADMIN) — données PRODUIT, distinct des surfaces créateurs.
@@ -87,19 +91,22 @@ export default function AnalyticsPage() {
             </p>
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onSync}
-          disabled={syncing || analytics?.configured !== true}
-        >
-          {syncing ? (
-            <Loader2Icon className="size-4 animate-spin" />
-          ) : (
-            <RefreshCwIcon className="size-4" />
-          )}
-          Actualiser
-        </Button>
+        <div className="flex flex-col items-start gap-1.5 sm:items-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onSync}
+            disabled={syncing || analytics?.configured !== true}
+          >
+            {syncing ? (
+              <Loader2Icon className="size-4 animate-spin" />
+            ) : (
+              <RefreshCwIcon className="size-4" />
+            )}
+            Actualiser
+          </Button>
+          <LastSyncIndicator computedAt={analytics?.computedAt ?? null} now={now} />
+        </div>
       </header>
 
       {/* Sélecteur de période global (B4) — filtre les KPI de conversion. */}

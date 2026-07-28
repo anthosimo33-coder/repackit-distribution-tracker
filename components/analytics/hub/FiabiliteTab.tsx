@@ -14,6 +14,7 @@ import {
 import { formatNumber, formatDate } from "@/lib/format";
 import { buildCoherenceChecks, type CoherenceStatus } from "@/lib/analytics-hub";
 import { HubCardHeader } from "./HubPrimitives";
+import { EXPLAIN } from "./explanations";
 import type { ReliabilityData } from "./types";
 
 /**
@@ -179,9 +180,12 @@ export function FiabiliteTab({
             </div>
           ) : null}
           <p className="text-xs text-slate-400">
-            Comptes internes exclus partout :{" "}
+            Comptes internes exclus partout, des DEUX côtés :{" "}
             <strong>{formatNumber(reliability.internalExcluded.persons)}</strong>{" "}
-            personnes sur {formatNumber(reliability.internalExcluded.totalPersons)}.
+            personne(s) côté PostHog (sur{" "}
+            {formatNumber(reliability.internalExcluded.totalPersons)}) et{" "}
+            <strong>{formatNumber(reliability.whopInternalExcluded)}</strong>{" "}
+            membership(s) côté Whop (le compte de test de l&apos;admin).
           </p>
         </CardContent>
       </Card>
@@ -193,6 +197,7 @@ export function FiabiliteTab({
             <HubCardHeader
               title="Contrôles de cohérence"
               subtitle="Vérifiés à chaque synchro. Un écart remplace les chiffres au lieu de les afficher."
+              info={EXPLAIN.gardeFous}
             />
             <Table>
               <TableHeader>

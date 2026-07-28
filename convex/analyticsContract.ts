@@ -125,6 +125,23 @@ export const CONTRACT_PROPERTIES: ContractProperty[] = [
   // (vérifié : 0 occurrence sur 7 j ET 90 j). La carte « conversion par paywall »
   // affiche un tiret tant qu'elle n'arrive pas.
   { name: "paywall_id", onEvent: "paywall_viewed", notYetEmitted: true },
+  // onboarding_step : l'onboarding fait 9 écrans qui PARTAGENT la même URL
+  // (/onboarding), de la saisie du handle jusqu'au paywall. Les clics de rage ne
+  // disent donc pas QUELLE étape frustre. Demandée au dev, PAS encore émise : la
+  // ventilation par étape (carte Points de friction) s'allumera d'elle-même dès
+  // que l'app enverra le numéro d'étape sur $rageclick.
+  { name: "onboarding_step", onEvent: "$rageclick", notYetEmitted: true },
+  // experiment_id : marqueur d'un VRAI test A/B. Aujourd'hui `variant` ne distingue
+  // que les DEUX types de paywall émis (gate/upsell), ce ne sont pas les bras d'un
+  // test. La carte « Test A/B » reste « aucun test en cours » tant que cette
+  // propriété est absente, et s'allume dès qu'un test démarre.
+  { name: "experiment_id", onEvent: "*", notYetEmitted: true },
+  // scan_trigger : déclenchement du scan (baseline vs planifié). L'app n'émet plus
+  // que `mode` (full/light) et a PERDU la distinction baseline/scheduled → le scan
+  // scheduled_full (celui qui détecte les désabonnements) n'est plus isolable
+  // (27,5 % d'échec mesurés dessus se noient dans un agrégat à 13,3 %). Déclarée
+  // non émise : la ventilation par déclenchement s'allume seule dès son retour.
+  { name: "scan_trigger", onEvent: "scan_completed", notYetEmitted: true },
 ];
 
 /** Alias SQL sûr pour un nom d'event (`$pageview` → `pageview`, etc.). */

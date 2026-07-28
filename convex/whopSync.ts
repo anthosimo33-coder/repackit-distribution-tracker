@@ -7,7 +7,7 @@ import { adminMutation, adminQuery } from "./functions";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { fetchWhopPayments } from "./whopApi";
+import { fetchWhopPayments, fetchWhopPlans } from "./whopApi";
 import { summarizeWhopRevenue } from "./whopRevenue";
 import { periodOf } from "./payments";
 
@@ -206,6 +206,48 @@ export const upsertWhopPayments = internalMutation({
   },
 });
 
+/**
+ * Upsert IDEMPOTENT des libellés d'offres (par projet + planId). Un plan absent de
+ * l'appel n'est jamais supprimé (on ne perd pas un libellé sur un hoquet d'API).
+ */
+export const upsertWhopPlans = internalMutation({
+  args: {
+    projectId: v.id("projects"),
+    plans: v.array(
+      v.object({
+        planId: v.string(),
+        name: v.optional(v.string()),
+        price: v.optional(v.number()),
+        currency: v.optional(v.string()),
+        interval: v.optional(v.string()),
+      }),
+    ),
+  },
+  handler: async (ctx, { projectId, plans }): Promise<{ upserted: number }> => {
+    const now = Date.now();
+    let upserted = 0;
+    for (const p of plans) {
+      const existing = await ctx.db
+        .query("whopPlans")
+        .withIndex("by_project_planId", (q) =>
+          q.eq("projectId", projectId).eq("planId", p.planId),
+        )
+        .first();
+      const patch = {
+        name: p.name,
+        price: p.price,
+        currency: p.currency,
+        interval: p.interval,
+        updatedAt: now,
+      };
+      if (existing) await ctx.db.patch(existing._id, patch);
+      else await ctx.db.insert("whopPlans", { projectId, planId: p.planId, ...patch });
+      upserted += 1;
+    }
+    return { upserted };
+  },
+});
+
 export interface WhopSyncSummary {
   ok: boolean;
   /** Projets configurés effectivement synchronisés. */
@@ -275,6 +317,20 @@ export const runHourlySync = internalAction({
         });
         imported += r.inserted;
         updated += r.updated;
+      }
+
+      // Libellés d'offres (point 3) — un appel /plans, NON bloquant : un échec ne
+      // touche ni les paiements ni le net (l'UI garde le prix dérivé des paiements).
+      const plansRes = await fetchWhopPlans(apiKey, proj.companyId, {
+        planIds: proj.planIds,
+      });
+      if (plansRes.error) {
+        console.warn(`[whop-sync] ${proj.slug} : /plans ${plansRes.error} (libellés conservés).`);
+      } else if (plansRes.plans.length > 0) {
+        await ctx.runMutation(internal.whopSync.upsertWhopPlans, {
+          projectId: proj._id,
+          plans: plansRes.plans,
+        });
       }
       projectsSynced += 1;
       console.info(

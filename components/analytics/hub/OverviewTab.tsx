@@ -2,10 +2,27 @@
 
 import { useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { formatNumber } from "@/lib/format";
 import { formatMoney, formatViews } from "@/lib/format-rate";
 import { buildCoherenceChecks } from "@/lib/analytics-hub";
-import { KpiTile, HubNotice, WebhookFixNotice, dash, pct } from "./HubPrimitives";
+import {
+  KpiTile,
+  HubCardHeader,
+  HubNotice,
+  WebhookFixNotice,
+  dash,
+  pct,
+} from "./HubPrimitives";
+import { EXPLAIN } from "./explanations";
+import type { TrendPoint } from "./HubTrendChart";
 import type {
   ProductAnalyticsData,
   RevenueData,
@@ -20,13 +37,29 @@ import type {
  * 5 %, un bandeau REMPLACE les chiffres (un chiffre faux est pire qu'absent).
  *
  * Les KPI de conversion (visiteurs / inscrits / clients) suivent la période
- * choisie (série quotidienne PostHog, ancrée sur la date d'événement). Le revenu
- * et les ratios cumulés portent leur propre ancrage — indiqué en légende.
+ * choisie (série quotidienne PostHog, ancrée sur la date d'événement) et portent
+ * une courbe LISIBLE (survol daté). La table « Détail par jour » donne la lecture
+ * du matin : une ligne par jour, les chiffres clés côte à côte.
  */
 
 function stepCount(steps: { key: string; count: number }[], key: string): number | null {
   const s = steps.find((x) => x.key === key);
   return s ? s.count : null;
+}
+
+/** Jour « métier » Europe/Paris d'un timestamp (ms) → "YYYY-MM-DD" (join du net Whop). */
+function parisDay(ts: number): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(
+    new Date(ts),
+  );
+}
+
+/** "YYYY-MM-DD" → "28 juil." (midi local, pas de décalage de fuseau). */
+function frDay(day: string): string {
+  return new Date(`${day}T12:00:00`).toLocaleDateString("fr-FR", {
+    day: "numeric",
+    month: "short",
+  });
 }
 
 export function OverviewTab({
@@ -52,7 +85,11 @@ export function OverviewTab({
     return all.slice(Math.max(0, all.length - periodDays));
   }, [analytics.overview.daily, periodDays]);
 
-  const subsSeries = daily.map((d) => d.subs);
+  const visitorsPts: TrendPoint[] = daily.map((d) => ({ ts: d.ts, value: d.visitors }));
+  const signupsPts: TrendPoint[] = daily.map((d) => ({ ts: d.ts, value: d.signups }));
+  const subsPts: TrendPoint[] = daily.map((d) => ({ ts: d.ts, value: d.subs }));
+
+  const currency = revenue?.currency ?? undefined;
 
   // Garde-fou C2 : écart dashboard vs Whop.
   const checks = useMemo(() => {
@@ -79,7 +116,7 @@ export function OverviewTab({
       : null;
   const clientsHint =
     coh?.whopMembersTotal == null || clientEcart === null
-      ? "ancré sur le paiement"
+      ? "ancré sur le paiement Whop"
       : clientEcart === 0
         ? "aligné avec le dashboard"
         : `écart de ${clientEcart} avec le dashboard${
@@ -127,6 +164,13 @@ export function OverviewTab({
       ? Math.round(((revenue.ltv - cac) / revenue.ltv) * 1000) / 10
       : null;
 
+  // Table « Détail par jour » : net Whop joint par jour Europe/Paris, plus récent d'abord.
+  const netByDay = useMemo(
+    () => new Map((revenue?.dailyNet ?? []).map((d) => [d.day, d.net])),
+    [revenue],
+  );
+  const dailyRows = useMemo(() => [...daily].reverse(), [daily]);
+
   return (
     <div className="space-y-5">
       <WebhookFixNotice now={now} />
@@ -157,35 +201,36 @@ export function OverviewTab({
               label="Clients payants"
               value={dash(coh?.whopMembersTotal ?? null)}
               delta={null}
-              series={subsSeries}
+              points={subsPts}
               hint={clientsHint}
+              info={EXPLAIN.clientsPayants}
             />
             <KpiTile
               label="Revenu net encaissé"
-              value={dash(totalNet, formatMoney)}
+              value={totalNet === null ? "—" : formatMoney(totalNet, currency)}
               delta={null}
-              series={[]}
               hint={
                 revenue?.feeRate != null
                   ? `frais ${formatNumber(Math.round(revenue.feeRate * 1000) / 10)} % · cumulé`
                   : "cumulé · ancré sur le paiement"
               }
+              info={EXPLAIN.revenuNet}
             />
           </>
         )}
         <KpiTile
-          label="Vues promo → client"
+          label="Vues promo → abonné"
           value={viewsPerClient === null ? "—" : `1 / ${formatViews(viewsPerClient)}`}
           delta={null}
-          series={[]}
           hint="métrique de pilotage · vues à la publication"
+          info={EXPLAIN.vuesPromoClient}
         />
         <KpiTile
-          label="Coût pour gagner un client"
-          value={dash(cac, formatMoney)}
+          label="Coût d'acquisition"
+          value={cac === null ? "—" : formatMoney(cac, currency)}
           delta={null}
-          series={[]}
           hint={margin !== null ? `marge ${formatNumber(margin)} %` : "jours solo uniquement"}
+          info={EXPLAIN.cac}
         />
       </div>
 
@@ -194,39 +239,99 @@ export function OverviewTab({
           label="Complétion checkout"
           value={pct(completion)}
           delta={null}
-          series={[]}
           hint={
             checkoutN !== null && paidN !== null
               ? `${formatNumber(paidN)} / ${formatNumber(checkoutN)} checkouts`
               : "—"
           }
+          info={EXPLAIN.completionCheckout}
         />
         <KpiTile
           label="Visiteurs (période)"
           value={dash(daily.reduce((s, d) => s + d.visitors, 0))}
           delta={null}
-          series={daily.map((d) => d.visitors)}
+          points={visitorsPts}
           hint="ancré sur l'événement"
+          info={EXPLAIN.visiteurs}
         />
         <KpiTile
           label="Inscrits (période)"
           value={dash(daily.reduce((s, d) => s + d.signups, 0))}
           delta={null}
-          series={daily.map((d) => d.signups)}
+          points={signupsPts}
           hint="ancré sur l'inscription"
+          info={EXPLAIN.inscrits}
         />
         <KpiTile
           label="Comptes internes exclus"
           value={dash(reliability?.internalExcluded.persons ?? null)}
           delta={null}
-          series={[]}
           hint={
             reliability
-              ? `sur ${formatNumber(reliability.internalExcluded.totalPersons)} personnes`
+              ? `PostHog · ${dash(reliability.whopInternalExcluded)} côté Whop`
               : "—"
           }
+          info={EXPLAIN.comptesInternes}
         />
       </div>
+
+      {/* Détail par jour — la lecture du matin. */}
+      <Card>
+        <CardContent className="space-y-3 p-4">
+          <HubCardHeader
+            title="Détail par jour"
+            subtitle="Une ligne par jour, du plus récent au plus ancien. Le pic du 27/07 saute aux yeux ici."
+            info={EXPLAIN.detailParJour}
+          />
+          {dailyRows.length === 0 ? (
+            <p className="text-sm text-slate-400">
+              — en attente de la synchro PostHog.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Jour</TableHead>
+                    <TableHead className="text-right">Visiteurs</TableHead>
+                    <TableHead className="text-right">Inscriptions</TableHead>
+                    <TableHead className="text-right">Checkouts ouverts</TableHead>
+                    <TableHead className="text-right">Paiements</TableHead>
+                    <TableHead className="text-right">Revenu net</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {dailyRows.map((d) => {
+                    const net = netByDay.get(parisDay(d.ts));
+                    return (
+                      <TableRow key={d.ts}>
+                        <TableCell className="text-xs tabular-nums text-slate-600">
+                          {frDay(parisDay(d.ts))}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {formatNumber(d.visitors)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {formatNumber(d.signups)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {formatNumber(d.checkouts)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {formatNumber(d.subs)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums font-medium">
+                          {net === undefined ? "—" : formatMoney(net, currency)}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -8,14 +8,21 @@ export type RateModel = {
   bounties?: Array<{ thresholdViews: number; amount: number }>;
 };
 
-export function formatMoney(n: number): string {
+/** Devise par défaut du projet quand la donnée ne porte pas de code (paie créatrices, euros). */
+export const DEFAULT_CURRENCY = "EUR";
+
+/**
+ * Montant formaté dans SA devise. Le code devise vient TOUJOURS de la donnée
+ * (paiements Whop, grille de paie), JAMAIS écrit en dur dans un composant : un
+ * symbole codé en dur affichait des euros en dollars (bug de l'audit initial).
+ * `narrowSymbol` donne un symbole propre (« 4,99 € », « 4,99 $ ») sans coller le
+ * code pays. La devise est acceptée en minuscules (« eur ») comme en majuscules.
+ */
+export function formatMoney(n: number, currency: string = DEFAULT_CURRENCY): string {
+  const code = currency && currency.trim() !== "" ? currency.trim().toUpperCase() : DEFAULT_CURRENCY;
   return new Intl.NumberFormat("fr-FR", {
     style: "currency",
-    currency: "USD",
-    // `narrowSymbol` force un symbole dollar propre : sinon, en locale fr-FR, le
-    // symbole USD par défaut accole « US » au dollar. Le reste du format
-    // (séparateurs, décimales, espace fine avant le symbole) reste identique à
-    // l'ancien rendu euro.
+    currency: code,
     currencyDisplay: "narrowSymbol",
     maximumFractionDigits: 2,
   }).format(n);

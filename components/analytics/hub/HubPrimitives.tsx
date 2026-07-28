@@ -3,11 +3,23 @@
 import type { ReactNode } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/format";
-import { AlertTriangleIcon, InfoIcon, TrendingDownIcon, TrendingUpIcon } from "lucide-react";
+import {
+  AlertTriangleIcon,
+  ClockIcon,
+  InfoIcon,
+  TrendingDownIcon,
+  TrendingUpIcon,
+} from "lucide-react";
 import type { Delta } from "@/lib/analytics-hub";
 import { MIN_SAMPLE_SIZE } from "@/lib/analytics-hub";
+import { HubTrendChart, type TrendPoint } from "./HubTrendChart";
 
 /**
  * Briques partagées du hub Analytics.
@@ -50,6 +62,124 @@ export function formatDuration(ms: number | null): string {
   const h = min / 60;
   if (h < 48) return `${Math.round(h * 10) / 10} h`;
   return `${Math.round((h / 24) * 10) / 10} j`;
+}
+
+// ─── « i » explicatifs ───────────────────────────────────────────────────────
+
+/**
+ * Icône « i » ouvrant une explication courte AU CLIC. Un dashboard qu'on doit
+ * faire interpréter par quelqu'un n'est pas terminé : chaque carte (et chaque
+ * colonne au nom insuffisant) en porte une. La copie vit dans ./explanations.
+ */
+export function InfoDot({
+  label,
+  children,
+  side = "top",
+  className,
+}: {
+  /** Nom de ce qu'on explique — sert l'accessibilité (« Explication : … »). */
+  label: string;
+  children: ReactNode;
+  side?: "top" | "bottom" | "left" | "right";
+  className?: string;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger
+        aria-label={`Explication : ${label}`}
+        className={cn(
+          "inline-flex size-4 shrink-0 cursor-help items-center justify-center rounded-full align-middle text-slate-400 outline-none transition-colors hover:text-slate-700 focus-visible:ring-2 focus-visible:ring-slate-300",
+          className,
+        )}
+      >
+        <InfoIcon className="size-3.5" strokeWidth={2} />
+      </PopoverTrigger>
+      <PopoverContent
+        side={side}
+        className="w-72 max-w-[calc(100vw-2rem)] text-xs leading-relaxed text-slate-600"
+      >
+        {children}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** Libellé de colonne avec un « i » optionnel — à placer dans un TableHead. */
+export function ColLabel({
+  label,
+  info,
+  className,
+}: {
+  label: string;
+  info?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <span className={cn("inline-flex items-center gap-1", className)}>
+      {label}
+      {info ? (
+        <InfoDot label={label} side="top">
+          {info}
+        </InfoDot>
+      ) : null}
+    </span>
+  );
+}
+
+// ─── Fraîcheur de synchro (en-tête) ──────────────────────────────────────────
+
+/** Au-delà de ce délai depuis la dernière synchro, on le signale visiblement. */
+export const STALE_SYNC_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * « Dernière synchro : 28 juil., 19:58 » dans l'en-tête. Sans elle, impossible de
+ * savoir si on lit des données de cinq minutes ou d'hier. Au-delà de 12 h, un
+ * signalement ambre apparaît. Se met à jour d'elle-même après un Actualiser
+ * (computedAt du cache est réactif).
+ */
+export function LastSyncIndicator({
+  computedAt,
+  now,
+}: {
+  computedAt: number | null;
+  now: number;
+}) {
+  if (computedAt === null) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+        <ClockIcon className="size-3.5" />
+        Jamais synchronisé
+      </span>
+    );
+  }
+  const stale = now - computedAt > STALE_SYNC_MS;
+  const label = new Date(computedAt).toLocaleString("fr-FR", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 text-xs",
+        stale ? "font-medium text-amber-700" : "text-slate-500",
+      )}
+      title={
+        stale
+          ? "Dernière synchro il y a plus de 12 heures — cliquez sur Actualiser."
+          : undefined
+      }
+    >
+      {stale ? (
+        <AlertTriangleIcon className="size-3.5" />
+      ) : (
+        <ClockIcon className="size-3.5" />
+      )}
+      Dernière synchro : {label}
+      {stale ? " · plus de 12 h" : null}
+    </span>
+  );
 }
 
 // ─── États vides ─────────────────────────────────────────────────────────────
@@ -284,51 +414,84 @@ export function DeltaBadge({ delta }: { delta: Delta | null }) {
   );
 }
 
-/** Tuile KPI : valeur, évolution vs période précédente, sparkline. */
+/**
+ * Tuile KPI : valeur, évolution, « i » optionnel, et courbe LISIBLE (survol =
+ * date + valeur, dates en abscisse). `points` porte l'horodatage — sans lui, pas
+ * de survol daté. Rétro-compat : `series` (valeurs seules) reste accepté mais
+ * sans dates au survol.
+ */
 export function KpiTile({
   label,
   value,
   delta,
+  points,
   series,
   hint,
+  info,
+  formatValue,
 }: {
   label: string;
   value: string;
   delta: Delta | null;
-  series: number[];
+  points?: TrendPoint[];
+  series?: number[];
   hint?: string;
+  info?: ReactNode;
+  formatValue?: (n: number) => string;
 }) {
+  const chartPoints: TrendPoint[] =
+    points ?? (series ?? []).map((v, i) => ({ ts: i, value: v }));
   return (
     <Card>
-      <CardContent className="space-y-2 p-4">
+      <CardContent className="flex h-full flex-col gap-2 p-4">
         <div className="flex items-baseline justify-between gap-2">
-          <span className="text-xs font-medium text-slate-500">{label}</span>
+          <span className="flex items-center gap-1 text-xs font-medium text-slate-500">
+            {label}
+            {info ? <InfoDot label={label}>{info}</InfoDot> : null}
+          </span>
           <DeltaBadge delta={delta} />
         </div>
         <div className="text-2xl font-bold tabular-nums text-slate-900">
           {value}
         </div>
-        <Sparkline values={series} />
+        {chartPoints.length >= 2 && points ? (
+          <HubTrendChart
+            points={chartPoints}
+            height={64}
+            maxTicks={2}
+            formatValue={formatValue}
+            ariaLabel={`Évolution : ${label}`}
+            className="mt-auto"
+          />
+        ) : chartPoints.length >= 2 ? (
+          <Sparkline values={chartPoints.map((p) => p.value)} className="mt-auto" />
+        ) : null}
         {hint ? <p className="text-xs text-slate-400">{hint}</p> : null}
       </CardContent>
     </Card>
   );
 }
 
-/** En-tête de carte du hub (titre + sous-titre + action optionnelle). */
+/** En-tête de carte du hub (titre + « i » + sous-titre + action optionnelle). */
 export function HubCardHeader({
   title,
   subtitle,
   action,
+  info,
 }: {
   title: string;
   subtitle?: string;
   action?: ReactNode;
+  /** Explication ouverte au clic sur un « i » collé au titre. */
+  info?: ReactNode;
 }) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-2">
       <div className="space-y-0.5">
-        <h3 className="text-base font-semibold text-slate-900">{title}</h3>
+        <h3 className="flex items-center gap-1.5 text-base font-semibold text-slate-900">
+          {title}
+          {info ? <InfoDot label={title}>{info}</InfoDot> : null}
+        </h3>
         {subtitle ? <p className="text-xs text-slate-500">{subtitle}</p> : null}
       </div>
       {action}

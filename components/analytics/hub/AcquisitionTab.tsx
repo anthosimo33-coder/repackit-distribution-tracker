@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/table";
 import { formatViews } from "@/lib/format-rate";
 import { HubCardHeader, HubEmptyState, dash } from "./HubPrimitives";
+import { EXPLAIN } from "./explanations";
 import { UsersIcon } from "lucide-react";
 import type { AttributionData, ViewCountersData } from "./types";
 
@@ -42,6 +43,7 @@ export function AcquisitionTab({
           <HubCardHeader
             title="Vues — trois compteurs"
             subtitle="Jamais mélangés, jamais additionnés. Chacun a un seul usage."
+            info={EXPLAIN.troisCompteurs}
           />
           {viewCounters === undefined ? (
             <p className="text-sm text-slate-400">—</p>
@@ -105,7 +107,8 @@ export function AcquisitionTab({
         <CardContent className="space-y-3 p-4">
           <HubCardHeader
             title="Efficacité par créatrice"
-            subtitle="La médiane prédit la prochaine vidéo, le taux de hit prédit le volume du mois. La moyenne ne prédit rien — non calculée."
+            subtitle="La médiane prédit la prochaine vidéo, le taux de vidéos à succès prédit le volume du mois. La moyenne ne prédit rien, non calculée."
+            info={EXPLAIN.efficaciteCreatrice}
           />
           {attribution.creators.length === 0 ? (
             <HubEmptyState
@@ -157,6 +160,7 @@ export function AcquisitionTab({
           <HubCardHeader
             title="Jours solo"
             subtitle="Une seule créatrice a publié en promo : les inscriptions lui reviennent sans ambiguïté. Sans lien tracké, c'est la seule attribution honnête."
+            info={EXPLAIN.joursSolo}
           />
           {!attribution.attributionAvailable ? (
             <p className="text-xs text-slate-400">
@@ -175,7 +179,7 @@ export function AcquisitionTab({
                   <TableHead className="text-right">Vues promo</TableHead>
                   <TableHead className="text-right">Visites</TableHead>
                   <TableHead className="text-right">Inscrits</TableHead>
-                  <TableHead className="text-right">Clients</TableHead>
+                  <TableHead className="text-right">Abonnés</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

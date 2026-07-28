@@ -79,6 +79,7 @@ export const POSTHOG_CACHE_KEYS = {
   scanReliability: "scanReliability",
   scanLatency: "scanLatency",
   friction: "friction",
+  frictionByStep: "frictionByStep",
   // ─── C2 — Compteur A4 (personnes internes exclues) ─────────────────────────
   internalExcluded: "internalExcluded",
   // ─── Phase B — agrégats des nouveaux onglets ──────────────────────────────
@@ -90,7 +91,14 @@ export const POSTHOG_CACHE_KEYS = {
 // ─── Formes des agrégats cachés ──────────────────────────────────────────────
 
 export interface OverviewPayload {
-  daily: { ts: number; visitors: number; signups: number; subs: number }[];
+  daily: {
+    ts: number;
+    visitors: number;
+    signups: number;
+    /** Personnes ayant ouvert le checkout ce jour-là (colonne « Détail par jour »). */
+    checkouts: number;
+    subs: number;
+  }[];
 }
 export interface FunnelSegment {
   key: string;
@@ -147,6 +155,9 @@ export interface CheckoutReliabilityPayload {
     checkouts: number;
     paid: number;
     divertedFree: number;
+    /** Non payeurs restés sans suite APRÈS un échec de paiement (sous-ensemble de disparus). */
+    failedPayment: number;
+    /** Non payeurs disparus SANS aucune tentative de paiement. */
     disappeared: number;
     medPayMs: number | null;
     p90PayMs: number | null;
@@ -163,9 +174,14 @@ export interface SearchResultsPayload {
   rows: { result: string; persons: number }[];
 }
 
-/** Fiabilité des scans (scan_completed groupé par mode × result). */
+/**
+ * Fiabilité des scans (scan_completed groupé par mode × déclenchement × result).
+ * `trigger` = baseline / planifié : PAS encore émis (l'app a perdu la distinction),
+ * tout tombe en '(inconnu)' → la ventilation par déclenchement s'allume seule le
+ * jour où `scan_trigger` revient.
+ */
 export interface ScanReliabilityPayload {
-  rows: { mode: string; result: string; runs: number }[];
+  rows: { mode: string; trigger: string; result: string; runs: number }[];
 }
 
 /** Latence perçue des scans par tranche d'abonnés du compte scanné. */
@@ -178,16 +194,27 @@ export interface FrictionPayload {
   rows: { page: string; persons: number }[];
 }
 
+/**
+ * Ventilation des rageclicks d'onboarding par ÉTAPE (onboarding_step). En attente
+ * de l'émission côté app : tout tombe en '(inconnu)' tant que la propriété n'est
+ * pas envoyée. La carte s'allume d'elle-même le jour où le numéro d'étape arrive.
+ */
+export interface FrictionByStepPayload {
+  rows: { step: string; persons: number }[];
+}
+
 /** Compteur A4 : personnes internes exclues (marqueur is_internal / handles). */
 export interface InternalExcludedPayload {
   persons: number;
   totalPersons: number;
 }
 
-/** B0a — activation produit par TYPE d'utilisateur (payant / gratuit / autre). */
+/** B0a — activation produit par TYPE d'inscrit (payant / gratuit / sans accès). */
 export interface ActivationPayload {
   rows: {
     segment: string;
+    /** 1 = inscrit le 28/07 ou après (période où les trois groupes sont comparables). */
+    recent: number;
     persons: number;
     targetAdded: number;
     firstAlert: number;
@@ -331,6 +358,7 @@ export function buildQueries(notInternal: string, internalMarker: string) {
 SELECT toStartOfDay(timestamp, 'Europe/Paris') AS d,
        uniqIf(person_id, event = '$pageview') AS visitors,
        uniqIf(person_id, event = 'signup_completed') AS signups,
+       uniqIf(person_id, event = 'checkout_started') AS checkouts,
        uniqIf(person_id, event = 'subscription_completed') AS subs
 FROM events
 WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
@@ -585,6 +613,7 @@ SELECT
   count() AS checkouts,
   sum(paid) AS paid,
   sum(diverted) AS diverted_free,
+  sum(failed_payment) AS failed_payment,
   sum(disappeared) AS disappeared,
   quantileIf(0.5)(pay_delay, pay_delay > 0) AS med_pay_s,
   quantileIf(0.9)(pay_delay, pay_delay > 0) AS p90_pay_s
@@ -593,7 +622,11 @@ FROM (
     device,
     if(paid_c > 0, 1, 0) AS paid,
     if(paid_c = 0 AND freed_c > 0, 1, 0) AS diverted,
-    if(paid_c = 0 AND freed_c = 0, 1, 0) AS disappeared,
+    -- Ventilation des NON payeurs, mutuellement exclusive (total = non payeurs) :
+    -- échec de paiement resté sans suite, puis disparition sans aucune tentative.
+    -- payment_failed n'est donc PLUS ajouté depuis un autre agrégat (double compte).
+    if(paid_c = 0 AND freed_c = 0 AND failed_c > 0, 1, 0) AS failed_payment,
+    if(paid_c = 0 AND freed_c = 0 AND failed_c = 0, 1, 0) AS disappeared,
     if(paid_c > 0, pay_delay_c, 0) AS pay_delay
   FROM (
     SELECT person_id,
@@ -603,10 +636,11 @@ FROM (
         'natif') AS device,
       countIf(event = 'subscription_completed') AS paid_c,
       countIf(event = 'free_tier_started') AS freed_c,
+      countIf(event = 'payment_failed') AS failed_c,
       dateDiff('second', minIf(timestamp, event = 'checkout_started'), minIf(timestamp, event = 'subscription_completed')) AS pay_delay_c
     FROM events
     WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
-      AND event IN ('checkout_started', 'subscription_completed', 'free_tier_started')
+      AND event IN ('checkout_started', 'subscription_completed', 'free_tier_started', 'payment_failed')
     GROUP BY person_id
     HAVING countIf(event = 'checkout_started') > 0
   )
@@ -641,17 +675,23 @@ GROUP BY result
 ORDER BY persons DESC
 LIMIT ${SEGMENT_LIMIT}`,
 
-  /** Fiabilité des scans (scan_completed groupé par mode × result). */
+  /**
+   * Fiabilité des scans (scan_completed groupé par mode × déclenchement × result).
+   * `scan_trigger` distingue baseline/planifié : absent aujourd'hui (tout en
+   * '(inconnu)'), la carte affiche l'agrégat + la régression, et la ventilation par
+   * déclenchement s'allume seule quand la propriété revient.
+   */
   scanReliability: `
 SELECT coalesce(nullIf(toString(properties.mode), ''), '(sans mode)') AS mode,
+       coalesce(nullIf(toString(properties.scan_trigger), ''), '(inconnu)') AS trigger,
        coalesce(nullIf(toString(properties.result), ''), '(sans result)') AS result,
        count() AS runs
 FROM events
 WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
   AND event = 'scan_completed'
-GROUP BY mode, result
+GROUP BY mode, trigger, result
 ORDER BY runs DESC
-LIMIT 40`,
+LIMIT 60`,
 
   /** Latence perçue des scans par tranche d'abonnés du compte scanné. */
   scanLatency: `
@@ -691,20 +731,44 @@ ORDER BY persons DESC
 LIMIT ${SEGMENT_LIMIT}`,
 
   /**
-   * B0a — activation produit par TYPE d'utilisateur : payant (a un abonnement),
-   * gratuit (a démarré le plan gratuit sans payer), autre. Un target_added d'un
-   * payant et d'un gratuit ne racontent pas la même chose → on les sépare.
+   * Friction d'onboarding par ÉTAPE (onboarding_step). Les 9 écrans partagent la
+   * même URL → sans le numéro d'étape, tout tombe en '(inconnu)'. Provisionné pour
+   * s'allumer seul quand l'app émettra la propriété (comme paywallById).
+   */
+  frictionByStep: `
+SELECT ${segExpr("properties.onboarding_step")} AS step, uniq(person_id) AS persons
+FROM events
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+  AND event = '$rageclick'
+  AND coalesce(nullIf(toString(properties['$pathname']), ''), toString(properties['$current_url'])) LIKE '%/onboarding%'
+GROUP BY step
+ORDER BY persons DESC
+LIMIT ${SEGMENT_LIMIT}`,
+
+  /**
+   * B0a — activation produit par TYPE d'INSCRIT : payant (a un abonnement),
+   * gratuit (a le plan gratuit sans payer), « sans accès » (inscrit mais ni
+   * gratuit ni payant). Restreint aux INSCRITS (signup_completed) : les visiteurs
+   * anonymes ne sont pas des inscrits et gonflaient à tort le groupe « sans accès »
+   * (segment 'hors_inscription', écarté à l'affichage). Le drapeau `recent`
+   * marque les inscriptions du 28/07 ou après, seule période où les trois groupes
+   * sont comparables (handle_submitted émis depuis le 28/07, plan gratuit depuis le
+   * 27/07 16 h). L'UI propose une vue « tous » et une vue restreinte au récent.
    */
   activation: `
-SELECT segment,
+SELECT segment, recent,
   count() AS persons,
   countIf(has_target > 0) AS target_added,
   countIf(has_alert > 0) AS first_alert,
   countIf(has_username > 0) AS username_entered
 FROM (
   SELECT person_id,
-    multiIf(countIf(event = 'subscription_completed') > 0, 'payant',
-            countIf(event = 'free_tier_started') > 0, 'gratuit', 'autre') AS segment,
+    multiIf(
+      countIf(event = 'subscription_completed') > 0, 'payant',
+      countIf(event = 'free_tier_started') > 0, 'gratuit',
+      countIf(event = 'signup_completed') > 0, 'sans_acces',
+      'hors_inscription') AS segment,
+    if(minIf(timestamp, event = 'signup_completed') >= toDateTime('2026-07-28 00:00:00', 'Europe/Paris'), 1, 0) AS recent,
     countIf(event = 'target_added') AS has_target,
     countIf(event = 'first_alert_received') AS has_alert,
     countIf(event = 'username_entered') AS has_username
@@ -712,7 +776,7 @@ FROM (
   WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
   GROUP BY person_id
 )
-GROUP BY segment
+GROUP BY segment, recent
 ORDER BY persons DESC`,
 
   /**
@@ -997,14 +1061,15 @@ function shapeCheckoutReliability(rows: unknown[][]): CheckoutReliabilityPayload
   return {
     rows: rows.map((r) => {
       const paid = cellNum(r, 2);
-      const med = cellNum(r, 5);
-      const p90 = cellNum(r, 6);
+      const med = cellNum(r, 6);
+      const p90 = cellNum(r, 7);
       return {
         device: cellStr(r, 0),
         checkouts: cellNum(r, 1),
         paid,
         divertedFree: cellNum(r, 3),
-        disappeared: cellNum(r, 4),
+        failedPayment: cellNum(r, 4),
+        disappeared: cellNum(r, 5),
         // Quantiles en SECONDES → ms. Pas de payeur ⇒ pas de délai (null, pas 0).
         medPayMs: paid > 0 && med > 0 ? med * 1000 : null,
         p90PayMs: paid > 0 && p90 > 0 ? p90 * 1000 : null,
@@ -1064,7 +1129,8 @@ export const runHourlySync = internalAction({
                 ts: cellTimeMs(r, 0),
                 visitors: cellNum(r, 1),
                 signups: cellNum(r, 2),
-                subs: cellNum(r, 3),
+                checkouts: cellNum(r, 3),
+                subs: cellNum(r, 4),
               }))
               .filter((d): d is OverviewPayload["daily"][number] => d.ts !== null),
           }),
@@ -1237,8 +1303,9 @@ export const runHourlySync = internalAction({
           (rows): ScanReliabilityPayload => ({
             rows: rows.map((r) => ({
               mode: cellStr(r, 0),
-              result: cellStr(r, 1),
-              runs: cellNum(r, 2),
+              trigger: cellStr(r, 1),
+              result: cellStr(r, 2),
+              runs: cellNum(r, 3),
             })),
           }),
         ),
@@ -1270,6 +1337,15 @@ export const runHourlySync = internalAction({
           }),
         ),
         await collect(
+          POSTHOG_CACHE_KEYS.frictionByStep,
+          apiKey,
+          target,
+          QUERIES.frictionByStep,
+          (rows): FrictionByStepPayload => ({
+            rows: rows.map((r) => ({ step: cellStr(r, 0), persons: cellNum(r, 1) })),
+          }),
+        ),
+        await collect(
           POSTHOG_CACHE_KEYS.activation,
           apiKey,
           target,
@@ -1277,10 +1353,11 @@ export const runHourlySync = internalAction({
           (rows): ActivationPayload => ({
             rows: rows.map((r) => ({
               segment: cellStr(r, 0),
-              persons: cellNum(r, 1),
-              targetAdded: cellNum(r, 2),
-              firstAlert: cellNum(r, 3),
-              usernameEntered: cellNum(r, 4),
+              recent: cellNum(r, 1),
+              persons: cellNum(r, 2),
+              targetAdded: cellNum(r, 3),
+              firstAlert: cellNum(r, 4),
+              usernameEntered: cellNum(r, 5),
             })),
           }),
         ),
@@ -1425,6 +1502,8 @@ export interface ProductAnalytics {
   scanReliability: ScanReliabilityPayload;
   scanLatency: ScanLatencyPayload;
   friction: FrictionPayload;
+  /** Point 10 — friction d'onboarding par étape (en attente de onboarding_step). */
+  frictionByStep: FrictionByStepPayload;
   /** A4 — personnes internes exclues de tous les agrégats ci-dessus (compteur). */
   internalExcluded: InternalExcludedPayload;
   /** B0a — activation par type d'utilisateur. */
@@ -1476,6 +1555,7 @@ export const getProductAnalytics = adminQuery({
       scanReliability: { rows: [] },
       scanLatency: { rows: [] },
       friction: { rows: [] },
+      frictionByStep: { rows: [] },
       internalExcluded: EMPTY_INTERNAL_EXCLUDED,
       activation: { rows: [] },
       abVariants: { rows: [] },
@@ -1531,6 +1611,7 @@ export const getProductAnalytics = adminQuery({
       scanReliability: read(POSTHOG_CACHE_KEYS.scanReliability, { rows: [] }),
       scanLatency: read(POSTHOG_CACHE_KEYS.scanLatency, { rows: [] }),
       friction: read(POSTHOG_CACHE_KEYS.friction, { rows: [] }),
+      frictionByStep: read(POSTHOG_CACHE_KEYS.frictionByStep, { rows: [] }),
       internalExcluded: read(
         POSTHOG_CACHE_KEYS.internalExcluded,
         EMPTY_INTERNAL_EXCLUDED,

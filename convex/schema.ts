@@ -1298,6 +1298,25 @@ export default defineSchema({
     .index("by_whopId", ["whopId"])
     .index("by_project_paidAt", ["projectId", "paidAt"]),
 
+  // Libellés des offres Whop (cache d'un appel /plans). L'ID `plan_22OfkN5xAE13m`
+  // ne dit rien ; « Hebdo 3 cibles » oui. Récupéré au cron whopSync, tolérant à
+  // l'échec (on garde le prix, dérivé des paiements, si l'appel échoue). Champs
+  // optionnels : l'API Whop ne fournit pas toujours un nom.
+  whopPlans: defineTable({
+    projectId: v.id("projects"),
+    // ID Whop du plan (clé de jointure avec whopPayments.planId).
+    planId: v.string(),
+    // Libellé lisible fourni par Whop (title/name/internal_notes) si présent.
+    name: v.optional(v.string()),
+    // Prix et cadence si l'API les fournit (jamais fabriqués).
+    price: v.optional(v.number()),
+    currency: v.optional(v.string()),
+    interval: v.optional(v.string()),
+    updatedAt: v.number(),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_project_planId", ["projectId", "planId"]),
+
   // ─── Cache des agrégats PostHog (hub Analytics) ────────────────────────────
   // L'API PostHog est LENTE et limitée en débit → elle n'est JAMAIS appelée dans
   // le chemin de rendu. Le cron horaire (posthogSync.runHourlySync) écrit ici un

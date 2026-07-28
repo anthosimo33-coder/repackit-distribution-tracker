@@ -242,7 +242,7 @@ export default function PaiementsPage() {
                   "Méthode",
                   "Coordonnées",
                   "Cycle",
-                  "Total dû ($)",
+                  "Total dû (€)",
                   "Statut",
                 ],
                 ...rows.map((p) => [

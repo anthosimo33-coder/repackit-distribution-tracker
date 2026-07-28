@@ -20,6 +20,7 @@
 import { normalizeWhopStatus, type WhopStatus } from "./whopRevenue";
 
 const WHOP_PAYMENTS_ENDPOINT = "https://api.whop.com/api/v1/payments";
+const WHOP_PLANS_ENDPOINT = "https://api.whop.com/api/v1/plans";
 const PAGE_SIZE = 100;
 /** Borne de sécurité : 50 × 100 = 5000 paiements/sync (anti-boucle infinie). */
 const MAX_PAGES = 50;
@@ -125,6 +126,107 @@ export function normalizeWhopPayment(raw: unknown): NormalizedWhopPayment | null
     planId,
     membershipId,
   };
+}
+
+// ─── Offres (plans) : libellé lisible, un seul appel, tolérant à l'échec ──────
+
+/** Offre Whop NORMALISÉE — tout est optionnel (l'API ne fournit pas toujours un nom). */
+export interface NormalizedWhopPlan {
+  planId: string;
+  name?: string;
+  price?: number;
+  currency?: string;
+  interval?: string;
+}
+
+export interface FetchWhopPlansResult {
+  plans: NormalizedWhopPlan[];
+  error: string | null;
+}
+
+/** Cadence lisible depuis une période Whop en jours (7 → « semaine », 30/31 → « mois »). */
+function intervalLabel(days: unknown): string | undefined {
+  const n = toAmount(days);
+  if (!(n > 0)) return undefined;
+  if (n <= 1) return "jour";
+  if (n <= 7) return "semaine";
+  if (n <= 31) return "mois";
+  if (n <= 92) return "trimestre";
+  if (n <= 366) return "an";
+  return undefined;
+}
+
+/**
+ * Normalise un plan brut de l'API : ID obligatoire, le reste au mieux. Le NOM est
+ * cherché dans les champs candidats connus (title/name/internal_notes) SANS rien
+ * fabriquer — null si l'API n'en donne pas, l'UI retombe alors sur le prix.
+ */
+export function normalizeWhopPlan(raw: unknown): NormalizedWhopPlan | null {
+  const r = asRecord(raw);
+  if (!r) return null;
+  const planId = getStr(r.id);
+  if (!planId) return null;
+  const product = asRecord(r.product);
+  const name =
+    getStr(r.title) ??
+    getStr(r.name) ??
+    getStr(r.internal_notes) ??
+    getStr(product?.title) ??
+    getStr(product?.name);
+  const priceRaw = r.renewal_price ?? r.initial_price ?? r.base_price ?? r.price;
+  const price = priceRaw !== undefined && priceRaw !== null ? toAmount(priceRaw) : undefined;
+  const currency = getStr(r.base_currency) ?? getStr(r.currency);
+  const interval =
+    intervalLabel(r.billing_period) ?? getStr(r.billing_period_label) ?? getStr(r.plan_type);
+  return {
+    planId,
+    name,
+    price: price !== undefined && price > 0 ? round2(price) : undefined,
+    currency: currency ? currency.toLowerCase() : undefined,
+    interval,
+  };
+}
+
+/**
+ * Liste les offres du compte Whop `companyId` (un appel, borné à une page : un
+ * compte a une poignée de plans). `planIds` restreint aux offres du projet. Toute
+ * erreur réseau/HTTP est CAPTURÉE et renvoyée (les libellés existants sont
+ * conservés, l'UI garde le prix) — la clé n'est jamais mise en URL ni loguée.
+ */
+export async function fetchWhopPlans(
+  apiKey: string,
+  companyId: string,
+  opts: { planIds?: string[]; fetchImpl?: typeof fetch } = {},
+): Promise<FetchWhopPlansResult> {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const params = new URLSearchParams();
+  params.set("company_id", companyId);
+  params.set("first", String(PAGE_SIZE));
+  for (const pid of opts.planIds ?? []) params.append("plan_ids", pid);
+
+  let res: Response;
+  try {
+    res = await fetchImpl(`${WHOP_PLANS_ENDPOINT}?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+    });
+  } catch (e) {
+    return { plans: [], error: `network: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  if (!res.ok) return { plans: [], error: await readWhopError(res) };
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    return { plans: [], error: "réponse Whop illisible (JSON invalide)" };
+  }
+  const root = asRecord(json);
+  const data = Array.isArray(root?.data) ? (root!.data as unknown[]) : [];
+  const plans: NormalizedWhopPlan[] = [];
+  for (const raw of data) {
+    const norm = normalizeWhopPlan(raw);
+    if (norm) plans.push(norm);
+  }
+  return { plans, error: null };
 }
 
 function parsePage(json: unknown): {

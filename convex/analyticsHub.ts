@@ -69,6 +69,31 @@ function isCostBearing(a: Doc<"assignments">): boolean {
   return a.status === "published" || a.status === "paid";
 }
 
+/**
+ * Prix affiché d'une offre = brut le PLUS FRÉQUENT de ses paiements (et sa
+ * devise). L'ID Whop `plan_22OfkN5xAE13m` ne dit rien ; « 7,99 € » oui. Robuste
+ * à un montant aberrant isolé. null si aucun paiement chiffré.
+ */
+function modalPrice(
+  payments: { grossAmount: number; currency: string }[],
+): { price: number | null; currency: string | null } {
+  const counts = new Map<string, { n: number; price: number; currency: string }>();
+  for (const p of payments) {
+    if (!(p.grossAmount > 0)) continue;
+    const key = `${p.grossAmount}|${p.currency}`;
+    const cur = counts.get(key) ?? { n: 0, price: p.grossAmount, currency: p.currency };
+    cur.n += 1;
+    counts.set(key, cur);
+  }
+  let best: { n: number; price: number; currency: string } | null = null;
+  for (const c of counts.values()) {
+    if (best === null || c.n > best.n) best = c;
+  }
+  return best
+    ? { price: best.price, currency: best.currency }
+    : { price: null, currency: null };
+}
+
 export interface AttributionRow {
   assignmentId: string;
   creatorId: string;
@@ -342,6 +367,16 @@ export interface RevenuePeriod {
 
 export interface PlanEconomics {
   planId: string;
+  /** Libellé lisible de l'offre récupéré depuis Whop (/plans). null si non fourni → l'UI affiche le prix. */
+  name: string | null;
+  /** Cadence lisible (« semaine », « mois »…) si Whop la fournit. */
+  interval: string | null;
+  /** Prix affiché de l'offre (brut le plus fréquent) — l'ID Whop ne dit rien à personne. */
+  price: number | null;
+  /** Devise de l'offre (le symbole vient de la donnée, jamais du code). */
+  currency: string | null;
+  /** true = offre ACTIVE (au moins un paiement encaissé) ; false = offre HISTORIQUE. */
+  active: boolean;
   members: number;
   netTotal: number;
   /** LTV RÉALISÉE = net cumulé / membres (pas de projection : sans signal de
@@ -353,6 +388,8 @@ export interface PlanEconomics {
   feeRate: number | null;
   /** B3 — Net par mois-membre actif (« net/mois/client »). null si aucun. */
   netPerMemberMonth: number | null;
+  /** Raison si le net n'est pas calculable (offre sans paiement encaissé). null sinon. */
+  netReason: string | null;
 }
 
 export interface RevenueBreakdown {
@@ -364,6 +401,8 @@ export interface RevenueBreakdown {
   feeRate: number | null;
   periods: RevenuePeriod[];
   plans: PlanEconomics[];
+  /** Revenu net par jour Europe/Paris — colonne « Détail par jour » (Vue d'ensemble). */
+  dailyNet: { day: string; net: number }[];
   /** Revenu net moyen par membre et par mois actif (dénominateur du payback). */
   monthlyArpu: number | null;
   /** LTV réalisée toutes offres confondues. */
@@ -395,6 +434,7 @@ export const getRevenueBreakdown = adminQuery({
         feeRate: null,
         periods: [],
         plans: [],
+        dailyNet: [],
         monthlyArpu: null,
         ltv: null,
         churnAvailable: false,
@@ -508,12 +548,33 @@ export const getRevenueBreakdown = adminQuery({
       list.push(p);
       paymentsByPlan.set(k, list);
     }
+    // Libellés d'offres Whop (point 3) — récupérés au cron whopSync. Absents ⇒
+    // l'UI retombe sur le prix (dérivé des paiements). Aucune fabrication.
+    const planLabels = new Map(
+      (
+        await ctx.db
+          .query("whopPlans")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect()
+      ).map((p) => [p.planId, p]),
+    );
+
     const round2 = (n: number) => Math.round(n * 100) / 100;
     const plans: PlanEconomics[] = [...byPlan.entries()]
       .map(([planId, x]) => {
-        const s = summarizeWhopRevenue(paymentsByPlan.get(planId) ?? []);
+        const list = paymentsByPlan.get(planId) ?? [];
+        const s = summarizeWhopRevenue(list);
+        const { price, currency } = modalPrice(list);
+        const active = s.paymentCount > 0;
+        const label = planLabels.get(planId);
         return {
           planId,
+          name: label?.name ?? null,
+          interval: label?.interval ?? null,
+          // Prix : celui des paiements (fiable) en priorité, sinon celui de /plans.
+          price: price ?? label?.price ?? null,
+          currency: currency ?? label?.currency ?? null,
+          active,
           members: x.members,
           netTotal: round2(x.netTotal),
           ltv: x.members > 0 ? round2(x.netTotal / x.members) : null,
@@ -521,9 +582,33 @@ export const getRevenueBreakdown = adminQuery({
           feeRate: s.feeRate,
           netPerMemberMonth:
             x.memberMonths > 0 ? round2(x.netTotal / x.memberMonths) : null,
+          // Un net non calculable a une CAUSE affichée (offre historique sans
+          // encaissement) plutôt qu'un tiret muet.
+          netReason: active
+            ? null
+            : "Aucun paiement encaissé sur cette offre, seulement des tentatives échouées. Le net n'est pas calculable.",
         };
       })
-      .sort((a, b) => b.netTotal - a.netTotal);
+      // Offres actives d'abord (par net décroissant), offres historiques ensuite.
+      .sort(
+        (a, b) =>
+          Number(b.active) - Number(a.active) || b.netTotal - a.netTotal,
+      );
+
+    // Revenu net par JOUR Europe/Paris (colonne « Détail par jour »). En multi-
+    // devise on ne somme pas : série vide (la carte affiche alors un tiret).
+    const netByDay = new Map<string, number>();
+    if (!summarizeWhopRevenue(payments).mixedCurrency) {
+      for (const p of payments) {
+        const net = whopNetContribution(p);
+        if (net <= 0) continue;
+        const day = parisDay(p.paidAt);
+        netByDay.set(day, round2((netByDay.get(day) ?? 0) + net));
+      }
+    }
+    const dailyNet = [...netByDay.entries()]
+      .map(([day, net]) => ({ day, net }))
+      .sort((a, b) => (a.day < b.day ? -1 : 1));
 
     const totalNet = [...perMembership.values()].reduce((s, m) => s + m.net, 0);
     const totalMembers = perMembership.size;
@@ -540,6 +625,7 @@ export const getRevenueBreakdown = adminQuery({
       feeRate: summary.feeRate,
       periods,
       plans,
+      dailyNet,
       monthlyArpu:
         totalMemberMonths > 0 ? round2(totalNet / totalMemberMonths) : null,
       ltv: totalMembers > 0 ? round2(totalNet / totalMembers) : null,
@@ -566,8 +652,10 @@ export interface ReliabilityResult {
   computedAt: number | null;
   /** État de CHAQUE event du contrat (carte instrumentation). */
   instrumentation: InstrumentationPayload;
-  /** Personnes internes exclues (compteur A4). */
+  /** Personnes internes exclues côté PostHog (compteur A4). */
   internalExcluded: InternalExcludedPayload;
+  /** Memberships internes exclus côté Whop (le compte de test de l'admin). */
+  whopInternalExcluded: number;
   /**
    * ENTRÉES des contrôles de cohérence — le CLIENT appelle
    * `lib/analytics-hub.buildCoherenceChecks` (ce module pur vit côté client, pas
@@ -681,6 +769,7 @@ export const getReliability = adminQuery({
     let whopMembersTotal: number | null = null;
     let whopExcludedPre = 0;
     let whopExcludedAfter = 0;
+    let whopInternalExcluded = 0;
     let whopSyncMs: number | null = null;
     if (project?.whop) {
       const payments = await ctx.db
@@ -688,14 +777,23 @@ export const getReliability = adminQuery({
         .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
         .collect();
       currencyCount = summarizeWhopRevenue(payments).currencies.length;
+      // A4 — comptes internes exclus DES DEUX CÔTÉS : ici aussi (pas seulement du
+      // revenu), sinon « Clients payants » comptait le compte de test de l'admin.
+      const internalCfg = internalAccountsFor(project.slug);
+      const internalMembers = new Set<string>();
       // Premier paiement encaissé par membership (date de « début » du client).
       const firstPaid = new Map<string, number>();
       for (const p of payments) {
         whopSyncMs = Math.max(whopSyncMs ?? 0, p.updatedAt);
         if (!p.membershipId || whopNetContribution(p) <= 0) continue;
+        if (isInternalWhopMembership(p.membershipId, internalCfg)) {
+          internalMembers.add(p.membershipId);
+          continue;
+        }
         const prev = firstPaid.get(p.membershipId);
         if (prev === undefined || p.paidAt < prev) firstPaid.set(p.membershipId, p.paidAt);
       }
+      whopInternalExcluded = internalMembers.size;
       let comparable = 0;
       for (const first of firstPaid.values()) {
         if (instrumentationStart !== null && first < instrumentationStart) {
@@ -727,6 +825,7 @@ export const getReliability = adminQuery({
       computedAt: posthogSyncMs,
       instrumentation,
       internalExcluded,
+      whopInternalExcluded,
       coherence: {
         sequentialSteps,
         reachSteps,

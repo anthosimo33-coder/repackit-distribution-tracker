@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -12,21 +13,30 @@ import {
 } from "@/components/ui/table";
 import { formatNumber } from "@/lib/format";
 import { formatMoney } from "@/lib/format-rate";
-import { isConclusive, MIN_SAMPLE_SIZE, computeConversion } from "@/lib/analytics-hub";
+import { computeConversion } from "@/lib/analytics-hub";
 import { HubCardHeader, HubNotice, dash, pct, formatDuration } from "./HubPrimitives";
+import { EXPLAIN } from "./explanations";
 import type { ProductAnalyticsData, RevenueData } from "./types";
 
 /**
- * Onglet OFFRES & TESTS (B3) — suivi d'A/B test, économie par offre (taux de
- * frais réel = brut − net), plan gratuit, et journal des changements d'offre.
- * Sous le seuil de significativité, la carte affiche « non concluant » et le
- * volume restant, jamais un gagnant.
+ * Onglet OFFRES & TESTS (B3) — les TYPES de paywall émis aujourd'hui (gate/upsell,
+ * PAS un test A/B : renommé pour ne pas faire décider sur du vide), une carte Test
+ * A/B distincte (« aucun test en cours » tant qu'aucun experiment_id n'arrive),
+ * l'économie par offre avec nom et prix lisibles, et le plan gratuit.
  */
 
 /** Ratio en % tolérant au 0. */
 function ratePct(num: number, den: number): number | null {
   return den > 0 ? Math.round((num / den) * 1000) / 10 : null;
 }
+
+/** Les deux TYPES de paywall (pas des variantes de test). */
+const PAYWALL_TYPE_LABELS: Record<string, string> = {
+  gate: "Bloquant (gate)",
+  upsell: "Appoint (upsell)",
+  "(sans variante)": "Type inconnu",
+  "(inconnu)": "Type inconnu",
+};
 
 export function OffresTab({
   analytics,
@@ -35,18 +45,15 @@ export function OffresTab({
   analytics: ProductAnalyticsData;
   revenue: RevenueData | undefined;
 }) {
-  const ab = useMemo(
+  const paywallTypes = useMemo(
     () =>
       analytics.abVariants.rows.map((v) => ({
         ...v,
         completion: ratePct(v.paid, v.checkouts),
         targetsPerClient: v.paid > 0 ? Math.round((v.clientTargets / v.paid) * 10) / 10 : null,
-        conclusive: isConclusive(v.exposed),
       })),
     [analytics.abVariants.rows],
   );
-  const totalExposed = ab.reduce((s, v) => s + v.exposed, 0);
-  const anyInconclusive = ab.some((v) => !v.conclusive);
   const free = analytics.freePlan;
   const paywallRows = analytics.paywallById.rows;
   const paywallReady = paywallRows.some(
@@ -56,36 +63,44 @@ export function OffresTab({
     paywallRows.map((r) => ({ key: r.key, label: r.key, n: r.n, converted: r.converted })),
   );
 
+  // Un vrai test A/B n'existe que si experiment_id est émis (sinon « aucun test »).
+  const abTestActive =
+    (analytics.instrumentation.props.find((p) => p.key === "experiment_id")
+      ?.present ?? 0) > 0;
+
+  const plans = revenue?.plans ?? [];
+  const hasHistorical = plans.some((p) => !p.active);
+
   return (
     <div className="space-y-6">
-      {/* A/B test */}
+      {/* Types de paywall émis aujourd'hui (ce ne sont PAS des variantes de test) */}
       <Card>
         <CardContent className="space-y-3 p-4">
           <HubCardHeader
-            title="Test en cours — variantes de paywall"
-            subtitle="Une variante par personne (sa dernière vue). Le nombre de cibles par client est le cœur du test : le modèle par cible ne tient que si les gens en prennent plusieurs."
+            title="Types de paywall"
+            subtitle="Les deux paywalls que l'app affiche aujourd'hui. Le nombre de cibles par abonné est clé : le modèle par cible ne tient que si les gens en prennent plusieurs."
+            info={EXPLAIN.typesPaywall}
           />
-          {ab.length === 0 ? (
-            <p className="text-xs text-slate-400">— aucune variante émise.</p>
+          {paywallTypes.length === 0 ? (
+            <p className="text-xs text-slate-400">— aucun paywall émis.</p>
           ) : (
             <>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Variante</TableHead>
+                    <TableHead>Type de paywall</TableHead>
                     <TableHead className="text-right">Exposés</TableHead>
                     <TableHead className="text-right">Checkouts</TableHead>
                     <TableHead className="text-right">Payés</TableHead>
                     <TableHead className="text-right">Complétion</TableHead>
-                    <TableHead className="text-right">Cibles/client</TableHead>
-                    <TableHead className="text-right">Net/exposé</TableHead>
+                    <TableHead className="text-right">Cibles/abonné</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {ab.map((v) => (
+                  {paywallTypes.map((v) => (
                     <TableRow key={v.variant}>
                       <TableCell className="text-xs font-medium text-slate-700">
-                        {v.variant}
+                        {PAYWALL_TYPE_LABELS[v.variant] ?? v.variant}
                       </TableCell>
                       <TableCell className="text-right text-xs tabular-nums">
                         {formatNumber(v.exposed)}
@@ -102,27 +117,59 @@ export function OffresTab({
                       <TableCell className="text-right text-xs tabular-nums font-semibold">
                         {dash(v.targetsPerClient)}
                       </TableCell>
-                      <TableCell className="text-right text-xs text-slate-400">
-                        —
-                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
-              {anyInconclusive ? (
-                <HubNotice>
-                  <strong>Résultat non concluant.</strong> {formatNumber(totalExposed)}{" "}
-                  exposés — sous {MIN_SAMPLE_SIZE} par variante, la différence
-                  n&apos;est pas distinguable du bruit. Ne pas trancher.
-                </HubNotice>
-              ) : null}
               <p className="text-xs text-slate-400">
-                « Net par exposé » n&apos;est pas mesurable : la variante n&apos;est
-                pas portée par le paiement Whop, aucun rapprochement variante↔revenu
-                n&apos;est possible. Tiret plutôt qu&apos;un chiffre inventé.
+                Le paywall <strong>bloquant</strong> empêche d&apos;accéder tant
+                qu&apos;on n&apos;a pas payé ; le paywall <strong>d&apos;appoint</strong>{" "}
+                propose un supplément sans bloquer. Ce sont deux modes du produit, pas
+                les bras d&apos;un test.
               </p>
             </>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Test A/B — carte distincte, « aucun test en cours » par défaut */}
+      <Card>
+        <CardContent className="space-y-3 p-4">
+          <HubCardHeader
+            title="Test A/B"
+            subtitle="Un vrai test compare deux offres pour décider laquelle garder."
+            info={EXPLAIN.testAB}
+          />
+          {abTestActive ? (
+            <HubNotice className="border-emerald-200 bg-emerald-50/70 text-emerald-900">
+              Un identifiant de test (<code>experiment_id</code>) est présent dans les
+              données. Le rapprochement variante ↔ revenu reste nécessaire pour la
+              métrique de décision (net par personne exposée) : à câbler avec le dev.
+            </HubNotice>
+          ) : (
+            <HubNotice className="border-slate-200 bg-slate-50 text-slate-600">
+              Aucun test en cours : aucun <code>experiment_id</code> n&apos;est présent
+              dans les données. Cette carte s&apos;allumera d&apos;elle-même au
+              démarrage d&apos;un test.
+            </HubNotice>
+          )}
+          <div className="space-y-1 text-xs text-slate-500">
+            <p className="font-medium text-slate-600">
+              Définitions figées du prochain test :
+            </p>
+            <p>
+              <strong>A, paywall souple</strong> : plan gratuit avec 1 cible, puis
+              4,99 € par semaine et 16,99 € par mois, par cible.
+            </p>
+            <p>
+              <strong>B, paywall bloquant</strong> : pas de plan gratuit, 7,99 € par
+              semaine et 24,99 € par mois, pour 3 cibles.
+            </p>
+            <p>
+              Décision sur le <strong>revenu net par personne exposée</strong>, fenêtre
+              de 14 jours.
+            </p>
+          </div>
         </CardContent>
       </Card>
 
@@ -132,6 +179,7 @@ export function OffresTab({
           <HubCardHeader
             title="Conversion par paywall"
             subtitle="L'app a 6 paywalls distincts, mais variant n'en distingue que 2 (gate/upsell)."
+            info={EXPLAIN.conversionParPaywall}
           />
           {!paywallReady ? (
             <HubNotice className="border-slate-200 bg-slate-50 text-slate-600">
@@ -174,50 +222,98 @@ export function OffresTab({
       </Card>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* Économie par offre */}
+        {/* Économie par offre — nom + prix lisibles, actives vs historiques */}
         <Card>
           <CardContent className="space-y-3 p-4">
             <HubCardHeader
               title="Économie par offre"
               subtitle="Taux de frais réel (brut − net), jamais une formule supposée."
+              info={EXPLAIN.economieOffre}
             />
-            {!revenue?.configured || revenue.plans.length === 0 ? (
+            {!revenue?.configured || plans.length === 0 ? (
               <p className="text-xs text-slate-400">
                 — Whop non configuré ou aucun paiement encaissé.
               </p>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Offre</TableHead>
-                    <TableHead className="text-right">Clients</TableHead>
-                    <TableHead className="text-right">Net/paiement</TableHead>
-                    <TableHead className="text-right">Frais</TableHead>
-                    <TableHead className="text-right">Net/mois/client</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {revenue.plans.map((p) => (
-                    <TableRow key={p.planId}>
-                      <TableCell className="text-xs font-medium text-slate-700">
-                        {p.planId}
-                      </TableCell>
-                      <TableCell className="text-right text-xs tabular-nums">
-                        {formatNumber(p.members)}
-                      </TableCell>
-                      <TableCell className="text-right text-xs tabular-nums">
-                        {dash(p.netPerPayment, formatMoney)}
-                      </TableCell>
-                      <TableCell className="text-right text-xs tabular-nums">
-                        {p.feeRate === null ? "—" : `${formatNumber(Math.round(p.feeRate * 1000) / 10)} %`}
-                      </TableCell>
-                      <TableCell className="text-right text-xs tabular-nums font-semibold">
-                        {dash(p.netPerMemberMonth, formatMoney)}
-                      </TableCell>
+              <>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Offre</TableHead>
+                      <TableHead className="text-right">Abonnés</TableHead>
+                      <TableHead className="text-right">Net/paiement</TableHead>
+                      <TableHead className="text-right">Frais</TableHead>
+                      <TableHead className="text-right">Net/mois/abonné</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {plans.map((p) => (
+                      <TableRow key={p.planId} className={p.active ? "" : "opacity-60"}>
+                        <TableCell>
+                          <div className="flex flex-col gap-0.5">
+                            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700">
+                              {p.name ??
+                                (p.price === null
+                                  ? "Offre"
+                                  : formatMoney(p.price, p.currency ?? undefined))}
+                              {p.active ? null : (
+                                <Badge
+                                  variant="outline"
+                                  className="border-slate-200 text-[10px] text-slate-500"
+                                >
+                                  historique
+                                </Badge>
+                              )}
+                            </span>
+                            <span className="font-mono text-[10px] text-slate-400">
+                              {p.name && p.price !== null
+                                ? `${formatMoney(p.price, p.currency ?? undefined)}${
+                                    p.interval ? ` / ${p.interval}` : ""
+                                  } · ${p.planId}`
+                                : p.planId}
+                            </span>
+                          </div>
+                        </TableCell>
+                        {p.netReason ? (
+                          <TableCell
+                            colSpan={4}
+                            className="text-right text-xs text-slate-400"
+                          >
+                            {p.netReason}
+                          </TableCell>
+                        ) : (
+                          <>
+                            <TableCell className="text-right text-xs tabular-nums">
+                              {formatNumber(p.members)}
+                            </TableCell>
+                            <TableCell className="text-right text-xs tabular-nums">
+                              {dash(p.netPerPayment, (n) =>
+                                formatMoney(n, p.currency ?? undefined),
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right text-xs tabular-nums">
+                              {p.feeRate === null
+                                ? "—"
+                                : `${formatNumber(Math.round(p.feeRate * 1000) / 10)} %`}
+                            </TableCell>
+                            <TableCell className="text-right text-xs tabular-nums font-semibold">
+                              {dash(p.netPerMemberMonth, (n) =>
+                                formatMoney(n, p.currency ?? undefined),
+                              )}
+                            </TableCell>
+                          </>
+                        )}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                {hasHistorical ? (
+                  <p className="text-xs text-slate-400">
+                    Offres actives d&apos;abord ; les offres grisées sont des restes de
+                    changements d&apos;offre successifs, sans paiement encaissé.
+                  </p>
+                ) : null}
+              </>
             )}
           </CardContent>
         </Card>
@@ -228,6 +324,7 @@ export function OffresTab({
             <HubCardHeader
               title="Plan gratuit"
               subtitle="Inscriptions, usage réel, passage au payant."
+              info={EXPLAIN.planGratuit}
             />
             <Table>
               <TableBody>
