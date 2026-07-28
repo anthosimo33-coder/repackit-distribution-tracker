@@ -413,11 +413,31 @@ describe("buildCoherenceChecks", () => {
     expect(m.get("no_cross_currency")).toBe("info");
   });
 
-  it("écart clients dashboard/Whop au-delà de la tolérance → violation", () => {
+  it("petit écart (>5 % mais ≤5 clients) NE masque PAS → info", () => {
+    // 19 vs 21 = 9,5 % mais seulement 2 clients : les deux seuils ne sont pas franchis.
     const m = byKey(
-      buildCoherenceChecks({ ...base, dashboardClients: 21, whopMembers: 10 }),
+      buildCoherenceChecks({ ...base, dashboardClients: 19, whopMembers: 21 }),
+    );
+    expect(m.get("dashboard_vs_whop")).toBe("info");
+  });
+
+  it("gros écart (>5 % ET >5 clients) → violation (masque)", () => {
+    const m = byKey(
+      buildCoherenceChecks({ ...base, dashboardClients: 10, whopMembers: 21 }),
     );
     expect(m.get("dashboard_vs_whop")).toBe("violation");
+  });
+
+  it("affiche la cause (memberships antérieurs à l'instrumentation)", () => {
+    const checks = buildCoherenceChecks({
+      ...base,
+      dashboardClients: 19,
+      whopMembers: 20,
+      whopExcludedPre: 2,
+    });
+    const c = checks.find((x) => x.key === "dashboard_vs_whop");
+    expect(c?.status).toBe("info");
+    expect(c?.detail).toContain("antérieur");
   });
 
   it("source manquante → dashboard/Whop en attente (info, pas 0)", () => {

@@ -347,6 +347,12 @@ export interface PlanEconomics {
   /** LTV RÉALISÉE = net cumulé / membres (pas de projection : sans signal de
    *  churn, une LTV prédictive serait inventée). */
   ltv: number | null;
+  /** B3 — Net moyen par paiement. null si aucun paiement encaissé. */
+  netPerPayment: number | null;
+  /** B3 — taux de frais du plan (brut − net)/brut, fraction 0–1. null si mixte/nul. */
+  feeRate: number | null;
+  /** B3 — Net par mois-membre actif (« net/mois/client »). null si aucun. */
+  netPerMemberMonth: number | null;
 }
 
 export interface RevenueBreakdown {
@@ -478,21 +484,45 @@ export const getRevenueBreakdown = adminQuery({
       perMembership.set(p.membershipId, cur);
     }
 
-    const byPlan = new Map<string, { members: number; netTotal: number }>();
+    const byPlan = new Map<
+      string,
+      { members: number; netTotal: number; memberMonths: number }
+    >();
     for (const m of perMembership.values()) {
-      const cur = byPlan.get(m.planId) ?? { members: 0, netTotal: 0 };
+      const cur = byPlan.get(m.planId) ?? {
+        members: 0,
+        netTotal: 0,
+        memberMonths: 0,
+      };
       cur.members += 1;
       cur.netTotal += m.net;
+      cur.memberMonths += m.months.size;
       byPlan.set(m.planId, cur);
+    }
+    // Éco par offre : frais (brut − net) et net/paiement par plan, via le même
+    // moteur devise-sûr (C6) sur le sous-ensemble de paiements du plan.
+    const paymentsByPlan = new Map<string, typeof payments>();
+    for (const p of payments) {
+      const k = p.planId ?? "(sans plan)";
+      const list = paymentsByPlan.get(k) ?? [];
+      list.push(p);
+      paymentsByPlan.set(k, list);
     }
     const round2 = (n: number) => Math.round(n * 100) / 100;
     const plans: PlanEconomics[] = [...byPlan.entries()]
-      .map(([planId, x]) => ({
-        planId,
-        members: x.members,
-        netTotal: round2(x.netTotal),
-        ltv: x.members > 0 ? round2(x.netTotal / x.members) : null,
-      }))
+      .map(([planId, x]) => {
+        const s = summarizeWhopRevenue(paymentsByPlan.get(planId) ?? []);
+        return {
+          planId,
+          members: x.members,
+          netTotal: round2(x.netTotal),
+          ltv: x.members > 0 ? round2(x.netTotal / x.members) : null,
+          netPerPayment: s.paymentCount > 0 ? round2(s.net / s.paymentCount) : null,
+          feeRate: s.feeRate,
+          netPerMemberMonth:
+            x.memberMonths > 0 ? round2(x.netTotal / x.memberMonths) : null,
+        };
+      })
       .sort((a, b) => b.netTotal - a.netTotal);
 
     const totalNet = [...perMembership.values()].reduce((s, m) => s + m.net, 0);
@@ -549,8 +579,18 @@ export interface ReliabilityResult {
     currencyCount: number;
     /** Clients selon le dashboard (atteinte subscription_completed). */
     dashboardClients: number | null;
-    /** Membres payants Whop. null si Whop non configuré. */
+    /**
+     * Membres payants Whop COMPARABLES au dashboard : 1er paiement DANS la même
+     * fenêtre que le cache PostHog (≤ dernière synchro) ET après le début de
+     * l'instrumentation → base du calcul d'écart (ni latence de cron, ni artefact).
+     */
     whopMembers: number | null;
+    /** Total des membres payants Whop (affichage « Clients payants »). */
+    whopMembersTotal: number | null;
+    /** Exclus car antérieurs à l'instrumentation (cause explicable de l'écart). */
+    whopExcludedPre: number;
+    /** Exclus car postérieurs au dernier cron (latence, pas incohérence). */
+    whopExcludedAfter: number;
   };
   /** Fraîcheur par source : dernière synchro (ms). Le CLIENT juge le « périmé ». */
   freshness: { source: "posthog" | "whop" | "scraping"; lastSyncMs: number | null }[];
@@ -608,9 +648,20 @@ export const getReliability = adminQuery({
         ? Math.max(...cacheRows.map((r) => r.computedAt))
         : null;
 
-    // Whop : nb de devises encaissées + membres payants + fraîcheur.
+    // Début d'instrumentation = 1re émission la PLUS ANCIENNE d'un event émis.
+    // Sert de borne basse d'ancrage (les memberships antérieurs sont hors compa).
+    const emittedFirsts = instrumentation.events
+      .filter((e) => e.persons > 0 && e.firstSeenMs !== null)
+      .map((e) => e.firstSeenMs as number);
+    const instrumentationStart =
+      emittedFirsts.length > 0 ? Math.min(...emittedFirsts) : null;
+
+    // Whop : devises + membres payants ANCRÉS sur la fenêtre du cache PostHog.
     let currencyCount = 0;
     let whopMembers: number | null = null;
+    let whopMembersTotal: number | null = null;
+    let whopExcludedPre = 0;
+    let whopExcludedAfter = 0;
     let whopSyncMs: number | null = null;
     if (project?.whop) {
       const payments = await ctx.db
@@ -618,12 +669,26 @@ export const getReliability = adminQuery({
         .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
         .collect();
       currencyCount = summarizeWhopRevenue(payments).currencies.length;
-      const members = new Set<string>();
+      // Premier paiement encaissé par membership (date de « début » du client).
+      const firstPaid = new Map<string, number>();
       for (const p of payments) {
-        if (p.membershipId && whopNetContribution(p) > 0) members.add(p.membershipId);
         whopSyncMs = Math.max(whopSyncMs ?? 0, p.updatedAt);
+        if (!p.membershipId || whopNetContribution(p) <= 0) continue;
+        const prev = firstPaid.get(p.membershipId);
+        if (prev === undefined || p.paidAt < prev) firstPaid.set(p.membershipId, p.paidAt);
       }
-      whopMembers = members.size;
+      let comparable = 0;
+      for (const first of firstPaid.values()) {
+        if (instrumentationStart !== null && first < instrumentationStart) {
+          whopExcludedPre += 1; // antérieur à l'instrumentation (pas de distinctId)
+        } else if (posthogSyncMs !== null && first > posthogSyncMs) {
+          whopExcludedAfter += 1; // après le dernier cron → latence, pas un écart
+        } else {
+          comparable += 1;
+        }
+      }
+      whopMembersTotal = firstPaid.size;
+      whopMembers = comparable;
     }
 
     // Scraping (vues Jarvia) : dernier snapshot relevé sur une publication.
@@ -649,6 +714,9 @@ export const getReliability = adminQuery({
         currencyCount,
         dashboardClients,
         whopMembers,
+        whopMembersTotal,
+        whopExcludedPre,
+        whopExcludedAfter,
       },
       freshness: [
         { source: "posthog", lastSyncMs: posthogSyncMs },

@@ -80,6 +80,10 @@ export const POSTHOG_CACHE_KEYS = {
   friction: "friction",
   // ─── C2 — Compteur A4 (personnes internes exclues) ─────────────────────────
   internalExcluded: "internalExcluded",
+  // ─── Phase B — agrégats des nouveaux onglets ──────────────────────────────
+  activation: "activation",
+  abVariants: "abVariants",
+  freePlan: "freePlan",
 } as const;
 
 // ─── Formes des agrégats cachés ──────────────────────────────────────────────
@@ -177,6 +181,42 @@ export interface FrictionPayload {
 export interface InternalExcludedPayload {
   persons: number;
   totalPersons: number;
+}
+
+/** B0a — activation produit par TYPE d'utilisateur (payant / gratuit / autre). */
+export interface ActivationPayload {
+  rows: {
+    segment: string;
+    persons: number;
+    targetAdded: number;
+    firstAlert: number;
+    usernameEntered: number;
+  }[];
+}
+
+/** B3 — test A/B par variante de paywall (une personne = sa DERNIÈRE variante vue). */
+export interface AbVariantsPayload {
+  rows: {
+    variant: string;
+    exposed: number;
+    checkouts: number;
+    paid: number;
+    /** Σ cibles ajoutées par les CLIENTS de la variante (→ cibles/client). */
+    clientTargets: number;
+  }[];
+}
+
+/** B3 — plan gratuit : usage réel, passage au payant, délai gratuit→checkout. */
+export interface FreePlanPayload {
+  signups: number;
+  /** A fait ≥ 1 action produit (recherche / scan / cible). */
+  used: number;
+  /** Passés au payant (subscription_completed). */
+  convertedPaid: number;
+  /** Avaient ouvert le checkout AVANT le gratuit. */
+  checkoutBefore: number;
+  /** Délai médian gratuit→checkout (ms, SIGNÉ : négatif = checkout avant). null si aucun. */
+  medFreeToCheckoutMs: number | null;
 }
 
 /**
@@ -621,6 +661,90 @@ WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
 GROUP BY page
 ORDER BY persons DESC
 LIMIT ${SEGMENT_LIMIT}`,
+
+  /**
+   * B0a — activation produit par TYPE d'utilisateur : payant (a un abonnement),
+   * gratuit (a démarré le plan gratuit sans payer), autre. Un target_added d'un
+   * payant et d'un gratuit ne racontent pas la même chose → on les sépare.
+   */
+  activation: `
+SELECT segment,
+  count() AS persons,
+  countIf(has_target > 0) AS target_added,
+  countIf(has_alert > 0) AS first_alert,
+  countIf(has_username > 0) AS username_entered
+FROM (
+  SELECT person_id,
+    multiIf(countIf(event = 'subscription_completed') > 0, 'payant',
+            countIf(event = 'free_tier_started') > 0, 'gratuit', 'autre') AS segment,
+    countIf(event = 'target_added') AS has_target,
+    countIf(event = 'first_alert_received') AS has_alert,
+    countIf(event = 'username_entered') AS has_username
+  FROM events
+  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+  GROUP BY person_id
+)
+GROUP BY segment
+ORDER BY persons DESC`,
+
+  /**
+   * B3 — test A/B par variante de paywall. Variante = la DERNIÈRE vue (argMax).
+   * Niveau intermédiaire (flags) pour éviter l'agrégat-dans-agrégat.
+   */
+  abVariants: `
+SELECT variant,
+  count() AS exposed,
+  sum(is_checkout) AS checkouts,
+  sum(is_paid) AS paid,
+  sum(client_targets) AS client_targets
+FROM (
+  SELECT variant,
+    if(checkout > 0, 1, 0) AS is_checkout,
+    if(paid > 0, 1, 0) AS is_paid,
+    if(paid > 0, targets, 0) AS client_targets
+  FROM (
+    SELECT person_id,
+      coalesce(nullIf(toString(argMaxIf(properties.variant, timestamp, event = 'paywall_viewed')), ''), '(sans variante)') AS variant,
+      countIf(event = 'paywall_viewed') AS viewed,
+      countIf(event = 'checkout_started') AS checkout,
+      countIf(event = 'subscription_completed') AS paid,
+      countIf(event = 'target_added') AS targets
+    FROM events
+    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+      AND event IN ('paywall_viewed', 'checkout_started', 'subscription_completed', 'target_added')
+    GROUP BY person_id
+    HAVING countIf(event = 'paywall_viewed') > 0
+  )
+)
+GROUP BY variant
+ORDER BY exposed DESC
+LIMIT ${SEGMENT_LIMIT}`,
+
+  /**
+   * B3 — plan gratuit : usage réel (≥1 action produit), passage au payant, et
+   * délai gratuit→checkout (signé : négatif = le checkout précédait le gratuit).
+   */
+  freePlan: `
+SELECT
+  count() AS signups,
+  countIf(used > 0) AS used,
+  countIf(paid > 0) AS converted_paid,
+  countIf(checkout_before > 0) AS checkout_before,
+  countIf(has_checkout > 0) AS n_delay,
+  quantileIf(0.5)(free_to_checkout, has_checkout > 0) AS med_free_to_checkout_s
+FROM (
+  SELECT person_id,
+    countIf(event = 'checkout_started') AS has_checkout,
+    countIf(event = 'subscription_completed') AS paid,
+    countIf(event IN ('handle_search_result', 'scan_completed', 'target_added')) AS used,
+    if(countIf(event = 'checkout_started') > 0 AND minIf(timestamp, event = 'checkout_started') < minIf(timestamp, event = 'free_tier_started'), 1, 0) AS checkout_before,
+    if(countIf(event = 'checkout_started') > 0, dateDiff('second', minIf(timestamp, event = 'free_tier_started'), minIf(timestamp, event = 'checkout_started')), NULL) AS free_to_checkout
+  FROM events
+  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+    AND event IN ('free_tier_started', 'checkout_started', 'subscription_completed', 'handle_search_result', 'scan_completed', 'target_added')
+  GROUP BY person_id
+  HAVING countIf(event = 'free_tier_started') > 0
+)`,
 
   /**
    * Compteur A4 : personnes INTERNES (marqueur positif) vs total, sur la fenêtre.
@@ -1111,6 +1235,54 @@ export const runHourlySync = internalAction({
           }),
         ),
         await collect(
+          POSTHOG_CACHE_KEYS.activation,
+          apiKey,
+          target,
+          QUERIES.activation,
+          (rows): ActivationPayload => ({
+            rows: rows.map((r) => ({
+              segment: cellStr(r, 0),
+              persons: cellNum(r, 1),
+              targetAdded: cellNum(r, 2),
+              firstAlert: cellNum(r, 3),
+              usernameEntered: cellNum(r, 4),
+            })),
+          }),
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.abVariants,
+          apiKey,
+          target,
+          QUERIES.abVariants,
+          (rows): AbVariantsPayload => ({
+            rows: rows.map((r) => ({
+              variant: cellStr(r, 0),
+              exposed: cellNum(r, 1),
+              checkouts: cellNum(r, 2),
+              paid: cellNum(r, 3),
+              clientTargets: cellNum(r, 4),
+            })),
+          }),
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.freePlan,
+          apiKey,
+          target,
+          QUERIES.freePlan,
+          (rows): FreePlanPayload => {
+            const r = rows[0] ?? [];
+            const nDelay = cellNum(r, 4);
+            return {
+              signups: cellNum(r, 0),
+              used: cellNum(r, 1),
+              convertedPaid: cellNum(r, 2),
+              checkoutBefore: cellNum(r, 3),
+              // délai en SECONDES (signé) → ms. Pas de free-user avec checkout ⇒ null.
+              medFreeToCheckoutMs: nDelay > 0 ? cellNum(r, 5) * 1000 : null,
+            };
+          },
+        ),
+        await collect(
           POSTHOG_CACHE_KEYS.internalExcluded,
           apiKey,
           target,
@@ -1196,6 +1368,12 @@ export interface ProductAnalytics {
   friction: FrictionPayload;
   /** A4 — personnes internes exclues de tous les agrégats ci-dessus (compteur). */
   internalExcluded: InternalExcludedPayload;
+  /** B0a — activation par type d'utilisateur. */
+  activation: ActivationPayload;
+  /** B3 — test A/B par variante de paywall. */
+  abVariants: AbVariantsPayload;
+  /** B3 — plan gratuit. */
+  freePlan: FreePlanPayload;
 }
 
 const EMPTY_FUNNEL: FunnelPayload = { segments: [] };
@@ -1239,6 +1417,15 @@ export const getProductAnalytics = adminQuery({
       scanLatency: { rows: [] },
       friction: { rows: [] },
       internalExcluded: EMPTY_INTERNAL_EXCLUDED,
+      activation: { rows: [] },
+      abVariants: { rows: [] },
+      freePlan: {
+        signups: 0,
+        used: 0,
+        convertedPaid: 0,
+        checkoutBefore: 0,
+        medFreeToCheckoutMs: null,
+      },
     };
     if (!empty.configured) return empty;
 
@@ -1287,6 +1474,9 @@ export const getProductAnalytics = adminQuery({
         POSTHOG_CACHE_KEYS.internalExcluded,
         EMPTY_INTERNAL_EXCLUDED,
       ),
+      activation: read(POSTHOG_CACHE_KEYS.activation, { rows: [] }),
+      abVariants: read(POSTHOG_CACHE_KEYS.abVariants, { rows: [] }),
+      freePlan: read(POSTHOG_CACHE_KEYS.freePlan, empty.freePlan),
     };
   },
 });
