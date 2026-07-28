@@ -164,6 +164,74 @@ export function funnelCoherenceChecks(
   return checks;
 }
 
+/** Entrées des contrôles de cohérence globaux (spine Fiabilité, phase C). */
+export interface CoherenceInputs {
+  sequentialSteps: FunnelStepInput[];
+  reachSteps: FunnelStepInput[];
+  /** Nb de devises encaissées (>1 ⇒ jamais sommées). */
+  currencyCount: number;
+  /** Clients selon le dashboard (PostHog subscription_completed). null si absent. */
+  dashboardClients: number | null;
+  /** Membres payants Whop. null si Whop non configuré. */
+  whopMembers: number | null;
+}
+
+/** Écart relatif toléré (points de %) entre clients dashboard et Whop. */
+export const DASHBOARD_WHOP_TOLERANCE_PCT = 5;
+
+/**
+ * Assemble TOUS les contrôles de cohérence du hub. Un écart ne « corrige » rien :
+ * il est signalé (info/violation) pour que la carte remplace le chiffre par son
+ * état plutôt que d'afficher un nombre douteux.
+ */
+export function buildCoherenceChecks(i: CoherenceInputs): CoherenceCheck[] {
+  const checks = funnelCoherenceChecks(i.sequentialSteps, i.reachSteps);
+
+  // Somme attribuée ≤ total réel : les jours solo forment un sous-ensemble
+  // DISJOINT des jours réels → l'attribution ne peut pas dépasser le total.
+  checks.push({
+    key: "attributed_le_total",
+    label: "Somme attribuée ≤ total réel",
+    status: "ok",
+    detail: "jours solo = sous-ensemble des jours réels (garanti par construction)",
+  });
+
+  // Aucune addition inter-devises (on ne somme jamais ; info si multi-devise).
+  checks.push({
+    key: "no_cross_currency",
+    label: "Aucune addition inter-devises",
+    status: i.currencyCount > 1 ? "info" : "ok",
+    detail:
+      i.currencyCount > 1
+        ? `${i.currencyCount} devises — affichées séparément, jamais sommées`
+        : "",
+  });
+
+  // Clients dashboard vs Whop : deux sources indépendantes du même nombre.
+  if (i.dashboardClients !== null && i.whopMembers !== null) {
+    const diff = Math.abs(i.dashboardClients - i.whopMembers);
+    const pct = Math.round((diff / Math.max(1, i.whopMembers)) * 1000) / 10;
+    checks.push({
+      key: "dashboard_vs_whop",
+      label: "Clients dashboard vs Whop",
+      status: pct <= DASHBOARD_WHOP_TOLERANCE_PCT ? "ok" : "violation",
+      detail:
+        diff === 0
+          ? "écart 0"
+          : `${i.dashboardClients} vs ${i.whopMembers} (écart ${pct} %)`,
+    });
+  } else {
+    checks.push({
+      key: "dashboard_vs_whop",
+      label: "Clients dashboard vs Whop",
+      status: "info",
+      detail: "en attente (PostHog et/ou Whop)",
+    });
+  }
+
+  return checks;
+}
+
 // ─── Évolution vs période précédente ─────────────────────────────────────────
 
 export interface Delta {

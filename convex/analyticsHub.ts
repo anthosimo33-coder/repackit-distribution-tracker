@@ -8,7 +8,13 @@ import {
 } from "./pricing";
 import { periodOf } from "./payments";
 import { summarizeWhopRevenue, whopNetContribution } from "./whopRevenue";
-import { POSTHOG_CACHE_KEYS, type OverviewPayload } from "./posthogSync";
+import {
+  POSTHOG_CACHE_KEYS,
+  type OverviewPayload,
+  type FunnelPayload,
+  type InstrumentationPayload,
+  type InternalExcludedPayload,
+} from "./posthogSync";
 import {
   internalAccountsFor,
   isInternalWhopMembership,
@@ -509,6 +515,146 @@ export const getRevenueBreakdown = adminQuery({
       ltv: totalMembers > 0 ? round2(totalNet / totalMembers) : null,
       churnAvailable: false,
       internalExcludedMembers: internalMembers.size,
+    };
+  },
+});
+
+// ─── Colonne vertébrale FIABILITÉ (spine phase C) ────────────────────────────
+
+const EMPTY_INSTRUMENTATION: InstrumentationPayload = { events: [], props: [] };
+
+/** Une étape de funnel réduite à ce dont le contrôle de cohérence a besoin. */
+interface StepCount {
+  key: string;
+  count: number;
+}
+
+export interface ReliabilityResult {
+  /** PostHog configuré (sinon instrumentation vide). */
+  configured: boolean;
+  /** Dernier passage de sync PostHog (max computedAt du cache). */
+  computedAt: number | null;
+  /** État de CHAQUE event du contrat (carte instrumentation). */
+  instrumentation: InstrumentationPayload;
+  /** Personnes internes exclues (compteur A4). */
+  internalExcluded: InternalExcludedPayload;
+  /**
+   * ENTRÉES des contrôles de cohérence — le CLIENT appelle
+   * `lib/analytics-hub.buildCoherenceChecks` (ce module pur vit côté client, pas
+   * de réplique convex). On ne fait ici que réunir les chiffres bruts.
+   */
+  coherence: {
+    sequentialSteps: StepCount[];
+    reachSteps: StepCount[];
+    currencyCount: number;
+    /** Clients selon le dashboard (atteinte subscription_completed). */
+    dashboardClients: number | null;
+    /** Membres payants Whop. null si Whop non configuré. */
+    whopMembers: number | null;
+  };
+  /** Fraîcheur par source : dernière synchro (ms). Le CLIENT juge le « périmé ». */
+  freshness: { source: "posthog" | "whop" | "scraping"; lastSyncMs: number | null }[];
+}
+
+/**
+ * Réunit tout ce dont l'onglet Fiabilité a besoin, en UNE query : état
+ * d'instrumentation, entrées des contrôles de cohérence, compteur d'internes,
+ * fraîcheur des sources. La phase C n'a plus qu'à afficher (et composer les
+ * checks via le module pur côté client).
+ */
+export const getReliability = adminQuery({
+  args: {},
+  handler: async (ctx): Promise<ReliabilityResult> => {
+    const project = await ctx.db.get(ctx.projectId);
+    const configured = project?.posthog !== undefined;
+
+    const cacheRows = await ctx.db
+      .query("posthogCache")
+      .withIndex("by_project_key", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const byKey = new Map(cacheRows.map((r) => [r.key, r]));
+    const read = <T,>(key: string, fallback: T): T => {
+      const row = byKey.get(key);
+      if (!row || row.json === "") return fallback;
+      try {
+        return JSON.parse(row.json) as T;
+      } catch {
+        return fallback;
+      }
+    };
+    const stepsOf = (payload: FunnelPayload): StepCount[] => {
+      const seg = payload.segments[0];
+      return seg ? seg.steps.map((s) => ({ key: s.key, count: s.count })) : [];
+    };
+
+    const instrumentation = read<InstrumentationPayload>(
+      POSTHOG_CACHE_KEYS.instrumentation,
+      EMPTY_INSTRUMENTATION,
+    );
+    const internalExcluded = read<InternalExcludedPayload>(
+      POSTHOG_CACHE_KEYS.internalExcluded,
+      { persons: 0, totalPersons: 0 },
+    );
+    const sequentialSteps = stepsOf(
+      read<FunnelPayload>(POSTHOG_CACHE_KEYS.funnelSequential, { segments: [] }),
+    );
+    const reachSteps = stepsOf(
+      read<FunnelPayload>(POSTHOG_CACHE_KEYS.funnelGlobal, { segments: [] }),
+    );
+    const dashboardClients =
+      reachSteps.find((s) => s.key === "subscription_completed")?.count ?? null;
+    const posthogSyncMs =
+      cacheRows.length > 0
+        ? Math.max(...cacheRows.map((r) => r.computedAt))
+        : null;
+
+    // Whop : nb de devises encaissées + membres payants + fraîcheur.
+    let currencyCount = 0;
+    let whopMembers: number | null = null;
+    let whopSyncMs: number | null = null;
+    if (project?.whop) {
+      const payments = await ctx.db
+        .query("whopPayments")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect();
+      currencyCount = summarizeWhopRevenue(payments).currencies.length;
+      const members = new Set<string>();
+      for (const p of payments) {
+        if (p.membershipId && whopNetContribution(p) > 0) members.add(p.membershipId);
+        whopSyncMs = Math.max(whopSyncMs ?? 0, p.updatedAt);
+      }
+      whopMembers = members.size;
+    }
+
+    // Scraping (vues Jarvia) : dernier snapshot relevé sur une publication.
+    const publications = await ctx.db
+      .query("publications")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    let scrapingSyncMs: number | null = null;
+    for (const p of publications) {
+      if (p.latestSnapshotAt !== undefined) {
+        scrapingSyncMs = Math.max(scrapingSyncMs ?? 0, p.latestSnapshotAt);
+      }
+    }
+
+    return {
+      configured,
+      computedAt: posthogSyncMs,
+      instrumentation,
+      internalExcluded,
+      coherence: {
+        sequentialSteps,
+        reachSteps,
+        currencyCount,
+        dashboardClients,
+        whopMembers,
+      },
+      freshness: [
+        { source: "posthog", lastSyncMs: posthogSyncMs },
+        { source: "whop", lastSyncMs: whopSyncMs },
+        { source: "scraping", lastSyncMs: scrapingSyncMs },
+      ],
     };
   },
 });

@@ -16,6 +16,7 @@ import {
   computeUnitEconomics,
   checkMonotonicity,
   funnelCoherenceChecks,
+  buildCoherenceChecks,
 } from "./analytics-hub";
 
 const HOUR = 60 * 60 * 1000;
@@ -374,5 +375,63 @@ describe("funnelCoherenceChecks", () => {
     const checks = funnelCoherenceChecks(broken, broken);
     const seqCheck = checks.find((c) => c.key === "funnel_sequential_monotone");
     expect(seqCheck?.status).toBe("violation");
+  });
+});
+
+describe("buildCoherenceChecks", () => {
+  const seq = [
+    { key: "visit", label: "", count: 745 },
+    { key: "signup", label: "", count: 499 },
+    { key: "paywall", label: "", count: 499 },
+  ];
+  const cleanReach = [
+    { key: "visit", label: "", count: 745 },
+    { key: "signup", label: "", count: 499 },
+    { key: "paywall", label: "", count: 499 },
+  ];
+  const base = {
+    sequentialSteps: seq,
+    reachSteps: cleanReach,
+    currencyCount: 1,
+    dashboardClients: 21,
+    whopMembers: 21,
+  };
+  const byKey = (checks: { key: string; status: string }[]) =>
+    new Map(checks.map((c) => [c.key, c.status]));
+
+  it("tout cohérent → aucun statut « violation », garanties présentes", () => {
+    const m = byKey(buildCoherenceChecks(base));
+    expect(m.get("funnel_sequential_monotone")).toBe("ok");
+    expect(m.get("attributed_le_total")).toBe("ok");
+    expect(m.get("no_cross_currency")).toBe("ok");
+    expect(m.get("dashboard_vs_whop")).toBe("ok");
+    expect([...m.values()]).not.toContain("violation");
+  });
+
+  it("multi-devise → contrôle inter-devises en info (jamais sommé)", () => {
+    const m = byKey(buildCoherenceChecks({ ...base, currencyCount: 2 }));
+    expect(m.get("no_cross_currency")).toBe("info");
+  });
+
+  it("écart clients dashboard/Whop au-delà de la tolérance → violation", () => {
+    const m = byKey(
+      buildCoherenceChecks({ ...base, dashboardClients: 21, whopMembers: 10 }),
+    );
+    expect(m.get("dashboard_vs_whop")).toBe("violation");
+  });
+
+  it("source manquante → dashboard/Whop en attente (info, pas 0)", () => {
+    const m = byKey(buildCoherenceChecks({ ...base, whopMembers: null }));
+    expect(m.get("dashboard_vs_whop")).toBe("info");
+  });
+
+  it("atteinte brute non monotone → info à côté du séquentiel OK", () => {
+    const reachBreak = [
+      { key: "signup", label: "", count: 499 },
+      { key: "paywall", label: "", count: 513 },
+    ];
+    const m = byKey(buildCoherenceChecks({ ...base, reachSteps: reachBreak }));
+    expect(m.get("funnel_sequential_monotone")).toBe("ok");
+    expect(m.get("funnel_reach_nonmonotone")).toBe("info");
   });
 });
