@@ -10,6 +10,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { periodOf } from "./payments";
 import { cycleIndexOf } from "./payCycle";
 import { isRemunerated, type RemunerationFlags } from "./remunerate";
+import { isPromoPost } from "./viewCounters";
 
 /**
  * Pricing v2 — barèmes + MOTEUR de paie (réplique serveur).
@@ -266,7 +267,11 @@ export async function assignmentViewsAndMetrics(
 ): Promise<{
   totalViews: number;
   payableViews: number;
+  /** Vues des posts en phase PROMO (non-warmup) — base des taux de conversion. */
+  promoViews: number;
   hasPayablePost: boolean;
+  /** Au moins un post en phase promo (détection des jours solo, même à 0 vue). */
+  hasPromoPost: boolean;
   hasMetrics: boolean;
 }> {
   const pubIds = [
@@ -290,8 +295,22 @@ export async function assignmentViewsAndMetrics(
     if (pub.latestSnapshotAt !== undefined) hasMetrics = true;
   }
   const totalViews = pubs.reduce((s, p) => s + p.views, 0);
+  // promo = non-warmup (isPromoPost, point unique) — DISTINCT de payable : un post
+  // warmup rémunéré (cas Kelly) est payable mais HORS promo.
+  const promoViews = pubs.reduce(
+    (s, p) => s + (isPromoPost(p) ? Math.max(0, p.views) : 0),
+    0,
+  );
+  const hasPromoPost = pubs.some((p) => isPromoPost(p));
   const { payableViews, hasPayablePost } = payableAssignmentViews(pubs);
-  return { totalViews, payableViews, hasPayablePost, hasMetrics };
+  return {
+    totalViews,
+    payableViews,
+    promoViews,
+    hasPayablePost,
+    hasPromoPost,
+    hasMetrics,
+  };
 }
 
 /** "YYYY-MM" → mois suivant ("YYYY-MM"), UTC (rollover Guard A). */

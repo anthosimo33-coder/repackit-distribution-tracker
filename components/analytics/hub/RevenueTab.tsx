@@ -41,14 +41,27 @@ export function RevenueTab({
   revenue: RevenueData;
   attribution: AttributionData | undefined;
 }) {
-  // CAC : coût créateurs RÉEL (moteur de paie) / abonnés attribués (fenêtre 24 h).
+  // CAC sur la base des JOURS SOLO (A3, attribution certaine) : coût ET abonnés
+  // appariés sur la MÊME base — les vidéos publiées un jour solo pour le coût, les
+  // clients de ces mêmes jours solo pour les abonnés. Fini la fenêtre 24 h qui
+  // dupliquait les inscriptions sur toutes les créatrices d'un même jour.
   const unit = useMemo(() => {
     const rows = attribution?.rows ?? [];
-    const creatorCost = rows.reduce((s, r) => s + (r.cost ?? 0), 0);
-    const hasSubs = rows.some((r) => r.attributedSubs !== null);
-    const attributedSubs = hasSubs
-      ? rows.reduce((s, r) => s + (r.attributedSubs ?? 0), 0)
-      : 0;
+    const soloDays = attribution?.soloDays ?? [];
+    const soloDaySet = new Set(
+      soloDays.filter((d) => d.isSolo).map((d) => d.day),
+    );
+    const creatorCost = rows
+      .filter((r) => soloDaySet.has(r.day))
+      .reduce((s, r) => s + (r.cost ?? 0), 0);
+    const attributedDays = soloDays.filter(
+      (d) => d.isSolo && d.attribution && d.attribution.clients !== null,
+    );
+    const hasSubs = attributedDays.length > 0;
+    const attributedSubs = attributedDays.reduce(
+      (s, d) => s + (d.attribution?.clients ?? 0),
+      0,
+    );
     return {
       creatorCost,
       attributedSubs,
@@ -205,7 +218,7 @@ export function RevenueTab({
         <CardContent className="space-y-3 p-4">
           <HubCardHeader
             title="Économie unitaire"
-            subtitle="CAC = coût créateurs réel (moteur de paie) ÷ abonnés attribués (fenêtre 24 h)."
+            subtitle="CAC = coût créateurs réel ÷ abonnés attribués, sur les jours solo uniquement (attribution certaine)."
           />
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <UnitTile

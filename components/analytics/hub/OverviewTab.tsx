@@ -30,12 +30,15 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** Libellés des étapes du funnel principal (clés côté convex/posthogSync). */
 const FUNNEL_LABELS: Record<string, string> = {
   visit: "Visite",
-  username_entered: "Nom d'utilisateur saisi",
   signup_completed: "Inscription",
+  paywall_viewed: "Offre vue",
+  checkout_started: "Checkout ouvert",
+  subscription_completed: "Abonnement",
+  // Jalons d'activation (hors chemin de monétisation) — conservés pour d'autres
+  // vues éventuelles ; le funnel principal ne les liste plus.
+  username_entered: "Nom d'utilisateur saisi",
   target_added: "1re cible ajoutée",
   first_alert_received: "1re alerte reçue",
-  paywall_viewed: "Paywall vu",
-  subscription_completed: "Abonnement",
 };
 
 /**

@@ -9,6 +9,7 @@
  */
 
 import type * as adminRecovery from "../adminRecovery.js";
+import type * as analyticsContract from "../analyticsContract.js";
 import type * as analyticsHub from "../analyticsHub.js";
 import type * as apifyApi from "../apifyApi.js";
 import type * as apifySync from "../apifySync.js";
@@ -40,6 +41,7 @@ import type * as http from "../http.js";
 import type * as icps from "../icps.js";
 import type * as inspirationThumbnails from "../inspirationThumbnails.js";
 import type * as inspirations from "../inspirations.js";
+import type * as internalAccounts from "../internalAccounts.js";
 import type * as maintenance from "../maintenance.js";
 import type * as metricSnapshots from "../metricSnapshots.js";
 import type * as metricsDisplay from "../metricsDisplay.js";
@@ -60,6 +62,7 @@ import type * as provisionAdmin from "../provisionAdmin.js";
 import type * as publications from "../publications.js";
 import type * as radar from "../radar.js";
 import type * as radarApi from "../radarApi.js";
+import type * as remunerate from "../remunerate.js";
 import type * as scriptAnalytics from "../scriptAnalytics.js";
 import type * as scriptDecision from "../scriptDecision.js";
 import type * as scriptSeedData from "../scriptSeedData.js";
@@ -67,9 +70,12 @@ import type * as scriptTier from "../scriptTier.js";
 import type * as scripts from "../scripts.js";
 import type * as snapshotMatching from "../snapshotMatching.js";
 import type * as snytchDrive from "../snytchDrive.js";
+import type * as soloDays from "../soloDays.js";
 import type * as storage from "../storage.js";
 import type * as trackerData from "../trackerData.js";
+import type * as viewCounters from "../viewCounters.js";
 import type * as warmup from "../warmup.js";
+import type * as warmupMode from "../warmupMode.js";
 import type * as whopApi from "../whopApi.js";
 import type * as whopRevenue from "../whopRevenue.js";
 import type * as whopSync from "../whopSync.js";
@@ -84,6 +90,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   adminRecovery: typeof adminRecovery;
+  analyticsContract: typeof analyticsContract;
   analyticsHub: typeof analyticsHub;
   apifyApi: typeof apifyApi;
   apifySync: typeof apifySync;
@@ -115,6 +122,7 @@ declare const fullApi: ApiFromModules<{
   icps: typeof icps;
   inspirationThumbnails: typeof inspirationThumbnails;
   inspirations: typeof inspirations;
+  internalAccounts: typeof internalAccounts;
   maintenance: typeof maintenance;
   metricSnapshots: typeof metricSnapshots;
   metricsDisplay: typeof metricsDisplay;
@@ -135,6 +143,7 @@ declare const fullApi: ApiFromModules<{
   publications: typeof publications;
   radar: typeof radar;
   radarApi: typeof radarApi;
+  remunerate: typeof remunerate;
   scriptAnalytics: typeof scriptAnalytics;
   scriptDecision: typeof scriptDecision;
   scriptSeedData: typeof scriptSeedData;
@@ -142,9 +151,12 @@ declare const fullApi: ApiFromModules<{
   scripts: typeof scripts;
   snapshotMatching: typeof snapshotMatching;
   snytchDrive: typeof snytchDrive;
+  soloDays: typeof soloDays;
   storage: typeof storage;
   trackerData: typeof trackerData;
+  viewCounters: typeof viewCounters;
   warmup: typeof warmup;
+  warmupMode: typeof warmupMode;
   whopApi: typeof whopApi;
   whopRevenue: typeof whopRevenue;
   whopSync: typeof whopSync;

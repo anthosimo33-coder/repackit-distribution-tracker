@@ -14,6 +14,16 @@ import {
   cellTimeMs,
   type PosthogTarget,
 } from "./posthogApi";
+import {
+  CONTRACT_EVENTS,
+  CONTRACT_PROPERTIES,
+  eventAlias,
+} from "./analyticsContract";
+import {
+  internalAccountsFor,
+  internalMarkerHogQL,
+  notInternalClause,
+} from "./internalAccounts";
 
 /**
  * Ingestion des AGRÉGATS PostHog par projet (hub Analytics). Un cron horaire
@@ -43,8 +53,6 @@ import {
 
 /** Profondeur d'historique des requêtes d'agrégat (jours). */
 const WINDOW_DAYS = 90;
-/** Profondeur de la série horaire d'attribution (couvre les posts plus anciens). */
-const ATTRIBUTION_WINDOW_DAYS = 120;
 /** Largeur de la grille de rétention (S+0 → S+8). */
 const RETENTION_WEEKS = 9;
 /** Borne des segments listés (sources, variants, langues) — anti-explosion d'UI. */
@@ -54,14 +62,24 @@ const SEGMENT_LIMIT = 20;
 export const POSTHOG_CACHE_KEYS = {
   overview: "overview",
   funnelGlobal: "funnel:global",
+  funnelSequential: "funnel:sequential",
   funnelSource: "funnel:source",
   funnelLanguage: "funnel:language",
   timeToValue: "timeToValue",
   paywall: "paywall",
   sources: "sources",
-  attributionHourly: "attributionHourly",
   cohorts: "cohorts",
   predictors: "predictors",
+  // ─── C1 — Contrat d'events élargi (phase B consommera ces agrégats) ────────
+  instrumentation: "instrumentation",
+  checkoutReliability: "checkoutReliability",
+  checkoutCauses: "checkoutCauses",
+  searchResults: "searchResults",
+  scanReliability: "scanReliability",
+  scanLatency: "scanLatency",
+  friction: "friction",
+  // ─── C2 — Compteur A4 (personnes internes exclues) ─────────────────────────
+  internalExcluded: "internalExcluded",
 } as const;
 
 // ─── Formes des agrégats cachés ──────────────────────────────────────────────
@@ -82,9 +100,6 @@ export interface TimeToValuePayload {
 export interface ConversionPayload {
   rows: { key: string; n: number; converted: number }[];
 }
-export interface AttributionHourlyPayload {
-  hours: { ts: number; signups: number; subs: number }[];
-}
 export interface CohortsPayload {
   segments: {
     key: string;
@@ -97,14 +112,88 @@ export interface PredictorsPayload {
   behaviors: { key: string; n: number; converted: number }[];
 }
 
-/** Étapes du funnel principal (l'UI mappe ces clés vers des libellés). */
+// ─── C1 — Formes des agrégats du contrat élargi ──────────────────────────────
+
+/** État d'instrumentation : un item par event du contrat + sondes de propriétés. */
+export interface InstrumentationPayload {
+  events: {
+    name: string;
+    category: string;
+    persons: number;
+    /** null quand l'event n'a JAMAIS été émis (pas d'epoch-0 trompeur). */
+    firstSeenMs: number | null;
+    /** Déclaré au contrat mais pas attendu émis (règle A1). */
+    notYetEmitted: boolean;
+    note?: string;
+  }[];
+  props: {
+    key: string;
+    onEvent: string;
+    /** Nb d'events portant la propriété (0 = jamais vue). */
+    present: number;
+    notYetEmitted: boolean;
+  }[];
+}
+
+/** Fiabilité du checkout par appareil + pertes (règle : question → décision). */
+export interface CheckoutReliabilityPayload {
+  rows: {
+    device: string;
+    checkouts: number;
+    paid: number;
+    divertedFree: number;
+    disappeared: number;
+    medPayMs: number | null;
+    p90PayMs: number | null;
+  }[];
+}
+
+/** Motifs d'échec de paiement (payment_failed groupé par `cause`). */
+export interface CheckoutCausesPayload {
+  rows: { cause: string; n: number }[];
+}
+
+/** Résultats de recherche de compte (handle_search_result groupé par `result`). */
+export interface SearchResultsPayload {
+  rows: { result: string; persons: number }[];
+}
+
+/** Fiabilité des scans (scan_completed groupé par mode × result). */
+export interface ScanReliabilityPayload {
+  rows: { mode: string; result: string; runs: number }[];
+}
+
+/** Latence perçue des scans par tranche d'abonnés du compte scanné. */
+export interface ScanLatencyPayload {
+  rows: { bucket: string; medianMs: number | null; p90Ms: number | null; n: number }[];
+}
+
+/** Points de friction : rageclicks par page. */
+export interface FrictionPayload {
+  rows: { page: string; persons: number }[];
+}
+
+/** Compteur A4 : personnes internes exclues (marqueur is_internal / handles). */
+export interface InternalExcludedPayload {
+  persons: number;
+  totalPersons: number;
+}
+
+/**
+ * Étapes du funnel de CONVERSION (chemin de monétisation), dans l'ORDRE ÉTABLI
+ * EMPIRIQUEMENT (diagnostic A6, médiane des délais depuis l'inscription) :
+ * paywall (1 s) précède le checkout (18 s) et l'abonnement (97 s). L'ancien
+ * ordre plaçait target_added (64 s) et first_alert (~14 h) AVANT le paywall —
+ * les taux séquentiels calculés dessus étaient faux. Les jalons d'activation
+ * (recherche, cible, alerte) ne sont PAS sur le chemin de monétisation : ils
+ * vivent dans predictors / timeToValue, pas ici. Mêmes clés pour l'atteinte
+ * brute (funnelGlobal) et le séquentiel (funnelSequential) → comparables côte à côte.
+ */
 export const FUNNEL_STEP_KEYS = [
   "visit",
-  "username_entered",
   "signup_completed",
-  "target_added",
-  "first_alert_received",
   "paywall_viewed",
+  "checkout_started",
   "subscription_completed",
 ] as const;
 
@@ -128,14 +217,18 @@ export const PREDICTOR_KEYS = [
 // Toutes AGRÉGÉES (count/uniq/quantile + group by) : aucun event brut, aucune
 // propriété nominative ne sort de PostHog.
 
-/** Colonnes `uniqIf` d'atteinte d'étape, réutilisées par les 3 variantes de funnel. */
+/**
+ * Colonnes `uniqIf` d'ATTEINTE BRUTE d'étape (personnes distinctes ayant réalisé
+ * l'étape, indépendamment des autres), réutilisées par les 3 variantes de funnel
+ * de reach. NON monotone par nature — le paywall peut dépasser l'inscription
+ * (visiteurs anonymes voyant l'offre sans signup). C'est une INFORMATION, pas une
+ * erreur ; le tunnel séquentiel (funnelSequential) sert, lui, aux taux.
+ */
 const FUNNEL_COLUMNS = `
     uniqIf(person_id, event = '$pageview') AS visit,
-    uniqIf(person_id, event = 'username_entered') AS username_entered,
     uniqIf(person_id, event = 'signup_completed') AS signup_completed,
-    uniqIf(person_id, event = 'target_added') AS target_added,
-    uniqIf(person_id, event = 'first_alert_received') AS first_alert_received,
     uniqIf(person_id, event = 'paywall_viewed') AS paywall_viewed,
+    uniqIf(person_id, event = 'checkout_started') AS checkout_started,
     uniqIf(person_id, event = 'subscription_completed') AS subscription_completed`;
 
 /** Expression de segment robuste au vide/null (→ libellé explicite). */
@@ -143,15 +236,63 @@ function segExpr(prop: string): string {
   return `coalesce(nullIf(toString(${prop}), ''), '(inconnu)')`;
 }
 
-const QUERIES = {
-  /** Série quotidienne : visiteurs uniques, inscriptions, abonnements. */
+// ─── C1 — Instrumentation générée DEPUIS le contrat (aucune dérive) ───────────
+
+/** Une paire (personnes, première émission) par event du contrat. */
+const INSTRUMENTATION_EVENT_COLUMNS = CONTRACT_EVENTS.map((e) => {
+  const a = eventAlias(e.name);
+  return `    uniqIf(person_id, event = '${e.name}') AS n_${a},\n    minIf(timestamp, event = '${e.name}') AS f_${a}`;
+}).join(",\n");
+
+/**
+ * Sondes de PRÉSENCE de propriétés — les 3 « pas encore émises » (règle A1) +
+ * deux cas signalés par la maquette (result muet, distinct_id manquant). L'ordre
+ * est stable : la shape lit par index.
+ */
+export const INSTRUMENTATION_PROP_PROBES: {
+  key: string;
+  onEvent: string;
+  cond: string;
+  notYetEmitted: boolean;
+}[] = [
+  // isNotNull (et NON `toString(x) != ''`) : `toString(NULL)` rend 'null' (non
+  // vide) et ferait passer une propriété ABSENTE pour présente (faux positif
+  // vérifié en prod : app_version « présente » sur 30k events alors qu'absente).
+  ...CONTRACT_PROPERTIES.map((p) => ({
+    key: p.name,
+    onEvent: p.onEvent,
+    cond:
+      p.onEvent === "*"
+        ? `isNotNull(properties.${p.name})`
+        : `event = '${p.onEvent}' AND isNotNull(properties.${p.name})`,
+    notYetEmitted: p.notYetEmitted === true,
+  })),
+];
+const INSTRUMENTATION_PROP_COLUMNS = INSTRUMENTATION_PROP_PROBES.map(
+  (p, i) => `    countIf(${p.cond}) AS p_${i}`,
+).join(",\n");
+
+/**
+ * Jeu de requêtes HogQL construit PAR PROJET. `notInternal` (clause d'exclusion
+ * des comptes internes — règle A4) et `internalMarker` (l'expression POSITIVE,
+ * pour compter les exclus) sont injectés ici, en UN seul endroit : toute requête
+ * exclut les internes, sauf `internalExcluded` qui les dénombre exprès.
+ */
+function buildQueries(notInternal: string, internalMarker: string) {
+  return {
+  /**
+   * Série quotidienne : visiteurs uniques, inscriptions, abonnements. Bucketisée
+   * sur le fuseau EUROPE/PARIS (et non UTC) : c'est le jour « métier » de l'équipe
+   * et surtout la base des JOURS SOLO (attribution A3), où le jour de publication
+   * (postDate à minuit UTC+1) DOIT coïncider avec le jour des inscriptions.
+   */
   overview: `
-SELECT toStartOfDay(timestamp) AS d,
+SELECT toStartOfDay(timestamp, 'Europe/Paris') AS d,
        uniqIf(person_id, event = '$pageview') AS visitors,
        countIf(event = 'signup_completed') AS signups,
        countIf(event = 'subscription_completed') AS subs
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
 GROUP BY d
 ORDER BY d`,
 
@@ -163,12 +304,39 @@ ORDER BY d`,
   funnelGlobal: `
 SELECT 'global' AS seg,${FUNNEL_COLUMNS}
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY`,
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}`,
+
+  /**
+   * Funnel SÉQUENTIEL (chemin de monétisation) — sous-ensemble STRICT : l'étape k
+   * ne compte que les personnes ayant franchi TOUTES les étapes amont. Monotone
+   * PAR CONSTRUCTION (aucune étape ne peut dépasser la précédente) → c'est LUI qui
+   * porte les taux de conversion. Diffère de l'atteinte brute (funnelGlobal) : les
+   * abonnés sans checkout/paywall tracké n'y figurent pas — l'écart entre les deux
+   * vues est justement l'information (ex. paiement sans checkout tracké).
+   */
+  funnelSequential: `
+SELECT 'global' AS seg,
+  countIf(b_visit) AS visit,
+  countIf(b_visit AND b_signup) AS signup_completed,
+  countIf(b_visit AND b_signup AND b_paywall) AS paywall_viewed,
+  countIf(b_visit AND b_signup AND b_paywall AND b_checkout) AS checkout_started,
+  countIf(b_visit AND b_signup AND b_paywall AND b_checkout AND b_sub) AS subscription_completed
+FROM (
+  SELECT person_id,
+    countIf(event = '$pageview') > 0 AS b_visit,
+    countIf(event = 'signup_completed') > 0 AS b_signup,
+    countIf(event = 'paywall_viewed') > 0 AS b_paywall,
+    countIf(event = 'checkout_started') > 0 AS b_checkout,
+    countIf(event = 'subscription_completed') > 0 AS b_sub
+  FROM events
+  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+  GROUP BY person_id
+)`,
 
   funnelSource: `
 SELECT ${segExpr("person.properties.source")} AS seg,${FUNNEL_COLUMNS}
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
 GROUP BY seg
 ORDER BY visit DESC
 LIMIT ${SEGMENT_LIMIT}`,
@@ -176,7 +344,7 @@ LIMIT ${SEGMENT_LIMIT}`,
   funnelLanguage: `
 SELECT ${segExpr("person.properties.language")} AS seg,${FUNNEL_COLUMNS}
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
 GROUP BY seg
 ORDER BY visit DESC
 LIMIT ${SEGMENT_LIMIT}`,
@@ -220,7 +388,7 @@ FROM (
       countIf(event = 'first_alert_received') AS has_alert,
       countIf(event = 'subscription_completed') AS has_sub
     FROM events
-    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
     GROUP BY person_id
   )
 )`,
@@ -238,7 +406,7 @@ FROM (
     countIf(event = 'subscription_completed') AS subscribed,
     countIf(event = 'paywall_viewed') AS viewed
   FROM events
-  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
     AND event IN ('paywall_viewed', 'subscription_completed')
   GROUP BY person_id
 )
@@ -255,28 +423,13 @@ FROM (
     countIf(event = 'signup_completed') AS signed,
     countIf(event = 'subscription_completed') AS subbed
   FROM events
-  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
   GROUP BY person_id, seg
 )
 GROUP BY seg
 HAVING signups > 0 OR subs > 0
 ORDER BY signups DESC
 LIMIT ${SEGMENT_LIMIT}`,
-
-  /**
-   * Série HORAIRE inscriptions/abonnements — support de l'attribution par
-   * fenêtre 24 h (le rapprochement post ↔ events se fait côté Convex, en
-   * sommant les 24 seaux qui suivent la publication).
-   */
-  attributionHourly: `
-SELECT toStartOfHour(timestamp) AS h,
-       countIf(event = 'signup_completed') AS signups,
-       countIf(event = 'subscription_completed') AS subs
-FROM events
-WHERE timestamp >= now() - INTERVAL ${ATTRIBUTION_WINDOW_DAYS} DAY
-  AND event IN ('signup_completed', 'subscription_completed')
-GROUP BY h
-ORDER BY h`,
 
   /**
    * Rétention par cohorte HEBDO d'inscription, ventilée par comportement
@@ -306,7 +459,7 @@ FROM (
       countIf(event IN ('squad_created', 'squad_joined')) AS squads,
       countIf(event = 'target_added') AS targets
     FROM events
-    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
     GROUP BY person_id
     HAVING countIf(event = 'signup_completed') > 0
   )
@@ -342,11 +495,144 @@ FROM (
     countIf(event = 'push_enabled') AS push,
     countIf(event = 'referral_link_shared') AS referrals
   FROM events
-  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
   GROUP BY person_id
   HAVING countIf(event = 'signup_completed') > 0
 )`,
-} as const;
+
+  // ─── C1 — Contrat élargi : instrumentation + fiabilité checkout/scan/friction ─
+
+  /** État d'instrumentation : personnes + première émission pour CHAQUE event. */
+  instrumentation: `
+SELECT
+${INSTRUMENTATION_EVENT_COLUMNS},
+${INSTRUMENTATION_PROP_COLUMNS}
+FROM events
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}`,
+
+  /**
+   * Fiabilité du checkout, par appareil (webview vs natif). Une personne = un
+   * checkout ; `paid` a un subscription_completed, `divertedFree` bascule au
+   * gratuit sans payer, `disappeared` ne fait plus rien. Délai checkout→paiement
+   * en secondes (médiane/p90) chez ceux qui paient.
+   */
+  checkoutReliability: `
+SELECT
+  device,
+  count() AS checkouts,
+  sum(paid) AS paid,
+  sum(diverted) AS diverted_free,
+  sum(disappeared) AS disappeared,
+  quantileIf(0.5)(pay_delay, pay_delay > 0) AS med_pay_s,
+  quantileIf(0.9)(pay_delay, pay_delay > 0) AS p90_pay_s
+FROM (
+  SELECT
+    device,
+    if(paid_c > 0, 1, 0) AS paid,
+    if(paid_c = 0 AND freed_c > 0, 1, 0) AS diverted,
+    if(paid_c = 0 AND freed_c = 0, 1, 0) AS disappeared,
+    if(paid_c > 0, pay_delay_c, 0) AS pay_delay
+  FROM (
+    SELECT person_id,
+      multiIf(
+        max(if(event = 'checkout_started' AND isNotNull(properties.is_webview), 1, 0)) = 0, 'inconnu',
+        max(if(event = 'checkout_started' AND (properties.is_webview = true OR toString(properties.is_webview) = 'true'), 1, 0)) > 0, 'webview',
+        'natif') AS device,
+      countIf(event = 'subscription_completed') AS paid_c,
+      countIf(event = 'free_tier_started') AS freed_c,
+      dateDiff('second', minIf(timestamp, event = 'checkout_started'), minIf(timestamp, event = 'subscription_completed')) AS pay_delay_c
+    FROM events
+    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+      AND event IN ('checkout_started', 'subscription_completed', 'free_tier_started')
+    GROUP BY person_id
+    HAVING countIf(event = 'checkout_started') > 0
+  )
+)
+GROUP BY device
+ORDER BY checkouts DESC`,
+
+  /** Motifs d'échec de paiement (payment_failed groupé par `cause`). */
+  checkoutCauses: `
+SELECT coalesce(nullIf(toString(properties.cause), ''), '(sans cause)') AS cause,
+       count() AS n
+FROM events
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+  AND event = 'payment_failed'
+GROUP BY cause
+ORDER BY n DESC
+LIMIT ${SEGMENT_LIMIT}`,
+
+  /** Résultats de recherche de compte (handle_search_result groupé par result). */
+  searchResults: `
+SELECT coalesce(nullIf(toString(properties.result), ''), '(sans result)') AS result,
+       uniq(person_id) AS persons
+FROM events
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+  AND event = 'handle_search_result'
+GROUP BY result
+ORDER BY persons DESC
+LIMIT ${SEGMENT_LIMIT}`,
+
+  /** Fiabilité des scans (scan_completed groupé par mode × result). */
+  scanReliability: `
+SELECT coalesce(nullIf(toString(properties.mode), ''), '(sans mode)') AS mode,
+       coalesce(nullIf(toString(properties.result), ''), '(sans result)') AS result,
+       count() AS runs
+FROM events
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+  AND event = 'scan_completed'
+GROUP BY mode, result
+ORDER BY runs DESC
+LIMIT 40`,
+
+  /** Latence perçue des scans par tranche d'abonnés du compte scanné. */
+  scanLatency: `
+SELECT bucket,
+       quantile(0.5)(dur) AS med_ms,
+       quantile(0.9)(dur) AS p90_ms,
+       count() AS n
+FROM (
+  SELECT
+    multiIf(fc < 1000, '<1k', fc < 10000, '1k-10k', fc < 100000, '10k-100k', '100k+') AS bucket,
+    multiIf(fc < 1000, 0, fc < 10000, 1, fc < 100000, 2, 3) AS bidx,
+    dur
+  FROM (
+    SELECT toFloatOrZero(toString(properties.follower_count)) AS fc,
+           toFloatOrNull(toString(properties.duration_ms)) AS dur
+    FROM events
+    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+      AND event = 'scan_completed'
+  )
+  WHERE dur IS NOT NULL
+)
+GROUP BY bucket, bidx
+ORDER BY bidx`,
+
+  /** Points de friction : rageclicks distincts par page. */
+  friction: `
+SELECT coalesce(
+         nullIf(toString(properties['$pathname']), ''),
+         coalesce(nullIf(toString(properties['$current_url']), ''), '(sans page)')
+       ) AS page,
+       uniq(person_id) AS persons
+FROM events
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+  AND event = '$rageclick'
+GROUP BY page
+ORDER BY persons DESC
+LIMIT ${SEGMENT_LIMIT}`,
+
+  /**
+   * Compteur A4 : personnes INTERNES (marqueur positif) vs total, sur la fenêtre.
+   * SEULE requête sans exclusion — c'est elle qui dénombre les exclus.
+   */
+  internalExcluded: `
+SELECT uniqIf(person_id, ${internalMarker}) AS internal,
+       uniq(person_id) AS total
+FROM events
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY`,
+  } as const;
+}
 
 // ─── Config projet ↔ PostHog (opérateur, via `npx convex run`) ───────────────
 
@@ -527,6 +813,54 @@ function shapeConversion(rows: unknown[][]): ConversionPayload {
   };
 }
 
+// ─── C1 — Shapes du contrat élargi ───────────────────────────────────────────
+
+/** Ligne unique → état par event du contrat + présence des propriétés sondées. */
+function shapeInstrumentation(rows: unknown[][]): InstrumentationPayload {
+  const r = rows[0] ?? [];
+  const events = CONTRACT_EVENTS.map((e, i) => {
+    const persons = cellNum(r, i * 2);
+    // minIf rend l'epoch 0 (1970) si l'event n'a jamais matché → null si 0 pers.
+    const firstSeenMs = persons > 0 ? cellTimeMs(r, i * 2 + 1) : null;
+    return {
+      name: e.name,
+      category: e.category as string,
+      persons,
+      firstSeenMs,
+      notYetEmitted: e.notYetEmitted === true,
+      ...(e.note ? { note: e.note } : {}),
+    };
+  });
+  const base = CONTRACT_EVENTS.length * 2;
+  const props = INSTRUMENTATION_PROP_PROBES.map((p, i) => ({
+    key: p.key,
+    onEvent: p.onEvent,
+    present: cellNum(r, base + i),
+    notYetEmitted: p.notYetEmitted,
+  }));
+  return { events, props };
+}
+
+function shapeCheckoutReliability(rows: unknown[][]): CheckoutReliabilityPayload {
+  return {
+    rows: rows.map((r) => {
+      const paid = cellNum(r, 2);
+      const med = cellNum(r, 5);
+      const p90 = cellNum(r, 6);
+      return {
+        device: cellStr(r, 0),
+        checkouts: cellNum(r, 1),
+        paid,
+        divertedFree: cellNum(r, 3),
+        disappeared: cellNum(r, 4),
+        // Quantiles en SECONDES → ms. Pas de payeur ⇒ pas de délai (null, pas 0).
+        medPayMs: paid > 0 && med > 0 ? med * 1000 : null,
+        p90PayMs: paid > 0 && p90 > 0 ? p90 * 1000 : null,
+      };
+    }),
+  };
+}
+
 /**
  * Sync horaire de TOUS les projets configurés (ou d'un seul, pour le bouton
  * « Actualiser »). Une clé d'env absente ⇒ projet SAUTÉ (log clair, pas de
@@ -557,6 +891,15 @@ export const runHourlySync = internalAction({
         host: proj.host,
       };
 
+      // A4 — requêtes construites AVEC l'exclusion interne de CE projet (une
+      // seule source : convex/internalAccounts). `QUERIES` est donc local au
+      // projet, pas un const de module.
+      const internalCfg = internalAccountsFor(proj.slug);
+      const QUERIES = buildQueries(
+        notInternalClause(internalCfg),
+        internalMarkerHogQL(internalCfg),
+      );
+
       const entries: CacheEntry[] = [
         await collect(
           POSTHOG_CACHE_KEYS.overview,
@@ -579,6 +922,13 @@ export const runHourlySync = internalAction({
           apiKey,
           target,
           QUERIES.funnelGlobal,
+          shapeFunnel,
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.funnelSequential,
+          apiKey,
+          target,
+          QUERIES.funnelSequential,
           shapeFunnel,
         ),
         await collect(
@@ -641,23 +991,6 @@ export const runHourlySync = internalAction({
           }),
         ),
         await collect(
-          POSTHOG_CACHE_KEYS.attributionHourly,
-          apiKey,
-          target,
-          QUERIES.attributionHourly,
-          (rows): AttributionHourlyPayload => ({
-            hours: rows
-              .map((r) => ({
-                ts: cellTimeMs(r, 0),
-                signups: cellNum(r, 1),
-                subs: cellNum(r, 2),
-              }))
-              .filter(
-                (h): h is AttributionHourlyPayload["hours"][number] => h.ts !== null,
-              ),
-          }),
-        ),
-        await collect(
           POSTHOG_CACHE_KEYS.cohorts,
           apiKey,
           target,
@@ -703,6 +1036,88 @@ export const runHourlySync = internalAction({
                 converted: cellNum(r, 3 + i * 2),
               })),
             };
+          },
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.instrumentation,
+          apiKey,
+          target,
+          QUERIES.instrumentation,
+          shapeInstrumentation,
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.checkoutReliability,
+          apiKey,
+          target,
+          QUERIES.checkoutReliability,
+          shapeCheckoutReliability,
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.checkoutCauses,
+          apiKey,
+          target,
+          QUERIES.checkoutCauses,
+          (rows): CheckoutCausesPayload => ({
+            rows: rows.map((r) => ({ cause: cellStr(r, 0), n: cellNum(r, 1) })),
+          }),
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.searchResults,
+          apiKey,
+          target,
+          QUERIES.searchResults,
+          (rows): SearchResultsPayload => ({
+            rows: rows.map((r) => ({ result: cellStr(r, 0), persons: cellNum(r, 1) })),
+          }),
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.scanReliability,
+          apiKey,
+          target,
+          QUERIES.scanReliability,
+          (rows): ScanReliabilityPayload => ({
+            rows: rows.map((r) => ({
+              mode: cellStr(r, 0),
+              result: cellStr(r, 1),
+              runs: cellNum(r, 2),
+            })),
+          }),
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.scanLatency,
+          apiKey,
+          target,
+          QUERIES.scanLatency,
+          (rows): ScanLatencyPayload => ({
+            rows: rows.map((r) => {
+              const n = cellNum(r, 3);
+              return {
+                bucket: cellStr(r, 0),
+                // duration_ms déjà en ms. n = 0 ⇒ pas de mesure (null, pas 0).
+                medianMs: n > 0 ? cellNum(r, 1) : null,
+                p90Ms: n > 0 ? cellNum(r, 2) : null,
+                n,
+              };
+            }),
+          }),
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.friction,
+          apiKey,
+          target,
+          QUERIES.friction,
+          (rows): FrictionPayload => ({
+            rows: rows.map((r) => ({ page: cellStr(r, 0), persons: cellNum(r, 1) })),
+          }),
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.internalExcluded,
+          apiKey,
+          target,
+          QUERIES.internalExcluded,
+          (rows): InternalExcludedPayload => {
+            const r = rows[0] ?? [];
+            return { persons: cellNum(r, 0), totalPersons: cellNum(r, 1) };
           },
         ),
       ];
@@ -758,16 +1173,38 @@ export interface ProductAnalytics {
   /** Erreurs de la dernière sync, par clé d'agrégat (affichage discret). */
   errors: { key: string; message: string }[];
   overview: OverviewPayload;
-  funnels: { global: FunnelPayload; source: FunnelPayload; language: FunnelPayload };
+  funnels: {
+    /** Atteinte BRUTE par étape (peut être non monotone — information). */
+    global: FunnelPayload;
+    /** Chemin séquentiel strict (monotone) — porte les taux de conversion. */
+    sequential: FunnelPayload;
+    source: FunnelPayload;
+    language: FunnelPayload;
+  };
   timeToValue: TimeToValuePayload;
   paywall: ConversionPayload;
   sources: ConversionPayload;
   cohorts: CohortsPayload;
   predictors: PredictorsPayload;
+  // ─── C1 — Contrat élargi (phase B) ─────────────────────────────────────────
+  instrumentation: InstrumentationPayload;
+  checkoutReliability: CheckoutReliabilityPayload;
+  checkoutCauses: CheckoutCausesPayload;
+  searchResults: SearchResultsPayload;
+  scanReliability: ScanReliabilityPayload;
+  scanLatency: ScanLatencyPayload;
+  friction: FrictionPayload;
+  /** A4 — personnes internes exclues de tous les agrégats ci-dessus (compteur). */
+  internalExcluded: InternalExcludedPayload;
 }
 
 const EMPTY_FUNNEL: FunnelPayload = { segments: [] };
 const EMPTY_CONVERSION: ConversionPayload = { rows: [] };
+const EMPTY_INSTRUMENTATION: InstrumentationPayload = { events: [], props: [] };
+const EMPTY_INTERNAL_EXCLUDED: InternalExcludedPayload = {
+  persons: 0,
+  totalPersons: 0,
+};
 
 /**
  * Agrégats PostHog du projet, servis DEPUIS LE CACHE (jamais d'appel API dans le
@@ -785,6 +1222,7 @@ export const getProductAnalytics = adminQuery({
       overview: { daily: [] },
       funnels: {
         global: EMPTY_FUNNEL,
+        sequential: EMPTY_FUNNEL,
         source: EMPTY_FUNNEL,
         language: EMPTY_FUNNEL,
       },
@@ -793,6 +1231,14 @@ export const getProductAnalytics = adminQuery({
       sources: EMPTY_CONVERSION,
       cohorts: { segments: [] },
       predictors: { total: 0, totalConverted: 0, behaviors: [] },
+      instrumentation: EMPTY_INSTRUMENTATION,
+      checkoutReliability: { rows: [] },
+      checkoutCauses: { rows: [] },
+      searchResults: { rows: [] },
+      scanReliability: { rows: [] },
+      scanLatency: { rows: [] },
+      friction: { rows: [] },
+      internalExcluded: EMPTY_INTERNAL_EXCLUDED,
     };
     if (!empty.configured) return empty;
 
@@ -816,6 +1262,7 @@ export const getProductAnalytics = adminQuery({
       overview: read(POSTHOG_CACHE_KEYS.overview, empty.overview),
       funnels: {
         global: read(POSTHOG_CACHE_KEYS.funnelGlobal, EMPTY_FUNNEL),
+        sequential: read(POSTHOG_CACHE_KEYS.funnelSequential, EMPTY_FUNNEL),
         source: read(POSTHOG_CACHE_KEYS.funnelSource, EMPTY_FUNNEL),
         language: read(POSTHOG_CACHE_KEYS.funnelLanguage, EMPTY_FUNNEL),
       },
@@ -824,6 +1271,22 @@ export const getProductAnalytics = adminQuery({
       sources: read(POSTHOG_CACHE_KEYS.sources, EMPTY_CONVERSION),
       cohorts: read(POSTHOG_CACHE_KEYS.cohorts, empty.cohorts),
       predictors: read(POSTHOG_CACHE_KEYS.predictors, empty.predictors),
+      instrumentation: read(
+        POSTHOG_CACHE_KEYS.instrumentation,
+        EMPTY_INSTRUMENTATION,
+      ),
+      checkoutReliability: read(POSTHOG_CACHE_KEYS.checkoutReliability, {
+        rows: [],
+      }),
+      checkoutCauses: read(POSTHOG_CACHE_KEYS.checkoutCauses, { rows: [] }),
+      searchResults: read(POSTHOG_CACHE_KEYS.searchResults, { rows: [] }),
+      scanReliability: read(POSTHOG_CACHE_KEYS.scanReliability, { rows: [] }),
+      scanLatency: read(POSTHOG_CACHE_KEYS.scanLatency, { rows: [] }),
+      friction: read(POSTHOG_CACHE_KEYS.friction, { rows: [] }),
+      internalExcluded: read(
+        POSTHOG_CACHE_KEYS.internalExcluded,
+        EMPTY_INTERNAL_EXCLUDED,
+      ),
     };
   },
 });

@@ -78,6 +78,160 @@ export function buildFunnel(steps: FunnelStepInput[]): FunnelStep[] {
   });
 }
 
+// ─── Cohérence des funnels (garde A6, sans FORCER la monotonie) ───────────────
+
+export interface MonotonicityReport {
+  monotone: boolean;
+  /** Étapes dont le compte DÉPASSE l'étape précédente (rupture de monotonie). */
+  breaks: {
+    key: string;
+    count: number;
+    prevKey: string;
+    prevCount: number;
+    excess: number;
+  }[];
+}
+
+/**
+ * Repère les ruptures de monotonie d'un funnel (étape > étape précédente). Deux
+ * usages OPPOSÉS — on ne force JAMAIS la monotonie, on la CONTRÔLE :
+ *  - tunnel SÉQUENTIEL : `monotone` DOIT être true (sinon bug de calcul) ;
+ *  - atteinte BRUTE : les ruptures sont ATTENDUES et porteuses de sens (ex.
+ *    paywall > inscription = visiteurs anonymes voyant l'offre) → info, jamais
+ *    masquée sous un compte raboté.
+ */
+export function checkMonotonicity(steps: FunnelStepInput[]): MonotonicityReport {
+  const breaks: MonotonicityReport["breaks"] = [];
+  for (let i = 1; i < steps.length; i++) {
+    const prev = steps[i - 1];
+    const cur = steps[i];
+    if (cur.count > prev.count) {
+      breaks.push({
+        key: cur.key,
+        count: cur.count,
+        prevKey: prev.key,
+        prevCount: prev.count,
+        excess: cur.count - prev.count,
+      });
+    }
+  }
+  return { monotone: breaks.length === 0, breaks };
+}
+
+export type CoherenceStatus = "ok" | "info" | "violation";
+
+/** Un contrôle de cohérence (spine réutilisée par la carte Fiabilité, phase C). */
+export interface CoherenceCheck {
+  key: string;
+  label: string;
+  status: CoherenceStatus;
+  /** Détail chiffré, ou "" si rien à signaler. */
+  detail: string;
+}
+
+function describeBreaks(r: MonotonicityReport): string {
+  return r.breaks
+    .map((b) => `${b.key} dépasse ${b.prevKey} de ${b.excess}`)
+    .join(" ; ");
+}
+
+/**
+ * Contrôles de cohérence des DEUX vues de funnel. Le séquentiel monotone est une
+ * garantie (violation = bug) ; la non-monotonie de l'atteinte brute est signalée
+ * en info (elle documente les anonymes), pas corrigée.
+ */
+export function funnelCoherenceChecks(
+  sequential: FunnelStepInput[],
+  reach: FunnelStepInput[],
+): CoherenceCheck[] {
+  const checks: CoherenceCheck[] = [];
+  const seq = checkMonotonicity(sequential);
+  checks.push({
+    key: "funnel_sequential_monotone",
+    label: "Tunnel séquentiel monotone",
+    status: seq.monotone ? "ok" : "violation",
+    detail: seq.monotone ? "" : describeBreaks(seq),
+  });
+  const reachReport = checkMonotonicity(reach);
+  if (reachReport.breaks.length > 0) {
+    checks.push({
+      key: "funnel_reach_nonmonotone",
+      label: "Atteinte brute non monotone (attendu)",
+      status: "info",
+      detail: describeBreaks(reachReport),
+    });
+  }
+  return checks;
+}
+
+/** Entrées des contrôles de cohérence globaux (spine Fiabilité, phase C). */
+export interface CoherenceInputs {
+  sequentialSteps: FunnelStepInput[];
+  reachSteps: FunnelStepInput[];
+  /** Nb de devises encaissées (>1 ⇒ jamais sommées). */
+  currencyCount: number;
+  /** Clients selon le dashboard (PostHog subscription_completed). null si absent. */
+  dashboardClients: number | null;
+  /** Membres payants Whop. null si Whop non configuré. */
+  whopMembers: number | null;
+}
+
+/** Écart relatif toléré (points de %) entre clients dashboard et Whop. */
+export const DASHBOARD_WHOP_TOLERANCE_PCT = 5;
+
+/**
+ * Assemble TOUS les contrôles de cohérence du hub. Un écart ne « corrige » rien :
+ * il est signalé (info/violation) pour que la carte remplace le chiffre par son
+ * état plutôt que d'afficher un nombre douteux.
+ */
+export function buildCoherenceChecks(i: CoherenceInputs): CoherenceCheck[] {
+  const checks = funnelCoherenceChecks(i.sequentialSteps, i.reachSteps);
+
+  // Somme attribuée ≤ total réel : les jours solo forment un sous-ensemble
+  // DISJOINT des jours réels → l'attribution ne peut pas dépasser le total.
+  checks.push({
+    key: "attributed_le_total",
+    label: "Somme attribuée ≤ total réel",
+    status: "ok",
+    detail: "jours solo = sous-ensemble des jours réels (garanti par construction)",
+  });
+
+  // Aucune addition inter-devises (on ne somme jamais ; info si multi-devise).
+  checks.push({
+    key: "no_cross_currency",
+    label: "Aucune addition inter-devises",
+    status: i.currencyCount > 1 ? "info" : "ok",
+    detail:
+      i.currencyCount > 1
+        ? `${i.currencyCount} devises — affichées séparément, jamais sommées`
+        : "",
+  });
+
+  // Clients dashboard vs Whop : deux sources indépendantes du même nombre.
+  if (i.dashboardClients !== null && i.whopMembers !== null) {
+    const diff = Math.abs(i.dashboardClients - i.whopMembers);
+    const pct = Math.round((diff / Math.max(1, i.whopMembers)) * 1000) / 10;
+    checks.push({
+      key: "dashboard_vs_whop",
+      label: "Clients dashboard vs Whop",
+      status: pct <= DASHBOARD_WHOP_TOLERANCE_PCT ? "ok" : "violation",
+      detail:
+        diff === 0
+          ? "écart 0"
+          : `${i.dashboardClients} vs ${i.whopMembers} (écart ${pct} %)`,
+    });
+  } else {
+    checks.push({
+      key: "dashboard_vs_whop",
+      label: "Clients dashboard vs Whop",
+      status: "info",
+      detail: "en attente (PostHog et/ou Whop)",
+    });
+  }
+
+  return checks;
+}
+
 // ─── Évolution vs période précédente ─────────────────────────────────────────
 
 export interface Delta {

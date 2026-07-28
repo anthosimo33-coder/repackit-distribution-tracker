@@ -10,8 +10,27 @@ import { periodOf } from "./payments";
 import { summarizeWhopRevenue, whopNetContribution } from "./whopRevenue";
 import {
   POSTHOG_CACHE_KEYS,
-  type AttributionHourlyPayload,
+  type OverviewPayload,
+  type FunnelPayload,
+  type InstrumentationPayload,
+  type InternalExcludedPayload,
 } from "./posthogSync";
+import {
+  internalAccountsFor,
+  isInternalWhopMembership,
+} from "./internalAccounts";
+import {
+  computeViewCounters,
+  VIEW_COUNTER_USAGE,
+} from "./viewCounters";
+import {
+  computeSoloDays,
+  computeCreatorEfficiency,
+  type PromoVideo,
+  type DailyBehavior,
+  type SoloDay,
+  type CreatorEfficiency,
+} from "./soloDays";
 
 /**
  * Croisement Jarvia × PostHog × Whop du hub Analytics.
@@ -29,15 +48,21 @@ import {
  * recalcul). Le bonus paliers est CRÉATEUR-niveau (pas rattachable à une vidéo)
  * → exclu de la ligne vidéo, inclus dans l'agrégat par créatrice.
  *
- * ⚠️ ATTRIBUTION — fenêtre 24 h après publication, volontairement approximative
- * (aucun lien tracké/UTM). Plusieurs vidéos publiées le même jour se partagent
- * les mêmes inscriptions : les chiffres sont des ORDRES DE GRANDEUR. L'UI doit
- * l'afficher explicitement.
+ * ⚠️ ATTRIBUTION — la fenêtre 24 h est SUPPRIMÉE (règle A3) : sans lien tracké,
+ * elle dupliquait chaque inscription sur TOUTES les créatrices publiant le même
+ * jour (coût par client faussé ×~13). On ne garde que les JOURS SOLO (une seule
+ * créatrice a publié en promo) — attribution CERTAINE ce jour-là, « non
+ * attribuable » sinon (jamais un chiffre inventé). Cf convex/soloDays. Le jour
+ * de référence est le jour EUROPE/PARIS (postDate à minuit UTC+1 ⇄ série PostHog
+ * bucketisée Paris), pour que publication et inscriptions tombent le même jour.
  */
 
-/** Fenêtre d'attribution après publication (heures). */
-export const ATTRIBUTION_WINDOW_HOURS = 24;
-const HOUR_MS = 60 * 60 * 1000;
+/** Jour « métier » Europe/Paris d'un timestamp (ms) → "YYYY-MM-DD". */
+function parisDay(ms: number): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Paris",
+  }).format(new Date(ms));
+}
 
 /** Statuts d'assignment porteurs de coût (même porte que le moteur de paie). */
 function isCostBearing(a: Doc<"assignments">): boolean {
@@ -53,63 +78,41 @@ export interface AttributionRow {
   platforms: string[];
   postCount: number;
   publishedAt: number;
+  /** Jour de publication Europe/Paris "YYYY-MM-DD" (clé des jours solo). */
+  day: string;
   period: string;
   /** Vues de TOUS les posts de la vidéo (warmup inclus) — affichage. */
   totalViews: number;
-  /** Vues payables (posts non-warmup) — base du CPM. */
+  /** Vues payables (posts rémunérés) — base du CPM. */
   payableViews: number;
+  /** Vues promo (posts non-warmup) — base des taux de conversion (jamais additionnée). */
+  promoViews: number;
   /** Vidéo entièrement warmup (exclue de la paie). */
   isWarmupOnly: boolean;
+  /** Au moins un post en phase promo (compte pour la détection des jours solo). */
+  hasPromoPost: boolean;
   /** Coût réel de la vidéo (fixe/vidéo + CPM). null = hors moteur v2 (legacy). */
   cost: number | null;
-  /** Inscriptions dans les 24 h. null = fenêtre hors cache PostHog (inconnu). */
-  attributedSignups: number | null;
-  attributedSubs: number | null;
-  /** false = les 24 h ne sont pas encore écoulées (attribution partielle). */
-  windowComplete: boolean;
 }
 
 export interface AttributionResult {
+  /** Une ligne par VIDÉO (coût & vues) — SANS attribution inventée par vidéo. */
   rows: AttributionRow[];
-  /** true si le cache PostHog porte une série d'attribution exploitable. */
+  /** Attribution CERTAINE des jours où une seule créatrice a publié en promo (A3). */
+  soloDays: SoloDay[];
+  /** Efficacité promo par créatrice (médiane, hits, vues promo). */
+  creators: CreatorEfficiency[];
+  /** true si la série quotidienne PostHog (overview) est exploitable. */
   attributionAvailable: boolean;
   posthogConfigured: boolean;
   computedAt: number | null;
-  windowHours: number;
 }
 
 /**
- * Somme des seaux horaires couvrant [t, t + 24 h). Rend `null` si la fenêtre
- * sort de l'historique caché (publication plus ancienne que la série) — un 0
- * y serait un mensonge. `complete` = les 24 h sont entièrement couvertes.
- */
-function windowCounts(
-  hours: AttributionHourlyPayload["hours"],
-  t: number,
-): { signups: number; subs: number; complete: boolean } | null {
-  if (hours.length === 0) return null;
-  const first = hours[0].ts;
-  const last = hours[hours.length - 1].ts;
-  // Le seau du premier point couvre [first, first+1h) : une publication
-  // antérieure n'est pas mesurable.
-  if (t < first) return null;
-  const from = Math.floor(t / HOUR_MS) * HOUR_MS;
-  const to = t + ATTRIBUTION_WINDOW_HOURS * HOUR_MS;
-  let signups = 0;
-  let subs = 0;
-  for (const h of hours) {
-    if (h.ts < from) continue;
-    if (h.ts >= to) break;
-    signups += h.signups;
-    subs += h.subs;
-  }
-  return { signups, subs, complete: last + HOUR_MS >= to };
-}
-
-/**
- * Table d'attribution : une ligne par VIDÉO publiée (cf en-tête). Les vues et le
- * coût viennent de Jarvia (toujours dispo) ; inscrits/abonnés du cache PostHog
- * (null tant que les events ne sont pas émis).
+ * Table d'attribution — une ligne par VIDÉO (coût & vues, toujours dispo via
+ * Jarvia) + les JOURS SOLO (attribution certaine, A3) + l'efficacité par
+ * créatrice. Plus AUCUNE attribution par fenêtre 24 h (supprimée) : le seul
+ * rapprochement honnête sans lien tracké est le jour solo.
  */
 export const getAttribution = adminQuery({
   args: {},
@@ -136,21 +139,28 @@ export const getAttribution = adminQuery({
     const creatorMap = new Map(creators.map((c) => [c._id as string, c.name]));
     const formatMap = new Map(formats.map((f) => [f._id as string, f.name]));
 
-    // Série horaire d'attribution (cache PostHog) — absente ⇒ colonnes à null.
+    // Série QUOTIDIENNE PostHog (overview, internes exclus, bucket Europe/Paris)
+    // — support des jours solo. Absente ⇒ jours solo sans compteurs (null).
     const cacheRow = await ctx.db
       .query("posthogCache")
       .withIndex("by_project_key", (q) =>
-        q
-          .eq("projectId", ctx.projectId)
-          .eq("key", POSTHOG_CACHE_KEYS.attributionHourly),
+        q.eq("projectId", ctx.projectId).eq("key", POSTHOG_CACHE_KEYS.overview),
       )
       .first();
-    let hours: AttributionHourlyPayload["hours"] = [];
+    const daily: DailyBehavior[] = [];
     if (cacheRow && cacheRow.json !== "") {
       try {
-        hours = (JSON.parse(cacheRow.json) as AttributionHourlyPayload).hours ?? [];
+        const payload = JSON.parse(cacheRow.json) as OverviewPayload;
+        for (const d of payload.daily ?? []) {
+          daily.push({
+            day: parisDay(d.ts),
+            visitors: d.visitors,
+            signups: d.signups,
+            clients: d.subs,
+          });
+        }
       } catch {
-        hours = [];
+        // cache illisible → aucune attribution (jours solo à compteurs null).
       }
     }
 
@@ -218,7 +228,6 @@ export const getAttribution = adminQuery({
         }
       }
 
-      const w = windowCounts(hours, publishedAt);
       rows.push({
         assignmentId: a._id,
         creatorId: a.creatorId,
@@ -233,34 +242,86 @@ export const getAttribution = adminQuery({
         platforms,
         postCount,
         publishedAt,
+        day: parisDay(publishedAt),
         period,
         totalViews: views.totalViews,
         payableViews: views.payableViews,
+        promoViews: views.promoViews,
         isWarmupOnly: !views.hasPayablePost,
+        hasPromoPost: views.hasPromoPost,
         cost,
-        attributedSignups: w ? w.signups : null,
-        attributedSubs: w ? w.subs : null,
-        windowComplete: w ? w.complete : false,
       });
     }
 
-    // Tri par abonnés attribués décroissants (défaut du chantier), vues PAYABLES
-    // en départage — une ligne sans attribution retombe derrière. Le départage
-    // utilise la même base que l'onglet (hors warmup) : classer sur les vues
-    // totales ferait remonter une vidéo de chauffe au-dessus de sa performance
-    // réellement monétisée.
-    rows.sort(
-      (x, y) =>
-        (y.attributedSubs ?? -1) - (x.attributedSubs ?? -1) ||
-        y.payableViews - x.payableViews,
-    );
+    // Tri par vues PROMO décroissantes (performance promo) — l'attribution n'est
+    // plus par ligne mais au jour solo.
+    rows.sort((x, y) => y.promoViews - x.promoViews || y.publishedAt - x.publishedAt);
+
+    // Jours solo + efficacité créatrice, sur les vidéos ayant AU MOINS un post
+    // promo (même à 0 vue : la présence compte pour le « solo »).
+    const promoVideos: PromoVideo[] = rows
+      .filter((r) => r.hasPromoPost)
+      .map((r) => ({
+        day: r.day,
+        creatorId: r.creatorId,
+        creatorName: r.creatorName,
+        promoViews: r.promoViews,
+      }));
+    const soloDays = computeSoloDays(promoVideos, daily);
+    const creatorEfficiency = computeCreatorEfficiency(promoVideos);
 
     return {
       rows,
-      attributionAvailable: hours.length > 0,
+      soloDays,
+      creators: creatorEfficiency,
+      attributionAvailable: daily.length > 0,
       posthogConfigured: project?.posthog !== undefined,
       computedAt: cacheRow?.computedAt ?? null,
-      windowHours: ATTRIBUTION_WINDOW_HOURS,
+    };
+  },
+});
+
+// ─── Trois compteurs de vues (A2) ────────────────────────────────────────────
+
+export interface ViewCountersResult {
+  /** Σ toutes vues (warmup incl.) — usage : paliers. */
+  totales: number;
+  /** Σ vues des posts rémunérés — usage : moteur de paie. */
+  payables: number;
+  /** Σ vues des posts non-warmup (promo) — usage : taux de conversion. */
+  promo: number;
+  /** Libellé d'usage de chaque compteur (la carte DÉCLARE lequel elle lit). */
+  usage: { totales: string; payables: string; promo: string };
+  /** Nb de publications comptées (transparence). */
+  publications: number;
+}
+
+/**
+ * Les TROIS compteurs de vues du projet (règle A2) — chacun sa base, JAMAIS
+ * additionnés entre eux. La définition de la promo a une source UNIQUE
+ * (convex/viewCounters.isPromoPost) : le jour où `datePromoStart` remplace
+ * « non-warmup », seule cette fonction change.
+ */
+export const getViewCounters = adminQuery({
+  args: {},
+  handler: async (ctx): Promise<ViewCountersResult> => {
+    const pubs = await ctx.db
+      .query("publications")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const counters = computeViewCounters(
+      pubs.map((p) => ({
+        views: p.vuesLatest ?? 0,
+        isWarmup: p.isWarmup === true,
+        remunere: p.remunere,
+      })),
+    );
+    return {
+      totales: counters.totales,
+      payables: counters.payables,
+      promo: counters.promo,
+      usage: { ...VIEW_COUNTER_USAGE },
+      publications: pubs.length,
     };
   },
 });
@@ -291,6 +352,10 @@ export interface PlanEconomics {
 export interface RevenueBreakdown {
   configured: boolean;
   currency: string | null;
+  /** A5 — true = revenu multi-devise : les totaux ne sont PAS additionnés. */
+  mixedCurrency: boolean;
+  /** A5 — taux de frais effectif (brut − net) / brut, fraction 0–1. null si mixte. */
+  feeRate: number | null;
   periods: RevenuePeriod[];
   plans: PlanEconomics[];
   /** Revenu net moyen par membre et par mois actif (dénominateur du payback). */
@@ -303,6 +368,8 @@ export interface RevenueBreakdown {
    * churn attendent les events PostHog `subscription_cancelled`.
    */
   churnAvailable: boolean;
+  /** A4 — memberships internes exclus du revenu (compteur visible). */
+  internalExcludedMembers: number;
 }
 
 /**
@@ -318,18 +385,33 @@ export const getRevenueBreakdown = adminQuery({
       return {
         configured: false,
         currency: null,
+        mixedCurrency: false,
+        feeRate: null,
         periods: [],
         plans: [],
         monthlyArpu: null,
         ltv: null,
         churnAvailable: false,
+        internalExcludedMembers: 0,
       };
     }
 
-    const payments = await ctx.db
-      .query("whopPayments")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
+    // A4 — écarte les abonnements internes (par membershipId, cf internalAccounts)
+    // AVANT toute agrégation ; on en tient le compte pour l'afficher.
+    const internalCfg = internalAccountsFor(project.slug);
+    const internalMembers = new Set<string>();
+    const payments = (
+      await ctx.db
+        .query("whopPayments")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect()
+    ).filter((p) => {
+      if (isInternalWhopMembership(p.membershipId, internalCfg)) {
+        if (p.membershipId) internalMembers.add(p.membershipId);
+        return false;
+      }
+      return true;
+    });
 
     // Premier paiement ENCAISSÉ par membre → sépare nouveau vs récurrent.
     const firstSeen = new Map<string, number>();
@@ -420,15 +502,159 @@ export const getRevenueBreakdown = adminQuery({
       0,
     );
 
+    const summary = summarizeWhopRevenue(payments);
     return {
       configured: true,
-      currency: summarizeWhopRevenue(payments).currency,
+      currency: summary.currency,
+      mixedCurrency: summary.mixedCurrency,
+      feeRate: summary.feeRate,
       periods,
       plans,
       monthlyArpu:
         totalMemberMonths > 0 ? round2(totalNet / totalMemberMonths) : null,
       ltv: totalMembers > 0 ? round2(totalNet / totalMembers) : null,
       churnAvailable: false,
+      internalExcludedMembers: internalMembers.size,
+    };
+  },
+});
+
+// ─── Colonne vertébrale FIABILITÉ (spine phase C) ────────────────────────────
+
+const EMPTY_INSTRUMENTATION: InstrumentationPayload = { events: [], props: [] };
+
+/** Une étape de funnel réduite à ce dont le contrôle de cohérence a besoin. */
+interface StepCount {
+  key: string;
+  count: number;
+}
+
+export interface ReliabilityResult {
+  /** PostHog configuré (sinon instrumentation vide). */
+  configured: boolean;
+  /** Dernier passage de sync PostHog (max computedAt du cache). */
+  computedAt: number | null;
+  /** État de CHAQUE event du contrat (carte instrumentation). */
+  instrumentation: InstrumentationPayload;
+  /** Personnes internes exclues (compteur A4). */
+  internalExcluded: InternalExcludedPayload;
+  /**
+   * ENTRÉES des contrôles de cohérence — le CLIENT appelle
+   * `lib/analytics-hub.buildCoherenceChecks` (ce module pur vit côté client, pas
+   * de réplique convex). On ne fait ici que réunir les chiffres bruts.
+   */
+  coherence: {
+    sequentialSteps: StepCount[];
+    reachSteps: StepCount[];
+    currencyCount: number;
+    /** Clients selon le dashboard (atteinte subscription_completed). */
+    dashboardClients: number | null;
+    /** Membres payants Whop. null si Whop non configuré. */
+    whopMembers: number | null;
+  };
+  /** Fraîcheur par source : dernière synchro (ms). Le CLIENT juge le « périmé ». */
+  freshness: { source: "posthog" | "whop" | "scraping"; lastSyncMs: number | null }[];
+}
+
+/**
+ * Réunit tout ce dont l'onglet Fiabilité a besoin, en UNE query : état
+ * d'instrumentation, entrées des contrôles de cohérence, compteur d'internes,
+ * fraîcheur des sources. La phase C n'a plus qu'à afficher (et composer les
+ * checks via le module pur côté client).
+ */
+export const getReliability = adminQuery({
+  args: {},
+  handler: async (ctx): Promise<ReliabilityResult> => {
+    const project = await ctx.db.get(ctx.projectId);
+    const configured = project?.posthog !== undefined;
+
+    const cacheRows = await ctx.db
+      .query("posthogCache")
+      .withIndex("by_project_key", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const byKey = new Map(cacheRows.map((r) => [r.key, r]));
+    const read = <T,>(key: string, fallback: T): T => {
+      const row = byKey.get(key);
+      if (!row || row.json === "") return fallback;
+      try {
+        return JSON.parse(row.json) as T;
+      } catch {
+        return fallback;
+      }
+    };
+    const stepsOf = (payload: FunnelPayload): StepCount[] => {
+      const seg = payload.segments[0];
+      return seg ? seg.steps.map((s) => ({ key: s.key, count: s.count })) : [];
+    };
+
+    const instrumentation = read<InstrumentationPayload>(
+      POSTHOG_CACHE_KEYS.instrumentation,
+      EMPTY_INSTRUMENTATION,
+    );
+    const internalExcluded = read<InternalExcludedPayload>(
+      POSTHOG_CACHE_KEYS.internalExcluded,
+      { persons: 0, totalPersons: 0 },
+    );
+    const sequentialSteps = stepsOf(
+      read<FunnelPayload>(POSTHOG_CACHE_KEYS.funnelSequential, { segments: [] }),
+    );
+    const reachSteps = stepsOf(
+      read<FunnelPayload>(POSTHOG_CACHE_KEYS.funnelGlobal, { segments: [] }),
+    );
+    const dashboardClients =
+      reachSteps.find((s) => s.key === "subscription_completed")?.count ?? null;
+    const posthogSyncMs =
+      cacheRows.length > 0
+        ? Math.max(...cacheRows.map((r) => r.computedAt))
+        : null;
+
+    // Whop : nb de devises encaissées + membres payants + fraîcheur.
+    let currencyCount = 0;
+    let whopMembers: number | null = null;
+    let whopSyncMs: number | null = null;
+    if (project?.whop) {
+      const payments = await ctx.db
+        .query("whopPayments")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect();
+      currencyCount = summarizeWhopRevenue(payments).currencies.length;
+      const members = new Set<string>();
+      for (const p of payments) {
+        if (p.membershipId && whopNetContribution(p) > 0) members.add(p.membershipId);
+        whopSyncMs = Math.max(whopSyncMs ?? 0, p.updatedAt);
+      }
+      whopMembers = members.size;
+    }
+
+    // Scraping (vues Jarvia) : dernier snapshot relevé sur une publication.
+    const publications = await ctx.db
+      .query("publications")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    let scrapingSyncMs: number | null = null;
+    for (const p of publications) {
+      if (p.latestSnapshotAt !== undefined) {
+        scrapingSyncMs = Math.max(scrapingSyncMs ?? 0, p.latestSnapshotAt);
+      }
+    }
+
+    return {
+      configured,
+      computedAt: posthogSyncMs,
+      instrumentation,
+      internalExcluded,
+      coherence: {
+        sequentialSteps,
+        reachSteps,
+        currencyCount,
+        dashboardClients,
+        whopMembers,
+      },
+      freshness: [
+        { source: "posthog", lastSyncMs: posthogSyncMs },
+        { source: "whop", lastSyncMs: whopSyncMs },
+        { source: "scraping", lastSyncMs: scrapingSyncMs },
+      ],
     };
   },
 });
