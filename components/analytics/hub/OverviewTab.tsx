@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { formatNumber } from "@/lib/format";
 import { formatMoney, formatViews } from "@/lib/format-rate";
 import { buildCoherenceChecks } from "@/lib/analytics-hub";
-import { KpiTile, HubNotice, dash, pct } from "./HubPrimitives";
+import { KpiTile, HubNotice, WebhookFixNotice, dash, pct } from "./HubPrimitives";
 import type {
   ProductAnalyticsData,
   RevenueData,
@@ -36,6 +36,7 @@ export function OverviewTab({
   attribution,
   viewCounters,
   periodDays,
+  now,
 }: {
   analytics: ProductAnalyticsData;
   revenue: RevenueData | undefined;
@@ -43,6 +44,7 @@ export function OverviewTab({
   attribution: AttributionData | undefined;
   viewCounters: ViewCountersData | undefined;
   periodDays: number;
+  now: number;
 }) {
   // Fenêtre : les N derniers jours de la série quotidienne.
   const daily = useMemo(() => {
@@ -50,8 +52,6 @@ export function OverviewTab({
     return all.slice(Math.max(0, all.length - periodDays));
   }, [analytics.overview.daily, periodDays]);
 
-  const clientsPeriod = daily.reduce((s, d) => s + d.subs, 0);
-  const todaySubs = daily.length > 0 ? daily[daily.length - 1].subs : 0;
   const subsSeries = daily.map((d) => d.subs);
 
   // Garde-fou C2 : écart dashboard vs Whop.
@@ -64,8 +64,27 @@ export function OverviewTab({
       currencyCount: c.currencyCount,
       dashboardClients: c.dashboardClients,
       whopMembers: c.whopMembers,
+      whopExcludedPre: c.whopExcludedPre,
+      whopExcludedAfter: c.whopExcludedAfter,
     });
   }, [reliability]);
+
+  // Écart client comparable (base du garde-fou) + libellé discret toujours visible.
+  const coh = reliability?.coherence;
+  const clientEcart =
+    coh && coh.dashboardClients !== null && coh.whopMembers !== null
+      ? Math.abs(coh.dashboardClients - coh.whopMembers)
+      : null;
+  const clientsHint =
+    coh?.whopMembersTotal == null || clientEcart === null
+      ? "ancré sur le paiement"
+      : clientEcart === 0
+        ? "aligné avec le dashboard"
+        : `écart de ${clientEcart} avec le dashboard${
+            coh.whopExcludedPre > 0
+              ? ` · ${coh.whopExcludedPre} antérieur(s) à l'instrumentation`
+              : ""
+          }`;
   const dashboardWhopViolation = checks.some(
     (c) => c.key === "dashboard_vs_whop" && c.status === "violation",
   );
@@ -108,6 +127,7 @@ export function OverviewTab({
 
   return (
     <div className="space-y-5">
+      <WebhookFixNotice now={now} />
       {violations.length > 0 ? (
         <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
           <strong>
@@ -124,19 +144,19 @@ export function OverviewTab({
             <CardContent className="flex h-full items-center p-4">
               <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
                 <strong>Clients payants — chiffres suspendus.</strong> L&apos;écart
-                entre le dashboard et Whop dépasse 5 %. Un chiffre faux est pire
-                qu&apos;un chiffre absent : on affiche le contrôle, pas le nombre.
+                dashboard/Whop dépasse À LA FOIS 5 % ET 5 clients. Un chiffre faux est
+                pire qu&apos;un chiffre absent : on affiche le contrôle, pas le nombre.
               </HubNotice>
             </CardContent>
           </Card>
         ) : (
           <>
             <KpiTile
-              label="Clients payants (période)"
-              value={dash(clientsPeriod)}
+              label="Clients payants"
+              value={dash(coh?.whopMembersTotal ?? null)}
               delta={null}
               series={subsSeries}
-              hint={todaySubs > 0 ? `+${formatNumber(todaySubs)} le dernier jour` : "ancré sur le paiement"}
+              hint={clientsHint}
             />
             <KpiTile
               label="Revenu net encaissé"

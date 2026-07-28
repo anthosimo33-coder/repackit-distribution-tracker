@@ -83,6 +83,8 @@ export function FiabiliteTab({
       currencyCount: c.currencyCount,
       dashboardClients: c.dashboardClients,
       whopMembers: c.whopMembers,
+      whopExcludedPre: c.whopExcludedPre,
+      whopExcludedAfter: c.whopExcludedAfter,
     });
   }, [reliability.coherence]);
 

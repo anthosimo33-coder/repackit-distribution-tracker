@@ -16,6 +16,7 @@ import { FunnelChart } from "./HubCharts";
 import {
   HubCardHeader,
   HubNotice,
+  WebhookFixNotice,
   dash,
   pct,
   formatDuration,
@@ -52,9 +53,11 @@ const DEVICE_LABELS: Record<string, string> = {
 export function ParcoursTab({
   analytics,
   reliability,
+  now,
 }: {
   analytics: ProductAnalyticsData;
   reliability: ReliabilityData | undefined;
+  now: number;
 }) {
   const seqSteps = useMemo(
     () => analytics.funnels.sequential.segments[0]?.steps ?? [],
@@ -132,6 +135,7 @@ export function ParcoursTab({
 
   return (
     <div className="space-y-6">
+      <WebhookFixNotice now={now} />
       <HubNotice className="border-sky-200 bg-sky-50/70 text-sky-900">
         <strong>Tunnel corrigé le 29/07.</strong> L&apos;ordre des étapes était faux
         (les cibles et la 1re alerte étaient placées avant l&apos;offre) : les taux

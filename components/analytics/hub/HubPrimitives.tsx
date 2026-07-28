@@ -180,6 +180,45 @@ export function HubNotice({
   );
 }
 
+// ─── Marqueurs de rupture (séries non comparables au-delà d'une date) ────────
+
+/** Réparation du webhook Whop de confirmation de paiement — 28/07/2026 au soir. */
+export const WHOP_WEBHOOK_FIX_MS = Date.UTC(2026, 6, 28, 18, 0, 0);
+/** Fenêtre d'analyse des agrégats PostHog (jours). */
+export const ANALYSIS_WINDOW_DAYS = 90;
+
+/** La fenêtre d'analyse (90 j finissant à `nowMs`) englobe-t-elle la réparation ? */
+export function spansWebhookFix(nowMs: number): boolean {
+  const start = nowMs - ANALYSIS_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  return start <= WHOP_WEBHOOK_FIX_MS && WHOP_WEBHOOK_FIX_MS <= nowMs;
+}
+
+/**
+ * Avertissement de rupture : avant la réparation du webhook (28/07 au soir),
+ * AUCUN paiement n'accordait l'accès automatiquement — les clients devaient faire
+ * « Restore purchases ». Les délais et taux de complétion qui TRAVERSENT cette
+ * date ne mesurent pas un tunnel de paiement mais le temps pour trouver un bouton
+ * de secours : non comparables. N'affiche rien si la fenêtre ne traverse pas la date.
+ */
+export function WebhookFixNotice({
+  now,
+  className,
+}: {
+  now: number;
+  className?: string;
+}) {
+  if (!spansWebhookFix(now)) return null;
+  return (
+    <HubNotice className={cn("border-red-200 bg-red-50/70 text-red-900", className)}>
+      <strong>Webhook de confirmation réparé le 28/07 au soir.</strong> Avant cette
+      date, aucun paiement n&apos;accordait l&apos;accès automatiquement — les clients
+      devaient faire « Restore purchases ». Les délais et taux de complétion qui
+      traversent cette date ne mesurent pas un tunnel de paiement : ils ne sont
+      comparables à rien.
+    </HubNotice>
+  );
+}
+
 // ─── Sparkline + KPI ─────────────────────────────────────────────────────────
 
 /**

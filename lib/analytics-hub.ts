@@ -172,12 +172,22 @@ export interface CoherenceInputs {
   currencyCount: number;
   /** Clients selon le dashboard (PostHog subscription_completed). null si absent. */
   dashboardClients: number | null;
-  /** Membres payants Whop. null si Whop non configuré. */
+  /**
+   * Membres payants Whop COMPARABLES : ancrés sur la MÊME fenêtre que le cache
+   * PostHog (paiement ≤ dernière synchro) et hors memberships antérieurs à
+   * l'instrumentation → un écart n'est plus de la latence de cron ni un artefact.
+   */
   whopMembers: number | null;
+  /** Memberships exclus car antérieurs à l'instrumentation (cause explicable). */
+  whopExcludedPre?: number;
+  /** Memberships exclus car postérieurs au dernier cron (latence, pas incohérence). */
+  whopExcludedAfter?: number;
 }
 
 /** Écart relatif toléré (points de %) entre clients dashboard et Whop. */
 export const DASHBOARD_WHOP_TOLERANCE_PCT = 5;
+/** Écart ABSOLU toléré (clients). Le masquage exige de franchir % ET absolu. */
+export const DASHBOARD_WHOP_TOLERANCE_ABS = 5;
 
 /**
  * Assemble TOUS les contrôles de cohérence du hub. Un écart ne « corrige » rien :
@@ -207,18 +217,30 @@ export function buildCoherenceChecks(i: CoherenceInputs): CoherenceCheck[] {
         : "",
   });
 
-  // Clients dashboard vs Whop : deux sources indépendantes du même nombre.
+  // Clients dashboard vs Whop, sur une base COMPARABLE (même fenêtre, memberships
+  // pré-instrumentation exclus). Masquage SEULEMENT si les DEUX seuils sont
+  // franchis (% ET absolu) : sur petits nombres, ±1-2 clients ne suspend rien.
   if (i.dashboardClients !== null && i.whopMembers !== null) {
     const diff = Math.abs(i.dashboardClients - i.whopMembers);
     const pct = Math.round((diff / Math.max(1, i.whopMembers)) * 1000) / 10;
+    const masks =
+      pct > DASHBOARD_WHOP_TOLERANCE_PCT && diff > DASHBOARD_WHOP_TOLERANCE_ABS;
+    const causes: string[] = [];
+    if (i.whopExcludedPre && i.whopExcludedPre > 0) {
+      causes.push(`${i.whopExcludedPre} antérieur(s) à l'instrumentation exclu(s)`);
+    }
+    if (i.whopExcludedAfter && i.whopExcludedAfter > 0) {
+      causes.push(`${i.whopExcludedAfter} après le dernier cron (latence)`);
+    }
+    const base =
+      diff === 0
+        ? "écart 0"
+        : `${i.dashboardClients} vs ${i.whopMembers} (écart ${diff}, ${pct} %)`;
     checks.push({
       key: "dashboard_vs_whop",
       label: "Clients dashboard vs Whop",
-      status: pct <= DASHBOARD_WHOP_TOLERANCE_PCT ? "ok" : "violation",
-      detail:
-        diff === 0
-          ? "écart 0"
-          : `${i.dashboardClients} vs ${i.whopMembers} (écart ${pct} %)`,
+      status: masks ? "violation" : diff === 0 ? "ok" : "info",
+      detail: causes.length > 0 ? `${base} · ${causes.join(" · ")}` : base,
     });
   } else {
     checks.push({

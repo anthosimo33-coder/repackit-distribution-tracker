@@ -189,12 +189,13 @@ export default function AnalyticsPage() {
                 attribution={attribution}
                 viewCounters={viewCounters}
                 periodDays={periodDays}
+                now={now}
               />
             </TabsContent>
 
             <TabsContent value="parcours" className="mt-6">
               {analytics.configured ? (
-                <ParcoursTab analytics={analytics} reliability={reliability} />
+                <ParcoursTab analytics={analytics} reliability={reliability} now={now} />
               ) : (
                 <NotConfigured />
               )}
