@@ -14,6 +14,11 @@ import {
   cellTimeMs,
   type PosthogTarget,
 } from "./posthogApi";
+import {
+  CONTRACT_EVENTS,
+  CONTRACT_PROPERTIES,
+  eventAlias,
+} from "./analyticsContract";
 
 /**
  * Ingestion des AGRÉGATS PostHog par projet (hub Analytics). Un cron horaire
@@ -62,6 +67,14 @@ export const POSTHOG_CACHE_KEYS = {
   attributionHourly: "attributionHourly",
   cohorts: "cohorts",
   predictors: "predictors",
+  // ─── C1 — Contrat d'events élargi (phase B consommera ces agrégats) ────────
+  instrumentation: "instrumentation",
+  checkoutReliability: "checkoutReliability",
+  checkoutCauses: "checkoutCauses",
+  searchResults: "searchResults",
+  scanReliability: "scanReliability",
+  scanLatency: "scanLatency",
+  friction: "friction",
 } as const;
 
 // ─── Formes des agrégats cachés ──────────────────────────────────────────────
@@ -95,6 +108,67 @@ export interface PredictorsPayload {
   total: number;
   totalConverted: number;
   behaviors: { key: string; n: number; converted: number }[];
+}
+
+// ─── C1 — Formes des agrégats du contrat élargi ──────────────────────────────
+
+/** État d'instrumentation : un item par event du contrat + sondes de propriétés. */
+export interface InstrumentationPayload {
+  events: {
+    name: string;
+    category: string;
+    persons: number;
+    /** null quand l'event n'a JAMAIS été émis (pas d'epoch-0 trompeur). */
+    firstSeenMs: number | null;
+    /** Déclaré au contrat mais pas attendu émis (règle A1). */
+    notYetEmitted: boolean;
+    note?: string;
+  }[];
+  props: {
+    key: string;
+    onEvent: string;
+    /** Nb d'events portant la propriété (0 = jamais vue). */
+    present: number;
+    notYetEmitted: boolean;
+  }[];
+}
+
+/** Fiabilité du checkout par appareil + pertes (règle : question → décision). */
+export interface CheckoutReliabilityPayload {
+  rows: {
+    device: string;
+    checkouts: number;
+    paid: number;
+    divertedFree: number;
+    disappeared: number;
+    medPayMs: number | null;
+    p90PayMs: number | null;
+  }[];
+}
+
+/** Motifs d'échec de paiement (payment_failed groupé par `cause`). */
+export interface CheckoutCausesPayload {
+  rows: { cause: string; n: number }[];
+}
+
+/** Résultats de recherche de compte (handle_search_result groupé par `result`). */
+export interface SearchResultsPayload {
+  rows: { result: string; persons: number }[];
+}
+
+/** Fiabilité des scans (scan_completed groupé par mode × result). */
+export interface ScanReliabilityPayload {
+  rows: { mode: string; result: string; runs: number }[];
+}
+
+/** Latence perçue des scans par tranche d'abonnés du compte scanné. */
+export interface ScanLatencyPayload {
+  rows: { bucket: string; medianMs: number | null; p90Ms: number | null; n: number }[];
+}
+
+/** Points de friction : rageclicks par page. */
+export interface FrictionPayload {
+  rows: { page: string; persons: number }[];
 }
 
 /** Étapes du funnel principal (l'UI mappe ces clés vers des libellés). */
@@ -142,6 +216,51 @@ const FUNNEL_COLUMNS = `
 function segExpr(prop: string): string {
   return `coalesce(nullIf(toString(${prop}), ''), '(inconnu)')`;
 }
+
+// ─── C1 — Instrumentation générée DEPUIS le contrat (aucune dérive) ───────────
+
+/** Une paire (personnes, première émission) par event du contrat. */
+const INSTRUMENTATION_EVENT_COLUMNS = CONTRACT_EVENTS.map((e) => {
+  const a = eventAlias(e.name);
+  return `    uniqIf(person_id, event = '${e.name}') AS n_${a},\n    minIf(timestamp, event = '${e.name}') AS f_${a}`;
+}).join(",\n");
+
+/**
+ * Sondes de PRÉSENCE de propriétés — les 3 « pas encore émises » (règle A1) +
+ * deux cas signalés par la maquette (result muet, distinct_id manquant). L'ordre
+ * est stable : la shape lit par index.
+ */
+export const INSTRUMENTATION_PROP_PROBES: {
+  key: string;
+  onEvent: string;
+  cond: string;
+  notYetEmitted: boolean;
+}[] = [
+  ...CONTRACT_PROPERTIES.map((p) => ({
+    key: p.name,
+    onEvent: p.onEvent,
+    cond:
+      p.onEvent === "*"
+        ? `toString(properties.${p.name}) != ''`
+        : `event = '${p.onEvent}' AND toString(properties.${p.name}) != ''`,
+    notYetEmitted: p.notYetEmitted === true,
+  })),
+  {
+    key: "handle_search_result.result",
+    onEvent: "handle_search_result",
+    cond: "event = 'handle_search_result' AND toString(properties.result) != ''",
+    notYetEmitted: false,
+  },
+  {
+    key: "scan_completed.distinct_id",
+    onEvent: "scan_completed",
+    cond: "event = 'scan_completed' AND toString(distinct_id) != ''",
+    notYetEmitted: false,
+  },
+];
+const INSTRUMENTATION_PROP_COLUMNS = INSTRUMENTATION_PROP_PROBES.map(
+  (p, i) => `    countIf(${p.cond}) AS p_${i}`,
+).join(",\n");
 
 const QUERIES = {
   /** Série quotidienne : visiteurs uniques, inscriptions, abonnements. */
@@ -346,6 +465,117 @@ FROM (
   GROUP BY person_id
   HAVING countIf(event = 'signup_completed') > 0
 )`,
+
+  // ─── C1 — Contrat élargi : instrumentation + fiabilité checkout/scan/friction ─
+
+  /** État d'instrumentation : personnes + première émission pour CHAQUE event. */
+  instrumentation: `
+SELECT
+${INSTRUMENTATION_EVENT_COLUMNS},
+${INSTRUMENTATION_PROP_COLUMNS}
+FROM events
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY`,
+
+  /**
+   * Fiabilité du checkout, par appareil (webview vs natif). Une personne = un
+   * checkout ; `paid` a un subscription_completed, `divertedFree` bascule au
+   * gratuit sans payer, `disappeared` ne fait plus rien. Délai checkout→paiement
+   * en secondes (médiane/p90) chez ceux qui paient.
+   */
+  checkoutReliability: `
+SELECT
+  device,
+  count() AS checkouts,
+  countIf(paid > 0) AS paid,
+  countIf(paid = 0 AND freed > 0) AS diverted_free,
+  countIf(paid = 0 AND freed = 0) AS disappeared,
+  quantileIf(0.5)(pay_delay, paid > 0 AND pay_delay > 0) AS med_pay_s,
+  quantileIf(0.9)(pay_delay, paid > 0 AND pay_delay > 0) AS p90_pay_s
+FROM (
+  SELECT person_id,
+    if(max(if(event = 'checkout_started' AND (properties.is_webview = true OR toString(properties.is_webview) = 'true'), 1, 0)) > 0, 'webview', 'natif') AS device,
+    countIf(event = 'subscription_completed') AS paid,
+    countIf(event = 'free_tier_started') AS freed,
+    dateDiff('second', minIf(timestamp, event = 'checkout_started'), minIf(timestamp, event = 'subscription_completed')) AS pay_delay
+  FROM events
+  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+    AND event IN ('checkout_started', 'subscription_completed', 'free_tier_started')
+  GROUP BY person_id
+  HAVING countIf(event = 'checkout_started') > 0
+)
+GROUP BY device
+ORDER BY checkouts DESC`,
+
+  /** Motifs d'échec de paiement (payment_failed groupé par `cause`). */
+  checkoutCauses: `
+SELECT coalesce(nullIf(toString(properties.cause), ''), '(sans cause)') AS cause,
+       count() AS n
+FROM events
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+  AND event = 'payment_failed'
+GROUP BY cause
+ORDER BY n DESC
+LIMIT ${SEGMENT_LIMIT}`,
+
+  /** Résultats de recherche de compte (handle_search_result groupé par result). */
+  searchResults: `
+SELECT coalesce(nullIf(toString(properties.result), ''), '(sans result)') AS result,
+       uniq(person_id) AS persons
+FROM events
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+  AND event = 'handle_search_result'
+GROUP BY result
+ORDER BY persons DESC
+LIMIT ${SEGMENT_LIMIT}`,
+
+  /** Fiabilité des scans (scan_completed groupé par mode × result). */
+  scanReliability: `
+SELECT coalesce(nullIf(toString(properties.mode), ''), '(sans mode)') AS mode,
+       coalesce(nullIf(toString(properties.result), ''), '(sans result)') AS result,
+       count() AS runs
+FROM events
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+  AND event = 'scan_completed'
+GROUP BY mode, result
+ORDER BY runs DESC
+LIMIT 40`,
+
+  /** Latence perçue des scans par tranche d'abonnés du compte scanné. */
+  scanLatency: `
+SELECT bucket,
+       quantile(0.5)(dur) AS med_ms,
+       quantile(0.9)(dur) AS p90_ms,
+       count() AS n
+FROM (
+  SELECT
+    multiIf(fc < 1000, '<1k', fc < 10000, '1k-10k', fc < 100000, '10k-100k', '100k+') AS bucket,
+    multiIf(fc < 1000, 0, fc < 10000, 1, fc < 100000, 2, 3) AS bidx,
+    dur
+  FROM (
+    SELECT toFloat64OrZero(toString(properties.follower_count)) AS fc,
+           toFloat64OrNull(toString(properties.duration_ms)) AS dur
+    FROM events
+    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+      AND event = 'scan_completed'
+  )
+  WHERE dur IS NOT NULL
+)
+GROUP BY bucket, bidx
+ORDER BY bidx`,
+
+  /** Points de friction : rageclicks distincts par page. */
+  friction: `
+SELECT coalesce(
+         nullIf(toString(properties['$pathname']), ''),
+         coalesce(nullIf(toString(properties['$current_url']), ''), '(sans page)')
+       ) AS page,
+       uniq(person_id) AS persons
+FROM events
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+  AND event = '$rageclick'
+GROUP BY page
+ORDER BY persons DESC
+LIMIT ${SEGMENT_LIMIT}`,
 } as const;
 
 // ─── Config projet ↔ PostHog (opérateur, via `npx convex run`) ───────────────
@@ -527,6 +757,54 @@ function shapeConversion(rows: unknown[][]): ConversionPayload {
   };
 }
 
+// ─── C1 — Shapes du contrat élargi ───────────────────────────────────────────
+
+/** Ligne unique → état par event du contrat + présence des propriétés sondées. */
+function shapeInstrumentation(rows: unknown[][]): InstrumentationPayload {
+  const r = rows[0] ?? [];
+  const events = CONTRACT_EVENTS.map((e, i) => {
+    const persons = cellNum(r, i * 2);
+    // minIf rend l'epoch 0 (1970) si l'event n'a jamais matché → null si 0 pers.
+    const firstSeenMs = persons > 0 ? cellTimeMs(r, i * 2 + 1) : null;
+    return {
+      name: e.name,
+      category: e.category as string,
+      persons,
+      firstSeenMs,
+      notYetEmitted: e.notYetEmitted === true,
+      ...(e.note ? { note: e.note } : {}),
+    };
+  });
+  const base = CONTRACT_EVENTS.length * 2;
+  const props = INSTRUMENTATION_PROP_PROBES.map((p, i) => ({
+    key: p.key,
+    onEvent: p.onEvent,
+    present: cellNum(r, base + i),
+    notYetEmitted: p.notYetEmitted,
+  }));
+  return { events, props };
+}
+
+function shapeCheckoutReliability(rows: unknown[][]): CheckoutReliabilityPayload {
+  return {
+    rows: rows.map((r) => {
+      const paid = cellNum(r, 2);
+      const med = cellNum(r, 5);
+      const p90 = cellNum(r, 6);
+      return {
+        device: cellStr(r, 0),
+        checkouts: cellNum(r, 1),
+        paid,
+        divertedFree: cellNum(r, 3),
+        disappeared: cellNum(r, 4),
+        // Quantiles en SECONDES → ms. Pas de payeur ⇒ pas de délai (null, pas 0).
+        medPayMs: paid > 0 && med > 0 ? med * 1000 : null,
+        p90PayMs: paid > 0 && p90 > 0 ? p90 * 1000 : null,
+      };
+    }),
+  };
+}
+
 /**
  * Sync horaire de TOUS les projets configurés (ou d'un seul, pour le bouton
  * « Actualiser »). Une clé d'env absente ⇒ projet SAUTÉ (log clair, pas de
@@ -705,6 +983,78 @@ export const runHourlySync = internalAction({
             };
           },
         ),
+        await collect(
+          POSTHOG_CACHE_KEYS.instrumentation,
+          apiKey,
+          target,
+          QUERIES.instrumentation,
+          shapeInstrumentation,
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.checkoutReliability,
+          apiKey,
+          target,
+          QUERIES.checkoutReliability,
+          shapeCheckoutReliability,
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.checkoutCauses,
+          apiKey,
+          target,
+          QUERIES.checkoutCauses,
+          (rows): CheckoutCausesPayload => ({
+            rows: rows.map((r) => ({ cause: cellStr(r, 0), n: cellNum(r, 1) })),
+          }),
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.searchResults,
+          apiKey,
+          target,
+          QUERIES.searchResults,
+          (rows): SearchResultsPayload => ({
+            rows: rows.map((r) => ({ result: cellStr(r, 0), persons: cellNum(r, 1) })),
+          }),
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.scanReliability,
+          apiKey,
+          target,
+          QUERIES.scanReliability,
+          (rows): ScanReliabilityPayload => ({
+            rows: rows.map((r) => ({
+              mode: cellStr(r, 0),
+              result: cellStr(r, 1),
+              runs: cellNum(r, 2),
+            })),
+          }),
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.scanLatency,
+          apiKey,
+          target,
+          QUERIES.scanLatency,
+          (rows): ScanLatencyPayload => ({
+            rows: rows.map((r) => {
+              const n = cellNum(r, 3);
+              return {
+                bucket: cellStr(r, 0),
+                // duration_ms déjà en ms. n = 0 ⇒ pas de mesure (null, pas 0).
+                medianMs: n > 0 ? cellNum(r, 1) : null,
+                p90Ms: n > 0 ? cellNum(r, 2) : null,
+                n,
+              };
+            }),
+          }),
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.friction,
+          apiKey,
+          target,
+          QUERIES.friction,
+          (rows): FrictionPayload => ({
+            rows: rows.map((r) => ({ page: cellStr(r, 0), persons: cellNum(r, 1) })),
+          }),
+        ),
       ];
 
       await ctx.runMutation(internal.posthogSync.upsertPosthogCache, {
@@ -764,10 +1114,19 @@ export interface ProductAnalytics {
   sources: ConversionPayload;
   cohorts: CohortsPayload;
   predictors: PredictorsPayload;
+  // ─── C1 — Contrat élargi (phase B) ─────────────────────────────────────────
+  instrumentation: InstrumentationPayload;
+  checkoutReliability: CheckoutReliabilityPayload;
+  checkoutCauses: CheckoutCausesPayload;
+  searchResults: SearchResultsPayload;
+  scanReliability: ScanReliabilityPayload;
+  scanLatency: ScanLatencyPayload;
+  friction: FrictionPayload;
 }
 
 const EMPTY_FUNNEL: FunnelPayload = { segments: [] };
 const EMPTY_CONVERSION: ConversionPayload = { rows: [] };
+const EMPTY_INSTRUMENTATION: InstrumentationPayload = { events: [], props: [] };
 
 /**
  * Agrégats PostHog du projet, servis DEPUIS LE CACHE (jamais d'appel API dans le
@@ -793,6 +1152,13 @@ export const getProductAnalytics = adminQuery({
       sources: EMPTY_CONVERSION,
       cohorts: { segments: [] },
       predictors: { total: 0, totalConverted: 0, behaviors: [] },
+      instrumentation: EMPTY_INSTRUMENTATION,
+      checkoutReliability: { rows: [] },
+      checkoutCauses: { rows: [] },
+      searchResults: { rows: [] },
+      scanReliability: { rows: [] },
+      scanLatency: { rows: [] },
+      friction: { rows: [] },
     };
     if (!empty.configured) return empty;
 
@@ -824,6 +1190,18 @@ export const getProductAnalytics = adminQuery({
       sources: read(POSTHOG_CACHE_KEYS.sources, EMPTY_CONVERSION),
       cohorts: read(POSTHOG_CACHE_KEYS.cohorts, empty.cohorts),
       predictors: read(POSTHOG_CACHE_KEYS.predictors, empty.predictors),
+      instrumentation: read(
+        POSTHOG_CACHE_KEYS.instrumentation,
+        EMPTY_INSTRUMENTATION,
+      ),
+      checkoutReliability: read(POSTHOG_CACHE_KEYS.checkoutReliability, {
+        rows: [],
+      }),
+      checkoutCauses: read(POSTHOG_CACHE_KEYS.checkoutCauses, { rows: [] }),
+      searchResults: read(POSTHOG_CACHE_KEYS.searchResults, { rows: [] }),
+      scanReliability: read(POSTHOG_CACHE_KEYS.scanReliability, { rows: [] }),
+      scanLatency: read(POSTHOG_CACHE_KEYS.scanLatency, { rows: [] }),
+      friction: read(POSTHOG_CACHE_KEYS.friction, { rows: [] }),
     };
   },
 });
