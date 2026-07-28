@@ -13,7 +13,7 @@ import {
   useProjectSlug,
 } from "@/components/project/ProjectProvider";
 import { viewAsBase } from "@/lib/view-as";
-import { formatMoney } from "@/lib/format-rate";
+import { formatMoney, formatViews } from "@/lib/format-rate";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { FunctionReturnType } from "convex/server";
@@ -207,6 +207,9 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
           Voir son espace
         </Link>
       </div>
+
+      {/* LOT 3 — Phase promo : date + compteur de bascule + indicateur si vide. */}
+      <PromoPhaseCard creator={creator} />
 
       {/* Lien d'invitation — uniquement tant que le créateur est "invited". */}
       {creator.invitation && (
@@ -657,6 +660,105 @@ function BonusGridSection({
             )}
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── LOT 3 — Phase promo de la créatrice (date + compteur de bascule) ─────────
+
+/** ms (UTC) → "YYYY-MM-DD" pour <input type="date"> ; "" si absent. */
+function msToDateInput(ms: number | null | undefined): string {
+  if (ms == null) return "";
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`;
+}
+
+/** "YYYY-MM-DD" → ms UTC (minuit) ; null si vide. */
+function dateInputToMs(s: string): number | null {
+  if (!s) return null;
+  const [y, m, d] = s.split("-").map(Number);
+  return Date.UTC(y, m - 1, d);
+}
+
+/**
+ * Carte « Phase promo » (LOT 3) : date éditable + compteur LIVE des publications qui
+ * basculent en promo avec la date choisie (AVANT validation) + indicateur « phase
+ * promo non définie » quand c'est vide. Le recalcul des vues promo est réactif (les
+ * queries relisent isPromo dès l'enregistrement). N'affecte NI la paie NI le warmup.
+ */
+function PromoPhaseCard({ creator }: { creator: Creator }) {
+  const setDate = useProjectMutation(api.creators.setCreatorDatePromoStart);
+  const [dateStr, setDateStr] = useState(msToDateInput(creator.datePromoStart));
+  const [saving, setSaving] = useState(false);
+  const candidate = dateInputToMs(dateStr);
+  const preview = useProjectQuery(api.creators.previewPromoCount, {
+    creatorId: creator._id,
+    candidateDate: candidate,
+  });
+  const dirty = candidate !== (creator.datePromoStart ?? null);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await setDate({ creatorId: creator._id, datePromoStart: candidate });
+      toast.success("Date de début de promo enregistrée.");
+    } catch (e) {
+      toast.error(convexErrorMessage(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Phase promo</CardTitle>
+        <CardDescription>
+          À partir de cette date, ses publications comptent comme promo (elles
+          mentionnent l&apos;app → dénominateur des taux de conversion). Vide =
+          phase non définie : elle ne contribue à aucune vue promo.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {creator.datePromoStart == null && (
+          <span className="inline-flex w-fit items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+            Phase promo non définie
+          </span>
+        )}
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="promo-date">Début de promo</Label>
+            <Input
+              id="promo-date"
+              type="date"
+              value={dateStr}
+              onChange={(e) => setDateStr(e.target.value)}
+              className="w-44"
+            />
+          </div>
+          {dateStr && (
+            <Button variant="ghost" size="sm" onClick={() => setDateStr("")}>
+              Effacer
+            </Button>
+          )}
+        </div>
+        <p className="text-sm text-slate-500" data-testid="promo-preview">
+          {preview === undefined
+            ? "Calcul…"
+            : candidate == null
+              ? "Aucune date → 0 vue promo."
+              : `${preview.promoCount} publication${
+                  preview.promoCount > 1 ? "s" : ""
+                } basculent en promo (${formatViews(
+                  preview.promoViews,
+                )} vues) avec cette date, sur ${preview.total}.`}
+        </p>
+        <Button onClick={save} disabled={!dirty || saving}>
+          {saving && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+          Enregistrer
+        </Button>
       </CardContent>
     </Card>
   );

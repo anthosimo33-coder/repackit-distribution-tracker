@@ -14,6 +14,7 @@ import { resolveDisplayMetrics } from "./metricsDisplay";
 import { isTikTokShortlink } from "./modelVideoEmbeds";
 import { cycleIndexOf, cycleWindow, cyclePeriodKey } from "./payCycle";
 import { assignmentPublishedAt, syncBonusForPublication } from "./pricing";
+import { isWarmupPromoConflict } from "./promoPhase";
 
 const mecaniqueValidator = v.union(
   v.literal("Erreur"),
@@ -854,6 +855,13 @@ export const setPublicationWarmup = adminMutation({
         "Cycle déjà payé : le flag warmup est verrouillé sur ce post.",
       );
     }
+    // LOT 3 — combinaison incohérente interdite : warmup + forcé-promo.
+    if (isWarmupPromoConflict(isWarmup, pub.est_promo_override)) {
+      throw new ConvexError(
+        "Impossible de marquer warmup un post forcé en promo. Retire d'abord " +
+          "l'override promo.",
+      );
+    }
     if ((pub.isWarmup === true) === isWarmup) {
       return { ok: true, isWarmup }; // déjà dans l'état voulu — no-op
     }
@@ -861,6 +869,36 @@ export const setPublicationWarmup = adminMutation({
     // Le cumul PAYABLE du créateur change → re-sync des paliers de bonus.
     await syncBonusForPublication(ctx, publicationId);
     return { ok: true, isWarmup };
+  },
+});
+
+/**
+ * ADMIN — pose/retire l'exception EXPLICITE de phase promo d'un post (LOT 3).
+ * `override` : true = force promo (même avant datePromoStart) ; false = exclut
+ * (même après) ; null = retire l'exception (la date décide). N'affecte NI la paie
+ * NI le warmup. INTERDIT sur un post warmup=true (état incohérent : les mutations
+ * refusent la combinaison, cf isWarmupPromoConflict) — retire d'abord le warmup.
+ */
+export const setPublicationPromoOverride = adminMutation({
+  args: {
+    publicationId: v.id("publications"),
+    override: v.union(v.boolean(), v.null()),
+  },
+  handler: async (ctx, { publicationId, override }) => {
+    const pub = await ctx.db.get(publicationId);
+    if (!pub || pub.projectId !== ctx.projectId) {
+      throw new ConvexError("Publication introuvable.");
+    }
+    if (isWarmupPromoConflict(pub.isWarmup, override)) {
+      throw new ConvexError(
+        "Impossible de forcer en promo un post marqué warmup. Retire d'abord " +
+          "le flag warmup.",
+      );
+    }
+    await ctx.db.patch(publicationId, {
+      est_promo_override: override === null ? undefined : override,
+    });
+    return { ok: true, override };
   },
 });
 

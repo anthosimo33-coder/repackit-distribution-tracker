@@ -102,6 +102,7 @@ export default function CreateursPage() {
                   <TableHead>Nom</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Statut</TableHead>
+                  <TableHead>Phase promo</TableHead>
                   <TableHead>Ajouté le</TableHead>
                   <TableHead className="w-12" />
                 </TableRow>
@@ -131,6 +132,19 @@ export default function CreateursPage() {
                         >
                           {badge.label}
                         </span>
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {c.datePromoStart == null ? (
+                          <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
+                            Non définie
+                          </span>
+                        ) : (
+                          <span className="text-slate-600">
+                            {new Date(c.datePromoStart).toLocaleDateString(
+                              "fr-FR",
+                            )}
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="text-sm text-slate-500">
                         {new Date(c.createdAt).toLocaleDateString("fr-FR")}

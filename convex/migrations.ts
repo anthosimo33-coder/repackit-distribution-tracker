@@ -364,3 +364,52 @@ export const backfillCreatorPrePromoWarmup = internalMutation({
     };
   },
 });
+
+/**
+ * LOT 3 — Backfill initial des dates de début de PHASE PROMO (creators.
+ * datePromoStart). Entrées EXPLICITES (creatorId + date ms), validées à la main —
+ * ex. Kelly & Sarah au 25/07 (Date.UTC(2026,6,25) = 1784937600000), Marine laissée
+ * VIDE (non incluse → phase non définie). dryRun par défaut → montre état actuel vs
+ * cible ; commit=true patche. N'affecte NI la paie NI le warmup (dimension
+ * orthogonale). Contrôle attendu : vues_promo inchangé (la date reproduit le flag
+ * warmup manuel).
+ *   convex run migrations:backfillDatePromoStart '{"entries":[{"creatorId":"...","datePromoStart":1785110400000}],"commit":true}' [--prod]
+ */
+export const backfillDatePromoStart = internalMutation({
+  args: {
+    entries: v.array(
+      v.object({
+        creatorId: v.id("creators"),
+        datePromoStart: v.number(),
+      }),
+    ),
+    commit: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { entries, commit }) => {
+    const dryRun = commit !== true;
+    const rows: Array<{
+      creatorId: string;
+      creator: string | null;
+      avant: number | null;
+      apres: number;
+      change: boolean;
+    }> = [];
+    let patched = 0;
+    for (const e of entries) {
+      const c = await ctx.db.get(e.creatorId);
+      const avant = c?.datePromoStart ?? null;
+      rows.push({
+        creatorId: e.creatorId,
+        creator: c?.name ?? null,
+        avant,
+        apres: e.datePromoStart,
+        change: avant !== e.datePromoStart,
+      });
+      if (!dryRun && c) {
+        await ctx.db.patch(e.creatorId, { datePromoStart: e.datePromoStart });
+        patched += 1;
+      }
+    }
+    return { dryRun, count: entries.length, patched, rows };
+  },
+});

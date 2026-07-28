@@ -300,6 +300,16 @@ export default defineSchema({
     // isWarmup=true + remunere=true → PAYÉ (remunere) mais HORS promo (isWarmup,
     // cf vues_promo LOT 3/4). Posé par l'ADMIN ; même verrou de paie que isWarmup.
     remunere: v.optional(v.boolean()),
+    // ─── LOT 3 — Exception EXPLICITE de phase promo (par post, nullable) ───────
+    // Prend le dessus sur la DATE (creators.datePromoStart) : true = compter ce
+    // post comme promo même s'il est ANTÉRIEUR à datePromoStart ; false = l'en
+    // exclure même s'il est postérieur. absent/undefined = pas d'exception (la
+    // date décide). ⚠️ INTERDIT en même temps que isWarmup=true (un post « ne
+    // mentionne pas l'app » ET « compte comme promo » est incohérent) : les
+    // mutations setPublicationPromoOverride / setPublicationWarmup rejettent la
+    // combinaison (cf lib/promo-phase.isWarmupPromoConflict). Ordre de résolution :
+    // isWarmup > est_promo_override > date (cf isPromo).
+    est_promo_override: v.optional(v.boolean()),
     // ─── S3 — Raccord combo de script ↔ publication ────────────────────────
     // Copié depuis assignment.scriptCombo + comboKey À LA MATÉRIALISATION d'un
     // post de SCRIPT validé (validateAssignment, branche script). C'EST le lien
@@ -723,6 +733,15 @@ export default defineSchema({
     // aucun post publié → pas de cycle (« prochaine paie » non applicable). Optional
     // → 0 migration. N'affecte AUCUN montant (regroupement seulement).
     firstPostAt: v.optional(v.number()),
+    // ─── LOT 3 — Début de la PHASE PROMO de la créatrice ──────────────────────
+    // Date (ms UTC) à partir de laquelle ses posts comptent comme PROMO (mention
+    // de l'app → dénominateur des taux de conversion). Saisi UNE fois par l'admin
+    // (envoi du lien Snytch). vide/undefined = phase promo NON définie → la
+    // créatrice ne contribue à AUCUNE vue promo (badge côté admin). Un post est
+    // promo si datePubli >= datePromoStart, SAUF exceptions par post (isWarmup
+    // gagne, ou est_promo_override) — cf lib/promo-phase.isPromo. Modifiable à
+    // tout moment (recalcul réactif). N'affecte NI la paie NI le warmup.
+    datePromoStart: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_project", ["projectId"])

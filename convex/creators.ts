@@ -13,6 +13,7 @@ import {
 import { getProjectBySlug, REPACKIT_SLUG } from "./projects";
 import { internal } from "./_generated/api";
 import { syncBonusUnlocks } from "./pricing";
+import { isPromo } from "./promoPhase";
 import { DELETABLE_STATUSES, purgeAndDeleteAssignment } from "./assignments";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -114,6 +115,83 @@ export const getCreator = adminQuery({
       ...creator,
       invitation: inv ? { token: inv.token, expiresAt: inv.expiresAt } : null,
     };
+  },
+});
+
+/**
+ * ADMIN — pose/retire la date de début de PHASE PROMO d'une créatrice (LOT 3).
+ * `datePromoStart` (ms) = à partir de quand ses posts comptent comme promo ; null =
+ * retirer (phase non définie → 0 vue promo). Modifiable à tout moment ; le recalcul
+ * des vues promo est réactif (les queries relisent isPromo). N'affecte NI la paie
+ * NI le warmup.
+ */
+export const setCreatorDatePromoStart = adminMutation({
+  args: {
+    creatorId: v.id("creators"),
+    datePromoStart: v.union(v.number(), v.null()),
+  },
+  handler: async (ctx, { creatorId, datePromoStart }) => {
+    const creator = await ctx.db.get(creatorId);
+    if (!creator || creator.projectId !== ctx.projectId) {
+      throw new ConvexError("Créateur introuvable.");
+    }
+    await ctx.db.patch(creatorId, {
+      datePromoStart: datePromoStart === null ? undefined : datePromoStart,
+    });
+    return { ok: true, datePromoStart };
+  },
+});
+
+/**
+ * ADMIN — combien de publications d'une créatrice basculent en PROMO avec une date
+ * candidate (LOT 3). Alimente le compteur « N publications basculent en promo » de
+ * la fiche AVANT validation. Publications reliées via `assignments` (pas de
+ * creatorId sur publications). Rend aussi les vues promo correspondantes.
+ */
+export const previewPromoCount = adminQuery({
+  args: {
+    creatorId: v.id("creators"),
+    candidateDate: v.union(v.number(), v.null()),
+  },
+  handler: async (ctx, { creatorId, candidateDate }) => {
+    const creator = await ctx.db.get(creatorId);
+    if (!creator || creator.projectId !== ctx.projectId) {
+      throw new ConvexError("Créateur introuvable.");
+    }
+    const assignments = await ctx.db
+      .query("assignments")
+      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+      .collect();
+    const pubIds = new Set<Id<"publications">>();
+    for (const a of assignments) {
+      if (a.projectId !== ctx.projectId) continue;
+      for (const t of a.targets ?? []) {
+        if (t.publicationId) pubIds.add(t.publicationId);
+      }
+      if (a.publicationId) pubIds.add(a.publicationId);
+    }
+    let promoCount = 0;
+    let promoViews = 0;
+    let total = 0;
+    for (const pid of pubIds) {
+      const p = await ctx.db.get(pid);
+      if (!p) continue;
+      total += 1;
+      if (
+        isPromo(
+          {
+            isWarmup: p.isWarmup,
+            est_promo_override: p.est_promo_override,
+            datePubli: p.datePubli,
+          },
+          candidateDate,
+        )
+      ) {
+        promoCount += 1;
+        promoViews += p.vuesLatest ?? 0;
+      }
+    }
+    return { promoCount, promoViews, total };
   },
 });
 
