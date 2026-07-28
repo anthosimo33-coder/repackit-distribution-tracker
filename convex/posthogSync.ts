@@ -319,7 +319,7 @@ const INSTRUMENTATION_PROP_COLUMNS = INSTRUMENTATION_PROP_PROBES.map(
  * pour compter les exclus) sont injectés ici, en UN seul endroit : toute requête
  * exclut les internes, sauf `internalExcluded` qui les dénombre exprès.
  */
-function buildQueries(notInternal: string, internalMarker: string) {
+export function buildQueries(notInternal: string, internalMarker: string) {
   return {
   /**
    * Série quotidienne : visiteurs uniques, inscriptions, abonnements. Bucketisée
@@ -614,10 +614,15 @@ FROM (
 GROUP BY device
 ORDER BY checkouts DESC`,
 
-  /** Motifs d'échec de paiement (payment_failed groupé par `cause`). */
+  /**
+   * Motifs d'échec de paiement (payment_failed groupé par `cause`). `n` = nombre
+   * de PERSONNES (uniq), PAS d'events : une personne qui retente échoue plusieurs
+   * fois (20 personnes pour 29 events) — la carte « Où se perdent les checkouts »
+   * compte des gens, pas des tentatives.
+   */
   checkoutCauses: `
 SELECT coalesce(nullIf(toString(properties.cause), ''), '(sans cause)') AS cause,
-       count() AS n
+       uniq(person_id) AS n
 FROM events
 WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
   AND event = 'payment_failed'
