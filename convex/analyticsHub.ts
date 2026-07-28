@@ -346,6 +346,10 @@ export interface PlanEconomics {
 export interface RevenueBreakdown {
   configured: boolean;
   currency: string | null;
+  /** A5 — true = revenu multi-devise : les totaux ne sont PAS additionnés. */
+  mixedCurrency: boolean;
+  /** A5 — taux de frais effectif (brut − net) / brut, fraction 0–1. null si mixte. */
+  feeRate: number | null;
   periods: RevenuePeriod[];
   plans: PlanEconomics[];
   /** Revenu net moyen par membre et par mois actif (dénominateur du payback). */
@@ -375,6 +379,8 @@ export const getRevenueBreakdown = adminQuery({
       return {
         configured: false,
         currency: null,
+        mixedCurrency: false,
+        feeRate: null,
         periods: [],
         plans: [],
         monthlyArpu: null,
@@ -490,9 +496,12 @@ export const getRevenueBreakdown = adminQuery({
       0,
     );
 
+    const summary = summarizeWhopRevenue(payments);
     return {
       configured: true,
-      currency: summarizeWhopRevenue(payments).currency,
+      currency: summary.currency,
+      mixedCurrency: summary.mixedCurrency,
+      feeRate: summary.feeRate,
       periods,
       plans,
       monthlyArpu:

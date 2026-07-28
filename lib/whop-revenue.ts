@@ -103,51 +103,146 @@ export function whopNetContribution(p: WhopPaymentLike): number {
   return round2(Math.max(0, net));
 }
 
-export interface WhopRevenueSummary {
-  /** PILOTAGE — Σ des contributions nettes (après frais Whop ET remboursements). */
+/** Revenu agrégé pour UNE devise (jamais mélangé à une autre, règle A5). */
+export interface WhopCurrencyRevenue {
+  currency: string;
+  /** PILOTAGE — Σ contributions nettes (après frais Whop ET remboursements). */
   net: number;
-  /** Σ brut des paiements encaissés (transparence). */
+  /** Σ brut des paiements encaissés. */
   gross: number;
-  /** Σ frais Whop des paiements encaissés (transparence). */
+  /**
+   * Frais EFFECTIFS = brut − net settlé (Σ netAmount). JAMAIS `feeAmount`, qui
+   * est à 0 partout en prod et n'est pas fiable (règle A5). Exclut les
+   * remboursements (calculé sur le net settlé, avant remboursement).
+   */
   fees: number;
-  /** Σ montants remboursés, TOUS paiements confondus (transparence). */
+  /** Taux de frais = fees / brut (FRACTION 0–1, l'UI ×100). null si brut nul. */
+  feeRate: number | null;
   refunded: number;
-  /** Nb de paiements encaissés comptés dans le net. */
   paymentCount: number;
-  /** Nb de paiements ayant un remboursement (partiel ou total). */
   refundCount: number;
-  /** Devise (1re rencontrée ; une company Whop = une devise en pratique). */
+}
+
+export interface WhopRevenueSummary {
+  /** PILOTAGE — Σ contributions nettes. 0 si plusieurs devises (voir mixedCurrency). */
+  net: number;
+  gross: number;
+  /** Frais effectifs (brut − net settlé), jamais feeAmount. 0 si mixte. */
+  fees: number;
+  /** Taux de frais (fraction 0–1). null si brut nul OU devises mixtes. */
+  feeRate: number | null;
+  refunded: number;
+  paymentCount: number;
+  refundCount: number;
+  /** Devise si UNE seule encaissée ; null si aucune OU plusieurs (mixte). */
   currency: string | null;
+  /** Devises encaissées distinctes. */
+  currencies: string[];
+  /**
+   * true = plusieurs devises encaissées → les sommes monétaires ci-dessus NE SONT
+   * PAS additionnables et valent 0 (on ne mélange JAMAIS les devises, A5). Lire
+   * `byCurrency` à la place.
+   */
+  mixedCurrency: boolean;
+  /** Détail par devise (≥1 entrée dès qu'un paiement est encaissé). */
+  byCurrency: WhopCurrencyRevenue[];
 }
 
 /**
- * Agrège une liste de paiements en revenu de pilotage. `net` est le chiffre de
- * pilotage (Σ contributions). brut/frais = paiements ENCAISSÉS uniquement ;
- * `refunded` inclut les remboursements totaux (dont les paiements passés
- * "refunded", exclus de brut/frais/net) → un remboursement FAIT BAISSER le net
- * (le paiement ne compte plus pour son ancien +net).
+ * Agrège une liste de paiements en revenu de pilotage, PAR DEVISE. Le taux de
+ * frais se lit sur brut − net (jamais feeAmount). Si plusieurs devises sont
+ * encaissées, les totaux monétaires valent 0 et `mixedCurrency` est vrai : on ne
+ * somme JAMAIS des devises différentes (A5) — l'UI lit `byCurrency`. En pratique
+ * une company Whop = une devise, donc le cas courant reste mono-devise.
  */
 export function summarizeWhopRevenue(
   payments: WhopPaymentLike[],
 ): WhopRevenueSummary {
-  let net = 0;
-  let gross = 0;
-  let fees = 0;
-  let refunded = 0;
-  let paymentCount = 0;
-  let refundCount = 0;
-  let currency: string | null = null;
+  type Acc = {
+    gross: number;
+    netSettled: number;
+    net: number;
+    refunded: number;
+    paymentCount: number;
+    refundCount: number;
+  };
+  const buckets = new Map<string, Acc>();
+  const bucketOf = (cur: string): Acc => {
+    let a = buckets.get(cur);
+    if (!a) {
+      a = { gross: 0, netSettled: 0, net: 0, refunded: 0, paymentCount: 0, refundCount: 0 };
+      buckets.set(cur, a);
+    }
+    return a;
+  };
+
   for (const p of payments) {
+    const cur = p.currency && p.currency !== "" ? p.currency : "(inconnue)";
+    const a = bucketOf(cur);
     const refundedAmt = Math.max(0, finite(p.refundedAmount));
-    refunded = round2(refunded + refundedAmt);
-    if (p.status === "refunded" || refundedAmt > 0) refundCount += 1;
+    a.refunded = round2(a.refunded + refundedAmt);
+    if (p.status === "refunded" || refundedAmt > 0) a.refundCount += 1;
     if (isCollected(p.status)) {
-      gross = round2(gross + finite(p.grossAmount));
-      fees = round2(fees + finite(p.feeAmount));
-      net = round2(net + whopNetContribution(p));
-      paymentCount += 1;
-      if (currency === null && p.currency) currency = p.currency;
+      a.gross = round2(a.gross + finite(p.grossAmount));
+      a.netSettled = round2(a.netSettled + finite(p.netAmount));
+      a.net = round2(a.net + whopNetContribution(p));
+      a.paymentCount += 1;
     }
   }
-  return { net, gross, fees, refunded, paymentCount, refundCount, currency };
+
+  const byCurrency: WhopCurrencyRevenue[] = [...buckets.entries()].map(
+    ([currency, a]) => {
+      const fees = round2(a.gross - a.netSettled);
+      return {
+        currency,
+        net: a.net,
+        gross: a.gross,
+        fees,
+        feeRate: a.gross > 0 ? Math.round((fees / a.gross) * 10000) / 10000 : null,
+        refunded: a.refunded,
+        paymentCount: a.paymentCount,
+        refundCount: a.refundCount,
+      };
+    },
+  );
+
+  const collected = byCurrency.filter((c) => c.paymentCount > 0);
+  const currencies = collected.map((c) => c.currency);
+  // Comptes = grandeurs SANS dimension → additionnables même en multi-devise.
+  const paymentCount = byCurrency.reduce((s, c) => s + c.paymentCount, 0);
+  const refundCount = byCurrency.reduce((s, c) => s + c.refundCount, 0);
+
+  if (currencies.length > 1) {
+    // Multi-devise : on NE SOMME PAS les montants (A5).
+    return {
+      net: 0,
+      gross: 0,
+      fees: 0,
+      feeRate: null,
+      refunded: 0,
+      paymentCount,
+      refundCount,
+      currency: null,
+      currencies,
+      mixedCurrency: true,
+      byCurrency,
+    };
+  }
+
+  // 0 ou 1 devise encaissée : les sommes sont valides (mono-devise).
+  const one = collected[0] ?? null;
+  const refunded = round2(byCurrency.reduce((s, c) => s + c.refunded, 0));
+  return {
+    net: one ? one.net : 0,
+    gross: one ? one.gross : 0,
+    fees: one ? one.fees : 0,
+    feeRate: one ? one.feeRate : null,
+    refunded,
+    paymentCount,
+    refundCount,
+    currency: one ? one.currency : null,
+    currencies,
+    mixedCurrency: false,
+    byCurrency,
+  };
 }

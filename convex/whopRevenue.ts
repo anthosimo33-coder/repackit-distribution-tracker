@@ -82,38 +82,128 @@ export function whopNetContribution(p: WhopPaymentLike): number {
   return round2(Math.max(0, net));
 }
 
-export interface WhopRevenueSummary {
+/** Revenu agrégé pour UNE devise (cf lib/whop-revenue — DOIT rester identique). */
+export interface WhopCurrencyRevenue {
+  currency: string;
   net: number;
   gross: number;
+  /** Frais EFFECTIFS = brut − net settlé (JAMAIS feeAmount, à 0/non fiable). */
   fees: number;
+  /** Taux de frais = fees / brut (FRACTION 0–1). null si brut nul. */
+  feeRate: number | null;
   refunded: number;
   paymentCount: number;
   refundCount: number;
-  currency: string | null;
 }
 
-/** Agrège une liste de paiements (cf lib/whop-revenue — DOIT rester identique). */
+export interface WhopRevenueSummary {
+  net: number;
+  gross: number;
+  /** Frais effectifs (brut − net settlé), jamais feeAmount. 0 si mixte. */
+  fees: number;
+  /** Taux de frais (fraction 0–1). null si brut nul OU devises mixtes. */
+  feeRate: number | null;
+  refunded: number;
+  paymentCount: number;
+  refundCount: number;
+  /** Devise si UNE seule encaissée ; null si aucune OU plusieurs (mixte). */
+  currency: string | null;
+  currencies: string[];
+  /** true = plusieurs devises → sommes NON additionnables (=0). Lire byCurrency. */
+  mixedCurrency: boolean;
+  byCurrency: WhopCurrencyRevenue[];
+}
+
+/**
+ * Agrège une liste de paiements PAR DEVISE (cf lib/whop-revenue — DOIT rester
+ * identique). Taux de frais = brut − net (jamais feeAmount). Multi-devise ⇒
+ * sommes à 0 + mixedCurrency (on ne mélange jamais les devises, A5).
+ */
 export function summarizeWhopRevenue(
   payments: WhopPaymentLike[],
 ): WhopRevenueSummary {
-  let net = 0;
-  let gross = 0;
-  let fees = 0;
-  let refunded = 0;
-  let paymentCount = 0;
-  let refundCount = 0;
-  let currency: string | null = null;
+  type Acc = {
+    gross: number;
+    netSettled: number;
+    net: number;
+    refunded: number;
+    paymentCount: number;
+    refundCount: number;
+  };
+  const buckets = new Map<string, Acc>();
+  const bucketOf = (cur: string): Acc => {
+    let a = buckets.get(cur);
+    if (!a) {
+      a = { gross: 0, netSettled: 0, net: 0, refunded: 0, paymentCount: 0, refundCount: 0 };
+      buckets.set(cur, a);
+    }
+    return a;
+  };
+
   for (const p of payments) {
+    const cur = p.currency && p.currency !== "" ? p.currency : "(inconnue)";
+    const a = bucketOf(cur);
     const refundedAmt = Math.max(0, finite(p.refundedAmount));
-    refunded = round2(refunded + refundedAmt);
-    if (p.status === "refunded" || refundedAmt > 0) refundCount += 1;
+    a.refunded = round2(a.refunded + refundedAmt);
+    if (p.status === "refunded" || refundedAmt > 0) a.refundCount += 1;
     if (isCollected(p.status)) {
-      gross = round2(gross + finite(p.grossAmount));
-      fees = round2(fees + finite(p.feeAmount));
-      net = round2(net + whopNetContribution(p));
-      paymentCount += 1;
-      if (currency === null && p.currency) currency = p.currency;
+      a.gross = round2(a.gross + finite(p.grossAmount));
+      a.netSettled = round2(a.netSettled + finite(p.netAmount));
+      a.net = round2(a.net + whopNetContribution(p));
+      a.paymentCount += 1;
     }
   }
-  return { net, gross, fees, refunded, paymentCount, refundCount, currency };
+
+  const byCurrency: WhopCurrencyRevenue[] = [...buckets.entries()].map(
+    ([currency, a]) => {
+      const fees = round2(a.gross - a.netSettled);
+      return {
+        currency,
+        net: a.net,
+        gross: a.gross,
+        fees,
+        feeRate: a.gross > 0 ? Math.round((fees / a.gross) * 10000) / 10000 : null,
+        refunded: a.refunded,
+        paymentCount: a.paymentCount,
+        refundCount: a.refundCount,
+      };
+    },
+  );
+
+  const collected = byCurrency.filter((c) => c.paymentCount > 0);
+  const currencies = collected.map((c) => c.currency);
+  const paymentCount = byCurrency.reduce((s, c) => s + c.paymentCount, 0);
+  const refundCount = byCurrency.reduce((s, c) => s + c.refundCount, 0);
+
+  if (currencies.length > 1) {
+    return {
+      net: 0,
+      gross: 0,
+      fees: 0,
+      feeRate: null,
+      refunded: 0,
+      paymentCount,
+      refundCount,
+      currency: null,
+      currencies,
+      mixedCurrency: true,
+      byCurrency,
+    };
+  }
+
+  const one = collected[0] ?? null;
+  const refunded = round2(byCurrency.reduce((s, c) => s + c.refunded, 0));
+  return {
+    net: one ? one.net : 0,
+    gross: one ? one.gross : 0,
+    fees: one ? one.fees : 0,
+    feeRate: one ? one.feeRate : null,
+    refunded,
+    paymentCount,
+    refundCount,
+    currency: one ? one.currency : null,
+    currencies,
+    mixedCurrency: false,
+    byCurrency,
+  };
 }

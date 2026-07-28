@@ -136,10 +136,53 @@ describe("summarizeWhopRevenue — agrégation période", () => {
       net: 0,
       gross: 0,
       fees: 0,
+      feeRate: null,
       refunded: 0,
       paymentCount: 0,
       refundCount: 0,
       currency: null,
+      currencies: [],
+      mixedCurrency: false,
+      byCurrency: [],
     });
+  });
+});
+
+describe("summarizeWhopRevenue — frais & devises (A5)", () => {
+  it("taux de frais lu sur brut − net, JAMAIS sur feeAmount (à 0 en prod)", () => {
+    // feeAmount ment (0) ; le vrai frais effectif = brut − net = 100 − 90 = 10.
+    const s = summarizeWhopRevenue([
+      paid({ feeAmount: 0, grossAmount: 100, netAmount: 90 }),
+    ]);
+    expect(s.fees).toBe(10);
+    expect(s.feeRate).toBe(0.1); // fraction 0–1
+  });
+
+  it("NE somme JAMAIS deux devises : mixedCurrency, montants à 0, détail par devise", () => {
+    const s = summarizeWhopRevenue([
+      paid({ currency: "usd" }),
+      paid({ currency: "eur", grossAmount: 200, netAmount: 190 }),
+    ]);
+    expect(s.mixedCurrency).toBe(true);
+    expect(s.net).toBe(0);
+    expect(s.gross).toBe(0);
+    expect(s.feeRate).toBeNull();
+    expect(s.currency).toBeNull();
+    expect([...s.currencies].sort()).toEqual(["eur", "usd"]);
+    const usd = s.byCurrency.find((c) => c.currency === "usd")!;
+    const eur = s.byCurrency.find((c) => c.currency === "eur")!;
+    expect(usd.net).toBe(95);
+    expect(eur.net).toBe(190);
+    expect(eur.fees).toBe(10); // 200 − 190
+    // Les comptes (sans dimension) restent additionnables.
+    expect(s.paymentCount).toBe(2);
+  });
+
+  it("mono-devise : sommes valides + byCurrency à une entrée", () => {
+    const s = summarizeWhopRevenue([paid(), paid()]);
+    expect(s.mixedCurrency).toBe(false);
+    expect(s.currency).toBe("usd");
+    expect(s.net).toBe(190);
+    expect(s.byCurrency).toHaveLength(1);
   });
 });
