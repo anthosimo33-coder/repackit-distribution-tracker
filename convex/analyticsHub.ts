@@ -8,10 +8,7 @@ import {
 } from "./pricing";
 import { periodOf } from "./payments";
 import { summarizeWhopRevenue, whopNetContribution } from "./whopRevenue";
-import {
-  POSTHOG_CACHE_KEYS,
-  type AttributionHourlyPayload,
-} from "./posthogSync";
+import { POSTHOG_CACHE_KEYS, type OverviewPayload } from "./posthogSync";
 import {
   internalAccountsFor,
   isInternalWhopMembership,
@@ -20,6 +17,14 @@ import {
   computeViewCounters,
   VIEW_COUNTER_USAGE,
 } from "./viewCounters";
+import {
+  computeSoloDays,
+  computeCreatorEfficiency,
+  type PromoVideo,
+  type DailyBehavior,
+  type SoloDay,
+  type CreatorEfficiency,
+} from "./soloDays";
 
 /**
  * Croisement Jarvia × PostHog × Whop du hub Analytics.
@@ -37,15 +42,21 @@ import {
  * recalcul). Le bonus paliers est CRÉATEUR-niveau (pas rattachable à une vidéo)
  * → exclu de la ligne vidéo, inclus dans l'agrégat par créatrice.
  *
- * ⚠️ ATTRIBUTION — fenêtre 24 h après publication, volontairement approximative
- * (aucun lien tracké/UTM). Plusieurs vidéos publiées le même jour se partagent
- * les mêmes inscriptions : les chiffres sont des ORDRES DE GRANDEUR. L'UI doit
- * l'afficher explicitement.
+ * ⚠️ ATTRIBUTION — la fenêtre 24 h est SUPPRIMÉE (règle A3) : sans lien tracké,
+ * elle dupliquait chaque inscription sur TOUTES les créatrices publiant le même
+ * jour (coût par client faussé ×~13). On ne garde que les JOURS SOLO (une seule
+ * créatrice a publié en promo) — attribution CERTAINE ce jour-là, « non
+ * attribuable » sinon (jamais un chiffre inventé). Cf convex/soloDays. Le jour
+ * de référence est le jour EUROPE/PARIS (postDate à minuit UTC+1 ⇄ série PostHog
+ * bucketisée Paris), pour que publication et inscriptions tombent le même jour.
  */
 
-/** Fenêtre d'attribution après publication (heures). */
-export const ATTRIBUTION_WINDOW_HOURS = 24;
-const HOUR_MS = 60 * 60 * 1000;
+/** Jour « métier » Europe/Paris d'un timestamp (ms) → "YYYY-MM-DD". */
+function parisDay(ms: number): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Paris",
+  }).format(new Date(ms));
+}
 
 /** Statuts d'assignment porteurs de coût (même porte que le moteur de paie). */
 function isCostBearing(a: Doc<"assignments">): boolean {
@@ -61,6 +72,8 @@ export interface AttributionRow {
   platforms: string[];
   postCount: number;
   publishedAt: number;
+  /** Jour de publication Europe/Paris "YYYY-MM-DD" (clé des jours solo). */
+  day: string;
   period: string;
   /** Vues de TOUS les posts de la vidéo (warmup inclus) — affichage. */
   totalViews: number;
@@ -70,56 +83,30 @@ export interface AttributionRow {
   promoViews: number;
   /** Vidéo entièrement warmup (exclue de la paie). */
   isWarmupOnly: boolean;
+  /** Au moins un post en phase promo (compte pour la détection des jours solo). */
+  hasPromoPost: boolean;
   /** Coût réel de la vidéo (fixe/vidéo + CPM). null = hors moteur v2 (legacy). */
   cost: number | null;
-  /** Inscriptions dans les 24 h. null = fenêtre hors cache PostHog (inconnu). */
-  attributedSignups: number | null;
-  attributedSubs: number | null;
-  /** false = les 24 h ne sont pas encore écoulées (attribution partielle). */
-  windowComplete: boolean;
 }
 
 export interface AttributionResult {
+  /** Une ligne par VIDÉO (coût & vues) — SANS attribution inventée par vidéo. */
   rows: AttributionRow[];
-  /** true si le cache PostHog porte une série d'attribution exploitable. */
+  /** Attribution CERTAINE des jours où une seule créatrice a publié en promo (A3). */
+  soloDays: SoloDay[];
+  /** Efficacité promo par créatrice (médiane, hits, vues promo). */
+  creators: CreatorEfficiency[];
+  /** true si la série quotidienne PostHog (overview) est exploitable. */
   attributionAvailable: boolean;
   posthogConfigured: boolean;
   computedAt: number | null;
-  windowHours: number;
 }
 
 /**
- * Somme des seaux horaires couvrant [t, t + 24 h). Rend `null` si la fenêtre
- * sort de l'historique caché (publication plus ancienne que la série) — un 0
- * y serait un mensonge. `complete` = les 24 h sont entièrement couvertes.
- */
-function windowCounts(
-  hours: AttributionHourlyPayload["hours"],
-  t: number,
-): { signups: number; subs: number; complete: boolean } | null {
-  if (hours.length === 0) return null;
-  const first = hours[0].ts;
-  const last = hours[hours.length - 1].ts;
-  // Le seau du premier point couvre [first, first+1h) : une publication
-  // antérieure n'est pas mesurable.
-  if (t < first) return null;
-  const from = Math.floor(t / HOUR_MS) * HOUR_MS;
-  const to = t + ATTRIBUTION_WINDOW_HOURS * HOUR_MS;
-  let signups = 0;
-  let subs = 0;
-  for (const h of hours) {
-    if (h.ts < from) continue;
-    if (h.ts >= to) break;
-    signups += h.signups;
-    subs += h.subs;
-  }
-  return { signups, subs, complete: last + HOUR_MS >= to };
-}
-
-/**
- * Table d'attribution : une ligne par VIDÉO publiée (cf en-tête). Les vues et le
- * coût viennent de Jarvia (toujours dispo) ; inscrits/abonnés du cache PostHog
- * (null tant que les events ne sont pas émis).
+ * Table d'attribution — une ligne par VIDÉO (coût & vues, toujours dispo via
+ * Jarvia) + les JOURS SOLO (attribution certaine, A3) + l'efficacité par
+ * créatrice. Plus AUCUNE attribution par fenêtre 24 h (supprimée) : le seul
+ * rapprochement honnête sans lien tracké est le jour solo.
  */
 export const getAttribution = adminQuery({
   args: {},
@@ -146,21 +133,28 @@ export const getAttribution = adminQuery({
     const creatorMap = new Map(creators.map((c) => [c._id as string, c.name]));
     const formatMap = new Map(formats.map((f) => [f._id as string, f.name]));
 
-    // Série horaire d'attribution (cache PostHog) — absente ⇒ colonnes à null.
+    // Série QUOTIDIENNE PostHog (overview, internes exclus, bucket Europe/Paris)
+    // — support des jours solo. Absente ⇒ jours solo sans compteurs (null).
     const cacheRow = await ctx.db
       .query("posthogCache")
       .withIndex("by_project_key", (q) =>
-        q
-          .eq("projectId", ctx.projectId)
-          .eq("key", POSTHOG_CACHE_KEYS.attributionHourly),
+        q.eq("projectId", ctx.projectId).eq("key", POSTHOG_CACHE_KEYS.overview),
       )
       .first();
-    let hours: AttributionHourlyPayload["hours"] = [];
+    const daily: DailyBehavior[] = [];
     if (cacheRow && cacheRow.json !== "") {
       try {
-        hours = (JSON.parse(cacheRow.json) as AttributionHourlyPayload).hours ?? [];
+        const payload = JSON.parse(cacheRow.json) as OverviewPayload;
+        for (const d of payload.daily ?? []) {
+          daily.push({
+            day: parisDay(d.ts),
+            visitors: d.visitors,
+            signups: d.signups,
+            clients: d.subs,
+          });
+        }
       } catch {
-        hours = [];
+        // cache illisible → aucune attribution (jours solo à compteurs null).
       }
     }
 
@@ -228,7 +222,6 @@ export const getAttribution = adminQuery({
         }
       }
 
-      const w = windowCounts(hours, publishedAt);
       rows.push({
         assignmentId: a._id,
         creatorId: a.creatorId,
@@ -243,35 +236,41 @@ export const getAttribution = adminQuery({
         platforms,
         postCount,
         publishedAt,
+        day: parisDay(publishedAt),
         period,
         totalViews: views.totalViews,
         payableViews: views.payableViews,
         promoViews: views.promoViews,
         isWarmupOnly: !views.hasPayablePost,
+        hasPromoPost: views.hasPromoPost,
         cost,
-        attributedSignups: w ? w.signups : null,
-        attributedSubs: w ? w.subs : null,
-        windowComplete: w ? w.complete : false,
       });
     }
 
-    // Tri par abonnés attribués décroissants (défaut du chantier), vues PAYABLES
-    // en départage — une ligne sans attribution retombe derrière. Le départage
-    // utilise la même base que l'onglet (hors warmup) : classer sur les vues
-    // totales ferait remonter une vidéo de chauffe au-dessus de sa performance
-    // réellement monétisée.
-    rows.sort(
-      (x, y) =>
-        (y.attributedSubs ?? -1) - (x.attributedSubs ?? -1) ||
-        y.payableViews - x.payableViews,
-    );
+    // Tri par vues PROMO décroissantes (performance promo) — l'attribution n'est
+    // plus par ligne mais au jour solo.
+    rows.sort((x, y) => y.promoViews - x.promoViews || y.publishedAt - x.publishedAt);
+
+    // Jours solo + efficacité créatrice, sur les vidéos ayant AU MOINS un post
+    // promo (même à 0 vue : la présence compte pour le « solo »).
+    const promoVideos: PromoVideo[] = rows
+      .filter((r) => r.hasPromoPost)
+      .map((r) => ({
+        day: r.day,
+        creatorId: r.creatorId,
+        creatorName: r.creatorName,
+        promoViews: r.promoViews,
+      }));
+    const soloDays = computeSoloDays(promoVideos, daily);
+    const creatorEfficiency = computeCreatorEfficiency(promoVideos);
 
     return {
       rows,
-      attributionAvailable: hours.length > 0,
+      soloDays,
+      creators: creatorEfficiency,
+      attributionAvailable: daily.length > 0,
       posthogConfigured: project?.posthog !== undefined,
       computedAt: cacheRow?.computedAt ?? null,
-      windowHours: ATTRIBUTION_WINDOW_HOURS,
     };
   },
 });

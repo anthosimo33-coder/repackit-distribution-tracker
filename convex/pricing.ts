@@ -270,6 +270,8 @@ export async function assignmentViewsAndMetrics(
   /** Vues des posts en phase PROMO (non-warmup) — base des taux de conversion. */
   promoViews: number;
   hasPayablePost: boolean;
+  /** Au moins un post en phase promo (détection des jours solo, même à 0 vue). */
+  hasPromoPost: boolean;
   hasMetrics: boolean;
 }> {
   const pubIds = [
@@ -299,8 +301,16 @@ export async function assignmentViewsAndMetrics(
     (s, p) => s + (isPromoPost(p) ? Math.max(0, p.views) : 0),
     0,
   );
+  const hasPromoPost = pubs.some((p) => isPromoPost(p));
   const { payableViews, hasPayablePost } = payableAssignmentViews(pubs);
-  return { totalViews, payableViews, promoViews, hasPayablePost, hasMetrics };
+  return {
+    totalViews,
+    payableViews,
+    promoViews,
+    hasPayablePost,
+    hasPromoPost,
+    hasMetrics,
+  };
 }
 
 /** "YYYY-MM" → mois suivant ("YYYY-MM"), UTC (rollover Guard A). */

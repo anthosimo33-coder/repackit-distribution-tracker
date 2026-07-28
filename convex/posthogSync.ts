@@ -53,8 +53,6 @@ import {
 
 /** Profondeur d'historique des requêtes d'agrégat (jours). */
 const WINDOW_DAYS = 90;
-/** Profondeur de la série horaire d'attribution (couvre les posts plus anciens). */
-const ATTRIBUTION_WINDOW_DAYS = 120;
 /** Largeur de la grille de rétention (S+0 → S+8). */
 const RETENTION_WEEKS = 9;
 /** Borne des segments listés (sources, variants, langues) — anti-explosion d'UI. */
@@ -70,7 +68,6 @@ export const POSTHOG_CACHE_KEYS = {
   timeToValue: "timeToValue",
   paywall: "paywall",
   sources: "sources",
-  attributionHourly: "attributionHourly",
   cohorts: "cohorts",
   predictors: "predictors",
   // ─── C1 — Contrat d'events élargi (phase B consommera ces agrégats) ────────
@@ -102,9 +99,6 @@ export interface TimeToValuePayload {
 }
 export interface ConversionPayload {
   rows: { key: string; n: number; converted: number }[];
-}
-export interface AttributionHourlyPayload {
-  hours: { ts: number; signups: number; subs: number }[];
 }
 export interface CohortsPayload {
   segments: {
@@ -286,9 +280,14 @@ const INSTRUMENTATION_PROP_COLUMNS = INSTRUMENTATION_PROP_PROBES.map(
  */
 function buildQueries(notInternal: string, internalMarker: string) {
   return {
-  /** Série quotidienne : visiteurs uniques, inscriptions, abonnements. */
+  /**
+   * Série quotidienne : visiteurs uniques, inscriptions, abonnements. Bucketisée
+   * sur le fuseau EUROPE/PARIS (et non UTC) : c'est le jour « métier » de l'équipe
+   * et surtout la base des JOURS SOLO (attribution A3), où le jour de publication
+   * (postDate à minuit UTC+1) DOIT coïncider avec le jour des inscriptions.
+   */
   overview: `
-SELECT toStartOfDay(timestamp) AS d,
+SELECT toStartOfDay(timestamp, 'Europe/Paris') AS d,
        uniqIf(person_id, event = '$pageview') AS visitors,
        countIf(event = 'signup_completed') AS signups,
        countIf(event = 'subscription_completed') AS subs
@@ -431,21 +430,6 @@ GROUP BY seg
 HAVING signups > 0 OR subs > 0
 ORDER BY signups DESC
 LIMIT ${SEGMENT_LIMIT}`,
-
-  /**
-   * Série HORAIRE inscriptions/abonnements — support de l'attribution par
-   * fenêtre 24 h (le rapprochement post ↔ events se fait côté Convex, en
-   * sommant les 24 seaux qui suivent la publication).
-   */
-  attributionHourly: `
-SELECT toStartOfHour(timestamp) AS h,
-       countIf(event = 'signup_completed') AS signups,
-       countIf(event = 'subscription_completed') AS subs
-FROM events
-WHERE timestamp >= now() - INTERVAL ${ATTRIBUTION_WINDOW_DAYS} DAY${notInternal}
-  AND event IN ('signup_completed', 'subscription_completed')
-GROUP BY h
-ORDER BY h`,
 
   /**
    * Rétention par cohorte HEBDO d'inscription, ventilée par comportement
@@ -1004,23 +988,6 @@ export const runHourlySync = internalAction({
               n: cellNum(r, 1),
               converted: cellNum(r, 2),
             })),
-          }),
-        ),
-        await collect(
-          POSTHOG_CACHE_KEYS.attributionHourly,
-          apiKey,
-          target,
-          QUERIES.attributionHourly,
-          (rows): AttributionHourlyPayload => ({
-            hours: rows
-              .map((r) => ({
-                ts: cellTimeMs(r, 0),
-                signups: cellNum(r, 1),
-                subs: cellNum(r, 2),
-              }))
-              .filter(
-                (h): h is AttributionHourlyPayload["hours"][number] => h.ts !== null,
-              ),
           }),
         ),
         await collect(

@@ -70,6 +70,7 @@ import type * as scriptTier from "../scriptTier.js";
 import type * as scripts from "../scripts.js";
 import type * as snapshotMatching from "../snapshotMatching.js";
 import type * as snytchDrive from "../snytchDrive.js";
+import type * as soloDays from "../soloDays.js";
 import type * as storage from "../storage.js";
 import type * as trackerData from "../trackerData.js";
 import type * as viewCounters from "../viewCounters.js";
@@ -150,6 +151,7 @@ declare const fullApi: ApiFromModules<{
   scripts: typeof scripts;
   snapshotMatching: typeof snapshotMatching;
   snytchDrive: typeof snytchDrive;
+  soloDays: typeof soloDays;
   storage: typeof storage;
   trackerData: typeof trackerData;
   viewCounters: typeof viewCounters;
