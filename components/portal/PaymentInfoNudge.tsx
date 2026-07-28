@@ -8,6 +8,7 @@ import { amountOwed, shouldPromptPaymentInfo } from "@/lib/creator-payment";
 import { portalHref } from "@/lib/view-as";
 import { useMyProfile, useMyPayments } from "@/components/portal/creator-data";
 import { usePortalBase } from "@/components/portal/ViewAsContext";
+import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
 
 /**
  * QW3 — bandeau d'action « coordonnées de paiement manquantes ». S'affiche
@@ -24,6 +25,8 @@ export function PaymentInfoNudge({ projectId }: { projectId: Id<"projects"> }) {
   const profile = useMyProfile(projectId);
   const payments = useMyPayments(projectId);
   const base = usePortalBase();
+  // Devise de la paie créatrices ($ Snytch ; null → sans symbole).
+  const payCurrency = useCreatorProject().current.payCurrency;
 
   if (!shouldPromptPaymentInfo(profile, payments)) return null;
 
@@ -42,7 +45,7 @@ export function PaymentInfoNudge({ projectId }: { projectId: Id<"projects"> }) {
         </p>
         <p className="text-sm text-amber-800">
           Sans elles, on ne peut pas te verser tes{" "}
-          {formatMoney(amountOwed(payments))}.
+          {formatMoney(amountOwed(payments), payCurrency)}.
         </p>
       </div>
       <ArrowRightIcon className="size-4 shrink-0 text-amber-700" />

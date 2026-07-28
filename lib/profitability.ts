@@ -15,9 +15,19 @@
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const finite = (n: number): number => (Number.isFinite(n) ? n : 0);
 
-/** Marge = revenu net − coût créateurs (arrondi au centime, peut être négatif). */
-export function computeMargin(revenueNet: number, creatorCost: number): number {
-  return round2(finite(revenueNet) - finite(creatorCost));
+/**
+ * Marge, DANS LA DEVISE DU REVENU = revenu net − coût créateurs converti. Le revenu
+ * est en euros, le coût en dollars : `fxRateToRevenue` exprime 1 unité de paie dans
+ * la devise du revenu (1 si même devise). SANS taux (`null`), la marge n'est PAS
+ * calculée — on ne soustrait jamais deux devises sans conversion. Peut être négative.
+ */
+export function computeMargin(
+  revenueNet: number,
+  creatorCost: number,
+  fxRateToRevenue: number | null,
+): number | null {
+  if (fxRateToRevenue === null || !(fxRateToRevenue > 0)) return null;
+  return round2(finite(revenueNet) - finite(creatorCost) * fxRateToRevenue);
 }
 
 /**
@@ -49,22 +59,24 @@ export function viewsForToggle(split: ViewsSplit, includeWarmup: boolean): numbe
 }
 
 export interface ProfitabilityInput extends ViewsSplit {
-  /** Revenu Whop NET (après frais) — CONSTANT vis-à-vis du toggle. */
+  /** Revenu Whop NET (après frais), en devise du revenu (€) — CONSTANT vis-à-vis du toggle. */
   revenueNet: number;
-  /** Coût créateurs (fixe + CPM + bonus, warmup déjà exclu) — CONSTANT. */
+  /** Coût créateurs (fixe + CPM + bonus, warmup déjà exclu), en devise de paie ($) — CONSTANT. */
   creatorCost: number;
+  /** Taux paie→revenu EFFECTIF (1 si même devise, null si non reliées). Voir lib/currency. */
+  fxRateToRevenue: number | null;
 }
 
 export interface ProfitabilityMetrics {
-  /** Constant (ne bouge PAS avec le toggle). */
+  /** Constant (ne bouge PAS avec le toggle). Devise du revenu. */
   revenueNet: number;
-  /** Constant. */
+  /** Constant. Devise de la paie. */
   creatorCost: number;
-  /** Constant : revenu net − coût. */
-  margin: number;
+  /** Constant : revenu net − coût converti (devise du revenu). null si devises non reliées. */
+  margin: number | null;
   /** Dépend du toggle (monétisées vs toutes). */
   views: number;
-  /** Dépend du toggle : revenu net / (vues / 1000) ; null si 0 vue. */
+  /** Dépend du toggle : revenu net / (vues / 1000) ; null si 0 vue. Devise du revenu. */
   rpm: number | null;
   includeWarmup: boolean;
 }
@@ -82,7 +94,7 @@ export function computeProfitability(
   return {
     revenueNet: round2(finite(input.revenueNet)),
     creatorCost: round2(finite(input.creatorCost)),
-    margin: computeMargin(input.revenueNet, input.creatorCost),
+    margin: computeMargin(input.revenueNet, input.creatorCost, input.fxRateToRevenue),
     views,
     rpm: computeRpm(input.revenueNet, views),
     includeWarmup,

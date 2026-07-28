@@ -5,6 +5,7 @@ import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useViewAs } from "@/components/portal/ViewAsContext";
+import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
 import { useMyProgression } from "@/components/portal/creator-data";
 import { rewardEmoji } from "@/lib/progression";
 import { formatMoney, formatViews } from "@/lib/format-rate";
@@ -32,6 +33,9 @@ export function ProgressionCelebration({
   projectId: Id<"projects">;
 }) {
   const va = useViewAs();
+  // Devise de la paie créatrices ($ Snytch ; null → sans symbole) — le shell
+  // créateur monte cet overlay sous le CreatorProjectProvider.
+  const payCurrency = useCreatorProject().current.payCurrency;
   const raw = useMyProgression(projectId);
   const markSeen = useMutation(api.progression.markCelebrationsSeen);
   const [queue, setQueue] = useState<Celebration[]>([]);
@@ -96,7 +100,7 @@ export function ProgressionCelebration({
         <div className="mt-4 rounded-xl bg-primary/5 px-4 py-3">
           <p className="text-xl font-semibold text-slate-900">
             {headline.kind === "cash"
-              ? formatMoney(headline.amount ?? 0)
+              ? formatMoney(headline.amount ?? 0, payCurrency)
               : `${headline.emoji} ${headline.label}`}
           </p>
           <p className="mt-1 text-xs text-slate-500">

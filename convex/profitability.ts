@@ -89,6 +89,8 @@ export const getProjectProfitability = adminQuery({
       return {
         configured: false as const,
         currency: null as string | null,
+        payCurrency: (project?.payCurrency ?? null) as string | null,
+        fxRateToRevenue: (project?.fxRateToRevenue ?? null) as number | null,
         currentPeriod: periodOf(Date.now()),
         total: {
           revenueNet: 0,
@@ -186,7 +188,12 @@ export const getProjectProfitability = adminQuery({
 
     return {
       configured: project?.whop !== undefined,
+      // Devise du REVENU (Whop) ; la paie créatrices a la sienne (payCurrency).
       currency: totalRevenue.currency,
+      payCurrency: project?.payCurrency ?? null,
+      // Taux paie→revenu pour la marge (revenu € − coût $ converti). null → marge
+      // non calculée (jamais soustraire deux devises sans conversion).
+      fxRateToRevenue: project?.fxRateToRevenue ?? null,
       currentPeriod: periodOf(Date.now()),
       total: {
         revenueNet: totalRevenue.net,

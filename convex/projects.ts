@@ -173,6 +173,40 @@ export const renameProjectBySlug = internalMutation({
 });
 
 /**
+ * Configure les DEVISES d'un projet (interne, via `convex run`). Le produit en a
+ * DEUX : la PAIE créatrices (`payCurrency`, ex. "usd") et le REVENU Whop (devise
+ * de whopPayments, non réglée ici). `fxRateToRevenue` convertit la paie vers la
+ * devise du revenu POUR LA SEULE marge (1 payCurrency = fxRateToRevenue revenu).
+ * Patch partiel : champ omis → inchangé ; payCurrency:"" → retire (montants de
+ * paie sans symbole) ; fxRateToRevenue:0 → retire (marge combinée non calculée).
+ *   npx convex run projects:setProjectCurrencyBySlug '{"slug":"snytch","payCurrency":"usd","fxRateToRevenue":0.92}' --prod
+ */
+export const setProjectCurrencyBySlug = internalMutation({
+  args: {
+    slug: v.string(),
+    payCurrency: v.optional(v.string()),
+    fxRateToRevenue: v.optional(v.number()),
+  },
+  handler: async (
+    ctx,
+    { slug, payCurrency, fxRateToRevenue },
+  ): Promise<{ updated: boolean }> => {
+    const project = await getProjectBySlug(ctx, slug);
+    if (project === null) return { updated: false };
+    const patch: { payCurrency?: string; fxRateToRevenue?: number } = {};
+    if (payCurrency !== undefined) {
+      patch.payCurrency =
+        payCurrency.trim() === "" ? undefined : payCurrency.trim().toLowerCase();
+    }
+    if (fxRateToRevenue !== undefined) {
+      patch.fxRateToRevenue = fxRateToRevenue > 0 ? fxRateToRevenue : undefined;
+    }
+    await ctx.db.patch(project._id, patch);
+    return { updated: true };
+  },
+});
+
+/**
  * Validateur partagé du shape `sidebarLinks` (aligné sur schema.ts). icon =
  * nom lucide optionnel résolu côté UI (lib/sidebar-link-icon.ts).
  */

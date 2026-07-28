@@ -21,7 +21,7 @@ import {
   useProjectQuery,
   useProjectMutation,
 } from "@/components/project/use-project-convex";
-import { useProjectPath } from "@/components/project/ProjectProvider";
+import { useProject, useProjectPath } from "@/components/project/ProjectProvider";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -65,6 +65,8 @@ function relativeAge(ts: number, now: number): string {
 
 export function ActionDashboard() {
   const projectPath = useProjectPath();
+  // Paie créatrices → devise du projet ($). Absente → montant sans symbole.
+  const payCurrency = useProject().project.payCurrency;
   // « Maintenant » figé au mount (lazy init pur — cf react-hooks/purity, même
   // pattern que MetricChart). Suffisant pour un instantané de dashboard.
   const [now] = useState(() => Date.now());
@@ -312,7 +314,7 @@ export function ActionDashboard() {
           href={projectPath("/paiements")}
           icon={WalletIcon}
           label="Dû"
-          value={formatMoney(dueTotal)}
+          value={formatMoney(dueTotal, payCurrency)}
           hint="cycles non payés"
         />
         <ActionCard
@@ -402,7 +404,7 @@ export function ActionDashboard() {
                     <WorklistRow
                       key={p.key}
                       title={p.creatorName}
-                      subtitle={`${formatMoney(p.totalDue)} en attente de paiement`}
+                      subtitle={`${formatMoney(p.totalDue, payCurrency)} en attente de paiement`}
                       href={projectPath("/paiements")}
                       hrefLabel="Voir"
                       action={

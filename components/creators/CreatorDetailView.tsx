@@ -9,6 +9,7 @@ import {
   useProjectQuery,
 } from "@/components/project/use-project-convex";
 import {
+  useProject,
   useProjectPath,
   useProjectSlug,
 } from "@/components/project/ProjectProvider";
@@ -72,6 +73,8 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
   const router = useRouter();
   const projectPath = useProjectPath();
   const projectSlug = useProjectSlug();
+  // Devise de la PAIE créatrices (dollars) — pour les montants de bonus (cash).
+  const payCurrency = useProject().project.payCurrency;
   const update = useProjectMutation(api.creators.updateCreator);
   const regenerate = useProjectMutation(api.creators.regenerateInvitation);
   const generateResetLink = useProjectMutation(
@@ -509,6 +512,7 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
       <BonusGridSection
         creatorId={creator._id}
         current={creator.bonusPricingId ?? null}
+        currency={payCurrency}
       />
 
       <CreatorComptesSection creatorId={creator._id} />
@@ -568,9 +572,12 @@ const NO_GRID = "__nogrid__";
 function BonusGridSection({
   creatorId,
   current,
+  currency,
 }: {
   creatorId: Id<"creators">;
   current: Id<"pricings"> | null;
+  /** Devise de la PAIE créatrices (dollars), threadée depuis CreatorDetailView. */
+  currency?: string | null;
 }) {
   const pricings = useProjectQuery(api.pricing.listPricings, {});
   const bonus = useProjectQuery(api.pricing.getCreatorBonusStatus, { creatorId });
@@ -636,7 +643,7 @@ function BonusGridSection({
             </p>
             {bonus.cashUnlockedTotal > 0 && (
               <p className="text-emerald-700">
-                Cash débloqué : {formatMoney(bonus.cashUnlockedTotal)}
+                Cash débloqué : {formatMoney(bonus.cashUnlockedTotal, currency)}
               </p>
             )}
             {bonus.natureUnlocked.length > 0 && (
@@ -650,7 +657,7 @@ function BonusGridSection({
                 Prochain palier dans{" "}
                 {(bonus.viewsToNext ?? 0).toLocaleString("fr-FR")} vues (
                 {bonus.nextTier.rewardType === "cash"
-                  ? formatMoney(bonus.nextTier.montant ?? 0)
+                  ? formatMoney(bonus.nextTier.montant ?? 0, currency)
                   : bonus.nextTier.libelle}
                 ).
               </p>

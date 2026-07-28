@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useCreatorProjectId } from "@/components/portal/use-creator-project";
+import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
 import { useMyAssignment } from "@/components/portal/creator-data";
 import { useReadOnly, usePortalBase } from "@/components/portal/ViewAsContext";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -32,6 +33,9 @@ export default function AssignmentDetailScreen({
   assignmentId: Id<"assignments">;
 }) {
   const projectId = useCreatorProjectId();
+  // Devise de la paie créatrices ($ Snytch ; null → sans symbole), passée aux
+  // estimateurs de rému (feuilles sans contexte).
+  const payCurrency = useCreatorProject().current.payCurrency;
   const readOnly = useReadOnly();
   const base = usePortalBase();
   const data = useMyAssignment(projectId, assignmentId);
@@ -143,7 +147,11 @@ export default function AssignmentDetailScreen({
               </Card>
             )
           ) : data.format ? (
-            <FormatBriefPreview format={data.format} showRate={false} />
+            <FormatBriefPreview
+              format={data.format}
+              showRate={false}
+              currency={payCurrency}
+            />
           ) : (
             <Card>
               <CardContent className="py-8 text-center text-sm text-slate-500">
@@ -241,9 +249,15 @@ export default function AssignmentDetailScreen({
             </CardHeader>
             <CardContent>
               {data.assignment.pricingSnapshot ? (
-                <PricingEstimator snapshot={data.assignment.pricingSnapshot} />
+                <PricingEstimator
+                  snapshot={data.assignment.pricingSnapshot}
+                  currency={payCurrency}
+                />
               ) : (
-                <EarningsCalculator rate={data.assignment.rateSnapshot} />
+                <EarningsCalculator
+                  rate={data.assignment.rateSnapshot}
+                  currency={payCurrency}
+                />
               )}
             </CardContent>
           </Card>

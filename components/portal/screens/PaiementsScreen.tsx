@@ -35,7 +35,13 @@ const fmtViews = (n: number) => n.toLocaleString("fr-FR");
  * Paliers de bonus (cumul de vues À VIE) — motivant : cumul, jauge vers le
  * prochain palier, et mur des récompenses débloquées (cash + nature).
  */
-function BonusTierPanel({ projectId }: { projectId: Id<"projects"> }) {
+function BonusTierPanel({
+  projectId,
+  currency,
+}: {
+  projectId: Id<"projects">;
+  currency?: string | null;
+}) {
   const status = useMyBonusStatus(projectId);
   const base = usePortalBase();
   if (!status || (status.tiers.length === 0 && status.natureUnlocked.length === 0))
@@ -77,7 +83,7 @@ function BonusTierPanel({ projectId }: { projectId: Id<"projects"> }) {
               vues avant{" "}
               <span className="font-semibold">
                 {next.rewardType === "cash"
-                  ? `${formatMoney(next.montant ?? 0)}`
+                  ? `${formatMoney(next.montant ?? 0, currency)}`
                   : next.libelle}
               </span>
               .
@@ -92,7 +98,7 @@ function BonusTierPanel({ projectId }: { projectId: Id<"projects"> }) {
           <div className="flex flex-wrap gap-1.5 pt-1">
             {status.cashUnlockedTotal > 0 && (
               <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
-                + {formatMoney(status.cashUnlockedTotal)} débloqués
+                + {formatMoney(status.cashUnlockedTotal, currency)} débloqués
               </span>
             )}
             {status.natureUnlocked.map((r, i) => (
@@ -147,7 +153,13 @@ function KindTag({
  * Aperçu PRICING temps réel d'une période non payée : fixe acquis (X/cible
  * vidéos → Y$ sur montantFixe), CPM accumulé (sur les vues), bonus, total.
  */
-function PricingBreakdown({ b }: { b: Payment["pricingBreakdown"] }) {
+function PricingBreakdown({
+  b,
+  currency,
+}: {
+  b: Payment["pricingBreakdown"];
+  currency?: string | null;
+}) {
   if (b.total <= 0 && b.perPricing.length === 0) return null;
   const g = b.perPricing[0];
   return (
@@ -161,10 +173,11 @@ function PricingBreakdown({ b }: { b: Payment["pricingBreakdown"] }) {
             ? `Fixe — ${g.videoCount}/${g.nbVideosCible} vidéos publiées`
             : "Fixe"
         }
-        sub={g ? `sur ${formatMoney(g.montantFixe)}` : undefined}
+        sub={g ? `sur ${formatMoney(g.montantFixe, currency)}` : undefined}
         amount={b.fixedTotal}
+        currency={currency}
       />
-      <Row label="CPM accumulé (sur tes vues)" amount={b.cpmTotal} />
+      <Row label="CPM accumulé (sur tes vues)" amount={b.cpmTotal} currency={currency} />
       {b.bonusTierCashTotal > 0 &&
         (b.bonusTierCashUnlocks.length > 0 ? (
           // Une ligne par palier cash débloqué sur ce cycle (cohérent avec la
@@ -174,16 +187,21 @@ function PricingBreakdown({ b }: { b: Payment["pricingBreakdown"] }) {
               key={i}
               label={`Bonus palier ${fmtViews(u.seuilVues)} vues`}
               amount={u.montant}
+              currency={currency}
             />
           ))
         ) : (
           // Cycle gelé (payé) → détail par palier indisponible : ligne agrégée.
-          <Row label="Bonus paliers (cumul de vues)" amount={b.bonusTierCashTotal} />
+          <Row
+            label="Bonus paliers (cumul de vues)"
+            amount={b.bonusTierCashTotal}
+            currency={currency}
+          />
         ))}
       <div className="flex items-center justify-between border-t border-slate-100 pt-2 text-sm font-semibold">
         <span>Sous-total pricing</span>
         <span className="tabular-nums" data-testid="pricing-total">
-          {formatMoney(b.total)}
+          {formatMoney(b.total, currency)}
         </span>
       </div>
     </div>
@@ -194,10 +212,12 @@ function Row({
   label,
   sub,
   amount,
+  currency,
 }: {
   label: string;
   sub?: string;
   amount: number;
+  currency?: string | null;
 }) {
   return (
     <div className="flex items-center justify-between gap-3 text-sm">
@@ -206,13 +226,13 @@ function Row({
         {sub ? <span className="text-slate-400"> {sub}</span> : null}
       </span>
       <span className="shrink-0 tabular-nums text-slate-900">
-        {formatMoney(amount)}
+        {formatMoney(amount, currency)}
       </span>
     </div>
   );
 }
 
-function LineItems({ p }: { p: Payment }) {
+function LineItems({ p, currency }: { p: Payment; currency?: string | null }) {
   return (
     <ul className="divide-y divide-slate-100">
       {p.lineItems.map((li, i) => (
@@ -225,19 +245,19 @@ function LineItems({ p }: { p: Payment }) {
             <span className="truncate text-slate-700">{li.label}</span>
           </span>
           <span className="shrink-0 tabular-nums text-slate-900">
-            {formatMoney(li.amount)}
+            {formatMoney(li.amount, currency)}
           </span>
         </li>
       ))}
       <li className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm font-semibold">
         <span>Total</span>
-        <span className="tabular-nums">{formatMoney(p.totalDue)}</span>
+        <span className="tabular-nums">{formatMoney(p.totalDue, currency)}</span>
       </li>
     </ul>
   );
 }
 
-function PastPeriod({ p }: { p: Payment }) {
+function PastPeriod({ p, currency }: { p: Payment; currency?: string | null }) {
   const [open, setOpen] = useState(false);
   return (
     <Card>
@@ -267,12 +287,12 @@ function PastPeriod({ p }: { p: Payment }) {
           )}
         </span>
         <span className="shrink-0 tabular-nums font-medium text-slate-900">
-          {formatMoney(p.totalDue)}
+          {formatMoney(p.totalDue, currency)}
         </span>
       </button>
       {open && (
         <div className="border-t border-slate-100">
-          <LineItems p={p} />
+          <LineItems p={p} currency={currency} />
         </div>
       )}
     </Card>
@@ -281,6 +301,9 @@ function PastPeriod({ p }: { p: Payment }) {
 
 export default function PaiementsScreen() {
   const { current: currentProject } = useCreatorProject();
+  // Devise de la paie créatrices (projects.payCurrency, $ Snytch ; null → sans
+  // symbole), passée aux sous-composants (un hook ne court qu'en corps de composant).
+  const payCurrency = currentProject.payCurrency;
   const payments = useMyPayments(currentProject.projectId);
 
   const loading = payments === undefined;
@@ -306,7 +329,7 @@ export default function PaiementsScreen() {
       {/* QW3 — coordonnées de paiement manquantes alors que des gains sont dus. */}
       <PaymentInfoNudge projectId={currentProject.projectId} />
 
-      <BonusTierPanel projectId={currentProject.projectId} />
+      <BonusTierPanel projectId={currentProject.projectId} currency={payCurrency} />
 
       {loading ? (
         <Skeleton className="h-40 w-full" />
@@ -324,7 +347,7 @@ export default function PaiementsScreen() {
                 className="text-4xl font-semibold tabular-nums text-slate-900"
                 data-testid="due-now"
               >
-                {formatMoney(dueNow)}
+                {formatMoney(dueNow, payCurrency)}
               </p>
               {nextTs !== null && days !== null ? (
                 <p className="text-sm text-slate-500">
@@ -356,11 +379,11 @@ export default function PaiementsScreen() {
               </Card>
             ) : (
               <div className="space-y-2">
-                <PricingBreakdown b={current.pricingBreakdown} />
+                <PricingBreakdown b={current.pricingBreakdown} currency={payCurrency} />
                 {current.lineItems.length > 0 && (
                   <Card>
                     <CardContent className="p-0">
-                      <LineItems p={current} />
+                      <LineItems p={current} currency={payCurrency} />
                     </CardContent>
                   </Card>
                 )}
@@ -376,7 +399,7 @@ export default function PaiementsScreen() {
               </h2>
               <div className="space-y-2">
                 {past.map((p) => (
-                  <PastPeriod key={p.key} p={p} />
+                  <PastPeriod key={p.key} p={p} currency={payCurrency} />
                 ))}
               </div>
             </section>

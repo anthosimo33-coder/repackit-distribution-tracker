@@ -55,6 +55,9 @@ export function WhopRevenueCard() {
   const fees = current?.fees ?? 0;
   const refunded = current?.refunded ?? 0;
   const count = current?.paymentCount ?? 0;
+  // Revenu Whop : la devise vient de la donnée (jamais un défaut). Mois multi-devise
+  // → currency null → montants sans symbole (jamais mélanger).
+  const currency = current?.currency ?? null;
   const history = data.months
     .filter((m) => m.period !== data.currentPeriod)
     .slice(0, 6);
@@ -100,7 +103,7 @@ export function WhopRevenueCard() {
 
         <div>
           <div className="text-3xl font-semibold tracking-tight text-slate-900">
-            {formatMoney(net)}
+            {formatMoney(net, currency)}
           </div>
           <div className="mt-0.5 flex items-center gap-1.5 text-xs font-medium text-emerald-700">
             <InfoIcon className="size-3.5" />
@@ -113,20 +116,20 @@ export function WhopRevenueCard() {
           <span>
             Brut&nbsp;:{" "}
             <span className="font-medium text-slate-700">
-              {formatMoney(gross)}
+              {formatMoney(gross, currency)}
             </span>
           </span>
           <span>
             Frais Whop&nbsp;:{" "}
             <span className="font-medium text-slate-700">
-              −{formatMoney(fees)}
+              −{formatMoney(fees, currency)}
             </span>
           </span>
           {refunded > 0 && (
             <span>
               Remboursements&nbsp;:{" "}
               <span className="font-medium text-slate-700">
-                −{formatMoney(refunded)}
+                −{formatMoney(refunded, currency)}
               </span>
             </span>
           )}
@@ -159,11 +162,11 @@ export function WhopRevenueCard() {
                     <span>{formatMonth(m.period)}</span>
                     <span className="tabular-nums">
                       <span className="font-medium text-slate-800">
-                        {formatMoney(m.summary.net)}
+                        {formatMoney(m.summary.net, m.summary.currency)}
                       </span>
                       <span className="text-slate-400">
                         {" "}
-                        net · brut {formatMoney(m.summary.gross)}
+                        net · brut {formatMoney(m.summary.gross, m.summary.currency)}
                       </span>
                     </span>
                   </li>

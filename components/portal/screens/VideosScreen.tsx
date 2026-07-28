@@ -136,7 +136,7 @@ function StatusChip({ status }: { status: Video["status"] }) {
 }
 
 /** Bloc Vues + Gain — vidéos EN LIGNE uniquement (published/paid). */
-function OnlineMetrics({ v }: { v: Video }) {
+function OnlineMetrics({ v, currency }: { v: Video; currency?: string | null }) {
   return (
     <div className="flex items-end justify-between gap-3">
       <div>
@@ -153,7 +153,7 @@ function OnlineMetrics({ v }: { v: Video }) {
             v.capped ? "text-emerald-600" : "text-slate-900",
           )}
         >
-          {v.gain === null ? "—" : formatMoney(v.gain)}
+          {v.gain === null ? "—" : formatMoney(v.gain, currency)}
         </p>
         {v.capped && (
           <span className="text-[0.65rem] font-semibold uppercase tracking-wide text-emerald-600">
@@ -165,7 +165,15 @@ function OnlineMetrics({ v }: { v: Video }) {
   );
 }
 
-function VideoRow({ v, now }: { v: Video; now: number }) {
+function VideoRow({
+  v,
+  now,
+  currency,
+}: {
+  v: Video;
+  now: number;
+  currency?: string | null;
+}) {
   const isOnline = v.status === "published" || v.status === "paid";
   return (
     <Card data-testid="video-row" data-status={v.status}>
@@ -224,7 +232,7 @@ function VideoRow({ v, now }: { v: Video; now: number }) {
         </div>
 
         {isOnline ? (
-          <OnlineMetrics v={v} />
+          <OnlineMetrics v={v} currency={currency} />
         ) : v.status === "video_rejected" ? (
           v.rejectionReason ? (
             <div className="rounded-md border border-red-100 bg-red-50/60 px-3 py-2">
@@ -330,6 +338,9 @@ function FilterChips({
 
 export default function VideosScreen() {
   const { current } = useCreatorProject();
+  // Devise de la paie créatrices ($ Snytch ; null → sans symbole), threadée à la
+  // ligne vidéo qui rend le gain.
+  const payCurrency = current.payCurrency;
   const videos = useMyPublishedVideos(current.projectId);
   const [filter, setFilter] = useState<CreatorVideoFilterKey>("all");
   // Ancre temporelle figée au montage (relative time stable, pas d'appel impur
@@ -397,7 +408,9 @@ export default function VideosScreen() {
               </CardContent>
             </Card>
           ) : (
-            filtered.map((v) => <VideoRow key={v.id} v={v} now={now} />)
+            filtered.map((v) => (
+              <VideoRow key={v.id} v={v} now={now} currency={payCurrency} />
+            ))
           )}
         </div>
       )}

@@ -22,6 +22,7 @@ export function PortalLeaderboard() {
       title="Classement du projet"
       subtitle="Ton classement sur les gains du cycle en cours. Les gains de chaque créateur sont visibles — vous êtes sur le même projet."
       selfInvite
+      currency={current.payCurrency}
     />
   );
 }

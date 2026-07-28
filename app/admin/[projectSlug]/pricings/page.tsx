@@ -5,6 +5,7 @@ import {
   useProjectQuery,
   useProjectMutation,
 } from "@/components/project/use-project-convex";
+import { useProject } from "@/components/project/ProjectProvider";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +37,7 @@ import { Loader2Icon, PlusIcon } from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { formatMoney } from "@/lib/format-rate";
+import { currencySymbol } from "@/lib/currency";
 import type { FunctionReturnType } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -61,6 +63,9 @@ const EMPTY = {
  * + CPM ($/1000 vues) + bonus au seuil (cf lib/pricing-engine).
  */
 export default function PricingsPage() {
+  // Devise de la PAIE créatrices (dollars) — montants ET symboles des libellés
+  // (fixe, CPM, cash) dérivés de projects.payCurrency, jamais codés en dur.
+  const payCurrency = useProject().project.payCurrency;
   const pricings = useProjectQuery(api.pricing.listPricings, {
     includeArchived: true,
   });
@@ -286,8 +291,9 @@ export default function PricingsPage() {
                   </div>
                 </div>
                 <CardDescription>
-                  Fixe {formatMoney(p.montantFixe)} pour {p.nbVideosCible} vidéos
-                  {" · "}CPM {formatMoney(p.tauxCPM)}/1000 vues
+                  Fixe {formatMoney(p.montantFixe, payCurrency)} pour{" "}
+                  {p.nbVideosCible} vidéos{" · "}CPM{" "}
+                  {formatMoney(p.tauxCPM, payCurrency)}/1000 vues
                   {(p.bonusTiers ?? []).length > 0 && (
                     <>
                       {" · "}
@@ -296,7 +302,7 @@ export default function PricingsPage() {
                           (t) =>
                             `${t.seuilVues.toLocaleString("fr-FR")} → ${
                               t.rewardType === "cash"
-                                ? formatMoney(t.montant ?? 0)
+                                ? formatMoney(t.montant ?? 0, payCurrency)
                                 : (t.libelle ?? "récompense")
                             }`,
                         )
@@ -331,7 +337,10 @@ export default function PricingsPage() {
               />
             </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Montant fixe (€)" id="montantFixe">
+              <Field
+                label={`Montant fixe (${currencySymbol(payCurrency)})`}
+                id="montantFixe"
+              >
                 <Input
                   id="montantFixe"
                   type="number"
@@ -356,7 +365,10 @@ export default function PricingsPage() {
                   required
                 />
               </Field>
-              <Field label="CPM (€/1000 vues)" id="tauxCPM">
+              <Field
+                label={`CPM (${currencySymbol(payCurrency)}/1000 vues)`}
+                id="tauxCPM"
+              >
                 <Input
                   id="tauxCPM"
                   type="number"
@@ -381,7 +393,8 @@ export default function PricingsPage() {
               </div>
               {tiers.length === 0 && (
                 <p className="text-xs text-slate-400">
-                  Aucun palier. Ajoute des paliers cash (€) ou nature (iPhone…).
+                  Aucun palier. Ajoute des paliers cash (
+                  {currencySymbol(payCurrency)}) ou nature (iPhone…).
                 </p>
               )}
               {tiers.map((t, i) => (
@@ -406,11 +419,15 @@ export default function PricingsPage() {
                     >
                       <SelectTrigger aria-label="Type de récompense" className="w-28">
                         <SelectValue>
-                          {t.rewardType === "cash" ? "Cash €" : "Nature"}
+                          {t.rewardType === "cash"
+                            ? `Cash ${currencySymbol(payCurrency)}`
+                            : "Nature"}
                         </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="cash">Cash €</SelectItem>
+                        <SelectItem value="cash">
+                          Cash {currencySymbol(payCurrency)}
+                        </SelectItem>
                         <SelectItem value="nature">Nature</SelectItem>
                       </SelectContent>
                     </Select>
@@ -418,7 +435,9 @@ export default function PricingsPage() {
                   <div className="min-w-[8rem] flex-1 space-y-1">
                     {t.rewardType === "cash" ? (
                       <>
-                        <Label className="text-xs">Montant ($)</Label>
+                        <Label className="text-xs">
+                          Montant ({currencySymbol(payCurrency)})
+                        </Label>
                         <Input
                           type="number"
                           step="0.01"

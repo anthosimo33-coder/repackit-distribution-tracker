@@ -3,6 +3,7 @@
 import type { FunctionReturnType } from "convex/server";
 import { CrownIcon, SendIcon, TrophyIcon } from "lucide-react";
 import { useProjectQuery } from "@/components/project/use-project-convex";
+import { useProject } from "@/components/project/ProjectProvider";
 import { api } from "@/convex/_generated/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -95,12 +96,16 @@ export function LeaderboardSection({
   title = "Classement du cycle",
   subtitle = "Gains du cycle en cours de chaque créateur (fenêtre J+30 personnelle, ancrée sur son premier post).",
   selfInvite = false,
+  currency,
 }: {
   data: LeaderboardEntry[] | undefined;
   title?: string;
   subtitle?: string;
   /** Portail : affiche une invitation si l'appelant n'est pas (encore) classé. */
   selfInvite?: boolean;
+  /** Devise de la PAIE créatrices (dollars) — admin: payCurrency, portail:
+   *  current.payCurrency. Threadée dans le podium + la liste. */
+  currency?: string | null;
 }) {
   const meRanked = data?.some((e) => e.isMe) ?? false;
   const showInvite =
@@ -120,7 +125,7 @@ export function LeaderboardSection({
       ) : data.length === 0 ? (
         <EmptyLeaderboard />
       ) : (
-        <LeaderboardBody entries={data} />
+        <LeaderboardBody entries={data} currency={currency} />
       )}
     </section>
   );
@@ -129,10 +134,19 @@ export function LeaderboardSection({
 /** Vue admin — self-contained (source api.payments.leaderboard, scopé projet). */
 export function CreatorLeaderboard() {
   const data = useProjectQuery(api.payments.leaderboard, {});
-  return <LeaderboardSection data={data} />;
+  // Devise de la PAIE créatrices (dollars) — source admin (ProjectProvider).
+  const payCurrency = useProject().project.payCurrency;
+  return <LeaderboardSection data={data} currency={payCurrency} />;
 }
 
-function LeaderboardBody({ entries }: { entries: LeaderboardEntry[] }) {
+function LeaderboardBody({
+  entries,
+  currency,
+}: {
+  entries: LeaderboardEntry[];
+  /** Devise de la PAIE créatrices (dollars), threadée depuis LeaderboardSection. */
+  currency?: string | null;
+}) {
   // `entries` déjà triées + rankées côté serveur.
   const podium = entries.slice(0, 3);
   const rest = entries.slice(3);
@@ -147,7 +161,7 @@ function LeaderboardBody({ entries }: { entries: LeaderboardEntry[] }) {
       <Card>
         <CardContent className="flex items-end justify-center gap-3 pt-2 sm:gap-8">
           {podiumOrder.map((e) => (
-            <PodiumSpot key={e.creatorId} entry={e} />
+            <PodiumSpot key={e.creatorId} entry={e} currency={currency} />
           ))}
         </CardContent>
       </Card>
@@ -157,7 +171,7 @@ function LeaderboardBody({ entries }: { entries: LeaderboardEntry[] }) {
           <CardContent className="p-2">
             <ul className="divide-y divide-border">
               {rest.map((e) => (
-                <ListRow key={e.creatorId} entry={e} />
+                <ListRow key={e.creatorId} entry={e} currency={currency} />
               ))}
             </ul>
           </CardContent>
@@ -167,7 +181,13 @@ function LeaderboardBody({ entries }: { entries: LeaderboardEntry[] }) {
   );
 }
 
-function PodiumSpot({ entry }: { entry: LeaderboardEntry }) {
+function PodiumSpot({
+  entry,
+  currency,
+}: {
+  entry: LeaderboardEntry;
+  currency?: string | null;
+}) {
   const m = MEDAL[entry.rank as 1 | 2 | 3];
   // Pédestal décroissant 1 > 2 > 3 ; items-end aligne les bases → le 1er culmine.
   const pedestalH =
@@ -217,7 +237,7 @@ function PodiumSpot({ entry }: { entry: LeaderboardEntry }) {
           {entry.name}
         </p>
         <p className="text-sm font-bold tabular-nums text-foreground">
-          {formatMoney(entry.totalDue)}
+          {formatMoney(entry.totalDue, currency)}
         </p>
         {/* Fenêtre de cycle — obligatoire (mitigation de la désynchro). */}
         <p className="mt-0.5 line-clamp-1 text-center text-[11px] text-muted-foreground">
@@ -244,7 +264,13 @@ function PodiumSpot({ entry }: { entry: LeaderboardEntry }) {
   );
 }
 
-function ListRow({ entry }: { entry: LeaderboardEntry }) {
+function ListRow({
+  entry,
+  currency,
+}: {
+  entry: LeaderboardEntry;
+  currency?: string | null;
+}) {
   return (
     <li
       className={cn(
@@ -273,7 +299,7 @@ function ListRow({ entry }: { entry: LeaderboardEntry }) {
         </p>
       </div>
       <span className="shrink-0 text-sm font-bold tabular-nums text-foreground">
-        {formatMoney(entry.totalDue)}
+        {formatMoney(entry.totalDue, currency)}
       </span>
     </li>
   );

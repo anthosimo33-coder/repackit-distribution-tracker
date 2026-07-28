@@ -32,6 +32,9 @@ import { formatDate } from "@/lib/format";
  */
 export default function ProgressionScreen() {
   const { current } = useCreatorProject();
+  // Devise de la paie créatrices ($ Snytch ; null → sans symbole), threadée aux
+  // sous-composants (Hero, échelle) qui rendent des montants cash.
+  const payCurrency = current.payCurrency;
   const base = usePortalBase();
   const raw = useMyProgression(current.projectId);
   const p = raw ? buildProgression(raw) : null;
@@ -68,8 +71,8 @@ export default function ProgressionScreen() {
         </Card>
       ) : (
         <>
-          <Hero p={p} />
-          <LadderSection ladder={p.ladder} />
+          <Hero p={p} currency={payCurrency} />
+          <LadderSection ladder={p.ladder} currency={payCurrency} />
           <VictoriesSection victories={p.victories} />
         </>
       )}
@@ -80,7 +83,7 @@ export default function ProgressionScreen() {
 type P = NonNullable<ReturnType<typeof buildProgression>>;
 
 /** Hero : vues cumulées → jauge vers le prochain palier (accent projet). */
-function Hero({ p }: { p: P }) {
+function Hero({ p, currency }: { p: P; currency?: string | null }) {
   const pct = Math.round(p.progressToNext * 100);
   return (
     <Card className="border-primary/30 bg-primary/5">
@@ -102,7 +105,7 @@ function Hero({ p }: { p: P }) {
             <div className="flex items-center justify-between gap-2 text-sm">
               <span className="text-slate-500">Prochain palier</span>
               <span className="flex items-center gap-1.5 font-semibold text-slate-900">
-                <RewardLabel reward={p.nextReward} />
+                <RewardLabel reward={p.nextReward} currency={currency} />
               </span>
             </div>
             <div className="h-2.5 w-full overflow-hidden rounded-full bg-primary/10">
@@ -130,7 +133,7 @@ function Hero({ p }: { p: P }) {
           <div className="flex flex-wrap justify-center gap-1.5 border-t border-primary/15 pt-3">
             {p.cashUnlockedTotal > 0 && (
               <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
-                + {formatMoney(p.cashUnlockedTotal)} débloqués
+                + {formatMoney(p.cashUnlockedTotal, currency)} débloqués
               </span>
             )}
             {p.itemsUnlocked.map((r, i) => (
@@ -149,7 +152,13 @@ function Hero({ p }: { p: P }) {
 }
 
 /** Échelle des récompenses du projet (débloqué / en cours / à venir). */
-function LadderSection({ ladder }: { ladder: LadderEntry[] }) {
+function LadderSection({
+  ladder,
+  currency,
+}: {
+  ladder: LadderEntry[];
+  currency?: string | null;
+}) {
   return (
     <section className="space-y-2">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
@@ -169,7 +178,12 @@ function LadderSection({ ladder }: { ladder: LadderEntry[] }) {
               const isCurrent =
                 !entry.unlocked && ladder.slice(0, i).every((e) => e.unlocked);
               return (
-                <LadderRow key={entry.threshold} entry={entry} current={isCurrent} />
+                <LadderRow
+                  key={entry.threshold}
+                  entry={entry}
+                  current={isCurrent}
+                  currency={currency}
+                />
               );
             })}
           </CardContent>
@@ -182,9 +196,11 @@ function LadderSection({ ladder }: { ladder: LadderEntry[] }) {
 function LadderRow({
   entry,
   current,
+  currency,
 }: {
   entry: LadderEntry;
   current: boolean;
+  currency?: string | null;
 }) {
   const Icon = entry.unlocked
     ? CircleCheckIcon
@@ -216,7 +232,7 @@ function LadderRow({
             entry.unlocked || current ? "text-slate-900" : "text-slate-500",
           )}
         >
-          <RewardLabel reward={entry.reward} />
+          <RewardLabel reward={entry.reward} currency={currency} />
         </p>
         <p className="text-xs text-slate-400">
           {formatViews(entry.threshold)} vues
@@ -283,12 +299,18 @@ function VictoriesSection({ victories }: { victories: ProgressionVictory[] }) {
 }
 
 /** Libellé d'une récompense : cash → $, item → emoji + label. */
-function RewardLabel({ reward }: { reward: ProgressionReward }) {
+function RewardLabel({
+  reward,
+  currency,
+}: {
+  reward: ProgressionReward;
+  currency?: string | null;
+}) {
   if (reward.kind === "cash") {
     return (
       <>
         <TrophyIcon className="size-3.5 text-primary" aria-hidden />
-        {formatMoney(reward.amount)}
+        {formatMoney(reward.amount, currency)}
       </>
     );
   }

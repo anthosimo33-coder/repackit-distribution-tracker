@@ -41,11 +41,16 @@ const TYPE_LABELS: Record<string, string> = {
 export function FormatBriefPreview({
   format,
   showRate = true,
+  currency,
 }: {
   format: FormatBrief;
   showRate?: boolean;
+  /** Devise de la PAIE créatrices (dollars) pour la grille de rému. Composant
+   *  présentationnel : la devise est fournie par l'appelant (portail →
+   *  current.payCurrency). Absente → montants sans symbole. */
+  currency?: string | null;
 }) {
-  const rate = rateSummary(format.rateModel);
+  const rate = rateSummary(format.rateModel, currency);
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
