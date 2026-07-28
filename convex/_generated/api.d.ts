@@ -72,6 +72,7 @@ import type * as snapshotMatching from "../snapshotMatching.js";
 import type * as snytchDrive from "../snytchDrive.js";
 import type * as storage from "../storage.js";
 import type * as trackerData from "../trackerData.js";
+import type * as viewCounters from "../viewCounters.js";
 import type * as warmup from "../warmup.js";
 import type * as warmupMode from "../warmupMode.js";
 import type * as whopApi from "../whopApi.js";
@@ -151,6 +152,7 @@ declare const fullApi: ApiFromModules<{
   snytchDrive: typeof snytchDrive;
   storage: typeof storage;
   trackerData: typeof trackerData;
+  viewCounters: typeof viewCounters;
   warmup: typeof warmup;
   warmupMode: typeof warmupMode;
   whopApi: typeof whopApi;

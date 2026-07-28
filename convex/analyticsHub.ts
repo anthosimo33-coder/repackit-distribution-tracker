@@ -16,6 +16,10 @@ import {
   internalAccountsFor,
   isInternalWhopMembership,
 } from "./internalAccounts";
+import {
+  computeViewCounters,
+  VIEW_COUNTER_USAGE,
+} from "./viewCounters";
 
 /**
  * Croisement Jarvia × PostHog × Whop du hub Analytics.
@@ -60,8 +64,10 @@ export interface AttributionRow {
   period: string;
   /** Vues de TOUS les posts de la vidéo (warmup inclus) — affichage. */
   totalViews: number;
-  /** Vues payables (posts non-warmup) — base du CPM. */
+  /** Vues payables (posts rémunérés) — base du CPM. */
   payableViews: number;
+  /** Vues promo (posts non-warmup) — base des taux de conversion (jamais additionnée). */
+  promoViews: number;
   /** Vidéo entièrement warmup (exclue de la paie). */
   isWarmupOnly: boolean;
   /** Coût réel de la vidéo (fixe/vidéo + CPM). null = hors moteur v2 (legacy). */
@@ -240,6 +246,7 @@ export const getAttribution = adminQuery({
         period,
         totalViews: views.totalViews,
         payableViews: views.payableViews,
+        promoViews: views.promoViews,
         isWarmupOnly: !views.hasPayablePost,
         cost,
         attributedSignups: w ? w.signups : null,
@@ -265,6 +272,51 @@ export const getAttribution = adminQuery({
       posthogConfigured: project?.posthog !== undefined,
       computedAt: cacheRow?.computedAt ?? null,
       windowHours: ATTRIBUTION_WINDOW_HOURS,
+    };
+  },
+});
+
+// ─── Trois compteurs de vues (A2) ────────────────────────────────────────────
+
+export interface ViewCountersResult {
+  /** Σ toutes vues (warmup incl.) — usage : paliers. */
+  totales: number;
+  /** Σ vues des posts rémunérés — usage : moteur de paie. */
+  payables: number;
+  /** Σ vues des posts non-warmup (promo) — usage : taux de conversion. */
+  promo: number;
+  /** Libellé d'usage de chaque compteur (la carte DÉCLARE lequel elle lit). */
+  usage: { totales: string; payables: string; promo: string };
+  /** Nb de publications comptées (transparence). */
+  publications: number;
+}
+
+/**
+ * Les TROIS compteurs de vues du projet (règle A2) — chacun sa base, JAMAIS
+ * additionnés entre eux. La définition de la promo a une source UNIQUE
+ * (convex/viewCounters.isPromoPost) : le jour où `datePromoStart` remplace
+ * « non-warmup », seule cette fonction change.
+ */
+export const getViewCounters = adminQuery({
+  args: {},
+  handler: async (ctx): Promise<ViewCountersResult> => {
+    const pubs = await ctx.db
+      .query("publications")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const counters = computeViewCounters(
+      pubs.map((p) => ({
+        views: p.vuesLatest ?? 0,
+        isWarmup: p.isWarmup === true,
+        remunere: p.remunere,
+      })),
+    );
+    return {
+      totales: counters.totales,
+      payables: counters.payables,
+      promo: counters.promo,
+      usage: { ...VIEW_COUNTER_USAGE },
+      publications: pubs.length,
     };
   },
 });
