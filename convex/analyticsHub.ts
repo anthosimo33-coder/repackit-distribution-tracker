@@ -347,6 +347,12 @@ export interface PlanEconomics {
   /** LTV RÉALISÉE = net cumulé / membres (pas de projection : sans signal de
    *  churn, une LTV prédictive serait inventée). */
   ltv: number | null;
+  /** B3 — Net moyen par paiement. null si aucun paiement encaissé. */
+  netPerPayment: number | null;
+  /** B3 — taux de frais du plan (brut − net)/brut, fraction 0–1. null si mixte/nul. */
+  feeRate: number | null;
+  /** B3 — Net par mois-membre actif (« net/mois/client »). null si aucun. */
+  netPerMemberMonth: number | null;
 }
 
 export interface RevenueBreakdown {
@@ -478,21 +484,45 @@ export const getRevenueBreakdown = adminQuery({
       perMembership.set(p.membershipId, cur);
     }
 
-    const byPlan = new Map<string, { members: number; netTotal: number }>();
+    const byPlan = new Map<
+      string,
+      { members: number; netTotal: number; memberMonths: number }
+    >();
     for (const m of perMembership.values()) {
-      const cur = byPlan.get(m.planId) ?? { members: 0, netTotal: 0 };
+      const cur = byPlan.get(m.planId) ?? {
+        members: 0,
+        netTotal: 0,
+        memberMonths: 0,
+      };
       cur.members += 1;
       cur.netTotal += m.net;
+      cur.memberMonths += m.months.size;
       byPlan.set(m.planId, cur);
+    }
+    // Éco par offre : frais (brut − net) et net/paiement par plan, via le même
+    // moteur devise-sûr (C6) sur le sous-ensemble de paiements du plan.
+    const paymentsByPlan = new Map<string, typeof payments>();
+    for (const p of payments) {
+      const k = p.planId ?? "(sans plan)";
+      const list = paymentsByPlan.get(k) ?? [];
+      list.push(p);
+      paymentsByPlan.set(k, list);
     }
     const round2 = (n: number) => Math.round(n * 100) / 100;
     const plans: PlanEconomics[] = [...byPlan.entries()]
-      .map(([planId, x]) => ({
-        planId,
-        members: x.members,
-        netTotal: round2(x.netTotal),
-        ltv: x.members > 0 ? round2(x.netTotal / x.members) : null,
-      }))
+      .map(([planId, x]) => {
+        const s = summarizeWhopRevenue(paymentsByPlan.get(planId) ?? []);
+        return {
+          planId,
+          members: x.members,
+          netTotal: round2(x.netTotal),
+          ltv: x.members > 0 ? round2(x.netTotal / x.members) : null,
+          netPerPayment: s.paymentCount > 0 ? round2(s.net / s.paymentCount) : null,
+          feeRate: s.feeRate,
+          netPerMemberMonth:
+            x.memberMonths > 0 ? round2(x.netTotal / x.memberMonths) : null,
+        };
+      })
       .sort((a, b) => b.netTotal - a.netTotal);
 
     const totalNet = [...perMembership.values()].reduce((s, m) => s + m.net, 0);
