@@ -19,6 +19,11 @@ import {
   CONTRACT_PROPERTIES,
   eventAlias,
 } from "./analyticsContract";
+import {
+  internalAccountsFor,
+  internalMarkerHogQL,
+  notInternalClause,
+} from "./internalAccounts";
 
 /**
  * Ingestion des AGRÉGATS PostHog par projet (hub Analytics). Un cron horaire
@@ -75,6 +80,8 @@ export const POSTHOG_CACHE_KEYS = {
   scanReliability: "scanReliability",
   scanLatency: "scanLatency",
   friction: "friction",
+  // ─── C2 — Compteur A4 (personnes internes exclues) ─────────────────────────
+  internalExcluded: "internalExcluded",
 } as const;
 
 // ─── Formes des agrégats cachés ──────────────────────────────────────────────
@@ -171,6 +178,12 @@ export interface FrictionPayload {
   rows: { page: string; persons: number }[];
 }
 
+/** Compteur A4 : personnes internes exclues (marqueur is_internal / handles). */
+export interface InternalExcludedPayload {
+  persons: number;
+  totalPersons: number;
+}
+
 /** Étapes du funnel principal (l'UI mappe ces clés vers des libellés). */
 export const FUNNEL_STEP_KEYS = [
   "visit",
@@ -236,33 +249,31 @@ export const INSTRUMENTATION_PROP_PROBES: {
   cond: string;
   notYetEmitted: boolean;
 }[] = [
+  // isNotNull (et NON `toString(x) != ''`) : `toString(NULL)` rend 'null' (non
+  // vide) et ferait passer une propriété ABSENTE pour présente (faux positif
+  // vérifié en prod : app_version « présente » sur 30k events alors qu'absente).
   ...CONTRACT_PROPERTIES.map((p) => ({
     key: p.name,
     onEvent: p.onEvent,
     cond:
       p.onEvent === "*"
-        ? `toString(properties.${p.name}) != ''`
-        : `event = '${p.onEvent}' AND toString(properties.${p.name}) != ''`,
+        ? `isNotNull(properties.${p.name})`
+        : `event = '${p.onEvent}' AND isNotNull(properties.${p.name})`,
     notYetEmitted: p.notYetEmitted === true,
   })),
-  {
-    key: "handle_search_result.result",
-    onEvent: "handle_search_result",
-    cond: "event = 'handle_search_result' AND toString(properties.result) != ''",
-    notYetEmitted: false,
-  },
-  {
-    key: "scan_completed.distinct_id",
-    onEvent: "scan_completed",
-    cond: "event = 'scan_completed' AND toString(distinct_id) != ''",
-    notYetEmitted: false,
-  },
 ];
 const INSTRUMENTATION_PROP_COLUMNS = INSTRUMENTATION_PROP_PROBES.map(
   (p, i) => `    countIf(${p.cond}) AS p_${i}`,
 ).join(",\n");
 
-const QUERIES = {
+/**
+ * Jeu de requêtes HogQL construit PAR PROJET. `notInternal` (clause d'exclusion
+ * des comptes internes — règle A4) et `internalMarker` (l'expression POSITIVE,
+ * pour compter les exclus) sont injectés ici, en UN seul endroit : toute requête
+ * exclut les internes, sauf `internalExcluded` qui les dénombre exprès.
+ */
+function buildQueries(notInternal: string, internalMarker: string) {
+  return {
   /** Série quotidienne : visiteurs uniques, inscriptions, abonnements. */
   overview: `
 SELECT toStartOfDay(timestamp) AS d,
@@ -270,7 +281,7 @@ SELECT toStartOfDay(timestamp) AS d,
        countIf(event = 'signup_completed') AS signups,
        countIf(event = 'subscription_completed') AS subs
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
 GROUP BY d
 ORDER BY d`,
 
@@ -282,12 +293,12 @@ ORDER BY d`,
   funnelGlobal: `
 SELECT 'global' AS seg,${FUNNEL_COLUMNS}
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY`,
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}`,
 
   funnelSource: `
 SELECT ${segExpr("person.properties.source")} AS seg,${FUNNEL_COLUMNS}
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
 GROUP BY seg
 ORDER BY visit DESC
 LIMIT ${SEGMENT_LIMIT}`,
@@ -295,7 +306,7 @@ LIMIT ${SEGMENT_LIMIT}`,
   funnelLanguage: `
 SELECT ${segExpr("person.properties.language")} AS seg,${FUNNEL_COLUMNS}
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
 GROUP BY seg
 ORDER BY visit DESC
 LIMIT ${SEGMENT_LIMIT}`,
@@ -339,7 +350,7 @@ FROM (
       countIf(event = 'first_alert_received') AS has_alert,
       countIf(event = 'subscription_completed') AS has_sub
     FROM events
-    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
     GROUP BY person_id
   )
 )`,
@@ -357,7 +368,7 @@ FROM (
     countIf(event = 'subscription_completed') AS subscribed,
     countIf(event = 'paywall_viewed') AS viewed
   FROM events
-  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
     AND event IN ('paywall_viewed', 'subscription_completed')
   GROUP BY person_id
 )
@@ -374,7 +385,7 @@ FROM (
     countIf(event = 'signup_completed') AS signed,
     countIf(event = 'subscription_completed') AS subbed
   FROM events
-  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
   GROUP BY person_id, seg
 )
 GROUP BY seg
@@ -392,7 +403,7 @@ SELECT toStartOfHour(timestamp) AS h,
        countIf(event = 'signup_completed') AS signups,
        countIf(event = 'subscription_completed') AS subs
 FROM events
-WHERE timestamp >= now() - INTERVAL ${ATTRIBUTION_WINDOW_DAYS} DAY
+WHERE timestamp >= now() - INTERVAL ${ATTRIBUTION_WINDOW_DAYS} DAY${notInternal}
   AND event IN ('signup_completed', 'subscription_completed')
 GROUP BY h
 ORDER BY h`,
@@ -425,7 +436,7 @@ FROM (
       countIf(event IN ('squad_created', 'squad_joined')) AS squads,
       countIf(event = 'target_added') AS targets
     FROM events
-    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
     GROUP BY person_id
     HAVING countIf(event = 'signup_completed') > 0
   )
@@ -461,7 +472,7 @@ FROM (
     countIf(event = 'push_enabled') AS push,
     countIf(event = 'referral_link_shared') AS referrals
   FROM events
-  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
   GROUP BY person_id
   HAVING countIf(event = 'signup_completed') > 0
 )`,
@@ -474,7 +485,7 @@ SELECT
 ${INSTRUMENTATION_EVENT_COLUMNS},
 ${INSTRUMENTATION_PROP_COLUMNS}
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY`,
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}`,
 
   /**
    * Fiabilité du checkout, par appareil (webview vs natif). Une personne = un
@@ -486,22 +497,33 @@ WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY`,
 SELECT
   device,
   count() AS checkouts,
-  countIf(paid > 0) AS paid,
-  countIf(paid = 0 AND freed > 0) AS diverted_free,
-  countIf(paid = 0 AND freed = 0) AS disappeared,
-  quantileIf(0.5)(pay_delay, paid > 0 AND pay_delay > 0) AS med_pay_s,
-  quantileIf(0.9)(pay_delay, paid > 0 AND pay_delay > 0) AS p90_pay_s
+  sum(paid) AS paid,
+  sum(diverted) AS diverted_free,
+  sum(disappeared) AS disappeared,
+  quantileIf(0.5)(pay_delay, pay_delay > 0) AS med_pay_s,
+  quantileIf(0.9)(pay_delay, pay_delay > 0) AS p90_pay_s
 FROM (
-  SELECT person_id,
-    if(max(if(event = 'checkout_started' AND (properties.is_webview = true OR toString(properties.is_webview) = 'true'), 1, 0)) > 0, 'webview', 'natif') AS device,
-    countIf(event = 'subscription_completed') AS paid,
-    countIf(event = 'free_tier_started') AS freed,
-    dateDiff('second', minIf(timestamp, event = 'checkout_started'), minIf(timestamp, event = 'subscription_completed')) AS pay_delay
-  FROM events
-  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
-    AND event IN ('checkout_started', 'subscription_completed', 'free_tier_started')
-  GROUP BY person_id
-  HAVING countIf(event = 'checkout_started') > 0
+  SELECT
+    device,
+    if(paid_c > 0, 1, 0) AS paid,
+    if(paid_c = 0 AND freed_c > 0, 1, 0) AS diverted,
+    if(paid_c = 0 AND freed_c = 0, 1, 0) AS disappeared,
+    if(paid_c > 0, pay_delay_c, 0) AS pay_delay
+  FROM (
+    SELECT person_id,
+      multiIf(
+        max(if(event = 'checkout_started' AND isNotNull(properties.is_webview), 1, 0)) = 0, 'inconnu',
+        max(if(event = 'checkout_started' AND (properties.is_webview = true OR toString(properties.is_webview) = 'true'), 1, 0)) > 0, 'webview',
+        'natif') AS device,
+      countIf(event = 'subscription_completed') AS paid_c,
+      countIf(event = 'free_tier_started') AS freed_c,
+      dateDiff('second', minIf(timestamp, event = 'checkout_started'), minIf(timestamp, event = 'subscription_completed')) AS pay_delay_c
+    FROM events
+    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+      AND event IN ('checkout_started', 'subscription_completed', 'free_tier_started')
+    GROUP BY person_id
+    HAVING countIf(event = 'checkout_started') > 0
+  )
 )
 GROUP BY device
 ORDER BY checkouts DESC`,
@@ -511,7 +533,7 @@ ORDER BY checkouts DESC`,
 SELECT coalesce(nullIf(toString(properties.cause), ''), '(sans cause)') AS cause,
        count() AS n
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
   AND event = 'payment_failed'
 GROUP BY cause
 ORDER BY n DESC
@@ -522,7 +544,7 @@ LIMIT ${SEGMENT_LIMIT}`,
 SELECT coalesce(nullIf(toString(properties.result), ''), '(sans result)') AS result,
        uniq(person_id) AS persons
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
   AND event = 'handle_search_result'
 GROUP BY result
 ORDER BY persons DESC
@@ -534,7 +556,7 @@ SELECT coalesce(nullIf(toString(properties.mode), ''), '(sans mode)') AS mode,
        coalesce(nullIf(toString(properties.result), ''), '(sans result)') AS result,
        count() AS runs
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
   AND event = 'scan_completed'
 GROUP BY mode, result
 ORDER BY runs DESC
@@ -552,10 +574,10 @@ FROM (
     multiIf(fc < 1000, 0, fc < 10000, 1, fc < 100000, 2, 3) AS bidx,
     dur
   FROM (
-    SELECT toFloat64OrZero(toString(properties.follower_count)) AS fc,
-           toFloat64OrNull(toString(properties.duration_ms)) AS dur
+    SELECT toFloatOrZero(toString(properties.follower_count)) AS fc,
+           toFloatOrNull(toString(properties.duration_ms)) AS dur
     FROM events
-    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
       AND event = 'scan_completed'
   )
   WHERE dur IS NOT NULL
@@ -571,12 +593,23 @@ SELECT coalesce(
        ) AS page,
        uniq(person_id) AS persons
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
   AND event = '$rageclick'
 GROUP BY page
 ORDER BY persons DESC
 LIMIT ${SEGMENT_LIMIT}`,
-} as const;
+
+  /**
+   * Compteur A4 : personnes INTERNES (marqueur positif) vs total, sur la fenêtre.
+   * SEULE requête sans exclusion — c'est elle qui dénombre les exclus.
+   */
+  internalExcluded: `
+SELECT uniqIf(person_id, ${internalMarker}) AS internal,
+       uniq(person_id) AS total
+FROM events
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY`,
+  } as const;
+}
 
 // ─── Config projet ↔ PostHog (opérateur, via `npx convex run`) ───────────────
 
@@ -835,6 +868,15 @@ export const runHourlySync = internalAction({
         host: proj.host,
       };
 
+      // A4 — requêtes construites AVEC l'exclusion interne de CE projet (une
+      // seule source : convex/internalAccounts). `QUERIES` est donc local au
+      // projet, pas un const de module.
+      const internalCfg = internalAccountsFor(proj.slug);
+      const QUERIES = buildQueries(
+        notInternalClause(internalCfg),
+        internalMarkerHogQL(internalCfg),
+      );
+
       const entries: CacheEntry[] = [
         await collect(
           POSTHOG_CACHE_KEYS.overview,
@@ -1055,6 +1097,16 @@ export const runHourlySync = internalAction({
             rows: rows.map((r) => ({ page: cellStr(r, 0), persons: cellNum(r, 1) })),
           }),
         ),
+        await collect(
+          POSTHOG_CACHE_KEYS.internalExcluded,
+          apiKey,
+          target,
+          QUERIES.internalExcluded,
+          (rows): InternalExcludedPayload => {
+            const r = rows[0] ?? [];
+            return { persons: cellNum(r, 0), totalPersons: cellNum(r, 1) };
+          },
+        ),
       ];
 
       await ctx.runMutation(internal.posthogSync.upsertPosthogCache, {
@@ -1122,11 +1174,17 @@ export interface ProductAnalytics {
   scanReliability: ScanReliabilityPayload;
   scanLatency: ScanLatencyPayload;
   friction: FrictionPayload;
+  /** A4 — personnes internes exclues de tous les agrégats ci-dessus (compteur). */
+  internalExcluded: InternalExcludedPayload;
 }
 
 const EMPTY_FUNNEL: FunnelPayload = { segments: [] };
 const EMPTY_CONVERSION: ConversionPayload = { rows: [] };
 const EMPTY_INSTRUMENTATION: InstrumentationPayload = { events: [], props: [] };
+const EMPTY_INTERNAL_EXCLUDED: InternalExcludedPayload = {
+  persons: 0,
+  totalPersons: 0,
+};
 
 /**
  * Agrégats PostHog du projet, servis DEPUIS LE CACHE (jamais d'appel API dans le
@@ -1159,6 +1217,7 @@ export const getProductAnalytics = adminQuery({
       scanReliability: { rows: [] },
       scanLatency: { rows: [] },
       friction: { rows: [] },
+      internalExcluded: EMPTY_INTERNAL_EXCLUDED,
     };
     if (!empty.configured) return empty;
 
@@ -1202,6 +1261,10 @@ export const getProductAnalytics = adminQuery({
       scanReliability: read(POSTHOG_CACHE_KEYS.scanReliability, { rows: [] }),
       scanLatency: read(POSTHOG_CACHE_KEYS.scanLatency, { rows: [] }),
       friction: read(POSTHOG_CACHE_KEYS.friction, { rows: [] }),
+      internalExcluded: read(
+        POSTHOG_CACHE_KEYS.internalExcluded,
+        EMPTY_INTERNAL_EXCLUDED,
+      ),
     };
   },
 });

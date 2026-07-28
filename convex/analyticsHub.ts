@@ -12,6 +12,10 @@ import {
   POSTHOG_CACHE_KEYS,
   type AttributionHourlyPayload,
 } from "./posthogSync";
+import {
+  internalAccountsFor,
+  isInternalWhopMembership,
+} from "./internalAccounts";
 
 /**
  * Croisement Jarvia × PostHog × Whop du hub Analytics.
@@ -303,6 +307,8 @@ export interface RevenueBreakdown {
    * churn attendent les events PostHog `subscription_cancelled`.
    */
   churnAvailable: boolean;
+  /** A4 — memberships internes exclus du revenu (compteur visible). */
+  internalExcludedMembers: number;
 }
 
 /**
@@ -323,13 +329,26 @@ export const getRevenueBreakdown = adminQuery({
         monthlyArpu: null,
         ltv: null,
         churnAvailable: false,
+        internalExcludedMembers: 0,
       };
     }
 
-    const payments = await ctx.db
-      .query("whopPayments")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
+    // A4 — écarte les abonnements internes (par membershipId, cf internalAccounts)
+    // AVANT toute agrégation ; on en tient le compte pour l'afficher.
+    const internalCfg = internalAccountsFor(project.slug);
+    const internalMembers = new Set<string>();
+    const payments = (
+      await ctx.db
+        .query("whopPayments")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect()
+    ).filter((p) => {
+      if (isInternalWhopMembership(p.membershipId, internalCfg)) {
+        if (p.membershipId) internalMembers.add(p.membershipId);
+        return false;
+      }
+      return true;
+    });
 
     // Premier paiement ENCAISSÉ par membre → sépare nouveau vs récurrent.
     const firstSeen = new Map<string, number>();
@@ -429,6 +448,7 @@ export const getRevenueBreakdown = adminQuery({
         totalMemberMonths > 0 ? round2(totalNet / totalMemberMonths) : null,
       ltv: totalMembers > 0 ? round2(totalNet / totalMembers) : null,
       churnAvailable: false,
+      internalExcludedMembers: internalMembers.size,
     };
   },
 });
