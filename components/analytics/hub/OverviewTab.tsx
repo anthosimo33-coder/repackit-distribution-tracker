@@ -66,6 +66,8 @@ export function OverviewTab({
       whopMembers: c.whopMembers,
       whopExcludedPre: c.whopExcludedPre,
       whopExcludedAfter: c.whopExcludedAfter,
+      dailyClientsSum: c.dailyClientsSum,
+      dailySignupsSum: c.dailySignupsSum,
     });
   }, [reliability]);
 

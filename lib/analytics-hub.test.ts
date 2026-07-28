@@ -454,4 +454,41 @@ describe("buildCoherenceChecks", () => {
     expect(m.get("funnel_sequential_monotone")).toBe("ok");
     expect(m.get("funnel_reach_nonmonotone")).toBe("info");
   });
+
+  it("Σ clients/jour > total → violation (le bug des 54 vs 25)", () => {
+    const steps = [{ key: "subscription_completed", label: "", count: 25 }];
+    const m = byKey(
+      buildCoherenceChecks({
+        ...base,
+        sequentialSteps: steps,
+        reachSteps: steps,
+        dailyClientsSum: 54,
+      }),
+    );
+    expect(m.get("sum_daily_clients_le_total")).toBe("violation");
+  });
+
+  it("Σ clients/jour ≤ total → ok", () => {
+    const steps = [{ key: "subscription_completed", label: "", count: 25 }];
+    const m = byKey(
+      buildCoherenceChecks({
+        ...base,
+        sequentialSteps: steps,
+        reachSteps: steps,
+        dailyClientsSum: 24,
+      }),
+    );
+    expect(m.get("sum_daily_clients_le_total")).toBe("ok");
+  });
+
+  it("subscription_completed brut > séquentiel → défaut exposé (info, pas masqué)", () => {
+    const m = byKey(
+      buildCoherenceChecks({
+        ...base,
+        sequentialSteps: [{ key: "subscription_completed", label: "", count: 20 }],
+        reachSteps: [{ key: "subscription_completed", label: "", count: 25 }],
+      }),
+    );
+    expect(m.get("subscription_double_instrumentation")).toBe("info");
+  });
 });

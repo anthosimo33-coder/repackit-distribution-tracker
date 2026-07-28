@@ -577,8 +577,14 @@ export interface ReliabilityResult {
     sequentialSteps: StepCount[];
     reachSteps: StepCount[];
     currencyCount: number;
-    /** Clients selon le dashboard (atteinte subscription_completed). */
+    /** Clients « dashboard » du garde-fou = chaîne SÉQUENTIELLE (concorde Whop). */
     dashboardClients: number | null;
+    /** Atteinte BRUTE subscription_completed (double-comptée client+serveur). */
+    reachClients: number | null;
+    /** Σ des clients quotidiens (uniq/jour) — doit rester ≤ au total période. */
+    dailyClientsSum: number | null;
+    /** Σ des inscrits quotidiens (uniq/jour). */
+    dailySignupsSum: number | null;
     /**
      * Membres payants Whop COMPARABLES au dashboard : 1er paiement DANS la même
      * fenêtre que le cache PostHog (≤ dernière synchro) ET après le début de
@@ -641,8 +647,21 @@ export const getReliability = adminQuery({
     const reachSteps = stepsOf(
       read<FunnelPayload>(POSTHOG_CACHE_KEYS.funnelGlobal, { segments: [] }),
     );
-    const dashboardClients =
-      reachSteps.find((s) => s.key === "subscription_completed")?.count ?? null;
+    const stepCount = (steps: StepCount[], key: string): number | null =>
+      steps.find((s) => s.key === key)?.count ?? null;
+    // Clients « dashboard » du garde-fou = le SÉQUENTIEL (chaîne complète,
+    // concorde avec Whop), PAS l'atteinte brute qui double-compte
+    // subscription_completed (client + serveur). L'écart brut↔séquentiel est
+    // exposé à part comme défaut d'instrumentation.
+    const reachClients = stepCount(reachSteps, "subscription_completed");
+    const dashboardClients = stepCount(sequentialSteps, "subscription_completed");
+    // Somme des valeurs quotidiennes vs total sur la même période (garde-fou :
+    // une somme de jours qui dépasse le total = double comptage inter-jours).
+    const overview = read<OverviewPayload>(POSTHOG_CACHE_KEYS.overview, {
+      daily: [],
+    });
+    const dailyClientsSum = overview.daily.reduce((s, d) => s + d.subs, 0);
+    const dailySignupsSum = overview.daily.reduce((s, d) => s + d.signups, 0);
     const posthogSyncMs =
       cacheRows.length > 0
         ? Math.max(...cacheRows.map((r) => r.computedAt))
@@ -713,6 +732,9 @@ export const getReliability = adminQuery({
         reachSteps,
         currencyCount,
         dashboardClients,
+        reachClients,
+        dailyClientsSum,
+        dailySignupsSum,
         whopMembers,
         whopMembersTotal,
         whopExcludedPre,

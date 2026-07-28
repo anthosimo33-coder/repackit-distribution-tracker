@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/table";
 import { formatNumber } from "@/lib/format";
 import { formatMoney } from "@/lib/format-rate";
-import { isConclusive, MIN_SAMPLE_SIZE } from "@/lib/analytics-hub";
+import { isConclusive, MIN_SAMPLE_SIZE, computeConversion } from "@/lib/analytics-hub";
 import { HubCardHeader, HubNotice, dash, pct, formatDuration } from "./HubPrimitives";
 import type { ProductAnalyticsData, RevenueData } from "./types";
 
@@ -48,6 +48,13 @@ export function OffresTab({
   const totalExposed = ab.reduce((s, v) => s + v.exposed, 0);
   const anyInconclusive = ab.some((v) => !v.conclusive);
   const free = analytics.freePlan;
+  const paywallRows = analytics.paywallById.rows;
+  const paywallReady = paywallRows.some(
+    (r) => r.key !== "(inconnu)" && r.key !== "(absent)",
+  );
+  const paywallConv = computeConversion(
+    paywallRows.map((r) => ({ key: r.key, label: r.key, n: r.n, converted: r.converted })),
+  );
 
   return (
     <div className="space-y-6">
@@ -115,6 +122,53 @@ export function OffresTab({
                 n&apos;est possible. Tiret plutôt qu&apos;un chiffre inventé.
               </p>
             </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Conversion par paywall (paywall_id) */}
+      <Card>
+        <CardContent className="space-y-3 p-4">
+          <HubCardHeader
+            title="Conversion par paywall"
+            subtitle="L'app a 6 paywalls distincts, mais variant n'en distingue que 2 (gate/upsell)."
+          />
+          {!paywallReady ? (
+            <HubNotice className="border-slate-200 bg-slate-50 text-slate-600">
+              En attente de <code>paywall_id</code> : la propriété n&apos;est pas
+              encore émise côté app (0 occurrence sur 90 j — demandée au dev). Sans
+              elle, 4 des 6 paywalls sont indistinguables. Tiret plutôt qu&apos;une
+              conversion par paywall inventée.
+            </HubNotice>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Paywall</TableHead>
+                  <TableHead className="text-right">Exposés</TableHead>
+                  <TableHead className="text-right">Payés</TableHead>
+                  <TableHead className="text-right">Taux</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {paywallConv.map((r) => (
+                  <TableRow key={r.key}>
+                    <TableCell className="text-xs font-medium text-slate-700">
+                      {r.label}
+                    </TableCell>
+                    <TableCell className="text-right text-xs tabular-nums">
+                      {formatNumber(r.n)}
+                    </TableCell>
+                    <TableCell className="text-right text-xs tabular-nums">
+                      {formatNumber(r.converted)}
+                    </TableCell>
+                    <TableCell className="text-right text-xs tabular-nums font-semibold">
+                      {pct(r.rate)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
         </CardContent>
       </Card>
