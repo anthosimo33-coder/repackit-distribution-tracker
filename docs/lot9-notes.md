@@ -72,3 +72,23 @@ Le plan Whop du gratuit (`free_tier_started`, 10 pers. iOS le 27/07, plan
 éventuel d'un scan HikerAPI** ne sont **pas visibles d'ici** — ni dans ce repo (tracker),
 ni dans PostHog (aucun event `scan_*`). Le coût par scan doit être instrumenté par
 l'équipe app Snytch.
+
+## Item LOT 9 — Journal des changements de prix / d'offre (horodaté)
+
+L'offre bouge **tous les jours** : `weekly` 7,99 € (dès 23/07) → remplacé par
+`target_weekly` **4,99 €** (~27/07 16:00) → `target_monthly` ajouté le **28/07 02:31**.
+Le 4,99 € **convertit MOINS bien** que le 7,99 € (23,5 % vs 33,3 % de complétion
+checkout → payé), donc la baisse de prix n'est pas rentable en l'état (elle devrait
+augmenter la conversion de +39 % pour compenser le −39 % de revenu/client). **Sans
+journal horodaté des changements de prix/offre, impossible de comparer deux cohortes
+dans deux semaines.** À ajouter au dashboard : une table `priceChanges`
+(plan_id, prix, devise, cadence, effectiveAt) + une carte « historique de l'offre ».
+
+## Item LOT 9 — Toggle warmup : ajouter une case `remunere`
+
+Depuis LOT 2, `setPublicationWarmup` ne pose que `isWarmup`, jamais `remunere`. Or le
+défaut « warmup = non payé » ne vaut QUE pour les publications créées APRÈS
+`backfillRemunere` (les 143 existantes ont `remunere=true` explicite → flaguer warmup ne
+les sort plus de la paie). Pour **reproduire le cas Kelly** (warmup mais payé) sur une
+future créatrice **depuis l'UI**, le toggle warmup devra gagner une case `remunere`
+distincte. Pas urgent, mais **bloquant le jour où on voudra un « warmup + payé » manuel**.
