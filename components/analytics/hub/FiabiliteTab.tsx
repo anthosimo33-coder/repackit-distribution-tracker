@@ -85,6 +85,8 @@ export function FiabiliteTab({
       whopMembers: c.whopMembers,
       whopExcludedPre: c.whopExcludedPre,
       whopExcludedAfter: c.whopExcludedAfter,
+      dailyClientsSum: c.dailyClientsSum,
+      dailySignupsSum: c.dailySignupsSum,
     });
   }, [reliability.coherence]);
 
@@ -153,6 +155,29 @@ export function FiabiliteTab({
               </TableBody>
             </Table>
           </div>
+          {reliability.instrumentation.props.length > 0 ? (
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-slate-500">
+                Propriétés sondées
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {reliability.instrumentation.props.map((p) => (
+                  <Badge
+                    key={p.key}
+                    variant="outline"
+                    className={
+                      p.present > 0
+                        ? "border-emerald-200 bg-emerald-50 text-[11px] text-emerald-700"
+                        : "border-slate-200 bg-slate-50 text-[11px] text-slate-500"
+                    }
+                    title={`${p.present} events (sur ${p.onEvent})`}
+                  >
+                    {p.key} · {p.present > 0 ? `émise (${formatNumber(p.present)})` : "absente"}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <p className="text-xs text-slate-400">
             Comptes internes exclus partout :{" "}
             <strong>{formatNumber(reliability.internalExcluded.persons)}</strong>{" "}

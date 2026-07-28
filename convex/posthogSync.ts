@@ -67,6 +67,7 @@ export const POSTHOG_CACHE_KEYS = {
   funnelLanguage: "funnel:language",
   timeToValue: "timeToValue",
   paywall: "paywall",
+  paywallById: "paywallById",
   sources: "sources",
   cohorts: "cohorts",
   predictors: "predictors",
@@ -329,8 +330,8 @@ function buildQueries(notInternal: string, internalMarker: string) {
   overview: `
 SELECT toStartOfDay(timestamp, 'Europe/Paris') AS d,
        uniqIf(person_id, event = '$pageview') AS visitors,
-       countIf(event = 'signup_completed') AS signups,
-       countIf(event = 'subscription_completed') AS subs
+       uniqIf(person_id, event = 'signup_completed') AS signups,
+       uniqIf(person_id, event = 'subscription_completed') AS subs
 FROM events
 WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
 GROUP BY d
@@ -443,6 +444,28 @@ SELECT ${segExpr("variant")} AS seg, count() AS n, countIf(subscribed > 0) AS co
 FROM (
   SELECT person_id,
     argMaxIf(properties.variant, timestamp, event = 'paywall_viewed') AS variant,
+    countIf(event = 'subscription_completed') AS subscribed,
+    countIf(event = 'paywall_viewed') AS viewed
+  FROM events
+  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+    AND event IN ('paywall_viewed', 'subscription_completed')
+  GROUP BY person_id
+)
+WHERE viewed > 0
+GROUP BY seg
+ORDER BY n DESC
+LIMIT ${SEGMENT_LIMIT}`,
+
+  /**
+   * Conversion par PAYWALL (paywall_id) — l'app a 6 paywalls mais `variant` n'en
+   * distingue que 2. Tant que paywall_id n'est pas émis, tout tombe en '(inconnu)'
+   * et la carte affiche un tiret (elle s'allumera seule quand la propriété arrivera).
+   */
+  paywallById: `
+SELECT ${segExpr("paywall_id")} AS seg, count() AS n, countIf(subscribed > 0) AS converted
+FROM (
+  SELECT person_id,
+    argMaxIf(properties.paywall_id, timestamp, event = 'paywall_viewed') AS paywall_id,
     countIf(event = 'subscription_completed') AS subscribed,
     countIf(event = 'paywall_viewed') AS viewed
   FROM events
@@ -1101,6 +1124,13 @@ export const runHourlySync = internalAction({
           shapeConversion,
         ),
         await collect(
+          POSTHOG_CACHE_KEYS.paywallById,
+          apiKey,
+          target,
+          QUERIES.paywallById,
+          shapeConversion,
+        ),
+        await collect(
           POSTHOG_CACHE_KEYS.sources,
           apiKey,
           target,
@@ -1326,6 +1356,28 @@ export const requestPosthogSync = adminMutation({
   },
 });
 
+/**
+ * Purge des clés de cache ORPHELINES — une row posthogCache dont la `key` n'est
+ * plus dans POSTHOG_CACHE_KEYS (ex. `attributionHourly` retirée en C5, jamais
+ * réécrite mais persistante). À lancer une fois via `npx convex run --prod
+ * posthogSync:purgeStalePosthogCache '{}'`. Idempotent (rien à supprimer = []).
+ */
+export const purgeStalePosthogCache = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<{ deleted: string[] }> => {
+    const valid = new Set<string>(Object.values(POSTHOG_CACHE_KEYS));
+    const rows = await ctx.db.query("posthogCache").collect();
+    const deleted: string[] = [];
+    for (const r of rows) {
+      if (!valid.has(r.key)) {
+        await ctx.db.delete(r._id);
+        deleted.push(r.key);
+      }
+    }
+    return { deleted };
+  },
+});
+
 // ─── Lecture (UI) — CACHE UNIQUEMENT ─────────────────────────────────────────
 
 function safeParse<T>(json: string, fallback: T): T {
@@ -1355,6 +1407,8 @@ export interface ProductAnalytics {
   };
   timeToValue: TimeToValuePayload;
   paywall: ConversionPayload;
+  /** Conversion par paywall_id (vide/'(inconnu)' tant que paywall_id n'est pas émis). */
+  paywallById: ConversionPayload;
   sources: ConversionPayload;
   cohorts: CohortsPayload;
   predictors: PredictorsPayload;
@@ -1406,6 +1460,7 @@ export const getProductAnalytics = adminQuery({
       },
       timeToValue: { steps: [] },
       paywall: EMPTY_CONVERSION,
+      paywallById: EMPTY_CONVERSION,
       sources: EMPTY_CONVERSION,
       cohorts: { segments: [] },
       predictors: { total: 0, totalConverted: 0, behaviors: [] },
@@ -1455,6 +1510,7 @@ export const getProductAnalytics = adminQuery({
       },
       timeToValue: read(POSTHOG_CACHE_KEYS.timeToValue, empty.timeToValue),
       paywall: read(POSTHOG_CACHE_KEYS.paywall, EMPTY_CONVERSION),
+      paywallById: read(POSTHOG_CACHE_KEYS.paywallById, EMPTY_CONVERSION),
       sources: read(POSTHOG_CACHE_KEYS.sources, EMPTY_CONVERSION),
       cohorts: read(POSTHOG_CACHE_KEYS.cohorts, empty.cohorts),
       predictors: read(POSTHOG_CACHE_KEYS.predictors, empty.predictors),

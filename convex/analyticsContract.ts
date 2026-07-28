@@ -76,7 +76,7 @@ export const CONTRACT_EVENTS: ContractEvent[] = [
   { name: "first_alert_received", category: "activation", props: ["account_id"] },
 
   // ─── Monétisation ────────────────────────────────────────────────────────
-  { name: "paywall_viewed", category: "monetization", props: ["variant", "plan_shown", "price"] },
+  { name: "paywall_viewed", category: "monetization", props: ["variant", "plan_shown", "price", "paywall_id"] },
   { name: "checkout_started", category: "monetization", props: ["is_webview", "webview_source", "plan_name", "method", "variant"] },
   { name: "checkout_handoff", category: "monetization", props: ["is_webview", "webview_source", "reason"] },
   { name: "payment_failed", category: "monetization", props: ["cause", "reason", "is_webview"] },
@@ -115,9 +115,16 @@ export interface ContractProperty {
  * bascule de « absente » à « présente » sans toucher au contrat.
  */
 export const CONTRACT_PROPERTIES: ContractProperty[] = [
-  { name: "app_version", onEvent: "*", notYetEmitted: true },
-  { name: "plan_shown", onEvent: "paywall_viewed", notYetEmitted: true },
-  { name: "price", onEvent: "paywall_viewed", notYetEmitted: true },
+  // Émises depuis le 28/07 (vérifié prod : app_version dès ~14:43 sur la plupart
+  // des events ; plan_shown/price 106 events, dernière 17:33) → flags retournés.
+  { name: "app_version", onEvent: "*" },
+  { name: "plan_shown", onEvent: "paywall_viewed" },
+  { name: "price", onEvent: "paywall_viewed" },
+  // paywall_id : l'app a 6 paywalls distincts mais `variant` n'a que 2 valeurs
+  // (gate/upsell) → 4 paywalls indistinguables. Demandée au dev, PAS encore émise
+  // (vérifié : 0 occurrence sur 7 j ET 90 j). La carte « conversion par paywall »
+  // affiche un tiret tant qu'elle n'arrive pas.
+  { name: "paywall_id", onEvent: "paywall_viewed", notYetEmitted: true },
 ];
 
 /** Alias SQL sûr pour un nom d'event (`$pageview` → `pageview`, etc.). */

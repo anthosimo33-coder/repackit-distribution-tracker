@@ -182,6 +182,10 @@ export interface CoherenceInputs {
   whopExcludedPre?: number;
   /** Memberships exclus car postérieurs au dernier cron (latence, pas incohérence). */
   whopExcludedAfter?: number;
+  /** Σ des clients quotidiens (uniq/jour) — contrôle « ne dépasse pas le total ». */
+  dailyClientsSum?: number | null;
+  /** Σ des inscrits quotidiens (uniq/jour). */
+  dailySignupsSum?: number | null;
 }
 
 /** Écart relatif toléré (points de %) entre clients dashboard et Whop. */
@@ -204,6 +208,16 @@ export function buildCoherenceChecks(i: CoherenceInputs): CoherenceCheck[] {
     label: "Somme attribuée ≤ total réel",
     status: "ok",
     detail: "jours solo = sous-ensemble des jours réels (garanti par construction)",
+  });
+
+  // Compteurs de vues : payables et promo sont calculés comme SOUS-ENSEMBLES de
+  // totales (computeViewCounters) → ne peuvent pas la dépasser. Documenté ici pour
+  // que la couverture soit visible.
+  checks.push({
+    key: "view_counters_subset",
+    label: "Vues payables & promo ≤ totales",
+    status: "ok",
+    detail: "sous-ensembles de totales (garanti par construction)",
   });
 
   // Aucune addition inter-devises (on ne somme jamais ; info si multi-devise).
@@ -251,7 +265,52 @@ export function buildCoherenceChecks(i: CoherenceInputs): CoherenceCheck[] {
     });
   }
 
+  // Défaut d'instrumentation : subscription_completed compté DEUX FOIS (client +
+  // serveur). L'atteinte brute dépasse le séquentiel — on l'EXPOSE (le garde-fou
+  // s'ancre sur le séquentiel, mais on ne masque pas le vrai problème).
+  const reachClients = stepBy(i.reachSteps, "subscription_completed");
+  const seqClients = stepBy(i.sequentialSteps, "subscription_completed");
+  if (reachClients !== null && seqClients !== null && reachClients > seqClients) {
+    checks.push({
+      key: "subscription_double_instrumentation",
+      label: "subscription_completed compté en double",
+      status: "info",
+      detail: `atteinte brute ${reachClients} vs séquentiel ${seqClients} (écart ${reachClients - seqClients}) — émis côté client ET serveur, à dédupliquer côté app`,
+    });
+  }
+
+  // Σ des valeurs quotidiennes ≤ total sur la même période. Une somme de jours qui
+  // dépasse le total = double comptage inter-jours (le défaut qui gonflait 25 en 54).
+  pushSumCheck(checks, "sum_daily_clients_le_total", "Σ clients/jour ≤ total", i.dailyClientsSum, reachClients);
+  pushSumCheck(checks, "sum_daily_signups_le_total", "Σ inscrits/jour ≤ total", i.dailySignupsSum, stepBy(i.reachSteps, "signup_completed"));
+
   return checks;
+}
+
+/** Compte d'une étape par clé (null si absente). */
+function stepBy(steps: FunnelStepInput[], key: string): number | null {
+  return steps.find((s) => s.key === key)?.count ?? null;
+}
+
+/** Contrôle « Σ jours ≤ total » : ratio > 1,5 = violation, > 1,05 = info, sinon ok. */
+function pushSumCheck(
+  checks: CoherenceCheck[],
+  key: string,
+  label: string,
+  sum: number | null | undefined,
+  total: number | null,
+): void {
+  if (sum == null || total == null) return;
+  const ratio = total > 0 ? sum / total : sum > 0 ? Infinity : 1;
+  checks.push({
+    key,
+    label,
+    status: ratio > 1.5 ? "violation" : ratio > 1.05 ? "info" : "ok",
+    detail:
+      sum > total
+        ? `Σ jours ${sum} > total ${total} (double comptage inter-jours)`
+        : `Σ jours ${sum} ≤ total ${total}`,
+  });
 }
 
 // ─── Évolution vs période précédente ─────────────────────────────────────────
