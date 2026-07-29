@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -29,23 +30,40 @@ import { UsersIcon } from "lucide-react";
 import type { ChurnData } from "./types";
 
 /**
- * Onglet RÉTENTION (churn) — la métrique sans laquelle aucune projection de revenu
- * ne tient. Deux états séparés : RÉSILIÉ (annulé, accès encore valide) vs EXPIRÉ
- * (accès perdu = vrai churn). Source = l'état des memberships Whop (fait foi), le
- * calcul est fait ici par lib/churn (pur). Deux avertissements obligatoires :
- * échantillon quasi nul avant les premiers renouvellements (~2 août), et les
- * résiliations dues à la panne du webhook (bug, pas produit).
+ * Onglet RÉTENTION (churn). Deux états séparés : RÉSILIÉ (annulé, accès encore
+ * valide) vs EXPIRÉ (accès perdu = vrai churn). La carte montre AUSSI ce qui ARRIVE
+ * (pertes d'accès à venir + clients projetés), et pour chaque résiliation le DÉLAI
+ * paiement→annulation : c'est lui qui distingue le bug (annulé en minutes, jamais
+ * eu d'accès) du produit (annulé après avoir eu accès). L'accès applicatif exact par
+ * personne n'est pas ingéré ici, donc on ne l'arbitre pas sur une date : on montre
+ * le délai, qui est le fait.
  */
 
 /** Sous ce nombre d'abonnements arrivés à échéance, aucun taux n'est interprétable. */
 const SAMPLE_THRESHOLD = 10;
+/** Horizon « perdront l'accès prochainement ». */
+const HORIZON_DAYS = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Jours (ms) → durée lisible courte (j / mois). */
-function formatDays(d: number | null): string {
-  if (d === null) return "—";
-  if (d < 1) return `${Math.round(d * 24)} h`;
-  if (d < 60) return `${Math.round(d * 10) / 10} j`;
-  return `${Math.round((d / 30) * 10) / 10} mois`;
+/** Délai lisible depuis des ms : minutes si court, puis heures, puis jours. */
+function formatDelay(ms: number | null): string {
+  if (ms === null) return "—";
+  const min = ms / 60000;
+  if (min < 90) return `${Math.round(min)} min`;
+  const h = ms / 3_600_000;
+  if (h < 48) return `${Math.round(h * 10) / 10} h`;
+  return `${Math.round((h / 24) * 10) / 10} j`;
+}
+
+/** Date courte « 4 août 11:49 ». */
+function frDateTime(ms: number | null): string {
+  if (ms === null) return "—";
+  return new Date(ms).toLocaleString("fr-FR", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 export function RetentionTab({
@@ -59,8 +77,9 @@ export function RetentionTab({
     () =>
       computeChurn(churn.memberships, {
         now,
-        periodStartMs: now - ANALYSIS_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+        periodStartMs: now - ANALYSIS_WINDOW_DAYS * DAY_MS,
         webhookFixMs: WHOP_WEBHOOK_FIX_MS,
+        horizonMs: HORIZON_DAYS * DAY_MS,
         sampleThreshold: SAMPLE_THRESHOLD,
       }),
     [churn.memberships, now],
@@ -70,11 +89,9 @@ export function RetentionTab({
     () => new Map(churn.planLabels.map((p) => [p.planId, p.name])),
     [churn.planLabels],
   );
-  const planLabel = (planId: string) =>
-    planName.get(planId) ?? planId;
+  const planLabel = (planId: string) => planName.get(planId) ?? planId;
 
   // Projection LTV = net/paiement × nombre moyen de paiements (1 + renouvellements).
-  // Tiret tant que l'échantillon de renouvellements est insuffisant.
   const ltv =
     result.sampleSufficient &&
     churn.netPerPayment !== null &&
@@ -91,7 +108,6 @@ export function RetentionTab({
       />
     );
   }
-
   if (churn.memberships.length === 0) {
     return (
       <HubEmptyState
@@ -104,7 +120,7 @@ export function RetentionTab({
 
   return (
     <div className="space-y-6">
-      {/* Avertissement 1 — échantillon (premiers renouvellements ~2 août) */}
+      {/* Avertissement — échantillon (premiers renouvellements ~2 août) */}
       {!result.sampleSufficient ? (
         <HubNotice>
           <strong>Échantillon insuffisant pour les taux de renouvellement.</strong>{" "}
@@ -116,31 +132,13 @@ export function RetentionTab({
         </HubNotice>
       ) : null}
 
-      {/* Avertissement 2 — résiliations dues à la panne du webhook (bug) */}
-      {result.bugAttributed > 0 ? (
-        <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
-          <strong>
-            {formatNumber(result.bugAttributed)} résiliation(s) dues à un bug, pas au
-            produit.
-          </strong>{" "}
-          Elles sont survenues pendant la panne du webhook (avant le 28/07 au soir),
-          quand un paiement n&apos;accordait aucun accès automatiquement (l&apos;une
-          trois minutes après le paiement, l&apos;app ne montrait rien). Elles sont
-          comptées ci-dessous mais signalées à part pour ne pas polluer la lecture.
-        </HubNotice>
-      ) : null}
-
-      {/* KPI : résiliations, expirations, taux de résiliation */}
+      {/* KPI : résiliations, expirations, taux, LTV */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <KpiTile
           label="Résiliations"
           value={dash(result.resiliations)}
           delta={null}
-          hint={
-            result.bugAttributed > 0
-              ? `dont ${formatNumber(result.bugAttributed)} dues au bug webhook`
-              : "annulés, accès encore valide"
-          }
+          hint="annulés, accès encore valide"
           info={EXPLAIN.churnResilieExpire}
         />
         <KpiTile
@@ -170,13 +168,71 @@ export function RetentionTab({
         />
       </div>
 
+      {/* Ce qui ARRIVE — pertes d'accès à venir + clients projetés */}
+      <Card>
+        <CardContent className="space-y-3 p-4">
+          <HubCardHeader
+            title="Ce qui arrive"
+            subtitle={`Clients qui perdront l'accès dans les ${HORIZON_DAYS} prochains jours (résiliés dont la période se termine).`}
+            info={EXPLAIN.churnAVenir}
+          />
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span className="text-3xl font-bold tabular-nums text-amber-600">
+              {formatNumber(result.upcomingExpirations.length)}
+            </span>
+            <span className="text-sm text-slate-600">
+              perte(s) d&apos;accès à venir · clients payants{" "}
+              <strong className="tabular-nums">{formatNumber(result.clients)}</strong> →{" "}
+              <strong className="tabular-nums text-amber-700">
+                {formatNumber(result.projectedClients)}
+              </strong>
+            </span>
+          </div>
+          <p className="text-xs text-slate-500">
+            Ces personnes ont <strong>encore l&apos;accès</strong> jusqu&apos;à la date
+            ci-dessous : elles sont <strong>récupérables</strong> tant que leur accès
+            est valide.
+          </p>
+          {result.upcomingExpirations.length > 0 ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Abonnement</TableHead>
+                  <TableHead>Offre</TableHead>
+                  <TableHead className="text-right">Accès expire</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {result.upcomingExpirations.map((u) => (
+                  <TableRow key={u.membershipId}>
+                    <TableCell className="font-mono text-[11px] text-slate-500">
+                      {u.membershipId}
+                    </TableCell>
+                    <TableCell className="text-xs text-slate-600">
+                      {planLabel(u.planId)}
+                    </TableCell>
+                    <TableCell className="text-right text-xs tabular-nums font-medium text-amber-700">
+                      {frDateTime(u.accessEndsAt)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <p className="text-xs text-slate-400">
+              — aucune perte d&apos;accès prévue dans les {HORIZON_DAYS} prochains jours.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Délai avant résiliation */}
         <Card>
           <CardContent className="space-y-3 p-4">
             <HubCardHeader
               title="Délai avant résiliation"
-              subtitle="Entre le premier paiement et l'annulation, chez ceux qui ont annulé."
+              subtitle="Entre le premier paiement et l'annulation. La métrique la plus parlante ici : toutes ces annulations précèdent le premier renouvellement."
               info={EXPLAIN.delaiResiliation}
             />
             <Table>
@@ -186,7 +242,7 @@ export function RetentionTab({
                     <ColLabel label="Médiane" info={EXPLAIN.delaiResiliation} />
                   </TableCell>
                   <TableCell className="text-right text-xs tabular-nums font-semibold">
-                    {formatDays(result.medDaysToCancel)}
+                    {formatDelay(result.medMsToCancel)}
                   </TableCell>
                 </TableRow>
                 <TableRow>
@@ -194,7 +250,7 @@ export function RetentionTab({
                     <ColLabel label="9 sur 10 sous" info={EXPLAIN.delaiResiliation} />
                   </TableCell>
                   <TableCell className="text-right text-xs tabular-nums font-semibold">
-                    {formatDays(result.p90DaysToCancel)}
+                    {formatDelay(result.p90MsToCancel)}
                   </TableCell>
                 </TableRow>
               </TableBody>
@@ -250,6 +306,83 @@ export function RetentionTab({
           </CardContent>
         </Card>
       </div>
+
+      {/* Résiliations en détail — le délai distingue le bug du produit */}
+      <Card>
+        <CardContent className="space-y-3 p-4">
+          <HubCardHeader
+            title="Résiliations en détail"
+            subtitle="Une annulation en quelques minutes n'a jamais eu d'accès (bug) ; une annulation après des heures ou des jours en a eu (produit)."
+            info={EXPLAIN.churnDetail}
+          />
+          {result.resiliationDetails.length === 0 ? (
+            <p className="text-xs text-slate-400">— aucune résiliation sur la période.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Abonnement</TableHead>
+                    <TableHead>Offre</TableHead>
+                    <TableHead className="text-right">Payé</TableHead>
+                    <TableHead className="text-right">Annulé</TableHead>
+                    <TableHead className="text-right">
+                      <ColLabel label="Délai" info={EXPLAIN.churnDetail} />
+                    </TableHead>
+                    <TableHead className="text-right">Accès expire</TableHead>
+                    <TableHead className="text-right">Indice</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {result.resiliationDetails.map((d) => (
+                    <TableRow key={d.membershipId}>
+                      <TableCell className="font-mono text-[11px] text-slate-500">
+                        {d.membershipId}
+                      </TableCell>
+                      <TableCell className="text-xs text-slate-600">
+                        {planLabel(d.planId)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums text-slate-500">
+                        {frDateTime(d.firstPaidAt)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums text-slate-500">
+                        {frDateTime(d.canceledAt)}
+                      </TableCell>
+                      <TableCell
+                        className={
+                          d.delayMs !== null && d.delayMs < 90 * 60_000
+                            ? "text-right text-xs tabular-nums font-semibold text-red-600"
+                            : "text-right text-xs tabular-nums font-semibold"
+                        }
+                      >
+                        {formatDelay(d.delayMs)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums text-slate-500">
+                        {frDateTime(d.accessEndsAt)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {d.paidDuringOutage ? (
+                          <Badge
+                            variant="outline"
+                            className="border-red-200 bg-red-50 text-[10px] text-red-700"
+                          >
+                            payé pendant la panne
+                          </Badge>
+                        ) : null}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+          <p className="text-xs text-slate-400">
+            L&apos;accès applicatif exact par personne n&apos;est pas ingéré ici : le
+            délai est le fait, et « payé pendant la panne » (paiement avant la
+            réparation du webhook) n&apos;est qu&apos;un indice, pas une preuve.
+          </p>
+        </CardContent>
+      </Card>
 
       {/* Résiliations par offre */}
       <Card>
