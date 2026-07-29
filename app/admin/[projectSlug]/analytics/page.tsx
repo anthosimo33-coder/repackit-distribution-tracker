@@ -18,6 +18,7 @@ import {
   FlaskConicalIcon,
   Loader2Icon,
   RefreshCwIcon,
+  RepeatIcon,
   RouteIcon,
   SettingsIcon,
   ShieldCheckIcon,
@@ -29,6 +30,7 @@ import { AcquisitionTab } from "@/components/analytics/hub/AcquisitionTab";
 import { SanteProduitTab } from "@/components/analytics/hub/SanteProduitTab";
 import { OffresTab } from "@/components/analytics/hub/OffresTab";
 import { FiabiliteTab } from "@/components/analytics/hub/FiabiliteTab";
+import { RetentionTab } from "@/components/analytics/hub/RetentionTab";
 import {
   HubEmptyState,
   HubNotice,
@@ -54,6 +56,7 @@ export default function AnalyticsPage() {
   const revenue = useProjectQuery(api.analyticsHub.getRevenueBreakdown, {});
   const reliability = useProjectQuery(api.analyticsHub.getReliability, {});
   const viewCounters = useProjectQuery(api.analyticsHub.getViewCounters, {});
+  const churn = useProjectQuery(api.analyticsHub.getChurn, {});
   const requestSync = useProjectMutation(api.posthogSync.requestPosthogSync);
   const [syncing, setSyncing] = useState(false);
   const [periodDays, setPeriodDays] = useState<number>(90);
@@ -182,6 +185,10 @@ export default function AnalyticsPage() {
                 <FlaskConicalIcon className="size-4" />
                 Offres &amp; tests
               </TabsTrigger>
+              <TabsTrigger value="retention">
+                <RepeatIcon className="size-4" />
+                Rétention
+              </TabsTrigger>
               <TabsTrigger value="fiabilite">
                 <ShieldCheckIcon className="size-4" />
                 Fiabilité
@@ -226,6 +233,14 @@ export default function AnalyticsPage() {
 
             <TabsContent value="offres" className="mt-6">
               <OffresTab analytics={analytics} revenue={revenue} />
+            </TabsContent>
+
+            <TabsContent value="retention" className="mt-6">
+              {churn === undefined ? (
+                <Skeleton className="h-64 w-full" />
+              ) : (
+                <RetentionTab churn={churn} now={now} />
+              )}
             </TabsContent>
 
             <TabsContent value="fiabilite" className="mt-6">

@@ -1329,6 +1329,29 @@ export default defineSchema({
     .index("by_project", ["projectId"])
     .index("by_project_planId", ["projectId", "planId"]),
 
+  // État des ABONNEMENTS Whop (memberships) — source qui FAIT FOI pour le churn.
+  // whopPayments dit qui a payé ; whopMemberships dit qui a encore accès, qui a
+  // résilié (annulé mais accès valide) et qui a expiré (accès perdu = vrai churn).
+  // Alimenté par le cron whopSync (fetchWhopMemberships), dédup par whopMembershipId.
+  whopMemberships: defineTable({
+    projectId: v.id("projects"),
+    whopMembershipId: v.string(),
+    planId: v.optional(v.string()),
+    // Statut brut Whop (active/canceled/expired/trialing/past_due…) — normalisé au calcul.
+    status: v.string(),
+    // L'utilisateur a-t-il ENCORE accès (résilié ≠ expiré tant que valid = true).
+    valid: v.optional(v.boolean()),
+    // Début de l'abonnement (ms). canceledAt = annulation (ms) si résilié.
+    createdAt: v.number(),
+    canceledAt: v.optional(v.number()),
+    // Fin d'accès / de la période courante (ms) — passée = expiré si non renouvelé.
+    accessEndsAt: v.optional(v.number()),
+    importedAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_whopMembershipId", ["whopMembershipId"]),
+
   // ─── Cache des agrégats PostHog (hub Analytics) ────────────────────────────
   // L'API PostHog est LENTE et limitée en débit → elle n'est JAMAIS appelée dans
   // le chemin de rendu. Le cron horaire (posthogSync.runHourlySync) écrit ici un
