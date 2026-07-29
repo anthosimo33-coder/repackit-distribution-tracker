@@ -62,7 +62,7 @@ export const EXPLAIN = {
   fiabiliteScans:
     "Sur tous les scans lancés, la part qui a échoué. Le scan est ce qui donne sa valeur au produit : s'il échoue en silence, la personne croit qu'il ne s'est rien passé. Le détail par raison est plus parlant que le taux global.",
   resultatsRecherche:
-    "Ce que les gens obtiennent quand ils cherchent un compte : trouvé, privé, introuvable ou erreur. La ligne « aucun résultat émis » compte les recherches qui ne renvoient aucun signal, un trou de mesure côté app. Aide à voir si la recherche déçoit souvent.",
+    "Ce que les gens obtiennent quand ils cherchent un compte : trouvé, privé, introuvable ou erreur. « Bloqués par le paywall » sont des gens qui ont saisi un nom et à qui l'app a demandé de payer avant de rien leur montrer : c'est un choix produit, pas un bug. Aide à voir combien butent sur le paywall avant tout résultat.",
   latencePercue:
     "Le temps d'attente ressenti pendant un scan, selon la taille du compte scanné. Si l'attente n'augmente pas avec la taille du compte, c'est de la file d'attente et pas du calcul. Regardez la médiane et le 9 sur 10 pour l'attente typique et le mauvais cas.",
   medianeP90:

@@ -63,13 +63,16 @@ export const CONTRACT_EVENTS: ContractEvent[] = [
     name: "handle_search_result",
     category: "activation",
     props: ["result", "account_id", "follower_count", "following_count"],
-    note: "chemin d'erreur potentiellement muet (result absent)",
+    note: "les gens sans accès sont bloqués par le paywall AVANT la recherche (result « paywalled » à venir)",
   },
   { name: "scan_started", category: "activation", props: ["mode", "account_id"], notYetEmitted: true },
   {
     name: "scan_completed",
     category: "activation",
-    props: ["result", "mode", "duration_ms", "cost_usd", "api_requests", "follower_count", "account_id", "distinct_id"],
+    // `reason` (émis server-side depuis le 28/07) porte le DÉCLENCHEMENT du scan :
+    // baseline / scheduled_light / scheduled_full / manual_refresh. scheduled_full
+    // est le scan qui détecte les désabonnements (valeur du produit).
+    props: ["result", "mode", "reason", "duration_ms", "cost_usd", "api_requests", "follower_count", "account_id", "distinct_id"],
   },
   { name: "target_added", category: "activation", props: ["account_id", "follower_count"] },
   { name: "target_removed", category: "activation", props: ["account_id", "reason"] },
@@ -136,12 +139,20 @@ export const CONTRACT_PROPERTIES: ContractProperty[] = [
   // test. La carte « Test A/B » reste « aucun test en cours » tant que cette
   // propriété est absente, et s'allume dès qu'un test démarre.
   { name: "experiment_id", onEvent: "*", notYetEmitted: true },
-  // scan_trigger : déclenchement du scan (baseline vs planifié). L'app n'émet plus
-  // que `mode` (full/light) et a PERDU la distinction baseline/scheduled → le scan
-  // scheduled_full (celui qui détecte les désabonnements) n'est plus isolable
-  // (27,5 % d'échec mesurés dessus se noient dans un agrégat à 13,3 %). Déclarée
-  // non émise : la ventilation par déclenchement s'allume seule dès son retour.
-  { name: "scan_trigger", onEvent: "scan_completed", notYetEmitted: true },
+];
+
+/**
+ * VALEURS de result attendues sur handle_search_result mais PAS encore émises.
+ * « paywalled » : aujourd'hui la recherche des gens sans accès n'émet aucun result
+ * (le hard paywall intercepte après handle_submitted, la recherche ne s'exécute
+ * jamais) → on les DÉDUIT par soustraction (handle_submitted − handle_search_result).
+ * Le dev va émettre un result explicite « paywalled » depuis le gate : dès qu'il
+ * arrive, la carte l'affiche MESURÉ au lieu de déduit. Une VALEUR n'est pas une
+ * propriété (pas de sonde isNotNull) : on la déclare ici, la carte compare la
+ * déduction à la mesure.
+ */
+export const EXPECTED_RESULT_VALUES: { event: string; value: string; notYetEmitted: boolean }[] = [
+  { event: "handle_search_result", value: "paywalled", notYetEmitted: true },
 ];
 
 /** Alias SQL sûr pour un nom d'event (`$pageview` → `pageview`, etc.). */

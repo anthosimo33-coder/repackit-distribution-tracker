@@ -2,6 +2,7 @@
 
 import { Fragment, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -27,6 +28,17 @@ const RESULT_LABELS: Record<string, string> = {
   private: "Compte privé",
   not_found: "Introuvable",
   error: "Erreur",
+  // Émis « paywalled » à venir (dev) : la ligne devient mesurée au lieu de déduite.
+  paywalled: "Bloqués par le paywall avant résultat",
+};
+
+/** Déclenchements de scan (`reason`), scheduled_full en tête (détecte les unfollows). */
+const REASON_ORDER = ["scheduled_full", "scheduled_light", "baseline", "manual_refresh"];
+const REASON_LABELS: Record<string, string> = {
+  scheduled_full: "Planifié complet",
+  scheduled_light: "Planifié léger",
+  baseline: "Baseline",
+  manual_refresh: "Rafraîchissement manuel",
 };
 
 /** Résultats de scan (success/error) — libellés lisibles pour le détail par raison. */
@@ -53,71 +65,56 @@ export function SanteProduitTab({
 }: {
   analytics: ProductAnalyticsData;
 }) {
-  // Fiabilité des scans par MODE, avec le détail par RAISON (result) sous chaque
-  // mode. La granularité vient de l'app : elle n'émet plus que `full`/`light` (la
-  // distinction baseline/scheduled a disparu). Le calcul, lui, est inchangé.
-  const scans = useMemo(() => {
-    const byMode = new Map<
+  // Fiabilité des scans ventilée par DÉCLENCHEMENT (`reason`) : baseline /
+  // scheduled_light / scheduled_full / manual_refresh (émis depuis le 28/07).
+  // scheduled_full est le scan qui détecte les désabonnements → mis en évidence.
+  // Le détail par result (réussi / erreur) reste sous chaque déclenchement.
+  const scansByReason = useMemo(() => {
+    const byReason = new Map<
       string,
       { runs: number; failures: number; results: { result: string; runs: number }[] }
     >();
     for (const r of analytics.scanReliability.rows) {
-      const cur = byMode.get(r.mode) ?? { runs: 0, failures: 0, results: [] };
+      const reason = r.reason ?? "(sans reason)";
+      const cur = byReason.get(reason) ?? { runs: 0, failures: 0, results: [] };
       cur.runs += r.runs;
       if (isScanFailure(r.result)) cur.failures += r.runs;
-      cur.results.push({ result: r.result, runs: r.runs });
-      byMode.set(r.mode, cur);
+      const ex = cur.results.find((x) => x.result === r.result);
+      if (ex) ex.runs += r.runs;
+      else cur.results.push({ result: r.result, runs: r.runs });
+      byReason.set(reason, cur);
     }
-    return [...byMode.entries()]
-      .map(([mode, x]) => ({
-        mode,
+    return [...byReason.entries()]
+      .map(([reason, x]) => ({
+        reason,
         runs: x.runs,
         failures: x.failures,
         rate: x.runs > 0 ? Math.round((x.failures / x.runs) * 1000) / 10 : null,
         results: x.results.sort((a, b) => b.runs - a.runs),
+        isUnfollowScan: reason === "scheduled_full",
       }))
-      .sort((a, b) => b.runs - a.runs);
+      .sort((a, b) => {
+        const oa = REASON_ORDER.indexOf(a.reason);
+        const ob = REASON_ORDER.indexOf(b.reason);
+        return (oa === -1 ? 99 : oa) - (ob === -1 ? 99 : ob) || b.runs - a.runs;
+      });
   }, [analytics.scanReliability.rows]);
 
-  // Ventilation par DÉCLENCHEMENT (baseline / planifié) — s'allume quand
-  // scan_trigger revient ; sinon la régression est signalée en clair sur la carte.
-  const trigger = useMemo(() => {
-    const rows = analytics.scanReliability.rows;
-    const emitted = rows.some(
-      (r) => r.trigger && r.trigger !== "(inconnu)" && r.trigger !== "(absent)",
-    );
-    const byKey = new Map<
-      string,
-      { mode: string; trigger: string; runs: number; failures: number }
-    >();
-    for (const r of rows) {
-      const trig = r.trigger ?? "(inconnu)";
-      const key = `${r.mode}|${trig}`;
-      const cur = byKey.get(key) ?? { mode: r.mode, trigger: trig, runs: 0, failures: 0 };
-      cur.runs += r.runs;
-      if (isScanFailure(r.result)) cur.failures += r.runs;
-      byKey.set(key, cur);
-    }
-    return {
-      emitted,
-      rows: [...byKey.values()]
-        .map((x) => ({
-          ...x,
-          rate: x.runs > 0 ? Math.round((x.failures / x.runs) * 1000) / 10 : null,
-        }))
-        .sort((a, b) => b.runs - a.runs),
-    };
-  }, [analytics.scanReliability.rows]);
-
-  // Résultats de recherche + trou d'instrumentation (submitted sans result émis).
+  // Résultats de recherche. Les gens sans accès sont BLOQUÉS par le paywall avant
+  // que la recherche s'exécute : ce n'est pas un trou de mesure, c'est un choix
+  // produit. Tant que le dev n'émet pas result « paywalled », on les DÉDUIT
+  // (handle_submitted − handle_search_result) ; dès qu'il l'émet, la ligne est
+  // MESURÉE (elle apparaît directement dans searchResults).
   const search = useMemo(() => {
+    const rows = analytics.searchResults.rows;
+    const measured = rows.some((r) => r.result === "paywalled");
     const submitted = personCount(analytics, "handle_submitted");
     const withResult = personCount(analytics, "handle_search_result");
-    const silent =
+    const deducedPaywalled =
       submitted !== null && withResult !== null
         ? Math.max(0, submitted - withResult)
         : null;
-    return { rows: analytics.searchResults.rows, submitted, silent };
+    return { rows, measured, deducedPaywalled };
   }, [analytics]);
 
   // Ventilation de la friction par ÉTAPE d'onboarding : émise ? (point 10).
@@ -136,35 +133,33 @@ export function SanteProduitTab({
             subtitle="Le scan de détection produit la valeur du produit. Le détail par raison est plus parlant que le taux global."
             info={EXPLAIN.fiabiliteScans}
           />
-          {/* Régression de visibilité VISIBLE sur la carte, pas seulement en note. */}
-          {!trigger.emitted && scans.length > 0 ? (
-            <HubNotice>
-              <strong>Perte de visibilité.</strong> L&apos;app n&apos;émet plus la
-              distinction baseline / planifié, seulement <code>full</code> /{" "}
-              <code>light</code>. Le scan planifié complet (<code>scheduled_full</code>),
-              celui qui détecte les désabonnements, n&apos;est plus isolable : on est
-              passé de 27,5 % d&apos;échec mesurés sur ce scan précis à un agrégat qui
-              mélange tout. La ventilation par déclenchement ci-dessous s&apos;allumera
-              d&apos;elle-même dès le retour de <code>scan_trigger</code>.
-            </HubNotice>
-          ) : null}
-          {scans.length === 0 ? (
+          {scansByReason.length === 0 ? (
             <p className="text-xs text-slate-400">— en attente de scan_completed.</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Type de scan · raison</TableHead>
+                  <TableHead>Déclenchement · résultat</TableHead>
                   <TableHead className="text-right">Exécutés</TableHead>
                   <TableHead className="text-right">Taux d&apos;échec</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {scans.map((s) => (
-                  <Fragment key={s.mode}>
-                    <TableRow className="bg-slate-50/70">
+                {scansByReason.map((s) => (
+                  <Fragment key={s.reason}>
+                    <TableRow className={s.isUnfollowScan ? "bg-primary/5" : "bg-slate-50/70"}>
                       <TableCell className="text-xs font-semibold text-slate-800">
-                        {s.mode}
+                        <span className="inline-flex items-center gap-1.5">
+                          {REASON_LABELS[s.reason] ?? s.reason}
+                          {s.isUnfollowScan ? (
+                            <Badge
+                              variant="outline"
+                              className="border-primary/30 bg-primary/10 text-[10px] text-primary"
+                            >
+                              détecte les désabonnements
+                            </Badge>
+                          ) : null}
+                        </span>
                       </TableCell>
                       <TableCell className="text-right text-xs tabular-nums font-medium">
                         {formatNumber(s.runs)}
@@ -180,7 +175,7 @@ export function SanteProduitTab({
                       </TableCell>
                     </TableRow>
                     {s.results.map((r) => (
-                      <TableRow key={`${s.mode}-${r.result}`}>
+                      <TableRow key={`${s.reason}-${r.result}`}>
                         <TableCell
                           className={
                             isScanFailure(r.result)
@@ -203,47 +198,10 @@ export function SanteProduitTab({
               </TableBody>
             </Table>
           )}
-          {/* Ventilation par déclenchement — allumée dès que scan_trigger revient. */}
-          {trigger.emitted ? (
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-slate-500">
-                Par déclenchement (baseline / planifié)
-              </p>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Type · déclenchement</TableHead>
-                    <TableHead className="text-right">Exécutés</TableHead>
-                    <TableHead className="text-right">Taux d&apos;échec</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {trigger.rows.map((t) => (
-                    <TableRow key={`${t.mode}-${t.trigger}`}>
-                      <TableCell className="text-xs font-medium text-slate-700">
-                        {t.mode} · {t.trigger}
-                      </TableCell>
-                      <TableCell className="text-right text-xs tabular-nums">
-                        {formatNumber(t.runs)}
-                      </TableCell>
-                      <TableCell
-                        className={
-                          (t.rate ?? 0) > 15
-                            ? "text-right text-xs tabular-nums font-semibold text-red-600"
-                            : "text-right text-xs tabular-nums font-semibold"
-                        }
-                      >
-                        {pct(t.rate)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          ) : null}
           <p className="text-xs text-slate-400">
-            Le calcul du taux d&apos;échec (échecs / exécutés) est inchangé ; seule la
-            granularité du déclenchement a été perdue côté app.
+            <code>scheduled_full</code> est le scan planifié complet : c&apos;est lui
+            qui détecte les désabonnements, donc le plus important à garder fiable. Taux
+            d&apos;échec = échecs / exécutés.
           </p>
         </CardContent>
       </Card>
@@ -275,23 +233,27 @@ export function SanteProduitTab({
                     </TableCell>
                   </TableRow>
                 ))}
-                {search.silent !== null && search.silent > 0 ? (
+                {!search.measured &&
+                search.deducedPaywalled !== null &&
+                search.deducedPaywalled > 0 ? (
                   <TableRow>
-                    <TableCell className="text-xs font-semibold text-red-700">
-                      Aucun résultat émis
+                    <TableCell className="text-xs font-semibold text-amber-700">
+                      Bloqués par le paywall avant résultat{" "}
+                      <span className="font-normal text-slate-400">(déduit)</span>
                     </TableCell>
-                    <TableCell className="text-right text-xs tabular-nums font-semibold text-red-700">
-                      {formatNumber(search.silent)}
+                    <TableCell className="text-right text-xs tabular-nums font-semibold text-amber-700">
+                      {formatNumber(search.deducedPaywalled)}
                     </TableCell>
                   </TableRow>
                 ) : null}
               </TableBody>
             </Table>
             <p className="text-xs text-slate-400">
-              Le chemin d&apos;échec de recherche n&apos;émet aucun event : ces
-              personnes sont invisibles (trou d&apos;instrumentation, pas un zéro).
-              Calculé comme <code>handle_submitted</code> −{" "}
-              <code>handle_search_result</code>.
+              Ces personnes ont saisi un nom, puis le hard paywall les intercepte avant
+              que la recherche s&apos;exécute : un choix produit, pas un trou de mesure.
+              Déduit par <code>handle_submitted</code> −{" "}
+              <code>handle_search_result</code> tant que le dev n&apos;émet pas result «{" "}
+              paywalled », mesuré ensuite.
             </p>
           </CardContent>
         </Card>

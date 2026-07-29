@@ -1,4 +1,6 @@
 import { adminQuery } from "./functions";
+import { internalMutation } from "./_generated/server";
+import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   assignmentPublishedAt,
@@ -476,6 +478,8 @@ export interface RevenueBreakdown {
   churnAvailable: boolean;
   /** A4 — memberships internes exclus du revenu (compteur visible). */
   internalExcludedMembers: number;
+  /** Journal des changements d'offre (horodaté, plus récent d'abord) — cohortes comparables. */
+  offerChanges: { at: number; title: string; detail: string | null }[];
 }
 
 /**
@@ -487,6 +491,15 @@ export const getRevenueBreakdown = adminQuery({
   args: {},
   handler: async (ctx): Promise<RevenueBreakdown> => {
     const project = await ctx.db.get(ctx.projectId);
+    // Journal des changements d'offre — toujours renvoyé (Whop-indépendant).
+    const offerChanges = (
+      await ctx.db
+        .query("offerChanges")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect()
+    )
+      .sort((a, b) => b.at - a.at)
+      .map((o) => ({ at: o.at, title: o.title, detail: o.detail ?? null }));
     if (!project?.whop) {
       return {
         configured: false,
@@ -500,6 +513,7 @@ export const getRevenueBreakdown = adminQuery({
         ltv: null,
         churnAvailable: false,
         internalExcludedMembers: 0,
+        offerChanges,
       };
     }
 
@@ -692,7 +706,89 @@ export const getRevenueBreakdown = adminQuery({
       ltv: totalMembers > 0 ? round2(totalNet / totalMembers) : null,
       churnAvailable: false,
       internalExcludedMembers: internalMembers.size,
+      offerChanges,
     };
+  },
+});
+
+/**
+ * Ajoute une entrée au journal des changements d'offre (interne, `convex run`).
+ * Horodaté : sans lui, deux cohortes ne sont pas comparables.
+ *   npx convex run analyticsHub:addOfferChange '{"slug":"snytch","at":1785...,"title":"…","detail":"…"}' --prod
+ */
+export const addOfferChange = internalMutation({
+  args: {
+    slug: v.string(),
+    at: v.number(),
+    title: v.string(),
+    detail: v.optional(v.string()),
+  },
+  handler: async (ctx, { slug, at, title, detail }): Promise<{ added: boolean }> => {
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_slug", (q) => q.eq("slug", slug))
+      .first();
+    if (!project) return { added: false };
+    await ctx.db.insert("offerChanges", {
+      projectId: project._id,
+      at,
+      title,
+      detail,
+      createdAt: Date.now(),
+    });
+    return { added: true };
+  },
+});
+
+/**
+ * Seed IDEMPOTENT des trois changements simultanés du 27/07 chez Snytch : plan
+ * gratuit (16h05), nouvelle offre 4,99 € (16h45), webhook de paiement en panne.
+ * Exactement l'usage prévu du journal (une bascule d'offre contamine la compa).
+ *   npx convex run analyticsHub:seedSnytchOfferChanges '{}' --prod
+ */
+export const seedSnytchOfferChanges = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<{ inserted: number }> => {
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_slug", (q) => q.eq("slug", "snytch"))
+      .first();
+    if (!project) return { inserted: 0 };
+    const existing = await ctx.db
+      .query("offerChanges")
+      .withIndex("by_project", (q) => q.eq("projectId", project._id))
+      .collect();
+    const have = new Set(existing.map((o) => o.title));
+    const SEED = [
+      {
+        at: Date.UTC(2026, 6, 27, 14, 5, 0), // 16h05 Paris
+        title: "Plan gratuit lancé",
+        detail: "Le plan gratuit (1 cible) devient disponible.",
+      },
+      {
+        at: Date.UTC(2026, 6, 27, 14, 45, 0), // 16h45 Paris
+        title: "Nouvelle offre 4,99 €/semaine",
+        detail:
+          "Bascule du bundle 7,99 € vers 4,99 €/semaine. Périodes successives, aucun recouvrement : dernier 7,99 € à 15h16, premier 4,99 € à 16h45.",
+      },
+      {
+        at: Date.UTC(2026, 6, 27, 0, 0, 0),
+        title: "Webhook de paiement en panne",
+        detail:
+          "Aucun paiement n'accordait l'accès automatiquement jusqu'à la réparation du 28/07 au soir.",
+      },
+    ];
+    let inserted = 0;
+    for (const s of SEED) {
+      if (have.has(s.title)) continue;
+      await ctx.db.insert("offerChanges", {
+        projectId: project._id,
+        ...s,
+        createdAt: Date.now(),
+      });
+      inserted += 1;
+    }
+    return { inserted };
   },
 });
 
@@ -843,6 +939,15 @@ export interface ReliabilityResult {
   /** Memberships internes exclus côté Whop (le compte de test de l'admin). */
   whopInternalExcluded: number;
   /**
+   * Contrôle « N abonnements pour M personnes » — memberships payants groupés par
+   * utilisateur Whop. Une personne peut en avoir plusieurs (détail des concernés).
+   */
+  membershipDuplicates: {
+    memberships: number;
+    users: number;
+    duplicates: { whopUserId: string; count: number; membershipIds: string[] }[];
+  };
+  /**
    * ENTRÉES des contrôles de cohérence — le CLIENT appelle
    * `lib/analytics-hub.buildCoherenceChecks` (ce module pur vit côté client, pas
    * de réplique convex). On ne fait ici que réunir les chiffres bruts.
@@ -957,6 +1062,11 @@ export const getReliability = adminQuery({
     let whopExcludedAfter = 0;
     let whopInternalExcluded = 0;
     let whopSyncMs: number | null = null;
+    let membershipDuplicates: ReliabilityResult["membershipDuplicates"] = {
+      memberships: 0,
+      users: 0,
+      duplicates: [],
+    };
     if (project?.whop) {
       const payments = await ctx.db
         .query("whopPayments")
@@ -992,6 +1102,38 @@ export const getReliability = adminQuery({
       }
       whopMembersTotal = firstPaid.size;
       whopMembers = comparable;
+
+      // Contrôle « N abonnements pour M personnes » : memberships réels (hors
+      // brouillons) groupés par utilisateur Whop. `whopUserId` n'est peuplé qu'à
+      // partir de la re-synchro (nouveau champ) → les memberships sans user sont
+      // ignorés (le contrôle s'allume quand la synchro l'a rempli).
+      const memberships = await ctx.db
+        .query("whopMemberships")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect();
+      const byUser = new Map<string, string[]>();
+      let counted = 0;
+      for (const m of memberships) {
+        if (m.status === "drafted") continue;
+        if (isInternalWhopMembership(m.whopMembershipId, internalCfg)) continue;
+        if (!m.whopUserId) continue;
+        counted += 1;
+        const arr = byUser.get(m.whopUserId) ?? [];
+        arr.push(m.whopMembershipId);
+        byUser.set(m.whopUserId, arr);
+      }
+      membershipDuplicates = {
+        memberships: counted,
+        users: byUser.size,
+        duplicates: [...byUser.entries()]
+          .filter(([, ids]) => ids.length > 1)
+          .map(([whopUserId, ids]) => ({
+            whopUserId,
+            count: ids.length,
+            membershipIds: ids,
+          }))
+          .sort((a, b) => b.count - a.count),
+      };
     }
 
     // Scraping (vues Jarvia) : dernier snapshot relevé sur une publication.
@@ -1012,6 +1154,7 @@ export const getReliability = adminQuery({
       instrumentation,
       internalExcluded,
       whopInternalExcluded,
+      membershipDuplicates,
       coherence: {
         sequentialSteps,
         reachSteps,
