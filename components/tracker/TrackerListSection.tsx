@@ -100,6 +100,7 @@ import {
   Loader2Icon,
   MoreHorizontalIcon,
   PlusIcon,
+  RepeatIcon,
   XIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -1390,8 +1391,22 @@ function PublicationsSection({
                     </TableCell>
                   )}
                   {visibleColumns.has("actions") && (
-                    <TableCell className="w-8">
-                      <DropdownMenu>
+                    <TableCell className="w-16">
+                      <div className="flex items-center justify-end gap-0.5">
+                        {/* Rejeu VISIBLE (pas enfoui dans le menu) — posts issus
+                            d'un script uniquement. Doublé par l'item du menu. */}
+                        {p.scriptCombo && (
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            title="Rejouer ce script"
+                            aria-label="Rejouer ce script"
+                            onClick={() => onReplay(p)}
+                          >
+                            <RepeatIcon />
+                          </Button>
+                        )}
+                        <DropdownMenu>
                         <DropdownMenuTrigger
                           render={
                             <Button variant="ghost" size="icon-sm">
@@ -1443,6 +1458,7 @@ function PublicationsSection({
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
+                      </div>
                     </TableCell>
                   )}
                 </TableRow>
