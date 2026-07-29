@@ -1336,6 +1336,9 @@ export default defineSchema({
   whopMemberships: defineTable({
     projectId: v.id("projects"),
     whopMembershipId: v.string(),
+    // ID de l'UTILISATEUR Whop — une personne peut avoir PLUSIEURS memberships
+    // (contrôle de cohérence « N abonnements pour M personnes »).
+    whopUserId: v.optional(v.string()),
     planId: v.optional(v.string()),
     // Statut brut Whop (active/canceled/expired/trialing/past_due…) — normalisé au calcul.
     status: v.string(),
@@ -1351,6 +1354,18 @@ export default defineSchema({
   })
     .index("by_project", ["projectId"])
     .index("by_whopMembershipId", ["whopMembershipId"]),
+
+  // Journal des CHANGEMENTS D'OFFRE — horodaté, saisi par l'admin. Sans lui, deux
+  // cohortes ne sont pas comparables (un prix change, le plan gratuit apparaît, un
+  // webhook tombe…). Alimenté via analyticsHub.addOfferChange.
+  offerChanges: defineTable({
+    projectId: v.id("projects"),
+    // Horodatage du changement (ms epoch).
+    at: v.number(),
+    title: v.string(),
+    detail: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_project", ["projectId"]),
 
   // ─── Cache des agrégats PostHog (hub Analytics) ────────────────────────────
   // L'API PostHog est LENTE et limitée en débit → elle n'est JAMAIS appelée dans

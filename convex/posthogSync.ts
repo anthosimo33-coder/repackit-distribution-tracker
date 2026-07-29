@@ -175,13 +175,12 @@ export interface SearchResultsPayload {
 }
 
 /**
- * Fiabilité des scans (scan_completed groupé par mode × déclenchement × result).
- * `trigger` = baseline / planifié : PAS encore émis (l'app a perdu la distinction),
- * tout tombe en '(inconnu)' → la ventilation par déclenchement s'allume seule le
- * jour où `scan_trigger` revient.
+ * Fiabilité des scans (scan_completed groupé par déclenchement × mode × result).
+ * `reason` = baseline / scheduled_light / scheduled_full / manual_refresh (émis
+ * server-side depuis le 28/07). scheduled_full détecte les désabonnements.
  */
 export interface ScanReliabilityPayload {
-  rows: { mode: string; trigger: string; result: string; runs: number }[];
+  rows: { reason: string; mode: string; result: string; runs: number }[];
 }
 
 /** Latence perçue des scans par tranche d'abonnés du compte scanné. */
@@ -676,22 +675,22 @@ ORDER BY persons DESC
 LIMIT ${SEGMENT_LIMIT}`,
 
   /**
-   * Fiabilité des scans (scan_completed groupé par mode × déclenchement × result).
-   * `scan_trigger` distingue baseline/planifié : absent aujourd'hui (tout en
-   * '(inconnu)'), la carte affiche l'agrégat + la régression, et la ventilation par
-   * déclenchement s'allume seule quand la propriété revient.
+   * Fiabilité des scans (scan_completed groupé par DÉCLENCHEMENT × mode × result).
+   * `reason` (émis server-side depuis le 28/07) porte le déclenchement : baseline /
+   * scheduled_light / scheduled_full / manual_refresh. scheduled_full est le scan
+   * qui détecte les désabonnements → la carte le met en évidence.
    */
   scanReliability: `
-SELECT coalesce(nullIf(toString(properties.mode), ''), '(sans mode)') AS mode,
-       coalesce(nullIf(toString(properties.scan_trigger), ''), '(inconnu)') AS trigger,
+SELECT coalesce(nullIf(toString(properties.reason), ''), '(sans reason)') AS reason,
+       coalesce(nullIf(toString(properties.mode), ''), '(sans mode)') AS mode,
        coalesce(nullIf(toString(properties.result), ''), '(sans result)') AS result,
        count() AS runs
 FROM events
 WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
   AND event = 'scan_completed'
-GROUP BY mode, trigger, result
+GROUP BY reason, mode, result
 ORDER BY runs DESC
-LIMIT 60`,
+LIMIT 80`,
 
   /** Latence perçue des scans par tranche d'abonnés du compte scanné. */
   scanLatency: `
@@ -1302,8 +1301,8 @@ export const runHourlySync = internalAction({
           QUERIES.scanReliability,
           (rows): ScanReliabilityPayload => ({
             rows: rows.map((r) => ({
-              mode: cellStr(r, 0),
-              trigger: cellStr(r, 1),
+              reason: cellStr(r, 0),
+              mode: cellStr(r, 1),
               result: cellStr(r, 2),
               runs: cellNum(r, 3),
             })),

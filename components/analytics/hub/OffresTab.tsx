@@ -68,8 +68,28 @@ export function OffresTab({
     (analytics.instrumentation.props.find((p) => p.key === "experiment_id")
       ?.present ?? 0) > 0;
 
-  const plans = revenue?.plans ?? [];
+  const plans = useMemo(() => revenue?.plans ?? [], [revenue]);
   const hasHistorical = plans.some((p) => !p.active);
+  const currency = revenue?.currency ?? undefined;
+  const offerChanges = revenue?.offerChanges ?? [];
+
+  // Répartition HEBDO vs MENSUEL (le mensuel ne se vend pas : à faire ressortir).
+  const byInterval = useMemo(() => {
+    const acc = {
+      semaine: { clients: 0, net: 0 },
+      mois: { clients: 0, net: 0 },
+    };
+    for (const p of plans) {
+      if (p.interval === "semaine") {
+        acc.semaine.clients += p.members;
+        acc.semaine.net += p.netTotal;
+      } else if (p.interval === "mois") {
+        acc.mois.clients += p.members;
+        acc.mois.net += p.netTotal;
+      }
+    }
+    return acc;
+  }, [plans]);
 
   return (
     <div className="space-y-6">
@@ -227,9 +247,15 @@ export function OffresTab({
           <CardContent className="space-y-3 p-4">
             <HubCardHeader
               title="Économie par offre"
-              subtitle="Taux de frais réel (brut − net), jamais une formule supposée."
+              subtitle="Par offre (plan_name), jamais par variant. Taux de frais réel (brut − net)."
               info={EXPLAIN.economieOffre}
             />
+            <HubNotice className="border-sky-200 bg-sky-50/70 text-sky-900">
+              Ces offres se sont <strong>succédé</strong>, ce ne sont pas des variantes
+              testées en parallèle : bascule nette le 27/07 (dernier 7,99 € à 15h16,
+              premier 4,99 € à 16h45, zéro recouvrement). Trois changements le même jour,
+              voir le journal ci-dessous.
+            </HubNotice>
             {!revenue?.configured || plans.length === 0 ? (
               <p className="text-xs text-slate-400">
                 — Whop non configuré ou aucun paiement encaissé.
@@ -307,12 +333,33 @@ export function OffresTab({
                     ))}
                   </TableBody>
                 </Table>
-                {hasHistorical ? (
-                  <p className="text-xs text-slate-400">
-                    Offres actives d&apos;abord ; les offres grisées sont des restes de
-                    changements d&apos;offre successifs, sans paiement encaissé.
-                  </p>
-                ) : null}
+                {/* Répartition hebdo vs mensuel — le mensuel ne se vend pas. */}
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-100 pt-2 text-xs">
+                  <span className="text-slate-600">
+                    <strong>Hebdomadaire</strong>{" "}
+                    <span className="tabular-nums">
+                      {formatNumber(byInterval.semaine.clients)}
+                    </span>{" "}
+                    clients ·{" "}
+                    <span className="tabular-nums">
+                      {formatMoney(Math.round(byInterval.semaine.net * 100) / 100, currency)}
+                    </span>
+                  </span>
+                  <span className="text-slate-500">
+                    <strong>Mensuel</strong>{" "}
+                    <span className="tabular-nums">
+                      {formatNumber(byInterval.mois.clients)}
+                    </span>{" "}
+                    client(s) ·{" "}
+                    <span className="tabular-nums">
+                      {formatMoney(Math.round(byInterval.mois.net * 100) / 100, currency)}
+                    </span>
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Le mensuel ne se vend quasiment pas ; le nouveau tarif mensuel est à
+                  zéro vente. {hasHistorical ? "Offres actives d'abord ; les grisées sont des restes de changements d'offre successifs, sans paiement encaissé." : ""}
+                </p>
               </>
             )}
           </CardContent>
@@ -389,19 +436,48 @@ export function OffresTab({
         </Card>
       </div>
 
-      {/* Journal des changements d'offre — non disponible */}
+      {/* Journal des changements d'offre — horodaté (saisi par l'admin) */}
       <Card>
         <CardContent className="space-y-3 p-4">
           <HubCardHeader
             title="Journal des changements d'offre"
             subtitle="Horodaté. Sans lui, aucune cohorte n'est comparable à une autre."
           />
-          <HubNotice className="border-slate-200 bg-slate-50 text-slate-600">
-            Pas encore disponible : ce journal exige une table dédiée alimentée à la
-            main par l&apos;admin (les changements d&apos;offre ne sont pas des
-            events). À livrer séparément — ce n&apos;est pas dérivable des données
-            actuelles, donc rien n&apos;est affiché plutôt qu&apos;un contenu inventé.
-          </HubNotice>
+          {offerChanges.length === 0 ? (
+            <HubNotice className="border-slate-200 bg-slate-50 text-slate-600">
+              Vide : aucun changement d&apos;offre saisi. Les changements ne sont pas
+              des events, ils s&apos;ajoutent à la main (analyticsHub:addOfferChange).
+            </HubNotice>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Changement</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {offerChanges.map((o) => (
+                  <TableRow key={`${o.at}-${o.title}`}>
+                    <TableCell className="whitespace-nowrap text-xs tabular-nums text-slate-500">
+                      {new Date(o.at).toLocaleString("fr-FR", {
+                        day: "numeric",
+                        month: "short",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </TableCell>
+                    <TableCell className="text-xs text-slate-700">
+                      <span className="font-medium">{o.title}</span>
+                      {o.detail ? (
+                        <span className="text-slate-500"> — {o.detail}</span>
+                      ) : null}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
     </div>

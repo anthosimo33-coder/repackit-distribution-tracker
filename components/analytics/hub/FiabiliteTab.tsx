@@ -35,12 +35,9 @@ const SOURCE_LABELS: Record<string, string> = {
 
 /** Ce qui n'est pas mesurable, avec la raison. Curé — un trou caché fait décider sur du vide. */
 const NOT_MEASURABLE: { what: string; why: string }[] = [
-  { what: "Désabonnements", why: "peu d'événements subscription_cancelled émis" },
-  { what: "Échecs de recherche", why: "le chemin d'erreur n'émet aucun event" },
   { what: "Détail des échecs de paiement", why: "propriété cause absente sur payment_failed" },
   { what: "Latence de recherche", why: "pas de durée émise sur handle_search_result" },
-  { what: "Net par variante A/B", why: "la variante n'est pas portée par le paiement" },
-  { what: "Journal des changements d'offre", why: "nécessite une table dédiée (saisie admin)" },
+  { what: "Bloqués par le paywall (mesuré)", why: "déduit pour l'instant, en attente du result « paywalled »" },
 ];
 
 function StatusBadge({ status }: { status: CoherenceStatus }) {
@@ -246,6 +243,78 @@ export function FiabiliteTab({
           </CardContent>
         </Card>
       </div>
+
+      {/* Contrôle « N abonnements pour M personnes » */}
+      <Card>
+        <CardContent className="space-y-3 p-4">
+          <HubCardHeader
+            title="Abonnements par personne"
+            subtitle="Une personne peut avoir plusieurs abonnements côté Whop : ici on le vérifie, avec le détail des concernés."
+          />
+          {reliability.membershipDuplicates.memberships === 0 ? (
+            <p className="text-xs text-slate-400">
+              — en attente de la synchro des memberships Whop (l&apos;identifiant
+              utilisateur se remplit au prochain cron).
+            </p>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
+                <span className="tabular-nums text-slate-700">
+                  <strong>{formatNumber(reliability.membershipDuplicates.memberships)}</strong>{" "}
+                  abonnements
+                </span>
+                <span className="text-slate-500">
+                  pour{" "}
+                  <strong className="tabular-nums">
+                    {formatNumber(reliability.membershipDuplicates.users)}
+                  </strong>{" "}
+                  personnes
+                </span>
+                <Badge
+                  variant="outline"
+                  className={
+                    reliability.membershipDuplicates.duplicates.length > 0
+                      ? "border-amber-200 bg-amber-50 text-amber-700"
+                      : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  }
+                >
+                  {reliability.membershipDuplicates.duplicates.length > 0
+                    ? `${formatNumber(reliability.membershipDuplicates.duplicates.length)} avec plusieurs`
+                    : "une par personne"}
+                </Badge>
+              </div>
+              {reliability.membershipDuplicates.duplicates.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Personne (utilisateur Whop)</TableHead>
+                        <TableHead className="text-right">Abonnements</TableHead>
+                        <TableHead>Détail</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {reliability.membershipDuplicates.duplicates.map((d) => (
+                        <TableRow key={d.whopUserId}>
+                          <TableCell className="font-mono text-[11px] text-slate-500">
+                            {d.whopUserId}
+                          </TableCell>
+                          <TableCell className="text-right text-xs tabular-nums font-semibold">
+                            {formatNumber(d.count)}
+                          </TableCell>
+                          <TableCell className="font-mono text-[10px] text-slate-400">
+                            {d.membershipIds.join(", ")}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : null}
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Fraîcheur des données */}
       <Card>

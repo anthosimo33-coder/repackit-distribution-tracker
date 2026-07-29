@@ -235,6 +235,7 @@ export async function fetchWhopPlans(
 /** Abonnement Whop NORMALISÉ — dates en ms, tout optionnel sauf l'id et le statut. */
 export interface NormalizedWhopMembership {
   whopMembershipId: string;
+  whopUserId?: string;
   planId?: string;
   status: string;
   valid?: boolean;
@@ -256,6 +257,12 @@ export function normalizeWhopMembership(raw: unknown): NormalizedWhopMembership 
   if (!r) return null;
   const id = getStr(r.id) ?? getStr(r.membership_id);
   if (!id) return null;
+  const whopUserId =
+    getStr(asRecord(r.user)?.id) ??
+    getStr(r.user_id) ??
+    getStr(r.user) ??
+    getStr(asRecord(r.member)?.id) ??
+    getStr(r.member_id);
   const planId =
     getStr(asRecord(r.plan)?.id) ?? getStr(r.plan_id) ?? getStr(r.plan);
   const status = (getStr(r.status) ?? getStr(r.substatus) ?? "unknown").toLowerCase();
@@ -268,6 +275,7 @@ export function normalizeWhopMembership(raw: unknown): NormalizedWhopMembership 
   );
   return {
     whopMembershipId: id,
+    whopUserId,
     planId,
     status,
     valid,

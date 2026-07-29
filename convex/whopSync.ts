@@ -262,6 +262,7 @@ export const upsertWhopMemberships = internalMutation({
     memberships: v.array(
       v.object({
         whopMembershipId: v.string(),
+        whopUserId: v.optional(v.string()),
         planId: v.optional(v.string()),
         status: v.string(),
         valid: v.optional(v.boolean()),
@@ -283,6 +284,7 @@ export const upsertWhopMemberships = internalMutation({
         .first();
       if (existing && existing.projectId !== projectId) continue;
       const fields = {
+        whopUserId: m.whopUserId,
         planId: m.planId,
         status: m.status,
         valid: m.valid,
