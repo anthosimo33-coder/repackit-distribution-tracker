@@ -35,6 +35,7 @@ import { formatCycleRange } from "@/lib/pay-cycle";
 import { downloadCsv } from "@/lib/csv";
 import { WhopRevenueCard } from "@/components/whop/WhopRevenueCard";
 import { ProfitabilityCard } from "@/components/ProfitabilityCard";
+import { PayCurrencyWarning } from "@/components/PayCurrencyWarning";
 import type { FunctionReturnType } from "convex/server";
 import {
   ChevronRightIcon,
@@ -229,6 +230,7 @@ export default function PaiementsPage() {
 
   return (
     <div className="space-y-6">
+      <PayCurrencyWarning payCurrency={payCurrency} />
       <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
           <h1 className="text-3xl font-semibold tracking-tight text-slate-900">

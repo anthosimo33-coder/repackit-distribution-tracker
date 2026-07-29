@@ -23,8 +23,12 @@ export const EXPLAIN = {
     "L'argent qui reste une fois retirés les frais de Whop et de la banque, additionné sur toute la période. C'est ce que le projet gagne réellement, pas le prix affiché au client. Le symbole de la monnaie vient des paiements, il n'est jamais fixé à la main.",
   vuesPromoClient:
     "Combien de vues des vidéos promo il faut en moyenne pour obtenir un client payant. On n'utilise que les vidéos promo, car ce sont les seules qui parlent de l'app. Sert à mesurer l'efficacité de l'acquisition, pas à payer les créatrices.",
-  cac:
-    "Ce qu'on paie aux créatrices pour gagner un client, calculé seulement les jours solo où une seule créatrice a publié. Ces jours sont les seuls où on sait à qui attribuer les inscriptions. Le reste du temps, l'attribution serait inventée.",
+  coutAcquisition:
+    "Ce qu'on paie aux créatrices pour les vidéos promo, divisé par le nombre de clients payants. On ne compte que les publications promo, les seules qui peuvent amener un client. C'est le vrai coût pour gagner un client, sans le coût de construction des comptes.",
+  coutComplet:
+    "Toute la paie créatrices, divisée par le nombre de clients payants. Le warmup est inclus, parce que sans lui aucun compte ne peut publier de promo : c'est le vrai coût du système. À comparer au coût d'acquisition pour voir le poids de la construction des comptes.",
+  revenuParClient:
+    "Le revenu net encaissé, divisé par le nombre de clients payants. Ce chiffre monte avec le temps parce que l'abonnement se renouvelle, alors que le coût d'acquisition n'est payé qu'une seule fois. Il est en euros et les deux coûts en dollars : on les regarde côte à côte, jamais soustraits.",
   completionCheckout:
     "Sur cent personnes qui ouvrent l'écran de paiement, combien vont au bout et paient. Un taux bas veut dire que le paiement bloque quelque part. Ne compte que les personnes qui ont suivi toutes les étapes dans l'ordre.",
   visiteurs:
@@ -86,7 +90,7 @@ export const EXPLAIN = {
   troisCompteurs:
     "Trois compteurs différents qu'il ne faut jamais additionner. Les totales servent aux paliers de bonus des créatrices, les payables au calcul de la paie, les promo à tous les taux de conversion parce que ce sont les seules vidéos qui mentionnent l'app.",
   joursSolo:
-    "Les jours où une seule créatrice a publié. Ce sont les seuls où on sait avec certitude à qui attribuer les inscriptions, faute de lien tracké par créatrice.",
+    "Les jours où une seule créatrice a publié : les seuls où on sait à qui attribuer un client, faute de lien tracké par créatrice. Cette limite ne concerne que l'attribution PAR créatrice. Les coûts globaux de la Vue d'ensemble, eux, divisent la paie par tous les clients et n'ont pas besoin d'attribuer chacun.",
   efficaciteCreatrice:
     "La médiane prédit la prochaine vidéo, le taux de vidéos à succès prédit le volume du mois. La moyenne, elle, ne prédit rien, donc on ne l'affiche pas. Sert à repérer les créatrices régulières plutôt que celles à un seul coup de chance.",
 } as const;

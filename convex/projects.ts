@@ -207,6 +207,27 @@ export const setProjectCurrencyBySlug = internalMutation({
 });
 
 /**
+ * Backfill (interne, `convex run`) : pose `payCurrency: "usd"` sur TOUT projet qui
+ * n'en a pas — durcissement devise, pour qu'aucun montant de paie ne s'affiche sans
+ * symbole. Idempotent (les projets déjà réglés sont ignorés). À lancer une fois :
+ *   npx convex run projects:backfillPayCurrency '{}' --prod
+ */
+export const backfillPayCurrency = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<{ patched: number }> => {
+    const projects = await ctx.db.query("projects").collect();
+    let patched = 0;
+    for (const p of projects) {
+      if (p.payCurrency === undefined || p.payCurrency === "") {
+        await ctx.db.patch(p._id, { payCurrency: "usd" });
+        patched += 1;
+      }
+    }
+    return { patched };
+  },
+});
+
+/**
  * Validateur partagé du shape `sidebarLinks` (aligné sur schema.ts). icon =
  * nom lucide optionnel résolu côté UI (lib/sidebar-link-icon.ts).
  */
@@ -336,6 +357,10 @@ export const createProject = superadminMutation({
       slug,
       accentColor,
       payoutDay,
+      // La paie créatrices est en DOLLARS par défaut (durcissement devise) : un
+      // projet sans devise afficherait sinon ses montants de paie sans symbole.
+      // Réglable ensuite par projects:setProjectCurrencyBySlug (autre devise/taux).
+      payCurrency: "usd",
       status: "active",
       createdAt: Date.now(),
     });
