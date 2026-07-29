@@ -64,6 +64,9 @@ function parisDay(ms: number): string {
   }).format(new Date(ms));
 }
 
+/** Arrondi au centime (partagé). */
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
 /** Statuts d'assignment porteurs de coût (même porte que le moteur de paie). */
 function isCostBearing(a: Doc<"assignments">): boolean {
   return a.status === "published" || a.status === "paid";
@@ -135,6 +138,23 @@ export interface AttributionResult {
   payCurrency: string | null;
   /** Taux paie→revenu pour la marge (croise coût $ et revenu €). null → non calculée. */
   fxRateToRevenue: number | null;
+  /**
+   * Coûts créateurs (paie, en devise $), pour les deux cartes d'éco unitaire :
+   *  - `total` = coût COMPLET du moteur (fixe + CPM + bonus), tous posts payables,
+   *    warmup rémunéré INCLUS (sans warmup aucun compte ne publie de promo) ;
+   *  - `promo` = part attribuable aux publications PROMO (non-warmup) SEULEMENT,
+   *    sommée depuis la paie réelle de ces vidéos (fixe + CPM), jamais un ratio de
+   *    vues. `null` si la paie n'est PAS décomposable par publication (bonus au
+   *    niveau créatrice, ou coût manquant) → l'UI affiche un tiret, pas une approx.
+   */
+  costs: {
+    total: number;
+    promo: number | null;
+    /** Bonus paliers cash (niveau créatrice) — non rattachable à une publication. */
+    bonusTotal: number;
+    /** true = la part promo est calculable exactement (aucun bonus, aucun coût manquant). */
+    decomposable: boolean;
+  };
 }
 
 /**
@@ -299,6 +319,21 @@ export const getAttribution = adminQuery({
     const soloDays = computeSoloDays(promoVideos, daily);
     const creatorEfficiency = computeCreatorEfficiency(promoVideos);
 
+    // ── Coûts créateurs (paie $) — deux cartes d'éco unitaire ────────────────
+    // Le bonus paliers est CRÉATEUR-niveau (Σ des breakdowns mémoïsés), non
+    // rattachable à une publication : sa présence rend la part PROMO non
+    // décomposable exactement → l'UI affiche alors un tiret. Sinon, promo = Σ de
+    // la paie réelle (fixe + CPM) des seules vidéos ayant un post promo.
+    let bonusTotal = 0;
+    for (const b of breakdowns.values()) {
+      bonusTotal = round2(bonusTotal + b.bonusTierCashTotal);
+    }
+    const payableCost = rows.reduce((s, r) => s + (r.cost ?? 0), 0);
+    const promoRows = rows.filter((r) => r.hasPromoPost);
+    const promoNullCost = promoRows.some((r) => r.cost === null);
+    const promoCost = round2(promoRows.reduce((s, r) => s + (r.cost ?? 0), 0));
+    const decomposable = bonusTotal === 0 && !promoNullCost;
+
     return {
       rows,
       soloDays,
@@ -308,6 +343,12 @@ export const getAttribution = adminQuery({
       computedAt: cacheRow?.computedAt ?? null,
       payCurrency: project?.payCurrency ?? null,
       fxRateToRevenue: project?.fxRateToRevenue ?? null,
+      costs: {
+        total: round2(payableCost + bonusTotal),
+        promo: decomposable ? promoCost : null,
+        bonusTotal,
+        decomposable,
+      },
     };
   },
 });

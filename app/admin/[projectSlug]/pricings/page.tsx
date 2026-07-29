@@ -38,6 +38,7 @@ import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { formatMoney } from "@/lib/format-rate";
 import { currencySymbol } from "@/lib/currency";
+import { PayCurrencyWarning } from "@/components/PayCurrencyWarning";
 import type { FunctionReturnType } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -191,6 +192,7 @@ export default function PricingsPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
+      <PayCurrencyWarning payCurrency={payCurrency} />
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">

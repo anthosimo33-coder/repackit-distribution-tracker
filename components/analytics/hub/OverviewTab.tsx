@@ -13,7 +13,6 @@ import {
 import { formatNumber } from "@/lib/format";
 import { formatMoney, formatViews } from "@/lib/format-rate";
 import { buildCoherenceChecks } from "@/lib/analytics-hub";
-import { effectiveFxRate } from "@/lib/currency";
 import {
   KpiTile,
   HubCardHeader,
@@ -23,6 +22,7 @@ import {
   pct,
 } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
+import { PayCurrencyWarning } from "@/components/PayCurrencyWarning";
 import type { TrendPoint } from "./HubTrendChart";
 import type {
   ProductAnalyticsData,
@@ -91,15 +91,10 @@ export function OverviewTab({
   const subsPts: TrendPoint[] = daily.map((d) => ({ ts: d.ts, value: d.subs }));
 
   // Deux devises : le REVENU Whop (€, currency de la donnée) et la PAIE créatrices
-  // ($, payCurrency). Jamais l'une pour l'autre.
+  // ($, payCurrency). Jamais l'une pour l'autre — ici on les affiche CÔTE À CÔTE,
+  // chacune dans sa devise, sans les soustraire (pas de marge combinée sur ces cartes).
   const currency = revenue?.currency ?? undefined; // revenu (€)
   const payCurrency = attribution?.payCurrency ?? undefined; // coût créateurs ($)
-  // Taux paie→revenu pour la marge (croise coût $ et revenu €) ; null → non calculée.
-  const fx = effectiveFxRate(
-    attribution?.payCurrency,
-    revenue?.currency,
-    attribution?.fxRateToRevenue,
-  );
 
   // Garde-fou C2 : écart dashboard vs Whop.
   const checks = useMemo(() => {
@@ -139,19 +134,22 @@ export function OverviewTab({
   );
   const violations = checks.filter((c) => c.status === "violation");
 
-  // CAC (coût pour gagner un client) sur les JOURS SOLO — coût et clients appariés.
-  const cac = useMemo(() => {
-    const rows = attribution?.rows ?? [];
-    const soloDays = attribution?.soloDays ?? [];
-    const soloSet = new Set(soloDays.filter((d) => d.isSolo).map((d) => d.day));
-    const cost = rows
-      .filter((r) => soloSet.has(r.day))
-      .reduce((s, r) => s + (r.cost ?? 0), 0);
-    const clients = soloDays
-      .filter((d) => d.isSolo && d.attribution && d.attribution.clients !== null)
-      .reduce((s, d) => s + (d.attribution?.clients ?? 0), 0);
-    return clients > 0 ? Math.round((cost / clients) * 100) / 100 : null;
-  }, [attribution]);
+  // ── Éco unitaire : deux coûts par client (en $) + revenu par client (en €) ──
+  // Global, PLUS de restriction aux jours solo (elle n'était utile qu'à
+  // l'attribution PAR créatrice) : le coût total / clients n'a pas besoin
+  // d'attribuer chaque client à une créatrice. Dénominateur = clients payants (Whop).
+  const clients = coh?.whopMembersTotal ?? null;
+  const canDivide = clients !== null && clients > 0;
+  const perClient = (n: number | null | undefined): number | null =>
+    n != null && canDivide ? Math.round((n / (clients as number)) * 100) / 100 : null;
+  // Carte 1 — coût d'acquisition : paie des publications PROMO / clients. null (tiret)
+  // si la paie n'est pas décomposable par publication (bonus créatrice).
+  const acquisitionCost = attribution?.costs.decomposable
+    ? perClient(attribution.costs.promo)
+    : null;
+  const acquisitionDecomposable = attribution?.costs.decomposable ?? false;
+  // Carte 2 — coût complet du moteur : toute la paie (warmup inclus) / clients.
+  const fullEngineCost = perClient(attribution?.costs.total);
 
   const seq = analytics.funnels.sequential.segments[0]?.steps ?? [];
   const checkoutN = stepCount(seq, "checkout_started");
@@ -169,12 +167,9 @@ export function OverviewTab({
     viewCounters && totalClients !== null && totalClients > 0
       ? Math.round(viewCounters.promo / totalClients)
       : null;
-  // Marge % = (revenu − coût converti) / revenu. Coût ($) converti vers le revenu
-  // (€) via le taux ; sans taux (fx null), pas de marge (jamais mélanger deux devises).
-  const margin =
-    revenue?.ltv != null && cac !== null && revenue.ltv > 0 && fx !== null
-      ? Math.round(((revenue.ltv - cac * fx) / revenue.ltv) * 1000) / 10
-      : null;
+  // Carte 3 — revenu net (€) par client, MÊME dénominateur que les coûts (clients
+  // Whop). Affiché à côté des coûts ($) pour comparaison, jamais soustrait.
+  const revenuePerClient = perClient(totalNet);
 
   // Table « Détail par jour » : net Whop joint par jour Europe/Paris, plus récent d'abord.
   const netByDay = useMemo(
@@ -195,6 +190,45 @@ export function OverviewTab({
           {violations.map((v) => v.label).join(" · ")}. Voir l&apos;onglet Fiabilité.
         </HubNotice>
       ) : null}
+
+      {attribution ? (
+        <PayCurrencyWarning payCurrency={attribution.payCurrency} />
+      ) : null}
+
+      {/* Éco unitaire — deux coûts ($) côte à côte + revenu par client (€). */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <KpiTile
+          label="Coût d'acquisition"
+          value={acquisitionCost === null ? "—" : formatMoney(acquisitionCost, payCurrency)}
+          delta={null}
+          hint={
+            !acquisitionDecomposable
+              ? "paie non décomposable (bonus créatrice)"
+              : clients !== null
+                ? `publications promo · ${formatNumber(clients)} clients`
+                : "publications promo uniquement"
+          }
+          info={EXPLAIN.coutAcquisition}
+        />
+        <KpiTile
+          label="Coût complet du moteur"
+          value={fullEngineCost === null ? "—" : formatMoney(fullEngineCost, payCurrency)}
+          delta={null}
+          hint={
+            clients !== null
+              ? `warmup inclus · ${formatNumber(clients)} clients`
+              : "warmup inclus · tout le moteur"
+          }
+          info={EXPLAIN.coutComplet}
+        />
+        <KpiTile
+          label="Revenu net par client"
+          value={revenuePerClient === null ? "—" : formatMoney(revenuePerClient, currency)}
+          delta={null}
+          hint="monte au renouvellement (une seule acquisition)"
+          info={EXPLAIN.revenuParClient}
+        />
+      </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {dashboardWhopViolation ? (
@@ -236,13 +270,6 @@ export function OverviewTab({
           delta={null}
           hint="métrique de pilotage · vues à la publication"
           info={EXPLAIN.vuesPromoClient}
-        />
-        <KpiTile
-          label="Coût d'acquisition"
-          value={cac === null ? "—" : formatMoney(cac, payCurrency)}
-          delta={null}
-          hint={margin !== null ? `marge ${formatNumber(margin)} %` : "jours solo uniquement"}
-          info={EXPLAIN.cac}
         />
       </div>
 
