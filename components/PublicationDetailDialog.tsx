@@ -64,7 +64,9 @@ import {
   Loader2Icon,
   PencilIcon,
   RefreshCwIcon,
+  RepeatIcon,
 } from "lucide-react";
+import { ReplayScriptLauncher } from "@/components/admin/ReplayScriptLauncher";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { Switch } from "@/components/ui/switch";
@@ -250,6 +252,8 @@ function PublishedView({
   // Modification du compte post-publication (1 seule fois) — sub-dialog
   // imbriqué (cohérent pattern FolderEditDialog/PersonneEditDialog inline).
   const [accountEditOpen, setAccountEditOpen] = useState(false);
+  // Rejeu depuis le détail d'une publication (posts issus d'un script uniquement).
+  const [replayOpen, setReplayOpen] = useState(false);
   // Refactor multi-snapshots — métriques affichées = displayMetrics résolu
   // pour la période globale (snapshotAge), porté par la row listPublications.
   const dm = publication.displayMetrics;
@@ -275,7 +279,24 @@ function PublishedView({
             <PlatformBadge plateforme={publication.plateforme} />
             {publication.isWarmup === true && <PostWarmupBadge />}
           </DialogTitle>
+          {publication.scriptCombo && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-1 w-fit gap-1.5"
+              onClick={() => setReplayOpen(true)}
+            >
+              <RepeatIcon className="size-4" />
+              Rejouer ce script
+            </Button>
+          )}
         </DialogHeader>
+
+        {/* Rejeu : modale d'assignation pré-remplie avec le combo de CE post. */}
+        <ReplayScriptLauncher
+          source={replayOpen ? { publicationId: publication._id } : null}
+          onClose={() => setReplayOpen(false)}
+        />
 
         <div className="space-y-4">
           {/*

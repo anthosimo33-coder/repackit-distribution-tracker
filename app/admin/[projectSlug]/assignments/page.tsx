@@ -712,6 +712,7 @@ export default function AssignmentsPage() {
         <AssignmentScriptDialog
           open
           onOpenChange={(o) => !o && setScriptId(null)}
+          assignmentId={scriptRow._id}
           script={scriptRow.scriptCombo.assembledScript}
           comboSummary={scriptRow.comboSummary}
           creatorName={scriptRow.creatorName}
