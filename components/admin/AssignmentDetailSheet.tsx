@@ -42,6 +42,7 @@ import {
 import { ManagedPublishForm } from "@/components/admin/ManagedPublishForm";
 import { AssignmentAttachments } from "@/components/admin/AssignmentAttachments";
 import { ReplayScriptLauncher } from "@/components/admin/ReplayScriptLauncher";
+import { ImposedComboBadge } from "@/components/admin/ImposedComboBadge";
 import { dayStartMs } from "@/components/admin/AssignmentPlanningCalendar";
 import { countryFlag } from "@/lib/countries";
 
@@ -125,17 +126,20 @@ export function AssignmentDetailSheet({
             {label}
             {platforms.length > 0 ? ` · ${platforms.join(", ")}` : ""}
           </SheetDescription>
-          {row.origin === "script" && (
-            <Button
-              variant="outline"
-              size="xs"
-              className="mt-2 w-fit gap-1.5"
-              onClick={() => setReplayOpen(true)}
-            >
-              <RepeatIcon className="size-3.5" />
-              Rejouer ce script
-            </Button>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {row.comboImposed && <ImposedComboBadge className="mt-1" />}
+            {row.origin === "script" && (
+              <Button
+                variant="outline"
+                size="xs"
+                className="mt-1 w-fit gap-1.5"
+                onClick={() => setReplayOpen(true)}
+              >
+                <RepeatIcon className="size-3.5" />
+                Rejouer ce script
+              </Button>
+            )}
+          </div>
         </SheetHeader>
 
         {/* « Rejouer ce script » — résout le combo de CETTE assignation et ouvre
