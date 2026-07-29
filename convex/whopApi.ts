@@ -21,6 +21,7 @@ import { normalizeWhopStatus, type WhopStatus } from "./whopRevenue";
 
 const WHOP_PAYMENTS_ENDPOINT = "https://api.whop.com/api/v1/payments";
 const WHOP_PLANS_ENDPOINT = "https://api.whop.com/api/v1/plans";
+const WHOP_MEMBERSHIPS_ENDPOINT = "https://api.whop.com/api/v1/memberships";
 const PAGE_SIZE = 100;
 /** Borne de sécurité : 50 × 100 = 5000 paiements/sync (anti-boucle infinie). */
 const MAX_PAGES = 50;
@@ -227,6 +228,115 @@ export async function fetchWhopPlans(
     if (norm) plans.push(norm);
   }
   return { plans, error: null };
+}
+
+// ─── Abonnements (memberships) : l'état qui FAIT FOI pour le churn ────────────
+
+/** Abonnement Whop NORMALISÉ — dates en ms, tout optionnel sauf l'id et le statut. */
+export interface NormalizedWhopMembership {
+  whopMembershipId: string;
+  planId?: string;
+  status: string;
+  valid?: boolean;
+  createdAt: number;
+  canceledAt?: number;
+  accessEndsAt?: number;
+}
+
+export interface FetchWhopMembershipsResult {
+  memberships: NormalizedWhopMembership[];
+  pages: number;
+  truncated: boolean;
+  error: string | null;
+}
+
+/** Normalise un membership brut (défensif : champs Whop variables selon l'API). */
+export function normalizeWhopMembership(raw: unknown): NormalizedWhopMembership | null {
+  const r = asRecord(raw);
+  if (!r) return null;
+  const id = getStr(r.id) ?? getStr(r.membership_id);
+  if (!id) return null;
+  const planId =
+    getStr(asRecord(r.plan)?.id) ?? getStr(r.plan_id) ?? getStr(r.plan);
+  const status = (getStr(r.status) ?? getStr(r.substatus) ?? "unknown").toLowerCase();
+  const valid = typeof r.valid === "boolean" ? r.valid : undefined;
+  const createdAt =
+    toMs(r.created_at) || toMs(r.started_at) || toMs(r.renewal_period_start);
+  const canceledMs = toMs(r.canceled_at ?? r.cancelled_at);
+  const accessMs = toMs(
+    r.expires_at ?? r.valid_until ?? r.renewal_period_end ?? r.expiration,
+  );
+  return {
+    whopMembershipId: id,
+    planId,
+    status,
+    valid,
+    createdAt,
+    canceledAt: canceledMs || undefined,
+    accessEndsAt: accessMs || undefined,
+  };
+}
+
+/**
+ * Liste TOUS les abonnements du compte Whop `companyId` (pagination curseur, plus
+ * récents d'abord), normalisés. Même contrat de robustesse que fetchWhopPayments :
+ * un 429 / une erreur HTTP arrête proprement et retourne ce qui a été lu. La clé
+ * n'est jamais en URL ni loguée. `fetchImpl` injectable pour les tests.
+ */
+export async function fetchWhopMemberships(
+  apiKey: string,
+  companyId: string,
+  opts: { planIds?: string[]; fetchImpl?: typeof fetch } = {},
+): Promise<FetchWhopMembershipsResult> {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const memberships: NormalizedWhopMembership[] = [];
+  let after: string | undefined;
+  let pages = 0;
+
+  for (let i = 0; i < MAX_PAGES; i++) {
+    const params = new URLSearchParams();
+    params.set("company_id", companyId);
+    params.set("first", String(PAGE_SIZE));
+    if (after) params.set("after", after);
+    for (const pid of opts.planIds ?? []) params.append("plan_ids", pid);
+
+    let res: Response;
+    try {
+      res = await fetchImpl(`${WHOP_MEMBERSHIPS_ENDPOINT}?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+      });
+    } catch (e) {
+      return {
+        memberships,
+        pages,
+        truncated: false,
+        error: `network: ${e instanceof Error ? e.message : String(e)}`,
+      };
+    }
+    if (res.status === 429) {
+      return { memberships, pages, truncated: true, error: "rate_limited (429)" };
+    }
+    if (!res.ok) {
+      return { memberships, pages, truncated: false, error: await readWhopError(res) };
+    }
+    let json: unknown;
+    try {
+      json = await res.json();
+    } catch {
+      return { memberships, pages, truncated: false, error: "réponse Whop illisible (JSON invalide)" };
+    }
+    const { data, endCursor, hasNextPage } = parsePage(json);
+    for (const raw of data) {
+      const norm = normalizeWhopMembership(raw);
+      if (norm) memberships.push(norm);
+    }
+    pages += 1;
+    if (!hasNextPage || !endCursor) {
+      return { memberships, pages, truncated: false, error: null };
+    }
+    after = endCursor;
+  }
+  return { memberships, pages, truncated: true, error: null };
 }
 
 function parsePage(json: unknown): {

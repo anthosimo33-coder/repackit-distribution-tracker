@@ -140,20 +140,25 @@ export interface AttributionResult {
   fxRateToRevenue: number | null;
   /**
    * Coûts créateurs (paie, en devise $), pour les deux cartes d'éco unitaire :
-   *  - `total` = coût COMPLET du moteur (fixe + CPM + bonus), tous posts payables,
-   *    warmup rémunéré INCLUS (sans warmup aucun compte ne publie de promo) ;
-   *  - `promo` = part attribuable aux publications PROMO (non-warmup) SEULEMENT,
-   *    sommée depuis la paie réelle de ces vidéos (fixe + CPM), jamais un ratio de
-   *    vues. `null` si la paie n'est PAS décomposable par publication (bonus au
-   *    niveau créatrice, ou coût manquant) → l'UI affiche un tiret, pas une approx.
+   *  - `total` = coût COMPLET du moteur (fixe + CPM + 100 % du bonus), tous posts
+   *    payables, warmup rémunéré INCLUS (sans warmup aucun compte ne publie de promo) ;
+   *  - `promo` = fixe + CPM des publications PROMO (non-warmup), sommés depuis la
+   *    paie RÉELLE de ces vidéos, jamais un ratio de vues ;
+   *  - `promoBonus` = part du BONUS attribuée au promo, RÉPARTIE au prorata de la
+   *    part de vues payables qui sont promo (`promoViewShare`). Le bonus est attaché
+   *    à la CRÉATRICE, pas à une vidéo : c'est une ESTIMATION, pas une mesure, et
+   *    l'UI l'affiche comme telle. Le coût d'acquisition = promo + promoBonus.
+   * `promo`/`promoBonus` sont `null` seulement si un coût PAR VIDÉO manque (legacy
+   * sans pricingSnapshot) → tiret, jamais une paie inventée.
    */
   costs: {
     total: number;
     promo: number | null;
-    /** Bonus paliers cash (niveau créatrice) — non rattachable à une publication. */
+    promoBonus: number | null;
+    /** Clé de répartition du bonus = part des vues payables qui sont promo (0–1). */
+    promoViewShare: number;
+    /** Bonus paliers cash TOTAL (niveau créatrice) — 100 % dans `total`. */
     bonusTotal: number;
-    /** true = la part promo est calculable exactement (aucun bonus, aucun coût manquant). */
-    decomposable: boolean;
   };
 }
 
@@ -320,10 +325,10 @@ export const getAttribution = adminQuery({
     const creatorEfficiency = computeCreatorEfficiency(promoVideos);
 
     // ── Coûts créateurs (paie $) — deux cartes d'éco unitaire ────────────────
-    // Le bonus paliers est CRÉATEUR-niveau (Σ des breakdowns mémoïsés), non
-    // rattachable à une publication : sa présence rend la part PROMO non
-    // décomposable exactement → l'UI affiche alors un tiret. Sinon, promo = Σ de
-    // la paie réelle (fixe + CPM) des seules vidéos ayant un post promo.
+    // Le bonus paliers est CRÉATEUR-niveau (Σ des breakdowns mémoïsés). Décision
+    // produit : un bonus débloqué est une DÉPENSE réelle, il ENTRE dans le coût
+    // d'acquisition — réparti au prorata de la part de vues payables qui sont promo
+    // (hypothèse assumée, affichée). Le coût COMPLET, lui, prend 100 % du bonus.
     let bonusTotal = 0;
     for (const b of breakdowns.values()) {
       bonusTotal = round2(bonusTotal + b.bonusTierCashTotal);
@@ -331,8 +336,16 @@ export const getAttribution = adminQuery({
     const payableCost = rows.reduce((s, r) => s + (r.cost ?? 0), 0);
     const promoRows = rows.filter((r) => r.hasPromoPost);
     const promoNullCost = promoRows.some((r) => r.cost === null);
-    const promoCost = round2(promoRows.reduce((s, r) => s + (r.cost ?? 0), 0));
-    const decomposable = bonusTotal === 0 && !promoNullCost;
+    const promoFixeCpm = round2(promoRows.reduce((s, r) => s + (r.cost ?? 0), 0));
+    // Clé : part des vues PAYABLES qui sont PROMO (bornée [0,1] — un post promo
+    // non rémunéré resterait hors payable). Bonus promo = bonusTotal × clé.
+    const totalPayableViews = rows.reduce((s, r) => s + r.payableViews, 0);
+    const totalPromoViews = rows.reduce((s, r) => s + r.promoViews, 0);
+    const promoViewShare =
+      totalPayableViews > 0
+        ? Math.min(1, totalPromoViews / totalPayableViews)
+        : 0;
+    const promoBonus = round2(bonusTotal * promoViewShare);
 
     return {
       rows,
@@ -345,9 +358,10 @@ export const getAttribution = adminQuery({
       fxRateToRevenue: project?.fxRateToRevenue ?? null,
       costs: {
         total: round2(payableCost + bonusTotal),
-        promo: decomposable ? promoCost : null,
+        promo: promoNullCost ? null : promoFixeCpm,
+        promoBonus: promoNullCost ? null : promoBonus,
+        promoViewShare: Math.round(promoViewShare * 1000) / 1000,
         bonusTotal,
-        decomposable,
       },
     };
   },
@@ -678,6 +692,131 @@ export const getRevenueBreakdown = adminQuery({
       ltv: totalMembers > 0 ? round2(totalNet / totalMembers) : null,
       churnAvailable: false,
       internalExcludedMembers: internalMembers.size,
+    };
+  },
+});
+
+// ─── Churn / rétention (état des memberships Whop = fait foi) ─────────────────
+
+/** Entrée de churn — structurellement compatible avec lib/churn.MembershipInput. */
+interface MembershipEntry {
+  membershipId: string;
+  planId: string | null;
+  status: string;
+  valid: boolean | null;
+  accessEndsAt: number | null;
+  canceledAt: number | null;
+  firstPaidAt: number | null;
+  paidCount: number;
+  intervalDays: number | null;
+}
+
+/** Cadence d'une offre (libellé Whop) en JOURS. Réplique de lib/churn.intervalToDays. */
+function intervalToDaysServer(interval: string | null | undefined): number | null {
+  switch ((interval ?? "").trim().toLowerCase()) {
+    case "jour":
+      return 1;
+    case "semaine":
+      return 7;
+    case "mois":
+      return 30;
+    case "trimestre":
+      return 91;
+    case "an":
+    case "année":
+      return 365;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Données de CHURN par projet : assemble l'état des memberships Whop (qui fait foi)
+ * avec les paiements (première date + nombre, pour le délai et le renouvellement) et
+ * la cadence des offres. Le CALCUL (résilié vs expiré, taux, délais) est fait CÔTÉ
+ * CLIENT par lib/churn.computeChurn (module pur, pas de réplique convex) : ici on ne
+ * réunit que les entrées. Comptes internes exclus (A4).
+ */
+export const getChurn = adminQuery({
+  args: {},
+  handler: async (ctx) => {
+    const project = await ctx.db.get(ctx.projectId);
+    if (!project?.whop) {
+      return {
+        configured: false as const,
+        computedAt: null as number | null,
+        currency: null as string | null,
+        netPerPayment: null as number | null,
+        memberships: [] as MembershipEntry[],
+        planLabels: [] as { planId: string; name: string | null }[],
+      };
+    }
+    const internalCfg = internalAccountsFor(project.slug);
+    const [members, payments, plans] = await Promise.all([
+      ctx.db
+        .query("whopMemberships")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+      ctx.db
+        .query("whopPayments")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+      ctx.db
+        .query("whopPlans")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+    ]);
+
+    // Premier paiement encaissé + nombre, par membership (internes exclus).
+    const payAgg = new Map<string, { first: number; count: number }>();
+    for (const p of payments) {
+      if (!p.membershipId || isInternalWhopMembership(p.membershipId, internalCfg)) {
+        continue;
+      }
+      if (whopNetContribution(p) <= 0) continue; // encaissé uniquement
+      const cur = payAgg.get(p.membershipId) ?? { first: p.paidAt, count: 0 };
+      cur.first = Math.min(cur.first, p.paidAt);
+      cur.count += 1;
+      payAgg.set(p.membershipId, cur);
+    }
+
+    const intervalByPlan = new Map(
+      plans.map((pl) => [pl.planId, intervalToDaysServer(pl.interval ?? null)]),
+    );
+
+    const memberships: MembershipEntry[] = members
+      .filter((m) => !isInternalWhopMembership(m.whopMembershipId, internalCfg))
+      .map((m) => {
+        const pa = payAgg.get(m.whopMembershipId);
+        return {
+          membershipId: m.whopMembershipId,
+          planId: m.planId ?? null,
+          status: m.status,
+          valid: m.valid ?? null,
+          accessEndsAt: m.accessEndsAt ?? null,
+          canceledAt: m.canceledAt ?? null,
+          firstPaidAt: pa?.first ?? null,
+          paidCount: pa?.count ?? 0,
+          intervalDays: m.planId ? (intervalByPlan.get(m.planId) ?? null) : null,
+        };
+      });
+
+    const nonInternalPayments = payments.filter(
+      (p) => !isInternalWhopMembership(p.membershipId, internalCfg),
+    );
+    const summary = summarizeWhopRevenue(nonInternalPayments);
+    const netPerPayment =
+      summary.paymentCount > 0 ? round2(summary.net / summary.paymentCount) : null;
+    const computedAt =
+      members.length > 0 ? Math.max(...members.map((m) => m.updatedAt)) : null;
+
+    return {
+      configured: true as const,
+      computedAt,
+      currency: summary.currency,
+      netPerPayment,
+      memberships,
+      planLabels: plans.map((pl) => ({ planId: pl.planId, name: pl.name ?? null })),
     };
   },
 });

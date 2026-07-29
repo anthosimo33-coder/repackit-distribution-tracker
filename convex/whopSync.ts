@@ -7,7 +7,11 @@ import { adminMutation, adminQuery } from "./functions";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { fetchWhopPayments, fetchWhopPlans } from "./whopApi";
+import {
+  fetchWhopPayments,
+  fetchWhopPlans,
+  fetchWhopMemberships,
+} from "./whopApi";
 import { summarizeWhopRevenue } from "./whopRevenue";
 import { periodOf } from "./payments";
 
@@ -248,6 +252,59 @@ export const upsertWhopPlans = internalMutation({
   },
 });
 
+/**
+ * Upsert IDEMPOTENT des abonnements (memberships), dédup par whopMembershipId.
+ * ANTI-MÉLANGE : un membership déjà rattaché à un autre projet n'est pas déplacé.
+ */
+export const upsertWhopMemberships = internalMutation({
+  args: {
+    projectId: v.id("projects"),
+    memberships: v.array(
+      v.object({
+        whopMembershipId: v.string(),
+        planId: v.optional(v.string()),
+        status: v.string(),
+        valid: v.optional(v.boolean()),
+        createdAt: v.number(),
+        canceledAt: v.optional(v.number()),
+        accessEndsAt: v.optional(v.number()),
+      }),
+    ),
+  },
+  handler: async (ctx, { projectId, memberships }): Promise<{ upserted: number }> => {
+    const now = Date.now();
+    let upserted = 0;
+    for (const m of memberships) {
+      const existing = await ctx.db
+        .query("whopMemberships")
+        .withIndex("by_whopMembershipId", (q) =>
+          q.eq("whopMembershipId", m.whopMembershipId),
+        )
+        .first();
+      if (existing && existing.projectId !== projectId) continue;
+      const fields = {
+        planId: m.planId,
+        status: m.status,
+        valid: m.valid,
+        createdAt: m.createdAt,
+        canceledAt: m.canceledAt,
+        accessEndsAt: m.accessEndsAt,
+        updatedAt: now,
+      };
+      if (existing) await ctx.db.patch(existing._id, fields);
+      else
+        await ctx.db.insert("whopMemberships", {
+          projectId,
+          whopMembershipId: m.whopMembershipId,
+          ...fields,
+          importedAt: now,
+        });
+      upserted += 1;
+    }
+    return { upserted };
+  },
+});
+
 export interface WhopSyncSummary {
   ok: boolean;
   /** Projets configurés effectivement synchronisés. */
@@ -331,6 +388,22 @@ export const runHourlySync = internalAction({
           projectId: proj._id,
           plans: plansRes.plans,
         });
+      }
+
+      // Abonnements (memberships) — l'état qui fait foi pour le churn. NON bloquant.
+      const memRes = await fetchWhopMemberships(apiKey, proj.companyId, {
+        planIds: proj.planIds,
+      });
+      if (memRes.error) {
+        console.warn(`[whop-sync] ${proj.slug} : /memberships ${memRes.error} (churn conservé).`);
+        errors.push(`${proj.slug}: memberships ${memRes.error}`);
+      } else {
+        for (const part of chunk(memRes.memberships, UPSERT_CHUNK)) {
+          await ctx.runMutation(internal.whopSync.upsertWhopMemberships, {
+            projectId: proj._id,
+            memberships: part,
+          });
+        }
       }
       projectsSynced += 1;
       console.info(

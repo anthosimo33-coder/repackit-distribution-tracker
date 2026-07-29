@@ -1,7 +1,7 @@
 import { test, expect, adminPath } from "./fixtures/auth-fixture";
 
 /**
- * Hub Analytics (admin) — smoke de la section et de ses 6 onglets.
+ * Hub Analytics (admin) — smoke de la section et de ses 7 onglets.
  *
  * Le projet e2e n'a PAS de config PostHog : ce spec couvre donc précisément le
  * chemin « non configuré », qui est la garantie centrale du chantier —
@@ -19,10 +19,11 @@ test.describe("Analytics — hub produit", () => {
     /acquisition/i,
     /santé produit/i,
     /offres/i,
+    /rétention/i,
     /fiabilité/i,
   ];
 
-  test("la nav mène à la section et affiche les 6 onglets", async ({ page }) => {
+  test("la nav mène à la section et affiche les 7 onglets", async ({ page }) => {
     await page.goto(adminPath("/dashboard"));
 
     const navLink = page.getByRole("link", { name: /^analytics$/i }).first();

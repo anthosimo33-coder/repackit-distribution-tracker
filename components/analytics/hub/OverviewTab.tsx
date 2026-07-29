@@ -142,13 +142,16 @@ export function OverviewTab({
   const canDivide = clients !== null && clients > 0;
   const perClient = (n: number | null | undefined): number | null =>
     n != null && canDivide ? Math.round((n / (clients as number)) * 100) / 100 : null;
-  // Carte 1 — coût d'acquisition : paie des publications PROMO / clients. null (tiret)
-  // si la paie n'est pas décomposable par publication (bonus créatrice).
-  const acquisitionCost = attribution?.costs.decomposable
-    ? perClient(attribution.costs.promo)
-    : null;
-  const acquisitionDecomposable = attribution?.costs.decomposable ?? false;
-  // Carte 2 — coût complet du moteur : toute la paie (warmup inclus) / clients.
+  // Carte 1 — coût d'acquisition : (fixe + CPM promo + PART du bonus) / clients. Le
+  // bonus débloqué est une dépense réelle, réparti au prorata des vues promo (part
+  // affichée sous la carte). Tiret seulement si un coût par vidéo manque (legacy).
+  const c = attribution?.costs;
+  const promoPlusBonus =
+    c && c.promo !== null && c.promoBonus !== null ? c.promo + c.promoBonus : null;
+  const acquisitionCost = perClient(promoPlusBonus);
+  const acquisitionBonus = c?.promoBonus ?? null; // bonus (total) inclus dans l'acquisition
+  const acquisitionShare = c?.promoViewShare ?? 0; // clé de répartition (part promo)
+  // Carte 2 — coût complet du moteur : toute la paie (warmup + 100% bonus) / clients.
   const fullEngineCost = perClient(attribution?.costs.total);
 
   const seq = analytics.funnels.sequential.segments[0]?.steps ?? [];
@@ -202,8 +205,8 @@ export function OverviewTab({
           value={acquisitionCost === null ? "—" : formatMoney(acquisitionCost, payCurrency)}
           delta={null}
           hint={
-            !acquisitionDecomposable
-              ? "paie non décomposable (bonus créatrice)"
+            acquisitionBonus !== null && acquisitionBonus > 0
+              ? `dont ${formatMoney(acquisitionBonus, payCurrency)} de bonus estimé · clé ${Math.round(acquisitionShare * 100)} % promo`
               : clients !== null
                 ? `publications promo · ${formatNumber(clients)} clients`
                 : "publications promo uniquement"

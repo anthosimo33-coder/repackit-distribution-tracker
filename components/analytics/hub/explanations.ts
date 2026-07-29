@@ -24,7 +24,7 @@ export const EXPLAIN = {
   vuesPromoClient:
     "Combien de vues des vidéos promo il faut en moyenne pour obtenir un client payant. On n'utilise que les vidéos promo, car ce sont les seules qui parlent de l'app. Sert à mesurer l'efficacité de l'acquisition, pas à payer les créatrices.",
   coutAcquisition:
-    "Ce qu'on paie aux créatrices pour les vidéos promo, divisé par le nombre de clients payants. On ne compte que les publications promo, les seules qui peuvent amener un client. C'est le vrai coût pour gagner un client, sans le coût de construction des comptes.",
+    "Ce qu'on paie pour les vidéos promo divisé par le nombre de clients payants : le vrai coût pour gagner un client. Il additionne le fixe et le CPM des publications promo, plus une part du bonus. Le bonus est attaché à la créatrice et non à une vidéo, donc sa répartition entre promo et warmup est une estimation, pas une mesure.",
   coutComplet:
     "Toute la paie créatrices, divisée par le nombre de clients payants. Le warmup est inclus, parce que sans lui aucun compte ne peut publier de promo : c'est le vrai coût du système. À comparer au coût d'acquisition pour voir le poids de la construction des comptes.",
   revenuParClient:
@@ -93,6 +93,20 @@ export const EXPLAIN = {
     "Les jours où une seule créatrice a publié : les seuls où on sait à qui attribuer un client, faute de lien tracké par créatrice. Cette limite ne concerne que l'attribution PAR créatrice. Les coûts globaux de la Vue d'ensemble, eux, divisent la paie par tous les clients et n'ont pas besoin d'attribuer chacun.",
   efficaciteCreatrice:
     "La médiane prédit la prochaine vidéo, le taux de vidéos à succès prédit le volume du mois. La moyenne, elle, ne prédit rien, donc on ne l'affiche pas. Sert à repérer les créatrices régulières plutôt que celles à un seul coup de chance.",
+
+  // ─── Rétention / churn ─────────────────────────────────────────────────────
+  churnResilieExpire:
+    "Résilié : la personne a annulé mais garde l'accès jusqu'à la fin de la période payée, elle peut encore revenir. Expiré : la période est finie, l'accès est perdu, c'est le vrai départ. On les sépare parce qu'une résiliation n'est pas encore une perte.",
+  tauxResiliation:
+    "Sur cent clients payants, combien ont annulé sur la période. Un taux qui monte annonce une perte de revenu à venir. Il ne compte que les annulations, pas encore les accès perdus.",
+  delaiResiliation:
+    "Le temps entre le premier paiement et l'annulation. Une médiane courte veut dire que les gens partent vite, souvent déçus dès le début. Le 9 sur 10 montre les départs les plus tardifs.",
+  tauxRenouvellement:
+    "Parmi les abonnements arrivés au bout d'une période, combien ont repayé. C'est ce qui dit si le produit retient vraiment. Sans ce chiffre, aucune projection de revenu ne tient.",
+  churnParOffre:
+    "Les annulations et les expirations par offre. Sert à voir si un prix retient mieux qu'un autre. À ne lire que quand chaque offre a assez d'abonnements arrivés à échéance.",
+  projectionLtv:
+    "Ce qu'un client rapporte sur toute sa vie : le net par paiement multiplié par le nombre moyen de paiements. C'est ce chiffre, comparé au coût d'acquisition, qui dit si le moteur est viable. Il reste un tiret tant que le renouvellement n'est pas mesurable.",
 } as const;
 
 export type ExplainKey = keyof typeof EXPLAIN;
