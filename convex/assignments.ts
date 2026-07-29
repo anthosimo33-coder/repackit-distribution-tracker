@@ -1786,8 +1786,12 @@ export async function missionLabelFor(
 
 async function enrichForCreator(ctx: QueryCtx, a: Doc<"assignments">) {
   const targets = await enrichTargets(ctx, a);
-  const { scriptCombo, comboKey, ...safe } = a;
+  const { scriptCombo, comboKey, comboImposed, replayedFrom, ...safe } = a;
   void comboKey;
+  // Métadonnées internes (rejeu / lignage) — JAMAIS exposées au créateur, comme
+  // scriptCombo/comboKey (côté créatrice strictement inchangé).
+  void comboImposed;
+  void replayedFrom;
   const label = await missionLabelFor(ctx, a);
   return {
     ...safe,
@@ -2048,8 +2052,12 @@ async function assignmentDetailFor(
   // Isolation : un assignment d'un autre créateur → introuvable.
   if (!a || a.creatorId !== creatorId) return null;
   const targets = await enrichTargets(ctx, a);
-  const { scriptCombo, comboKey, ...safe } = a;
+  const { scriptCombo, comboKey, comboImposed, replayedFrom, ...safe } = a;
   void comboKey;
+  // Métadonnées internes (rejeu / lignage) — JAMAIS exposées au créateur, comme
+  // scriptCombo/comboKey (côté créatrice strictement inchangé).
+  void comboImposed;
+  void replayedFrom;
   // ISOLATION : SA vidéo soumise, résolue côté serveur (URL signée). Le blob
   // n'est jamais lisible que par le créateur (ici) et l'admin (listVideoSubmitted).
   const submittedVideoUrl = a.submittedVideoStorageId

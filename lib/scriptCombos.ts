@@ -41,6 +41,30 @@ export function comboKeyOf(c: {
 }
 
 /**
+ * Décompose un comboKey en ses 3 brickIds (pour « Rejouer ce script » depuis
+ * l'analytics, où seul le comboKey est en main). Gère les DEUX espaces de clés :
+ * 3 segments "hook:flux:cta" (refonte) et 4 segments legacy "hook:corps:flux:cta"
+ * (le corps est ignoré — retiré du montage). Toute autre forme → null (non
+ * rejouable). Lecture CLIENT — aucune réplique serveur (le serveur ne reparse
+ * jamais un comboKey ; il reçoit les 3 brickIds directement).
+ */
+export function parseComboKey(comboKey: string): {
+  hookBrickId: string;
+  fluxBrickId: string;
+  ctaBrickId: string;
+} | null {
+  const parts = comboKey.split(":");
+  if (parts.length === 3) {
+    return { hookBrickId: parts[0], fluxBrickId: parts[1], ctaBrickId: parts[2] };
+  }
+  if (parts.length === 4) {
+    // Legacy "hook:corps:flux:cta" → on saute le corps (parts[1]).
+    return { hookBrickId: parts[0], fluxBrickId: parts[2], ctaBrickId: parts[3] };
+  }
+  return null;
+}
+
+/**
  * Produit cartésien des bricks ACTIVES (hooks × flux × cta). Chaque combo porte
  * son assembledScript (labels OFF). 0 combo si un kind n'a aucune brick active.
  * Ordre déterministe (ordre des bricks fournis).

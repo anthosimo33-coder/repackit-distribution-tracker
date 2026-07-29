@@ -80,6 +80,12 @@ const WINDOW = v.union(
   v.literal("j7"),
   v.literal("j14"),
   v.literal("j30"),
+  // "latest" = dernier snapshot de CHAQUE post (vues à jour, couverture maximale :
+  // aucun post exclu faute de maturité). gatherCampaignViews/findMatchingSnapshot
+  // le gèrent déjà. Utilisé par le pré-remplissage « Rejouer ce script » (perf par
+  // brique/combo sur TOUT l'historique, pas une fenêtre j7). La page analytics
+  // garde ses fenêtres jX pour ses verdicts normalisés.
+  v.literal("latest"),
 );
 
 // 2 tiers (Argent/Autre). Le "B" legacy est replié sur "A" via normalizeTier.

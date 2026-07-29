@@ -47,6 +47,7 @@ import { Badge } from "@/components/ui/badge";
 import { VerdictBadge, PlatformBadge } from "@/components/VerdictBadge";
 import { PublicationEditDialog } from "@/components/PublicationEditDialog";
 import { PublicationDetailDialog } from "@/components/PublicationDetailDialog";
+import { ReplayScriptLauncher } from "@/components/admin/ReplayScriptLauncher";
 import { PostWarmupBadge } from "@/components/PostWarmupBadge";
 import { calculateSaveRate, calculateVerdict } from "@/lib/verdict";
 import { formatDate, formatNumber, formatPercent } from "@/lib/format";
@@ -332,6 +333,9 @@ export function TrackerListSection({
   );
   const [duplicatingPub, setDuplicatingPub] =
     useState<Doc<"publications"> | null>(null);
+  // « Rejouer ce script » : publication source dont on rejoue le combo (pré-remplit
+  // la modale d'assignation). Null = fermé.
+  const [replayPub, setReplayPub] = useState<Doc<"publications"> | null>(null);
 
   const { age, customDay } = useSnapshotAge();
   const publications = useProjectQuery(
@@ -892,6 +896,7 @@ export function TrackerListSection({
               onDelete={setDeletingPub}
               onMarkAsPosted={setMarkingPub}
               onDuplicate={setDuplicatingPub}
+              onReplay={setReplayPub}
               visibleColumns={visibleColumns}
               disabledSortKeys={disabledSortKeys}
               idColumnLabel={getIdColumnLabel(mediaType)}
@@ -910,6 +915,7 @@ export function TrackerListSection({
               onDelete={setDeletingPub}
               onMarkAsPosted={setMarkingPub}
               onDuplicate={setDuplicatingPub}
+              onReplay={setReplayPub}
               visibleColumns={visibleColumns}
               disabledSortKeys={disabledSortKeys}
               idColumnLabel={getIdColumnLabel(mediaType)}
@@ -1038,6 +1044,13 @@ export function TrackerListSection({
         />
       )}
 
+      {/* « Rejouer ce script » — résout le combo source et ouvre la modale
+          d'assignation pré-remplie (mode « Combinaison choisie »). */}
+      <ReplayScriptLauncher
+        source={replayPub ? { publicationId: replayPub._id } : null}
+        onClose={() => setReplayPub(null)}
+      />
+
       {/*
         Batch E — AnalyticsSection en bas de page. Décision tranchée :
         l'analytics consomme TOUTES les publications du format (publicationsForFormat
@@ -1070,6 +1083,7 @@ function PublicationsSection({
   onDelete,
   onMarkAsPosted,
   onDuplicate,
+  onReplay,
   visibleColumns,
   disabledSortKeys,
   idColumnLabel,
@@ -1085,6 +1099,7 @@ function PublicationsSection({
   onDelete: (p: Doc<"publications">) => void;
   onMarkAsPosted: (p: Doc<"publications">) => void;
   onDuplicate: (p: Doc<"publications">) => void;
+  onReplay: (p: Doc<"publications">) => void;
   visibleColumns: ReadonlySet<ColumnKey>;
   disabledSortKeys: ReadonlySet<SortKey>;
   idColumnLabel: string;
@@ -1412,6 +1427,13 @@ function PublicationsSection({
                           <DropdownMenuItem onClick={() => onDuplicate(p)}>
                             Dupliquer
                           </DropdownMenuItem>
+                          {/* Rejouer : seulement les posts issus d'un script
+                              (scriptCombo présent) → pré-remplit la modale. */}
+                          {p.scriptCombo && (
+                            <DropdownMenuItem onClick={() => onReplay(p)}>
+                              Rejouer ce script
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
                             className="text-rose-600 focus:text-rose-700"

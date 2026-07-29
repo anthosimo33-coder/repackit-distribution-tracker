@@ -78,6 +78,26 @@ describe("isComboAvailableForCreatorPlatform", () => {
       }),
     ).toBe(true);
   });
+
+  it("LIBRE : une ligne à combo IMPOSÉ ne bloque pas (reste dispo en auto)", () => {
+    const existing: AssignmentComboUsage[] = [
+      {
+        creatorId: "bader",
+        comboKey: X,
+        platforms: ["TikTok"],
+        comboImposed: true,
+      },
+    ];
+    // Même créateur + même plateforme + même combo, mais imposé → toujours dispo.
+    expect(
+      isComboAvailableForCreatorPlatform({
+        comboKey: X,
+        creatorId: "bader",
+        platform: "TikTok",
+        existingAssignments: existing,
+      }),
+    ).toBe(true);
+  });
 });
 
 describe("usedComboKeysForCreatorPlatforms", () => {
@@ -112,5 +132,24 @@ describe("usedComboKeysForCreatorPlatforms", () => {
       existingAssignments: existing,
     });
     expect(used.size).toBe(0);
+  });
+
+  it("ignore les lignes à combo IMPOSÉ : le triplet imposé reste piochable", () => {
+    const withImposed: AssignmentComboUsage[] = [
+      // X posé en AUTO (consomme) ; Y posé en IMPOSÉ (ne consomme pas).
+      { creatorId: "bader", comboKey: X, platforms: ["TikTok"] },
+      {
+        creatorId: "bader",
+        comboKey: Y,
+        platforms: ["TikTok"],
+        comboImposed: true,
+      },
+    ];
+    const used = usedComboKeysForCreatorPlatforms({
+      creatorId: "bader",
+      platforms: ["TikTok"],
+      existingAssignments: withImposed,
+    });
+    expect([...used]).toEqual([X]); // Y (imposé) exclu du set → reste dispo en auto
   });
 });

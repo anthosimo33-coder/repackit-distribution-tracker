@@ -16,6 +16,9 @@ import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/format";
 import { tierLabel } from "@/lib/script-tier";
 import { JUGEABLE_THRESHOLD } from "@/lib/scriptStats";
+import { parseComboKey } from "@/lib/scriptCombos";
+import { AssignScriptCampaignDialog } from "@/components/admin/AssignScriptCampaignDialog";
+import type { ReplaySource } from "@/components/admin/ChosenComboPicker";
 import {
   PostsList,
   sortTrackerPosts,
@@ -32,6 +35,7 @@ import {
   TrendingDownIcon,
   FlameIcon,
   MinusIcon,
+  RepeatIcon,
 } from "lucide-react";
 
 type Window = "j3" | "j7" | "j14" | "j30";
@@ -150,7 +154,11 @@ export default function ScriptAnalyticsPage() {
                   windowLabel={windowLabel}
                 />
               ))}
-              <ComboSection combos={combos} />
+              <ComboSection
+                combos={combos}
+                campaignId={campaignId}
+                campaignName={campaign?.name ?? ""}
+              />
             </div>
           )}
         </div>
@@ -738,9 +746,43 @@ function BrickDrilldown({
   );
 }
 
-function ComboSection({ combos }: { combos: ComboPerf[] }) {
+function ComboSection({
+  combos,
+  campaignId,
+  campaignName,
+}: {
+  combos: ComboPerf[];
+  campaignId: Id<"scriptCampaigns">;
+  campaignName: string;
+}) {
   const [open, setOpen] = useState(false);
+  // « Rejouer » un combo : combo source sélectionné (payload construit côté client
+  // depuis ComboPerf — perf agrégée, pas de source unique donc replayedFrom absent).
+  const [replayCombo, setReplayCombo] = useState<ComboPerf | null>(null);
   const top = combos.slice(0, 20);
+
+  const replaySource: ReplaySource | null = (() => {
+    if (!replayCombo) return null;
+    const parsed = parseComboKey(replayCombo.comboKey);
+    if (!parsed) return null;
+    return {
+      campaignId,
+      campaignName,
+      bricks: {
+        hookBrickId: parsed.hookBrickId as Id<"scriptBricks">,
+        fluxBrickId: parsed.fluxBrickId as Id<"scriptBricks">,
+        ctaBrickId: parsed.ctaBrickId as Id<"scriptBricks">,
+      },
+      sourceAssignmentId: null,
+      sourceAssembledScript: null,
+      perf: {
+        kind: "combo",
+        viewsMedian: replayCombo.viewsMedian,
+        postCount: replayCombo.postCount,
+      },
+    };
+  })();
+
   return (
     <section className="space-y-2">
       <Button
@@ -786,10 +828,32 @@ function ComboSection({ combos }: { combos: ComboPerf[] }) {
                 ) : (
                   <StatusBadge status={c.status} postCount={c.postCount} />
                 )}
+                {parseComboKey(c.comboKey) && (
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    className="shrink-0 gap-1"
+                    onClick={() => setReplayCombo(c)}
+                  >
+                    <RepeatIcon className="size-3" />
+                    Rejouer
+                  </Button>
+                )}
               </div>
             </div>
           ))}
         </div>
+      )}
+
+      {/* Rejeu depuis un combo agrégé : modale pré-remplie (perf source = agrégat). */}
+      {replaySource && (
+        <AssignScriptCampaignDialog
+          campaignId={campaignId}
+          campaignName={campaignName}
+          open
+          onOpenChange={(o) => !o && setReplayCombo(null)}
+          replaySource={replaySource}
+        />
       )}
     </section>
   );

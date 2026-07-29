@@ -65,6 +65,7 @@ import {
 } from "@/components/admin/AssignmentsCalendar";
 import { AssignmentAttachments } from "@/components/admin/AssignmentAttachments";
 import { AssignmentDetailSheet } from "@/components/admin/AssignmentDetailSheet";
+import { ImposedComboBadge } from "@/components/admin/ImposedComboBadge";
 import { FilterMultiSelect } from "@/components/filters/FilterMultiSelect";
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
 import { canDeleteAssignment } from "@/lib/assignment-delete";
@@ -476,6 +477,9 @@ export default function AssignmentsPage() {
                             <div className="font-medium text-slate-900">
                               {a.scriptCampaignName}
                             </div>
+                            {a.comboImposed && (
+                              <ImposedComboBadge />
+                            )}
                             <div className="text-xs text-slate-500">
                               {a.comboSummary}
                             </div>

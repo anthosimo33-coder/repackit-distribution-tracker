@@ -33,6 +33,12 @@ import { convexErrorMessage } from "@/lib/convex-error";
 import { Loader2Icon, VideoIcon } from "lucide-react";
 import { SCRIPT_TIERS, tierLabel } from "@/lib/script-tier";
 import { AssignmentPlanningCalendar } from "@/components/admin/AssignmentPlanningCalendar";
+import {
+  ChosenComboPicker,
+  EMPTY_CHOSEN,
+  type ChosenBricks,
+  type ReplaySource,
+} from "@/components/admin/ChosenComboPicker";
 
 /**
  * Chantier C — assigne une campagne de scripts à UN créateur, sur 1 à 3 CIBLES
@@ -68,11 +74,18 @@ export function AssignScriptCampaignDialog({
   campaignName,
   open,
   onOpenChange,
+  replaySource,
 }: {
   campaignId: Id<"scriptCampaigns">;
   campaignName: string;
   open: boolean;
   onOpenChange: (o: boolean) => void;
+  /**
+   * Pré-remplissage « Rejouer ce script » : ouvre en mode « Combinaison choisie »
+   * avec les 3 briques de la source + le panneau de perf source. Absent = modale
+   * normale (auto par défaut, « choisie » from scratch possible).
+   */
+  replaySource?: ReplaySource;
 }) {
   const creators = useProjectQuery(
     api.assignments.listAssignableCreators,
@@ -97,6 +110,16 @@ export function AssignScriptCampaignDialog({
   const videoInspirations = useProjectQuery(
     api.inspirations.listInspirations,
     open ? { types: ["video"] } : "skip",
+  );
+
+  // ── Mode COMBO : "auto" (tirage serveur anti-coordination) ou "chosen"
+  // (combinaison IMPOSÉE — rejeu ou choix manuel). getCampaign (contenu des
+  // briques, pour l'aperçu + la validation des slots) n'est chargé qu'en "chosen".
+  const [comboMode, setComboMode] = useState<"auto" | "chosen">("auto");
+  const [chosenBricks, setChosenBricks] = useState<ChosenBricks>(EMPTY_CHOSEN);
+  const campaign = useProjectQuery(
+    api.scripts.getCampaign,
+    open && comboMode === "chosen" ? { id: campaignId } : "skip",
   );
 
   const [picks, setPicks] = useState<Record<Platform, string>>({
@@ -163,6 +186,19 @@ export function AssignScriptCampaignDialog({
       setBulkPlatforms(new Set<Platform>(["TikTok"]));
       setSelectedCreators(new Set());
       setConfirmOpen(false);
+      // Combo : pré-rempli en « Combinaison choisie » si on rejoue une source,
+      // sinon « auto » (comportement historique). Le pré-remplissage porte les
+      // brickIds figés de la source (le picker signale supprimée/désactivée).
+      setComboMode(replaySource ? "chosen" : "auto");
+      setChosenBricks(
+        replaySource
+          ? {
+              hook: replaySource.bricks.hookBrickId,
+              flux: replaySource.bricks.fluxBrickId,
+              cta: replaySource.bricks.ctaBrickId,
+            }
+          : EMPTY_CHOSEN,
+      );
     }
   }
 
@@ -189,12 +225,41 @@ export function AssignScriptCampaignDialog({
     accountId: picks[p] as Id<"comptes">,
   }));
 
+  // Mode « Combinaison choisie » : validité = 3 briques choisies ET ACTIVES (bon
+  // kind), d'après les briques VIVANTES (getCampaign). Le serveur revalide
+  // (défensif : brique supprimée/désactivée entre l'affichage et l'envoi).
+  const activeBrickKind = useMemo(() => {
+    const m = new Map<string, "hook" | "flux" | "cta">();
+    for (const b of campaign?.bricks ?? []) {
+      if (
+        b.active &&
+        (b.kind === "hook" || b.kind === "flux" || b.kind === "cta")
+      ) {
+        m.set(b._id, b.kind);
+      }
+    }
+    return m;
+  }, [campaign]);
+  const chosenComboValid =
+    activeBrickKind.get(chosenBricks.hook) === "hook" &&
+    activeBrickKind.get(chosenBricks.flux) === "flux" &&
+    activeBrickKind.get(chosenBricks.cta) === "cta";
+  // Payload envoyé à la mutation quand une combinaison est imposée (rejeu / choix).
+  const imposedCombo =
+    comboMode === "chosen" && chosenComboValid
+      ? {
+          hookBrickId: chosenBricks.hook as Id<"scriptBricks">,
+          fluxBrickId: chosenBricks.flux as Id<"scriptBricks">,
+          ctaBrickId: chosenBricks.cta as Id<"scriptBricks">,
+        }
+      : undefined;
+
   // Combos UNIQUES encore attribuables à ce créateur sur les plateformes
   // choisies (unicité comboKey × créateur × plateforme). Sert à prévenir AVANT
   // d'assigner s'il en manque pour le nombre de vidéos demandé.
   const combosInfo = useProjectQuery(
     api.scripts.availableCombosForAssignment,
-    open && creatorId !== NONE && targets.length > 0
+    open && comboMode === "auto" && creatorId !== NONE && targets.length > 0
       ? {
           campaignId,
           creatorId: creatorId as Id<"creators">,
@@ -227,6 +292,10 @@ export function AssignScriptCampaignDialog({
       toast.error("Le barème de paie est requis.");
       return;
     }
+    if (comboMode === "chosen" && !imposedCombo) {
+      toast.error("Choisis les 3 briques du combo (hook, flux, cta).");
+      return;
+    }
     if (!slotsComplete) {
       toast.error("Place chaque vidéo sur un jour du calendrier.");
       return;
@@ -249,6 +318,13 @@ export function AssignScriptCampaignDialog({
         modelVideos:
           selectedModelVideos.length > 0 ? selectedModelVideos : undefined,
         postDates: postDatesPayload,
+        // Combinaison imposée (rejeu / choix manuel) + lignage vers la source.
+        ...(imposedCombo
+          ? {
+              imposedCombo,
+              replayedFrom: replaySource?.sourceAssignmentId ?? undefined,
+            }
+          : {}),
       });
       toast.success(
         `${res.created} vidéo${res.created > 1 ? "s" : ""} × ${targets.length} post${targets.length > 1 ? "s" : ""} assignée${res.created > 1 ? "s" : ""}.`,
@@ -360,6 +436,9 @@ export function AssignScriptCampaignDialog({
       return "Échéance invalide.";
     }
     if (pricingId === NONE) return "Le barème de paie est requis.";
+    if (comboMode === "chosen" && !imposedCombo) {
+      return "Choisis les 3 briques du combo (hook, flux, cta).";
+    }
     if (!slotsComplete)
       return "Place chaque vidéo sur un jour du calendrier.";
     return null;
@@ -403,6 +482,13 @@ export function AssignScriptCampaignDialog({
             selectedModelVideos.length > 0 ? selectedModelVideos : undefined,
           // Même répartition de dates pour chaque créateur (décision groupé).
           postDates: postDatesPayload,
+          // Même combinaison imposée pour chaque créateur (cas « rejouer chez 3 »).
+          ...(imposedCombo
+            ? {
+                imposedCombo,
+                replayedFrom: replaySource?.sourceAssignmentId ?? undefined,
+              }
+            : {}),
         });
         created += res.created;
         if (res.shortages.length > 0) shortNames.push(b.name);
@@ -463,10 +549,16 @@ export function AssignScriptCampaignDialog({
           troncation horizontale ; le contenu scrolle verticalement (max-h). */}
       <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Assigner « {campaignName} »</DialogTitle>
+          <DialogTitle>
+            {replaySource
+              ? `Rejouer un script — « ${campaignName} »`
+              : `Assigner « ${campaignName} »`}
+          </DialogTitle>
           <DialogDescription>
             {total > 0
-              ? `${Number(videos) || 0} vidéo(s) → ${total} post(s) — combos distincts (anti-coordination).`
+              ? comboMode === "chosen"
+                ? `${Number(videos) || 0} vidéo(s) → ${total} post(s) — même combinaison imposée.`
+                : `${Number(videos) || 0} vidéo(s) → ${total} post(s) — combos distincts (anti-coordination).`
               : "1 vidéo → N posts. Choisis le créateur puis 1 compte par plateforme."}
           </DialogDescription>
         </DialogHeader>
@@ -501,6 +593,51 @@ export function AssignScriptCampaignDialog({
                 {opt.label}
               </button>
             ))}
+          </div>
+
+          {/* Combinaison : AUTO (tirage serveur anti-coordination — défaut) ou
+              CHOISIE (imposée : « Rejouer ce script » pré-remplit ici, ou choix
+              from scratch). En choisie, la même combinaison va sur toutes les
+              vidéos/créateurs — aucune unicité, réutilisation volontaire. */}
+          <div className="space-y-2">
+            <div
+              role="radiogroup"
+              aria-label="Combinaison"
+              className="inline-flex rounded-md border border-slate-200 bg-white p-0.5"
+            >
+              {(
+                [
+                  { value: "auto", label: "Combinaison auto" },
+                  { value: "chosen", label: "Combinaison choisie" },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={comboMode === opt.value}
+                  onClick={() => setComboMode(opt.value)}
+                  disabled={submitting}
+                  className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                    comboMode === opt.value
+                      ? "bg-primary text-primary-foreground"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            {comboMode === "chosen" && (
+              <ChosenComboPicker
+                campaignId={campaignId}
+                bricks={campaign?.bricks}
+                value={chosenBricks}
+                onChange={setChosenBricks}
+                replaySource={replaySource}
+                disabled={submitting}
+              />
+            )}
           </div>
 
           {/* Créateur (un seul) */}
@@ -752,8 +889,10 @@ export function AssignScriptCampaignDialog({
               </p>
             )}
 
-          {/* Filtre tier de hook + barème de paie (pricing OBLIGATOIRE) */}
-          <div className="grid grid-cols-2 gap-4">
+          {/* Filtre tier de hook (AUTO uniquement — sans objet quand le hook est
+              explicitement choisi) + barème de paie (pricing OBLIGATOIRE). */}
+          <div className={comboMode === "auto" ? "grid grid-cols-2 gap-4" : ""}>
+            {comboMode === "auto" && (
             <div className="space-y-1.5">
               <Label htmlFor="tier">Tier de hook</Label>
               <Select value={tier} onValueChange={(v) => v && setTier(v)}>
@@ -772,6 +911,7 @@ export function AssignScriptCampaignDialog({
                 </SelectContent>
               </Select>
             </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="pricing">Pricing (barème de paie)</Label>
               <Select
@@ -942,7 +1082,12 @@ export function AssignScriptCampaignDialog({
           {mode === "single" ? (
             <Button
               onClick={handleSubmit}
-              disabled={submitting || pricingId === NONE || !slotsComplete}
+              disabled={
+                submitting ||
+                pricingId === NONE ||
+                !slotsComplete ||
+                (comboMode === "chosen" && !chosenComboValid)
+              }
             >
               {submitting && (
                 <Loader2Icon className="mr-2 size-4 animate-spin" />
@@ -960,7 +1105,10 @@ export function AssignScriptCampaignDialog({
                 setConfirmOpen(true);
               }}
               disabled={
-                submitting || selectedRows.length === 0 || !slotsComplete
+                submitting ||
+                selectedRows.length === 0 ||
+                !slotsComplete ||
+                (comboMode === "chosen" && !chosenComboValid)
               }
               data-testid="bulk-assign"
             >

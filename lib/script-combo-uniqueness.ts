@@ -18,6 +18,13 @@ export interface AssignmentComboUsage {
   comboKey: string | null | undefined;
   /** Plateformes ciblées par l'assignment (1 assignment = 1+ posts). */
   platforms: string[];
+  /**
+   * Combo IMPOSÉ (« Rejouer ce script » / choix manuel). Une ligne imposée ne
+   * consomme PAS la rotation auto : elle est ignorée du calcul d'unicité →
+   * le triplet imposé reste piochable en auto (« un choix manuel ne retire rien
+   * de la rotation »). RÉPLIQUE serveur : convex/scripts.usedComboKeysForPlatforms.
+   */
+  comboImposed?: boolean;
 }
 
 /**
@@ -33,6 +40,7 @@ export function isComboAvailableForCreatorPlatform(input: {
 }): boolean {
   return !input.existingAssignments.some(
     (a) =>
+      a.comboImposed !== true &&
       a.creatorId === input.creatorId &&
       a.comboKey === input.comboKey &&
       a.platforms.includes(input.platform),
@@ -54,6 +62,7 @@ export function usedComboKeysForCreatorPlatforms(input: {
   const used = new Set<string>();
   for (const a of input.existingAssignments) {
     if (a.creatorId !== input.creatorId || !a.comboKey) continue;
+    if (a.comboImposed === true) continue; // imposé → reste dispo en auto
     if (a.platforms.some((p) => targetSet.has(p))) used.add(a.comboKey);
   }
   return used;
