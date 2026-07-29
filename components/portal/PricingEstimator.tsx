@@ -19,7 +19,13 @@ import { formatMoney, formatViews } from "@/lib/format-rate";
  */
 const STEPS = [0, 1_000, 5_000, 10_000, 50_000, 100_000, 500_000, 1_000_000, 5_000_000];
 
-export function PricingEstimator({ snapshot }: { snapshot: PricingSnapshot }) {
+export function PricingEstimator({
+  snapshot,
+  currency,
+}: {
+  snapshot: PricingSnapshot;
+  currency?: string | null;
+}) {
   const [idx, setIdx] = useState(3); // 10k par défaut
   const views = STEPS[idx];
   const e = estimateMissionEarnings(snapshot, views);
@@ -31,7 +37,7 @@ export function PricingEstimator({ snapshot }: { snapshot: PricingSnapshot }) {
           Estimation pour {formatViews(views)} vues
         </span>
         <span className="text-2xl font-semibold tabular-nums text-slate-900">
-          {formatMoney(e.total)}
+          {formatMoney(e.total, currency)}
         </span>
       </div>
       <input
@@ -47,18 +53,18 @@ export function PricingEstimator({ snapshot }: { snapshot: PricingSnapshot }) {
       <ul className="space-y-1 text-sm text-slate-600">
         <li className="flex justify-between">
           <span>Base (fixe par vidéo)</span>
-          <span className="tabular-nums">{formatMoney(e.fixed)}</span>
+          <span className="tabular-nums">{formatMoney(e.fixed, currency)}</span>
         </li>
         {snapshot.tauxCPM > 0 && (
           <li className="flex justify-between">
             <span>CPM (sur tes vues)</span>
-            <span className="tabular-nums">{formatMoney(e.cpm)}</span>
+            <span className="tabular-nums">{formatMoney(e.cpm, currency)}</span>
           </li>
         )}
         <li className="flex justify-between border-t border-slate-100 pt-1 font-semibold text-slate-900">
           <span>Total estimé</span>
           <span className="tabular-nums" data-testid="earnings-total">
-            {formatMoney(e.total)}
+            {formatMoney(e.total, currency)}
           </span>
         </li>
       </ul>

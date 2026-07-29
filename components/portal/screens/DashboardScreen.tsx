@@ -98,6 +98,9 @@ function formatDate(ts: number) {
 export default function DashboardScreen() {
   const { current } = useCreatorProject();
   const projectId = current.projectId;
+  // Devise de la paie créatrices ($ Snytch ; null → sans symbole), threadée aux
+  // sous-composants qui rendent des montants.
+  const payCurrency = current.payCurrency;
   const name = current.creatorName;
   const base = usePortalBase();
 
@@ -222,7 +225,7 @@ export default function DashboardScreen() {
           {/* 1 bis. Prochain palier de récompense (compact) — sous « à produire »
               qui reste la priorité. Tap → écran Progression. null si aucun
               prochain palier (grille absente ou tout débloqué). */}
-          <NextTierCard projectId={projectId} base={base} />
+          <NextTierCard projectId={projectId} base={base} currency={payCurrency} />
 
           {/* 2. Warmups à cocher aujourd'hui — masqué pendant l'onboarding pur
               (la checklist porte déjà l'étape warmup). */}
@@ -315,7 +318,7 @@ export default function DashboardScreen() {
 
       {/* Récap « Mes vidéos publiées » (Snytch) — 3 chiffres du mois + détail. */}
       {isSnytchProject(current.slug) && (
-        <VideoStatsCard projectId={projectId} base={base} />
+        <VideoStatsCard projectId={projectId} base={base} currency={payCurrency} />
       )}
 
       {/* 5. Aperçu gains + prochaine paie — toujours visible. */}
@@ -325,6 +328,7 @@ export default function DashboardScreen() {
         nextPayoutTs={nextPayoutTs}
         payoutDays={payoutDays}
         detailHref={portalHref(base, "/paiements")}
+        currency={payCurrency}
       />
 
       {/* 6. Classement du projet — gains de tous visibles (transparence assumée),
@@ -667,9 +671,11 @@ function BlockCta({ href, label }: { href: string; label: string }) {
 function NextTierCard({
   projectId,
   base,
+  currency,
 }: {
   projectId: Id<"projects">;
   base: string;
+  currency?: string | null;
 }) {
   const raw = useMyProgression(projectId);
   const p = raw ? buildProgression(raw) : null;
@@ -694,7 +700,7 @@ function NextTierCard({
               </p>
               <p className="truncate text-xs text-slate-500">
                 {reward.kind === "cash"
-                  ? formatMoney(reward.amount)
+                  ? formatMoney(reward.amount, currency)
                   : `${reward.emoji} ${reward.label}`}
               </p>
             </div>
@@ -848,9 +854,11 @@ function AssignmentItem({
 function VideoStatsCard({
   projectId,
   base,
+  currency,
 }: {
   projectId: Id<"projects">;
   base: string;
+  currency?: string | null;
 }) {
   const stats = useMyVideoStats(projectId);
   if (!stats || stats.onlineCount === 0) return null;
@@ -867,7 +875,7 @@ function VideoStatsCard({
         <div className="grid grid-cols-3 gap-2">
           <VideoStat label="En ligne" value={String(stats.onlineCount)} />
           <VideoStat label="Vues" value={formatViews(stats.totalViews)} />
-          <VideoStat label="Gains" value={formatMoney(stats.totalGain)} />
+          <VideoStat label="Gains" value={formatMoney(stats.totalGain, currency)} />
         </div>
         <Link
           href={portalHref(base, "/videos")}
@@ -901,12 +909,14 @@ function EarningsOverview({
   nextPayoutTs,
   payoutDays,
   detailHref,
+  currency,
 }: {
   loading: boolean;
   dueNow: number;
   nextPayoutTs: number | null;
   payoutDays: number | null;
   detailHref: string;
+  currency?: string | null;
 }) {
   return (
     <Card>
@@ -925,7 +935,7 @@ function EarningsOverview({
             className="text-3xl font-semibold tabular-nums text-slate-900"
             data-testid="dashboard-due"
           >
-            {formatMoney(dueNow)}
+            {formatMoney(dueNow, currency)}
           </p>
         )}
         {nextPayoutTs !== null && payoutDays !== null && (

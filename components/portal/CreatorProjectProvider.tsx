@@ -32,6 +32,8 @@ export type CreatorProject = {
   logoUrl: string | null;
   payoutDay: number;
   creatorName: string | null;
+  /** Devise de la PAIE créatrices (dollars pour Snytch). null → sans symbole. */
+  payCurrency: string | null;
 };
 
 type CreatorProjectContextValue = {

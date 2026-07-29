@@ -5,6 +5,7 @@ import {
   useProjectQuery,
   useProjectMutation,
 } from "@/components/project/use-project-convex";
+import { useProject } from "@/components/project/ProjectProvider";
 import { api } from "@/convex/_generated/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -74,6 +75,8 @@ const nf = new Intl.NumberFormat("fr-FR");
 const formatDate = (ts: number) => new Date(ts).toLocaleDateString("fr-FR");
 
 export default function ValidationPage() {
+  // Devise de la PAIE créatrices (dollars) — pour les montants de bonus affichés.
+  const payCurrency = useProject().project.payCurrency;
   const toReview = useProjectQuery(api.assignments.listVideoSubmitted, {});
   const managedToPublish = useProjectQuery(
     api.assignments.listManagedToPublish,
@@ -197,7 +200,11 @@ export default function ValidationPage() {
                 </TableHeader>
                 <TableBody>
                   {bonusRows.map((r) => (
-                    <BonusRow key={r.assignmentId} r={r} />
+                    <BonusRow
+                      key={r.assignmentId}
+                      r={r}
+                      currency={payCurrency}
+                    />
                   ))}
                 </TableBody>
               </Table>
@@ -588,7 +595,14 @@ function PublishedTableRow({ p }: { p: PublishedRow }) {
   );
 }
 
-function BonusRow({ r }: { r: BonusRowData }) {
+function BonusRow({
+  r,
+  currency,
+}: {
+  r: BonusRowData;
+  /** Devise de la PAIE créatrices (dollars), threadée depuis ValidationPage. */
+  currency?: string | null;
+}) {
   const compute = useProjectMutation(api.assignments.computeViewBonus);
   const [open, setOpen] = useState(false);
   const [views, setViews] = useState("");
@@ -608,7 +622,7 @@ function BonusRow({ r }: { r: BonusRowData }) {
     setBusy(true);
     try {
       const res = await compute({ id: r.assignmentId, views: v });
-      toast.success(`Bonus crédité : ${formatMoney(res.bonus)}`);
+      toast.success(`Bonus crédité : ${formatMoney(res.bonus, currency)}`);
       setOpen(false);
     } catch (e) {
       toast.error(convexErrorMessage(e, "Échec du calcul du bonus"));
@@ -634,7 +648,7 @@ function BonusRow({ r }: { r: BonusRowData }) {
         )}
       </TableCell>
       <TableCell className="text-right tabular-nums text-slate-700">
-        {r.existingBonus !== null ? formatMoney(r.existingBonus) : "—"}
+        {r.existingBonus !== null ? formatMoney(r.existingBonus, currency) : "—"}
       </TableCell>
       <TableCell className="text-right">
         <Button

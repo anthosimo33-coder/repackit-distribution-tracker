@@ -13,6 +13,7 @@ import {
 import { formatNumber } from "@/lib/format";
 import { formatMoney, formatViews } from "@/lib/format-rate";
 import { buildCoherenceChecks } from "@/lib/analytics-hub";
+import { effectiveFxRate } from "@/lib/currency";
 import {
   KpiTile,
   HubCardHeader,
@@ -89,7 +90,16 @@ export function OverviewTab({
   const signupsPts: TrendPoint[] = daily.map((d) => ({ ts: d.ts, value: d.signups }));
   const subsPts: TrendPoint[] = daily.map((d) => ({ ts: d.ts, value: d.subs }));
 
-  const currency = revenue?.currency ?? undefined;
+  // Deux devises : le REVENU Whop (€, currency de la donnée) et la PAIE créatrices
+  // ($, payCurrency). Jamais l'une pour l'autre.
+  const currency = revenue?.currency ?? undefined; // revenu (€)
+  const payCurrency = attribution?.payCurrency ?? undefined; // coût créateurs ($)
+  // Taux paie→revenu pour la marge (croise coût $ et revenu €) ; null → non calculée.
+  const fx = effectiveFxRate(
+    attribution?.payCurrency,
+    revenue?.currency,
+    attribution?.fxRateToRevenue,
+  );
 
   // Garde-fou C2 : écart dashboard vs Whop.
   const checks = useMemo(() => {
@@ -159,9 +169,11 @@ export function OverviewTab({
     viewCounters && totalClients !== null && totalClients > 0
       ? Math.round(viewCounters.promo / totalClients)
       : null;
+  // Marge % = (revenu − coût converti) / revenu. Coût ($) converti vers le revenu
+  // (€) via le taux ; sans taux (fx null), pas de marge (jamais mélanger deux devises).
   const margin =
-    revenue?.ltv != null && cac !== null && revenue.ltv > 0
-      ? Math.round(((revenue.ltv - cac) / revenue.ltv) * 1000) / 10
+    revenue?.ltv != null && cac !== null && revenue.ltv > 0 && fx !== null
+      ? Math.round(((revenue.ltv - cac * fx) / revenue.ltv) * 1000) / 10
       : null;
 
   // Table « Détail par jour » : net Whop joint par jour Europe/Paris, plus récent d'abord.
@@ -227,7 +239,7 @@ export function OverviewTab({
         />
         <KpiTile
           label="Coût d'acquisition"
-          value={cac === null ? "—" : formatMoney(cac, currency)}
+          value={cac === null ? "—" : formatMoney(cac, payCurrency)}
           delta={null}
           hint={margin !== null ? `marge ${formatNumber(margin)} %` : "jours solo uniquement"}
           info={EXPLAIN.cac}

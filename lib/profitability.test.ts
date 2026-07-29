@@ -7,15 +7,23 @@ import {
   type ProfitabilityInput,
 } from "./profitability";
 
-describe("computeMargin — revenu net − coût créateurs", () => {
-  it("marge positive", () => {
-    expect(computeMargin(1000, 400)).toBe(600);
+describe("computeMargin — revenu net − coût créateurs converti", () => {
+  it("même devise (taux 1) : marge positive", () => {
+    expect(computeMargin(1000, 400, 1)).toBe(600);
   });
-  it("marge négative (coût > revenu)", () => {
-    expect(computeMargin(300, 500)).toBe(-200);
+  it("même devise (taux 1) : marge négative (coût > revenu)", () => {
+    expect(computeMargin(300, 500, 1)).toBe(-200);
+  });
+  it("convertit le coût par le taux (coût $ → devise du revenu €)", () => {
+    // 1000 € − 400 $ × 0,5 = 1000 − 200 = 800 €.
+    expect(computeMargin(1000, 400, 0.5)).toBe(800);
   });
   it("arrondi au centime", () => {
-    expect(computeMargin(100.005, 0)).toBe(100.01);
+    expect(computeMargin(100.005, 0, 1)).toBe(100.01);
+  });
+  it("SANS taux (devises non reliées) → null, jamais une soustraction mixte", () => {
+    expect(computeMargin(1000, 400, null)).toBeNull();
+    expect(computeMargin(1000, 400, 0)).toBeNull();
   });
 });
 
@@ -48,6 +56,7 @@ describe("computeProfitability — le toggle change les vues/RPM, JAMAIS le reve
     creatorCost: 400,
     monetizedViews: 400_000, // posts non-warmup
     warmupViews: 100_000, // posts warmup
+    fxRateToRevenue: 1, // même devise pour ce jeu de test
   };
 
   it("sans warmup = vrai RPM business (dénominateur = vues monétisées)", () => {

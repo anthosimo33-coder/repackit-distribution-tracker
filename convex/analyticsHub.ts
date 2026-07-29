@@ -131,6 +131,10 @@ export interface AttributionResult {
   attributionAvailable: boolean;
   posthogConfigured: boolean;
   computedAt: number | null;
+  /** Devise de la PAIE créatrices (dollars) — le coût/CAC est dans cette devise. */
+  payCurrency: string | null;
+  /** Taux paie→revenu pour la marge (croise coût $ et revenu €). null → non calculée. */
+  fxRateToRevenue: number | null;
 }
 
 /**
@@ -302,6 +306,8 @@ export const getAttribution = adminQuery({
       attributionAvailable: daily.length > 0,
       posthogConfigured: project?.posthog !== undefined,
       computedAt: cacheRow?.computedAt ?? null,
+      payCurrency: project?.payCurrency ?? null,
+      fxRateToRevenue: project?.fxRateToRevenue ?? null,
     };
   },
 });

@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatMoney } from "@/lib/format-rate";
 import { formatNumber } from "@/lib/format";
 import { computeProfitability } from "@/lib/profitability";
+import { effectiveFxRate } from "@/lib/currency";
 import { cn } from "@/lib/utils";
 import { InfoIcon, TrendingUpIcon } from "lucide-react";
 
@@ -24,8 +25,14 @@ function formatMonth(period: string): string {
   });
 }
 
-function formatRpm(rpm: number | null): string {
-  return rpm === null ? "—" : formatMoney(rpm);
+/** RPM = revenu net / 1000 vues → devise du REVENU (€). */
+function formatRpm(rpm: number | null, currency: string | null): string {
+  return rpm === null ? "—" : formatMoney(rpm, currency);
+}
+
+/** Marge dans la devise du revenu ; « — » si non calculable (devises non reliées). */
+function formatMargin(margin: number | null, currency: string | null): string {
+  return margin === null ? "—" : formatMoney(margin, currency);
 }
 
 function Metric({
@@ -68,8 +75,15 @@ export function ProfitabilityCard() {
   if (data === undefined) return <Skeleton className="h-56 w-full" />;
   if (!data.configured) return null;
 
-  const total = computeProfitability(data.total, includeWarmup);
-  const marginPositive = total.margin >= 0;
+  // Deux devises : revenu Whop (data.currency, €) et paie créatrices (data.payCurrency,
+  // $). Le taux effectif relie les deux pour la marge (null → marge non calculée).
+  const revenueCurrency = data.currency;
+  const payCurrency = data.payCurrency;
+  const fx = effectiveFxRate(payCurrency, revenueCurrency, data.fxRateToRevenue);
+  const withFx = <T extends object>(x: T) => ({ ...x, fxRateToRevenue: fx });
+
+  const total = computeProfitability(withFx(data.total), includeWarmup);
+  const marginPositive = total.margin !== null && total.margin >= 0;
 
   return (
     <Card>
@@ -95,31 +109,37 @@ export function ProfitabilityCard() {
           <div
             className={cn(
               "text-3xl font-semibold tracking-tight",
-              marginPositive ? "text-emerald-700" : "text-rose-600",
+              total.margin === null
+                ? "text-slate-400"
+                : marginPositive
+                  ? "text-emerald-700"
+                  : "text-rose-600",
             )}
           >
-            {formatMoney(total.margin)}
+            {formatMargin(total.margin, revenueCurrency)}
           </div>
           <div className="text-[11px] text-slate-400">
-            revenu net − coût créateurs
+            {total.margin === null
+              ? "revenu et coût dans deux devises : renseigne un taux de change pour la marge"
+              : "revenu net − coût créateurs converti"}
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <Metric
             label="Revenu Whop"
-            value={formatMoney(total.revenueNet)}
+            value={formatMoney(total.revenueNet, revenueCurrency)}
             hint="net — après frais Whop"
             valueClass="text-emerald-700"
           />
           <Metric
             label="Coût créateurs"
-            value={formatMoney(total.creatorCost)}
+            value={formatMoney(total.creatorCost, payCurrency)}
             hint="fixe + CPM + bonus"
           />
           <Metric
             label={includeWarmup ? "RPM dilué" : "RPM business"}
-            value={formatRpm(total.rpm)}
+            value={formatRpm(total.rpm, revenueCurrency)}
             hint={
               includeWarmup ? "/ 1000 vues (warmup inclus)" : "/ 1000 vues monétisées"
             }
@@ -155,7 +175,7 @@ export function ProfitabilityCard() {
               </thead>
               <tbody>
                 {data.months.map((m) => {
-                  const row = computeProfitability(m, includeWarmup);
+                  const row = computeProfitability(withFx(m), includeWarmup);
                   return (
                     <tr
                       key={m.period}
@@ -165,24 +185,28 @@ export function ProfitabilityCard() {
                         {formatMonth(m.period)}
                       </td>
                       <td className="py-1.5 px-3 text-right tabular-nums text-emerald-700">
-                        {formatMoney(row.revenueNet)}
+                        {formatMoney(row.revenueNet, revenueCurrency)}
                       </td>
                       <td className="py-1.5 px-3 text-right tabular-nums text-slate-600">
-                        {formatMoney(row.creatorCost)}
+                        {formatMoney(row.creatorCost, payCurrency)}
                       </td>
                       <td
                         className={cn(
                           "py-1.5 px-3 text-right font-medium tabular-nums",
-                          row.margin >= 0 ? "text-emerald-700" : "text-rose-600",
+                          row.margin === null
+                            ? "text-slate-400"
+                            : row.margin >= 0
+                              ? "text-emerald-700"
+                              : "text-rose-600",
                         )}
                       >
-                        {formatMoney(row.margin)}
+                        {formatMargin(row.margin, revenueCurrency)}
                       </td>
                       <td className="py-1.5 px-3 text-right tabular-nums text-slate-500">
                         {formatNumber(row.views)}
                       </td>
                       <td className="py-1.5 pl-3 text-right tabular-nums text-slate-700">
-                        {formatRpm(row.rpm)}
+                        {formatRpm(row.rpm, revenueCurrency)}
                       </td>
                     </tr>
                   );

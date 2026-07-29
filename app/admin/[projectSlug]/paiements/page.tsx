@@ -5,6 +5,7 @@ import {
   useProjectQuery,
   useProjectMutation,
 } from "@/components/project/use-project-convex";
+import { useProject } from "@/components/project/ProjectProvider";
 import { api } from "@/convex/_generated/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -88,11 +89,22 @@ const KIND_BADGE: Record<string, string> = {
   bonus_tier: "bg-amber-50 text-amber-600",
 };
 
-function BreakdownLine({ label, amount }: { label: string; amount: number }) {
+function BreakdownLine({
+  label,
+  amount,
+  currency,
+}: {
+  label: string;
+  amount: number;
+  /** Devise de la PAIE créatrices (dollars), threadée depuis PaymentRow. */
+  currency?: string | null;
+}) {
   return (
     <li className="flex items-center justify-between gap-4 text-slate-600">
       <span>{label}</span>
-      <span className="tabular-nums text-slate-700">{formatMoney(amount)}</span>
+      <span className="tabular-nums text-slate-700">
+        {formatMoney(amount, currency)}
+      </span>
     </li>
   );
 }
@@ -116,6 +128,9 @@ const STATUS_BADGE: Record<string, { label: string; className: string }> = {
 };
 
 export default function PaiementsPage() {
+  // Devise de la PAIE créatrices (dollars, projects.payCurrency) — appliquée à
+  // TOUS les montants de cet écran (cumul, en attente, cycles, lignes).
+  const payCurrency = useProject().project.payCurrency;
   const payments = useProjectQuery(api.payments.listPayments, {});
   const rows = payments ?? [];
   const total = rows.reduce((s, p) => s + p.totalDue, 0);
@@ -224,7 +239,7 @@ export default function PaiementsPage() {
               ? "Chargement…"
               : rows.length === 0
                 ? "Aucun paiement pour l'instant."
-                : `${rows.length} cycle${rows.length > 1 ? "s" : ""} · ${formatMoney(total)} dû (${formatMoney(unpaidTotal)} en attente)`}
+                : `${rows.length} cycle${rows.length > 1 ? "s" : ""} · ${formatMoney(total, payCurrency)} dû (${formatMoney(unpaidTotal, payCurrency)} en attente)`}
           </p>
           <p className="text-xs text-slate-400">
             Cycles de 30 jours propres à chaque créateur (ancrés sur son 1er
@@ -296,7 +311,7 @@ export default function PaiementsPage() {
                     {payableRows.length > 1 ? "s" : ""} dû
                     {payableRows.length > 1 ? "s" : ""} ·{" "}
                     <span className="font-medium text-slate-900">
-                      {formatMoney(payableTotal)}
+                      {formatMoney(payableTotal, payCurrency)}
                     </span>
                   </>
                 ) : (
@@ -307,7 +322,7 @@ export default function PaiementsPage() {
                     cycle{selectedRows.length > 1 ? "s" : ""} sélectionné
                     {selectedRows.length > 1 ? "s" : ""} ·{" "}
                     <span className="font-medium text-slate-900">
-                      {formatMoney(selectedTotal)}
+                      {formatMoney(selectedTotal, payCurrency)}
                     </span>
                   </>
                 )}
@@ -368,6 +383,7 @@ export default function PaiementsPage() {
                     <PaymentRow
                       key={p.key}
                       p={p}
+                      currency={payCurrency}
                       selectable={isBulkPayable(p)}
                       checked={selected.has(p.key)}
                       onToggle={() => toggleRow(p.key)}
@@ -395,7 +411,7 @@ export default function PaiementsPage() {
             </DialogTitle>
             <DialogDescription>
               {selectedCreators} créateur{selectedCreators > 1 ? "s" : ""} ·
-              total {formatMoney(selectedTotal)}.
+              total {formatMoney(selectedTotal, payCurrency)}.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2 text-sm text-slate-600">
@@ -425,7 +441,7 @@ export default function PaiementsPage() {
               {bulkBusy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
               {bulkBusy
                 ? `Traitement… ${bulkDone}/${bulkTotal}`
-                : `Confirmer · ${formatMoney(selectedTotal)}`}
+                : `Confirmer · ${formatMoney(selectedTotal, payCurrency)}`}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -436,12 +452,15 @@ export default function PaiementsPage() {
 
 function PaymentRow({
   p,
+  currency,
   selectable,
   checked,
   onToggle,
   selectionDisabled,
 }: {
   p: Payment;
+  /** Devise de la PAIE créatrices (dollars) — montant du cycle + lignes. */
+  currency?: string | null;
   /** false pour un cycle déjà payé ou une row orpheline (cf isBulkPayable). */
   selectable: boolean;
   checked: boolean;
@@ -514,7 +533,7 @@ function PaymentRow({
           </span>
         </TableCell>
         <TableCell className="text-right font-medium tabular-nums text-slate-900">
-          {formatMoney(p.totalDue)}
+          {formatMoney(p.totalDue, currency)}
         </TableCell>
         <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
           {p.status === "paid" ? (
@@ -544,15 +563,18 @@ function PaymentRow({
                 <BreakdownLine
                   label="Fixe (vidéos publiées)"
                   amount={p.pricingBreakdown.fixedTotal}
+                  currency={currency}
                 />
                 <BreakdownLine
                   label="CPM (vues cumulées)"
                   amount={p.pricingBreakdown.cpmTotal}
+                  currency={currency}
                 />
                 {p.pricingBreakdown.bonusTierCashTotal > 0 && (
                   <BreakdownLine
                     label="Bonus paliers (cash)"
                     amount={p.pricingBreakdown.bonusTierCashTotal}
+                    currency={currency}
                   />
                 )}
               </ul>
@@ -576,7 +598,7 @@ function PaymentRow({
                       {li.label}
                     </span>
                     <span className="tabular-nums text-slate-700">
-                      {formatMoney(li.amount)}
+                      {formatMoney(li.amount, currency)}
                     </span>
                   </li>
                 ))}

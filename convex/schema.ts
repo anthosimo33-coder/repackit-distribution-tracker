@@ -114,6 +114,18 @@ export default defineSchema({
         apiKeyEnvVar: v.string(),
       }),
     ),
+    // ─── Devises — le produit en a DEUX (jamais un défaut) ──────────────────
+    // La PAIE créatrices (fixe, CPM, bonus, paliers, dû, cycles) est en DOLLARS ;
+    // le REVENU Whop est en euros (sa devise vient de whopPayments.currency).
+    // `payCurrency` code ISO de la paie (ex. "usd"). ABSENT ⇒ les montants de paie
+    // s'affichent SANS symbole (jamais inventer une devise). Posé via
+    // projects.setProjectCurrencyBySlug (interne, `npx convex run`).
+    payCurrency: v.optional(v.string()),
+    // Taux de change pour EXPRIMER la paie dans la devise du revenu, UNIQUEMENT
+    // pour les métriques qui croisent les deux (marge = revenu − coût, marge %).
+    // 1 unité de payCurrency = fxRateToRevenue unités de la devise du revenu (ex.
+    // 1 $ = 0,92 €). ABSENT ⇒ la marge combinée n'est PAS calculée (ni inventée).
+    fxRateToRevenue: v.optional(v.number()),
   }).index("by_slug", ["slug"]),
 
   // Appartenance d'un user à un projet, avec rôle par-projet. Le superadmin

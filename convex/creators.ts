@@ -726,6 +726,8 @@ export const getMyCreatorProjects = authedQuery({
       logoUrl: string | null;
       payoutDay: number;
       creatorName: string | null;
+      /** Devise de la PAIE (dollars pour Snytch). null → montants sans symbole. */
+      payCurrency: string | null;
     }[] = [];
     for (const m of memberships) {
       if (m.role !== "creator") continue;
@@ -740,6 +742,7 @@ export const getMyCreatorProjects = authedQuery({
         logoUrl: project.logoUrl ?? null,
         payoutDay: project.payoutDay,
         creatorName: fiche?.name ?? null,
+        payCurrency: project.payCurrency ?? null,
       });
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));
