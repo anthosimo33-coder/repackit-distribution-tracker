@@ -718,6 +718,10 @@ export const assignScriptCampaign = adminMutation({
     // Lignage : assignation source d'où le combo est rejoué (stocké tel quel sur
     // chaque ligne créée). Ne concerne que l'imposé ; ignoré en auto.
     replayedFrom: v.optional(v.id("assignments")),
+    // Rejeu À L'IDENTIQUE : reproduit le combo FIGÉ de `replayedFrom` (texte qui a
+    // réellement marché) au lieu de réassembler depuis les briques vivantes.
+    // Nécessite `replayedFrom` avec un scriptCombo. Ignore `imposedCombo`.
+    replayVerbatim: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const campaign = await requireCampaign(ctx, args.campaignId, ctx.projectId);
@@ -737,10 +741,23 @@ export const assignScriptCampaign = adminMutation({
     // Lignage de rejeu : la source doit exister DANS le projet (défensif ; l'UI ne
     // l'envoie que depuis une vraie assignation source). N'impose rien sur son
     // combo — une variante (brique changée) reste rattachée à son origine.
+    let replaySrc: Doc<"assignments"> | null = null;
     if (args.replayedFrom !== undefined) {
-      const src = await ctx.db.get(args.replayedFrom);
-      if (!src || src.projectId !== ctx.projectId) {
+      replaySrc = await ctx.db.get(args.replayedFrom);
+      if (!replaySrc || replaySrc.projectId !== ctx.projectId) {
         throw new ConvexError("Assignation source du rejeu introuvable.");
+      }
+    }
+    // Rejeu à l'identique : exige une source portant un script FIGÉ (scriptCombo +
+    // comboKey) — on le REPRODUIT tel quel (cf branche de sélection ci-dessous).
+    if (args.replayVerbatim) {
+      if (!replaySrc) {
+        throw new ConvexError("Rejeu à l'identique : source du rejeu requise.");
+      }
+      if (!replaySrc.scriptCombo || !replaySrc.comboKey) {
+        throw new ConvexError(
+          "Rejeu à l'identique impossible : la source n'a pas de script figé.",
+        );
       }
     }
 
@@ -820,7 +837,23 @@ export const assignScriptCampaign = adminMutation({
     // imposé reste piochable en auto.
     let picked: ServerCombo[];
     let totalCombos: number;
-    if (args.imposedCombo) {
+    // Rejeu à l'identique : on REPRODUIT le combo FIGÉ de la source (validé plus
+    // haut). Le texte figé = ce qui a réellement marché ; comboKey de la source →
+    // attribution analytics au MÊME combo. Prioritaire sur imposedCombo (ignoré).
+    const verbatimCombo =
+      args.replayVerbatim && replaySrc?.scriptCombo && replaySrc.comboKey
+        ? { combo: replaySrc.scriptCombo, comboKey: replaySrc.comboKey }
+        : null;
+    if (verbatimCombo) {
+      const c = verbatimCombo.combo;
+      picked = Array.from({ length: args.videosPerCreator }, () => ({
+        hookBrickId: c.hookBrickId,
+        fluxBrickId: c.fluxBrickId,
+        ctaBrickId: c.ctaBrickId,
+        assembledScript: c.assembledScript,
+      }));
+      totalCombos = 1;
+    } else if (args.imposedCombo) {
       const combo = validateImposedCombo(
         allBricks,
         args.imposedCombo,
@@ -874,19 +907,35 @@ export const assignScriptCampaign = adminMutation({
       const insertedId = await ctx.db.insert("assignments", {
         projectId: ctx.projectId,
         creatorId: args.creatorId,
-        scriptCombo: {
-          campaignId: args.campaignId,
-          hookBrickId: combo.hookBrickId,
-          fluxBrickId: combo.fluxBrickId,
-          ctaBrickId: combo.ctaBrickId,
-          assembledScript: combo.assembledScript,
-        },
-        comboKey: comboKeyOf(combo),
+        scriptCombo: verbatimCombo
+          ? {
+              // COPIE du combo figé source (texte verbatim + ids + campagne source),
+              // sans editedOnce (verrou de correction propre à la source).
+              campaignId: verbatimCombo.combo.campaignId,
+              hookBrickId: verbatimCombo.combo.hookBrickId,
+              ...(verbatimCombo.combo.corpsBrickId
+                ? { corpsBrickId: verbatimCombo.combo.corpsBrickId }
+                : {}),
+              fluxBrickId: verbatimCombo.combo.fluxBrickId,
+              ctaBrickId: verbatimCombo.combo.ctaBrickId,
+              assembledScript: verbatimCombo.combo.assembledScript,
+            }
+          : {
+              campaignId: args.campaignId,
+              hookBrickId: combo.hookBrickId,
+              fluxBrickId: combo.fluxBrickId,
+              ctaBrickId: combo.ctaBrickId,
+              assembledScript: combo.assembledScript,
+            },
+        // Verbatim → comboKey EXACT de la source (gère le legacy 4 segments) ;
+        // sinon signature des 3 briques choisies.
+        comboKey: verbatimCombo ? verbatimCombo.comboKey : comboKeyOf(combo),
         // Rejeu / choix manuel — flag + lignage (undefined en auto → 0 bruit).
-        ...(args.imposedCombo ? { comboImposed: true } : {}),
+        ...(args.imposedCombo || verbatimCombo ? { comboImposed: true } : {}),
         ...(args.replayedFrom !== undefined
           ? { replayedFrom: args.replayedFrom }
           : {}),
+        ...(args.replayVerbatim ? { replayVerbatim: true } : {}),
         targets,
         dueDate: args.dueDate,
         status: managed ? "to_publish" : "todo",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useProjectQuery } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
@@ -17,6 +17,9 @@ import {
 import {
   assembleScript,
   KIND_LABELS,
+  normalizeAssembledForCompare,
+  splitAssembledIntoThree,
+  usefulShortLabel,
   type ScriptKind,
 } from "@/lib/scriptAssembly";
 import { comboKeyOf } from "@/lib/scriptCombos";
@@ -85,6 +88,8 @@ export function ChosenComboPicker({
   value,
   onChange,
   replaySource,
+  replayVerbatim,
+  onReplayVerbatimChange,
   disabled,
 }: {
   campaignId: Id<"scriptCampaigns">;
@@ -92,6 +97,9 @@ export function ChosenComboPicker({
   value: ChosenBricks;
   onChange: (v: ChosenBricks) => void;
   replaySource?: ReplaySource;
+  /** Rejeu à l'identique : envoyer le texte FIGÉ source plutôt que la reconstruction. */
+  replayVerbatim?: boolean;
+  onReplayVerbatimChange?: (v: boolean) => void;
   disabled?: boolean;
 }) {
   // Perf par brique/combo sur TOUT l'historique (fenêtre `latest`), pas j7.
@@ -173,7 +181,9 @@ export function ChosenComboPicker({
     activeByKind[kind].some((b) => b._id === value[kind]);
   const allChosen = KINDS.every((k) => isChosen(k));
 
-  const preview = allChosen
+  // Reconstruction à neuf depuis les briques VIVANTES (= ce que « texte actuel »
+  // enverrait). Base de la détection « éditée depuis » ET de l'aperçu par défaut.
+  const reconstructed = allChosen
     ? assembleScript(
         {
           hook: contentOf(value.hook),
@@ -193,11 +203,52 @@ export function ChosenComboPicker({
 
   // Éditée depuis : mêmes briques que la source, mais le réassemblage à neuf
   // diffère du texte FIGÉ de la source → une brique a été éditée entre-temps.
+  // Comparaison NORMALISÉE (espaces insécables / invisibles neutralisés) : une
+  // alerte qui sonne sur un espace insécable est une alerte qu'on ignore. On
+  // compare la RECONSTRUCTION (pas l'aperçu, qui suit le mode verbatim).
   const editedSince =
     !!replaySource?.sourceAssembledScript &&
     !changed &&
-    preview !== null &&
-    preview !== replaySource.sourceAssembledScript;
+    reconstructed !== null &&
+    normalizeAssembledForCompare(reconstructed) !==
+      normalizeAssembledForCompare(replaySource.sourceAssembledScript);
+
+  // Rejeu à l'identique : proposé UNIQUEMENT quand une brique a été éditée depuis
+  // (sinon reconstruction == figé → les deux options donnent le même texte).
+  const verbatimAvailable = editedSince;
+  // Aperçu : en verbatim on montre le TEXTE FIGÉ (ce qui partira réellement) ;
+  // sinon la reconstruction depuis les briques vivantes.
+  const preview =
+    replayVerbatim && verbatimAvailable && replaySource?.sourceAssembledScript
+      ? replaySource.sourceAssembledScript
+      : reconstructed;
+
+  // Sécurité : si l'option n'est plus disponible (brique rechangée, variante…),
+  // on repasse le parent en « texte actuel » — jamais de verbatim périmé envoyé.
+  useEffect(() => {
+    if (!verbatimAvailable && replayVerbatim) onReplayVerbatimChange?.(false);
+  }, [verbatimAvailable, replayVerbatim, onReplayVerbatimChange]);
+
+  // Diff PAR BRIQUE (« montre CE QUI change ») : on re-sépare le texte figé source
+  // en 3 segments et on compare chacun au contenu VIVANT. Null (ligne vide interne,
+  // legacy) → le rendu retombe sur un diff plein-script.
+  const sourceParts =
+    editedSince && replaySource?.sourceAssembledScript
+      ? splitAssembledIntoThree(replaySource.sourceAssembledScript)
+      : null;
+  const brickDiffs: { kind: ScriptKind; before: string; after: string }[] = [];
+  if (editedSince && sourceParts && sourceIds) {
+    KINDS.forEach((kind, i) => {
+      const before = sourceParts[i];
+      const after = contentOf(sourceIds[kind]);
+      if (
+        normalizeAssembledForCompare(before) !==
+        normalizeAssembledForCompare(after)
+      ) {
+        brickDiffs.push({ kind, before, after });
+      }
+    });
+  }
 
   const comboKey = allChosen
     ? comboKeyOf({
@@ -233,9 +284,91 @@ export function ChosenComboPicker({
             </div>
           )}
           {editedSince && (
-            <div className="mt-1 text-xs font-medium text-amber-700">
-              ⚠️ Une brique a été éditée depuis — la reprise ne sera pas
-              identique à l&apos;original.
+            <div className="mt-2 space-y-2 border-t border-indigo-200 pt-2">
+              <div className="text-xs font-medium text-amber-700">
+                ⚠️ Une brique a été éditée depuis. Voici ce qui change :
+              </div>
+              {brickDiffs.length > 0 ? (
+                <div className="space-y-1.5">
+                  {brickDiffs.map((d) => (
+                    <div
+                      key={d.kind}
+                      className="rounded border border-amber-200 bg-white p-2"
+                    >
+                      <div className="text-xs font-medium text-slate-600">
+                        {KIND_LABELS[d.kind]}
+                      </div>
+                      <div className="mt-1 grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                          <div className="text-[10px] font-medium uppercase tracking-wide text-emerald-600">
+                            A marché (figé)
+                          </div>
+                          <div className="whitespace-pre-wrap text-slate-700">
+                            {d.before}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                            Actuel
+                          </div>
+                          <div className="whitespace-pre-wrap text-slate-700">
+                            {d.after}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                // Fallback plein-script quand on n'a pas pu séparer par brique.
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <div className="text-[10px] font-medium uppercase tracking-wide text-emerald-600">
+                      A marché (figé)
+                    </div>
+                    <div className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded border border-amber-200 bg-white p-1.5 text-slate-700">
+                      {replaySource.sourceAssembledScript}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                      Actuel
+                    </div>
+                    <div className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded border border-slate-200 bg-white p-1.5 text-slate-700">
+                      {reconstructed}
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div className="space-y-1 text-xs text-slate-700">
+                <label className="flex items-start gap-2">
+                  <input
+                    type="radio"
+                    name="replay-text-mode"
+                    className="mt-0.5"
+                    checked={!replayVerbatim}
+                    disabled={disabled}
+                    onChange={() => onReplayVerbatimChange?.(false)}
+                  />
+                  <span>
+                    Rejouer avec le <strong>texte actuel</strong> (par défaut)
+                  </span>
+                </label>
+                <label className="flex items-start gap-2">
+                  <input
+                    type="radio"
+                    name="replay-text-mode"
+                    className="mt-0.5"
+                    checked={!!replayVerbatim}
+                    disabled={disabled}
+                    onChange={() => onReplayVerbatimChange?.(true)}
+                  />
+                  <span>
+                    Rejouer <strong>à l&apos;identique</strong> — le texte qui a
+                    réellement marché
+                  </span>
+                </label>
+              </div>
             </div>
           )}
         </div>
@@ -248,6 +381,11 @@ export function ChosenComboPicker({
           <div className="flex items-center justify-between">
             <Label className="text-xs text-slate-500">
               Trois briques (actives uniquement)
+              {!!replayVerbatim && verbatimAvailable && (
+                <span className="ml-1 text-slate-400">
+                  — verrouillées (rejeu à l&apos;identique)
+                </span>
+              )}
             </Label>
             <button
               type="button"
@@ -277,24 +415,42 @@ export function ChosenComboPicker({
                     onValueChange={(v) =>
                       v && onChange({ ...value, [kind]: v })
                     }
-                    disabled={disabled}
+                    disabled={disabled || (!!replayVerbatim && verbatimAvailable)}
                   >
                     <SelectTrigger aria-label={KIND_LABELS[kind]}>
                       <SelectValue>
-                        {selected ? selected.label : "Choisir une brique…"}
+                        {/* content = le texte qui PART à la créatrice (pas label). */}
+                        {selected ? (
+                          <span className="block truncate text-left">
+                            {selected.content}
+                          </span>
+                        ) : (
+                          "Choisir une brique…"
+                        )}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      {opts.map((b) => (
-                        <SelectItem key={b._id} value={b._id}>
-                          <span className="flex flex-col">
-                            <span>{b.label}</span>
-                            <span className="text-xs text-slate-500">
-                              {brickPerfLabel(perfByBrickId.get(b._id))}
+                      {opts.map((b) => {
+                        const note = usefulShortLabel(b.label, b.content);
+                        return (
+                          <SelectItem key={b._id} value={b._id}>
+                            <span className="flex flex-col gap-0.5">
+                              {/* content en évidence = ce qui sera réellement utilisé. */}
+                              <span className="line-clamp-3 whitespace-normal">
+                                {b.content}
+                              </span>
+                              {note && (
+                                <span className="text-xs italic text-slate-400">
+                                  note : {note}
+                                </span>
+                              )}
+                              <span className="text-xs text-slate-500">
+                                {brickPerfLabel(perfByBrickId.get(b._id))}
+                              </span>
                             </span>
-                          </span>
-                        </SelectItem>
-                      ))}
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                 )}
