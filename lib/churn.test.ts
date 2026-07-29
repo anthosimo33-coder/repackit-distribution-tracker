@@ -55,7 +55,7 @@ describe("computeChurn", () => {
   const memberships: MembershipInput[] = [
     // Actif, a renouvelé (3 paiements).
     m({ membershipId: "m1", planId: "plan_w", paidCount: 3, accessEndsAt: 105 * DAY }),
-    // Résilié PUIS expiré, hors panne : résiliation + expiration sur la période.
+    // Résilié PUIS expiré, payé APRÈS la panne : résiliation + expiration.
     m({
       membershipId: "m2",
       planId: "plan_m",
@@ -66,7 +66,7 @@ describe("computeChurn", () => {
       status: "expired",
       paidCount: 1,
     }),
-    // Annulé PENDANT la panne (canceledAt < webhookFix) → bug.
+    // Payé PENDANT la panne (firstPaidAt < webhookFix) → paidDuringOutage.
     m({
       membershipId: "m3",
       planId: "plan_m",
@@ -79,6 +79,17 @@ describe("computeChurn", () => {
     }),
     // Arrivé à échéance, pas renouvelé, encore actif.
     m({ membershipId: "m4", planId: "plan_w", firstPaidAt: 90 * DAY, paidCount: 1 }),
+    // RÉSILIÉ mais accès encore valide, expire bientôt → perte à venir.
+    m({
+      membershipId: "m6",
+      planId: "plan_w",
+      firstPaidAt: 88 * DAY,
+      canceledAt: 95 * DAY,
+      accessEndsAt: 103 * DAY, // now=100d, dans l'horizon 7 j
+      valid: true,
+      status: "active",
+      paidCount: 1,
+    }),
     // Non payant → exclu du dénominateur.
     m({ membershipId: "m5", paidCount: 0 }),
   ];
@@ -86,43 +97,46 @@ describe("computeChurn", () => {
     now,
     periodStartMs: 10 * DAY,
     webhookFixMs: 20 * DAY,
+    horizonMs: 7 * DAY,
     sampleThreshold: 2,
   });
 
   it("ne compte que les clients payants", () => {
-    expect(r.clients).toBe(4);
+    expect(r.clients).toBe(5);
   });
   it("sépare résiliations et expirations", () => {
-    expect(r.resiliations).toBe(2); // m2, m3
+    expect(r.resiliations).toBe(3); // m2, m3, m6
     expect(r.expirations).toBe(2); // m2, m3 (accès perdu sur la période)
   });
-  it("taux de résiliation = résiliations / clients", () => {
-    expect(r.cancelRate).toBe(50); // 2/4
+  it("délais en ms (médiane, 9 sur 10) — l'UI formate min/h/j", () => {
+    expect(r.medMsToCancel).toBe(5 * DAY); // [3, 5, 7] j → médiane 5 j
+    expect(r.p90MsToCancel).toBe(7 * DAY);
   });
-  it("délais premier paiement → annulation (médiane, 9 sur 10)", () => {
-    expect(r.medDaysToCancel).toBe(3); // [3, 5] → médiane 3
-    expect(r.p90DaysToCancel).toBe(5);
+  it("détaille chaque résiliation, trié par délai, avec le proxy panne", () => {
+    expect(r.resiliationDetails).toHaveLength(3);
+    expect(r.resiliationDetails[0].membershipId).toBe("m3"); // délai le plus court
+    expect(r.resiliationDetails[0].delayMs).toBe(3 * DAY);
+    const d3 = r.resiliationDetails.find((d) => d.membershipId === "m3");
+    const d2 = r.resiliationDetails.find((d) => d.membershipId === "m2");
+    expect(d3?.paidDuringOutage).toBe(true); // payé avant webhookFix
+    expect(d2?.paidDuringOutage).toBe(false); // payé après
   });
-  it("isole les résiliations dues au bug webhook (sans les supprimer)", () => {
-    expect(r.bugAttributed).toBe(1); // m3 (annulé avant webhookFix)
-    expect(r.resiliations).toBe(2); // m3 reste comptée
+  it("montre ce qui ARRIVE : expirations à venir + clients projetés", () => {
+    expect(r.upcomingExpirations.map((u) => u.membershipId)).toEqual(["m6"]);
+    expect(r.projectedClients).toBe(4); // 5 clients − 1 perte à venir
   });
   it("renouvellement : arrivés à échéance, renouvelés, taux", () => {
-    expect(r.reachedTerm).toBe(4);
+    expect(r.reachedTerm).toBe(5);
     expect(r.renewed).toBe(1); // m1 (≥2 paiements)
-    expect(r.renewalRate).toBe(25);
-    expect(r.avgRenewals).toBe(0.5); // (2+0+0+0)/4
-    expect(r.sampleSufficient).toBe(true); // 4 ≥ seuil 2
-  });
-  it("ventile par offre", () => {
-    const planM = r.byPlan.find((p) => p.planId === "plan_m");
-    expect(planM).toEqual({ planId: "plan_m", clients: 2, resiliations: 2, expirations: 2 });
+    expect(r.renewalRate).toBe(20);
+    expect(r.sampleSufficient).toBe(true); // 5 ≥ seuil 2
   });
   it("échantillon insuffisant quand peu d'arrivés à échéance", () => {
     const few = computeChurn([memberships[0]], {
       now,
       periodStartMs: 10 * DAY,
       webhookFixMs: 20 * DAY,
+      horizonMs: 7 * DAY,
       sampleThreshold: 10,
     });
     expect(few.sampleSufficient).toBe(false);

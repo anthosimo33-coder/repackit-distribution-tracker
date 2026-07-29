@@ -36,8 +36,15 @@ export interface ChurnParams {
   now: number;
   /** Début de la fenêtre « sur la période ». */
   periodStartMs: number;
-  /** Avant cette date, aucun webhook n'accordait l'accès → annulations dues à un BUG. */
+  /**
+   * Réparation du webhook (ms). Un paiement AVANT cette date n'accordait pas
+   * l'accès automatiquement : `paidDuringOutage` le signale au niveau de chaque
+   * résiliation. Ce n'est qu'un PROXY (la vérif d'accès applicatif par personne
+   * n'est pas ingérée) ; le délai paiement→annulation est le fait le plus parlant.
+   */
   webhookFixMs: number;
+  /** Horizon (ms) pour « perdront l'accès prochainement » (ex. 7 jours). */
+  horizonMs: number;
   /** Sous ce nombre d'abonnements arrivés à échéance, aucun taux n'est interprétable. */
   sampleThreshold: number;
 }
@@ -49,6 +56,26 @@ export interface ChurnByPlan {
   expirations: number;
 }
 
+/** Détail d'une résiliation — le délai raconte l'histoire (3 min ≠ 5 jours). */
+export interface ResiliationDetail {
+  membershipId: string;
+  planId: string;
+  firstPaidAt: number | null;
+  canceledAt: number;
+  /** Délai premier paiement → annulation (ms). null si paiement inconnu. */
+  delayMs: number | null;
+  accessEndsAt: number | null;
+  /** Payé pendant la panne du webhook (accès non provisionné auto) — PROXY, pas une vérif d'accès. */
+  paidDuringOutage: boolean;
+}
+
+/** Un client qui perdra l'accès bientôt (résilié, période bientôt finie). */
+export interface UpcomingExpiration {
+  membershipId: string;
+  planId: string;
+  accessEndsAt: number;
+}
+
 export interface ChurnResult {
   /** Clients payants (dénominateur des taux). */
   clients: number;
@@ -58,9 +85,15 @@ export interface ChurnResult {
   expirations: number;
   /** resiliations / clients, en %. null si aucun client. */
   cancelRate: number | null;
-  /** Délai premier paiement → annulation (jours), médiane et 9 sur 10. */
-  medDaysToCancel: number | null;
-  p90DaysToCancel: number | null;
+  /** Délai premier paiement → annulation (MS), médiane et 9 sur 10. L'UI formate min/h/j. */
+  medMsToCancel: number | null;
+  p90MsToCancel: number | null;
+  /** Détail par résiliation (trié par délai croissant : les quasi-immédiates d'abord). */
+  resiliationDetails: ResiliationDetail[];
+  /** Résiliés dont l'accès expire dans l'horizon (perte à venir, encore récupérables). */
+  upcomingExpirations: UpcomingExpiration[];
+  /** Clients payants projetés après ces expirations = clients − upcomingExpirations. */
+  projectedClients: number;
   /** Abonnements ARRIVÉS À ÉCHÉANCE (une période complète écoulée). */
   reachedTerm: number;
   /** Parmi eux, ceux qui ont renouvelé (≥ 2 paiements). */
@@ -70,8 +103,6 @@ export interface ChurnResult {
   /** Nombre moyen de renouvellements (paiements au-delà du premier) chez les arrivés à échéance. */
   avgRenewals: number | null;
   byPlan: ChurnByPlan[];
-  /** Annulations survenues PENDANT la panne du webhook (bug, pas produit). */
-  bugAttributed: number;
   /** reachedTerm ≥ seuil : les taux de renouvellement sont interprétables. */
   sampleSufficient: boolean;
 }
@@ -121,14 +152,15 @@ export function computeChurn(
   memberships: MembershipInput[],
   params: ChurnParams,
 ): ChurnResult {
-  const { now, periodStartMs, webhookFixMs, sampleThreshold } = params;
+  const { now, periodStartMs, webhookFixMs, horizonMs, sampleThreshold } = params;
   const paying = memberships.filter((m) => m.paidCount > 0);
   const clients = paying.length;
 
   let resiliations = 0;
   let expirations = 0;
-  let bugAttributed = 0;
-  const daysToCancel: number[] = [];
+  const msToCancel: number[] = [];
+  const resiliationDetails: ResiliationDetail[] = [];
+  const upcomingExpirations: UpcomingExpiration[] = [];
   const byPlan = new Map<string, ChurnByPlan>();
   const planOf = (m: MembershipInput) => m.planId ?? "(sans offre)";
   const bumpPlan = (m: MembershipInput, key: keyof Omit<ChurnByPlan, "planId">) => {
@@ -144,19 +176,29 @@ export function computeChurn(
 
   for (const m of paying) {
     bumpPlan(m, "clients");
+    const state = classifyMembership(m, now);
     const canceledInPeriod =
       m.canceledAt !== null &&
       m.canceledAt >= periodStartMs &&
       m.canceledAt <= now;
-    if (canceledInPeriod) {
+    if (canceledInPeriod && m.canceledAt !== null) {
       resiliations += 1;
       bumpPlan(m, "resiliations");
-      if (m.canceledAt !== null && m.canceledAt < webhookFixMs) bugAttributed += 1;
-      if (m.firstPaidAt !== null && m.canceledAt !== null && m.canceledAt >= m.firstPaidAt) {
-        daysToCancel.push((m.canceledAt - m.firstPaidAt) / DAY_MS);
-      }
+      const delayMs =
+        m.firstPaidAt !== null && m.canceledAt >= m.firstPaidAt
+          ? m.canceledAt - m.firstPaidAt
+          : null;
+      if (delayMs !== null) msToCancel.push(delayMs);
+      resiliationDetails.push({
+        membershipId: m.membershipId,
+        planId: planOf(m),
+        firstPaidAt: m.firstPaidAt,
+        canceledAt: m.canceledAt,
+        delayMs,
+        accessEndsAt: m.accessEndsAt,
+        paidDuringOutage: m.firstPaidAt !== null && m.firstPaidAt < webhookFixMs,
+      });
     }
-    const state = classifyMembership(m, now);
     const expiredInPeriod =
       state === "expired" &&
       m.accessEndsAt !== null &&
@@ -165,6 +207,19 @@ export function computeChurn(
     if (expiredInPeriod) {
       expirations += 1;
       bumpPlan(m, "expirations");
+    }
+    // Perte À VENIR : résilié (accès encore valide) dont la période finit dans l'horizon.
+    if (
+      state === "resiliated" &&
+      m.accessEndsAt !== null &&
+      m.accessEndsAt >= now &&
+      m.accessEndsAt <= now + horizonMs
+    ) {
+      upcomingExpirations.push({
+        membershipId: m.membershipId,
+        planId: planOf(m),
+        accessEndsAt: m.accessEndsAt,
+      });
     }
   }
 
@@ -176,27 +231,27 @@ export function computeChurn(
     0,
   );
 
-  daysToCancel.sort((a, b) => a - b);
+  msToCancel.sort((a, b) => a - b);
+  resiliationDetails.sort(
+    (a, b) => (a.delayMs ?? Infinity) - (b.delayMs ?? Infinity),
+  );
+  upcomingExpirations.sort((a, b) => a.accessEndsAt - b.accessEndsAt);
 
   return {
     clients,
     resiliations,
     expirations,
     cancelRate: clients > 0 ? round1((resiliations / clients) * 100) : null,
-    medDaysToCancel: (() => {
-      const q = quantile(daysToCancel, 0.5);
-      return q === null ? null : round1(q);
-    })(),
-    p90DaysToCancel: (() => {
-      const q = quantile(daysToCancel, 0.9);
-      return q === null ? null : round1(q);
-    })(),
+    medMsToCancel: quantile(msToCancel, 0.5),
+    p90MsToCancel: quantile(msToCancel, 0.9),
+    resiliationDetails,
+    upcomingExpirations,
+    projectedClients: Math.max(0, clients - upcomingExpirations.length),
     reachedTerm,
     renewed,
     renewalRate: reachedTerm > 0 ? round1((renewed / reachedTerm) * 100) : null,
     avgRenewals: reachedTerm > 0 ? Math.round((totalRenewals / reachedTerm) * 100) / 100 : null,
     byPlan: [...byPlan.values()].sort((a, b) => b.clients - a.clients),
-    bugAttributed,
     sampleSufficient: reachedTerm >= sampleThreshold,
   };
 }

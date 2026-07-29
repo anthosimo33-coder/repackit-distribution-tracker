@@ -105,6 +105,10 @@ export const EXPLAIN = {
     "Parmi les abonnements arrivés au bout d'une période, combien ont repayé. C'est ce qui dit si le produit retient vraiment. Sans ce chiffre, aucune projection de revenu ne tient.",
   churnParOffre:
     "Les annulations et les expirations par offre. Sert à voir si un prix retient mieux qu'un autre. À ne lire que quand chaque offre a assez d'abonnements arrivés à échéance.",
+  churnAVenir:
+    "Les clients qui vont perdre l'accès bientôt : ils ont annulé mais gardent l'accès jusqu'à la fin de leur période payée. Le chiffre projeté montre combien de clients payants il restera après ces départs. Tant que leur accès est valide, ils sont encore récupérables.",
+  churnDetail:
+    "Le détail de chaque annulation, du délai le plus court au plus long. Une annulation en quelques minutes veut dire que la personne a payé, n'a rien vu et a annulé, c'est un bug ; après des heures ou des jours, elle a eu accès et est partie quand même. L'accès exact côté app n'est pas mesuré ici, donc c'est le délai qui tranche.",
   projectionLtv:
     "Ce qu'un client rapporte sur toute sa vie : le net par paiement multiplié par le nombre moyen de paiements. C'est ce chiffre, comparé au coût d'acquisition, qui dit si le moteur est viable. Il reste un tiret tant que le renouvellement n'est pas mesurable.",
 } as const;
