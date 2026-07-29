@@ -12,7 +12,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatNumber } from "@/lib/format";
-import { HubCardHeader, HubNotice, ColLabel, pct, formatDuration } from "./HubPrimitives";
+import { MIN_SAMPLE_SIZE } from "@/lib/analytics-hub";
+import {
+  HubCardHeader,
+  HubNotice,
+  ColLabel,
+  SampleBadge,
+  pct,
+  formatDuration,
+} from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import type { ProductAnalyticsData } from "./types";
 
@@ -135,6 +143,18 @@ export function SanteProduitTab({
       found,
       exploitableRate:
         d.searched > 0 ? Math.round((found / d.searched) * 1000) / 10 : null,
+      // Le taux porte sur les payants qui ont cherché : c'est l'effectif à juger.
+      sampleSufficient: d.searched >= MIN_SAMPLE_SIZE,
+      instrStartLabel:
+        d.instrStartMs !== null
+          ? new Date(d.instrStartMs).toLocaleString("fr-FR", {
+              day: "numeric",
+              month: "short",
+              hour: "2-digit",
+              minute: "2-digit",
+              timeZone: "UTC",
+            }) + " UTC"
+          : null,
     };
   }, [analytics.firstSearchAfterPay]);
 
@@ -154,12 +174,44 @@ export function SanteProduitTab({
             </p>
           ) : (
             <>
+              <HubNotice
+                className={
+                  fsp.sampleSufficient
+                    ? "border-slate-200 bg-slate-50 text-slate-600"
+                    : "border-amber-200 bg-amber-50 text-amber-800"
+                }
+              >
+                {!fsp.sampleSufficient ? (
+                  <>
+                    <strong>Échantillon insuffisant.</strong>{" "}
+                  </>
+                ) : null}
+                Le taux porte sur <strong>{formatNumber(fsp.searched)}</strong>{" "}
+                payant(s) qui ont cherché, sous le seuil de {MIN_SAMPLE_SIZE} : à lire
+                comme une tendance, pas un chiffre stable.
+                {fsp.paidExcluded > 0 && fsp.instrStartLabel ? (
+                  <>
+                    {" "}
+                    <strong>{formatNumber(fsp.paidExcluded)}</strong> payant(s) sont
+                    exclus du calcul : ils ont payé avant que la recherche soit
+                    instrumentée ({fsp.instrStartLabel}), donc leur absence de
+                    recherche n&apos;est pas mesurable et ne veut pas dire
+                    qu&apos;ils n&apos;ont pas cherché.
+                  </>
+                ) : null}
+              </HubNotice>
+
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <div className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
-                  <p className="text-xs text-slate-500">Ont payé</p>
+                  <p className="text-xs text-slate-500">Payés (période mesurable)</p>
                   <p className="text-xl font-bold tabular-nums text-slate-900">
                     {formatNumber(fsp.paid)}
                   </p>
+                  {fsp.paidExcluded > 0 ? (
+                    <p className="text-[11px] text-slate-400">
+                      +{formatNumber(fsp.paidExcluded)} avant instrumentation
+                    </p>
+                  ) : null}
                 </div>
                 <div className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
                   <p className="text-xs text-slate-500">Ont cherché après</p>
@@ -187,6 +239,12 @@ export function SanteProduitTab({
                   <p className="text-[11px] text-slate-400">
                     {formatNumber(fsp.found)} sur {formatNumber(fsp.searched)} trouvés
                   </p>
+                  <div className="mt-0.5">
+                    <SampleBadge
+                      n={fsp.searched}
+                      conclusive={fsp.sampleSufficient}
+                    />
+                  </div>
                 </div>
                 <div className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
                   <p className="text-xs text-slate-500">Délai médian accès→recherche</p>
@@ -236,10 +294,17 @@ export function SanteProduitTab({
 
               <HubNotice className="border-slate-200 bg-slate-50 text-slate-600">
                 Le taux de résiliation dans l&apos;heure qui suit un échec n&apos;est
-                pas mesurable ici : <code>subscription_cancelled</code> n&apos;est émis
-                que pour {formatNumber(fsp.cancelJoinable)} de ces clients payants (les
-                vraies résiliations vivent côté Whop, non rattachables à la personne
-                PostHog). Pour comparer échec et succès, il faut émettre{" "}
+                pas mesurable ici : <code>subscription_cancelled</code> ne se rattache{" "}
+                {fsp.cancelJoinable > 0 ? (
+                  <>
+                    qu&apos;à <strong>{formatNumber(fsp.cancelJoinable)}</strong> de ces
+                    payants mesurables
+                  </>
+                ) : (
+                  "à aucun de ces payants mesurables"
+                )}{" "}
+                (les vraies résiliations vivent côté Whop, non rattachables à la
+                personne PostHog). Pour comparer échec et succès, il faut émettre{" "}
                 <code>subscription_cancelled</code> de façon fiable côté app.
               </HubNotice>
             </>

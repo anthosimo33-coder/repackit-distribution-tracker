@@ -281,9 +281,13 @@ export interface FreePlanPayload {
  * bâtir un taux sur 3 cas. Voir [[churn-and-acquisition-bonus]].
  */
 export interface FirstSearchAfterPayPayload {
-  /** Personnes avec subscription_completed. */
+  /** Payants MESURABLES : 1er paiement >= instr_start (recherche instrumentée). */
   paid: number;
-  /** …dont au moins une recherche après paiement. */
+  /** Payants EXCLUS : payés avant l'instrumentation → recherche non mesurable. */
+  paidExcluded: number;
+  /** Début d'instrumentation (1er handle_search_result), ms epoch. null si aucun. */
+  instrStartMs: number | null;
+  /** …payants mesurables avec au moins une recherche après paiement. */
   searched: number;
   /** Ventilation du résultat de la 1re recherche (exploitable = `found`). */
   results: { result: string; persons: number }[];
@@ -912,23 +916,35 @@ FROM (
    * Première recherche APRÈS paiement (la demande la plus importante). Le paywall
    * bloque la recherche avant paiement → le 1er handle_search_result d'un payant
    * est déjà post-accès. Par personne payante : résultat de cette recherche +
-   * délai paiement→recherche. `result_list` collecte le 1er résultat de chaque
-   * payant qui a cherché (≤ nb de payants) → le shaper le ventile. `cancel_joinable`
-   * = payants rattachables à un subscription_cancelled : mesure la FAISABILITÉ du
-   * taux de résiliation post-échec, pas le taux lui-même (event sous-émis).
-   * count()/countIf ici agrègent la sous-requête GROUP BY person_id (même forme
-   * que freePlan, admise par le garde-fou #156).
+   * délai paiement→recherche.
+   *
+   * PIÈGE D'INSTRUMENTATION : handle_search_result n'existe que depuis son 1er
+   * event (~28/07). Un payant qui a payé AVANT n'a aucune recherche MESURABLE :
+   * l'absence n'est pas « il n'a pas cherché ». On borne donc le dénominateur aux
+   * payants dont le 1er paiement est >= instr_start (= min timestamp du 1er
+   * handle_search_result, dérivé de la donnée, pas codé en dur) et on remonte
+   * `paid_excluded` (payés avant) + `instr_start_s` pour que la carte l'affiche.
+   *
+   * `result_list` collecte le 1er résultat de chaque payant MESURABLE qui a cherché
+   * → le shaper le ventile. `cancel_joinable` = payants rattachables à un
+   * subscription_cancelled : mesure la FAISABILITÉ du taux de résiliation
+   * post-échec, pas le taux (event sous-émis). count()/countIf agrègent la
+   * sous-requête GROUP BY person_id (forme freePlan, admise par le garde-fou #156).
    */
   firstSearchAfterPay: `
+WITH (SELECT min(timestamp) FROM events WHERE event = 'handle_search_result'${notInternal}) AS instr_start
 SELECT
-  count() AS paid,
-  countIf(has_search > 0) AS searched,
-  quantileIf(0.5)(delay_s, delay_s > 0) AS med_delay_s,
-  quantileIf(0.9)(delay_s, delay_s > 0) AS p90_delay_s,
-  countIf(has_cancel > 0) AS cancel_joinable,
-  groupArrayIf(first_result, has_search > 0) AS result_list
+  countIf(t_paid >= instr_start) AS paid,
+  countIf(t_paid < instr_start) AS paid_excluded,
+  countIf(t_paid >= instr_start AND has_search > 0) AS searched,
+  quantileIf(0.5)(delay_s, t_paid >= instr_start AND delay_s > 0) AS med_delay_s,
+  quantileIf(0.9)(delay_s, t_paid >= instr_start AND delay_s > 0) AS p90_delay_s,
+  countIf(t_paid >= instr_start AND has_cancel > 0) AS cancel_joinable,
+  groupArrayIf(first_result, t_paid >= instr_start AND has_search > 0) AS result_list,
+  toUnixTimestamp(instr_start) AS instr_start_s
 FROM (
   SELECT person_id,
+    minIf(timestamp, event = 'subscription_completed') AS t_paid,
     countIf(event = 'handle_search_result') AS has_search,
     countIf(event = 'subscription_cancelled') AS has_cancel,
     argMinIf(coalesce(nullIf(toString(properties.result), ''), '(sans result)'), timestamp, event = 'handle_search_result') AS first_result,
@@ -1524,18 +1540,22 @@ export const runHourlySync = internalAction({
           QUERIES.firstSearchAfterPay,
           (rows): FirstSearchAfterPayPayload => {
             const r = rows[0] ?? [];
-            const searched = cellNum(r, 1);
+            const searched = cellNum(r, 2);
             const tally = new Map<string, number>();
-            for (const res of cellStrArr(r, 5)) {
+            for (const res of cellStrArr(r, 6)) {
               tally.set(res, (tally.get(res) ?? 0) + 1);
             }
+            const instrStartS = cellNum(r, 7);
             return {
               paid: cellNum(r, 0),
+              paidExcluded: cellNum(r, 1),
+              // secondes epoch → ms ; 0 ⇒ pas d'instrumentation (null).
+              instrStartMs: instrStartS > 0 ? instrStartS * 1000 : null,
               searched,
               // délais en secondes ; searched = 0 ⇒ pas de couple valide (null).
-              medDelaySec: searched > 0 ? cellNum(r, 2) : null,
-              p90DelaySec: searched > 0 ? cellNum(r, 3) : null,
-              cancelJoinable: cellNum(r, 4),
+              medDelaySec: searched > 0 ? cellNum(r, 3) : null,
+              p90DelaySec: searched > 0 ? cellNum(r, 4) : null,
+              cancelJoinable: cellNum(r, 5),
               results: [...tally.entries()]
                 .map(([result, persons]) => ({ result, persons }))
                 .sort((a, b) => b.persons - a.persons),
@@ -1721,6 +1741,8 @@ export const getProductAnalytics = adminQuery({
       },
       firstSearchAfterPay: {
         paid: 0,
+        paidExcluded: 0,
+        instrStartMs: null,
         searched: 0,
         results: [],
         medDelaySec: null,
