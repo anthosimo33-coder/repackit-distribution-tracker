@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   assembleScript,
   countCombinations,
+  normalizeAssembledForCompare,
+  usefulShortLabel,
   type BrickLike,
 } from "./scriptAssembly";
 
@@ -102,5 +104,43 @@ describe("countCombinations", () => {
     const r = countCombinations(bricks);
     expect(r.total).toBe(1);
     expect(r.byKind).toEqual({ hook: 1, flux: 1, cta: 1 });
+  });
+});
+
+describe("normalizeAssembledForCompare", () => {
+  it("neutralise espace insécable, zéro-largeur et runs d'espaces", () => {
+    // NBSP + LRM + ZWSP + doubles espaces / sauts de ligne.
+    const withInvisibles = "Snytch\u00A0\u200E  me\u200B\n\nrappelle";
+    expect(normalizeAssembledForCompare(withInvisibles)).toBe(
+      "Snytch me rappelle",
+    );
+  });
+
+  it("préserve une VRAIE différence de texte", () => {
+    expect(normalizeAssembledForCompare("froid et méchant")).not.toBe(
+      normalizeAssembledForCompare("Snytch me rappelle"),
+    );
+  });
+});
+
+describe("usefulShortLabel", () => {
+  it("null si vide, doublon du content, ou ponctuation pure", () => {
+    expect(usefulShortLabel("", "abc")).toBeNull();
+    expect(usefulShortLabel(".", "vrai contenu du flux")).toBeNull();
+    expect(usefulShortLabel("Ouvre Youtube", "Ouvre Youtube")).toBeNull();
+    // doublon à un espace insécable près
+    expect(usefulShortLabel("Flux\u00A01", "Flux 1")).toBeNull();
+  });
+
+  it("null si le label est une phrase longue (>=40 car. = ancienne version)", () => {
+    const vieux =
+      "il me manque… jusqu'à ce que je me rappelle à quel point il était froid";
+    expect(usefulShortLabel(vieux, "Il me manque... Snytch me rappelle")).toBeNull();
+  });
+
+  it("renvoie un vrai nom court distinct du content", () => {
+    expect(usefulShortLabel("Flux 1 — Upload", "Tu vas sur RepackIt.io…")).toBe(
+      "Flux 1 — Upload",
+    );
   });
 });
