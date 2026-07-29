@@ -117,6 +117,9 @@ export function AssignScriptCampaignDialog({
   // briques, pour l'aperçu + la validation des slots) n'est chargé qu'en "chosen".
   const [comboMode, setComboMode] = useState<"auto" | "chosen">("auto");
   const [chosenBricks, setChosenBricks] = useState<ChosenBricks>(EMPTY_CHOSEN);
+  // Rejeu À L'IDENTIQUE : envoie le texte figé de la source au lieu de la
+  // reconstruction. Le picker ne l'expose que si une brique a été éditée depuis.
+  const [replayVerbatim, setReplayVerbatim] = useState(false);
   const campaign = useProjectQuery(
     api.scripts.getCampaign,
     open && comboMode === "chosen" ? { id: campaignId } : "skip",
@@ -199,6 +202,7 @@ export function AssignScriptCampaignDialog({
             }
           : EMPTY_CHOSEN,
       );
+      setReplayVerbatim(false);
     }
   }
 
@@ -323,6 +327,9 @@ export function AssignScriptCampaignDialog({
           ? {
               imposedCombo,
               replayedFrom: replaySource?.sourceAssignmentId ?? undefined,
+              // Rejeu à l'identique : envoie le texte figé source (serveur ignore
+              // imposedCombo et reproduit le combo de replayedFrom).
+              ...(replayVerbatim ? { replayVerbatim: true } : {}),
             }
           : {}),
       });
@@ -487,6 +494,7 @@ export function AssignScriptCampaignDialog({
             ? {
                 imposedCombo,
                 replayedFrom: replaySource?.sourceAssignmentId ?? undefined,
+                ...(replayVerbatim ? { replayVerbatim: true } : {}),
               }
             : {}),
         });
@@ -635,6 +643,8 @@ export function AssignScriptCampaignDialog({
                 value={chosenBricks}
                 onChange={setChosenBricks}
                 replaySource={replaySource}
+                replayVerbatim={replayVerbatim}
+                onReplayVerbatimChange={setReplayVerbatim}
                 disabled={submitting}
               />
             )}
