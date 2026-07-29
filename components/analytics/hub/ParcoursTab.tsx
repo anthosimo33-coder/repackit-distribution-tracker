@@ -471,8 +471,12 @@ export function ParcoursTab({
                   </span>
                 </div>
                 <p className="text-xs text-slate-400">
-                  Un écart positif signale un webhook cassé (paiement encaissé,
-                  accès non provisionné). À surveiller en continu.
+                  Un écart positif veut dire un paiement encaissé sans abonnement
+                  applicatif correspondant sur la fenêtre. Ce n&apos;est pas forcément
+                  la faute du webhook : les 12 derniers accès se sont ouverts en 3 à 4
+                  secondes. Un petit écart vient plutôt d&apos;un décalage de synchro
+                  ou d&apos;un paiement tout récent. C&apos;est un contrôle de
+                  cohérence à garder, pas une alarme.
                 </p>
               </>
             )}

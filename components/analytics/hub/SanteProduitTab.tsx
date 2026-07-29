@@ -123,8 +123,130 @@ export function SanteProduitTab({
     (r) => r.step !== "(inconnu)" && r.step !== "(absent)",
   );
 
+  // Première recherche APRÈS paiement — la demande la plus importante. Exploitable
+  // = `found` (un vrai résultat) ; private / not_found / error = un mur. Le paywall
+  // bloquant la recherche avant paiement, le 1er handle_search_result d'un payant est
+  // déjà post-accès (cf. requête firstSearchAfterPay).
+  const fsp = useMemo(() => {
+    const d = analytics.firstSearchAfterPay;
+    const found = d.results.find((r) => r.result === "found")?.persons ?? 0;
+    return {
+      ...d,
+      found,
+      exploitableRate:
+        d.searched > 0 ? Math.round((found / d.searched) * 1000) / 10 : null,
+    };
+  }, [analytics.firstSearchAfterPay]);
+
   return (
     <div className="space-y-6">
+      {/* Réussite de la première recherche après paiement — la demande la plus importante */}
+      <Card>
+        <CardContent className="space-y-3 p-4">
+          <HubCardHeader
+            title="Réussite de la première recherche après paiement"
+            subtitle="Là où un client neuf se décide : ce qu'il obtient à sa toute première recherche, une fois payé."
+            info={EXPLAIN.premiereRecherche}
+          />
+          {fsp.paid === 0 ? (
+            <p className="text-xs text-slate-400">
+              — en attente de subscription_completed.
+            </p>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
+                  <p className="text-xs text-slate-500">Ont payé</p>
+                  <p className="text-xl font-bold tabular-nums text-slate-900">
+                    {formatNumber(fsp.paid)}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
+                  <p className="text-xs text-slate-500">Ont cherché après</p>
+                  <p className="text-xl font-bold tabular-nums text-slate-900">
+                    {formatNumber(fsp.searched)}
+                  </p>
+                </div>
+                <div
+                  className={
+                    (fsp.exploitableRate ?? 100) < 60
+                      ? "rounded-lg border border-red-200 bg-red-50/60 p-3"
+                      : "rounded-lg border border-emerald-200 bg-emerald-50/60 p-3"
+                  }
+                >
+                  <p className="text-xs text-slate-500">Résultat exploitable</p>
+                  <p
+                    className={
+                      (fsp.exploitableRate ?? 100) < 60
+                        ? "text-xl font-bold tabular-nums text-red-700"
+                        : "text-xl font-bold tabular-nums text-emerald-700"
+                    }
+                  >
+                    {pct(fsp.exploitableRate)}
+                  </p>
+                  <p className="text-[11px] text-slate-400">
+                    {formatNumber(fsp.found)} sur {formatNumber(fsp.searched)} trouvés
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
+                  <p className="text-xs text-slate-500">Délai médian accès→recherche</p>
+                  <p className="text-xl font-bold tabular-nums text-slate-900">
+                    {formatDuration(
+                      fsp.medDelaySec !== null ? fsp.medDelaySec * 1000 : null,
+                    )}
+                  </p>
+                  <p className="text-[11px] text-slate-400">
+                    9 sur 10 :{" "}
+                    {formatDuration(
+                      fsp.p90DelaySec !== null ? fsp.p90DelaySec * 1000 : null,
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              {fsp.results.length > 0 ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Résultat de la 1re recherche</TableHead>
+                      <TableHead className="text-right">Clients</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {fsp.results.map((r) => (
+                      <TableRow key={r.result}>
+                        <TableCell
+                          className={
+                            r.result === "found"
+                              ? "text-xs font-medium text-emerald-700"
+                              : "text-xs text-slate-600"
+                          }
+                        >
+                          {RESULT_LABELS[r.result] ?? r.result}
+                          {r.result === "found" ? " (exploitable)" : null}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {formatNumber(r.persons)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : null}
+
+              <HubNotice className="border-slate-200 bg-slate-50 text-slate-600">
+                Le taux de résiliation dans l&apos;heure qui suit un échec n&apos;est
+                pas mesurable ici : <code>subscription_cancelled</code> n&apos;est émis
+                que pour {formatNumber(fsp.cancelJoinable)} de ces clients payants (les
+                vraies résiliations vivent côté Whop, non rattachables à la personne
+                PostHog). Pour comparer échec et succès, il faut émettre{" "}
+                <code>subscription_cancelled</code> de façon fiable côté app.
+              </HubNotice>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Fiabilité des scans — détail par raison */}
       <Card>
         <CardContent className="space-y-3 p-4">

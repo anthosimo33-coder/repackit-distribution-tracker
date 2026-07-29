@@ -52,13 +52,15 @@ export const EXPLAIN = {
   delaiPaiement:
     "Le temps entre l'ouverture du paiement et l'abonnement, chez ceux qui vont au bout. On le compare à l'ancien délai au bout duquel l'app abandonnait. Un abandon réglé sous la médiane coupe la majorité des paiements encore en cours.",
   whopSansAcces:
-    "Chaque paiement encaissé doit donner un accès dans l'app. Ce compteur montre les paiements reçus chez Whop qui n'ont pas leur accès dans l'app. Au dessus de zéro, un lien technique est cassé et il faut regarder tout de suite.",
+    "Chaque paiement encaissé doit donner un accès dans l'app. Ce compteur montre les paiements reçus chez Whop qui n'ont pas leur accès applicatif sur la fenêtre. Le webhook fonctionne bien aujourd'hui, donc un petit écart vient plutôt d'un décalage de synchro ou d'un paiement tout récent : c'est un contrôle de cohérence à garder, pas une alarme.",
   activation:
     "Ce que font les gens après leur inscription : chercher un compte, ajouter une cible, recevoir une alerte. Un client payant et un inscrit gratuit ne s'activent pas pareil, donc on les sépare. Ces étapes ne sont pas sur le chemin du paiement.",
   inscritsSansAcces:
     "Des personnes inscrites qui n'ont ni le plan gratuit ni un abonnement payant. Beaucoup se sont inscrites quand seul le paywall bloquant existait : elles ont vu le prix et n'ont jamais eu accès au produit. C'est le plus gros groupe du tableau, il mérite d'être suivi de près.",
 
   // ─── Santé produit ─────────────────────────────────────────────────────────
+  premiereRecherche:
+    "Parmi les gens qui ont payé, la part qui obtient un vrai résultat à sa toute première recherche. C'est le moment où un client neuf décide de rester ou de partir : s'il tombe sur un compte privé, introuvable ou une erreur, il a payé pour rien. Le délai dit combien de temps s'écoule entre l'accès ouvert et cette première recherche.",
   fiabiliteScans:
     "Sur tous les scans lancés, la part qui a échoué. Le scan est ce qui donne sa valeur au produit : s'il échoue en silence, la personne croit qu'il ne s'est rien passé. Le détail par raison est plus parlant que le taux global.",
   resultatsRecherche:
@@ -76,11 +78,13 @@ export const EXPLAIN = {
   testAB:
     "Un test A/B compare deux offres pour décider laquelle garder. Tant qu'aucun test n'est marqué dans les données, cette carte reste vide. Elle s'allumera d'elle même quand l'app enverra un identifiant de test.",
   conversionParPaywall:
-    "L'app a six paywalls différents, mais la donnée actuelle n'en distingue que deux. Tant que l'app n'envoie pas l'identifiant de chaque paywall, quatre d'entre eux restent indistinguables. On préfère un tiret à une conversion inventée.",
+    "L'app a sept emplacements de paywall, mais la donnée actuelle n'en distingue que deux. Six sont subis (l'app bloque tant qu'on n'a pas payé), un seul est volontaire (un clic depuis le menu) et ne se compare jamais aux autres. Tant que l'app n'envoie pas l'identifiant de chaque paywall, on préfère un tiret à une conversion inventée.",
   economieOffre:
     "Pour chaque offre, ce qu'il reste après les frais sur un paiement, et par client sur un mois. Le taux de frais est mesuré, prix payé moins argent reçu, jamais supposé. Sert à comparer la rentabilité des offres entre elles.",
   planGratuit:
     "Les personnes qui prennent le plan gratuit, celles qui s'en servent vraiment, et celles qui passent ensuite au payant. « En ont fait usage » veut dire au moins une recherche, un scan ou une cible ajoutée. Un délai négatif veut dire que la personne avait déjà ouvert le paiement avant de prendre le gratuit.",
+  coutCibles:
+    "Ce que coûte réellement un scan, séparé entre le scan léger et le scan complet. Une cible gratuite ne déclenche que des scans légers, donc son coût suit ce tarif, en dollars, pas celui du scan complet réservé aux cibles payantes. Le chiffre vient du coût réel émis par l'app, pas d'une supposition.",
 
   // ─── Fiabilité ─────────────────────────────────────────────────────────────
   gardeFous:
