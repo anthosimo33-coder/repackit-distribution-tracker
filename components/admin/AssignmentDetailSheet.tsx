@@ -9,6 +9,7 @@ import {
   ExternalLinkIcon,
   FileTextIcon,
   Loader2Icon,
+  RepeatIcon,
   UsersIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -40,6 +41,7 @@ import {
 } from "@/lib/assignment-status";
 import { ManagedPublishForm } from "@/components/admin/ManagedPublishForm";
 import { AssignmentAttachments } from "@/components/admin/AssignmentAttachments";
+import { ReplayScriptLauncher } from "@/components/admin/ReplayScriptLauncher";
 import { dayStartMs } from "@/components/admin/AssignmentPlanningCalendar";
 import { countryFlag } from "@/lib/countries";
 
@@ -79,6 +81,9 @@ export function AssignmentDetailSheet({
   const setPostDate = useProjectMutation(api.assignments.setAssignmentPostDate);
   const [dateOpen, setDateOpen] = useState(false);
   const [savingDate, setSavingDate] = useState(false);
+  // « Rejouer ce script » : ouvre la modale d'assignation pré-remplie depuis CETTE
+  // assignation (lignage replayedFrom = row._id). Réservé aux assignations script.
+  const [replayOpen, setReplayOpen] = useState(false);
 
   const label = row.scriptCampaignName ?? row.formatName ?? "—";
   const platforms = row.targets.map((t) => t.platform);
@@ -120,7 +125,25 @@ export function AssignmentDetailSheet({
             {label}
             {platforms.length > 0 ? ` · ${platforms.join(", ")}` : ""}
           </SheetDescription>
+          {row.origin === "script" && (
+            <Button
+              variant="outline"
+              size="xs"
+              className="mt-2 w-fit gap-1.5"
+              onClick={() => setReplayOpen(true)}
+            >
+              <RepeatIcon className="size-3.5" />
+              Rejouer ce script
+            </Button>
+          )}
         </SheetHeader>
+
+        {/* « Rejouer ce script » — résout le combo de CETTE assignation et ouvre
+            la modale d'assignation pré-remplie (par-dessus le panneau). */}
+        <ReplayScriptLauncher
+          source={replayOpen ? { assignmentId: row._id } : null}
+          onClose={() => setReplayOpen(false)}
+        />
 
         <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4">
           {/* Contexte */}

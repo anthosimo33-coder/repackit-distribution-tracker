@@ -3,6 +3,7 @@ import {
   generateCombos,
   pickCombosForCreator,
   comboKeyOf,
+  parseComboKey,
   type ComboBrick,
 } from "./scriptCombos";
 
@@ -198,5 +199,33 @@ describe("pickCombosForCreator — diversité des 3 dimensions", () => {
     expect(picked.every((c) => c.fluxBrickId !== "flux0")).toBe(true);
     // Et continue d'exclure les combos déjà pris (pas de doublon).
     for (const c of picked) expect(usedKeys.has(comboKeyOf(c))).toBe(false);
+  });
+});
+
+describe("parseComboKey (rejeu depuis analytics)", () => {
+  it("3 segments (refonte) → hook/flux/cta", () => {
+    expect(parseComboKey("h1:f1:c1")).toEqual({
+      hookBrickId: "h1",
+      fluxBrickId: "f1",
+      ctaBrickId: "c1",
+    });
+  });
+
+  it("4 segments legacy → corps ignoré (hook, flux, cta)", () => {
+    expect(parseComboKey("h1:corps1:f1:c1")).toEqual({
+      hookBrickId: "h1",
+      fluxBrickId: "f1",
+      ctaBrickId: "c1",
+    });
+  });
+
+  it("aller-retour avec comboKeyOf", () => {
+    const combo = { hookBrickId: "h9", fluxBrickId: "f9", ctaBrickId: "c9" };
+    expect(parseComboKey(comboKeyOf(combo))).toEqual(combo);
+  });
+
+  it("forme inattendue → null (non rejouable)", () => {
+    expect(parseComboKey("h1:f1")).toBeNull();
+    expect(parseComboKey("")).toBeNull();
   });
 });
