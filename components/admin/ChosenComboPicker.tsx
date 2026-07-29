@@ -17,6 +17,8 @@ import {
 import {
   assembleScript,
   KIND_LABELS,
+  normalizeAssembledForCompare,
+  usefulShortLabel,
   type ScriptKind,
 } from "@/lib/scriptAssembly";
 import { comboKeyOf } from "@/lib/scriptCombos";
@@ -193,11 +195,14 @@ export function ChosenComboPicker({
 
   // Éditée depuis : mêmes briques que la source, mais le réassemblage à neuf
   // diffère du texte FIGÉ de la source → une brique a été éditée entre-temps.
+  // Comparaison NORMALISÉE (espaces insécables / invisibles neutralisés) : une
+  // alerte qui sonne sur un espace insécable est une alerte qu'on ignore.
   const editedSince =
     !!replaySource?.sourceAssembledScript &&
     !changed &&
     preview !== null &&
-    preview !== replaySource.sourceAssembledScript;
+    normalizeAssembledForCompare(preview) !==
+      normalizeAssembledForCompare(replaySource.sourceAssembledScript);
 
   const comboKey = allChosen
     ? comboKeyOf({
@@ -281,20 +286,38 @@ export function ChosenComboPicker({
                   >
                     <SelectTrigger aria-label={KIND_LABELS[kind]}>
                       <SelectValue>
-                        {selected ? selected.label : "Choisir une brique…"}
+                        {/* content = le texte qui PART à la créatrice (pas label). */}
+                        {selected ? (
+                          <span className="block truncate text-left">
+                            {selected.content}
+                          </span>
+                        ) : (
+                          "Choisir une brique…"
+                        )}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      {opts.map((b) => (
-                        <SelectItem key={b._id} value={b._id}>
-                          <span className="flex flex-col">
-                            <span>{b.label}</span>
-                            <span className="text-xs text-slate-500">
-                              {brickPerfLabel(perfByBrickId.get(b._id))}
+                      {opts.map((b) => {
+                        const note = usefulShortLabel(b.label, b.content);
+                        return (
+                          <SelectItem key={b._id} value={b._id}>
+                            <span className="flex flex-col gap-0.5">
+                              {/* content en évidence = ce qui sera réellement utilisé. */}
+                              <span className="line-clamp-3 whitespace-normal">
+                                {b.content}
+                              </span>
+                              {note && (
+                                <span className="text-xs italic text-slate-400">
+                                  note : {note}
+                                </span>
+                              )}
+                              <span className="text-xs text-slate-500">
+                                {brickPerfLabel(perfByBrickId.get(b._id))}
+                              </span>
                             </span>
-                          </span>
-                        </SelectItem>
-                      ))}
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                 )}

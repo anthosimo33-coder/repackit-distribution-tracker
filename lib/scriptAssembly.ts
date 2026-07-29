@@ -103,3 +103,45 @@ export function countCombinations(bricks: BrickLike[]): CombinationCount {
   const total = byKind.hook * byKind.flux * byKind.cta;
   return { total, byKind };
 }
+
+/**
+ * Normalise un script assemblé AVANT comparaison (détection « brique éditée
+ * depuis » du rejeu) : retire les caractères invisibles (zéro-largeur, marques
+ * directionnelles LRM/RLM, BOM), remplace l'espace insécable par un espace,
+ * écrase les runs d'espaces et trim. Une alerte qui sonne sur un espace
+ * insécable est une alerte qu'on apprend à ignorer → on la neutralise.
+ */
+export function normalizeAssembledForCompare(s: string): string {
+  return s
+    .replace(/[\u200B-\u200F\uFEFF]/g, "") // zéro-largeur + LRM/RLM + BOM
+    .replace(/\u00A0/g, " ") // espace insécable → espace normal
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Au-delà, un `label` n'est plus un « nom court » mais une phrase — souvent une
+ *  ancienne version (« cimetière »). */
+const SHORT_LABEL_MAX = 40;
+
+/**
+ * Le `label` d'une brique n'est un « nom court » UTILE à afficher en second que
+ * s'il apporte quelque chose : non vide, distinct du `content` (le SEUL texte qui
+ * part dans le script), assez court pour être un nom (< 40 car.) et pas une
+ * ponctuation pure (« . »). Sinon null → on n'affiche que `content`. Évite de
+ * remonter un doublon, une ancienne version longue ou un placeholder.
+ */
+export function usefulShortLabel(
+  label: string | null | undefined,
+  content: string | null | undefined,
+): string | null {
+  const l = (label ?? "").trim();
+  if (l.length === 0 || l.length >= SHORT_LABEL_MAX) return null;
+  if (!/[\p{L}\p{N}]/u.test(l)) return null; // « . », « — »… → rien d'utile
+  if (
+    normalizeAssembledForCompare(l) ===
+    normalizeAssembledForCompare(content ?? "")
+  ) {
+    return null; // simple doublon du content
+  }
+  return l;
+}

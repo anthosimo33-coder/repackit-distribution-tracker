@@ -53,6 +53,7 @@ import {
   countCombinations,
   KIND_LABELS,
   SCRIPT_KINDS,
+  usefulShortLabel,
   type ScriptKind,
   type ScriptTier,
 } from "@/lib/scriptAssembly";
@@ -288,6 +289,11 @@ function BrickRow({ brick, onEdit }: { brick: Brick; onEdit: () => void }) {
     }
   }
 
+  // content = le texte qui PART dans le script → principal. label n'est qu'un
+  // « nom court » utile de façon occasionnelle (souvent un doublon du content ou
+  // une ancienne version) → affiché en note SEULEMENT s'il apporte qqch.
+  const note = usefulShortLabel(brick.label, brick.content);
+
   return (
     <Card className={cn(!brick.active && "opacity-60")}>
       <CardContent className="flex items-start gap-3 p-3">
@@ -298,10 +304,14 @@ function BrickRow({ brick, onEdit }: { brick: Brick; onEdit: () => void }) {
           className="mt-0.5"
         />
         <div className="min-w-0 flex-1 space-y-0.5">
-          <p className="truncate text-sm font-medium text-slate-900">
-            {brick.label}
+          <p className="line-clamp-3 text-sm font-medium text-slate-900">
+            {brick.content}
           </p>
-          <p className="line-clamp-2 text-xs text-slate-500">{brick.content}</p>
+          {note && (
+            <p className="truncate text-xs italic text-slate-400">
+              note : {note}
+            </p>
+          )}
         </div>
         {brick.kind === "hook" && (
           <Select
