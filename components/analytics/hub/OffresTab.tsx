@@ -14,6 +14,7 @@ import {
 import { formatNumber } from "@/lib/format";
 import { formatMoney } from "@/lib/format-rate";
 import { computeConversion } from "@/lib/analytics-hub";
+import { EXPECTED_PAYWALL_IDS } from "@/convex/analyticsContract";
 import { HubCardHeader, HubNotice, dash, pct, formatDuration } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import type { ProductAnalyticsData, RevenueData } from "./types";
@@ -28,6 +29,18 @@ import type { ProductAnalyticsData, RevenueData } from "./types";
 /** Ratio en % tolérant au 0. */
 function ratePct(num: number, den: number): number | null {
   return den > 0 ? Math.round((num / den) * 1000) / 10 : null;
+}
+
+/** Type de scan (coût d'infrastructure) → libellé. */
+const SCAN_KIND_LABELS: Record<string, string> = {
+  light: "Scan léger (cible gratuite)",
+  full: "Scan complet (détecte les désabonnements)",
+  "(autre)": "Autre",
+};
+
+/** Montant en dollars, décimales adaptées aux petits coûts unitaires. */
+function usd(n: number | null, decimals = 2): string {
+  return n === null ? "—" : `${n.toFixed(decimals)} $`;
 }
 
 /** Les deux TYPES de paywall (pas des variantes de test). */
@@ -55,6 +68,21 @@ export function OffresTab({
     [analytics.abVariants.rows],
   );
   const free = analytics.freePlan;
+
+  // Coût d'infrastructure des scans, léger (cible gratuite) vs complet. Le tableau
+  // ne se chiffre que si cost_usd est émis ; il sépare toujours les deux tarifs.
+  const scanCost = useMemo(() => {
+    const rows = analytics.scanCost.rows;
+    const order = ["light", "full", "(autre)"];
+    return {
+      rows: [...rows].sort(
+        (a, b) => order.indexOf(a.kind) - order.indexOf(b.kind),
+      ),
+      anyRuns: rows.some((r) => r.runs > 0),
+      anyCost: rows.some((r) => r.withCost > 0),
+    };
+  }, [analytics.scanCost.rows]);
+
   const paywallRows = analytics.paywallById.rows;
   const paywallReady = paywallRows.some(
     (r) => r.key !== "(inconnu)" && r.key !== "(absent)",
@@ -198,16 +226,89 @@ export function OffresTab({
         <CardContent className="space-y-3 p-4">
           <HubCardHeader
             title="Conversion par paywall"
-            subtitle="L'app a 6 paywalls distincts, mais variant n'en distingue que 2 (gate/upsell)."
+            subtitle="L'app a 7 emplacements de paywall, mais variant n'en distingue que 2 (gate/upsell)."
             info={EXPLAIN.conversionParPaywall}
           />
           {!paywallReady ? (
-            <HubNotice className="border-slate-200 bg-slate-50 text-slate-600">
-              En attente de <code>paywall_id</code> : la propriété n&apos;est pas
-              encore émise côté app (0 occurrence sur 90 j — demandée au dev). Sans
-              elle, 4 des 6 paywalls sont indistinguables. Tiret plutôt qu&apos;une
-              conversion par paywall inventée.
-            </HubNotice>
+            <div className="space-y-3">
+              <HubNotice className="border-slate-200 bg-slate-50 text-slate-600">
+                En attente de <code>paywall_id</code> : la propriété n&apos;est pas
+                encore émise côté app (0 occurrence sur 90 j, demandée au dev). Les 7
+                emplacements ci-dessous sont prêts et s&apos;alimenteront d&apos;eux-mêmes
+                dès qu&apos;elle arrivera. Tiret plutôt qu&apos;une conversion inventée.
+              </HubNotice>
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-slate-500">
+                  Paywalls forcés (l&apos;app bloque tant qu&apos;on n&apos;a pas payé)
+                </p>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Paywall</TableHead>
+                      <TableHead className="text-right">Exposés</TableHead>
+                      <TableHead className="text-right">Payés</TableHead>
+                      <TableHead className="text-right">Taux</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {EXPECTED_PAYWALL_IDS.filter((p) => p.forced).map((p) => (
+                      <TableRow key={p.id}>
+                        <TableCell className="text-xs font-medium text-slate-700">
+                          {p.label}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums text-slate-300">
+                          {dash(null)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums text-slate-300">
+                          {dash(null)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums text-slate-300">
+                          {dash(null)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-slate-500">
+                  Paywall volontaire (jamais comparé aux forcés)
+                </p>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Paywall</TableHead>
+                      <TableHead className="text-right">Vus</TableHead>
+                      <TableHead className="text-right">Payés</TableHead>
+                      <TableHead className="text-right">Taux</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {EXPECTED_PAYWALL_IDS.filter((p) => !p.forced).map((p) => (
+                      <TableRow key={p.id}>
+                        <TableCell className="text-xs font-medium text-slate-700">
+                          {p.label}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums text-slate-300">
+                          {dash(null)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums text-slate-300">
+                          {dash(null)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums text-slate-300">
+                          {dash(null)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <p className="text-[11px] text-slate-400">
+                  <code>menu_upsell</code> est un clic choisi depuis le menu, pas un mur
+                  subi. Son taux n&apos;a pas le même dénominateur, on ne le met jamais
+                  dans le tableau des paywalls forcés.
+                </p>
+              </div>
+            </div>
           ) : (
             <Table>
               <TableHeader>
@@ -435,6 +536,66 @@ export function OffresTab({
           </CardContent>
         </Card>
       </div>
+
+      {/* Coût des cibles gratuites — léger vs complet, en dollars */}
+      <Card>
+        <CardContent className="space-y-3 p-4">
+          <HubCardHeader
+            title="Coût des cibles gratuites"
+            subtitle="Une cible gratuite ne déclenche que des scans légers : son coût suit le tarif léger, en dollars, pas celui du scan complet."
+            info={EXPLAIN.coutCibles}
+          />
+          {!scanCost.anyRuns ? (
+            <p className="text-xs text-slate-400">— en attente de scan_completed.</p>
+          ) : !scanCost.anyCost ? (
+            <HubNotice className="border-slate-200 bg-slate-50 text-slate-600">
+              Les scans tournent mais ne portent pas encore de coût :{" "}
+              <code>cost_usd</code> n&apos;est pas émis sur <code>scan_completed</code>{" "}
+              (demandé au dev). Le tableau se chiffrera de lui-même dès qu&apos;il
+              arrivera. Le léger (cible gratuite) et le complet sont déjà séparés.
+            </HubNotice>
+          ) : (
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Type de scan</TableHead>
+                    <TableHead className="text-right">Scans</TableHead>
+                    <TableHead className="text-right">Coût total (90 j)</TableHead>
+                    <TableHead className="text-right">Par scan</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {scanCost.rows.map((r) => (
+                    <TableRow
+                      key={r.kind}
+                      className={r.kind === "light" ? "bg-emerald-50/40" : undefined}
+                    >
+                      <TableCell className="text-xs font-medium text-slate-700">
+                        {SCAN_KIND_LABELS[r.kind] ?? r.kind}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {formatNumber(r.runs)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {r.withCost > 0 ? usd(r.sumCostUsd, 2) : "—"}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {usd(r.avgCostUsd, 4)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              <p className="text-xs text-slate-400">
+                <code>cost_usd</code> est en dollars. Une cible gratuite ne subit que
+                la ligne « léger » : son coût n&apos;est jamais celui d&apos;un scan
+                complet, ni en euros. Le total est mesuré sur la fenêtre de 90 jours.
+              </p>
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Journal des changements d'offre — horodaté (saisi par l'admin) */}
       <Card>

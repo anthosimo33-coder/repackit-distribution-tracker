@@ -19,6 +19,8 @@ const EXEMPT: Record<string, string> = {
     "scans = events backend (souvent un seul person_id pour tous) ; 'runs' = nombre de scans exécutés",
   scanLatency:
     "n = nombre de mesures de latence (events scan_completed), pas de personnes",
+  scanCost:
+    "coût d'infrastructure : runs/with_cost = nombre de scans (events scan_completed) ventilés léger/complet, pas de personnes",
   instrumentation:
     "les countIf sont des SONDES de présence de propriété (nb d'events portant la prop) ; les compteurs de personnes, eux, utilisent uniqIf(person_id)",
 };

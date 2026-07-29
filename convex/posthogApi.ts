@@ -145,6 +145,13 @@ export function cellStr(row: unknown[], i: number): string {
   return "";
 }
 
+/** Tableau de chaînes d'une cellule groupArray HogQL (non-array → []). */
+export function cellStrArr(row: unknown[], i: number): string[] {
+  const v = row[i];
+  if (!Array.isArray(v)) return [];
+  return v.map((x) => (typeof x === "string" ? x : String(x)));
+}
+
 /**
  * Horodatage (ms epoch) d'une cellule DateTime HogQL. PostHog rend un ISO sans
  * fuseau explicite pour les `toStartOf*` (ex. "2026-07-23 10:00:00") : on force

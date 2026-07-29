@@ -123,10 +123,10 @@ export const CONTRACT_PROPERTIES: ContractProperty[] = [
   { name: "app_version", onEvent: "*" },
   { name: "plan_shown", onEvent: "paywall_viewed" },
   { name: "price", onEvent: "paywall_viewed" },
-  // paywall_id : l'app a 6 paywalls distincts mais `variant` n'a que 2 valeurs
-  // (gate/upsell) → 4 paywalls indistinguables. Demandée au dev, PAS encore émise
-  // (vérifié : 0 occurrence sur 7 j ET 90 j). La carte « conversion par paywall »
-  // affiche un tiret tant qu'elle n'arrive pas.
+  // paywall_id : l'app a 7 emplacements de paywall (cf. EXPECTED_PAYWALL_IDS) mais
+  // `variant` n'a que 2 valeurs (gate/upsell) → la plupart sont indistinguables.
+  // Demandée au dev, PAS encore émise (vérifié : 0 occurrence sur 7 j ET 90 j). La
+  // carte « conversion par paywall » affiche les 7 en attente tant qu'elle n'arrive pas.
   { name: "paywall_id", onEvent: "paywall_viewed", notYetEmitted: true },
   // onboarding_step : l'onboarding fait 9 écrans qui PARTAGENT la même URL
   // (/onboarding), de la saisie du handle jusqu'au paywall. Les clics de rage ne
@@ -153,6 +153,27 @@ export const CONTRACT_PROPERTIES: ContractProperty[] = [
  */
 export const EXPECTED_RESULT_VALUES: { event: string; value: string; notYetEmitted: boolean }[] = [
   { event: "handle_search_result", value: "paywalled", notYetEmitted: true },
+];
+
+/**
+ * VALEURS attendues de `paywall_id` : les 7 emplacements de paywall de l'app, PAS
+ * encore émis. `variant` ne distingue que gate/upsell, donc les paywalls forcés
+ * sont aujourd'hui indistinguables. `forced` sépare les paywalls SUBIS (l'app
+ * bloque tant qu'on n'a pas payé) du seul paywall VOLONTAIRE, menu_upsell, où la
+ * personne clique délibérément sur une offre depuis le menu.
+ *
+ * RÈGLE DURE : ne JAMAIS mettre menu_upsell dans le même tableau de conversion que
+ * les paywalls forcés. Son dénominateur n'a pas le même sens (un clic choisi n'est
+ * pas un mur subi), les comparer donnerait un taux trompeur. L'UI le range à part.
+ */
+export const EXPECTED_PAYWALL_IDS: { id: string; label: string; forced: boolean }[] = [
+  { id: "onboarding_target", label: "Onboarding — ajout de cible", forced: true },
+  { id: "search_first", label: "Première recherche", forced: true },
+  { id: "search_second_target", label: "Deuxième cible en recherche", forced: true },
+  { id: "event_locked", label: "Événement verrouillé", forced: true },
+  { id: "see_who", label: "Voir qui a fait quoi", forced: true },
+  { id: "expired", label: "Accès expiré", forced: true },
+  { id: "menu_upsell", label: "Menu — offre (clic volontaire)", forced: false },
 ];
 
 /** Alias SQL sûr pour un nom d'event (`$pageview` → `pageview`, etc.). */

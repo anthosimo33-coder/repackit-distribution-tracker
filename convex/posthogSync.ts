@@ -11,6 +11,7 @@ import {
   runHogQL,
   cellNum,
   cellStr,
+  cellStrArr,
   cellTimeMs,
   type PosthogTarget,
 } from "./posthogApi";
@@ -80,6 +81,8 @@ export const POSTHOG_CACHE_KEYS = {
   scanLatency: "scanLatency",
   friction: "friction",
   frictionByStep: "frictionByStep",
+  firstSearchAfterPay: "firstSearchAfterPay",
+  scanCost: "scanCost",
   // ─── C2 — Compteur A4 (personnes internes exclues) ─────────────────────────
   internalExcluded: "internalExcluded",
   // ─── Phase B — agrégats des nouveaux onglets ──────────────────────────────
@@ -188,6 +191,23 @@ export interface ScanLatencyPayload {
   rows: { bucket: string; medianMs: number | null; p90Ms: number | null; n: number }[];
 }
 
+/**
+ * Coût d'infrastructure des scans, ventilé LÉGER vs COMPLET (cost_usd, en $). Une
+ * cible gratuite ne déclenche QUE des scans légers → son coût est le tarif léger,
+ * pas le tarif complet, et il est en dollars, pas en euros. `withCost` = scans
+ * portant un cost_usd exploitable : si 0, l'app n'émet pas encore le coût et la
+ * carte le dit au lieu d'inventer un chiffre.
+ */
+export interface ScanCostPayload {
+  rows: {
+    kind: string;
+    runs: number;
+    withCost: number;
+    sumCostUsd: number;
+    avgCostUsd: number | null;
+  }[];
+}
+
 /** Points de friction : rageclicks par page. */
 export interface FrictionPayload {
   rows: { page: string; persons: number }[];
@@ -244,6 +264,34 @@ export interface FreePlanPayload {
   checkoutBefore: number;
   /** Délai médian gratuit→checkout (ms, SIGNÉ : négatif = checkout avant). null si aucun. */
   medFreeToCheckoutMs: number | null;
+}
+
+/**
+ * La demande la plus importante : que vit un client à sa PREMIÈRE recherche
+ * après paiement. Le paywall bloque la recherche AVANT paiement, donc le
+ * premier `handle_search_result` d'un payant EST déjà sa recherche post-accès
+ * (pas de fenêtre à calculer). Par personne payante : résultat de cette 1re
+ * recherche + délai paiement→recherche. La ventilation dit combien tombent sur
+ * un résultat exploitable (`found`) vs un mur (private / not_found / error).
+ *
+ * PAS mesurable ici : le taux de résiliation dans l'heure qui suit un échec.
+ * `subscription_cancelled` n'est émis que pour 3 personnes (les vraies
+ * résiliations vivent côté Whop, non rattachables à la personne PostHog). Le
+ * champ `cancelJoinable` porte ce compte pour que la carte le dise au lieu de
+ * bâtir un taux sur 3 cas. Voir [[churn-and-acquisition-bonus]].
+ */
+export interface FirstSearchAfterPayPayload {
+  /** Personnes avec subscription_completed. */
+  paid: number;
+  /** …dont au moins une recherche après paiement. */
+  searched: number;
+  /** Ventilation du résultat de la 1re recherche (exploitable = `found`). */
+  results: { result: string; persons: number }[];
+  /** Délai paiement→1re recherche, secondes. null si aucun couple valide. */
+  medDelaySec: number | null;
+  p90DelaySec: number | null;
+  /** Payants rattachables à un subscription_cancelled (mesure la faisabilité, pas un taux). */
+  cancelJoinable: number;
 }
 
 /**
@@ -715,6 +763,29 @@ FROM (
 GROUP BY bucket, bidx
 ORDER BY bidx`,
 
+  /**
+   * Coût d'infrastructure des scans, ventilé LÉGER vs COMPLET via `reason`. Le scan
+   * complet (scheduled_full) détecte les désabonnements et coûte cher ; le léger
+   * (scheduled_light / baseline / manual_refresh) est ce que subit une cible
+   * gratuite. cost_usd est en DOLLARS (agrégat d'events, admis par le garde-fou #156).
+   */
+  scanCost: `
+SELECT
+  multiIf(
+    coalesce(nullIf(toString(properties.reason), ''), '') = 'scheduled_full', 'full',
+    coalesce(nullIf(toString(properties.reason), ''), '') IN ('scheduled_light', 'baseline', 'manual_refresh'), 'light',
+    '(autre)'
+  ) AS kind,
+  count() AS runs,
+  countIf(toFloatOrNull(toString(properties.cost_usd)) IS NOT NULL) AS with_cost,
+  round(sum(toFloatOrZero(toString(properties.cost_usd))), 4) AS sum_cost,
+  round(avgIf(toFloatOrZero(toString(properties.cost_usd)), toFloatOrNull(toString(properties.cost_usd)) IS NOT NULL), 5) AS avg_cost
+FROM events
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+  AND event = 'scan_completed'
+GROUP BY kind
+ORDER BY runs DESC`,
+
   /** Points de friction : rageclicks distincts par page. */
   friction: `
 SELECT coalesce(
@@ -835,6 +906,40 @@ FROM (
     AND event IN ('free_tier_started', 'checkout_started', 'subscription_completed', 'handle_search_result', 'scan_completed', 'target_added')
   GROUP BY person_id
   HAVING countIf(event = 'free_tier_started') > 0
+)`,
+
+  /**
+   * Première recherche APRÈS paiement (la demande la plus importante). Le paywall
+   * bloque la recherche avant paiement → le 1er handle_search_result d'un payant
+   * est déjà post-accès. Par personne payante : résultat de cette recherche +
+   * délai paiement→recherche. `result_list` collecte le 1er résultat de chaque
+   * payant qui a cherché (≤ nb de payants) → le shaper le ventile. `cancel_joinable`
+   * = payants rattachables à un subscription_cancelled : mesure la FAISABILITÉ du
+   * taux de résiliation post-échec, pas le taux lui-même (event sous-émis).
+   * count()/countIf ici agrègent la sous-requête GROUP BY person_id (même forme
+   * que freePlan, admise par le garde-fou #156).
+   */
+  firstSearchAfterPay: `
+SELECT
+  count() AS paid,
+  countIf(has_search > 0) AS searched,
+  quantileIf(0.5)(delay_s, delay_s > 0) AS med_delay_s,
+  quantileIf(0.9)(delay_s, delay_s > 0) AS p90_delay_s,
+  countIf(has_cancel > 0) AS cancel_joinable,
+  groupArrayIf(first_result, has_search > 0) AS result_list
+FROM (
+  SELECT person_id,
+    countIf(event = 'handle_search_result') AS has_search,
+    countIf(event = 'subscription_cancelled') AS has_cancel,
+    argMinIf(coalesce(nullIf(toString(properties.result), ''), '(sans result)'), timestamp, event = 'handle_search_result') AS first_result,
+    if(countIf(event = 'handle_search_result') > 0,
+       dateDiff('second', minIf(timestamp, event = 'subscription_completed'), minIf(timestamp, event = 'handle_search_result')),
+       NULL) AS delay_s
+  FROM events
+  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+    AND event IN ('subscription_completed', 'handle_search_result', 'subscription_cancelled')
+  GROUP BY person_id
+  HAVING countIf(event = 'subscription_completed') > 0
 )`,
 
   /**
@@ -1327,6 +1432,25 @@ export const runHourlySync = internalAction({
           }),
         ),
         await collect(
+          POSTHOG_CACHE_KEYS.scanCost,
+          apiKey,
+          target,
+          QUERIES.scanCost,
+          (rows): ScanCostPayload => ({
+            rows: rows.map((r) => {
+              const withCost = cellNum(r, 2);
+              return {
+                kind: cellStr(r, 0),
+                runs: cellNum(r, 1),
+                withCost,
+                sumCostUsd: cellNum(r, 3),
+                // avg n'a de sens que si des scans portent un cost_usd.
+                avgCostUsd: withCost > 0 ? cellNum(r, 4) : null,
+              };
+            }),
+          }),
+        ),
+        await collect(
           POSTHOG_CACHE_KEYS.friction,
           apiKey,
           target,
@@ -1390,6 +1514,31 @@ export const runHourlySync = internalAction({
               checkoutBefore: cellNum(r, 3),
               // délai en SECONDES (signé) → ms. Pas de free-user avec checkout ⇒ null.
               medFreeToCheckoutMs: nDelay > 0 ? cellNum(r, 5) * 1000 : null,
+            };
+          },
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.firstSearchAfterPay,
+          apiKey,
+          target,
+          QUERIES.firstSearchAfterPay,
+          (rows): FirstSearchAfterPayPayload => {
+            const r = rows[0] ?? [];
+            const searched = cellNum(r, 1);
+            const tally = new Map<string, number>();
+            for (const res of cellStrArr(r, 5)) {
+              tally.set(res, (tally.get(res) ?? 0) + 1);
+            }
+            return {
+              paid: cellNum(r, 0),
+              searched,
+              // délais en secondes ; searched = 0 ⇒ pas de couple valide (null).
+              medDelaySec: searched > 0 ? cellNum(r, 2) : null,
+              p90DelaySec: searched > 0 ? cellNum(r, 3) : null,
+              cancelJoinable: cellNum(r, 4),
+              results: [...tally.entries()]
+                .map(([result, persons]) => ({ result, persons }))
+                .sort((a, b) => b.persons - a.persons),
             };
           },
         ),
@@ -1500,6 +1649,8 @@ export interface ProductAnalytics {
   searchResults: SearchResultsPayload;
   scanReliability: ScanReliabilityPayload;
   scanLatency: ScanLatencyPayload;
+  /** Coût d'infrastructure des scans, léger vs complet (cost_usd, $). */
+  scanCost: ScanCostPayload;
   friction: FrictionPayload;
   /** Point 10 — friction d'onboarding par étape (en attente de onboarding_step). */
   frictionByStep: FrictionByStepPayload;
@@ -1511,6 +1662,8 @@ export interface ProductAnalytics {
   abVariants: AbVariantsPayload;
   /** B3 — plan gratuit. */
   freePlan: FreePlanPayload;
+  /** Première recherche après paiement (la demande la plus importante). */
+  firstSearchAfterPay: FirstSearchAfterPayPayload;
 }
 
 const EMPTY_FUNNEL: FunnelPayload = { segments: [] };
@@ -1553,6 +1706,7 @@ export const getProductAnalytics = adminQuery({
       searchResults: { rows: [] },
       scanReliability: { rows: [] },
       scanLatency: { rows: [] },
+      scanCost: { rows: [] },
       friction: { rows: [] },
       frictionByStep: { rows: [] },
       internalExcluded: EMPTY_INTERNAL_EXCLUDED,
@@ -1564,6 +1718,14 @@ export const getProductAnalytics = adminQuery({
         convertedPaid: 0,
         checkoutBefore: 0,
         medFreeToCheckoutMs: null,
+      },
+      firstSearchAfterPay: {
+        paid: 0,
+        searched: 0,
+        results: [],
+        medDelaySec: null,
+        p90DelaySec: null,
+        cancelJoinable: 0,
       },
     };
     if (!empty.configured) return empty;
@@ -1609,6 +1771,7 @@ export const getProductAnalytics = adminQuery({
       searchResults: read(POSTHOG_CACHE_KEYS.searchResults, { rows: [] }),
       scanReliability: read(POSTHOG_CACHE_KEYS.scanReliability, { rows: [] }),
       scanLatency: read(POSTHOG_CACHE_KEYS.scanLatency, { rows: [] }),
+      scanCost: read(POSTHOG_CACHE_KEYS.scanCost, { rows: [] }),
       friction: read(POSTHOG_CACHE_KEYS.friction, { rows: [] }),
       frictionByStep: read(POSTHOG_CACHE_KEYS.frictionByStep, { rows: [] }),
       internalExcluded: read(
@@ -1618,6 +1781,10 @@ export const getProductAnalytics = adminQuery({
       activation: read(POSTHOG_CACHE_KEYS.activation, { rows: [] }),
       abVariants: read(POSTHOG_CACHE_KEYS.abVariants, { rows: [] }),
       freePlan: read(POSTHOG_CACHE_KEYS.freePlan, empty.freePlan),
+      firstSearchAfterPay: read(
+        POSTHOG_CACHE_KEYS.firstSearchAfterPay,
+        empty.firstSearchAfterPay,
+      ),
     };
   },
 });
