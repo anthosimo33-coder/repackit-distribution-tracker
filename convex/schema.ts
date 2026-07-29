@@ -931,6 +931,12 @@ export default defineSchema({
     // comparer plus tard les reprises d'une même combinaison. (Carte de comparaison
     // = plus tard ; ici on POSE juste le champ.)
     replayedFrom: v.optional(v.id("assignments")),
+    // Rejeu À L'IDENTIQUE — l'assignation porte le texte FIGÉ de la source
+    // (`replayedFrom`), PAS une reconstruction depuis les briques vivantes. true =
+    // « le texte qui a réellement marché » ; absent = texte actuel (reconstruction)
+    // OU pas un rejeu. Posé pour comparer plus tard les deux modes de reprise à
+    // combinaison égale (même comboKey). Cf assignScriptCampaign (branche verbatim).
+    replayVerbatim: v.optional(v.boolean()),
     accountId: v.optional(v.id("comptes")),
     dueDate: v.number(),
     // ─── Date de PUBLICATION planifiée (« poste-la ce jour-là ») ───────────────

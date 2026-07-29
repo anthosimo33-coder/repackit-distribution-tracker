@@ -3,6 +3,7 @@ import {
   assembleScript,
   countCombinations,
   normalizeAssembledForCompare,
+  splitAssembledIntoThree,
   usefulShortLabel,
   type BrickLike,
 } from "./scriptAssembly";
@@ -142,5 +143,25 @@ describe("usefulShortLabel", () => {
     expect(usefulShortLabel("Flux 1 — Upload", "Tu vas sur RepackIt.io…")).toBe(
       "Flux 1 — Upload",
     );
+  });
+});
+
+describe("splitAssembledIntoThree", () => {
+  it("re-sépare un script monté labels:false en [hook, flux, cta]", () => {
+    const assembled = assembleScript(
+      { hook: "Le hook", flux: ".", cta: "Le CTA final" },
+      { labels: false },
+    );
+    expect(splitAssembledIntoThree(assembled)).toEqual([
+      "Le hook",
+      ".",
+      "Le CTA final",
+    ]);
+  });
+
+  it("null si un contenu a une ligne vide interne (arité ambiguë)", () => {
+    // hook à 2 paragraphes → 4 segments → non mappable → null (pas de devinette).
+    const assembled = "Hook ligne 1\n\nHook ligne 2\n\nFlux\n\nCTA";
+    expect(splitAssembledIntoThree(assembled)).toBeNull();
   });
 });

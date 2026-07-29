@@ -145,3 +145,18 @@ export function usefulShortLabel(
   }
   return l;
 }
+
+/**
+ * Re-sépare un assembledScript (labels:false = `hook\n\nflux\n\ncta`) en ses 3
+ * segments, pour un diff PAR BRIQUE (« montre ce qui change » du rejeu). Renvoie
+ * null si l'arité ne colle pas — un contenu à ligne vide INTERNE ou un script
+ * legacy 4 briques casse le mapping → le caller retombe sur un diff plein-script.
+ * On ne DEVINE jamais : soit 3 segments francs, soit rien.
+ */
+export function splitAssembledIntoThree(
+  assembled: string,
+): [string, string, string] | null {
+  const parts = assembled.split("\n\n");
+  if (parts.length !== 3) return null;
+  return [parts[0].trim(), parts[1].trim(), parts[2].trim()];
+}
