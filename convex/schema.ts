@@ -904,6 +904,21 @@ export default defineSchema({
     // Espaces de clés DISJOINTS → index by_creator_combo pour l'anti-coordination
     // (un créateur ne reçoit jamais deux fois le même combo).
     comboKey: v.optional(v.string()),
+    // Rejeu — combinaison IMPOSÉE à l'assignation (« Rejouer ce script » ou mode
+    // « Combinaison choisie »), au lieu du tirage auto anti-coordination. true
+    // UNIQUEMENT dans ce cas ; absent = combo auto (0 bruit sur les lignes
+    // existantes). Analytics : compté SANS distinction (perfByCombo/perfByBrick
+    // lisent comboKey/brickIds, jamais ce flag). Anti-coordination : les lignes
+    // imposées sont IGNORÉES du set usedKeys → le triplet reste piochable en auto
+    // (« un choix manuel ne retire rien de la rotation »).
+    comboImposed: v.optional(v.boolean()),
+    // Lignage de rejeu — assignation SOURCE d'où ce combo a été rejoué. Posé pour
+    // les entrées tracker/détail ; absent depuis l'entrée analytics (agrégat, pas
+    // de source unique) et en mode « from scratch ». Relie même une VARIANTE
+    // (comboKey différent après changement d'une brique) à son origine → permet de
+    // comparer plus tard les reprises d'une même combinaison. (Carte de comparaison
+    // = plus tard ; ici on POSE juste le champ.)
+    replayedFrom: v.optional(v.id("assignments")),
     accountId: v.optional(v.id("comptes")),
     dueDate: v.number(),
     // ─── Date de PUBLICATION planifiée (« poste-la ce jour-là ») ───────────────

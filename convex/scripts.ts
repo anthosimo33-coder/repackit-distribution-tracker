@@ -93,6 +93,56 @@ function comboKeyOf(c: {
   return `${c.hookBrickId}:${c.fluxBrickId}:${c.ctaBrickId}`;
 }
 
+/**
+ * Valide un combo IMPOSÉ (« Rejouer ce script » / mode « Combinaison choisie »)
+ * et l'assemble depuis les briques VIVANTES (pas un texte figé). Rejette
+ * (ConvexError lisible) si une brique est introuvable/supprimée, désactivée, du
+ * mauvais kind ou hors campagne — les mêmes cas que l'UI signale au
+ * pré-remplissage. On réassemble à neuf (labels:false, comme l'auto) → si une
+ * brique a été éditée depuis la source, la reprise reflète la version ACTUELLE.
+ */
+function validateImposedCombo(
+  allBricks: Doc<"scriptBricks">[],
+  chosen: {
+    hookBrickId: Id<"scriptBricks">;
+    fluxBrickId: Id<"scriptBricks">;
+    ctaBrickId: Id<"scriptBricks">;
+  },
+  campaignId: Id<"scriptCampaigns">,
+): ServerCombo {
+  const byId = new Map(allBricks.map((b) => [b._id as string, b]));
+  const pick = (id: Id<"scriptBricks">, kind: "hook" | "flux" | "cta") => {
+    const b = byId.get(id as string);
+    if (!b || b.campaignId !== campaignId) {
+      throw new ConvexError(
+        `Brique ${kind} introuvable (supprimée ?) — choisis-en une autre.`,
+      );
+    }
+    if (b.kind !== kind) {
+      throw new ConvexError(`Brique ${kind} de type inattendu (${b.kind}).`);
+    }
+    if (!b.active) {
+      throw new ConvexError(
+        `Brique ${kind} désactivée — choisis-en une autre.`,
+      );
+    }
+    return b;
+  };
+  const hook = pick(chosen.hookBrickId, "hook");
+  const flux = pick(chosen.fluxBrickId, "flux");
+  const cta = pick(chosen.ctaBrickId, "cta");
+  return {
+    hookBrickId: hook._id,
+    fluxBrickId: flux._id,
+    ctaBrickId: cta._id,
+    assembledScript: assembleNoLabels({
+      hook: hook.content,
+      flux: flux.content,
+      cta: cta.content,
+    }),
+  };
+}
+
 function generateCombosServer(bricks: Doc<"scriptBricks">[]): ServerCombo[] {
   const of = (k: string) => bricks.filter((b) => b.active && b.kind === k);
   const out: ServerCombo[] = [];
@@ -186,6 +236,10 @@ function usedComboKeysForPlatforms(
   const used = new Set<string>();
   for (const a of existing) {
     if (a.creatorId !== creatorId || !a.comboKey) continue;
+    // Combo IMPOSÉ (rejeu / choix manuel) : ne consomme PAS la rotation auto →
+    // le triplet reste piochable (« un choix manuel ne retire rien de la
+    // rotation »). Réplique A6 : lib/script-combo-uniqueness fait de même.
+    if (a.comboImposed === true) continue;
     const aps = (a.targets ?? []).map((t) => t.platform);
     if (aps.some((p) => target.has(p))) used.add(a.comboKey);
   }
@@ -307,6 +361,102 @@ export const getCampaign = adminQuery({
       return (a.order ?? a.createdAt) - (b.order ?? b.createdAt);
     });
     return { ...campaign, bricks };
+  },
+});
+
+/**
+ * Payload de « Rejouer ce script » : résout, depuis une PUBLICATION (ligne
+ * tracker) ou une ASSIGNATION (fiche détail), tout ce dont la modale a besoin
+ * pour se pré-remplir :
+ *  - `bricks` : les 3 brickIds FIGÉS du combo source (la modale les confronte aux
+ *     briques VIVANTES → supprimée/désactivée = slot à re-remplir) ;
+ *  - `sourceAssignmentId` : lignage (replayedFrom), même pour une variante ;
+ *  - `sourceAssembledScript` : texte FIGÉ de la source → la modale détecte « une
+ *     brique a été éditée depuis » (réassemblage live ≠ figé) ;
+ *  - `perf` : vues (latest dénormalisé) · date · créatrice, pour le panneau qui
+ *     rappelle POURQUOI on rejoue.
+ * Renvoie null si la source n'est pas un script (pas de scriptCombo) ou est hors
+ * projet. L'entrée ANALYTICS (combo agrégé) ne passe PAS par ici : elle n'a pas de
+ * source unique (payload construit côté client depuis ComboPerf).
+ */
+export const getReplaySource = adminQuery({
+  args: {
+    publicationId: v.optional(v.id("publications")),
+    assignmentId: v.optional(v.id("assignments")),
+  },
+  handler: async (ctx, args) => {
+    // Exactement UNE source.
+    if (
+      (args.publicationId === undefined) ===
+      (args.assignmentId === undefined)
+    ) {
+      throw new ConvexError("Fournis publicationId OU assignmentId (une seule).");
+    }
+
+    let assignment: Doc<"assignments"> | null = null;
+    let publication: Doc<"publications"> | null = null;
+
+    if (args.assignmentId) {
+      assignment = await ctx.db.get(args.assignmentId);
+      if (!assignment || assignment.projectId !== ctx.projectId) return null;
+      // Publication derrière l'assignation (targets[].publicationId ou legacy).
+      const pubId =
+        assignment.publicationId ??
+        assignment.targets?.find((t) => t.publicationId)?.publicationId;
+      publication = pubId ? await ctx.db.get(pubId) : null;
+    } else {
+      publication = await ctx.db.get(args.publicationId!);
+      if (!publication || publication.projectId !== ctx.projectId) return null;
+      // Publications sans back-ref vers l'assignation → scan projet, match sur
+      // publicationId (top-level legacy ou targets[]). 1 publication = 1 assignation.
+      const projectAssignments = await ctx.db
+        .query("assignments")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect();
+      const pubIdStr = publication._id as string;
+      assignment =
+        projectAssignments.find(
+          (a) =>
+            (a.publicationId as string | undefined) === pubIdStr ||
+            (a.targets ?? []).some(
+              (t) => (t.publicationId as string | undefined) === pubIdStr,
+            ),
+        ) ?? null;
+    }
+
+    // La source doit porter un combo de script (sinon rien à rejouer).
+    const combo = assignment?.scriptCombo ?? publication?.scriptCombo ?? null;
+    if (!combo) return null;
+
+    const campaign = await ctx.db.get(combo.campaignId);
+    if (!campaign || campaign.projectId !== ctx.projectId) return null;
+
+    // Créatrice : via l'assignation (la publication n'en porte pas).
+    let creatorName = assignment?.creatorNameSnapshot ?? "Créateur supprimé";
+    if (assignment) {
+      const creator = await ctx.db.get(assignment.creatorId);
+      if (creator) creatorName = creator.name;
+    }
+
+    return {
+      campaignId: combo.campaignId,
+      campaignName: campaign.name,
+      bricks: {
+        hookBrickId: combo.hookBrickId,
+        fluxBrickId: combo.fluxBrickId,
+        ctaBrickId: combo.ctaBrickId,
+      },
+      sourceAssignmentId: assignment?._id ?? null,
+      // La publication ne stocke pas assembledScript → on prend celui, figé, de
+      // l'assignation source (null si orpheline → pas de bandeau « éditée depuis »).
+      sourceAssembledScript: assignment?.scriptCombo?.assembledScript ?? null,
+      // Vues dénormalisées « latest » + date de publi (null si pas encore publié).
+      perf: {
+        views: publication?.vuesLatest ?? null,
+        date: publication?.datePubli ?? assignment?.publishedAt ?? null,
+        creatorName,
+      },
+    };
   },
 });
 
@@ -553,6 +703,21 @@ export const assignScriptCampaign = adminMutation({
     // demandé (pénurie), les dates en trop sont ignorées. En masse, le client
     // passe le MÊME tableau pour chaque créateur (même répartition pour toutes).
     postDates: v.optional(v.array(v.number())),
+    // Combinaison IMPOSÉE (« Rejouer ce script » / mode « Combinaison choisie ») :
+    // les 3 briques sont fournies par l'admin au lieu du tirage auto. Présent →
+    // court-circuite generateCombos/pickCombos et l'unicité anti-coordination ;
+    // les N vidéos demandées portent CE combo (aucun blocage, aucun dédoublonnage :
+    // « réutiliser une combinaison est volontaire »). Absent → chemin auto inchangé.
+    imposedCombo: v.optional(
+      v.object({
+        hookBrickId: v.id("scriptBricks"),
+        fluxBrickId: v.id("scriptBricks"),
+        ctaBrickId: v.id("scriptBricks"),
+      }),
+    ),
+    // Lignage : assignation source d'où le combo est rejoué (stocké tel quel sur
+    // chaque ligne créée). Ne concerne que l'imposé ; ignoré en auto.
+    replayedFrom: v.optional(v.id("assignments")),
   },
   handler: async (ctx, args) => {
     const campaign = await requireCampaign(ctx, args.campaignId, ctx.projectId);
@@ -568,6 +733,15 @@ export const assignScriptCampaign = adminMutation({
     }
     if (!args.pricingId) {
       throw new ConvexError("Un barème de paie est requis.");
+    }
+    // Lignage de rejeu : la source doit exister DANS le projet (défensif ; l'UI ne
+    // l'envoie que depuis une vraie assignation source). N'impose rien sur son
+    // combo — une variante (brique changée) reste rattachée à son origine.
+    if (args.replayedFrom !== undefined) {
+      const src = await ctx.db.get(args.replayedFrom);
+      if (!src || src.projectId !== ctx.projectId) {
+        throw new ConvexError("Assignation source du rejeu introuvable.");
+      }
     }
 
     const creator = await ctx.db.get(args.creatorId);
@@ -585,21 +759,13 @@ export const assignScriptCampaign = adminMutation({
     // Chantier C — cibles multi-plateformes (1 vidéo de script → N posts).
     await validateTargets(ctx, ctx.projectId, args.creatorId, args.targets);
 
-    // Bricks actives de la campagne (+ filtre tier sur les hooks si demandé).
+    // Bricks de la campagne — servent au tirage AUTO (generateCombos) ET à valider
+    // un combo IMPOSÉ (validateImposedCombo). Le filtre tier et la génération ne
+    // s'appliquent qu'au chemin auto (cf branche de sélection ci-dessous).
     const allBricks = await ctx.db
       .query("scriptBricks")
       .withIndex("by_campaign", (q) => q.eq("campaignId", args.campaignId))
       .collect();
-    const bricks =
-      args.tier === undefined
-        ? allBricks
-        : allBricks.filter((b) => b.kind !== "hook" || b.tier === args.tier);
-    const combos = generateCombosServer(bricks);
-    if (combos.length === 0) {
-      throw new ConvexError(
-        "Aucun combo disponible (un type de brique manque, ou aucun hook actif pour ce tier).",
-      );
-    }
 
     // Pricing OBLIGATOIRE = source unique du barème (fixe/CPM/paliers), figé à
     // l'attribution. rateSnapshot devient un placeholder neutre : le schéma le
@@ -645,29 +811,58 @@ export const assignScriptCampaign = adminMutation({
     const shortages: { name: string; requested: number; assigned: number }[] =
       [];
 
-    // Unicité (comboKey, créateur, PLATEFORME) : on exclut les combos déjà pris
-    // par CE créateur sur l'une des plateformes ciblées (union). Cross-plateforme
-    // AUTORISÉ → un combo sur le TikTok du créateur reste dispo pour son YouTube.
-    // Le créateur est mono-projet (creators.projectId) → ses assignments sont
-    // tous dans le projet courant (scoping projet implicite). comboKey embarque
-    // les brickIds (uniques par campagne) → pas de collision inter-campagnes.
-    const existing = await ctx.db
-      .query("assignments")
-      .withIndex("by_creator", (q) => q.eq("creatorId", args.creatorId))
-      .collect();
-    const targetPlatforms = args.targets.map((t) => t.platform);
-    const usedKeys = usedComboKeysForPlatforms(
-      existing,
-      args.creatorId,
-      targetPlatforms,
-    );
-    const picked = pickCombosServer(combos, usedKeys, args.videosPerCreator);
-    if (picked.length < args.videosPerCreator) {
-      shortages.push({
-        name: creator.name,
-        requested: args.videosPerCreator,
-        assigned: picked.length,
-      });
+    // ─── Sélection des combos : IMPOSÉE (rejeu / choix manuel) ou AUTO ──────────
+    // Imposée : les 3 briques viennent de l'admin ; CHAQUE vidéo demandée porte ce
+    // combo, sans tirage ni contrôle d'unicité (réutilisation volontaire → aucun
+    // blocage, aucun avertissement de doublon). Aucune pénurie possible.
+    // Auto : tirage anti-coordination least-used + unicité (comboKey × créateur ×
+    // plateforme). Les lignes à combo imposé sont ignorées de usedKeys → le triplet
+    // imposé reste piochable en auto.
+    let picked: ServerCombo[];
+    let totalCombos: number;
+    if (args.imposedCombo) {
+      const combo = validateImposedCombo(
+        allBricks,
+        args.imposedCombo,
+        args.campaignId,
+      );
+      picked = Array.from({ length: args.videosPerCreator }, () => combo);
+      totalCombos = 1;
+    } else {
+      const bricks =
+        args.tier === undefined
+          ? allBricks
+          : allBricks.filter((b) => b.kind !== "hook" || b.tier === args.tier);
+      const combos = generateCombosServer(bricks);
+      if (combos.length === 0) {
+        throw new ConvexError(
+          "Aucun combo disponible (un type de brique manque, ou aucun hook actif pour ce tier).",
+        );
+      }
+      totalCombos = combos.length;
+      // Unicité (comboKey, créateur, PLATEFORME) : on exclut les combos déjà pris
+      // par CE créateur sur l'une des plateformes ciblées (union). Cross-plateforme
+      // AUTORISÉ → un combo sur le TikTok du créateur reste dispo pour son YouTube.
+      // Le créateur est mono-projet → scoping projet implicite ; comboKey embarque
+      // les brickIds (uniques par campagne) → pas de collision inter-campagnes.
+      const existing = await ctx.db
+        .query("assignments")
+        .withIndex("by_creator", (q) => q.eq("creatorId", args.creatorId))
+        .collect();
+      const targetPlatforms = args.targets.map((t) => t.platform);
+      const usedKeys = usedComboKeysForPlatforms(
+        existing,
+        args.creatorId,
+        targetPlatforms,
+      );
+      picked = pickCombosServer(combos, usedKeys, args.videosPerCreator);
+      if (picked.length < args.videosPerCreator) {
+        shortages.push({
+          name: creator.name,
+          requested: args.videosPerCreator,
+          assigned: picked.length,
+        });
+      }
     }
 
     let created = 0;
@@ -687,6 +882,11 @@ export const assignScriptCampaign = adminMutation({
           assembledScript: combo.assembledScript,
         },
         comboKey: comboKeyOf(combo),
+        // Rejeu / choix manuel — flag + lignage (undefined en auto → 0 bruit).
+        ...(args.imposedCombo ? { comboImposed: true } : {}),
+        ...(args.replayedFrom !== undefined
+          ? { replayedFrom: args.replayedFrom }
+          : {}),
         targets,
         dueDate: args.dueDate,
         status: managed ? "to_publish" : "todo",
@@ -720,7 +920,7 @@ export const assignScriptCampaign = adminMutation({
         count: created,
       });
     }
-    return { created, shortages, totalCombos: combos.length };
+    return { created, shortages, totalCombos };
   },
 });
 
