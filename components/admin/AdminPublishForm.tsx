@@ -84,6 +84,7 @@ export function AdminPublishForm({
   assignmentId,
   targets,
   managed,
+  notReady,
   buttonTestId,
   onPublished,
 }: {
@@ -91,6 +92,9 @@ export function AdminPublishForm({
   targets: AdminPublishTarget[];
   /** true = compte géré (nominal) ; false = compte créatrice (secours). */
   managed: boolean;
+  /** Statut de production ≠ to_publish (À faire / en cours / en revue / à refaire) :
+   *  la saisie passera l'assignation DIRECTEMENT en publiée → avertir, pas bloquer. */
+  notReady?: boolean;
   buttonTestId?: string;
   onPublished?: () => void;
 }) {
@@ -138,6 +142,15 @@ export function AdminPublishForm({
         <p className="text-xs text-slate-500">
           Normalement la créatrice colle le lien depuis son espace. En secours, tu
           peux le coller ici — même effet (publié, suivi des vues).
+        </p>
+      )}
+      {notReady && (
+        <p
+          className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs font-medium text-amber-700"
+          data-testid="admin-publish-not-ready"
+        >
+          ⚠️ Cette vidéo n&apos;est pas marquée comme prête. Saisir le lien la
+          passera directement en <strong>publiée</strong>.
         </p>
       )}
       <div className="space-y-2">

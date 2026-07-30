@@ -48,14 +48,25 @@ test.describe("Admin publie EN SECOURS un compte de créatrice", () => {
     )!;
     const aid = row._id;
 
-    // Vidéo validée (on saute l'upload) → to_publish.
+    // PROCESS NON SUIVI : la créatrice a publié hors app, le statut est resté « À
+    // faire » (todo, jamais passé to_publish). C'EST le cas d'usage du secours.
     await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
       secret: E2E_SECRET,
       id: aid,
-      status: "to_publish",
+      status: "todo",
     });
 
     const url = `https://www.tiktok.com/@e2ebackup${ts}/video/1`;
+
+    // La créatrice, elle, ne peut PAS publier depuis « À faire » : gate to_publish
+    // CONSERVÉ côté créatrice (seul l'admin en secours le court-circuite).
+    await expect(
+      A.client.mutation(api.assignments.confirmPublication, {
+        projectId: A.projectId,
+        id: aid,
+        urls: [{ platform: "TikTok", url }],
+      }),
+    ).rejects.toThrow(/validation/i);
 
     // BORNES de la date réelle : futur REJETÉ, antérieur à la création REJETÉ.
     await expect(
@@ -73,8 +84,8 @@ test.describe("Admin publie EN SECOURS un compte de créatrice", () => {
       }),
     ).rejects.toThrow(/précéder la création/i);
 
-    // SECOURS : l'admin publie le compte de CRÉATRICE (impossible avant : gate
-    // managed). Sans override → date = maintenant.
+    // SECOURS : l'admin publie une assignation restée « À faire » (fromAnyStatus)
+    // → passage DIRECT en publiée. Sans override → date = maintenant.
     const pub = await admin.mutation(api.assignments.confirmPublicationAsAdmin, {
       id: aid,
       urls: [{ platform: "TikTok", url }],

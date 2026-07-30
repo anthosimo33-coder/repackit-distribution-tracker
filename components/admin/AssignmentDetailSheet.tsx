@@ -10,8 +10,6 @@ import {
   FileTextIcon,
   Loader2Icon,
   RepeatIcon,
-  UsersIcon,
-  type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useProjectMutation } from "@/components/project/use-project-convex";
@@ -346,42 +344,14 @@ function PostDatePopover({
   );
 }
 
-const NOTE_TONE: Record<string, string> = {
-  slate: "border-slate-200 bg-slate-50 text-slate-600",
-  emerald: "border-emerald-200 bg-emerald-50 text-emerald-700",
-};
-
-function ReadOnlyNote({
-  tone,
-  icon: Icon,
-  testId,
-  children,
-}: {
-  tone: "slate" | "emerald";
-  icon: LucideIcon;
-  testId?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div
-      data-testid={testId}
-      className={cn(
-        "flex items-start gap-2 rounded-md border p-3 text-sm",
-        NOTE_TONE[tone],
-      )}
-    >
-      <Icon className="mt-0.5 size-4 shrink-0" />
-      <span>{children}</span>
-    </div>
-  );
-}
-
 /**
- * Bloc PUBLICATION du panneau. Trois cas, alignés sur le modèle de l'app :
- *  - déjà publié (géré OU créatrice) → liens en lecture seule ;
- *  - compte GÉRÉ + prêt (to_publish) → saisie du lien + « Publier » (mutation de
- *    Validation) ; sinon note « vidéo à valider d'abord » ;
- *  - compte CRÉATRICE → elle publie depuis son espace (lecture seule).
+ * Bloc PUBLICATION du panneau. DEUX cas seulement :
+ *  - déjà publié (géré OU créatrice, statut published/paid) → liens en lecture seule ;
+ *  - TOUT le reste (non publié, quel que soit le statut de production, géré OU
+ *    créatrice) → saisie du lien via AdminPublishForm. Si le statut n'est pas
+ *    `to_publish`, le formulaire AVERTIT que la saisie passe direct en publiée —
+ *    jamais un blocage : l'admin colle le lien en secours quand le process n'a pas
+ *    été suivi (post publié hors app, statut resté « À faire »).
  */
 function PublicationSection({ row }: { row: AssignmentRow }) {
   const managed = row.managedByAdmin === true;
@@ -412,47 +382,20 @@ function PublicationSection({ row }: { row: AssignmentRow }) {
     );
   }
 
-  if (managed) {
-    if (row.status === "to_publish") {
-      return (
-        <AdminPublishForm
-          assignmentId={row._id}
-          targets={row.targets}
-          managed
-          buttonTestId={`detail-managed-publish-${row._id}`}
-        />
-      );
-    }
-    return (
-      <ReadOnlyNote tone="slate" icon={UsersIcon}>
-        Compte géré par l&apos;équipe. La vidéo doit d&apos;abord être validée
-        (statut «&nbsp;{ASSIGNMENT_STATUS[row.status as AssignmentStatus].label}
-        &nbsp;») avant de coller le lien de publication.
-      </ReadOnlyNote>
-    );
-  }
-
-  // Compte CRÉATRICE : elle publie depuis son espace. Si la vidéo est validée
-  // (to_publish) et qu'elle a oublié le lien, l'admin peut le coller EN SECOURS.
-  if (row.status === "to_publish") {
-    return (
-      <AdminPublishForm
-        assignmentId={row._id}
-        targets={row.targets}
-        managed={false}
-        buttonTestId={`detail-creator-backup-publish-${row._id}`}
-      />
-    );
-  }
+  // TOUTE assignation NON encore publiée → saisie du lien disponible (le SEUL cas
+  // masqué, « déjà publiée », est traité au-dessus), QUEL QUE SOIT le statut de
+  // production — compte géré comme compte de créatrice. Le cas d'usage EST que le
+  // process n'a pas été suivi (post publié hors app, statut resté « À faire »).
+  // AdminPublishForm affiche un AVERTISSEMENT quand le statut n'est pas `to_publish`
+  // (la saisie passe direct en publiée) ; jamais un blocage, l'admin décide.
   return (
-    <ReadOnlyNote
-      tone="slate"
-      icon={UsersIcon}
-      testId="detail-publication-creator"
-    >
-      La créatrice publie ce contenu depuis son espace, puis colle le lien. Le
-      statut calendrier se met alors à jour automatiquement.
-    </ReadOnlyNote>
+    <AdminPublishForm
+      assignmentId={row._id}
+      targets={row.targets}
+      managed={managed}
+      notReady={row.status !== "to_publish"}
+      buttonTestId={`detail-${managed ? "managed" : "creator-backup"}-publish-${row._id}`}
+    />
   );
 }
 
