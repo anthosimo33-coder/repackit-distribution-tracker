@@ -71,13 +71,26 @@ export interface WhopPaymentLike {
   currency?: string;
 }
 
-function isCollected(status: WhopStatus): boolean {
+/** Revenu SÉCURISÉ (cf lib/whop-revenue) : "paid" seul. Litige = à risque, exclu. */
+function isSecuredRevenue(status: WhopStatus): boolean {
+  return status === "paid";
+}
+
+/** Client ayant PAYÉ (cf lib/whop-revenue) : paid|disputed. Base du COMPTE clients. */
+export function isCustomerPaid(status: WhopStatus): boolean {
   return status === "paid" || status === "disputed";
 }
 
-/** Contribution nette d'un paiement (cf lib/whop-revenue — DOIT rester identique). */
+/** Contribution au net SÉCURISÉ, litige EXCLU (cf lib/whop-revenue — identique). */
 export function whopNetContribution(p: WhopPaymentLike): number {
-  if (!isCollected(p.status)) return 0;
+  if (!isSecuredRevenue(p.status)) return 0;
+  const net = finite(p.netAmount) - Math.max(0, finite(p.refundedAmount));
+  return round2(Math.max(0, net));
+}
+
+/** Montant encaissé client (paid|disputed) pour le COMPTE clients (cf lib — identique). */
+export function whopCollectedAmount(p: WhopPaymentLike): number {
+  if (!isCustomerPaid(p.status)) return 0;
   const net = finite(p.netAmount) - Math.max(0, finite(p.refundedAmount));
   return round2(Math.max(0, net));
 }
@@ -92,8 +105,12 @@ export interface WhopCurrencyRevenue {
   /** Taux de frais = fees / brut (FRACTION 0–1). null si brut nul. */
   feeRate: number | null;
   refunded: number;
+  /** Montant des litiges EN COURS (net − remboursé), À RISQUE, EXCLU de `net`. */
+  disputed: number;
   paymentCount: number;
   refundCount: number;
+  /** Nombre de litiges en cours (statut "disputed"). */
+  disputedCount: number;
 }
 
 export interface WhopRevenueSummary {
@@ -104,8 +121,12 @@ export interface WhopRevenueSummary {
   /** Taux de frais (fraction 0–1). null si brut nul OU devises mixtes. */
   feeRate: number | null;
   refunded: number;
+  /** Montant total des litiges EN COURS (À RISQUE), EXCLU de `net`. 0 si mixte. */
+  disputed: number;
   paymentCount: number;
   refundCount: number;
+  /** Nombre de litiges en cours, toutes devises. */
+  disputedCount: number;
   /** Devise si UNE seule encaissée ; null si aucune OU plusieurs (mixte). */
   currency: string | null;
   currencies: string[];
@@ -127,14 +148,25 @@ export function summarizeWhopRevenue(
     netSettled: number;
     net: number;
     refunded: number;
+    disputed: number;
     paymentCount: number;
     refundCount: number;
+    disputedCount: number;
   };
   const buckets = new Map<string, Acc>();
   const bucketOf = (cur: string): Acc => {
     let a = buckets.get(cur);
     if (!a) {
-      a = { gross: 0, netSettled: 0, net: 0, refunded: 0, paymentCount: 0, refundCount: 0 };
+      a = {
+        gross: 0,
+        netSettled: 0,
+        net: 0,
+        refunded: 0,
+        disputed: 0,
+        paymentCount: 0,
+        refundCount: 0,
+        disputedCount: 0,
+      };
       buckets.set(cur, a);
     }
     return a;
@@ -146,7 +178,14 @@ export function summarizeWhopRevenue(
     const refundedAmt = Math.max(0, finite(p.refundedAmount));
     a.refunded = round2(a.refunded + refundedAmt);
     if (p.status === "refunded" || refundedAmt > 0) a.refundCount += 1;
-    if (isCollected(p.status)) {
+    // Litige EN COURS : montant À RISQUE, suivi à part et EXCLU du net sécurisé.
+    if (p.status === "disputed") {
+      a.disputed = round2(
+        a.disputed + Math.max(0, finite(p.netAmount) - refundedAmt),
+      );
+      a.disputedCount += 1;
+    }
+    if (isSecuredRevenue(p.status)) {
       a.gross = round2(a.gross + finite(p.grossAmount));
       a.netSettled = round2(a.netSettled + finite(p.netAmount));
       a.net = round2(a.net + whopNetContribution(p));
@@ -164,8 +203,10 @@ export function summarizeWhopRevenue(
         fees,
         feeRate: a.gross > 0 ? Math.round((fees / a.gross) * 10000) / 10000 : null,
         refunded: a.refunded,
+        disputed: a.disputed,
         paymentCount: a.paymentCount,
         refundCount: a.refundCount,
+        disputedCount: a.disputedCount,
       };
     },
   );
@@ -174,6 +215,7 @@ export function summarizeWhopRevenue(
   const currencies = collected.map((c) => c.currency);
   const paymentCount = byCurrency.reduce((s, c) => s + c.paymentCount, 0);
   const refundCount = byCurrency.reduce((s, c) => s + c.refundCount, 0);
+  const disputedCount = byCurrency.reduce((s, c) => s + c.disputedCount, 0);
 
   if (currencies.length > 1) {
     return {
@@ -182,8 +224,10 @@ export function summarizeWhopRevenue(
       fees: 0,
       feeRate: null,
       refunded: 0,
+      disputed: 0,
       paymentCount,
       refundCount,
+      disputedCount,
       currency: null,
       currencies,
       mixedCurrency: true,
@@ -193,14 +237,17 @@ export function summarizeWhopRevenue(
 
   const one = collected[0] ?? null;
   const refunded = round2(byCurrency.reduce((s, c) => s + c.refunded, 0));
+  const disputed = round2(byCurrency.reduce((s, c) => s + c.disputed, 0));
   return {
     net: one ? one.net : 0,
     gross: one ? one.gross : 0,
     fees: one ? one.fees : 0,
     feeRate: one ? one.feeRate : null,
     refunded,
+    disputed,
     paymentCount,
     refundCount,
+    disputedCount,
     currency: one ? one.currency : null,
     currencies,
     mixedCurrency: false,

@@ -1324,6 +1324,14 @@ export default defineSchema({
     // fournit. planId sert AUSSI au filtrage anti-mélange (projects.whop.planIds).
     planId: v.optional(v.string()),
     membershipId: v.optional(v.string()),
+    // Pseudo Whop du client (username) — pour identifier un litige à traiter.
+    // Optionnel : peuplé à partir de la re-synchro (rows anciennes = absent).
+    memberName: v.optional(v.string()),
+    // LITIGE (chargeback) EN COURS : échéance de réponse (needs_response_by, ms) et
+    // motif. Le délai restant est URGENT (frais de litige > abonnement). Optionnels :
+    // présents seulement sur un paiement en litige, dès que la synchro les a lus.
+    disputeDueAt: v.optional(v.number()),
+    disputeReason: v.optional(v.string()),
     importedAt: v.number(),
     updatedAt: v.number(),
   })

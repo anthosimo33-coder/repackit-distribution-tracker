@@ -3,6 +3,7 @@
 import { useId, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/format";
+import { parisShortDate } from "@/lib/analytics-hub";
 
 /**
  * Courbe LISIBLE du hub (remplace la sparkline muette). Une sparkline ne servait
@@ -22,11 +23,9 @@ export interface TrendPoint {
   value: number;
 }
 
-/** Abscisse courte « 28 juil. » (midi local pour éviter tout décalage de fuseau). */
-function frShortDate(ts: number): string {
-  const d = new Date(ts);
-  return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
-}
+// Abscisse/infobulle : `parisShortDate` (jour Europe/Paris), la MÊME source que
+// le tableau « Détail par jour ». Formater en fuseau navigateur décalait la
+// courbe d'un jour (l'instant « minuit Paris » est la veille en UTC).
 
 const PAD = 12; // marge verticale (%) — la courbe ne touche pas les bords.
 
@@ -177,7 +176,7 @@ export function HubTrendChart({
               transform: `translate(${tipShift}, -140%)`,
             }}
           >
-            <span className="tabular-nums text-slate-300">{frShortDate(act.p.ts)}</span>{" "}
+            <span className="tabular-nums text-slate-300">{parisShortDate(act.p.ts)}</span>{" "}
             <span className="tabular-nums">{formatValue(act.p.value)}</span>
           </div>
         ) : null}
@@ -193,7 +192,7 @@ export function HubTrendChart({
               left: `${Math.max(4, Math.min(96, coords[i].x))}%`,
             }}
           >
-            {frShortDate(points[i].ts)}
+            {parisShortDate(points[i].ts)}
           </span>
         ))}
       </div>

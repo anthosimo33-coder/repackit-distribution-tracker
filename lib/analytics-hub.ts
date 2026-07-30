@@ -34,6 +34,49 @@ export function isConclusive(n: number): boolean {
   return n >= MIN_SAMPLE_SIZE;
 }
 
+// ─── Jour « métier » Europe/Paris (source unique courbe ⇄ tableau) ───────────
+
+/**
+ * Le hub raisonne en jours EUROPE/PARIS : la série PostHog est bucketisée Paris
+ * (toStartOfDay …, 'Europe/Paris') et le net Whop est joint par jour Paris. Toute
+ * étiquette de date DOIT donc ancrer le fuseau explicitement — sinon un même
+ * timestamp de bucket tombe la VEILLE lu dans le fuseau du navigateur (l'instant
+ * « minuit Paris » est encore la veille en UTC/aux Amériques). C'est le bug qui
+ * décalait la courbe d'un jour par rapport au tableau : la courbe formatait en
+ * fuseau LOCAL, le tableau en Paris. Ces deux fonctions sont la SOURCE UNIQUE
+ * partagée par la courbe (HubTrendChart) et le tableau « Détail par jour ».
+ */
+
+/** Jour Europe/Paris d'un ts (ms) → "YYYY-MM-DD" (clé de jointure, tri). */
+export function parisDayKey(ts: number): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(
+    new Date(ts),
+  );
+}
+
+/**
+ * Étiquette d'axe/infobulle : jour Europe/Paris d'un ts → "28 juil.". Ancrée
+ * Europe/Paris (jamais le fuseau du navigateur) pour coïncider AU JOUR PRÈS avec
+ * le tableau, quel que soit le fuseau du lecteur.
+ */
+export function parisShortDate(ts: number): string {
+  return new Date(ts).toLocaleDateString("fr-FR", {
+    day: "numeric",
+    month: "short",
+    timeZone: "Europe/Paris",
+  });
+}
+
+/**
+ * Jours ENTIERS restants (arrondi au supérieur) avant l'échéance `dueAt` depuis
+ * `now`. Négatif = dépassé. null si l'échéance est inconnue (jamais un délai
+ * inventé). Sert au décompte urgent d'un litige (« X j pour répondre »).
+ */
+export function daysUntil(dueAt: number | null, now: number): number | null {
+  if (dueAt === null || !Number.isFinite(dueAt)) return null;
+  return Math.ceil((dueAt - now) / (24 * 60 * 60 * 1000));
+}
+
 // ─── Funnel ──────────────────────────────────────────────────────────────────
 
 export interface FunnelStepInput {

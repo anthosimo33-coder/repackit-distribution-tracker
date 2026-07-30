@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   normalizeWhopStatus,
   whopNetContribution,
+  whopCollectedAmount,
+  isCustomerPaid,
   summarizeWhopRevenue,
   type WhopPaymentLike,
 } from "./whop-revenue";
@@ -83,12 +85,30 @@ describe("whopNetContribution — net de pilotage par paiement", () => {
     expect(whopNetContribution(paid({ refundedAmount: 200 }))).toBe(0);
   });
 
-  it("dispute en cours → compté (argent encore sur le solde)", () => {
-    expect(whopNetContribution(paid({ status: "disputed" }))).toBe(95);
+  it("dispute en cours → 0 au net (À RISQUE, jamais compté comme acquis)", () => {
+    expect(whopNetContribution(paid({ status: "disputed" }))).toBe(0);
   });
 
   it("montants non finis → 0 (jamais NaN)", () => {
     expect(whopNetContribution(paid({ netAmount: NaN }))).toBe(0);
+  });
+});
+
+describe("whopCollectedAmount / isCustomerPaid — COMPTE clients (litige inclus)", () => {
+  it("un litige reste un client qui a PAYÉ (compté), mais hors revenu", () => {
+    const disputed = paid({ status: "disputed" });
+    // Client : oui, il a payé (l'argent est arrivé) → compté.
+    expect(isCustomerPaid("disputed")).toBe(true);
+    expect(whopCollectedAmount(disputed)).toBe(95);
+    // Revenu : non, à risque → exclu.
+    expect(whopNetContribution(disputed)).toBe(0);
+  });
+
+  it("failed / refunded / pending → ni client payant, ni revenu", () => {
+    for (const status of ["failed", "refunded", "pending", "other"] as const) {
+      expect(isCustomerPaid(status)).toBe(false);
+      expect(whopCollectedAmount(paid({ status, refundedAmount: 0 }))).toBe(0);
+    }
   });
 });
 
@@ -138,13 +158,32 @@ describe("summarizeWhopRevenue — agrégation période", () => {
       fees: 0,
       feeRate: null,
       refunded: 0,
+      disputed: 0,
       paymentCount: 0,
       refundCount: 0,
+      disputedCount: 0,
       currency: null,
       currencies: [],
       mixedCurrency: false,
       byCurrency: [],
     });
+  });
+
+  it("un litige EN COURS est EXCLU du net et suivi À PART (à risque)", () => {
+    // 2 encaissés (2 × 95) + 1 litige (net 95) : le litige ne gonfle pas le net.
+    const s = summarizeWhopRevenue([
+      paid(),
+      paid(),
+      paid({ status: "disputed" }),
+    ]);
+    expect(s.net).toBe(190); // le litige n'entre PAS dans le net
+    expect(s.paymentCount).toBe(2); // ni dans le compte des paiements sécurisés
+    expect(s.disputed).toBe(95); // montant à risque, exposé
+    expect(s.disputedCount).toBe(1);
+    // Sécuriser le litige (won → paid) le ferait repasser dans le net.
+    const won = summarizeWhopRevenue([paid(), paid(), paid()]);
+    expect(won.net).toBe(285);
+    expect(won.disputed).toBe(0);
   });
 });
 

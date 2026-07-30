@@ -12,12 +12,17 @@ import {
 } from "@/components/ui/table";
 import { formatNumber } from "@/lib/format";
 import { formatMoney, formatViews } from "@/lib/format-rate";
-import { buildCoherenceChecks } from "@/lib/analytics-hub";
+import {
+  buildCoherenceChecks,
+  parisDayKey,
+  parisShortDate,
+} from "@/lib/analytics-hub";
 import {
   KpiTile,
   HubCardHeader,
   HubNotice,
   WebhookFixNotice,
+  disputeDeadlineLabel,
   dash,
   pct,
 } from "./HubPrimitives";
@@ -48,20 +53,9 @@ function stepCount(steps: { key: string; count: number }[], key: string): number
   return s ? s.count : null;
 }
 
-/** Jour « métier » Europe/Paris d'un timestamp (ms) → "YYYY-MM-DD" (join du net Whop). */
-function parisDay(ts: number): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(
-    new Date(ts),
-  );
-}
-
-/** "YYYY-MM-DD" → "28 juil." (midi local, pas de décalage de fuseau). */
-function frDay(day: string): string {
-  return new Date(`${day}T12:00:00`).toLocaleDateString("fr-FR", {
-    day: "numeric",
-    month: "short",
-  });
-}
+// Jour Europe/Paris (`parisDayKey`) et étiquette (`parisShortDate`) : SOURCE
+// UNIQUE partagée avec la courbe (HubTrendChart). La série PostHog est bucketisée
+// Paris et le net Whop joint par jour Paris — voir lib/analytics-hub.
 
 export function OverviewTab({
   analytics,
@@ -132,8 +126,28 @@ export function OverviewTab({
   );
   const paidClientsPts: TrendPoint[] = daily.map((d) => ({
     ts: d.ts,
-    value: clientsByDay.get(parisDay(d.ts)) ?? 0,
+    value: clientsByDay.get(parisDayKey(d.ts)) ?? 0,
   }));
+  // Tentatives de paiement ÉCHOUÉES par jour (Whop) → colonne « Échecs ». Un échec
+  // n'est PAS un client (0 au net) mais doit être visible à côté des réussites.
+  const failedByDay = useMemo(
+    () =>
+      new Map(
+        (coh?.dailyFailedPayments ?? []).map((d) => [d.day, d.count] as const),
+      ),
+    [coh],
+  );
+
+  // Litiges (chargebacks) EN COURS — argent À RISQUE, déjà retiré du net. Bandeau
+  // ROUGE d'accueil : c'est ce qui compte le plus (frais de litige > abonnement).
+  // Le détail (délai par litige, remboursements) vit dans « Offres & tests ».
+  const openDisputes = revenue?.disputes ?? [];
+  const disputedTotal = revenue?.disputedTotal ?? 0;
+  const soonestDispute =
+    openDisputes.length > 0
+      ? disputeDeadlineLabel(openDisputes[0].dueAt, now)
+      : null;
+
   const clientEcart =
     coh && coh.dashboardClients !== null && coh.whopMembers !== null
       ? Math.abs(coh.dashboardClients - coh.whopMembers)
@@ -203,6 +217,24 @@ export function OverviewTab({
   return (
     <div className="space-y-5">
       <WebhookFixNotice now={now} />
+
+      {/* Litiges bancaires EN COURS — l'alerte la plus urgente de l'écran. */}
+      {openDisputes.length > 0 ? (
+        <HubNotice className="border-red-300 bg-red-50 text-red-900">
+          <strong>
+            {openDisputes.length} litige{openDisputes.length > 1 ? "s" : ""} bancaire
+            {openDisputes.length > 1 ? "s" : ""} en cours
+            {disputedTotal > 0
+              ? ` — ${formatMoney(disputedTotal, currency)} à risque`
+              : ""}
+            {soonestDispute ? ` · ${soonestDispute.label}` : ""}.
+          </strong>{" "}
+          Les frais de litige dépassent souvent l&apos;abonnement et une accumulation
+          met en péril le compte marchand. Déjà retiré du revenu net ; détail (délai
+          par litige, remboursements) dans l&apos;onglet Offres &amp; tests.
+        </HubNotice>
+      ) : null}
+
       {violations.length > 0 ? (
         <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
           <strong>
@@ -358,16 +390,18 @@ export function OverviewTab({
                     <TableHead className="text-right">Inscriptions</TableHead>
                     <TableHead className="text-right">Checkouts ouverts</TableHead>
                     <TableHead className="text-right">Clients payants</TableHead>
+                    <TableHead className="text-right">Échecs</TableHead>
                     <TableHead className="text-right">Revenu net</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {dailyRows.map((d) => {
-                    const net = netByDay.get(parisDay(d.ts));
+                    const net = netByDay.get(parisDayKey(d.ts));
+                    const failed = failedByDay.get(parisDayKey(d.ts)) ?? 0;
                     return (
                       <TableRow key={d.ts}>
                         <TableCell className="text-xs tabular-nums text-slate-600">
-                          {frDay(parisDay(d.ts))}
+                          {parisShortDate(d.ts)}
                         </TableCell>
                         <TableCell className="text-right text-xs tabular-nums">
                           {formatNumber(d.visitors)}
@@ -379,7 +413,16 @@ export function OverviewTab({
                           {formatNumber(d.checkouts)}
                         </TableCell>
                         <TableCell className="text-right text-xs tabular-nums">
-                          {formatNumber(clientsByDay.get(parisDay(d.ts)) ?? 0)}
+                          {formatNumber(clientsByDay.get(parisDayKey(d.ts)) ?? 0)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {failed > 0 ? (
+                            <span className="font-medium text-red-600">
+                              {formatNumber(failed)}
+                            </span>
+                          ) : (
+                            <span className="text-slate-300">0</span>
+                          )}
                         </TableCell>
                         <TableCell className="text-right text-xs tabular-nums font-medium">
                           {net === undefined ? "—" : formatMoney(net, currency)}

@@ -19,7 +19,7 @@ export type WhopStatus =
   | "refunded" // remboursé ou clawback (dispute perdue) → 0 au net
   | "failed" // échoué / annulé / impayé → 0
   | "pending" // en attente → 0
-  | "disputed" // litige EN COURS (argent encore sur le solde) → compté
+  | "disputed" // litige EN COURS → À RISQUE : compté client, EXCLU du net
   | "other"; // inconnu / void / non résolu → 0
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -83,22 +83,50 @@ export interface WhopPaymentLike {
   currency?: string;
 }
 
-/** Un paiement est-il ENCAISSÉ (compte dans le revenu) ? */
-function isCollected(status: WhopStatus): boolean {
-  // "disputed" = litige en cours : l'argent est ENCORE sur le solde (pas encore
-  // clawback) → compté. S'il devient perdu, il passe "refunded" → 0.
+/**
+ * Revenu SÉCURISÉ : uniquement "paid". Un litige EN COURS est de l'argent À
+ * RISQUE — la banque peut le reprendre (clawback) et les frais de litige dépassent
+ * souvent l'abonnement : on ne le compte JAMAIS comme revenu acquis. S'il est
+ * gagné il repasse "paid" (recompté) ; perdu, "refunded" (déjà 0). C'est la
+ * réponse à « le net affiche-t-il du revenu que je ne toucherai jamais ? » : non.
+ */
+function isSecuredRevenue(status: WhopStatus): boolean {
+  return status === "paid";
+}
+
+/**
+ * Un paiement représente-t-il un CLIENT qui a effectivement payé (l'argent est
+ * arrivé sur le solde) ? "paid" OU "disputed" — un litige en cours est un RISQUE,
+ * pas un non-paiement : le client a bien payé. Base du COMPTE de clients (jamais
+ * du revenu, cf whopNetContribution qui, lui, exclut les litiges).
+ */
+export function isCustomerPaid(status: WhopStatus): boolean {
   return status === "paid" || status === "disputed";
 }
 
 /**
- * Contribution NETTE d'un paiement au revenu de pilotage :
- *  - non encaissé (failed / pending / refunded / other) → 0 (ne gonfle pas) ;
- *  - encaissé → net settlé (amount_after_fees) MOINS le remboursé partiel.
+ * Contribution au revenu net SÉCURISÉ de pilotage :
+ *  - non sécurisé (failed / pending / refunded / disputed / other) → 0 ;
+ *  - sécurisé → net settlé (amount_after_fees) MOINS le remboursé partiel.
  * Planché à 0 (un remboursement dont la base dépasse le net — frais Whop non
  * restitués — ne rend pas la contribution d'un paiement absurde). Jamais NaN.
+ * Les litiges EN COURS en sont EXCLUS (à risque) : ils vivent dans la carte
+ * « Litiges et remboursements » (montant à risque), jamais dans le net.
  */
 export function whopNetContribution(p: WhopPaymentLike): number {
-  if (!isCollected(p.status)) return 0;
+  if (!isSecuredRevenue(p.status)) return 0;
+  const net = finite(p.netAmount) - Math.max(0, finite(p.refundedAmount));
+  return round2(Math.max(0, net));
+}
+
+/**
+ * Montant ENCAISSÉ d'un paiement client (paid|disputed), remboursement déduit.
+ * Sert au COMPTE de clients payants (un litige reste un client qui a payé) — PAS
+ * au revenu de pilotage, pour lequel il faut whopNetContribution (sécurisé, litige
+ * exclu). Sépare « combien de clients ont payé » de « combien j'encaisse sûrement ».
+ */
+export function whopCollectedAmount(p: WhopPaymentLike): number {
+  if (!isCustomerPaid(p.status)) return 0;
   const net = finite(p.netAmount) - Math.max(0, finite(p.refundedAmount));
   return round2(Math.max(0, net));
 }
@@ -119,8 +147,12 @@ export interface WhopCurrencyRevenue {
   /** Taux de frais = fees / brut (FRACTION 0–1, l'UI ×100). null si brut nul. */
   feeRate: number | null;
   refunded: number;
+  /** Montant des litiges EN COURS (net − remboursé), À RISQUE, EXCLU de `net`. */
+  disputed: number;
   paymentCount: number;
   refundCount: number;
+  /** Nombre de litiges en cours (statut "disputed"). */
+  disputedCount: number;
 }
 
 export interface WhopRevenueSummary {
@@ -132,8 +164,12 @@ export interface WhopRevenueSummary {
   /** Taux de frais (fraction 0–1). null si brut nul OU devises mixtes. */
   feeRate: number | null;
   refunded: number;
+  /** Montant total des litiges EN COURS (À RISQUE), EXCLU de `net`. 0 si mixte. */
+  disputed: number;
   paymentCount: number;
   refundCount: number;
+  /** Nombre de litiges en cours (statut "disputed"), toutes devises. */
+  disputedCount: number;
   /** Devise si UNE seule encaissée ; null si aucune OU plusieurs (mixte). */
   currency: string | null;
   /** Devises encaissées distinctes. */
@@ -163,14 +199,25 @@ export function summarizeWhopRevenue(
     netSettled: number;
     net: number;
     refunded: number;
+    disputed: number;
     paymentCount: number;
     refundCount: number;
+    disputedCount: number;
   };
   const buckets = new Map<string, Acc>();
   const bucketOf = (cur: string): Acc => {
     let a = buckets.get(cur);
     if (!a) {
-      a = { gross: 0, netSettled: 0, net: 0, refunded: 0, paymentCount: 0, refundCount: 0 };
+      a = {
+        gross: 0,
+        netSettled: 0,
+        net: 0,
+        refunded: 0,
+        disputed: 0,
+        paymentCount: 0,
+        refundCount: 0,
+        disputedCount: 0,
+      };
       buckets.set(cur, a);
     }
     return a;
@@ -182,7 +229,15 @@ export function summarizeWhopRevenue(
     const refundedAmt = Math.max(0, finite(p.refundedAmount));
     a.refunded = round2(a.refunded + refundedAmt);
     if (p.status === "refunded" || refundedAmt > 0) a.refundCount += 1;
-    if (isCollected(p.status)) {
+    // Litige EN COURS : montant À RISQUE (net settlé − remboursé), suivi À PART et
+    // EXCLU du net sécurisé ci-dessous — un litige n'est pas du revenu acquis.
+    if (p.status === "disputed") {
+      a.disputed = round2(
+        a.disputed + Math.max(0, finite(p.netAmount) - refundedAmt),
+      );
+      a.disputedCount += 1;
+    }
+    if (isSecuredRevenue(p.status)) {
       a.gross = round2(a.gross + finite(p.grossAmount));
       a.netSettled = round2(a.netSettled + finite(p.netAmount));
       a.net = round2(a.net + whopNetContribution(p));
@@ -200,17 +255,22 @@ export function summarizeWhopRevenue(
         fees,
         feeRate: a.gross > 0 ? Math.round((fees / a.gross) * 10000) / 10000 : null,
         refunded: a.refunded,
+        disputed: a.disputed,
         paymentCount: a.paymentCount,
         refundCount: a.refundCount,
+        disputedCount: a.disputedCount,
       };
     },
   );
 
+  // Devise « encaissée » = au moins un paiement sécurisé (même règle que pour les
+  // remboursements : on ne bascule pas en multi-devise sur un litige/refund seul).
   const collected = byCurrency.filter((c) => c.paymentCount > 0);
   const currencies = collected.map((c) => c.currency);
   // Comptes = grandeurs SANS dimension → additionnables même en multi-devise.
   const paymentCount = byCurrency.reduce((s, c) => s + c.paymentCount, 0);
   const refundCount = byCurrency.reduce((s, c) => s + c.refundCount, 0);
+  const disputedCount = byCurrency.reduce((s, c) => s + c.disputedCount, 0);
 
   if (currencies.length > 1) {
     // Multi-devise : on NE SOMME PAS les montants (A5).
@@ -220,8 +280,10 @@ export function summarizeWhopRevenue(
       fees: 0,
       feeRate: null,
       refunded: 0,
+      disputed: 0,
       paymentCount,
       refundCount,
+      disputedCount,
       currency: null,
       currencies,
       mixedCurrency: true,
@@ -229,17 +291,20 @@ export function summarizeWhopRevenue(
     };
   }
 
-  // 0 ou 1 devise encaissée : les sommes sont valides (mono-devise).
+  // 0 ou 1 devise en jeu : les sommes sont valides (mono-devise).
   const one = collected[0] ?? null;
   const refunded = round2(byCurrency.reduce((s, c) => s + c.refunded, 0));
+  const disputed = round2(byCurrency.reduce((s, c) => s + c.disputed, 0));
   return {
     net: one ? one.net : 0,
     gross: one ? one.gross : 0,
     fees: one ? one.fees : 0,
     feeRate: one ? one.feeRate : null,
     refunded,
+    disputed,
     paymentCount,
     refundCount,
+    disputedCount,
     currency: one ? one.currency : null,
     currencies,
     mixedCurrency: false,
