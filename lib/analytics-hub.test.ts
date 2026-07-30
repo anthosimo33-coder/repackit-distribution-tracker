@@ -17,6 +17,9 @@ import {
   checkMonotonicity,
   funnelCoherenceChecks,
   buildCoherenceChecks,
+  parisDayKey,
+  parisShortDate,
+  daysUntil,
 } from "./analytics-hub";
 
 const HOUR = 60 * 60 * 1000;
@@ -574,5 +577,58 @@ describe("buildCoherenceChecks", () => {
   it("croisé : absent si les séries ne sont pas fournies", () => {
     const m = byKey(buildCoherenceChecks(base));
     expect(m.has("daily_clients_posthog_vs_whop")).toBe(false);
+  });
+});
+
+describe("jour Europe/Paris (courbe ⇄ tableau)", () => {
+  // Minuit Europe/Paris (été = UTC+2) du 29 juil. = 28 juil. 22:00 UTC. Un bucket
+  // PostHog porte cet instant : c'est LE cas qui décalait la courbe d'un jour.
+  const parisMidnight29 = Date.UTC(2026, 6, 28, 22, 0, 0);
+
+  it("ancre l'étiquette sur Paris, pas sur le fuseau du navigateur", () => {
+    // La lecture NAÏVE (fuseau UTC) donnait la VEILLE — le bug signalé.
+    const naiveUtc = new Date(parisMidnight29).toLocaleDateString("fr-FR", {
+      day: "numeric",
+      month: "short",
+      timeZone: "UTC",
+    });
+    expect(naiveUtc).toBe("28 juil.");
+    // Ancré Paris : le bon jour, quel que soit le fuseau où tourne le test.
+    expect(parisShortDate(parisMidnight29)).toBe("29 juil.");
+    expect(parisShortDate(parisMidnight29)).not.toBe(naiveUtc);
+    expect(parisDayKey(parisMidnight29)).toBe("2026-07-29");
+  });
+
+  it("première et dernière date de la courbe = celles du tableau", () => {
+    // 8 buckets = jours Paris 23 → 30 juil. (mêmes instants côté courbe et tableau).
+    const daily = Array.from({ length: 8 }, (_, i) => ({
+      ts: Date.UTC(2026, 6, 22 + i, 22, 0, 0), // minuit Paris du 23+i juil.
+    }));
+    // La courbe (HubTrendChart) et le tableau (« Détail par jour ») dérivent tous
+    // deux l'étiquette du MÊME ts via parisShortDate : ils ne peuvent plus diverger.
+    const courbe = daily.map((d) => parisShortDate(d.ts));
+    const tableau = daily.map((d) => parisShortDate(d.ts));
+    expect(courbe[0]).toBe(tableau[0]);
+    expect(courbe.at(-1)).toBe(tableau.at(-1));
+    // Et l'axe correct : 23 → 30 juil. (la version buguée affichait 22 → 29).
+    expect(courbe[0]).toBe("23 juil.");
+    expect(courbe.at(-1)).toBe("30 juil.");
+  });
+});
+
+describe("daysUntil — décompte de réponse à un litige", () => {
+  const now = Date.UTC(2026, 6, 30, 12, 0, 0);
+  const DAY = 24 * 60 * 60 * 1000;
+
+  it("compte les jours entiers restants (arrondi au supérieur)", () => {
+    expect(daysUntil(now + 6 * DAY, now)).toBe(6);
+    expect(daysUntil(now + 5.2 * DAY, now)).toBe(6); // arrondi au jour supérieur
+    expect(daysUntil(now + 0.5 * DAY, now)).toBe(1);
+  });
+
+  it("négatif si l'échéance est dépassée, null si inconnue", () => {
+    expect(daysUntil(now - 2 * DAY, now)).toBe(-2);
+    expect(daysUntil(null, now)).toBeNull();
+    expect(daysUntil(NaN, now)).toBeNull();
   });
 });

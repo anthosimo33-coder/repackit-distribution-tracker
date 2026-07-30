@@ -18,7 +18,7 @@ import {
   TrendingUpIcon,
 } from "lucide-react";
 import type { Delta } from "@/lib/analytics-hub";
-import { MIN_SAMPLE_SIZE } from "@/lib/analytics-hub";
+import { MIN_SAMPLE_SIZE, daysUntil } from "@/lib/analytics-hub";
 import { HubTrendChart, type TrendPoint } from "./HubTrendChart";
 
 /**
@@ -62,6 +62,22 @@ export function formatDuration(ms: number | null): string {
   const h = min / 60;
   if (h < 48) return `${Math.round(h * 10) / 10} h`;
   return `${Math.round((h / 24) * 10) / 10} j`;
+}
+
+/**
+ * Décompte de réponse à un LITIGE (chargeback). L'échéance `needs_response_by`
+ * vient de Whop ; on n'invente JAMAIS un délai si elle manque. Rouge dès qu'il
+ * reste ≤ 3 jours (ou dépassé) : répondre passé l'échéance = litige perdu d'office.
+ */
+export function disputeDeadlineLabel(
+  dueAt: number | null,
+  now: number,
+): { label: string; urgent: boolean } {
+  const d = daysUntil(dueAt, now);
+  if (d === null) return { label: "délai à vérifier sur Whop", urgent: true };
+  if (d < 0) return { label: "échéance dépassée", urgent: true };
+  if (d === 0) return { label: "dernier jour pour répondre", urgent: true };
+  return { label: `${d} j pour répondre`, urgent: d <= 3 };
 }
 
 // ─── « i » explicatifs ───────────────────────────────────────────────────────

@@ -39,6 +39,12 @@ export interface NormalizedWhopPayment {
   paidAt: number;
   planId?: string;
   membershipId?: string;
+  /** Pseudo Whop du client (username, sinon nom) — identifie un litige à traiter. */
+  memberName?: string;
+  /** Échéance de réponse au litige EN COURS (needs_response_by) — ms. Urgent. */
+  disputeDueAt?: number;
+  /** Motif du litige en cours (reason), si fourni par l'API. */
+  disputeReason?: string;
 }
 
 export interface FetchWhopPaymentsResult {
@@ -85,6 +91,43 @@ function toMs(x: unknown): number {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/**
+ * Détail d'un LITIGE (chargeback) EN COURS. Whop expose un tableau `disputes`
+ * (selon la ressource, `resolutions`) : chaque entrée porte un `status`, une
+ * échéance `needs_response_by` (délai pour répondre — « 6 jours pour répondre »
+ * côté Whop) et un `reason`. On retient le litige OUVERT le plus URGENT (échéance
+ * la plus proche) ; les litiges résolus (won/lost/closed) ne demandent plus de
+ * réponse et sont ignorés. Défensif : la forme exacte varie selon l'API/permissions
+ * — un champ absent laisse `dueAt` indéfini (l'UI dégrade sans jamais inventer).
+ */
+function extractOpenDispute(r: Record<string, unknown>): {
+  dueAt?: number;
+  reason?: string;
+} {
+  const arrays = [r.disputes, r.resolutions].filter((x): x is unknown[] =>
+    Array.isArray(x),
+  );
+  let dueAt: number | undefined;
+  let reason: string | undefined;
+  for (const arr of arrays) {
+    for (const d of arr) {
+      const dd = asRecord(d);
+      if (!dd) continue;
+      const st = (getStr(dd.status) ?? "").toLowerCase();
+      if (st === "won" || st === "lost" || st === "closed") continue; // résolu
+      const due = toMs(dd.needs_response_by ?? dd.due_by ?? dd.response_due_at);
+      const rsn = getStr(dd.reason);
+      if (due > 0 && (dueAt === undefined || due < dueAt)) {
+        dueAt = due;
+        reason = rsn ?? reason;
+      } else if (reason === undefined && rsn) {
+        reason = rsn;
+      }
+    }
+  }
+  return { dueAt, reason };
+}
+
 /** Normalise un paiement brut de l'API v1 → NormalizedWhopPayment (null si pas d'id). */
 export function normalizeWhopPayment(raw: unknown): NormalizedWhopPayment | null {
   const r = asRecord(raw);
@@ -113,6 +156,12 @@ export function normalizeWhopPayment(raw: unknown): NormalizedWhopPayment | null
   const paidAt = toMs(r.paid_at) || toMs(r.created_at);
   const planId = getStr(asRecord(r.plan)?.id);
   const membershipId = getStr(asRecord(r.membership)?.id);
+  // Client (pseudo public) — pour identifier un litige à traiter côté Whop.
+  const memberName =
+    getStr(asRecord(r.user)?.username) ??
+    getStr(asRecord(r.user)?.name) ??
+    getStr(asRecord(r.member)?.username);
+  const { dueAt: disputeDueAt, reason: disputeReason } = extractOpenDispute(r);
 
   return {
     whopId,
@@ -126,6 +175,9 @@ export function normalizeWhopPayment(raw: unknown): NormalizedWhopPayment | null
     paidAt,
     planId,
     membershipId,
+    memberName,
+    disputeDueAt,
+    disputeReason,
   };
 }
 

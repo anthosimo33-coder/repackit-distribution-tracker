@@ -9,7 +9,11 @@ import {
   type PricingBreakdown,
 } from "./pricing";
 import { periodOf } from "./payments";
-import { summarizeWhopRevenue, whopNetContribution } from "./whopRevenue";
+import {
+  summarizeWhopRevenue,
+  whopNetContribution,
+  whopCollectedAmount,
+} from "./whopRevenue";
 import {
   POSTHOG_CACHE_KEYS,
   type OverviewPayload,
@@ -455,6 +459,27 @@ export interface PlanEconomics {
   netReason: string | null;
 }
 
+/**
+ * Un LITIGE (chargeback) EN COURS — argent À RISQUE, EXCLU du net (cf
+ * whopNetContribution). Les frais de litige dépassent souvent l'abonnement et une
+ * accumulation met en péril le compte marchand : c'est l'info la plus urgente de
+ * l'écran Revenus. Le délai `dueAt` (needs_response_by côté Whop) est capital.
+ */
+export interface DisputeEntry {
+  whopId: string;
+  /** Pseudo Whop du client (si connu) pour retrouver le litige côté Whop. */
+  memberName: string | null;
+  /** Montant à risque (net settlé − remboursé), dans la devise du paiement. */
+  amount: number;
+  currency: string | null;
+  /** Date du paiement contesté (ms). */
+  paidAt: number;
+  /** Échéance de réponse (needs_response_by, ms) — null si l'API ne l'a pas donnée. */
+  dueAt: number | null;
+  /** Motif du litige si fourni. */
+  reason: string | null;
+}
+
 export interface RevenueBreakdown {
   configured: boolean;
   currency: string | null;
@@ -466,6 +491,14 @@ export interface RevenueBreakdown {
   plans: PlanEconomics[];
   /** Revenu net par jour Europe/Paris — colonne « Détail par jour » (Vue d'ensemble). */
   dailyNet: { day: string; net: number }[];
+  /** Montant total remboursé (déjà DÉDUIT du net). */
+  refunded: number;
+  /** Nombre de remboursements. */
+  refundCount: number;
+  /** Montant total des litiges EN COURS (À RISQUE), déjà EXCLU du net. */
+  disputedTotal: number;
+  /** Litiges en cours, du délai le plus court au plus long (le plus urgent d'abord). */
+  disputes: DisputeEntry[];
   /** Revenu net moyen par membre et par mois actif (dénominateur du payback). */
   monthlyArpu: number | null;
   /** LTV réalisée toutes offres confondues. */
@@ -509,6 +542,10 @@ export const getRevenueBreakdown = adminQuery({
         periods: [],
         plans: [],
         dailyNet: [],
+        refunded: 0,
+        refundCount: 0,
+        disputedTotal: 0,
+        disputes: [],
         monthlyArpu: null,
         ltv: null,
         churnAvailable: false,
@@ -693,6 +730,27 @@ export const getRevenueBreakdown = adminQuery({
     );
 
     const summary = summarizeWhopRevenue(payments);
+
+    // Litiges (chargebacks) EN COURS — argent À RISQUE, déjà EXCLU du net. Le plus
+    // URGENT d'abord (échéance de réponse la plus proche ; sans échéance en dernier).
+    const disputes: DisputeEntry[] = payments
+      .filter((p) => p.status === "disputed")
+      .map((p) => ({
+        whopId: p.whopId,
+        memberName: p.memberName ?? null,
+        amount: round2(Math.max(0, p.netAmount - Math.max(0, p.refundedAmount))),
+        currency: p.currency ?? null,
+        paidAt: p.paidAt,
+        dueAt: p.disputeDueAt ?? null,
+        reason: p.disputeReason ?? null,
+      }))
+      .sort((a, b) => {
+        if (a.dueAt !== null && b.dueAt !== null) return a.dueAt - b.dueAt;
+        if (a.dueAt !== null) return -1; // une échéance connue passe devant
+        if (b.dueAt !== null) return 1;
+        return b.paidAt - a.paidAt;
+      });
+
     return {
       configured: true,
       currency: summary.currency,
@@ -701,6 +759,10 @@ export const getRevenueBreakdown = adminQuery({
       periods,
       plans,
       dailyNet,
+      refunded: summary.refunded,
+      refundCount: summary.refundCount,
+      disputedTotal: summary.disputed,
+      disputes,
       monthlyArpu:
         totalMemberMonths > 0 ? round2(totalNet / totalMemberMonths) : null,
       ltv: totalMembers > 0 ? round2(totalNet / totalMembers) : null,
@@ -869,7 +931,7 @@ export const getChurn = adminQuery({
       if (!p.membershipId || isInternalWhopMembership(p.membershipId, internalCfg)) {
         continue;
       }
-      if (whopNetContribution(p) <= 0) continue; // encaissé uniquement
+      if (whopCollectedAmount(p) <= 0) continue; // client ayant payé (litige inclus)
       const cur = payAgg.get(p.membershipId) ?? { first: p.paidAt, count: 0 };
       cur.first = Math.min(cur.first, p.paidAt);
       cur.count += 1;
@@ -980,6 +1042,10 @@ export interface ReliabilityResult {
      *  internes exclus) — série « Clients payants », SOURCE DE VÉRITÉ affichée sur
      *  la courbe + la colonne (remplace PostHog subs, décalé). */
     dailyPaidClients: { day: string; clients: number }[];
+    /** Tentatives de paiement ÉCHOUÉES Whop PAR JOUR Paris (statut "failed",
+     *  internes exclus) — colonne « Échecs » du Détail par jour. Une tentative
+     *  échouée n'est PAS un client (0 au net) mais doit être visible. */
+    dailyFailedPayments: { day: string; count: number }[];
     /** subs PostHog par jour Paris — SEULEMENT pour le contrôle croisé PostHog↔Whop
      *  (le funnel garde PostHog ; l'affichage « Clients payants » passe sur Whop). */
     dailySubs: { day: string; subs: number }[];
@@ -1076,6 +1142,7 @@ export const getReliability = adminQuery({
     let whopExcludedPre = 0;
     let whopExcludedAfter = 0;
     let dailyPaidClients: { day: string; clients: number }[] = [];
+    let dailyFailedPayments: { day: string; count: number }[] = [];
     let whopInternalExcluded = 0;
     let whopSyncMs: number | null = null;
     let membershipDuplicates: ReliabilityResult["membershipDuplicates"] = {
@@ -1097,7 +1164,11 @@ export const getReliability = adminQuery({
       const firstPaid = new Map<string, number>();
       for (const p of payments) {
         whopSyncMs = Math.max(whopSyncMs ?? 0, p.updatedAt);
-        if (!p.membershipId || whopNetContribution(p) <= 0) continue;
+        // COMPTE clients : un litige EN COURS reste un client qui a payé →
+        // whopCollectedAmount (inclut "disputed"), PAS whopNetContribution (qui
+        // exclut le litige du net). Garde « Clients payants » stable et aligné
+        // avec PostHog (subscription_completed a bien été émis pour ce client).
+        if (!p.membershipId || whopCollectedAmount(p) <= 0) continue;
         if (isInternalWhopMembership(p.membershipId, internalCfg)) {
           internalMembers.add(p.membershipId);
           continue;
@@ -1128,6 +1199,20 @@ export const getReliability = adminQuery({
       }
       dailyPaidClients = [...paidClientsByDay.entries()]
         .map(([day, clients]) => ({ day, clients }))
+        .sort((a, b) => (a.day < b.day ? -1 : 1));
+
+      // Tentatives de paiement ÉCHOUÉES par jour Paris (colonne « Échecs »).
+      // On compte les LIGNES "failed" (une par tentative), internes exclus — une
+      // tentative échouée n'entre pas dans le net mais doit rester visible.
+      const failedByDay = new Map<string, number>();
+      for (const p of payments) {
+        if (p.status !== "failed") continue;
+        if (isInternalWhopMembership(p.membershipId, internalCfg)) continue;
+        const day = parisDay(p.paidAt);
+        failedByDay.set(day, (failedByDay.get(day) ?? 0) + 1);
+      }
+      dailyFailedPayments = [...failedByDay.entries()]
+        .map(([day, count]) => ({ day, count }))
         .sort((a, b) => (a.day < b.day ? -1 : 1));
 
       // Contrôle « N abonnements pour M personnes » : memberships réels (hors
@@ -1195,6 +1280,7 @@ export const getReliability = adminQuery({
         whopExcludedPre,
         whopExcludedAfter,
         dailyPaidClients,
+        dailyFailedPayments,
         dailySubs,
         todayParis,
       },

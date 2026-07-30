@@ -38,7 +38,7 @@ export const EXPLAIN = {
   comptesInternes:
     "Les comptes de l'équipe, retirés de tous les chiffres pour ne pas gonfler les résultats. On les compte quand même ici, par transparence. L'exclusion vaut des deux côtés, côté PostHog et côté Whop.",
   detailParJour:
-    "Une ligne par jour avec les chiffres clés, du plus récent au plus ancien. Sert à repérer d'un coup d'œil un pic ou un creux, comme la journée du 27 juillet. Les visiteurs, inscrits et checkouts viennent de PostHog (le funnel) ; les clients payants et le revenu viennent de Whop, qui encaisse vraiment l'argent.",
+    "Une ligne par jour avec les chiffres clés, du plus récent au plus ancien. Sert à repérer d'un coup d'œil un pic ou un creux, comme la journée du 27 juillet. Les visiteurs, inscrits et checkouts viennent de PostHog (le funnel) ; les clients payants, les échecs de paiement et le revenu viennent de Whop, qui encaisse vraiment l'argent.",
 
   // ─── Parcours ──────────────────────────────────────────────────────────────
   tunnelVsAtteinte:
@@ -73,6 +73,8 @@ export const EXPLAIN = {
     "Quelqu'un qui clique plusieurs fois de suite au même endroit en quelques secondes, comme on martèle un bouton d'ascenseur qui ne répond pas. C'est le signal de frustration le plus fiable, parce que personne ne clique cinq fois quand tout fonctionne.",
 
   // ─── Offres & tests ────────────────────────────────────────────────────────
+  litigesRemboursements:
+    "Un litige, c'est quand un client demande à sa banque d'annuler un paiement déjà encaissé, et un remboursement, c'est un paiement rendu volontairement. Ces montants sont déjà retirés du revenu net, parce qu'on ne les touchera pas. Répondre à un litige avant la date limite est prioritaire, car les frais de litige coûtent souvent plus cher que l'abonnement lui-même.",
   typesPaywall:
     "Les deux sortes de paywall que l'app affiche aujourd'hui, ce ne sont pas les variantes d'un test. Le paywall bloquant empêche d'accéder tant qu'on n'a pas payé. Le paywall d'appoint propose un supplément sans bloquer.",
   testAB:

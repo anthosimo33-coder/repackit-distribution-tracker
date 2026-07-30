@@ -15,8 +15,16 @@ import { formatNumber } from "@/lib/format";
 import { formatMoney } from "@/lib/format-rate";
 import { computeConversion } from "@/lib/analytics-hub";
 import { EXPECTED_PAYWALL_IDS } from "@/convex/analyticsContract";
-import { HubCardHeader, HubNotice, dash, pct, formatDuration } from "./HubPrimitives";
+import {
+  HubCardHeader,
+  HubNotice,
+  disputeDeadlineLabel,
+  dash,
+  pct,
+  formatDuration,
+} from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
+import { AlertTriangleIcon, ReceiptTextIcon } from "lucide-react";
 import type { ProductAnalyticsData, RevenueData } from "./types";
 
 /**
@@ -54,9 +62,11 @@ const PAYWALL_TYPE_LABELS: Record<string, string> = {
 export function OffresTab({
   analytics,
   revenue,
+  now,
 }: {
   analytics: ProductAnalyticsData;
   revenue: RevenueData | undefined;
+  now: number;
 }) {
   const paywallTypes = useMemo(
     () =>
@@ -119,8 +129,114 @@ export function OffresTab({
     return acc;
   }, [plans]);
 
+  // Litiges (chargebacks) EN COURS + remboursements — argent À RISQUE / rendu, déjà
+  // DÉDUIT du revenu net. Les litiges sont triés serveur (le plus urgent d'abord).
+  const disputes = revenue?.disputes ?? [];
+  const disputedTotal = revenue?.disputedTotal ?? 0;
+  const refunded = revenue?.refunded ?? 0;
+  const refundCount = revenue?.refundCount ?? 0;
+  const hasRiskOrRefunds = disputes.length > 0 || refundCount > 0;
+
   return (
     <div className="space-y-6">
+      {/* Litiges & remboursements — EN TÊTE : l'info la plus urgente du revenu. */}
+      <Card>
+        <CardContent className="space-y-3 p-4">
+          <HubCardHeader
+            title="Litiges et remboursements"
+            subtitle="Argent contesté ou rendu — déjà DÉDUIT du revenu net. Un litige coûte plus cher que l'abonnement : répondre avant l'échéance est prioritaire."
+            info={EXPLAIN.litigesRemboursements}
+          />
+          {!revenue?.configured ? (
+            <p className="text-xs text-slate-400">— Whop non configuré.</p>
+          ) : !hasRiskOrRefunds ? (
+            <HubNotice className="border-emerald-200 bg-emerald-50/70 text-emerald-900">
+              Aucun litige en cours ni remboursement. Rien n&apos;est retiré du net à
+              ce titre.
+            </HubNotice>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border border-red-200 bg-red-50/60 p-3">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-red-800">
+                    <AlertTriangleIcon className="size-3.5" /> Litiges en cours
+                  </div>
+                  <div className="mt-1 text-xl font-bold tabular-nums text-red-900">
+                    {formatNumber(disputes.length)}
+                    {disputedTotal > 0 ? (
+                      <span className="ml-1 text-sm font-medium">
+                        · {formatMoney(disputedTotal, currency)} à risque
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                    <ReceiptTextIcon className="size-3.5" /> Remboursements
+                  </div>
+                  <div className="mt-1 text-xl font-bold tabular-nums text-slate-900">
+                    {formatNumber(refundCount)}
+                    {refunded > 0 ? (
+                      <span className="ml-1 text-sm font-medium text-slate-500">
+                        · −{formatMoney(refunded, currency)}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              {disputes.length > 0 ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Client</TableHead>
+                      <TableHead className="text-right">Montant</TableHead>
+                      <TableHead className="text-right">Délai de réponse</TableHead>
+                      <TableHead>Motif</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {disputes.map((d) => {
+                      const dl = disputeDeadlineLabel(d.dueAt, now);
+                      return (
+                        <TableRow key={d.whopId}>
+                          <TableCell className="text-xs font-medium text-slate-700">
+                            {d.memberName ?? "client Whop"}
+                          </TableCell>
+                          <TableCell className="text-right text-xs tabular-nums">
+                            {formatMoney(d.amount, d.currency ?? currency)}
+                          </TableCell>
+                          <TableCell className="text-right text-xs tabular-nums">
+                            <span
+                              className={
+                                dl.urgent
+                                  ? "font-semibold text-red-600"
+                                  : "text-slate-600"
+                              }
+                            >
+                              {dl.label}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-xs text-slate-500">
+                            {d.reason ?? "—"}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              ) : null}
+
+              <p className="text-xs text-slate-400">
+                Ces montants ne sont PAS dans le revenu net encaissé (retirés à la
+                source). Un litige gagné y reviendra ; perdu, il devient un
+                remboursement.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Types de paywall émis aujourd'hui (ce ne sont PAS des variantes de test) */}
       <Card>
         <CardContent className="space-y-3 p-4">
