@@ -11,6 +11,10 @@ import { isFormatAllowedOnPlatform } from "./publications";
 import { tierLabel } from "./scriptTier";
 import { SNYTCH_SLUG } from "./projects";
 import {
+  CREATOR_ASSIGNMENT_FIELDS,
+  pickCreatorAssignment,
+} from "./creatorAssignmentFields";
+import {
   accrueBaseLineItem,
   upsertBonusLineItem,
   computeEarnings,
@@ -1784,31 +1788,25 @@ export async function missionLabelFor(
   };
 }
 
+/** Sous-ensemble d'un assignment EXPOSÉ à la créatrice (allowlist). Le typage
+ *  `Pick` fait échouer tsc si le portail lit un champ NON exposé. */
+type CreatorAssignment = Pick<
+  Doc<"assignments">,
+  (typeof CREATOR_ASSIGNMENT_FIELDS)[number]
+>;
+
 async function enrichForCreator(ctx: QueryCtx, a: Doc<"assignments">) {
   const targets = await enrichTargets(ctx, a);
-  const {
-    scriptCombo,
-    comboKey,
-    comboImposed,
-    replayedFrom,
-    replayVerbatim,
-    publishedBy,
-    ...safe
-  } = a;
-  void comboKey;
-  // Métadonnées internes (rejeu / lignage / AUTEUR de la saisie du lien) — JAMAIS
-  // exposées au créateur, comme scriptCombo/comboKey. La créatrice ne doit pas voir
-  // que l'admin a saisi le lien à sa place (côté créatrice strictement inchangé).
-  void comboImposed;
-  void replayedFrom;
-  void replayVerbatim;
-  void publishedBy;
+  // ALLOWLIST (cf creatorAssignmentFields) — on part de RIEN et on n'expose que les
+  // champs autorisés. Un nouveau champ de schéma reste invisible tant qu'il n'est pas
+  // ajouté à la liste : plus de fuite par défaut (le piège replayVerbatim/publishedBy).
+  const safe = pickCreatorAssignment(a) as CreatorAssignment;
   const label = await missionLabelFor(ctx, a);
   return {
     ...safe,
     targets,
     ...label,
-    assembledScript: scriptCombo ? scriptCombo.assembledScript : null,
+    assembledScript: a.scriptCombo ? a.scriptCombo.assembledScript : null,
   };
 }
 
@@ -2063,23 +2061,10 @@ async function assignmentDetailFor(
   // Isolation : un assignment d'un autre créateur → introuvable.
   if (!a || a.creatorId !== creatorId) return null;
   const targets = await enrichTargets(ctx, a);
-  const {
-    scriptCombo,
-    comboKey,
-    comboImposed,
-    replayedFrom,
-    replayVerbatim,
-    publishedBy,
-    ...safe
-  } = a;
-  void comboKey;
-  // Métadonnées internes (rejeu / lignage / AUTEUR de la saisie du lien) — JAMAIS
-  // exposées au créateur, comme scriptCombo/comboKey. La créatrice ne doit pas voir
-  // que l'admin a saisi le lien à sa place (côté créatrice strictement inchangé).
-  void comboImposed;
-  void replayedFrom;
-  void replayVerbatim;
-  void publishedBy;
+  // ALLOWLIST (cf creatorAssignmentFields) — comme enrichForCreator : on n'expose
+  // QUE les champs autorisés. Script / rejeu / traçabilité admin jamais renvoyés ;
+  // un nouveau champ de schéma reste invisible tant qu'il n'est pas classé.
+  const safe = pickCreatorAssignment(a) as CreatorAssignment;
   // ISOLATION : SA vidéo soumise, résolue côté serveur (URL signée). Le blob
   // n'est jamais lisible que par le créateur (ici) et l'admin (listVideoSubmitted).
   const submittedVideoUrl = a.submittedVideoStorageId
@@ -2090,13 +2075,13 @@ async function assignmentDetailFor(
   const assets = await resolveAssignmentAssets(ctx, a);
   // Libellé de mission (nom de campagne / format) — MÊME source que la liste.
   const label = await missionLabelFor(ctx, a);
-  if (scriptCombo) {
-    const scriptZones = await splitScriptZones(ctx, a, scriptCombo);
+  if (a.scriptCombo) {
+    const scriptZones = await splitScriptZones(ctx, a, a.scriptCombo);
     return {
       assignment: safe,
       ...label,
       format: null,
-      assembledScript: scriptCombo.assembledScript,
+      assembledScript: a.scriptCombo.assembledScript,
       scriptZones,
       targets,
       submittedVideoUrl,
