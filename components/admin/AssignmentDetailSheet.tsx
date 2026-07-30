@@ -39,7 +39,7 @@ import {
   ASSIGNMENT_STATUS,
   type AssignmentStatus,
 } from "@/lib/assignment-status";
-import { ManagedPublishForm } from "@/components/admin/ManagedPublishForm";
+import { AdminPublishForm } from "@/components/admin/AdminPublishForm";
 import { AssignmentAttachments } from "@/components/admin/AssignmentAttachments";
 import { ReplayScriptLauncher } from "@/components/admin/ReplayScriptLauncher";
 import { ImposedComboBadge } from "@/components/admin/ImposedComboBadge";
@@ -58,7 +58,7 @@ const formatDate = (ts: number) => new Date(ts).toLocaleDateString("fr-FR");
  * / le brief créateur), le contexte (créatrice, compte/plateforme, date de post,
  * statut calendrier, échéance de prod), et — pour un COMPTE GÉRÉ prêt à publier —
  * la saisie du lien + « Publier » via la MÊME mutation que la page Validation
- * (ManagedPublishForm → confirmPublicationAsAdmin). La date de post reste éditable.
+ * (AdminPublishForm → confirmPublicationAsAdmin). La date de post reste éditable.
  *
  * Aucune logique de statut/paie ici : on LIT postDate/postedAt et on affiche le
  * statut calendrier PUR (lib/calendar-status). La `row` étant re-dérivée live côté
@@ -407,6 +407,7 @@ function PublicationSection({ row }: { row: AssignmentRow }) {
             <ExternalLinkIcon className="size-3.5" />
           </a>
         ))}
+        <PublishedByLine publishedBy={row.publishedBy} at={row.postedAt} />
       </div>
     );
   }
@@ -414,9 +415,10 @@ function PublicationSection({ row }: { row: AssignmentRow }) {
   if (managed) {
     if (row.status === "to_publish") {
       return (
-        <ManagedPublishForm
+        <AdminPublishForm
           assignmentId={row._id}
           targets={row.targets}
+          managed
           buttonTestId={`detail-managed-publish-${row._id}`}
         />
       );
@@ -430,6 +432,18 @@ function PublicationSection({ row }: { row: AssignmentRow }) {
     );
   }
 
+  // Compte CRÉATRICE : elle publie depuis son espace. Si la vidéo est validée
+  // (to_publish) et qu'elle a oublié le lien, l'admin peut le coller EN SECOURS.
+  if (row.status === "to_publish") {
+    return (
+      <AdminPublishForm
+        assignmentId={row._id}
+        targets={row.targets}
+        managed={false}
+        buttonTestId={`detail-creator-backup-publish-${row._id}`}
+      />
+    );
+  }
   return (
     <ReadOnlyNote
       tone="slate"
@@ -439,5 +453,42 @@ function PublicationSection({ row }: { row: AssignmentRow }) {
       La créatrice publie ce contenu depuis son espace, puis colle le lien. Le
       statut calendrier se met alors à jour automatiquement.
     </ReadOnlyNote>
+  );
+}
+
+/**
+ * Traçabilité de la saisie du lien : « la créatrice » / « l'admin » / inconnu (—).
+ * ABSENT sur tout l'historique d'avant `publishedBy` → tiret, JAMAIS « créatrice »
+ * par défaut (inventerait une info). La date (postedAt) peut exister même quand
+ * l'auteur est inconnu — on l'affiche alors avec le tiret.
+ */
+function PublishedByLine({
+  publishedBy,
+  at,
+}: {
+  publishedBy?: "creator" | "admin";
+  at: number | null;
+}) {
+  const who =
+    publishedBy === "creator"
+      ? "la créatrice"
+      : publishedBy === "admin"
+        ? "l'admin"
+        : null;
+  const date =
+    at != null
+      ? new Date(at).toLocaleDateString("fr-FR", {
+          day: "2-digit",
+          month: "2-digit",
+        })
+      : null;
+  return (
+    <p className="text-xs text-slate-500" data-testid="detail-published-by">
+      Lien saisi par{" "}
+      <span className={who ? "font-medium text-slate-600" : "text-slate-400"}>
+        {who ?? "—"}
+      </span>
+      {date ? ` le ${date}` : ""}.
+    </p>
   );
 }

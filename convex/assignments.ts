@@ -1786,12 +1786,23 @@ export async function missionLabelFor(
 
 async function enrichForCreator(ctx: QueryCtx, a: Doc<"assignments">) {
   const targets = await enrichTargets(ctx, a);
-  const { scriptCombo, comboKey, comboImposed, replayedFrom, ...safe } = a;
+  const {
+    scriptCombo,
+    comboKey,
+    comboImposed,
+    replayedFrom,
+    replayVerbatim,
+    publishedBy,
+    ...safe
+  } = a;
   void comboKey;
-  // Métadonnées internes (rejeu / lignage) — JAMAIS exposées au créateur, comme
-  // scriptCombo/comboKey (côté créatrice strictement inchangé).
+  // Métadonnées internes (rejeu / lignage / AUTEUR de la saisie du lien) — JAMAIS
+  // exposées au créateur, comme scriptCombo/comboKey. La créatrice ne doit pas voir
+  // que l'admin a saisi le lien à sa place (côté créatrice strictement inchangé).
   void comboImposed;
   void replayedFrom;
+  void replayVerbatim;
+  void publishedBy;
   const label = await missionLabelFor(ctx, a);
   return {
     ...safe,
@@ -2052,12 +2063,23 @@ async function assignmentDetailFor(
   // Isolation : un assignment d'un autre créateur → introuvable.
   if (!a || a.creatorId !== creatorId) return null;
   const targets = await enrichTargets(ctx, a);
-  const { scriptCombo, comboKey, comboImposed, replayedFrom, ...safe } = a;
+  const {
+    scriptCombo,
+    comboKey,
+    comboImposed,
+    replayedFrom,
+    replayVerbatim,
+    publishedBy,
+    ...safe
+  } = a;
   void comboKey;
-  // Métadonnées internes (rejeu / lignage) — JAMAIS exposées au créateur, comme
-  // scriptCombo/comboKey (côté créatrice strictement inchangé).
+  // Métadonnées internes (rejeu / lignage / AUTEUR de la saisie du lien) — JAMAIS
+  // exposées au créateur, comme scriptCombo/comboKey. La créatrice ne doit pas voir
+  // que l'admin a saisi le lien à sa place (côté créatrice strictement inchangé).
   void comboImposed;
   void replayedFrom;
+  void replayVerbatim;
+  void publishedBy;
   // ISOLATION : SA vidéo soumise, résolue côté serveur (URL signée). Le blob
   // n'est jamais lisible que par le créateur (ici) et l'admin (listVideoSubmitted).
   const submittedVideoUrl = a.submittedVideoStorageId
@@ -2202,6 +2224,13 @@ async function confirmPublicationCore(
   ctx: MutationCtx & { projectId: Id<"projects"> },
   a: Doc<"assignments">,
   urls: { platform: Plateforme; url: string }[],
+  opts: {
+    /** Qui a saisi le lien — tracé sur l'assignment (creator vs admin en secours). */
+    confirmedBy: "creator" | "admin";
+    /** Date de PUBLICATION RÉELLE si l'admin la corrige (post publié avant la
+     *  saisie). Absent = maintenant (chemin créatrice, inchangé). */
+    publishedAt?: number;
+  },
 ): Promise<{
   ok: true;
   alreadyPublished: boolean;
@@ -2280,7 +2309,13 @@ async function confirmPublicationCore(
   }
 
   const now = Date.now();
-  const dateLabel = new Date(now).toLocaleDateString("fr-FR", {
+  // Date de PUBLICATION RÉELLE : l'admin peut la corriger en secours (post publié
+  // il y a X jours, lien collé aujourd'hui) → datePubli + suivi des vues + ANCRE de
+  // paie calés sur le vrai jour, pas sur la saisie. Créatrice : jamais d'override
+  // (= now, inchangé). `now` reste l'horloge des tâches/bookkeeping (purge MP4, row
+  // de paie de la période courante) pour ne pas rouvrir une période déjà close.
+  const effectiveDate = opts.publishedAt ?? now;
+  const dateLabel = new Date(effectiveDate).toLocaleDateString("fr-FR", {
     day: "2-digit",
     month: "2-digit",
   });
@@ -2302,7 +2337,7 @@ async function confirmPublicationCore(
       ctx.projectId,
       t,
       url,
-      now,
+      effectiveDate,
     );
     // Modèle PRICING (pricingSnapshot présent) : AUCUNE lineItem base écrite
     // ici — la paie (fixe/CPM/bonus) est calculée à la lecture, en temps réel
@@ -2327,7 +2362,7 @@ async function confirmPublicationCore(
       platform: t.platform,
       accountId: t.accountId,
       publishedUrl: url,
-      publishedAt: now,
+      publishedAt: effectiveDate,
       publicationId: publicationId ?? undefined,
     });
   }
@@ -2362,6 +2397,8 @@ async function confirmPublicationCore(
   await ctx.db.patch(a._id, {
     status: "published",
     targets: newTargets,
+    // Traçabilité : qui a saisi le lien (créatrice normalement, admin en secours).
+    publishedBy: opts.confirmedBy,
     submittedVideoStorageId: undefined,
     submittedVideoMimeType: undefined,
     submittedVideoStreamUid: undefined,
@@ -2370,11 +2407,12 @@ async function confirmPublicationCore(
 
   // ANCRE du cycle de paie J+30 : figée au TOUT PREMIER post publié du créateur,
   // JAMAIS réécrite (posée seulement si absente → idempotent, stable). Couvre
-  // confirmPublication (créatrice) ET confirmPublicationAsAdmin (compte géré), qui
-  // passent tous deux par ce cœur. N'affecte AUCUN montant (regroupement seul).
+  // confirmPublication (créatrice) ET confirmPublicationAsAdmin, qui passent tous
+  // deux par ce cœur. Sur `effectiveDate` (date RÉELLE) et non la saisie : un lien
+  // collé en secours 3 jours après ne décale plus le cycle. N'affecte AUCUN montant.
   const creator = await ctx.db.get(a.creatorId);
   if (creator && creator.firstPostAt === undefined) {
-    await ctx.db.patch(a.creatorId, { firstPostAt: now });
+    await ctx.db.patch(a.creatorId, { firstPostAt: effectiveDate });
   }
 
   return { ok: true, alreadyPublished: false, publicationIds };
@@ -2408,25 +2446,31 @@ export const confirmPublication = creatorMutation({
         "Compte géré par l'équipe : la publication est gérée par l'admin.",
       );
     }
-    return confirmPublicationCore(ctx, a, urls);
+    return confirmPublicationCore(ctx, a, urls, { confirmedBy: "creator" });
   },
 });
 
 /**
- * PUBLICATION (ADMIN) d'un assignment sur COMPTE GÉRÉ — l'admin colle le(s)
- * lien(s) à la place de la créatrice. MÊME cœur (materialize + accrue) → la
- * créatrice est CRÉDITÉE À L'IDENTIQUE (D3, pricing prédéfini, cap 150$). Gaté
- * sur a.managedByAdmin + projectId (aucune appartenance créatrice requise :
- * l'équipe tient le compte). Type de retour ANNOTÉ (TS7022).
+ * PUBLICATION (ADMIN) — l'admin colle le(s) lien(s) à la place de la créatrice.
+ * DEUX usages : compte GÉRÉ par l'équipe (nominal) ET compte de CRÉATRICE en
+ * SECOURS (elle a oublié de coller le lien). MÊME cœur que confirmPublication → la
+ * créatrice est créditée À L'IDENTIQUE. Le flag `managedByAdmin` est REMPLACÉ (pas
+ * relâché) par des contrôles EXPLICITES : projet de l'admin + chaque cible existe
+ * dans ce projet → la seule différence créatrice↔admin est QUI clique, pas ce qui
+ * est vérifié. `publishedAt` optionnel = date RÉELLE corrigeable (l'ancre de paie
+ * ne se cale pas sur la saisie). Type de retour ANNOTÉ (TS7022).
  */
 export const confirmPublicationAsAdmin = adminMutation({
   args: {
     id: v.id("assignments"),
     urls: v.array(v.object({ platform: plateformeValidator, url: v.string() })),
+    // Date de publication RÉELLE (secours : lien collé après-coup). Absente = now.
+    // Bornée dans le handler (ni futur, ni avant la création de l'assignment).
+    publishedAt: v.optional(v.number()),
   },
   handler: async (
     ctx,
-    { id, urls },
+    { id, urls, publishedAt },
   ): Promise<{
     ok: true;
     alreadyPublished: boolean;
@@ -2436,12 +2480,34 @@ export const confirmPublicationAsAdmin = adminMutation({
     if (!a || a.projectId !== ctx.projectId) {
       throw new ConvexError("Assignment introuvable.");
     }
-    if (!a.managedByAdmin) {
-      throw new ConvexError(
-        "Cet assignment n'est pas sur un compte géré par l'équipe.",
-      );
+    // Remplace le gate managedByAdmin : chaque cible doit exister DANS le projet de
+    // l'admin (ce que le flag portait implicitement) — vaut pour compte géré ET
+    // compte de créatrice. L'appartenance projet de l'assignment est déjà vérifiée.
+    for (const t of a.targets ?? []) {
+      if (!t.accountId) continue;
+      const compte = await ctx.db.get(t.accountId);
+      if (!compte || compte.projectId !== ctx.projectId) {
+        throw new ConvexError("Compte cible introuvable dans le projet.");
+      }
     }
-    return confirmPublicationCore(ctx, a, urls);
+    // Date réelle bornée : ni dans le futur, ni avant la création de l'assignment
+    // (sinon l'ancre de paie J+30 se calerait n'importe où).
+    if (publishedAt !== undefined) {
+      if (publishedAt > Date.now()) {
+        throw new ConvexError(
+          "La date de publication ne peut pas être dans le futur.",
+        );
+      }
+      if (publishedAt < a.createdAt) {
+        throw new ConvexError(
+          "La date de publication ne peut pas précéder la création de l'assignment.",
+        );
+      }
+    }
+    return confirmPublicationCore(ctx, a, urls, {
+      confirmedBy: "admin",
+      publishedAt,
+    });
   },
 });
 
