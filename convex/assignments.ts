@@ -2215,6 +2215,11 @@ async function confirmPublicationCore(
     /** Date de PUBLICATION RÉELLE si l'admin la corrige (post publié avant la
      *  saisie). Absent = maintenant (chemin créatrice, inchangé). */
     publishedAt?: number;
+    /** Secours ADMIN : autoriser la publication depuis N'IMPORTE QUEL statut non
+     *  publié (todo/in_progress/vidéo en revue/à refaire) — le post existe déjà
+     *  hors app, on rattrape et l'assignation passe DIRECTEMENT en `published`.
+     *  Absent = chemin créatrice, gate `to_publish` conservé (workflow normal). */
+    fromAnyStatus?: boolean;
   },
 ): Promise<{
   ok: true;
@@ -2227,7 +2232,10 @@ async function confirmPublicationCore(
       .filter((p): p is Id<"publications"> => p !== undefined);
     return { ok: true, alreadyPublished: true, publicationIds: ids };
   }
-  if (a.status !== "to_publish") {
+  // Gate workflow : la créatrice ne publie qu'après validation vidéo (to_publish).
+  // L'admin en SECOURS (fromAnyStatus) court-circuite : le post existe déjà hors
+  // app, coller le lien passe l'assignation directement en `published` (patch final).
+  if (a.status !== "to_publish" && !opts.fromAnyStatus) {
     throw new ConvexError(
       "Publication possible seulement après validation de ta vidéo.",
     );
@@ -2492,6 +2500,9 @@ export const confirmPublicationAsAdmin = adminMutation({
     return confirmPublicationCore(ctx, a, urls, {
       confirmedBy: "admin",
       publishedAt,
+      // Secours : l'admin publie même une assignation restée en "À faire" (post
+      // publié hors app) → passage direct en `published`, pas de gate to_publish.
+      fromAnyStatus: true,
     });
   },
 });

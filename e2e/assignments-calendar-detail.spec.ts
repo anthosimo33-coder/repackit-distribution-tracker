@@ -22,12 +22,13 @@ const todayMidnight = () => {
  * Panneau de DÉTAIL au clic sur un post du calendrier de pilotage (page
  * Assignments). Ouvre le panneau, vérifie que le SCRIPT est lisible, que la date
  * de post est éditable (calendrier), et que — sur un compte de CRÉATRICE (non
- * géré) — la publication reste son geste (état en lecture seule, pas de saisie de
- * lien admin). On filtre sur la créatrice de test pour être robuste à la base e2e
- * partagée. Le calendrier étant la vue par DÉFAUT, aucune bascule n'est nécessaire.
+ * géré) restée « À faire » — l'admin dispose de la saisie de lien EN SECOURS avec
+ * l'avertissement idoine (post publié hors app). On filtre sur la créatrice de test
+ * pour être robuste à la base e2e partagée. Le calendrier étant la vue par DÉFAUT,
+ * aucune bascule n'est nécessaire.
  */
 test.describe("Admin — panneau de détail du calendrier", () => {
-  test("clic sur un post → script + date éditable + publication créatrice en lecture seule", async ({
+  test("clic sur un post → script + date éditable + saisie de lien admin en secours (tout statut)", async ({
     page,
   }) => {
     test.setTimeout(120_000);
@@ -108,13 +109,17 @@ test.describe("Admin — panneau de détail du calendrier", () => {
     ).toBeVisible();
     await page.keyboard.press("Escape");
 
-    // Compte de CRÉATRICE (non géré) : pas de saisie de lien admin — la
-    // publication reste son geste (état en lecture seule).
+    // Compte de CRÉATRICE (non géré), statut resté « À faire » : l'admin peut
+    // coller le lien EN SECOURS (post publié hors app). Le formulaire s'affiche
+    // AVEC l'avertissement « pas marquée comme prête » (la saisie passe direct en
+    // publiée) et le bouton de secours — plus jamais une lecture seule.
     await expect(
-      sheet.getByTestId("detail-publication-creator"),
+      sheet.getByTestId("admin-publish-not-ready"),
     ).toBeVisible();
     await expect(
-      sheet.getByRole("button", { name: /Publier \(coller le lien\)/ }),
-    ).toHaveCount(0);
+      sheet.getByRole("button", {
+        name: /Publier à la place de la créatrice/,
+      }),
+    ).toBeVisible();
   });
 });
