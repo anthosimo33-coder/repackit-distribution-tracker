@@ -491,4 +491,88 @@ describe("buildCoherenceChecks", () => {
     );
     expect(m.get("subscription_double_instrumentation")).toBe("info");
   });
+
+  // Contrôle CROISÉ PAR JOUR (le cas que les totaux ne voyaient pas — 3e occurrence).
+  it("croisé PostHog↔Whop : jours concordants → ok", () => {
+    const m = byKey(
+      buildCoherenceChecks({
+        ...base,
+        dailySubs: [
+          { day: "2026-07-28", subs: 5 },
+          { day: "2026-07-29", subs: 5 },
+        ],
+        dailyPaidClients: [
+          { day: "2026-07-28", clients: 5 },
+          { day: "2026-07-29", clients: 5 },
+        ],
+        todayParis: "2026-07-30",
+      }),
+    );
+    expect(m.get("daily_clients_posthog_vs_whop")).toBe("ok");
+  });
+
+  it("croisé : un jour 0 PostHog vs 5 Whop → violation (le cas du 29/07)", () => {
+    const checks = buildCoherenceChecks({
+      ...base,
+      dailySubs: [{ day: "2026-07-29", subs: 0 }],
+      dailyPaidClients: [{ day: "2026-07-29", clients: 5 }],
+      todayParis: "2026-07-30",
+    });
+    const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(c?.status).toBe("violation");
+    expect(c?.detail).toContain("2026-07-29");
+  });
+
+  it("croisé : le jour COURANT (partiel des deux côtés) est exclu", () => {
+    const m = byKey(
+      buildCoherenceChecks({
+        ...base,
+        dailySubs: [{ day: "2026-07-30", subs: 0 }],
+        dailyPaidClients: [{ day: "2026-07-30", clients: 5 }],
+        todayParis: "2026-07-30",
+      }),
+    );
+    expect(m.get("daily_clients_posthog_vs_whop")).toBe("ok");
+  });
+
+  it("croisé : ±1 toléré (paiement disputé / bord de journée)", () => {
+    const m = byKey(
+      buildCoherenceChecks({
+        ...base,
+        dailySubs: [{ day: "2026-07-28", subs: 5 }],
+        dailyPaidClients: [{ day: "2026-07-28", clients: 6 }],
+        todayParis: "2026-07-30",
+      }),
+    );
+    expect(m.get("daily_clients_posthog_vs_whop")).toBe("ok");
+  });
+
+  it("croisé : ±2 sur un gros jour (14 vs 12, bruit structurel) → PAS d'alerte", () => {
+    const m = byKey(
+      buildCoherenceChecks({
+        ...base,
+        dailySubs: [{ day: "2026-07-27", subs: 14 }],
+        dailyPaidClients: [{ day: "2026-07-27", clients: 12 }],
+        todayParis: "2026-07-30",
+      }),
+    );
+    expect(m.get("daily_clients_posthog_vs_whop")).toBe("ok");
+  });
+
+  it("croisé : ±2 proportionnellement fort (2 vs 4) → info", () => {
+    const m = byKey(
+      buildCoherenceChecks({
+        ...base,
+        dailySubs: [{ day: "2026-07-27", subs: 2 }],
+        dailyPaidClients: [{ day: "2026-07-27", clients: 4 }],
+        todayParis: "2026-07-30",
+      }),
+    );
+    expect(m.get("daily_clients_posthog_vs_whop")).toBe("info");
+  });
+
+  it("croisé : absent si les séries ne sont pas fournies", () => {
+    const m = byKey(buildCoherenceChecks(base));
+    expect(m.has("daily_clients_posthog_vs_whop")).toBe(false);
+  });
 });

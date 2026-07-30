@@ -186,6 +186,12 @@ export interface CoherenceInputs {
   dailyClientsSum?: number | null;
   /** Σ des inscrits quotidiens (uniq/jour). */
   dailySignupsSum?: number | null;
+  /** subs PostHog par jour Paris — contrôle CROISÉ avec Whop (par jour, pas Σ). */
+  dailySubs?: { day: string; subs: number }[];
+  /** Nouveaux clients payants Whop par jour Paris — l'autre côté du contrôle croisé. */
+  dailyPaidClients?: { day: string; clients: number }[];
+  /** Jour Paris courant — exclu du contrôle croisé (partiel des deux côtés). */
+  todayParis?: string;
 }
 
 /** Écart relatif toléré (points de %) entre clients dashboard et Whop. */
@@ -284,7 +290,61 @@ export function buildCoherenceChecks(i: CoherenceInputs): CoherenceCheck[] {
   pushSumCheck(checks, "sum_daily_clients_le_total", "Σ clients/jour ≤ total", i.dailyClientsSum, reachClients);
   pushSumCheck(checks, "sum_daily_signups_le_total", "Σ inscrits/jour ≤ total", i.dailySignupsSum, stepBy(i.reachSteps, "signup_completed"));
 
+  // Cohérence CROISÉE PAR JOUR entre deux CARTES qui montrent la même notion
+  // (nouveaux abonnés/jour) depuis deux sources : PostHog subs vs Whop clients.
+  // Le contrôle par TOTAUX ne voit PAS un écart d'un seul jour (la Σ peut concorder).
+  pushDailyCrossCheck(checks, i.dailySubs, i.dailyPaidClients, i.todayParis);
+
   return checks;
+}
+
+/**
+ * Contrôle CROISÉ PAR JOUR — PostHog `subs` vs Whop nouveaux clients payants, jour
+ * Paris par jour Paris. Les deux mesurent « nouveaux abonnés/jour » ; un écart un
+ * jour donné = trou/latence (ex. cache PostHog en retard sur un paiement Whop). On
+ * exclut le jour COURANT (partiel des deux côtés). Un écart est SIGNIFICATIF s'il
+ * est ≥ 3 en absolu, OU ≥ 2 avec forte proportion (petits jours) — un ±2 sur ~13
+ * (bruit checkout↔encaissement) n'alerte pas ; pire écart absolu ≥ 3 = violation.
+ */
+function pushDailyCrossCheck(
+  checks: CoherenceCheck[],
+  dailySubs: { day: string; subs: number }[] | undefined,
+  dailyClients: { day: string; clients: number }[] | undefined,
+  today: string | undefined,
+): void {
+  if (!dailySubs || !dailyClients) return;
+  const subsBy = new Map(dailySubs.map((d) => [d.day, d.subs]));
+  const cliBy = new Map(dailyClients.map((d) => [d.day, d.clients]));
+  const days = [...new Set([...subsBy.keys(), ...cliBy.keys()])];
+  const mismatches: { day: string; subs: number; clients: number; diff: number }[] =
+    [];
+  for (const day of days) {
+    if (today && day >= today) continue; // jour courant/futur = partiel → ignoré
+    const subs = subsBy.get(day) ?? 0;
+    const clients = cliBy.get(day) ?? 0;
+    const diff = Math.abs(subs - clients);
+    const rel = Math.max(subs, clients) > 0 ? diff / Math.max(subs, clients) : 0;
+    if (diff >= 2 && (diff >= 3 || rel >= 0.5)) {
+      mismatches.push({ day, subs, clients, diff });
+    }
+  }
+  mismatches.sort((a, b) => b.diff - a.diff);
+  if (mismatches.length === 0) {
+    checks.push({
+      key: "daily_clients_posthog_vs_whop",
+      label: "Clients/jour PostHog vs Whop",
+      status: "ok",
+      detail: "concordent jour par jour",
+    });
+    return;
+  }
+  const worst = mismatches[0];
+  checks.push({
+    key: "daily_clients_posthog_vs_whop",
+    label: "Clients/jour PostHog vs Whop",
+    status: worst.diff >= 3 ? "violation" : "info",
+    detail: `${mismatches.length} jour(s) divergent(s) — pire : ${worst.day} PostHog ${worst.subs} vs Whop ${worst.clients} (écart ${worst.diff})`,
+  });
 }
 
 /** Compte d'une étape par clé (null si absente). */

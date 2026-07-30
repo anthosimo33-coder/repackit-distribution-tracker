@@ -976,6 +976,15 @@ export interface ReliabilityResult {
     whopExcludedPre: number;
     /** Exclus car postérieurs au dernier cron (latence, pas incohérence). */
     whopExcludedAfter: number;
+    /** Nouveaux clients payants Whop PAR JOUR Paris (1er paiement d'un membership,
+     *  internes exclus) — série « Clients payants », SOURCE DE VÉRITÉ affichée sur
+     *  la courbe + la colonne (remplace PostHog subs, décalé). */
+    dailyPaidClients: { day: string; clients: number }[];
+    /** subs PostHog par jour Paris — SEULEMENT pour le contrôle croisé PostHog↔Whop
+     *  (le funnel garde PostHog ; l'affichage « Clients payants » passe sur Whop). */
+    dailySubs: { day: string; subs: number }[];
+    /** Jour Paris courant — exclu du contrôle croisé (partiel des deux côtés). */
+    todayParis: string;
   };
   /** Fraîcheur par source : dernière synchro (ms). Le CLIENT juge le « périmé ». */
   freshness: { source: "posthog" | "whop" | "scraping"; lastSyncMs: number | null }[];
@@ -1041,6 +1050,12 @@ export const getReliability = adminQuery({
     });
     const dailyClientsSum = overview.daily.reduce((s, d) => s + d.subs, 0);
     const dailySignupsSum = overview.daily.reduce((s, d) => s + d.signups, 0);
+    // subs PostHog par jour Paris (contrôle croisé Whop) + jour courant à exclure.
+    const dailySubs = overview.daily.map((d) => ({
+      day: parisDay(d.ts),
+      subs: d.subs,
+    }));
+    const todayParis = parisDay(Date.now());
     const posthogSyncMs =
       cacheRows.length > 0
         ? Math.max(...cacheRows.map((r) => r.computedAt))
@@ -1060,6 +1075,7 @@ export const getReliability = adminQuery({
     let whopMembersTotal: number | null = null;
     let whopExcludedPre = 0;
     let whopExcludedAfter = 0;
+    let dailyPaidClients: { day: string; clients: number }[] = [];
     let whopInternalExcluded = 0;
     let whopSyncMs: number | null = null;
     let membershipDuplicates: ReliabilityResult["membershipDuplicates"] = {
@@ -1102,6 +1118,17 @@ export const getReliability = adminQuery({
       }
       whopMembersTotal = firstPaid.size;
       whopMembers = comparable;
+      // Nouveaux clients payants Whop PAR JOUR Paris = série « Clients payants »
+      // (source de vérité). firstPaid = 1er paiement encaissé par membership,
+      // internes déjà exclus → un membership compte le JOUR de son premier paiement.
+      const paidClientsByDay = new Map<string, number>();
+      for (const first of firstPaid.values()) {
+        const day = parisDay(first);
+        paidClientsByDay.set(day, (paidClientsByDay.get(day) ?? 0) + 1);
+      }
+      dailyPaidClients = [...paidClientsByDay.entries()]
+        .map(([day, clients]) => ({ day, clients }))
+        .sort((a, b) => (a.day < b.day ? -1 : 1));
 
       // Contrôle « N abonnements pour M personnes » : memberships réels (hors
       // brouillons) groupés par utilisateur Whop. `whopUserId` n'est peuplé qu'à
@@ -1167,6 +1194,9 @@ export const getReliability = adminQuery({
         whopMembersTotal,
         whopExcludedPre,
         whopExcludedAfter,
+        dailyPaidClients,
+        dailySubs,
+        todayParis,
       },
       freshness: [
         { source: "posthog", lastSyncMs: posthogSyncMs },

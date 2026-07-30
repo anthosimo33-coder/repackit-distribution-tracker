@@ -38,7 +38,7 @@ export const EXPLAIN = {
   comptesInternes:
     "Les comptes de l'équipe, retirés de tous les chiffres pour ne pas gonfler les résultats. On les compte quand même ici, par transparence. L'exclusion vaut des deux côtés, côté PostHog et côté Whop.",
   detailParJour:
-    "Une ligne par jour avec les chiffres clés, du plus récent au plus ancien. Sert à repérer d'un coup d'œil un pic ou un creux, comme la journée du 27 juillet. Les visiteurs, inscrits, checkouts et paiements viennent de PostHog, le revenu vient de Whop.",
+    "Une ligne par jour avec les chiffres clés, du plus récent au plus ancien. Sert à repérer d'un coup d'œil un pic ou un creux, comme la journée du 27 juillet. Les visiteurs, inscrits et checkouts viennent de PostHog (le funnel) ; les clients payants et le revenu viennent de Whop, qui encaisse vraiment l'argent.",
 
   // ─── Parcours ──────────────────────────────────────────────────────────────
   tunnelVsAtteinte:
