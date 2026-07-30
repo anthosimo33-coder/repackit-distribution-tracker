@@ -35,7 +35,7 @@ import {
 import { VideoExample } from "@/components/formats/VideoExample";
 import { StreamPlayer } from "@/components/formats/StreamPlayer";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
-import { ManagedPublishForm } from "@/components/admin/ManagedPublishForm";
+import { AdminPublishForm } from "@/components/admin/AdminPublishForm";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { formatMoney } from "@/lib/format-rate";
@@ -540,9 +540,10 @@ function ManagedPublishCard({ a }: { a: ManagedToPublishRow }) {
           </div>
         )}
 
-        <ManagedPublishForm
+        <AdminPublishForm
           assignmentId={a._id}
           targets={a.targets}
+          managed
           buttonTestId={`managed-publish-${a._id}`}
         />
       </CardContent>
