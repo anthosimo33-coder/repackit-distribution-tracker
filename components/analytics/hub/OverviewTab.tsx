@@ -88,7 +88,6 @@ export function OverviewTab({
 
   const visitorsPts: TrendPoint[] = daily.map((d) => ({ ts: d.ts, value: d.visitors }));
   const signupsPts: TrendPoint[] = daily.map((d) => ({ ts: d.ts, value: d.signups }));
-  const subsPts: TrendPoint[] = daily.map((d) => ({ ts: d.ts, value: d.subs }));
 
   // Deux devises : le REVENU Whop (€, currency de la donnée) et la PAIE créatrices
   // ($, payCurrency). Jamais l'une pour l'autre — ici on les affiche CÔTE À CÔTE,
@@ -110,11 +109,31 @@ export function OverviewTab({
       whopExcludedAfter: c.whopExcludedAfter,
       dailyClientsSum: c.dailyClientsSum,
       dailySignupsSum: c.dailySignupsSum,
+      // Contrôle CROISÉ PAR JOUR : PostHog subs vs Whop clients payants.
+      dailySubs: c.dailySubs,
+      dailyPaidClients: c.dailyPaidClients,
+      todayParis: c.todayParis,
     });
   }, [reliability]);
 
   // Écart client comparable (base du garde-fou) + libellé discret toujours visible.
   const coh = reliability?.coherence;
+
+  // « Clients payants »/jour = SOURCE WHOP (dailyPaidClients), pas PostHog subs :
+  // aligné sur le revenu et le gros chiffre (Whop fait foi), sans décalage de cache.
+  // La courbe et la colonne réutilisent la grille de jours PostHog (parisDay) pour
+  // l'axe temporel, mais la VALEUR affichée vient de Whop.
+  const clientsByDay = useMemo(
+    () =>
+      new Map(
+        (coh?.dailyPaidClients ?? []).map((d) => [d.day, d.clients] as const),
+      ),
+    [coh],
+  );
+  const paidClientsPts: TrendPoint[] = daily.map((d) => ({
+    ts: d.ts,
+    value: clientsByDay.get(parisDay(d.ts)) ?? 0,
+  }));
   const clientEcart =
     coh && coh.dashboardClients !== null && coh.whopMembers !== null
       ? Math.abs(coh.dashboardClients - coh.whopMembers)
@@ -250,7 +269,7 @@ export function OverviewTab({
               label="Clients payants"
               value={dash(coh?.whopMembersTotal ?? null)}
               delta={null}
-              points={subsPts}
+              points={paidClientsPts}
               hint={clientsHint}
               info={EXPLAIN.clientsPayants}
             />
@@ -338,7 +357,7 @@ export function OverviewTab({
                     <TableHead className="text-right">Visiteurs</TableHead>
                     <TableHead className="text-right">Inscriptions</TableHead>
                     <TableHead className="text-right">Checkouts ouverts</TableHead>
-                    <TableHead className="text-right">Paiements</TableHead>
+                    <TableHead className="text-right">Clients payants</TableHead>
                     <TableHead className="text-right">Revenu net</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -360,7 +379,7 @@ export function OverviewTab({
                           {formatNumber(d.checkouts)}
                         </TableCell>
                         <TableCell className="text-right text-xs tabular-nums">
-                          {formatNumber(d.subs)}
+                          {formatNumber(clientsByDay.get(parisDay(d.ts)) ?? 0)}
                         </TableCell>
                         <TableCell className="text-right text-xs tabular-nums font-medium">
                           {net === undefined ? "—" : formatMoney(net, currency)}
