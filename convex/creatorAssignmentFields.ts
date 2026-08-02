@@ -33,6 +33,7 @@ export const CREATOR_ASSIGNMENT_FIELDS = [
   "rateSnapshot",
   "pricingSnapshot",
   "overlayText",
+  "instructions",
   "modelVideos",
   "assetFolderIds",
   "assetFolderId",

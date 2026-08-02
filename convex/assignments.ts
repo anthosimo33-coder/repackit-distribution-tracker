@@ -254,6 +254,22 @@ export function normalizeOverlayText(raw: string | undefined): string | undefine
   return t.length > OVERLAY_MAX_LENGTH ? t.slice(0, OVERLAY_MAX_LENGTH) : t;
 }
 
+// Instructions libres (multi-ligne) admin → créatrice : plafond plus large que
+// l'overlay (une phrase) car ce sont des consignes de tournage/montage.
+export const INSTRUCTIONS_MAX_LENGTH = 1000;
+
+/**
+ * Normalise les instructions : trim, vide → undefined (aucun bloc côté créatrice),
+ * tronqué à INSTRUCTIONS_MAX_LENGTH. Les retours à la ligne internes sont
+ * CONSERVÉS (consigne multi-ligne). Même patron que normalizeOverlayText.
+ */
+export function normalizeInstructions(raw: string | undefined): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const t = raw.trim();
+  if (t.length === 0) return undefined;
+  return t.length > INSTRUCTIONS_MAX_LENGTH ? t.slice(0, INSTRUCTIONS_MAX_LENGTH) : t;
+}
+
 export const assignFormat = adminMutation({
   args: {
     formatId: v.id("formats"),
@@ -373,6 +389,30 @@ export const setAssignmentOverlayText = adminMutation({
     }
     await ctx.db.patch(args.id, {
       overlayText: normalizeOverlayText(args.overlayText),
+    });
+    return { ok: true };
+  },
+});
+
+/**
+ * Édite les INSTRUCTIONS libres (consigne créatrice) d'un assignment EXISTANT
+ * (ajout / modif / effacement). Admin only, scopé projet. Propre à CETTE
+ * assignation (jamais partagé entre créatrices d'un même script). instructions
+ * absent/vide → efface (undefined → aucun bloc côté créatrice). Même patron que
+ * setAssignmentOverlayText.
+ */
+export const setAssignmentInstructions = adminMutation({
+  args: {
+    id: v.id("assignments"),
+    instructions: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const a = await ctx.db.get(args.id);
+    if (!a || a.projectId !== ctx.projectId) {
+      throw new ConvexError("Assignment introuvable.");
+    }
+    await ctx.db.patch(args.id, {
+      instructions: normalizeInstructions(args.instructions),
     });
     return { ok: true };
   },

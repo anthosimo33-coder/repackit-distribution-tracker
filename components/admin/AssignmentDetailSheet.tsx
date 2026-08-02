@@ -6,10 +6,14 @@ import { fr } from "date-fns/locale";
 import {
   CalendarIcon,
   CheckCircle2Icon,
+  ClipboardListIcon,
   ExternalLinkIcon,
   FileTextIcon,
   Loader2Icon,
+  PencilIcon,
   RepeatIcon,
+  Trash2Icon,
+  TypeIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useProjectMutation } from "@/components/project/use-project-convex";
@@ -28,6 +32,16 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { cn } from "@/lib/utils";
 import { convexErrorMessage } from "@/lib/convex-error";
@@ -40,9 +54,13 @@ import {
 import { AdminPublishForm } from "@/components/admin/AdminPublishForm";
 import { AssignmentAttachments } from "@/components/admin/AssignmentAttachments";
 import { ReplayScriptLauncher } from "@/components/admin/ReplayScriptLauncher";
+import { EditBrickTextDialog } from "@/components/admin/EditBrickTextDialog";
+import { AssignmentInstructionsDialog } from "@/components/admin/AssignmentInstructionsDialog";
 import { ImposedComboBadge } from "@/components/admin/ImposedComboBadge";
 import { dayStartMs } from "@/components/admin/AssignmentPlanningCalendar";
 import { countryFlag } from "@/lib/countries";
+import { canDeleteAssignment } from "@/lib/assignment-delete";
+import { canEditScriptCombo } from "@/lib/script-combo-edit";
 
 /** Row LIVE de listAssignments (dérivée côté page → réactive : statut/pub à jour). */
 type AssignmentRow =
@@ -78,11 +96,22 @@ export function AssignmentDetailSheet({
   now: number;
 }) {
   const setPostDate = useProjectMutation(api.assignments.setAssignmentPostDate);
+  const deleteAssignment = useProjectMutation(
+    api.assignments.deleteAssignment,
+  );
   const [dateOpen, setDateOpen] = useState(false);
   const [savingDate, setSavingDate] = useState(false);
   // « Rejouer ce script » : ouvre la modale d'assignation pré-remplie depuis CETTE
   // assignation (lignage replayedFrom = row._id). Réservé aux assignations script.
   const [replayOpen, setReplayOpen] = useState(false);
+  // Éditer le TEXTE du script (réutilise EditBrickTextDialog, comme la vue liste).
+  const [editTextOpen, setEditTextOpen] = useState(false);
+  // Instructions libres pour la créatrice (réutilise setAssignmentInstructions).
+  const [instructionsOpen, setInstructionsOpen] = useState(false);
+  // Suppression (hard-delete) — confirmation obligatoire. Réutilise le garde-fou
+  // serveur deleteAssignment + la réplique pure canDeleteAssignment pour l'UI.
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const label = row.scriptCampaignName ?? row.formatName ?? "—";
   const platforms = row.targets.map((t) => t.platform);
@@ -91,8 +120,40 @@ export function AssignmentDetailSheet({
     postedAt: row.postedAt,
     now,
   });
+  const combo = row.scriptCombo ?? null;
   const script =
-    row.origin === "script" ? (row.scriptCombo?.assembledScript ?? null) : null;
+    row.origin === "script" ? (combo?.assembledScript ?? null) : null;
+  // « Éditer le texte » : dispo UNIQUEMENT sur un script encore corrigeable (même
+  // garde que la vue liste — statut pré-publication + jamais déjà édité).
+  const canEditText =
+    row.origin === "script" &&
+    combo != null &&
+    canEditScriptCombo({
+      status: row.status,
+      editedOnce: combo.editedOnce ?? false,
+    });
+  // Suppressible ? réplique pure du garde-fou serveur (published/paid bloqués).
+  const deletable = canDeleteAssignment(row.status as AssignmentStatus);
+  // Une vidéo a-t-elle déjà été soumise ? → la confirmation le signale (on
+  // n'écarte jamais un travail soumis silencieusement).
+  const hasSubmittedVideo =
+    row.status === "video_submitted" || row.status === "video_rejected";
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      await deleteAssignment({ id: row._id });
+      toast.success(
+        "Assignation supprimée — le combo est de nouveau disponible.",
+      );
+      setConfirmDelete(false);
+      onOpenChange(false);
+    } catch (e) {
+      toast.error(convexErrorMessage(e));
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   async function saveDate(next: number | undefined) {
     setSavingDate(true);
@@ -146,6 +207,78 @@ export function AssignmentDetailSheet({
           source={replayOpen ? { assignmentId: row._id } : null}
           onClose={() => setReplayOpen(false)}
         />
+
+        {/* Éditer le TEXTE du script — MÊME dialog que la vue liste (aucun second
+            chemin d'édition). Monté seulement pour une assignation script. */}
+        {combo && (
+          <EditBrickTextDialog
+            open={editTextOpen}
+            onOpenChange={setEditTextOpen}
+            assignmentId={row._id}
+            campaignId={combo.campaignId}
+            combo={{
+              hookBrickId: combo.hookBrickId,
+              fluxBrickId: combo.fluxBrickId,
+              ctaBrickId: combo.ctaBrickId,
+            }}
+            creatorName={row.creatorName}
+          />
+        )}
+
+        {/* Instructions libres pour la créatrice (par assignation). */}
+        <AssignmentInstructionsDialog
+          open={instructionsOpen}
+          onOpenChange={setInstructionsOpen}
+          assignmentId={row._id}
+          creatorName={row.creatorName}
+          currentInstructions={row.instructions}
+        />
+
+        {/* Confirmation de suppression — mentionne créatrice, format et date de
+            post, et signale une vidéo déjà soumise qui serait écartée. */}
+        <AlertDialog
+          open={confirmDelete}
+          onOpenChange={(o) => {
+            if (!o && !deleting) setConfirmDelete(false);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Supprimer cette assignation ?</AlertDialogTitle>
+              <AlertDialogDescription>
+                <span className="font-medium text-slate-700">
+                  {row.creatorName}
+                </span>{" "}
+                — {label}
+                {row.postDate
+                  ? ` · post prévu le ${formatDate(row.postDate)}`
+                  : ""}
+                .{" "}
+                {hasSubmittedVideo
+                  ? "La vidéo déjà soumise sera définitivement écartée. "
+                  : ""}
+                Le combo sera libéré et pourra être réassigné. Action
+                irréversible.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                onClick={(e) => {
+                  // Fermeture gérée à la main (succès) → état de chargement visible.
+                  e.preventDefault();
+                  void handleDelete();
+                }}
+                disabled={deleting}
+                data-testid="assignment-detail-delete-confirm"
+              >
+                {deleting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+                Supprimer
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4">
           {/* Contexte */}
@@ -203,10 +336,26 @@ export function AssignmentDetailSheet({
           {/* Script à publier (même donnée que Validation / brief créateur) */}
           {script ? (
             <section className="space-y-2">
-              <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                <FileTextIcon className="size-4 text-slate-400" />
-                Script à publier
-              </h3>
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                  <FileTextIcon className="size-4 text-slate-400" />
+                  Script à publier
+                </h3>
+                {/* Éditer le TEXTE — MÊME chemin que la vue liste (fork d'une
+                    brique, 1 seule fois avant publication). Masqué sinon. */}
+                {canEditText && (
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="gap-1.5 text-slate-600"
+                    onClick={() => setEditTextOpen(true)}
+                    data-testid="assignment-detail-edit-text"
+                  >
+                    <TypeIcon className="size-3.5" />
+                    Éditer le texte
+                  </Button>
+                )}
+              </div>
               <div
                 className="rounded-lg border border-slate-200 bg-slate-50 p-4"
                 data-testid="assignment-detail-script"
@@ -219,6 +368,42 @@ export function AssignmentDetailSheet({
               Pas de script monté pour cet assignment.
             </p>
           )}
+
+          {/* Instructions libres pour la créatrice — consigne (pas le script),
+              propre à CETTE assignation, visible telle quelle dans son brief.
+              Toujours présente (éditable même quand vide). */}
+          <section className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                <ClipboardListIcon className="size-4 text-slate-400" />
+                Instructions
+              </h3>
+              <Button
+                variant="ghost"
+                size="xs"
+                className="gap-1.5 text-slate-600"
+                onClick={() => setInstructionsOpen(true)}
+                data-testid="assignment-detail-instructions-edit"
+              >
+                <PencilIcon className="size-3.5" />
+                {row.instructions ? "Modifier" : "Ajouter"}
+              </Button>
+            </div>
+            {row.instructions ? (
+              <div
+                className="rounded-lg border border-indigo-200 bg-indigo-50/50 p-3"
+                data-testid="assignment-detail-instructions"
+              >
+                <p className="whitespace-pre-wrap break-words text-sm text-indigo-950">
+                  {row.instructions}
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400">
+                Aucune instruction pour la créatrice.
+              </p>
+            )}
+          </section>
 
           {/* Assets + vidéos modèles rattachés (mêmes données que le brief
               créateur). Rendu UNIQUEMENT s'il y en a (aucun bloc vide). */}
@@ -233,6 +418,32 @@ export function AssignmentDetailSheet({
           <section className="space-y-2">
             <h3 className="text-sm font-semibold text-slate-700">Publication</h3>
             <PublicationSection row={row} />
+          </section>
+
+          {/* Suppression — hard-delete borné aux statuts SÛRS (garde serveur
+              deleteAssignment + réplique canDeleteAssignment). Publié/payé :
+              indisponible avec message clair (historique financier conservé). */}
+          <section className="border-t border-slate-100 pt-4">
+            {deletable ? (
+              <Button
+                variant="outline"
+                className="w-full gap-2 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                onClick={() => setConfirmDelete(true)}
+                data-testid="assignment-detail-delete"
+              >
+                <Trash2Icon className="size-4" />
+                Supprimer l&apos;assignation
+              </Button>
+            ) : (
+              <p
+                className="flex items-start gap-2 text-xs text-slate-400"
+                data-testid="assignment-detail-delete-blocked"
+              >
+                <Trash2Icon className="size-3.5 shrink-0 translate-y-0.5" />
+                Assignation publiée ou payée — suppression indisponible
+                (l&apos;historique financier est conservé).
+              </p>
+            )}
           </section>
         </div>
       </SheetContent>
