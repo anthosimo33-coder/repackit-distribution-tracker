@@ -3,17 +3,26 @@
 import { useEffect, useRef, useState } from "react";
 import type { Id } from "@/convex/_generated/dataModel";
 import { ExternalLinkIcon, FilmIcon } from "lucide-react";
-import { extractYouTubeId, youTubeEmbedUrl, tiktokOembedUrl } from "@/lib/embed";
+import {
+  extractYouTubeId,
+  youTubeEmbedUrl,
+  tiktokPlayerEmbedUrl,
+} from "@/lib/embed";
+import { tiktokPostId } from "@/lib/apifyPosts";
+import { handleFromPostUrl } from "@/lib/post-url-account";
 
 /**
  * P6 — <VideoExample> : rend un exemple vidéo REGARDABLE in-app, JAMAIS
  * téléchargeable (aucun lien de download nulle part).
  *  - kind "file" : <video controls controlsList="nodownload"> sur l'URL signée
  *    résolue SERVEUR (range requests Convex → le seek fonctionne).
- *  - kind "url"  : YouTube → iframe ; TikTok → oEmbed officiel ; Instagram →
- *    embed officiel ; fallback carte cliquable si l'embed est bloqué.
+ *  - kind "url"  : YouTube → iframe nocookie ; TikTok → iframe LECTEUR officiel
+ *    (player/v1, autonome, sans embed.js) ; Instagram → embed officiel ; dans
+ *    tous les cas, embed impossible → carte cliquable propre (miniature si
+ *    dispo + compte + « Voir la vidéo »), JAMAIS de texte brut.
  *
- * Composant partagé admin (aperçu) ET portail créateur (chantier suivant).
+ * Composant partagé admin (aperçu) ET portail créateur (brief). Toute
+ * correction du rendu vaut donc partout, sans duplication.
  */
 export type FormatExample =
   | {
@@ -28,6 +37,8 @@ export type FormatExample =
       url: string;
       platform: "tiktok" | "youtube" | "instagram";
       title: string;
+      /** Miniature (optionnelle) pour la carte de repli si l'embed échoue. */
+      posterUrl?: string | null;
     };
 
 export function VideoExample({
@@ -42,9 +53,17 @@ export function VideoExample({
    */
   onUnreadable?: () => void;
 }) {
+  // TikTok = format vertical (9/16) : on borne la largeur du cadre pour éviter
+  // un lecteur géant (ex. grille d'exemples de format en pleine largeur).
+  const frameWidthClass =
+    example.kind === "url" && example.platform === "tiktok"
+      ? "mx-auto w-full max-w-[280px]"
+      : "";
   return (
     <figure className="space-y-1.5">
-      <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+      <div
+        className={`overflow-hidden rounded-lg border border-slate-200 bg-slate-50 ${frameWidthClass}`}
+      >
         {example.kind === "file" ? (
           <FileVideo
             url={example.url ?? null}
@@ -54,7 +73,11 @@ export function VideoExample({
         ) : example.platform === "youtube" ? (
           <YouTubeEmbed url={example.url} title={example.title} />
         ) : example.platform === "tiktok" ? (
-          <TikTokEmbed url={example.url} title={example.title} />
+          <TikTokEmbed
+            url={example.url}
+            title={example.title}
+            posterUrl={example.posterUrl ?? null}
+          />
         ) : (
           <InstagramEmbed url={example.url} title={example.title} />
         )}
@@ -135,42 +158,42 @@ function useExternalScript(src: string, enabled: boolean) {
   }, [src, enabled]);
 }
 
-function TikTokEmbed({ url, title }: { url: string; title: string }) {
-  // oEmbed officiel : on récupère le HTML d'embed (blockquote.tiktok-embed) et
-  // on laisse embed.js l'hydrater. Fallback carte si CORS/erreur réseau.
-  const [html, setHtml] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch(tiktokOembedUrl(url))
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("oembed"))))
-      .then((data: { html?: string }) => {
-        if (cancelled) return;
-        if (data.html) setHtml(data.html);
-        else setFailed(true);
-      })
-      .catch(() => !cancelled && setFailed(true));
-    return () => {
-      cancelled = true;
-    };
-  }, [url]);
-
-  useExternalScript("https://www.tiktok.com/embed.js", html !== null);
-
-  if (failed)
-    return <FallbackCard label={title || "Voir sur TikTok"} href={url} />;
-  if (html === null) return <EmbedLoading />;
+function TikTokEmbed({
+  url,
+  title,
+  posterUrl,
+}: {
+  url: string;
+  title: string;
+  posterUrl?: string | null;
+}) {
+  // Lecteur officiel `player/v1` en iframe AUTONOME : joue la vidéo en place,
+  // sans oEmbed ni embed.js. L'ancienne approche (blockquote hydraté par
+  // embed.js) ne se ré-hydratait PAS après le 1er montage — or ici le montage
+  // est lazy (au clic), embed.js déjà chargé → le blockquote restait brut et
+  // dégénérait en LÉGENDE illisible dans le brief (« @compte / son original… »).
+  // Cf lib/embed.ts (helper partagé, éprouvé dans le Radar admin).
+  const videoId = tiktokPostId(url);
+  if (!videoId) {
+    // Pas d'id numérique exploitable (shortlink non résolu, URL inhabituelle) →
+    // carte cliquable propre, jamais de bloc de texte brut.
+    return (
+      <FallbackCard
+        label={title || "Voir la vidéo"}
+        href={url}
+        posterUrl={posterUrl}
+        handle={handleFromPostUrl(url, "TikTok")}
+      />
+    );
+  }
   return (
-    // dangerouslySetInnerHTML : seul cas du repo — HTML d'embed TIERS renvoyé
-    // par l'oEmbed officiel TikTok (pas de contenu utilisateur). embed.js
-    // hydrate ensuite le blockquote en lecteur.
-    <div
-      ref={ref}
-      className="tiktok-embed-container [&_iframe]:!w-full"
+    <iframe
+      src={tiktokPlayerEmbedUrl(videoId)}
+      title={title || "Exemple TikTok"}
+      allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+      allowFullScreen
+      className="aspect-[9/16] w-full"
       data-testid="tiktok-embed"
-      dangerouslySetInnerHTML={{ __html: html }}
     />
   );
 }
@@ -207,23 +230,57 @@ function InstagramEmbed({ url, title }: { url: string; title: string }) {
   );
 }
 
-function EmbedLoading() {
-  return (
-    <div className="flex aspect-video w-full items-center justify-center text-sm text-slate-400">
-      Chargement de l&apos;aperçu…
-    </div>
-  );
-}
-
-function FallbackCard({ label, href }: { label: string; href?: string }) {
+/**
+ * Carte de repli quand l'embed est impossible : miniature si disponible + nom
+ * du compte (si extractible de l'URL) + « Voir la vidéo » ouvrant le post dans
+ * un nouvel onglet. JAMAIS de bloc de texte brut. Sans href → carte non
+ * cliquable (ex. fichier illisible).
+ */
+function FallbackCard({
+  label,
+  href,
+  posterUrl,
+  handle,
+}: {
+  label: string;
+  href?: string;
+  posterUrl?: string | null;
+  handle?: string | null;
+}) {
   const content = (
-    <div className="flex items-center justify-center gap-2 p-6 text-sm font-medium text-slate-700">
-      <ExternalLinkIcon className="size-4" />
-      {label}
+    <div className="flex items-center gap-3 p-3 text-left">
+      {posterUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={posterUrl}
+          alt=""
+          className="h-16 w-12 shrink-0 rounded object-cover"
+        />
+      ) : (
+        <span className="flex h-16 w-12 shrink-0 items-center justify-center rounded bg-slate-200 text-slate-400">
+          <FilmIcon className="size-5" />
+        </span>
+      )}
+      <div className="min-w-0 flex-1">
+        {handle && (
+          <p className="truncate text-sm font-medium text-slate-900">
+            @{handle}
+          </p>
+        )}
+        <span className="inline-flex items-center gap-1 text-sm font-medium text-primary">
+          <ExternalLinkIcon className="size-4" />
+          {label}
+        </span>
+      </div>
     </div>
   );
   return href ? (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="block hover:bg-slate-100">
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="block hover:bg-slate-50"
+    >
       {content}
     </a>
   ) : (

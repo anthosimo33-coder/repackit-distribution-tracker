@@ -90,6 +90,7 @@ export function ModelVideoEmbed({ video }: { video: ModelVideo }) {
               url: canonicalUrl,
               platform: videoExamplePlatform(platform),
               title: video.title ?? "",
+              posterUrl: thumbnailUrl,
             }}
           />
         </div>

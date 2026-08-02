@@ -39,14 +39,24 @@ const isPublicPage = createRouteMatcher([
   "/reset-password/(.*)",
 ]);
 
-export default convexAuthNextjsMiddleware(async (request, { convexAuth }) => {
-  if (isLoginPage(request) && (await convexAuth.isAuthenticated())) {
-    return nextjsMiddlewareRedirect(request, "/");
-  }
-  if (!isPublicPage(request) && !(await convexAuth.isAuthenticated())) {
-    return nextjsMiddlewareRedirect(request, "/login");
-  }
-});
+// « Rester connecté » 90 jours : rend le cookie d'auth PERSISTANT. Sans maxAge,
+// Convex Auth pose un cookie de SESSION (détruit à la fermeture du navigateur) →
+// la créatrice devrait se reconnecter à chaque relance, même si la session
+// serveur vit 90 j. maxAge en SECONDES ; à garder aligné avec la durée de
+// session serveur (convex/auth.ts, SESSION_DURATION_MS).
+const SESSION_COOKIE_MAX_AGE_S = 90 * 24 * 60 * 60; // 90 jours
+
+export default convexAuthNextjsMiddleware(
+  async (request, { convexAuth }) => {
+    if (isLoginPage(request) && (await convexAuth.isAuthenticated())) {
+      return nextjsMiddlewareRedirect(request, "/");
+    }
+    if (!isPublicPage(request) && !(await convexAuth.isAuthenticated())) {
+      return nextjsMiddlewareRedirect(request, "/login");
+    }
+  },
+  { cookieConfig: { maxAge: SESSION_COOKIE_MAX_AGE_S } },
+);
 
 export const config = {
   // Tout sauf les assets statiques (fichiers avec extension) et _next.

@@ -30,8 +30,29 @@ const jwtDurationMs = process.env.JWT_DURATION_MS
   ? Number(process.env.JWT_DURATION_MS)
   : undefined;
 
+// « Rester connecté » 90 jours. Les créatrices ne viennent que quelques fois
+// par semaine : une expiration à 30 j (défaut lib) les force à se reconnecter
+// trop souvent. On porte à 90 j À LA FOIS la durée de vie ABSOLUE de la session
+// (totalDurationMs) ET la fenêtre d'inactivité du refresh token
+// (inactiveDurationMs) — les deux valent 30 j par défaut, la plus courte gagne.
+//   • Convex Auth n'expose qu'une durée GLOBALE : pas de réglage par rôle → la
+//     même durée s'applique au portail créateur ET à l'admin (constat mécanisme).
+//   • Sécurité inchangée au-delà de la durée : le JWT d'accès reste court (1h
+//     ci-dessus, jamais allongé en prod) → une révocation (suppression de la
+//     session) reprend effet sous 1h ; les gardes serveur (authedQuery/Mutation,
+//     rôles admin/créateur) sont contrôlées à CHAQUE requête, indépendamment de
+//     la durée de session. signOut supprime session + refresh tokens (inchangé).
+//   • Le cookie navigateur doit être rendu PERSISTANT en parallèle (proxy.ts,
+//     cookieConfig.maxAge) — sinon c'est un cookie de session détruit à la
+//     fermeture du navigateur, et 90 j côté serveur ne suffiraient pas.
+const SESSION_DURATION_MS = 90 * 24 * 60 * 60 * 1000; // 90 jours
+
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   jwt: jwtDurationMs ? { durationMs: jwtDurationMs } : undefined,
+  session: {
+    totalDurationMs: SESSION_DURATION_MS,
+    inactiveDurationMs: SESSION_DURATION_MS,
+  },
   providers: [
     Password({
       profile(params) {
