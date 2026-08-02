@@ -904,10 +904,11 @@ export default defineSchema({
         fluxBrickId: v.id("scriptBricks"),
         ctaBrickId: v.id("scriptBricks"),
         assembledScript: v.string(),
-        // Verrou "une seule correction" : posé par editScriptCombo après le
-        // remplacement d'UNE brique (avant publication). Une fois true, le combo
-        // est définitivement verrouillé. Optional → 0 migration (absent = jamais
-        // édité = encore corrigeable si le statut le permet).
+        // TRACEUR « corrigé au moins une fois » : posé (true) par editScriptCombo/
+        // editScriptBrickText à chaque correction. N'EST PLUS UN VERROU depuis
+        // « éditer jusqu'à la publication » (le seul verrou est la publication,
+        // cf representativePostedAt) — conservé pour l'historique. Optional →
+        // 0 migration (absent = jamais corrigé).
         editedOnce: v.optional(v.boolean()),
       }),
     ),

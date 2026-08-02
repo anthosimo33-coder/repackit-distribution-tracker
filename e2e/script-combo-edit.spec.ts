@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/auth-fixture";
-import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
+import { createE2eClient } from "./helpers/authed-client";
 import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
@@ -14,12 +14,13 @@ const admin = createE2eClient(url);
 const DAY = 86_400_000;
 
 /**
- * Correction d'UNE brique du combo : OK avant publication (1 fois), re-fige le
- * script (rendu créateur), pricing intact ; rejets : 2e édition, publié,
- * mauvais kind, autre campagne.
+ * Correction d'UNE brique du combo : OK tant que le post n'est pas publié
+ * (RÉPÉTABLE, plus de verrou "une seule fois"), re-fige le script (rendu
+ * créateur), pricing intact ; rejets : publié (lien existant), mauvais kind,
+ * autre campagne. Le verrou = existence d'un lien de publication, pas le statut.
  */
 test.describe("Modifier une brique du combo", () => {
-  test("édition unique avant publication, re-fige, pricing intact, gardes", async () => {
+  test("édition répétable tant que non publié, re-fige, pricing intact, gardes", async () => {
     test.setTimeout(150_000);
     const ts = Date.now();
     const creator = await createCreatorSession(url, {
@@ -133,14 +134,17 @@ test.describe("Modifier une brique du combo", () => {
     });
     expect(mine!.assembledScript).toBe(aAfter.scriptCombo!.assembledScript);
 
-    // ── 2e ÉDITION (A) → rejet "déjà modifié une fois".
-    await expect(
-      admin.mutation(api.scripts.editScriptCombo, {
-        id: a0._id,
-        slot: "flux",
-        newBrickId: fluxBrick._id,
-      }),
-    ).rejects.toThrow(/déjà été modifié/i);
+    // ── 2e ÉDITION (A) → SUCCÈS : plus de verrou "une seule fois" (on corrige
+    // autant que nécessaire tant que le post n'est pas publié). On revient au hook
+    // d'ORIGINE de A (libéré au 1er swap) → comboKey unique garanti.
+    await admin.mutation(api.scripts.editScriptCombo, {
+      id: a0._id,
+      slot: "hook",
+      newBrickId: a0.scriptCombo!.hookBrickId,
+    });
+    const aAfter2 = (await rowsFor()).find((x) => x._id === a0._id)!;
+    expect(aAfter2.scriptCombo!.hookBrickId).toBe(a0.scriptCombo!.hookBrickId);
+    expect(aAfter2.scriptCombo!.editedOnce).toBe(true); // traceur, plus un verrou
 
     // ── MAUVAIS KIND (B, todo) : flux dans le slot hook → rejet "type".
     await expect(
@@ -170,11 +174,13 @@ test.describe("Modifier une brique du combo", () => {
       }),
     ).rejects.toThrow(/introuvable/i);
 
-    // ── PUBLIÉ (B) : on force published → rejet "après publication".
-    await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
-      secret: E2E_SECRET,
+    // ── PUBLIÉ (B) : on publie POUR DE VRAI (lien) → l'édition est VERROUILLÉE.
+    // Le verrou est désormais l'EXISTENCE D'UN LIEN de publication, pas le statut.
+    await admin.mutation(api.assignments.confirmPublicationAsAdmin, {
       id: b0._id,
-      status: "published",
+      urls: [
+        { platform: "TikTok", url: `https://www.tiktok.com/@e2e/video/${ts}` },
+      ],
     });
     const newHookForB = hooks.find(
       (h) => h._id !== b0.scriptCombo!.hookBrickId,
@@ -185,6 +191,6 @@ test.describe("Modifier une brique du combo", () => {
         slot: "hook",
         newBrickId: newHookForB._id,
       }),
-    ).rejects.toThrow(/après publication/i);
+    ).rejects.toThrow(/publié/i);
   });
 });
