@@ -9,6 +9,7 @@ import {
   normalizeOverlayText,
   validateProjectFolderIds,
   buildModelVideoItemsServer,
+  representativePostedAt,
 } from "./assignments";
 import { buildPricingSnapshot } from "./pricing";
 import { ConvexError, v } from "convex/values";
@@ -973,22 +974,32 @@ export const assignScriptCampaign = adminMutation({
   },
 });
 
-// ─── Correction d'UNE brique du combo (une seule fois, avant publication) ─────
-// Réplique de lib/script-combo-edit (règle A6) : statuts pré-soumission. Dès
-// qu'une vidéo est soumise/publiée, le combo est verrouillé (le script affiché
-// doit rester ce qui a été produit/publié).
-const COMBO_EDITABLE_STATUSES = ["todo", "in_progress"];
+// ─── Correction du combo — autorisée TANT QU'AUCUN LIEN DE PUBLICATION ────────
+// Mirroir serveur de lib/script-combo-edit.canEditScriptCombo (règle A6) : le
+// seul verrou est la publication (representativePostedAt(a) !== null = au moins
+// une cible publiée). Pas de verrou de statut ni de quota d'éditions — on corrige
+// autant que nécessaire avant la mise en ligne. Une fois publié, le texte est
+// figé sur la plateforme → interdit (sinon décalage avec la réalité).
 const SLOT = v.union(v.literal("hook"), v.literal("flux"), v.literal("cta"));
+
+/** Garde partagé : refuse l'édition si un lien de publication existe déjà. */
+function assertScriptEditable(a: Doc<"assignments">): void {
+  if (representativePostedAt(a) !== null) {
+    throw new ConvexError(
+      "Le script ne peut plus être modifié : le post est déjà publié.",
+    );
+  }
+}
 
 /**
  * Remplace UNE brique (hook | flux | cta) du combo d'un assignment de script,
- * UNE SEULE FOIS, et UNIQUEMENT si l'assignment n'est pas encore soumis/publié.
- * Re-fige assembledScript + comboKey via le MÊME chemin que l'assignation
- * (assembleNoLabels → rendu créateur labels:false). pricingSnapshot INCHANGÉ.
+ * TANT QUE le post n'est pas publié (assertScriptEditable). Re-fige assembledScript
+ * + comboKey via le MÊME chemin que l'assignation (assembleNoLabels → rendu
+ * créateur labels:false). pricingSnapshot INCHANGÉ. Corrigeable plusieurs fois.
  *
- * Sécurité analytics : l'édition n'est permise qu'en todo/in_progress → AUCUNE
- * publication/snapshot n'est encore rattachée (matérialisées à la publication),
- * donc re-figer n'altère aucune donnée de perf historique.
+ * Sécurité analytics : l'édition est bloquée dès qu'un lien de publication existe
+ * → AUCUNE donnée de perf/publication rattachée n'est jamais altérée (la
+ * publication matérialise la perf ; avant, re-figer est sans conséquence).
  */
 export const editScriptCombo = adminMutation({
   args: {
@@ -1005,14 +1016,7 @@ export const editScriptCombo = adminMutation({
     if (!combo) {
       throw new ConvexError("Cet assignment n'est pas un script.");
     }
-    if (!COMBO_EDITABLE_STATUSES.includes(a.status)) {
-      throw new ConvexError(
-        "Le combo ne peut plus être modifié après publication.",
-      );
-    }
-    if (combo.editedOnce) {
-      throw new ConvexError("Le combo a déjà été modifié une fois.");
-    }
+    assertScriptEditable(a);
     // Nouvelle brique : même projet + même campagne + bon kind + active.
     const newBrick = await ctx.db.get(args.newBrickId);
     if (
@@ -1061,7 +1065,9 @@ export const editScriptCombo = adminMutation({
     });
 
     await ctx.db.patch(args.id, {
-      // Combo RE-FIGÉ (3 kinds, sans corpsBrickId legacy) + verrou une seule fois.
+      // Combo RE-FIGÉ (3 kinds, sans corpsBrickId legacy). editedOnce = simple
+      // TRACEUR « corrigé au moins une fois » — PLUS un verrou (on corrige autant
+      // que nécessaire avant publication ; le seul verrou est representativePostedAt).
       scriptCombo: {
         campaignId: combo.campaignId,
         hookBrickId,
@@ -1084,11 +1090,10 @@ const MAX_BRICK_TEXT = 2000;
  * NOUVELLE brique en bibliothèque (même kind + tier, texte modifié, active,
  * même campagne) et l'applique au combo. La brique d'origine reste INTACTE.
  *
- * MÊMES gardes + MÊME verrou que editScriptCombo (#48 — flag editedOnce partagé) :
- * UNE SEULE édition par assignment (remplacement OU édition de texte), et
- * UNIQUEMENT avant soumission/publication. Re-fige assembledScript + comboKey
- * (assembleNoLabels → rendu créateur labels:false). pricingSnapshot INCHANGÉ.
- * La brique forkée démarre vierge côté analytics (nouvelle brique).
+ * MÊME garde que editScriptCombo : autorisé TANT QUE le post n'est pas publié
+ * (assertScriptEditable), corrigeable plusieurs fois. Re-fige assembledScript +
+ * comboKey (assembleNoLabels → rendu créateur labels:false). pricingSnapshot
+ * INCHANGÉ. La brique forkée démarre vierge côté analytics (nouvelle brique).
  */
 export const editScriptBrickText = adminMutation({
   args: {
@@ -1105,14 +1110,7 @@ export const editScriptBrickText = adminMutation({
     if (!combo) {
       throw new ConvexError("Cet assignment n'est pas un script.");
     }
-    if (!COMBO_EDITABLE_STATUSES.includes(a.status)) {
-      throw new ConvexError(
-        "Le combo ne peut plus être modifié après publication.",
-      );
-    }
-    if (combo.editedOnce) {
-      throw new ConvexError("Le combo a déjà été modifié une fois.");
-    }
+    assertScriptEditable(a);
     const text = args.newText.trim();
     if (text.length === 0) {
       throw new ConvexError("Le texte de la brique est requis.");
@@ -1174,7 +1172,7 @@ export const editScriptBrickText = adminMutation({
         fluxBrickId,
         ctaBrickId,
         assembledScript,
-        editedOnce: true, // verrou PARTAGÉ avec editScriptCombo (#48)
+        editedOnce: true, // TRACEUR « corrigé au moins une fois » (plus un verrou)
       },
       comboKey,
       // pricingSnapshot, rateSnapshot, status… : STRICTEMENT inchangés.

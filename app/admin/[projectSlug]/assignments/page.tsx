@@ -46,6 +46,7 @@ import {
   ImagesIcon,
   ListIcon,
   Loader2Icon,
+  LockIcon,
   PencilIcon,
   Trash2Icon,
   TypeIcon,
@@ -504,11 +505,9 @@ export default function AssignmentsPage() {
                                   Voir le script
                                 </Button>
                                 {a.scriptCombo &&
-                                  canEditScriptCombo({
-                                    status: a.status,
-                                    editedOnce:
-                                      a.scriptCombo.editedOnce ?? false,
-                                  }) && (
+                                  (canEditScriptCombo({
+                                    postedAt: a.postedAt,
+                                  }) ? (
                                     <>
                                       <Button
                                         variant="ghost"
@@ -529,7 +528,14 @@ export default function AssignmentsPage() {
                                         Éditer le texte
                                       </Button>
                                     </>
-                                  )}
+                                  ) : (
+                                    // Publié → verrouillé (même règle que le
+                                    // panneau) : on l'explicite, pas d'absence muette.
+                                    <span className="flex items-center gap-1 text-xs text-slate-400">
+                                      <LockIcon className="size-3 shrink-0" />
+                                      Publié — verrouillé
+                                    </span>
+                                  ))}
                               </div>
                             )}
                           </div>

@@ -1,54 +1,19 @@
 import { describe, it, expect } from "vitest";
-import {
-  isComboStatusEditable,
-  canEditScriptCombo,
-  SCRIPT_COMBO_SLOTS,
-} from "./script-combo-edit";
+import { canEditScriptCombo, SCRIPT_COMBO_SLOTS } from "./script-combo-edit";
 
-describe("isComboStatusEditable", () => {
-  it("éditable avant soumission : todo / in_progress", () => {
-    expect(isComboStatusEditable("todo")).toBe(true);
-    expect(isComboStatusEditable("in_progress")).toBe(true);
+describe("canEditScriptCombo — éditable TANT QU'AUCUN lien de publication", () => {
+  it("OK tant que pas publié (postedAt null / undefined)", () => {
+    // Le statut n'entre PLUS en compte : todo, in_progress, video_submitted,
+    // to_publish… → tous éditables tant qu'aucune cible n'est publiée.
+    expect(canEditScriptCombo({ postedAt: null })).toBe(true);
+    expect(canEditScriptCombo({ postedAt: undefined })).toBe(true);
   });
 
-  it("verrouillé dès soumission/publication", () => {
-    for (const s of [
-      "video_submitted",
-      "video_rejected",
-      "to_publish",
-      "published",
-      "paid",
-      "submitted", // legacy
-      "validated",
-      "rejected",
-    ]) {
-      expect(isComboStatusEditable(s)).toBe(false);
-    }
-  });
-});
-
-describe("canEditScriptCombo", () => {
-  it("OK si statut pré-soumission ET jamais édité", () => {
-    expect(canEditScriptCombo({ status: "todo", editedOnce: false })).toBe(true);
-    expect(canEditScriptCombo({ status: "in_progress", editedOnce: false })).toBe(
-      true,
-    );
-  });
-
-  it("KO si déjà édité (verrou une seule fois), même statut éditable", () => {
-    expect(canEditScriptCombo({ status: "todo", editedOnce: true })).toBe(false);
-    expect(
-      canEditScriptCombo({ status: "in_progress", editedOnce: true }),
-    ).toBe(false);
-  });
-
-  it("KO si publié/soumis, même jamais édité", () => {
-    expect(canEditScriptCombo({ status: "published", editedOnce: false })).toBe(
-      false,
-    );
-    expect(
-      canEditScriptCombo({ status: "video_submitted", editedOnce: false }),
-    ).toBe(false);
+  it("KO dès qu'un lien de publication existe (postedAt renseigné)", () => {
+    expect(canEditScriptCombo({ postedAt: 1_700_000_000_000 })).toBe(false);
+    expect(canEditScriptCombo({ postedAt: 1 })).toBe(false);
+    // 0 = timestamp epoch = publié (valeur non-null) → verrouillé (défensif).
+    expect(canEditScriptCombo({ postedAt: 0 })).toBe(false);
   });
 });
 

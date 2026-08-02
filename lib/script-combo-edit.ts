@@ -1,11 +1,20 @@
 /**
- * Correction d'UNE brique du combo d'un assignment de script — gardes PURES
- * (testées Vitest). Une brique remplaçable UNE seule fois, et UNIQUEMENT avant
- * toute soumission/publication.
+ * Correction du combo d'un assignment de script — garde PUR (testé Vitest).
  *
- * ⚠️ Règle A6 — convex/ ne peut pas importer lib/. Les constantes/gardes sont
- * RÉPLIQUÉES côté serveur (convex/scripts.ts editScriptCombo) ; toute évolution
- * ici doit l'être là-bas.
+ * RÈGLE (depuis « éditer jusqu'à la publication ») : le script est modifiable
+ * TANT QU'AUCUN LIEN DE PUBLICATION n'existe. Le seul verrou est la publication —
+ * pas le statut, pas un quota d'éditions. Une fois le post en ligne, le texte est
+ * figé sur la plateforme : le modifier dans Jarvia créerait un décalage avec la
+ * réalité. On peut donc corriger autant de fois que nécessaire AVANT la mise en
+ * ligne (statuts todo / in_progress / video_submitted / to_publish…).
+ *
+ * Source de vérité de « publié » = `postedAt` (= representativePostedAt : le
+ * publishedAt d'au moins une cible, fallback legacy) — LE MÊME signal que le
+ * statut calendrier. Multi-cibles : une seule cible publiée suffit à verrouiller.
+ *
+ * ⚠️ Règle A6 — convex/ ne peut pas importer lib/. Le garde serveur (convex/
+ * scripts.ts : editScriptCombo / editScriptBrickText) applique la MÊME règle via
+ * representativePostedAt(a) !== null ; toute évolution ici doit l'être là-bas.
  */
 
 export type ScriptComboSlot = "hook" | "flux" | "cta";
@@ -17,28 +26,12 @@ export const SCRIPT_COMBO_SLOTS: readonly ScriptComboSlot[] = [
 ] as const;
 
 /**
- * Statuts qui autorisent la correction du combo : AVANT toute soumission de
- * vidéo ou publication. Dès qu'une vidéo est soumise (video_submitted /
- * video_rejected / to_publish / submitted legacy) ou publiée/payée, le combo est
- * verrouillé (le script affiché doit rester ce qui a été produit/publié).
- */
-export const COMBO_EDITABLE_STATUSES: readonly string[] = [
-  "todo",
-  "in_progress",
-];
-
-/** Le statut autorise-t-il la correction (pré-soumission) ? */
-export function isComboStatusEditable(status: string): boolean {
-  return COMBO_EDITABLE_STATUSES.includes(status);
-}
-
-/**
- * Le combo est-il corrigeable ? true ssi statut pré-soumission ET jamais encore
- * corrigé. Sert à la visibilité du bouton (UI) ET aux gardes serveur (répliqué).
+ * Le combo est-il corrigeable ? true ssi AUCUN lien de publication n'existe
+ * (`postedAt` null = pas encore publié). Sert à la visibilité du bouton (UI) ET
+ * mirroir du garde serveur. `postedAt` = date de post réelle (representativePostedAt).
  */
 export function canEditScriptCombo(input: {
-  status: string;
-  editedOnce: boolean;
+  postedAt: number | null | undefined;
 }): boolean {
-  return isComboStatusEditable(input.status) && !input.editedOnce;
+  return input.postedAt == null;
 }

@@ -10,6 +10,7 @@ import {
   ExternalLinkIcon,
   FileTextIcon,
   Loader2Icon,
+  LockIcon,
   PencilIcon,
   RepeatIcon,
   Trash2Icon,
@@ -123,15 +124,15 @@ export function AssignmentDetailSheet({
   const combo = row.scriptCombo ?? null;
   const script =
     row.origin === "script" ? (combo?.assembledScript ?? null) : null;
-  // « Éditer le texte » : dispo UNIQUEMENT sur un script encore corrigeable (même
-  // garde que la vue liste — statut pré-publication + jamais déjà édité).
+  // « Éditer le texte » : dispo TANT QUE le post n'est pas publié (même garde que
+  // la vue liste — le seul verrou est le lien de publication, cf row.postedAt).
   const canEditText =
     row.origin === "script" &&
     combo != null &&
-    canEditScriptCombo({
-      status: row.status,
-      editedOnce: combo.editedOnce ?? false,
-    });
+    canEditScriptCombo({ postedAt: row.postedAt });
+  // Script présent mais verrouillé (déjà publié) → on l'explicite au lieu de
+  // masquer le bouton sans un mot (« plus jamais d'absence silencieuse »).
+  const scriptLockedPublished = script != null && !canEditText;
   // Suppressible ? réplique pure du garde-fou serveur (published/paid bloqués).
   const deletable = canDeleteAssignment(row.status as AssignmentStatus);
   // Une vidéo a-t-elle déjà été soumise ? → la confirmation le signale (on
@@ -342,8 +343,9 @@ export function AssignmentDetailSheet({
                   Script à publier
                 </h3>
                 {/* Éditer le TEXTE — MÊME chemin que la vue liste (fork d'une
-                    brique, 1 seule fois avant publication). Masqué sinon. */}
-                {canEditText && (
+                    brique). Autorisé tant que le post n'est pas publié ; sinon,
+                    on AFFICHE la raison (jamais une absence silencieuse). */}
+                {canEditText ? (
                   <Button
                     variant="ghost"
                     size="xs"
@@ -354,7 +356,15 @@ export function AssignmentDetailSheet({
                     <TypeIcon className="size-3.5" />
                     Éditer le texte
                   </Button>
-                )}
+                ) : scriptLockedPublished ? (
+                  <span
+                    className="flex items-center gap-1.5 text-xs text-slate-400"
+                    data-testid="assignment-detail-edit-locked"
+                  >
+                    <LockIcon className="size-3.5 shrink-0" />
+                    Verrouillé : post déjà publié
+                  </span>
+                ) : null}
               </div>
               <div
                 className="rounded-lg border border-slate-200 bg-slate-50 p-4"

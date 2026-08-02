@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/auth-fixture";
-import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
+import { createE2eClient } from "./helpers/authed-client";
 import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
@@ -15,11 +15,12 @@ const DAY = 86_400_000;
 
 /**
  * Éditer le texte d'une brique = FORK une nouvelle brique (même kind+tier) et
- * l'applique. Verrou editedOnce PARTAGÉ avec editScriptCombo (#48). Pricing
- * intact, original intact, gardes non-publié + une-fois.
+ * l'applique. RÉPÉTABLE tant que le post n'est pas publié (plus de verrou "une
+ * seule fois" ni de verrou partagé) ; le SEUL verrou est le lien de publication.
+ * Pricing intact, original intact.
  */
 test.describe("Éditer le texte d'une brique (fork)", () => {
-  test("fork même kind+tier, original intact, verrou partagé #48, publié rejeté, pricing intact", async () => {
+  test("fork même kind+tier, original intact, répétable, publié rejeté, pricing intact", async () => {
     test.setTimeout(160_000);
     const ts = Date.now();
     const creator = await createCreatorSession(url, {
@@ -143,19 +144,19 @@ test.describe("Éditer le texte d'une brique (fork)", () => {
     });
     expect(mine!.assembledScript).toContain(newText);
 
-    // ── VERROU PARTAGÉ : après édition texte, "Modifier le combo" (#48) rejeté ─
-    const otherHook = campAfter!.bricks.find(
-      (b) => b.kind === "hook" && b.active && b._id !== aAfter.scriptCombo!.hookBrickId,
-    )!;
-    await expect(
-      admin.mutation(api.scripts.editScriptCombo, {
-        id: aRow._id,
-        slot: "hook",
-        newBrickId: otherHook._id,
-      }),
-    ).rejects.toThrow(/déjà été modifié/i);
+    // ── PLUS DE VERROU "une seule fois" : ré-éditer le texte de A fonctionne
+    // (nouveau fork). On corrige autant que nécessaire tant que A n'est pas publié.
+    const res2 = await admin.mutation(api.scripts.editScriptBrickText, {
+      id: aRow._id,
+      slot: "hook",
+      newText: `HOOK RÉ-ÉDITÉ ${ts}`,
+    });
+    expect(res2.forkedBrickId).toBeTruthy();
+    const aAfter2 = (await rowsFor()).find((x) => x._id === aRow._id)!;
+    expect(aAfter2.scriptCombo!.assembledScript).toContain(`HOOK RÉ-ÉDITÉ ${ts}`);
 
-    // ── INVERSE : éditScriptCombo(B) → puis éditScriptBrickText(B) rejeté ─────
+    // ── PLUS DE VERROU PARTAGÉ : combo(B) PUIS texte(B) → les DEUX passent tant
+    // que B n'est pas publié (le lien de publication est le seul verrou).
     const swapForB = campAfter!.bricks.find(
       (b) => b.kind === "hook" && b.active && b._id !== bRow.scriptCombo!.hookBrickId,
     )!;
@@ -164,19 +165,19 @@ test.describe("Éditer le texte d'une brique (fork)", () => {
       slot: "hook",
       newBrickId: swapForB._id,
     });
-    await expect(
-      admin.mutation(api.scripts.editScriptBrickText, {
-        id: bRow._id,
-        slot: "hook",
-        newText: "peu importe",
-      }),
-    ).rejects.toThrow(/déjà été modifié/i);
+    const resB = await admin.mutation(api.scripts.editScriptBrickText, {
+      id: bRow._id,
+      slot: "hook",
+      newText: `B RÉ-ÉDITÉ ${ts}`,
+    });
+    expect(resB.forkedBrickId).toBeTruthy();
 
-    // ── PUBLIÉ (C) : édition de texte rejetée ────────────────────────────────
-    await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
-      secret: E2E_SECRET,
+    // ── PUBLIÉ (C) : on publie POUR DE VRAI → édition de texte VERROUILLÉE.
+    await admin.mutation(api.assignments.confirmPublicationAsAdmin, {
       id: cRow._id,
-      status: "published",
+      urls: [
+        { platform: "TikTok", url: `https://www.tiktok.com/@e2e/video/c${ts}` },
+      ],
     });
     await expect(
       admin.mutation(api.scripts.editScriptBrickText, {
@@ -184,6 +185,6 @@ test.describe("Éditer le texte d'une brique (fork)", () => {
         slot: "hook",
         newText: "trop tard",
       }),
-    ).rejects.toThrow(/après publication/i);
+    ).rejects.toThrow(/publié/i);
   });
 });

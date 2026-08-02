@@ -748,8 +748,11 @@ export const deleteAssignment = adminMutation({
  *
  * ⚠️ Règle A6 — RÉPLIQUE de lib/calendar-status.representativePostedAt (convex/ ne
  * peut pas importer lib/). Toute évolution ici DOIT l'être là-bas (tests Vitest).
+ *
+ * Exporté : sert AUSSI de source de vérité « publié » au garde d'édition du
+ * script (convex/scripts.ts — mirroir de lib/script-combo-edit.canEditScriptCombo).
  */
-function representativePostedAt(a: Doc<"assignments">): number | null {
+export function representativePostedAt(a: Doc<"assignments">): number | null {
   const stamps = (a.targets ?? [])
     .map((t) => t.publishedAt)
     .filter((x): x is number => typeof x === "number");
