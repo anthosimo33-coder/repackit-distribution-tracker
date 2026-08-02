@@ -41,6 +41,7 @@ import {
   CalendarDaysIcon,
   CalendarIcon,
   ClapperboardIcon,
+  ClipboardListIcon,
   FileTextIcon,
   ImagesIcon,
   ListIcon,
@@ -58,6 +59,7 @@ import { EditScriptComboDialog } from "@/components/admin/EditScriptComboDialog"
 import { EditBrickTextDialog } from "@/components/admin/EditBrickTextDialog";
 import { LinkAssetFolderDialog } from "@/components/admin/LinkAssetFolderDialog";
 import { AssignmentOverlayDialog } from "@/components/admin/AssignmentOverlayDialog";
+import { AssignmentInstructionsDialog } from "@/components/admin/AssignmentInstructionsDialog";
 import { AssignmentPostDateDialog } from "@/components/admin/AssignmentPostDateDialog";
 import {
   AssignmentsCalendar,
@@ -178,6 +180,13 @@ export default function AssignmentsPage() {
   const [overlayId, setOverlayId] = useState<Id<"assignments"> | null>(null);
   const overlayRow = overlayId
     ? ((assignments ?? []).find((a) => a._id === overlayId) ?? null)
+    : null;
+  // Instructions libres pour la créatrice (consigne admin) — row dérivée live.
+  const [instructionsId, setInstructionsId] = useState<Id<"assignments"> | null>(
+    null,
+  );
+  const instructionsRow = instructionsId
+    ? ((assignments ?? []).find((a) => a._id === instructionsId) ?? null)
     : null;
   // Date de publication planifiée — édition après coup (row dérivée live).
   // Hoistée au niveau page → réutilisable depuis la future vue calendrier (C).
@@ -648,22 +657,41 @@ export default function AssignmentsPage() {
                         </Button>
                       </TableCell>
                       <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className={cn(
-                            "h-8 gap-1.5 px-2",
-                            a.overlayText
-                              ? "text-amber-700"
-                              : "text-slate-600",
-                          )}
-                          onClick={() => setOverlayId(a._id)}
-                          aria-label="Texte à incruster en haut de la vidéo"
-                          title={a.overlayText ?? "Ajouter un texte overlay"}
-                        >
-                          <TypeIcon className="size-4" />
-                          {a.overlayText ? "•" : "+"}
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className={cn(
+                              "h-8 gap-1.5 px-2",
+                              a.overlayText
+                                ? "text-amber-700"
+                                : "text-slate-600",
+                            )}
+                            onClick={() => setOverlayId(a._id)}
+                            aria-label="Texte à incruster en haut de la vidéo"
+                            title={a.overlayText ?? "Ajouter un texte overlay"}
+                          >
+                            <TypeIcon className="size-4" />
+                            {a.overlayText ? "•" : "+"}
+                          </Button>
+                          {/* Instructions libres pour la créatrice (consigne). */}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className={cn(
+                              "h-8 gap-1.5 px-2",
+                              a.instructions
+                                ? "text-indigo-700"
+                                : "text-slate-600",
+                            )}
+                            onClick={() => setInstructionsId(a._id)}
+                            aria-label="Instructions pour la créatrice"
+                            title={a.instructions ?? "Ajouter des instructions"}
+                          >
+                            <ClipboardListIcon className="size-4" />
+                            {a.instructions ? "•" : "+"}
+                          </Button>
+                        </div>
                       </TableCell>
                       <TableCell className="text-right">
                         {canDeleteAssignment(a.status as AssignmentStatus) ? (
@@ -768,6 +796,17 @@ export default function AssignmentsPage() {
           assignmentId={overlayRow._id}
           creatorName={overlayRow.creatorName}
           currentOverlayText={overlayRow.overlayText}
+        />
+      )}
+
+      {instructionsRow && (
+        <AssignmentInstructionsDialog
+          key={instructionsRow._id}
+          open
+          onOpenChange={(o) => !o && setInstructionsId(null)}
+          assignmentId={instructionsRow._id}
+          creatorName={instructionsRow.creatorName}
+          currentInstructions={instructionsRow.instructions}
         />
       )}
 

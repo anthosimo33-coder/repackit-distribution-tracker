@@ -8,7 +8,7 @@ import { useMyAssignment } from "@/components/portal/creator-data";
 import { useReadOnly, usePortalBase } from "@/components/portal/ViewAsContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeftIcon, DownloadIcon } from "lucide-react";
+import { ArrowLeftIcon, ClipboardListIcon, DownloadIcon } from "lucide-react";
 import { ModelVideoEmbed } from "@/components/portal/ModelVideoEmbed";
 import { FormatBriefPreview } from "@/components/formats/FormatBriefPreview";
 import { EarningsCalculator } from "@/components/portal/EarningsCalculator";
@@ -156,6 +156,27 @@ export default function AssignmentDetailScreen({
             <Card>
               <CardContent className="py-8 text-center text-sm text-slate-500">
                 Le brief de ce format n&apos;est plus disponible.
+              </CardContent>
+            </Card>
+          )}
+
+          {/* INSTRUCTIONS libres de l'admin POUR la créatrice — consigne de
+              tournage/montage, DISTINCTE du script (texte à publier) et de
+              l'overlay (texte à incruster). Encart accentué, entre le script et
+              les vidéos modèles. Masqué si vide (comme overlay/assets). Retours à
+              la ligne préservés (whitespace-pre-wrap). */}
+          {data.assignment.instructions && (
+            <Card className="border-indigo-200 bg-indigo-50/50">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base text-indigo-900">
+                  <ClipboardListIcon className="size-4 text-indigo-500" />
+                  Instructions
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="whitespace-pre-wrap break-words text-sm text-indigo-950">
+                  {data.assignment.instructions}
+                </p>
               </CardContent>
             </Card>
           )}

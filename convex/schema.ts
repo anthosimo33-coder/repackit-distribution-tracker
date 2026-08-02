@@ -1101,6 +1101,15 @@ export default defineSchema({
     // texte à lire). S'applique à tous les mediaTypes. undefined/absent = aucun
     // overlay (comportement inchangé). 0 migration (optional).
     overlayText: v.optional(v.string()),
+    // ─── INSTRUCTIONS libres de l'admin POUR la créatrice (par assignment) ─────
+    // Consigne multi-ligne OPTIONNELLE, PROPRE À CETTE assignation (deux
+    // créatrices sur le même script peuvent recevoir des instructions
+    // différentes). DISTINCTE de overlayText (texte à incruster À L'ÉCRAN) et du
+    // script (texte à publier) : ici c'est du « comment faire » — ex. « filme en
+    // extérieur », « accent sur le hook les 2 premières secondes ». Affichée au
+    // créateur dans son brief, encart distinct près du script/des vidéos modèles.
+    // undefined/absent = aucun bloc (comme overlayText). 0 migration (optional).
+    instructions: v.optional(v.string()),
     rateSnapshot: v.object({
       basePerPost: v.number(),
       viewBonusPer1k: v.optional(v.number()),
