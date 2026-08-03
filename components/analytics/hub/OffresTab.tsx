@@ -14,7 +14,10 @@ import {
 import { formatNumber } from "@/lib/format";
 import { formatMoney } from "@/lib/format-rate";
 import { computeConversion } from "@/lib/analytics-hub";
-import { EXPECTED_PAYWALL_IDS } from "@/convex/analyticsContract";
+import {
+  EXPECTED_ARM_PRICING,
+  EXPECTED_PAYWALL_IDS,
+} from "@/convex/analyticsContract";
 import {
   HubCardHeader,
   HubNotice,
@@ -319,16 +322,17 @@ export function OffresTab({
           )}
           <div className="space-y-1 text-xs text-slate-500">
             <p className="font-medium text-slate-600">
-              Définitions figées du prochain test :
+              Offre attendue par bras (vérifiée chez Whop) :
             </p>
-            <p>
-              <strong>A, paywall souple</strong> : plan gratuit avec 1 cible, puis
-              4,99 € par semaine et 16,99 € par mois, par cible.
-            </p>
-            <p>
-              <strong>B, paywall bloquant</strong> : pas de plan gratuit, 7,99 € par
-              semaine et 24,99 € par mois, pour 3 cibles.
-            </p>
+            {EXPECTED_ARM_PRICING.map((arm) => (
+              <p key={arm.variant}>
+                <strong>{arm.label}</strong> :{" "}
+                {arm.freeTier ? "plan gratuit, puis " : "pas de plan gratuit, "}
+                {formatMoney(arm.priceWeekly, currency)} par semaine et{" "}
+                {formatMoney(arm.priceMonthly, currency)} par mois, pour{" "}
+                {arm.maxTargets} {arm.maxTargets > 1 ? "cibles" : "cible"}.
+              </p>
+            ))}
             <p>
               Décision sur le <strong>revenu net par personne exposée</strong>, fenêtre
               de 14 jours.
