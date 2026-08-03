@@ -10,9 +10,11 @@
  *    compris ceux à `notYetEmitted` : leur absence est AFFICHÉE explicitement
  *    (« pas encore émis côté app »), jamais masquée sous un 0.
  *
- * Règle A1 : `app_version`, `plan_shown`, `price` n'existent pas encore côté
- * Snytch. On les DÉCLARE quand même (CONTRACT_PROPERTIES, `notYetEmitted`) pour
- * que leur arrivée allume la carte d'elle-même, sans redéploiement du contrat.
+ * Règle A1 : une propriété attendue se DÉCLARE même quand l'app ne l'émet pas
+ * encore (CONTRACT_PROPERTIES, `notYetEmitted`) — son arrivée allume la carte
+ * d'elle-même, sans redéploiement du contrat. Le flux inverse est manuel : quand
+ * une propriété se met à arriver, on retire le drapeau ici (fait le 03/08 pour
+ * `experiment_id` et la valeur `paywalled`).
  *
  * Module PUR (aucune dépendance Convex/React). Vit dans convex/ car un module
  * convex/ NE PEUT PAS importer lib/ (le bundler Convex ne suit que convex/) et
@@ -46,7 +48,7 @@ export interface ContractEvent {
 }
 
 /**
- * Les 28 events du contrat. L'ordre est thématique (catégorie), PAS l'ordre du
+ * Les events du contrat. L'ordre est thématique (catégorie), PAS l'ordre du
  * parcours — l'ordre séquentiel du tunnel vit dans posthogSync (CONVERSION_STEP_KEYS),
  * établi empiriquement (cf diagnostic A6), pas ici.
  */
@@ -63,7 +65,7 @@ export const CONTRACT_EVENTS: ContractEvent[] = [
     name: "handle_search_result",
     category: "activation",
     props: ["result", "account_id", "follower_count", "following_count"],
-    note: "les gens sans accès sont bloqués par le paywall AVANT la recherche (result « paywalled » à venir)",
+    note: "result « paywalled » émis depuis le 03/08 : les gens sans accès sont désormais MESURÉS, plus déduits",
   },
   { name: "scan_started", category: "activation", props: ["mode", "account_id"], notYetEmitted: true },
   {
@@ -77,9 +79,30 @@ export const CONTRACT_EVENTS: ContractEvent[] = [
   { name: "target_added", category: "activation", props: ["account_id", "follower_count"] },
   { name: "target_removed", category: "activation", props: ["account_id", "reason"] },
   { name: "first_alert_received", category: "activation", props: ["account_id"] },
+  // Première recherche APRÈS l'achat — l'agrégat firstSearchAfterPay le consomme
+  // déjà (cf posthogSync.QUERIES). Émis server-side : ne porte pas les
+  // super-propriétés client (plan, targets_count, bras du test).
+  {
+    name: "first_search_after_payment",
+    category: "activation",
+    props: ["result", "reason", "is_first_search", "delay_since_access_ms", "target_size_bucket", "server_side"],
+  },
 
   // ─── Monétisation ────────────────────────────────────────────────────────
-  { name: "paywall_viewed", category: "monetization", props: ["variant", "plan_shown", "price", "paywall_id"] },
+  {
+    name: "paywall_viewed",
+    category: "monetization",
+    // Depuis le 03/08 l'event porte les DEUX cadences séparément (price_weekly /
+    // price_monthly + plan_weekly / plan_monthly) : `price` seul ne disait qu'un
+    // montant sur deux plans affichés, et un mensuel a pu sortir avec le montant
+    // hebdo (cf journal des changements d'offre, correctif du routage de plan).
+    props: [
+      "experiment_variant", "experiment_id",
+      "price_weekly", "price_monthly", "plan_weekly", "plan_monthly",
+      "plan_preselected", "plan_preselected_period", "max_targets",
+      "variant", "plan_shown", "price", "paywall_id",
+    ],
+  },
   { name: "checkout_started", category: "monetization", props: ["is_webview", "webview_source", "plan_name", "method", "variant"] },
   { name: "checkout_handoff", category: "monetization", props: ["is_webview", "webview_source", "reason"] },
   { name: "payment_failed", category: "monetization", props: ["cause", "reason", "is_webview"] },
@@ -113,9 +136,10 @@ export interface ContractProperty {
 }
 
 /**
- * Propriétés SONDÉES à part — surtout les trois que l'app n'émet pas encore
- * (`app_version`, `plan_shown`, `price`). Sondées quand même : leur présence
- * bascule de « absente » à « présente » sans toucher au contrat.
+ * Propriétés SONDÉES à part. Une propriété se déclare ici même quand l'app ne
+ * l'émet pas encore (`notYetEmitted`) : sa présence bascule de « absente » à
+ * « présente » sans toucher au contrat. Le retour du drapeau, lui, est MANUEL —
+ * il se fait après vérification en prod, jamais sur annonce.
  */
 export const CONTRACT_PROPERTIES: ContractProperty[] = [
   // Émises depuis le 28/07 (vérifié prod : app_version dès ~14:43 sur la plupart
@@ -124,35 +148,97 @@ export const CONTRACT_PROPERTIES: ContractProperty[] = [
   { name: "plan_shown", onEvent: "paywall_viewed" },
   { name: "price", onEvent: "paywall_viewed" },
   // paywall_id : l'app a 7 emplacements de paywall (cf. EXPECTED_PAYWALL_IDS) mais
-  // `variant` n'a que 2 valeurs (gate/upsell) → la plupart sont indistinguables.
-  // Demandée au dev, PAS encore émise (vérifié : 0 occurrence sur 7 j ET 90 j). La
-  // carte « conversion par paywall » affiche les 7 en attente tant qu'elle n'arrive pas.
-  { name: "paywall_id", onEvent: "paywall_viewed", notYetEmitted: true },
+  // `variant` n'a que 2 valeurs (gate/upsell) → sans lui la plupart sont
+  // indistinguables. ÉMISE depuis le 29/07 (388 occurrences vérifiées en prod).
+  // Attention : les valeurs réelles débordent d'EXPECTED_PAYWALL_IDS (onboarding_notarget,
+  // gate, subscription arrivent en plus, search_first n'arrive jamais).
+  { name: "paywall_id", onEvent: "paywall_viewed" },
   // onboarding_step : l'onboarding fait 9 écrans qui PARTAGENT la même URL
-  // (/onboarding), de la saisie du handle jusqu'au paywall. Les clics de rage ne
-  // disent donc pas QUELLE étape frustre. Demandée au dev, PAS encore émise : la
-  // ventilation par étape (carte Points de friction) s'allumera d'elle-même dès
-  // que l'app enverra le numéro d'étape sur $rageclick.
-  { name: "onboarding_step", onEvent: "$rageclick", notYetEmitted: true },
-  // experiment_id : marqueur d'un VRAI test A/B. Aujourd'hui `variant` ne distingue
-  // que les DEUX types de paywall émis (gate/upsell), ce ne sont pas les bras d'un
-  // test. La carte « Test A/B » reste « aucun test en cours » tant que cette
-  // propriété est absente, et s'allume dès qu'un test démarre.
-  { name: "experiment_id", onEvent: "*", notYetEmitted: true },
+  // (/onboarding), de la saisie du handle jusqu'au paywall. Sans lui, les clics de
+  // rage ne disent pas QUELLE étape frustre. ÉMISE sur $rageclick depuis le 03/08
+  // (12 occurrences vérifiées) → la ventilation par étape de la carte Points de
+  // friction s'alimente.
+  { name: "onboarding_step", onEvent: "$rageclick" },
+  // experiment_id : marqueur d'un VRAI test A/B. Émis depuis le 03/08 17:02, avec
+  // experiment_variant (soft/hard) — à ne pas confondre avec `variant`, qui ne
+  // distingue que les deux types de paywall (gate/upsell). ATTENTION : la sonde
+  // exclut les comptes internes (règle A4), donc une propriété émise UNIQUEMENT
+  // par un compte de test prod compte pour 0 ici — et la carte reste éteinte.
+  { name: "experiment_id", onEvent: "*" },
+  { name: "experiment_variant", onEvent: "*" },
+  // Prix et plans PAR CADENCE sur le paywall. `price` seul est ambigu :
+  // `plan_shown` liste deux plans, le montant n'en couvrait qu'un — et un plan
+  // mensuel a pu sortir avec le montant hebdo (cf. EXPECTED_ARM_PRICING).
+  { name: "price_weekly", onEvent: "paywall_viewed" },
+  { name: "price_monthly", onEvent: "paywall_viewed" },
+  { name: "plan_weekly", onEvent: "paywall_viewed" },
+  { name: "plan_monthly", onEvent: "paywall_viewed" },
+  // Le plan pré-sélectionné à l'ouverture + sa cadence : c'est lui qui part au
+  // checkout si la personne ne touche à rien.
+  { name: "plan_preselected", onEvent: "paywall_viewed" },
+  { name: "plan_preselected_period", onEvent: "paywall_viewed" },
+  // Nombre de cibles incluses dans l'offre affichée (1 en soft, 3 en hard) :
+  // sans lui, deux prix ne sont pas comparables.
+  { name: "max_targets", onEvent: "paywall_viewed" },
 ];
 
 /**
- * VALEURS de result attendues sur handle_search_result mais PAS encore émises.
- * « paywalled » : aujourd'hui la recherche des gens sans accès n'émet aucun result
- * (le hard paywall intercepte après handle_submitted, la recherche ne s'exécute
- * jamais) → on les DÉDUIT par soustraction (handle_submitted − handle_search_result).
- * Le dev va émettre un result explicite « paywalled » depuis le gate : dès qu'il
- * arrive, la carte l'affiche MESURÉ au lieu de déduit. Une VALEUR n'est pas une
+ * VALEURS de result attendues sur handle_search_result. Une VALEUR n'est pas une
  * propriété (pas de sonde isNotNull) : on la déclare ici, la carte compare la
  * déduction à la mesure.
+ * « paywalled » : la recherche des gens sans accès n'émettait AUCUN result (le
+ * paywall intercepte après handle_submitted, la recherche ne s'exécute jamais)
+ * → on les déduisait par soustraction (handle_submitted − handle_search_result).
+ * ÉMIS depuis le 03/08 (96 occurrences) : la carte l'affiche MESURÉ, et la
+ * déduction devient un contrôle de cohérence au lieu d'une estimation.
  */
 export const EXPECTED_RESULT_VALUES: { event: string; value: string; notYetEmitted: boolean }[] = [
-  { event: "handle_search_result", value: "paywalled", notYetEmitted: true },
+  { event: "handle_search_result", value: "paywalled", notYetEmitted: false },
+];
+
+/**
+ * OFFRE ATTENDUE PAR BRAS du test paywall_ab_2026_08. Sert de RÉFÉRENCE au
+ * contrôle « le bras sert-il bien son offre » : un bras qui affiche les plans ou
+ * les montants de l'autre invalide la comparaison, et l'écart ne se voit pas
+ * dans un agrégat (les deux prix existent tous les deux au catalogue).
+ *
+ * Prix vérifiés côté Whop le 03/08 — les quatre existent avec la BONNE cadence
+ * (4,99 €/7 j, 16,99 €/30 j, 9,99 €/7 j, 29,99 €/30 j). Le piège : 9,99 € existe
+ * AUSSI en mensuel au catalogue, donc un montant seul ne prouve pas la cadence —
+ * c'est le couple (plan, prix) qui fait foi.
+ */
+export const EXPECTED_ARM_PRICING: {
+  variant: "soft" | "hard";
+  label: string;
+  planWeekly: string;
+  planMonthly: string;
+  priceWeekly: number;
+  priceMonthly: number;
+  maxTargets: number;
+  freeTier: boolean;
+}[] = [
+  {
+    variant: "soft",
+    label: "A — paywall souple",
+    planWeekly: "snytch_target_weekly",
+    planMonthly: "snytch_target_monthly",
+    priceWeekly: 4.99,
+    priceMonthly: 16.99,
+    maxTargets: 1,
+    // Le plan gratuit N'EXISTE QUE dans ce bras : un free_tier_started portant
+    // experiment_variant=hard signale une fuite d'offre, pas un choix produit.
+    freeTier: true,
+  },
+  {
+    variant: "hard",
+    label: "B — paywall bloquant",
+    planWeekly: "snytch_trio_weekly",
+    planMonthly: "snytch_trio_monthly",
+    priceWeekly: 9.99,
+    priceMonthly: 29.99,
+    maxTargets: 3,
+    freeTier: false,
+  },
 ];
 
 /**
