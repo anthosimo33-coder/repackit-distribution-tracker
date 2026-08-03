@@ -49,8 +49,19 @@ const SCAN_KIND_LABELS: Record<string, string> = {
   "(autre)": "Autre",
 };
 
-/** Montant en dollars, décimales adaptées aux petits coûts unitaires. */
+/**
+ * Montant en dollars, décimales adaptées aux petits coûts unitaires.
+ *
+ * Seul endroit du hub où la devise est écrite en dur, et à raison : la source
+ * est `cost_usd` sur `scan_completed` — le coût de l'appel HikerAPI, facturé en
+ * dollars par le fournisseur. La devise est fixée par la DÉFINITION de la
+ * donnée (le nom de la propriété la déclare), pas par la donnée : il n'existe
+ * aucun champ `currency` à lire, et en fabriquer un laisserait croire que ce
+ * coût pourrait un jour sortir en euros. Ne PAS remplacer par formatMoney avec
+ * une devise dynamique — cf. règle des deux devises dans lib/format-rate.
+ */
 function usd(n: number | null, decimals = 2): string {
+  // currency-hardcode-exempt: cost_usd est en dollars par nature (coût HikerAPI), aucune devise à sourcer
   return n === null ? "—" : `${n.toFixed(decimals)} $`;
 }
 

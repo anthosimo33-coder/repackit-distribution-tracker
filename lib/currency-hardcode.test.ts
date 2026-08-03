@@ -71,6 +71,60 @@ const LITERAL_CURRENCY_ARG =
 const ISO_IN_INTL = /currency:\s*['"][A-Za-z]{3}['"]/;
 const DISPLAY = /currencyDisplay/;
 
+/**
+ * OPT-OUT explicite et JUSTIFIÉ. Une donnée dont la devise est fixée par sa
+ * DÉFINITION (pas par la donnée) ne peut pas la sourcer dynamiquement : lui
+ * inventer une devise variable serait plus faux que de l'écrire en dur.
+ *
+ * `// currency-hardcode-exempt: <raison>` exempte la ligne SUIVANTE. La raison
+ * est obligatoire (le motif exige au moins un mot) : on ne peut pas faire taire
+ * la garde sans dire pourquoi, et la justification vit au point de la violation,
+ * pas dans une liste d'exclusions lointaine.
+ */
+const EXEMPT_MARKER = /\/\/\s*currency-hardcode-exempt:\s*\S+/;
+
+/** Retire les lignes exemptées (le marqueur et celle qu'il couvre). */
+function stripExempt(src: string): string {
+  const lines = src.split("\n");
+  return lines
+    .filter((line, i) => {
+      if (EXEMPT_MARKER.test(line)) return false;
+      return !(i > 0 && EXEMPT_MARKER.test(lines[i - 1]));
+    })
+    .join("\n");
+}
+
+// L'opt-out peut FAIRE TAIRE la garde : il a donc son propre test. Sans lui, un
+// marqueur mal écrit (ou trop gourmand) désarmerait le balayage sans rien casser.
+describe("l'opt-out n'exempte QUE ce qu'il désigne", () => {
+  it("retire le marqueur et la ligne suivante, rien d'autre", () => {
+    const src = [
+      'const a = `${x} $`;',
+      "// currency-hardcode-exempt: raison",
+      'const b = `${y} $`;',
+      'const c = `${z} $`;',
+    ].join("\n");
+    const out = stripExempt(src);
+    expect(out).toContain("const a");
+    expect(out).not.toContain("const b");
+    expect(out).toContain("const c");
+  });
+
+  it("un marqueur SANS raison n'exempte rien", () => {
+    const src = ["// currency-hardcode-exempt:", 'const b = `${y} $`;'].join("\n");
+    expect(stripExempt(src)).toContain("const b");
+  });
+
+  it("un fichier sans marqueur est rendu intact", () => {
+    const src = 'const a = 1;\nconst b = `${y} $`;';
+    expect(stripExempt(src)).toBe(src);
+  });
+
+  it("la garde attrape toujours une vraie violation non exemptée", () => {
+    expect(stripExempt('const a = `${x} $`;')).toMatch(GLUED);
+  });
+});
+
 describe("aucune devise codée en dur dans les composants (elle vient de la donnée)", () => {
   const files = [
     ...walk(join(ROOT, "components")),
@@ -84,7 +138,7 @@ describe("aucune devise codée en dur dans les composants (elle vient de la donn
   for (const f of files) {
     const rel = f.replace(`${ROOT}/`, "");
     it(`${rel} : devise sourcée dans la donnée, pas en dur`, () => {
-      const src = readFileSync(f, "utf8");
+      const src = stripExempt(readFileSync(f, "utf8"));
       expect(src, "symbole de devise collé à une valeur rendue").not.toMatch(GLUED);
       expect(
         src,
