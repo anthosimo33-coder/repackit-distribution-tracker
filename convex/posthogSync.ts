@@ -23,6 +23,7 @@ import {
 import {
   internalAccountsFor,
   internalMarkerHogQL,
+  notForcedExperimentClause,
   notInternalClause,
 } from "./internalAccounts";
 
@@ -392,12 +393,17 @@ const INSTRUMENTATION_PROP_COLUMNS = INSTRUMENTATION_PROP_PROBES.map(
 ).join(",\n");
 
 /**
- * Jeu de requêtes HogQL construit PAR PROJET. `notInternal` (clause d'exclusion
- * des comptes internes — règle A4) et `internalMarker` (l'expression POSITIVE,
- * pour compter les exclus) sont injectés ici, en UN seul endroit : toute requête
- * exclut les internes, sauf `internalExcluded` qui les dénombre exprès.
+ * Jeu de requêtes HogQL construit PAR PROJET. `notCounted` (clauses d'exclusion
+ * cumulées : comptes internes — règle A4 — ET sessions à bras d'A/B forcé) et
+ * `internalMarker` (l'expression POSITIVE, pour compter les exclus) sont injectés
+ * ici, en UN seul endroit : toute requête écarte les deux, sauf `internalExcluded`
+ * qui dénombre les internes exprès.
+ *
+ * `internalMarker` ne couvre QUE les internes : le compteur « comptes internes
+ * exclus » resterait honnête si on y ajoutait les sessions forcées, il mentirait
+ * sur ce qu'il compte.
  */
-export function buildQueries(notInternal: string, internalMarker: string) {
+export function buildQueries(notCounted: string, internalMarker: string) {
   return {
   /**
    * Série quotidienne : visiteurs uniques, inscriptions, abonnements. Bucketisée
@@ -412,7 +418,7 @@ SELECT toStartOfDay(timestamp, 'Europe/Paris') AS d,
        uniqIf(person_id, event = 'checkout_started') AS checkouts,
        uniqIf(person_id, event = 'subscription_completed') AS subs
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
 GROUP BY d
 ORDER BY d`,
 
@@ -424,7 +430,7 @@ ORDER BY d`,
   funnelGlobal: `
 SELECT 'global' AS seg,${FUNNEL_COLUMNS}
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}`,
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}`,
 
   /**
    * Funnel SÉQUENTIEL (chemin de monétisation) — sous-ensemble STRICT : l'étape k
@@ -449,14 +455,14 @@ FROM (
     countIf(event = 'checkout_started') > 0 AS b_checkout,
     countIf(event = 'subscription_completed') > 0 AS b_sub
   FROM events
-  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
   GROUP BY person_id
 )`,
 
   funnelSource: `
 SELECT ${segExpr("person.properties.source")} AS seg,${FUNNEL_COLUMNS}
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
 GROUP BY seg
 ORDER BY visit DESC
 LIMIT ${SEGMENT_LIMIT}`,
@@ -464,7 +470,7 @@ LIMIT ${SEGMENT_LIMIT}`,
   funnelLanguage: `
 SELECT ${segExpr("person.properties.language")} AS seg,${FUNNEL_COLUMNS}
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
 GROUP BY seg
 ORDER BY visit DESC
 LIMIT ${SEGMENT_LIMIT}`,
@@ -508,7 +514,7 @@ FROM (
       countIf(event = 'first_alert_received') AS has_alert,
       countIf(event = 'subscription_completed') AS has_sub
     FROM events
-    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
     GROUP BY person_id
   )
 )`,
@@ -526,7 +532,7 @@ FROM (
     countIf(event = 'subscription_completed') AS subscribed,
     countIf(event = 'paywall_viewed') AS viewed
   FROM events
-  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
     AND event IN ('paywall_viewed', 'subscription_completed')
   GROUP BY person_id
 )
@@ -548,7 +554,7 @@ FROM (
     countIf(event = 'subscription_completed') AS subscribed,
     countIf(event = 'paywall_viewed') AS viewed
   FROM events
-  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
     AND event IN ('paywall_viewed', 'subscription_completed')
   GROUP BY person_id
 )
@@ -565,7 +571,7 @@ FROM (
     countIf(event = 'signup_completed') AS signed,
     countIf(event = 'subscription_completed') AS subbed
   FROM events
-  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
   GROUP BY person_id, seg
 )
 GROUP BY seg
@@ -601,7 +607,7 @@ FROM (
       countIf(event IN ('squad_created', 'squad_joined')) AS squads,
       countIf(event = 'target_added') AS targets
     FROM events
-    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
     GROUP BY person_id
     HAVING countIf(event = 'signup_completed') > 0
   )
@@ -637,7 +643,7 @@ FROM (
     countIf(event = 'push_enabled') AS push,
     countIf(event = 'referral_link_shared') AS referrals
   FROM events
-  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
   GROUP BY person_id
   HAVING countIf(event = 'signup_completed') > 0
 )`,
@@ -650,7 +656,7 @@ SELECT
 ${INSTRUMENTATION_EVENT_COLUMNS},
 ${INSTRUMENTATION_PROP_COLUMNS}
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}`,
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}`,
 
   /**
    * Fiabilité du checkout, par appareil (webview vs natif). Une personne = un
@@ -690,7 +696,7 @@ FROM (
       countIf(event = 'payment_failed') AS failed_c,
       dateDiff('second', minIf(timestamp, event = 'checkout_started'), minIf(timestamp, event = 'subscription_completed')) AS pay_delay_c
     FROM events
-    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
       AND event IN ('checkout_started', 'subscription_completed', 'free_tier_started', 'payment_failed')
     GROUP BY person_id
     HAVING countIf(event = 'checkout_started') > 0
@@ -709,7 +715,7 @@ ORDER BY checkouts DESC`,
 SELECT coalesce(nullIf(toString(properties.cause), ''), '(sans cause)') AS cause,
        uniq(person_id) AS n
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
   AND event = 'payment_failed'
 GROUP BY cause
 ORDER BY n DESC
@@ -720,7 +726,7 @@ LIMIT ${SEGMENT_LIMIT}`,
 SELECT coalesce(nullIf(toString(properties.result), ''), '(sans result)') AS result,
        uniq(person_id) AS persons
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
   AND event = 'handle_search_result'
 GROUP BY result
 ORDER BY persons DESC
@@ -738,7 +744,7 @@ SELECT coalesce(nullIf(toString(properties.reason), ''), '(sans reason)') AS rea
        coalesce(nullIf(toString(properties.result), ''), '(sans result)') AS result,
        count() AS runs
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
   AND event = 'scan_completed'
 GROUP BY reason, mode, result
 ORDER BY runs DESC
@@ -759,7 +765,7 @@ FROM (
     SELECT toFloatOrZero(toString(properties.follower_count)) AS fc,
            toFloatOrNull(toString(properties.duration_ms)) AS dur
     FROM events
-    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
       AND event = 'scan_completed'
   )
   WHERE dur IS NOT NULL
@@ -785,7 +791,7 @@ SELECT
   round(sum(toFloatOrZero(toString(properties.cost_usd))), 4) AS sum_cost,
   round(avgIf(toFloatOrZero(toString(properties.cost_usd)), toFloatOrNull(toString(properties.cost_usd)) IS NOT NULL), 5) AS avg_cost
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
   AND event = 'scan_completed'
 GROUP BY kind
 ORDER BY runs DESC`,
@@ -798,7 +804,7 @@ SELECT coalesce(
        ) AS page,
        uniq(person_id) AS persons
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
   AND event = '$rageclick'
 GROUP BY page
 ORDER BY persons DESC
@@ -812,7 +818,7 @@ LIMIT ${SEGMENT_LIMIT}`,
   frictionByStep: `
 SELECT ${segExpr("properties.onboarding_step")} AS step, uniq(person_id) AS persons
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
   AND event = '$rageclick'
   AND coalesce(nullIf(toString(properties['$pathname']), ''), toString(properties['$current_url'])) LIKE '%/onboarding%'
 GROUP BY step
@@ -847,7 +853,7 @@ FROM (
     countIf(event = 'first_alert_received') AS has_alert,
     countIf(event = 'username_entered') AS has_username
   FROM events
-  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
   GROUP BY person_id
 )
 GROUP BY segment, recent
@@ -876,7 +882,7 @@ FROM (
       countIf(event = 'subscription_completed') AS paid,
       countIf(event = 'target_added') AS targets
     FROM events
-    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
       AND event IN ('paywall_viewed', 'checkout_started', 'subscription_completed', 'target_added')
     GROUP BY person_id
     HAVING countIf(event = 'paywall_viewed') > 0
@@ -906,7 +912,7 @@ FROM (
     if(countIf(event = 'checkout_started') > 0 AND minIf(timestamp, event = 'checkout_started') < minIf(timestamp, event = 'free_tier_started'), 1, 0) AS checkout_before,
     if(countIf(event = 'checkout_started') > 0, dateDiff('second', minIf(timestamp, event = 'free_tier_started'), minIf(timestamp, event = 'checkout_started')), NULL) AS free_to_checkout
   FROM events
-  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
     AND event IN ('free_tier_started', 'checkout_started', 'subscription_completed', 'handle_search_result', 'scan_completed', 'target_added')
   GROUP BY person_id
   HAVING countIf(event = 'free_tier_started') > 0
@@ -932,7 +938,7 @@ FROM (
    * sous-requête GROUP BY person_id (forme freePlan, admise par le garde-fou #156).
    */
   firstSearchAfterPay: `
-WITH (SELECT min(timestamp) FROM events WHERE event = 'handle_search_result'${notInternal}) AS instr_start
+WITH (SELECT min(timestamp) FROM events WHERE event = 'handle_search_result'${notCounted}) AS instr_start
 SELECT
   countIf(t_paid >= instr_start) AS paid,
   countIf(t_paid < instr_start) AS paid_excluded,
@@ -952,7 +958,7 @@ FROM (
        dateDiff('second', minIf(timestamp, event = 'subscription_completed'), minIf(timestamp, event = 'handle_search_result')),
        NULL) AS delay_s
   FROM events
-  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notInternal}
+  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
     AND event IN ('subscription_completed', 'handle_search_result', 'subscription_cancelled')
   GROUP BY person_id
   HAVING countIf(event = 'subscription_completed') > 0
@@ -1233,7 +1239,11 @@ export const runHourlySync = internalAction({
       // projet, pas un const de module.
       const internalCfg = internalAccountsFor(proj.slug);
       const QUERIES = buildQueries(
-        notInternalClause(internalCfg),
+        // Deux exclusions cumulées, même fenêtre que les requêtes : les comptes
+        // internes (A4) et les sessions dont le bras d'A/B a été FORCÉ en QA.
+        // Une session forcée n'est pas du trafic : la compter fausserait autant
+        // la répartition des bras que les taux de conversion.
+        notInternalClause(internalCfg) + notForcedExperimentClause(WINDOW_DAYS),
         internalMarkerHogQL(internalCfg),
       );
 

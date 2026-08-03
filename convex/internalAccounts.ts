@@ -66,6 +66,32 @@ export function notInternalClause(cfg: InternalAccountsConfig): string {
   return `\n  AND NOT (${internalMarkerHogQL(cfg)})`;
 }
 
+/**
+ * Expression HogQL vraie si la personne a FORCÉ son bras d'A/B test au moins une
+ * fois (`ab_forced = true`, posé par l'override de QA `?ab=soft|hard`).
+ *
+ * Exclusion au niveau PERSONNE, pas event : une session forcée émet ses premiers
+ * events AVANT que le bras ne s'attache (délai mesuré en prod de 1 s à 85 s),
+ * donc filtrer sur `properties.ab_forced` seul laisserait passer le début de
+ * chaque session de test — inscription et premiers pageviews compris.
+ *
+ * `ab_forced` n'est PAS une person property : il faut le sous-select. Fenêtre
+ * alignée sur celle des requêtes appelantes, sinon une session forcée hors
+ * fenêtre du sous-select redeviendrait comptable.
+ */
+export function forcedExperimentMarkerHogQL(windowDays: number): string {
+  return `person_id IN (
+      SELECT person_id FROM events
+      WHERE toString(properties.ab_forced) = 'true'
+        AND timestamp >= now() - INTERVAL ${windowDays} DAY
+    )`;
+}
+
+/** Clause ` AND NOT (...)` écartant les sessions de test à bras forcé. */
+export function notForcedExperimentClause(windowDays: number): string {
+  return `\n  AND NOT (${forcedExperimentMarkerHogQL(windowDays)})`;
+}
+
 /** true si ce paiement Whop est un abonnement interne (par membershipId). */
 export function isInternalWhopMembership(
   membershipId: string | undefined,
