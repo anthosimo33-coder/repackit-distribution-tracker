@@ -355,6 +355,10 @@ export interface WhopRenewalPaymentLike extends WhopPaymentLike {
   planId?: string;
   /** Abonnement Whop — clé de comptage des cycles par client. */
   membershipId?: string;
+  /** Cause de l'échec fournie par Whop (`failure_message`). */
+  failureMessage?: string;
+  /** Whop relancera-t-il ? false = échec DÉFINITIF, true = encore en jeu. */
+  retryable?: boolean;
 }
 
 /** Revenu d'un jour, séparé par origine, avec son cumul depuis le début. */
@@ -522,6 +526,30 @@ export interface DueOutcomes {
   notYetDue: number;
 }
 
+/**
+ * Issues de renouvellement pour UNE offre. Deux offres au même taux global
+ * peuvent cacher des comportements opposés : si la petite renouvelle deux fois
+ * moins bien que la grande, c'est une décision de PRICING, indépendante de
+ * tout test A/B.
+ */
+export interface RenewalsByPlanOutcome {
+  planId: string;
+  /** Abonnements de cette offre ayant renouvelé au moins une fois. */
+  renewed: number;
+  /** Échéances en cours de relance (issue inconnue). */
+  pending: number;
+  /** Échecs DÉFINITIFS (relances épuisées, ou accès expiré sans relance). */
+  failed: number;
+  /** renewed / (renewed + failed). null si aucune échéance tranchée. */
+  rateResolved: number | null;
+  /** Borne basse : renewed / (renewed + failed + pending). */
+  rateWorstCase: number | null;
+  /** Cause d'échec la PLUS FRÉQUENTE, telle que Whop la formule. null si aucune. */
+  topFailureCause: string | null;
+  /** Montant brut en suspens sur cette offre. */
+  pendingAmount: number;
+}
+
 /** Une semaine d'acquisition et ce qu'elle a rapporté À CE JOUR. */
 export interface CohortWeek {
   /** Clé de la semaine d'acquisition (fournie par `weekKeyOf`). */
@@ -532,6 +560,13 @@ export interface CohortWeek {
   net: number;
   /** Revenu net à ce jour rapporté au client de la cohorte. */
   netPerClient: number;
+  /**
+   * Cycles COMPTÉS mais ne rapportant RIEN au net : litige en cours ou
+   * remboursement. Sans ce champ, une cohorte affiche « 2 cycles, 4,48 € » et
+   * la soustraction paraît fausse alors qu'elle est juste — l'argent d'un
+   * litige est à risque, pas encaissé.
+   */
+  cyclesWithoutNet: number;
 }
 
 export interface RenewalStats {
@@ -586,6 +621,10 @@ export interface RenewalStats {
   payingMembers: number;
   /** Montant brut des renouvellements en attente — l'argent en suspens. */
   pendingRenewalAmount: number;
+  /** Issues de renouvellement PAR OFFRE — révèle un problème de pricing. */
+  byPlanOutcome: RenewalsByPlanOutcome[];
+  /** Causes d'échec de renouvellement, les plus fréquentes d'abord. */
+  failureCauses: { cause: string; count: number }[];
 }
 
 /**
@@ -604,20 +643,49 @@ export function computeRenewalStats(
   const firstPaidByMember = new Map<string, number>();
   /** Abonnements ayant une tentative de renouvellement NON encaissée en cours. */
   const pendingByMember = new Map<string, number>();
+  /** Échecs DÉFINITIFS de renouvellement (Whop ne relancera plus). */
+  const deadByMember = new Map<string, number>();
+  /** Cycles encaissés ne rapportant RIEN au net (litige en cours, remboursement). */
+  const zeroNetByMember = new Map<string, number>();
+  /** Offre de l'abonnement, prise sur ses paiements. */
+  const planByMember = new Map<string, string>();
+  const pendingAmountByPlan = new Map<string, number>();
+  const causeCounts = new Map<string, number>();
+  const causeByPlan = new Map<string, Map<string, number>>();
   let pendingRenewalAmount = 0;
   let paidPayments = 0;
   let netTotal = 0;
 
   for (const p of payments) {
+    if (p.membershipId && p.planId) planByMember.set(p.membershipId, p.planId);
     const isRenewal = whopBillingOrigin(p.billingReason) === "renewal";
     if (isRenewal && (p.status === "failed" || p.status === "pending")) {
+      // `retryable === false` = relances épuisées → échec DÉFINITIF, pas une
+      // attente. Sans cette distinction, un abandon confirmé resterait
+      // éternellement « en cours » et n'entrerait jamais dans le taux.
+      const dead = p.retryable === false;
       if (p.membershipId) {
-        pendingByMember.set(
-          p.membershipId,
-          (pendingByMember.get(p.membershipId) ?? 0) + 1,
-        );
+        const m = dead ? deadByMember : pendingByMember;
+        m.set(p.membershipId, (m.get(p.membershipId) ?? 0) + 1);
       }
-      pendingRenewalAmount = round2(pendingRenewalAmount + finite(p.grossAmount));
+      if (!dead) {
+        pendingRenewalAmount = round2(pendingRenewalAmount + finite(p.grossAmount));
+        if (p.planId) {
+          pendingAmountByPlan.set(
+            p.planId,
+            round2((pendingAmountByPlan.get(p.planId) ?? 0) + finite(p.grossAmount)),
+          );
+        }
+      }
+      const cause = (p.failureMessage ?? "").trim();
+      if (cause !== "") {
+        causeCounts.set(cause, (causeCounts.get(cause) ?? 0) + 1);
+        if (p.planId) {
+          const m = causeByPlan.get(p.planId) ?? new Map<string, number>();
+          m.set(cause, (m.get(cause) ?? 0) + 1);
+          causeByPlan.set(p.planId, m);
+        }
+      }
     }
     if (!isCustomerPaid(p.status)) continue;
     paidPayments += 1;
@@ -626,6 +694,10 @@ export function computeRenewalStats(
     const id = p.membershipId;
     if (!id) continue;
     cyclesByMember.set(id, (cyclesByMember.get(id) ?? 0) + 1);
+    // Litige en cours : le client a payé (donc un cycle) mais l'argent est à
+    // risque et vaut 0 au net. C'est ce décalage qui rend une cohorte illisible
+    // si on ne l'affiche pas.
+    if (net <= 0) zeroNetByMember.set(id, (zeroNetByMember.get(id) ?? 0) + 1);
     netByMember.set(id, round2((netByMember.get(id) ?? 0) + net));
     const prev = firstPaidByMember.get(id);
     if (prev === undefined || p.paidAt < prev) firstPaidByMember.set(id, p.paidAt);
@@ -638,6 +710,8 @@ export function computeRenewalStats(
     if (cycles === 0) continue; // jamais payé : hors sujet du renouvellement
     if (cycles >= 2) {
       due.renewed += 1;
+    } else if ((deadByMember.get(m.whopMembershipId) ?? 0) > 0) {
+      due.failed += 1; // relances épuisées : l'échéance est tranchée
     } else if ((pendingByMember.get(m.whopMembershipId) ?? 0) > 0) {
       // Tentative en cours : l'issue n'est PAS connue, on ne tranche pas.
       due.pending += 1;
@@ -675,12 +749,16 @@ export function computeRenewalStats(
   };
 
   // ─── Cohortes par semaine d'ACQUISITION (1er paiement encaissé) ────────────
-  const cohortAcc = new Map<string, { clients: number; cycles: number; net: number }>();
+  const cohortAcc = new Map<
+    string,
+    { clients: number; cycles: number; net: number; zero: number }
+  >();
   for (const [id, first] of firstPaidByMember) {
     const week = opts.weekKeyOf(first);
-    const a = cohortAcc.get(week) ?? { clients: 0, cycles: 0, net: 0 };
+    const a = cohortAcc.get(week) ?? { clients: 0, cycles: 0, net: 0, zero: 0 };
     a.clients += 1;
     a.cycles += cyclesByMember.get(id) ?? 0;
+    a.zero += zeroNetByMember.get(id) ?? 0;
     a.net = round2(a.net + (netByMember.get(id) ?? 0));
     cohortAcc.set(week, a);
   }
@@ -691,8 +769,50 @@ export function computeRenewalStats(
       cycles: a.cycles,
       net: a.net,
       netPerClient: a.clients > 0 ? round2(a.net / a.clients) : 0,
+      cyclesWithoutNet: a.zero,
     }))
     .sort((x, y) => x.week.localeCompare(y.week));
+
+  // ─── Issues PAR OFFRE : deux offres au même taux global peuvent diverger ──
+  const planAcc = new Map<string, { renewed: number; pending: number; failed: number }>();
+  for (const m of memberships) {
+    const cycles = cyclesByMember.get(m.whopMembershipId) ?? 0;
+    if (cycles === 0) continue;
+    const planId = m.planId ?? planByMember.get(m.whopMembershipId);
+    if (!planId) continue;
+    const a = planAcc.get(planId) ?? { renewed: 0, pending: 0, failed: 0 };
+    if (cycles >= 2) a.renewed += 1;
+    else if ((deadByMember.get(m.whopMembershipId) ?? 0) > 0) a.failed += 1;
+    else if ((pendingByMember.get(m.whopMembershipId) ?? 0) > 0) a.pending += 1;
+    else if (m.accessEndsAt !== undefined && m.accessEndsAt <= opts.now) a.failed += 1;
+    else continue; // pas encore due : hors taux
+    planAcc.set(planId, a);
+  }
+  const topCause = (m: Map<string, number> | undefined): string | null => {
+    if (!m || m.size === 0) return null;
+    return [...m.entries()].sort((x, y) => y[1] - x[1])[0][0];
+  };
+  const byPlanOutcome: RenewalsByPlanOutcome[] = [...planAcc.entries()]
+    .map(([planId, a]) => {
+      const resolved = a.renewed + a.failed;
+      const worst = resolved + a.pending;
+      return {
+        planId,
+        renewed: a.renewed,
+        pending: a.pending,
+        failed: a.failed,
+        rateResolved:
+          resolved > 0 ? Math.round((a.renewed / resolved) * 10000) / 10000 : null,
+        rateWorstCase:
+          worst > 0 ? Math.round((a.renewed / worst) * 10000) / 10000 : null,
+        topFailureCause: topCause(causeByPlan.get(planId)),
+        pendingAmount: pendingAmountByPlan.get(planId) ?? 0,
+      };
+    })
+    .sort((x, y) => y.renewed + y.pending + y.failed - (x.renewed + x.pending + x.failed));
+  const failureCauses = [...causeCounts.entries()]
+    .map(([cause, count]) => ({ cause, count }))
+    .sort((a, b) => b.count - a.count);
 
   const matured = due.renewed + due.failed + due.pending;
   return {
@@ -713,5 +833,7 @@ export function computeRenewalStats(
       payingMembers > 0 ? Math.round((matured / payingMembers) * 10000) / 10000 : null,
     payingMembers,
     pendingRenewalAmount,
+    byPlanOutcome,
+    failureCauses,
   };
 }

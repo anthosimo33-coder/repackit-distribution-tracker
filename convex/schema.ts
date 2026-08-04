@@ -1349,6 +1349,14 @@ export default defineSchema({
     // Valeur BRUTE (pas un booléen) : une valeur future inconnue reste lisible.
     // Optionnel : absent des rows importées avant sa capture.
     billingReason: v.optional(v.string()),
+    // CAUSE de l'échec (`failure_message` Whop) : « fonds insuffisants », « carte
+    // expirée »… Un renouvellement raté pour fonds insuffisants se relance ; un
+    // désabonnement, non. Sans la cause, les deux se lisent pareil.
+    failureMessage: v.optional(v.string()),
+    // Whop RELANCERA-T-IL ce paiement ? Sépare une échéance ENCORE EN JEU
+    // (retryable) d'un échec DÉFINITIF (relances épuisées) — c'est ce qui permet
+    // au taux de renouvellement de trancher au lieu de tout ranger « en attente ».
+    retryable: v.optional(v.boolean()),
     // Pseudo Whop du client (username) — pour identifier un litige à traiter.
     // Optionnel : peuplé à partir de la re-synchro (rows anciennes = absent).
     memberName: v.optional(v.string()),

@@ -48,6 +48,18 @@ export interface NormalizedWhopPayment {
    * Absent sur les paiements anciens (non re-synchronisés) → `undefined`.
    */
   billingReason?: string;
+  /**
+   * CAUSE de l'échec fournie par Whop (`failure_message`) — « fonds
+   * insuffisants », « carte expirée »… Sans elle, un renouvellement raté est
+   * indistinguable d'un désabonnement : l'un se relance, l'autre non.
+   */
+  failureMessage?: string;
+  /**
+   * Whop RELANCERA-T-IL ? `retryable` sépare une échéance ENCORE EN JEU d'un
+   * échec DÉFINITIF (relances épuisées). Sans ce champ, les deux se confondent
+   * et le taux de renouvellement ne peut pas trancher.
+   */
+  retryable?: boolean;
   /** Pseudo Whop du client (username, sinon nom) — identifie un litige à traiter. */
   memberName?: string;
   /** Échéance de réponse au litige EN COURS (needs_response_by) — ms. Urgent. */
@@ -169,6 +181,8 @@ export function normalizeWhopPayment(raw: unknown): NormalizedWhopPayment | null
   // subscription_cycle (13). On stocke la valeur BRUTE — une valeur future
   // inconnue doit rester lisible, pas être écrasée dans un booléen.
   const billingReason = getStr(r.billing_reason);
+  const failureMessage = getStr(r.failure_message);
+  const retryable = typeof r.retryable === "boolean" ? r.retryable : undefined;
   // Client (pseudo public) — pour identifier un litige à traiter côté Whop.
   const memberName =
     getStr(asRecord(r.user)?.username) ??
@@ -189,6 +203,8 @@ export function normalizeWhopPayment(raw: unknown): NormalizedWhopPayment | null
     planId,
     membershipId,
     billingReason,
+    failureMessage,
+    retryable,
     memberName,
     disputeDueAt,
     disputeReason,
