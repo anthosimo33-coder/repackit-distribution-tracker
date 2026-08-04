@@ -107,6 +107,8 @@ export function RetentionTab({
    * projection qui en dérive encore moins.
    */
   const MIN_RESOLVED_DUE = 10;
+  /** Sous cet effectif, une cohorte n'est pas une tendance mais une anecdote. */
+  const COHORT_MIN_CLIENTS = 5;
   const concluant =
     renewals !== null && renewals.resolvedDueCount >= MIN_RESOLVED_DUE;
   /** Cohortes mûres = la majorité des clients a atteint au moins une échéance. */
@@ -437,6 +439,92 @@ export function RetentionTab({
             </CardContent>
           </Card>
 
+          {/* Renouvellement PAR OFFRE — un écart ici est une décision de pricing */}
+          <Card>
+            <CardContent className="space-y-3 p-4">
+              <HubCardHeader
+                title="Renouvellement par offre"
+                subtitle="Deux offres au même taux global peuvent diverger. Si la petite renouvelle deux fois moins bien que la grande, c'est une décision de pricing — elle ne dépend d'aucun test A/B."
+              />
+              {renewals.byPlanOutcome.length === 0 ? (
+                <p className="text-xs text-slate-500">
+                  Aucune échéance atteinte sur aucune offre.
+                </p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Offre</TableHead>
+                      <TableHead className="text-right">Renouvelés</TableHead>
+                      <TableHead className="text-right">En attente</TableHead>
+                      <TableHead className="text-right">Échecs</TableHead>
+                      <TableHead className="text-right">Taux résolu</TableHead>
+                      <TableHead className="text-right">Borne basse</TableHead>
+                      <TableHead>Cause d&apos;échec dominante</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {renewals.byPlanOutcome.map((o) => (
+                      <TableRow key={o.planId}>
+                        <TableCell className="text-xs">{planLabel(o.planId)}</TableCell>
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {formatNumber(o.renewed)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {o.pending > 0 ? (
+                            <span className="font-medium text-amber-800">
+                              {formatNumber(o.pending)}
+                            </span>
+                          ) : (
+                            <span className="text-slate-300">0</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {o.failed > 0 ? (
+                            <span className="font-medium text-red-600">
+                              {formatNumber(o.failed)}
+                            </span>
+                          ) : (
+                            <span className="text-slate-300">0</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {o.rateResolved === null ? "—" : pct(o.rateResolved)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs font-medium tabular-nums">
+                          {o.rateWorstCase === null ? "—" : pct(o.rateWorstCase)}
+                        </TableCell>
+                        <TableCell className="text-xs text-slate-600">
+                          {o.topFailureCause ?? (
+                            <span className="text-slate-300">—</span>
+                          )}
+                          {o.pendingAmount > 0 ? (
+                            <span className="text-slate-400">
+                              {" "}
+                              · {formatMoney(o.pendingAmount, churn.currency)} en suspens
+                            </span>
+                          ) : null}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+              {renewals.failureCauses.length > 0 ? (
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-slate-500">
+                    Causes d&apos;échec, telles que Whop les formule
+                  </p>
+                  {renewals.failureCauses.map((f) => (
+                    <p key={f.cause} className="text-xs text-slate-600">
+                      <strong>{formatNumber(f.count)}×</strong> {f.cause}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+
           {/* Cohortes — la seule lecture honnête de la durée de vie qui se construit */}
           <Card>
             <CardContent className="space-y-3 p-4">
@@ -455,6 +543,7 @@ export function RetentionTab({
                       <TableHead className="text-right">Cycles franchis</TableHead>
                       <TableHead className="text-right">Revenu cumulé</TableHead>
                       <TableHead className="text-right">Par client</TableHead>
+                      <TableHead>Lecture</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -468,18 +557,48 @@ export function RetentionTab({
                         </TableCell>
                         <TableCell className="text-right text-xs tabular-nums">
                           {formatNumber(c.cycles)}
+                          {c.cyclesWithoutNet > 0 ? (
+                            <span className="text-amber-700">
+                              {" "}
+                              (dont {formatNumber(c.cyclesWithoutNet)} à 0 €)
+                            </span>
+                          ) : null}
                         </TableCell>
                         <TableCell className="text-right text-xs tabular-nums">
                           {formatMoney(c.net, churn.currency)}
                         </TableCell>
-                        <TableCell className="text-right text-xs font-medium tabular-nums">
+                        <TableCell
+                          className={`text-right text-xs tabular-nums ${
+                            c.clients < COHORT_MIN_CLIENTS
+                              ? "text-slate-400"
+                              : "font-medium"
+                          }`}
+                        >
                           {formatMoney(c.netPerClient, churn.currency)}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {c.clients < COHORT_MIN_CLIENTS ? (
+                            <span className="text-slate-500">
+                              non interprétable ({formatNumber(c.clients)} client
+                              {c.clients > 1 ? "s" : ""})
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
               )}
+              <p className="text-xs text-slate-500">
+                Sous {COHORT_MIN_CLIENTS} clients, une cohorte n&apos;est pas une
+                tendance : c&apos;est une poignée de personnes. Un cycle « à 0 € » est
+                un paiement encaissé puis mis en LITIGE — il compte comme cycle
+                (le client a bien payé) mais vaut 0 au net tant que l&apos;issue du
+                litige est inconnue, ce qui explique un revenu plus bas que le nombre
+                de cycles ne le laisse attendre.
+              </p>
             </CardContent>
           </Card>
 

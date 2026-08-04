@@ -37,6 +37,15 @@ import type { ProductAnalyticsData, RevenueData } from "./types";
  * l'économie par offre avec nom et prix lisibles, et le plan gratuit.
  */
 
+/**
+ * Libellés des bras du test. `soft`/`hard` sont les valeurs émises ; l'écran
+ * dit ce que chaque bras SERT, sinon « hard » ne veut rien dire pour qui lit.
+ */
+const AB_ARM_LABELS: Record<string, string> = {
+  soft: "A — souple (1 cible, plan gratuit)",
+  hard: "B — bloquant (3 cibles, sans gratuit)",
+};
+
 /** Ratio en % tolérant au 0. */
 function ratePct(num: number, den: number): number | null {
   return den > 0 ? Math.round((num / den) * 1000) / 10 : null;
@@ -125,10 +134,29 @@ export function OffresTab({
         })
       : null;
 
-  // Un vrai test A/B n'existe que si experiment_id est émis (sinon « aucun test »).
-  const abTestActive =
-    (analytics.instrumentation.props.find((p) => p.key === "experiment_id")
-      ?.present ?? 0) > 0;
+  // ─── Test A/B par BRAS ────────────────────────────────────────────────────
+  // Sessions FORCÉES déjà exclues côté requête (notForcedExperimentClause).
+  const arms = analytics.abArms.rows;
+  /** Sous ce nombre d'exposés PAR BRAS, aucune comparaison n'a de sens. */
+  const AB_THRESHOLD = 330;
+  const abMinExposed = arms.length > 0 ? Math.min(...arms.map((a) => a.exposed)) : 0;
+  const abConcluant = arms.length >= 2 && abMinExposed >= AB_THRESHOLD;
+  /** Personnes restantes à recruter, tous bras confondus, pour atteindre le seuil. */
+  const abRemaining = arms.reduce(
+    (sum, a) => sum + Math.max(0, AB_THRESHOLD - a.exposed),
+    arms.length < 2 ? AB_THRESHOLD : 0,
+  );
+  const abStart =
+    analytics.abArms.startMs != null
+      ? new Date(analytics.abArms.startMs).toLocaleDateString("fr-FR", {
+          day: "numeric",
+          month: "long",
+        })
+      : null;
+
+  // La carte ne se pilote plus par la présence d'`experiment_id` mais par les
+  // BRAS réellement assignés : une propriété émise par un seul compte de test ne
+  // suffit pas à dire qu'un test tourne (c'est ce qui l'avait allumée à tort).
 
   const plans = useMemo(() => revenue?.plans ?? [], [revenue]);
   const hasHistorical = plans.some((p) => !p.active);
@@ -328,18 +356,82 @@ export function OffresTab({
             subtitle="Un vrai test compare deux offres pour décider laquelle garder."
             info={EXPLAIN.testAB}
           />
-          {abTestActive ? (
-            <HubNotice className="border-emerald-200 bg-emerald-50/70 text-emerald-900">
-              Un identifiant de test (<code>experiment_id</code>) est présent dans les
-              données. Le rapprochement variante ↔ revenu reste nécessaire pour la
-              métrique de décision (net par personne exposée) : à câbler avec le dev.
+          {arms.length === 0 ? (
+            <HubNotice className="border-slate-200 bg-slate-50 text-slate-600">
+              Aucun bras assigné naturellement pour l&apos;instant. Les sessions à bras
+              FORCÉ (<code>ab_forced</code>, override de QA) sont exclues de ce tableau :
+              ce n&apos;est pas du trafic, les compter fausserait autant la répartition
+              que les taux.
             </HubNotice>
           ) : (
-            <HubNotice className="border-slate-200 bg-slate-50 text-slate-600">
-              Aucun test en cours : aucun <code>experiment_id</code> n&apos;est présent
-              dans les données. Cette carte s&apos;allumera d&apos;elle-même au
-              démarrage d&apos;un test.
-            </HubNotice>
+            <div className="space-y-3">
+              {!abConcluant ? (
+                <HubNotice className="border-amber-200 bg-amber-50/70 text-amber-900">
+                  <strong>Non concluant.</strong> {formatNumber(abMinExposed)} personne(s)
+                  exposée(s) sur le plus petit bras, seuil {AB_THRESHOLD}. Il manque{" "}
+                  <strong>{formatNumber(abRemaining)}</strong> personne(s) à recruter, en
+                  cumulant les deux bras, pour que la comparaison ait un sens. Les
+                  chiffres ci-dessous sont affichés pour suivre le recrutement, pas pour
+                  décider.
+                </HubNotice>
+              ) : null}
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Bras</TableHead>
+                    <TableHead className="text-right">Exposés</TableHead>
+                    <TableHead className="text-right">Checkouts</TableHead>
+                    <TableHead className="text-right">Payés</TableHead>
+                    <TableHead className="text-right">Complétion</TableHead>
+                    <TableHead className="text-right">Cibles / client</TableHead>
+                    <TableHead className="text-right">Net / exposé</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {arms.map((a) => (
+                    <TableRow key={a.variant}>
+                      <TableCell className="text-xs font-medium text-slate-700">
+                        {AB_ARM_LABELS[a.variant] ?? a.variant}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {formatNumber(a.exposed)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {formatNumber(a.checkouts)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {formatNumber(a.paid)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {a.checkouts > 0 ? pct(a.paid / a.checkouts) : dash(null)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {a.paid > 0
+                          ? formatNumber(Math.round((a.targets / a.paid) * 100) / 100)
+                          : dash(null)}
+                      </TableCell>
+                      {/* Revenu par bras : la variante n'est PAS dans la metadata du
+                          checkout Whop, donc aucun paiement n'est rattachable à un
+                          bras. Tiret plutôt qu'un revenu réparti au jugé. */}
+                      <TableCell className="text-right text-xs tabular-nums text-slate-300">
+                        —
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              <p className="text-xs text-slate-500">
+                <strong>Net par personne exposée : indisponible.</strong> La variante
+                n&apos;apparaît pas dans les metadata du checkout Whop — aucun paiement
+                n&apos;est rattachable à un bras. C&apos;est la métrique de DÉCISION du
+                test : tant qu&apos;elle manque, le test ne peut pas être tranché sur le
+                revenu, quel que soit l&apos;échantillon. À câbler avec le dev.
+              </p>
+              <p className="text-xs text-slate-500">
+                Sessions à bras forcé exclues du tableau. Assignations naturelles
+                uniquement{abStart ? `, depuis le ${abStart}` : ""}.
+              </p>
+            </div>
           )}
           <div className="space-y-1 text-xs text-slate-500">
             <p className="font-medium text-slate-600">

@@ -61,6 +61,8 @@ const whopPaymentArg = v.object({
   planId: v.optional(v.string()),
   membershipId: v.optional(v.string()),
   billingReason: v.optional(v.string()),
+  failureMessage: v.optional(v.string()),
+  retryable: v.optional(v.boolean()),
   memberName: v.optional(v.string()),
   disputeDueAt: v.optional(v.number()),
   disputeReason: v.optional(v.string()),
@@ -188,6 +190,8 @@ export const upsertWhopPayments = internalMutation({
           planId: p.planId,
           membershipId: p.membershipId,
           billingReason: p.billingReason,
+          failureMessage: p.failureMessage,
+          retryable: p.retryable,
           memberName: p.memberName,
           // Litige résolu → l'API ne renvoie plus d'échéance : le champ se VIDE
           // (patch à undefined = suppression), le litige disparaît de la carte.
@@ -211,6 +215,8 @@ export const upsertWhopPayments = internalMutation({
           planId: p.planId,
           membershipId: p.membershipId,
           billingReason: p.billingReason,
+          failureMessage: p.failureMessage,
+          retryable: p.retryable,
           memberName: p.memberName,
           disputeDueAt: p.disputeDueAt,
           disputeReason: p.disputeReason,

@@ -89,6 +89,7 @@ export const POSTHOG_CACHE_KEYS = {
   // ─── Phase B — agrégats des nouveaux onglets ──────────────────────────────
   activation: "activation",
   abVariants: "abVariants",
+  abArms: "abArms",
   freePlan: "freePlan",
 } as const;
 
@@ -124,6 +125,28 @@ export interface ConversionPayload {
    */
   startMs?: number | null;
 }
+/**
+ * TEST A/B par BRAS — une ligne par valeur d'`experiment_variant`. Sessions à
+ * bras FORCÉ exclues (elles ne sont pas du trafic : les compter fausserait
+ * autant la répartition que les taux). Fenêtre ancrée sur la première émission
+ * de la propriété, pas sur les 90 jours.
+ */
+export interface AbArmsPayload {
+  rows: {
+    variant: string;
+    /** Personnes exposées (assignation NATURELLE uniquement). */
+    exposed: number;
+    /** Personnes ayant ouvert un checkout. */
+    checkouts: number;
+    /** Personnes ayant un abonnement confirmé. */
+    paid: number;
+    /** Cibles ajoutées par le bras (÷ clients = cibles par client). */
+    targets: number;
+  }[];
+  /** Début de la fenêtre = 1re émission d'experiment_variant (ms). */
+  startMs: number | null;
+}
+
 export interface CohortsPayload {
   segments: {
     key: string;
@@ -580,6 +603,40 @@ FROM (
 WHERE viewed > 0
 GROUP BY seg
 ORDER BY n DESC
+LIMIT ${SEGMENT_LIMIT}`,
+
+  /**
+   * TEST A/B par BRAS. `notCounted` écarte déjà les internes ET les sessions à
+   * bras forcé (cf internalAccounts.notForcedExperimentClause) : une session de
+   * QA n'est pas du trafic. Fenêtre ancrée sur la 1re émission de la propriété.
+   * Le revenu par bras n'est PAS ici : la variante n'est pas dans la metadata du
+   * checkout Whop, donc aucun paiement n'est rattachable à un bras — l'UI
+   * affiche un tiret plutôt qu'un revenu inventé.
+   */
+  abArms: `
+SELECT bras AS variant, uniq(person_id) AS exposed,
+  uniqIf(person_id, checkouts > 0) AS checkouts,
+  uniqIf(person_id, paid > 0) AS paid,
+  sum(targets) AS targets,
+  min(started) AS started
+FROM (
+  SELECT person_id,
+    argMaxIf(toString(properties.experiment_variant), timestamp, isNotNull(properties.experiment_variant)) AS bras,
+    countIf(event = 'checkout_started') AS checkouts,
+    countIf(event = 'subscription_completed') AS paid,
+    countIf(event = 'target_added') AS targets,
+    (SELECT min(timestamp) FROM events
+      WHERE isNotNull(properties.experiment_variant)
+        AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY) AS started
+  FROM events
+  WHERE timestamp >= (SELECT min(timestamp) FROM events
+      WHERE isNotNull(properties.experiment_variant)
+        AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY)${notCounted}
+  GROUP BY person_id
+)
+WHERE isNotNull(bras) AND bras != '' AND bras != 'NULL'
+GROUP BY variant
+ORDER BY exposed DESC
 LIMIT ${SEGMENT_LIMIT}`,
 
   /** Sources → inscrits / abonnés (une personne compte une fois par source). */
@@ -1356,6 +1413,22 @@ export const runHourlySync = internalAction({
           }),
         ),
         await collect(
+          POSTHOG_CACHE_KEYS.abArms,
+          apiKey,
+          target,
+          QUERIES.abArms,
+          (rows): AbArmsPayload => ({
+            rows: rows.map((r) => ({
+              variant: cellStr(r, 0),
+              exposed: cellNum(r, 1),
+              checkouts: cellNum(r, 2),
+              paid: cellNum(r, 3),
+              targets: cellNum(r, 4),
+            })),
+            startMs: rows.length > 0 ? cellTimeMs(rows[0], 5) : null,
+          }),
+        ),
+        await collect(
           POSTHOG_CACHE_KEYS.sources,
           apiKey,
           target,
@@ -1693,6 +1766,8 @@ export interface ProductAnalytics {
   paywall: ConversionPayload;
   /** Conversion par paywall_id (vide/'(inconnu)' tant que paywall_id n'est pas émis). */
   paywallById: ConversionPayload;
+  /** Test A/B par bras (sessions forcées exclues). */
+  abArms: AbArmsPayload;
   sources: ConversionPayload;
   cohorts: CohortsPayload;
   predictors: PredictorsPayload;
@@ -1751,6 +1826,7 @@ export const getProductAnalytics = adminQuery({
       timeToValue: { steps: [] },
       paywall: EMPTY_CONVERSION,
       paywallById: EMPTY_CONVERSION,
+      abArms: { rows: [], startMs: null },
       sources: EMPTY_CONVERSION,
       cohorts: { segments: [] },
       predictors: { total: 0, totalConverted: 0, behaviors: [] },
@@ -1813,6 +1889,10 @@ export const getProductAnalytics = adminQuery({
       timeToValue: read(POSTHOG_CACHE_KEYS.timeToValue, empty.timeToValue),
       paywall: read(POSTHOG_CACHE_KEYS.paywall, EMPTY_CONVERSION),
       paywallById: read(POSTHOG_CACHE_KEYS.paywallById, EMPTY_CONVERSION),
+      abArms: read<AbArmsPayload>(POSTHOG_CACHE_KEYS.abArms, {
+        rows: [],
+        startMs: null,
+      }),
       sources: read(POSTHOG_CACHE_KEYS.sources, EMPTY_CONVERSION),
       cohorts: read(POSTHOG_CACHE_KEYS.cohorts, empty.cohorts),
       predictors: read(POSTHOG_CACHE_KEYS.predictors, empty.predictors),

@@ -275,8 +275,8 @@ describe("cohortes par semaine d'acquisition", () => {
       { now: NOW, weekKeyOf: SEM },
     );
     expect(s.cohorts).toEqual([
-      { week: "2026-07-27", clients: 2, cycles: 3, net: 18, netPerClient: 9 },
-      { week: "2026-08-03", clients: 1, cycles: 1, net: 4, netPerClient: 4 },
+      { week: "2026-07-27", clients: 2, cycles: 3, net: 18, netPerClient: 9, cyclesWithoutNet: 0 },
+      { week: "2026-08-03", clients: 1, cycles: 1, net: 4, netPerClient: 4, cyclesWithoutNet: 0 },
     ]);
   });
 });
@@ -318,5 +318,91 @@ describe("parité lib/ ↔ convex/ du moteur de renouvellement (A6)", () => {
   it("computeRenewalStats rend la même chose des deux côtés", () => {
     const o = { now: NOW, weekKeyOf: SEM };
     expect(srv.computeRenewalStats(jeu, mems, o)).toEqual(computeRenewalStats(jeu, mems, o));
+  });
+});
+
+describe("issues par offre et causes d'échec", () => {
+  const NOW = Date.UTC(2026, 7, 4);
+  const SEM2 = (ms: number) => {
+    const d = new Date(ms);
+    d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+    return d.toISOString().slice(0, 10);
+  };
+  const FONDS = "Your card has insufficient funds";
+
+  it("sépare les offres : le cas prod 7,99 € impeccable vs 4,99 € en difficulté", () => {
+    const payments: WhopRenewalPaymentLike[] = [];
+    const mems: WhopMembershipLike[] = [];
+    // 5 abonnements 7,99 € qui renouvellent
+    for (let i = 0; i < 5; i++) {
+      payments.push(
+        pay({ membershipId: `g${i}`, planId: "grand" }),
+        pay({ membershipId: `g${i}`, planId: "grand", billingReason: "subscription_cycle" }),
+      );
+      mems.push({ whopMembershipId: `g${i}`, planId: "grand", accessEndsAt: NOW + 1 });
+    }
+    // 2 abonnements 4,99 € qui renouvellent, 5 en past_due relançables
+    for (let i = 0; i < 2; i++) {
+      payments.push(
+        pay({ membershipId: `pr${i}`, planId: "petit" }),
+        pay({ membershipId: `pr${i}`, planId: "petit", billingReason: "subscription_cycle" }),
+      );
+      mems.push({ whopMembershipId: `pr${i}`, planId: "petit", accessEndsAt: NOW + 1 });
+    }
+    for (let i = 0; i < 5; i++) {
+      payments.push(
+        pay({ membershipId: `pp${i}`, planId: "petit" }),
+        pay({
+          membershipId: `pp${i}`, planId: "petit", status: "failed",
+          billingReason: "subscription_cycle", grossAmount: 4.99,
+          failureMessage: FONDS, retryable: true,
+        }),
+      );
+      mems.push({ whopMembershipId: `pp${i}`, planId: "petit", accessEndsAt: NOW + 1 });
+    }
+    const s = computeRenewalStats(payments, mems, { now: NOW, weekKeyOf: SEM2 });
+    const grand = s.byPlanOutcome.find((o) => o.planId === "grand")!;
+    const petit = s.byPlanOutcome.find((o) => o.planId === "petit")!;
+    expect(grand).toMatchObject({ renewed: 5, pending: 0, failed: 0, rateResolved: 1, rateWorstCase: 1 });
+    expect(petit).toMatchObject({ renewed: 2, pending: 5, failed: 0, rateResolved: 1 });
+    // La borne basse révèle l'écart de pricing que le taux résolu masque.
+    expect(petit.rateWorstCase).toBe(0.2857);
+    expect(petit.topFailureCause).toBe(FONDS);
+    expect(petit.pendingAmount).toBe(24.95);
+    expect(s.failureCauses).toEqual([{ cause: FONDS, count: 5 }]);
+  });
+
+  it("retryable=false est un échec DÉFINITIF, pas une attente", () => {
+    const s = computeRenewalStats(
+      [
+        pay({ membershipId: "m1", planId: "p" }),
+        pay({
+          membershipId: "m1", planId: "p", status: "failed",
+          billingReason: "subscription_cycle", retryable: false, failureMessage: FONDS,
+        }),
+      ],
+      [{ whopMembershipId: "m1", planId: "p", accessEndsAt: NOW + 1 }],
+      { now: NOW, weekKeyOf: SEM2 },
+    );
+    expect(s.due).toEqual({ renewed: 0, failed: 1, pending: 0, notYetDue: 0 });
+    expect(s.renewalRateResolved).toBe(0);
+    // Un échec définitif n'est PAS de l'argent en suspens : rien à relancer.
+    expect(s.pendingRenewalAmount).toBe(0);
+  });
+
+  it("un cycle en litige compte comme cycle mais rapporte 0 — la cohorte le dit", () => {
+    const s = computeRenewalStats(
+      [
+        pay({ membershipId: "m1", paidAt: Date.UTC(2026, 7, 3), netAmount: 4.48 }),
+        pay({ membershipId: "m2", paidAt: Date.UTC(2026, 7, 4), status: "disputed", netAmount: 4.43 }),
+      ],
+      [{ whopMembershipId: "m1" }, { whopMembershipId: "m2" }],
+      { now: NOW, weekKeyOf: SEM2 },
+    );
+    const c = s.cohorts[0];
+    expect(c.clients).toBe(2);
+    expect(c.cycles).toBe(2);
+    expect(c.net).toBe(4.48); // pas ~9 € : le litige vaut 0
+    expect(c.cyclesWithoutNet).toBe(1);
   });
 });

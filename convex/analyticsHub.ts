@@ -966,10 +966,25 @@ export interface RenewalsPayload {
     cycles: number;
     net: number;
     netPerClient: number;
+    /** Cycles comptés mais à 0 au net (litige en cours / remboursement). */
+    cyclesWithoutNet: number;
   }[];
   matureShare: number | null;
   payingMembers: number;
   pendingRenewalAmount: number;
+  /** Issues de renouvellement PAR OFFRE — révèle un problème de pricing. */
+  byPlanOutcome: {
+    planId: string;
+    renewed: number;
+    pending: number;
+    failed: number;
+    rateResolved: number | null;
+    rateWorstCase: number | null;
+    topFailureCause: string | null;
+    pendingAmount: number;
+  }[];
+  /** Causes d'échec de renouvellement telles que Whop les formule. */
+  failureCauses: { cause: string; count: number }[];
 }
 
 export const getChurn = adminQuery({
