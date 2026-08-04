@@ -958,6 +958,12 @@ export interface RenewalsPayload {
   netPerPayment: number | null;
   netTotal: number;
   revenueToDatePerClient: number | null;
+  /** Dénominateur RÉEL du ratio : clients au net sécurisé (litiges exclus). */
+  securedMembers: number;
+  /** Clients dont tout l'argent est en litige — hors ratio, affichés à part. */
+  atRiskOnlyMembers: number;
+  /** Devises des paiements sécurisés : >1 ⇒ aucun ratio n'est calculable (A5). */
+  securedCurrencies: string[];
   projectedPerClientResolved: number | null;
   projectedPerClientWorstCase: number | null;
   cohorts: {

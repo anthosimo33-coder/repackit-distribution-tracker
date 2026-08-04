@@ -406,3 +406,57 @@ describe("issues par offre et causes d'échec", () => {
     expect(c.cyclesWithoutNet).toBe(1);
   });
 });
+
+describe("le ratio revenu/client garde le MÊME périmètre des deux côtés", () => {
+  const NOW = Date.UTC(2026, 7, 4);
+  const SEM3 = (ms: number) => {
+    const d = new Date(ms);
+    d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+    return d.toISOString().slice(0, 10);
+  };
+  const st = (p: WhopRenewalPaymentLike[], m: WhopMembershipLike[]) =>
+    computeRenewalStats(p, m, { now: NOW, weekKeyOf: SEM3 });
+
+  it("un client dont TOUT l'argent est en litige ne pèse pas au dénominateur", () => {
+    const s = st(
+      [
+        pay({ membershipId: "ok1", netAmount: 10 }),
+        pay({ membershipId: "ok2", netAmount: 10 }),
+        // Litige : compté comme client (il a payé) mais 0 au net sécurisé.
+        pay({ membershipId: "litige", status: "disputed", netAmount: 4.43 }),
+      ],
+      [{ whopMembershipId: "ok1" }, { whopMembershipId: "ok2" }, { whopMembershipId: "litige" }],
+    );
+    expect(s.netTotal).toBe(20);
+    expect(s.payingMembers).toBe(3); // il reste un client, on ne le nie pas
+    expect(s.securedMembers).toBe(2); // mais le RATIO se calcule sur 2
+    expect(s.atRiskOnlyMembers).toBe(1);
+    // 20/2 = 10, et NON 20/3 = 6,67 qui sous-estimerait de 33 %.
+    expect(s.revenueToDatePerClient).toBe(10);
+  });
+
+  it("un remboursement total sort des DEUX côtés — traitement déjà cohérent", () => {
+    const s = st(
+      [
+        pay({ membershipId: "ok", netAmount: 10 }),
+        pay({ membershipId: "remb", status: "refunded", netAmount: 4.48, refundedAmount: 4.99 }),
+      ],
+      [{ whopMembershipId: "ok" }, { whopMembershipId: "remb" }],
+    );
+    expect(s.payingMembers).toBe(1);
+    expect(s.securedMembers).toBe(1);
+    expect(s.revenueToDatePerClient).toBe(10);
+  });
+
+  it("deux devises encaissées ⇒ AUCUN ratio (règle A5), jamais une somme mélangée", () => {
+    const s = st(
+      [
+        pay({ membershipId: "e", netAmount: 10, currency: "eur" }),
+        pay({ membershipId: "u", netAmount: 10, currency: "usd" }),
+      ],
+      [{ whopMembershipId: "e" }, { whopMembershipId: "u" }],
+    );
+    expect(s.securedCurrencies).toEqual(["eur", "usd"]);
+    expect(s.revenueToDatePerClient).toBeNull();
+  });
+});
