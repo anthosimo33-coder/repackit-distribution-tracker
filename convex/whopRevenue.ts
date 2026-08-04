@@ -537,10 +537,29 @@ export interface RenewalStats {
   /** Revenu net TOTAL encaissé (renouvellements compris). */
   netTotal: number;
   /**
-   * 1 — REVENU À CE JOUR PAR CLIENT = net total / clients payants. Du RÉEL :
-   * aucune projection, aucune hypothèse. Se lit tel quel, monte tout seul.
+   * 1 — REVENU À CE JOUR PAR CLIENT = net total / clients AU NET SÉCURISÉ.
+   * Du RÉEL : aucune projection, aucune hypothèse.
+   *
+   * ⚠️ Le dénominateur est `securedMembers`, PAS `payingMembers` : le numérateur
+   * exclut les litiges en cours (argent à risque), donc le dénominateur doit les
+   * exclure aussi. Compter au dénominateur une personne dont l'argent ne compte
+   * pas au numérateur tire la moyenne vers le bas sans que rien ne le dise —
+   * mesuré en prod : 6,52 € au lieu de 6,92 €, soit 6 % de sous-estimation.
    */
   revenueToDatePerClient: number | null;
+  /** Clients dont AU MOINS un paiement contribue au net sécurisé (dénominateur). */
+  securedMembers: number;
+  /**
+   * Clients dont TOUT l'argent est en litige : comptés nulle part dans le ratio,
+   * affichés à part. Les taire ferait disparaître des clients réels de l'écran.
+   */
+  atRiskOnlyMembers: number;
+  /**
+   * Devises DISTINCTES parmi les paiements sécurisés. > 1 = les montants ne sont
+   * PAS additionnables (règle A5) et tout ratio est faux : l'UI doit refuser de
+   * diviser plutôt que de rendre une somme de devises mélangées.
+   */
+  securedCurrencies: string[];
   /**
    * 2 — REVENU PROJETÉ PAR CLIENT au taux RÉSOLU. Nombre de cycles espéré =
    * 1 / (1 − taux), × net moyen par paiement. Dérivé du TAUX, pas d'une moyenne
@@ -583,6 +602,9 @@ export function computeRenewalStats(
 ): RenewalStats {
   const cyclesByMember = new Map<string, number>();
   const netByMember = new Map<string, number>();
+  /** Abonnements ayant au moins un paiement contribuant RÉELLEMENT au net. */
+  const securedByMember = new Set<string>();
+  const securedCurrencySet = new Set<string>();
   const firstPaidByMember = new Map<string, number>();
   /** Abonnements ayant une tentative de renouvellement NON encaissée en cours. */
   const pendingByMember = new Map<string, number>();
@@ -637,6 +659,12 @@ export function computeRenewalStats(
     const id = p.membershipId;
     if (!id) continue;
     cyclesByMember.set(id, (cyclesByMember.get(id) ?? 0) + 1);
+    if (net > 0) {
+      securedByMember.add(id);
+      securedCurrencySet.add(
+        p.currency && p.currency !== "" ? p.currency : "(inconnue)",
+      );
+    }
     // Litige en cours : le client a payé (donc un cycle) mais l'argent est à
     // risque et vaut 0 au net. C'est ce décalage qui rend une cohorte illisible
     // si on ne l'affiche pas.
@@ -768,7 +796,12 @@ export function computeRenewalStats(
     netPerPayment,
     netTotal,
     revenueToDatePerClient:
-      payingMembers > 0 ? round2(netTotal / payingMembers) : null,
+      securedByMember.size > 0 && securedCurrencySet.size <= 1
+        ? round2(netTotal / securedByMember.size)
+        : null,
+    securedMembers: securedByMember.size,
+    atRiskOnlyMembers: payingMembers - securedByMember.size,
+    securedCurrencies: [...securedCurrencySet].sort(),
     projectedPerClientResolved: projectFrom(renewalRateResolved),
     projectedPerClientWorstCase: projectFrom(renewalRateWorstCase),
     cohorts,

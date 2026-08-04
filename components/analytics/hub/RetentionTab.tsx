@@ -230,7 +230,15 @@ export function RetentionTab({
                   : formatMoney(renewals.revenueToDatePerClient, churn.currency)
               }
               delta={null}
-              hint={`${formatMoney(renewals.netTotal, churn.currency)} encaissés / ${formatNumber(renewals.payingMembers)} clients · réel, sans projection`}
+              hint={
+                renewals.securedCurrencies.length > 1
+                  ? `devises mélangées (${renewals.securedCurrencies.join(", ")}) — aucun ratio calculable`
+                  : `${formatMoney(renewals.netTotal, churn.currency)} encaissés / ${formatNumber(renewals.securedMembers)} clients au net sécurisé${
+                      renewals.atRiskOnlyMembers > 0
+                        ? ` · ${formatNumber(renewals.atRiskOnlyMembers)} client(s) hors ratio (argent en litige)`
+                        : ""
+                    }`
+              }
             />
             <KpiTile
               label="Revenu projeté par client"
