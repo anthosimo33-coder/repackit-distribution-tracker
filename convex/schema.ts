@@ -1411,6 +1411,17 @@ export default defineSchema({
     canceledAt: v.optional(v.number()),
     // Fin d'accès / de la période courante (ms) — passée = expiré si non renouvelé.
     accessEndsAt: v.optional(v.number()),
+    // ─── Test A/B : la metadata Whop RATTACHE le revenu à un bras ────────────
+    // Posée par l'app au checkout, donc avant tout dénouement de paiement — un
+    // litige ultérieur ne la modifie pas. ⚠️ L'app emploie le camelCase ici
+    // (`abVariant`) et le snake_case côté PostHog (`experiment_variant`) :
+    // chercher l'un dans l'autre ne rend rien. Cf convex/whopApi.
+    abVariant: v.optional(v.string()),
+    abExperiment: v.optional(v.string()),
+    // Bras FORCÉ en QA : à écarter du revenu comme il l'est déjà des events.
+    abForced: v.optional(v.boolean()),
+    // Personne PostHog — voie de REPLI si abVariant manque sur un abonnement.
+    distinctId: v.optional(v.string()),
     importedAt: v.number(),
     updatedAt: v.number(),
   })

@@ -146,6 +146,13 @@ export function OffresTab({
     (sum, a) => sum + Math.max(0, AB_THRESHOLD - a.exposed),
     arms.length < 2 ? AB_THRESHOLD : 0,
   );
+  // Revenu par bras — voie primaire metadata.abVariant, repli distinctId. La carte
+  // est restreinte à la fenêtre du test côté serveur : les abonnements antérieurs
+  // ne sont PAS des « bras inconnus », le test n'existait pas.
+  const abRev = revenue?.abRevenue;
+  const netByArm = new Map(
+    (abRev?.rows ?? []).map((r) => [r.variant, r] as const),
+  );
   const abStart =
     analytics.abArms.startMs != null
       ? new Date(analytics.abArms.startMs).toLocaleDateString("fr-FR", {
@@ -410,23 +417,73 @@ export function OffresTab({
                           ? formatNumber(Math.round((a.targets / a.paid) * 100) / 100)
                           : dash(null)}
                       </TableCell>
-                      {/* Revenu par bras : la variante n'est PAS dans la metadata du
-                          checkout Whop, donc aucun paiement n'est rattachable à un
-                          bras. Tiret plutôt qu'un revenu réparti au jugé. */}
-                      <TableCell className="text-right text-xs tabular-nums text-slate-300">
-                        —
+                      {/* Revenu par bras : rattaché par metadata.abVariant du
+                          membership Whop, repli par distinctId. Un bras SANS
+                          abonnement rattaché reste au tiret — 0,00 € et « aucun
+                          abonnement » ne veulent pas dire la même chose. */}
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {(() => {
+                          const r = netByArm.get(a.variant);
+                          if (!r || r.memberships === 0) {
+                            return <span className="text-slate-300">—</span>;
+                          }
+                          const perExposed =
+                            a.exposed > 0
+                              ? Math.round((r.net / a.exposed) * 100) / 100
+                              : null;
+                          return (
+                            <>
+                              {perExposed === null
+                                ? "—"
+                                : formatMoney(perExposed, currency)}
+                              {r.atRiskMemberships > 0 ? (
+                                <span
+                                  className="ml-1 cursor-help font-medium text-amber-700"
+                                  title={`${r.memberships} abonnement(s) rattaché(s) à ce bras, dont ${r.atRiskMemberships} dont l'argent est EN LITIGE : ${formatMoney(r.atRiskAmount, currency)} contestés, exclus du net tant que l'issue est inconnue. Un net à 0,00 € ici signale un litige, PAS une absence de conversion.`}
+                                >
+                                  ⚠
+                                </span>
+                              ) : null}
+                            </>
+                          );
+                        })()}
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
               <p className="text-xs text-slate-500">
-                <strong>Net par personne exposée : indisponible.</strong> La variante
-                n&apos;apparaît pas dans les metadata du checkout Whop — aucun paiement
-                n&apos;est rattachable à un bras. C&apos;est la métrique de DÉCISION du
-                test : tant qu&apos;elle manque, le test ne peut pas être tranché sur le
-                revenu, quel que soit l&apos;échantillon. À câbler avec le dev.
+                <strong>Net par personne exposée</strong> = revenu net sécurisé des
+                abonnements rattachés au bras, divisé par les exposés. Rattachement par{" "}
+                <code>metadata.abVariant</code> du membership Whop, repli par{" "}
+                <code>distinctId</code> vers la personne PostHog. Un bras sans aucun
+                abonnement rattaché reste au tiret : <strong>0,00 € et « aucun
+                abonnement » ne veulent pas dire la même chose.</strong>
               </p>
+              {abRev && abRev.divergences.length > 0 ? (
+                <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
+                  <strong>
+                    {formatNumber(abRev.divergences.length)} rattachement(s)
+                    divergent(s)
+                  </strong>{" "}
+                  : la metadata Whop et PostHog ne disent pas le même bras (
+                  {abRev.divergences
+                    .slice(0, 3)
+                    .map((d) => `${d.membershipId} : ${d.metadata} vs ${d.posthog}`)
+                    .join(" · ")}
+                  ). Le revenu de ces abonnements suit la metadata. Un rattachement
+                  faux étant pire qu&apos;un rattachement absent, l&apos;écart est
+                  signalé plutôt que tranché en silence.
+                </HubNotice>
+              ) : null}
+              {abRev && abRev.unattached > 0 ? (
+                <p className="text-xs text-slate-500">
+                  {formatNumber(abRev.unattached)} abonnement(s) de la fenêtre du test
+                  ne sont rattachés à aucun bras, ni par metadata ni par{" "}
+                  <code>distinctId</code> : leur revenu n&apos;est compté dans aucune
+                  ligne.
+                </p>
+              ) : null}
               <p className="text-xs text-slate-500">
                 Sessions à bras forcé exclues du tableau. Assignations naturelles
                 uniquement{abStart ? `, depuis le ${abStart}` : ""}.

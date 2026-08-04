@@ -90,6 +90,7 @@ export const POSTHOG_CACHE_KEYS = {
   activation: "activation",
   abVariants: "abVariants",
   abArms: "abArms",
+  abPersonArms: "abPersonArms",
   freePlan: "freePlan",
 } as const;
 
@@ -145,6 +146,18 @@ export interface AbArmsPayload {
   }[];
   /** Début de la fenêtre = 1re émission d'experiment_variant (ms). */
   startMs: number | null;
+}
+
+/**
+ * Table `distinct_id → bras` — VOIE DE REPLI du rattachement revenu ↔ bras.
+ * La voie primaire est `metadata.abVariant` sur le membership Whop ; ce repli
+ * sert aux abonnements qui n'en portent pas, et sert surtout à DÉTECTER une
+ * divergence entre les deux sources (un rattachement silencieusement faux est
+ * pire qu'un rattachement absent).
+ * Volume borné : une ligne par personne assignée, quelques dizaines.
+ */
+export interface AbPersonArmsPayload {
+  rows: { distinctId: string; variant: string }[];
 }
 
 export interface CohortsPayload {
@@ -638,6 +651,24 @@ WHERE isNotNull(bras) AND bras != '' AND bras != 'NULL'
 GROUP BY variant
 ORDER BY exposed DESC
 LIMIT ${SEGMENT_LIMIT}`,
+
+  /**
+   * `distinct_id → bras` pour le REPLI de rattachement (cf AbPersonArmsPayload).
+   * Même fenêtre et mêmes exclusions que `abArms` : internes et sessions à bras
+   * forcé écartés, ancrage sur la 1re émission de la propriété.
+   */
+  abPersonArms: `
+SELECT distinct_id, bras AS variant FROM (
+  SELECT distinct_id,
+    argMaxIf(toString(properties.experiment_variant), timestamp, isNotNull(properties.experiment_variant)) AS bras
+  FROM events
+  WHERE timestamp >= (SELECT min(timestamp) FROM events
+      WHERE isNotNull(properties.experiment_variant)
+        AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY)${notCounted}
+  GROUP BY distinct_id
+)
+WHERE isNotNull(bras) AND bras != '' AND bras != 'NULL'
+LIMIT 1000`,
 
   /** Sources → inscrits / abonnés (une personne compte une fois par source). */
   sources: `
@@ -1426,6 +1457,18 @@ export const runHourlySync = internalAction({
               targets: cellNum(r, 4),
             })),
             startMs: rows.length > 0 ? cellTimeMs(rows[0], 5) : null,
+          }),
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.abPersonArms,
+          apiKey,
+          target,
+          QUERIES.abPersonArms,
+          (rows): AbPersonArmsPayload => ({
+            rows: rows.map((r) => ({
+              distinctId: cellStr(r, 0),
+              variant: cellStr(r, 1),
+            })),
           }),
         ),
         await collect(

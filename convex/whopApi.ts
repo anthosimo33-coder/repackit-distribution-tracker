@@ -324,6 +324,14 @@ export interface NormalizedWhopMembership {
   createdAt: number;
   canceledAt?: number;
   accessEndsAt?: number;
+  /** Bras du test A/B (`metadata.abVariant`) — RATTACHE LE REVENU AU BRAS. */
+  abVariant?: string;
+  /** Identifiant du test (`metadata.abExperiment`). */
+  abExperiment?: string;
+  /** Bras FORCÉ en QA (`metadata.abForced`) : à écarter du revenu comme des events. */
+  abForced?: boolean;
+  /** Personne PostHog (`metadata.distinctId`, sinon `userToken`) — repli de jointure. */
+  distinctId?: string;
 }
 
 export interface FetchWhopMembershipsResult {
@@ -334,6 +342,21 @@ export interface FetchWhopMembershipsResult {
 }
 
 /** Normalise un membership brut (défensif : champs Whop variables selon l'API). */
+/**
+ * ⚠️ CORRESPONDANCE DE NOMS entre les deux sources — l'app n'emploie PAS la même
+ * convention des deux côtés, et rien ne le signale ailleurs :
+ *
+ *   notion            PostHog (event)        Whop (metadata membership)
+ *   ───────────────── ────────────────────── ──────────────────────────
+ *   bras du test      experiment_variant     abVariant
+ *   id du test        experiment_id          abExperiment
+ *   bras forcé (QA)   ab_forced              abForced
+ *   personne          distinct_id            distinctId  (= userToken)
+ *
+ * snake_case côté PostHog, camelCase côté Whop. Chercher `experiment_variant`
+ * dans la metadata Whop ne rend RIEN — c'est le genre de détail qui coûte une
+ * heure six mois plus tard.
+ */
 export function normalizeWhopMembership(raw: unknown): NormalizedWhopMembership | null {
   const r = asRecord(raw);
   if (!r) return null;
@@ -355,6 +378,13 @@ export function normalizeWhopMembership(raw: unknown): NormalizedWhopMembership 
   const accessMs = toMs(
     r.expires_at ?? r.valid_until ?? r.renewal_period_end ?? r.expiration,
   );
+  // Metadata posée par l'app AU CHECKOUT — donc AVANT tout dénouement de
+  // paiement : un litige ou un remboursement ultérieur ne la modifie pas.
+  const md = asRecord(r.metadata);
+  const abVariant = getStr(md?.abVariant);
+  const abExperiment = getStr(md?.abExperiment);
+  const abForced = typeof md?.abForced === "boolean" ? md.abForced : undefined;
+  const distinctId = getStr(md?.distinctId) ?? getStr(md?.userToken);
   return {
     whopMembershipId: id,
     whopUserId,
@@ -364,6 +394,10 @@ export function normalizeWhopMembership(raw: unknown): NormalizedWhopMembership 
     createdAt,
     canceledAt: canceledMs || undefined,
     accessEndsAt: accessMs || undefined,
+    abVariant,
+    abExperiment,
+    abForced,
+    distinctId,
   };
 }
 

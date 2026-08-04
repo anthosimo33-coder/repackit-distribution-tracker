@@ -78,7 +78,7 @@ export const EXPLAIN = {
   typesPaywall:
     "Les deux sortes de paywall que l'app affiche aujourd'hui, ce ne sont pas les variantes d'un test. Le paywall bloquant empêche d'accéder tant qu'on n'a pas payé. Le paywall d'appoint propose un supplément sans bloquer.",
   testAB:
-    "Un test A/B compare deux offres pour décider laquelle garder. Tant qu'aucun test n'est marqué dans les données, cette carte reste vide. Elle s'allumera d'elle même quand l'app enverra un identifiant de test.",
+    "Un test A/B compare deux offres pour décider laquelle garder ; les personnes dont le bras a été forcé à la main sont écartées, et seule la période depuis le démarrage du test compte, car les abonnements antérieurs n'ont pas de bras. Le net par personne exposée rattache l'argent au bras grâce à la donnée déposée sur l'abonnement au moment du paiement, avec un second chemin par l'identifiant de la personne si la première manque. Un net à 0,00 € peut signaler un paiement parti en litige, donc exclu du revenu tant que la banque n'a pas tranché, et non une absence de vente : un pictogramme le précise, et un bras sans aucun abonnement rattaché affiche un tiret.",
   conversionParPaywall:
     "L'app a sept emplacements de paywall, mais la donnée actuelle n'en distingue que deux. Six sont subis (l'app bloque tant qu'on n'a pas payé), un seul est volontaire (un clic depuis le menu) et ne se compare jamais aux autres. Tant que l'app n'envoie pas l'identifiant de chaque paywall, on préfère un tiret à une conversion inventée.",
   economieOffre:
