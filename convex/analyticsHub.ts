@@ -1364,10 +1364,15 @@ export const getReliability = adminQuery({
         .map(([day, count]) => ({ day, count }))
         .sort((a, b) => (a.day < b.day ? -1 : 1));
 
-      // Contrôle « N abonnements pour M personnes » : memberships réels (hors
-      // brouillons) groupés par utilisateur Whop. `whopUserId` n'est peuplé qu'à
-      // partir de la re-synchro (nouveau champ) → les memberships sans user sont
-      // ignorés (le contrôle s'allume quand la synchro l'a rempli).
+      // Contrôle « N abonnements pour M personnes ». Il ANNOTE « Clients payants »
+      // et DOIT donc porter sur la MÊME population : les memberships ayant au
+      // moins un paiement encaissé (`firstPaid`), pas tous les memberships non
+      // brouillons. Sinon l'écran affiche deux effectifs différents côte à côte
+      // pour ce qui se lit comme la même notion — vérifié en prod : 37 contre 35,
+      // l'écart étant deux abonnements annulés dont l'unique paiement a été
+      // intégralement remboursé (donc pas des clients payants).
+      // `whopUserId` n'est peuplé qu'à partir de la re-synchro : les memberships
+      // sans user sont ignorés (le contrôle s'allume quand la synchro l'a rempli).
       const memberships = await ctx.db
         .query("whopMemberships")
         .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
@@ -1378,6 +1383,7 @@ export const getReliability = adminQuery({
         if (m.status === "drafted") continue;
         if (isInternalWhopMembership(m.whopMembershipId, internalCfg)) continue;
         if (!m.whopUserId) continue;
+        if (!firstPaid.has(m.whopMembershipId)) continue;
         counted += 1;
         const arr = byUser.get(m.whopUserId) ?? [];
         arr.push(m.whopMembershipId);
