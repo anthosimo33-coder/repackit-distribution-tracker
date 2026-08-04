@@ -134,6 +134,18 @@ export function OverviewTab({
       ),
     [coh],
   );
+  // Contrôle de LIGNE : « nouveaux clients + renouvellements » doit égaler le
+  // nombre de paiements composant le net. Un écart = un paiement compté deux fois
+  // — cas réel : un renouvellement qui est AUSSI le premier encaissement de son
+  // abonnement (paiement initial remboursé). Sans ce contrôle, la ligne se lit
+  // comme une incohérence de montant alors que c'est un doublon d'effectif.
+  const payCountByDay = useMemo(
+    () =>
+      new Map(
+        (coh?.dailyPaymentCount ?? []).map((d) => [d.day, d.payments] as const),
+      ),
+    [coh],
+  );
   const paidClientsPts: TrendPoint[] = daily.map((d) => ({
     ts: d.ts,
     value: clientsByDay.get(parisDayKey(d.ts)) ?? 0,
@@ -227,9 +239,19 @@ export function OverviewTab({
     viewCounters && totalClients !== null && totalClients > 0
       ? Math.round(viewCounters.promo / totalClients)
       : null;
-  // Carte 3 — revenu net (€) par client, MÊME dénominateur que les coûts (clients
-  // Whop). Affiché à côté des coûts ($) pour comparaison, jamais soustrait.
-  const revenuePerClient = perClient(totalNet);
+  // Carte 3 — revenu net (€) par client. Dénominateur = clients au net SÉCURISÉ,
+  // PAS tous les clients acquis : le numérateur (totalNet) exclut les litiges en
+  // cours, donc les compter au dénominateur tirerait la moyenne vers le bas sans
+  // que rien ne le dise. Mesuré en prod : 6,52 € au lieu de 6,92 €.
+  // Le coût d'acquisition, lui, garde les clients ACQUIS (la dépense a bien été
+  // engagée pour eux) — les deux cartes affichent donc leur dénominateur.
+  const securedClients = coh?.whopSecuredMembers ?? null;
+  const atRiskClients =
+    clients !== null && securedClients !== null ? clients - securedClients : 0;
+  const revenuePerClient =
+    totalNet != null && securedClients !== null && securedClients > 0
+      ? Math.round((totalNet / securedClients) * 100) / 100
+      : null;
 
   // Table « Détail par jour » : net Whop joint par jour Europe/Paris, plus récent d'abord.
   const netByDay = useMemo(
@@ -283,7 +305,7 @@ export function OverviewTab({
             acquisitionBonus !== null && acquisitionBonus > 0
               ? `dont ${formatMoney(acquisitionBonus, payCurrency)} de bonus estimé · clé ${Math.round(acquisitionShare * 100)} % promo`
               : clients !== null
-                ? `publications promo · ${formatNumber(clients)} clients`
+                ? `publications promo · ÷ ${formatNumber(clients)} clients acquis`
                 : "publications promo uniquement"
           }
           info={EXPLAIN.coutAcquisition}
@@ -294,7 +316,7 @@ export function OverviewTab({
           delta={null}
           hint={
             clients !== null
-              ? `warmup inclus · ${formatNumber(clients)} clients`
+              ? `warmup inclus · ÷ ${formatNumber(clients)} clients acquis`
               : "warmup inclus · tout le moteur"
           }
           info={EXPLAIN.coutComplet}
@@ -303,7 +325,15 @@ export function OverviewTab({
           label="Revenu net par client"
           value={revenuePerClient === null ? "—" : formatMoney(revenuePerClient, currency)}
           delta={null}
-          hint="monte au renouvellement (une seule acquisition)"
+          hint={
+            securedClients === null
+              ? "monte au renouvellement (une seule acquisition)"
+              : `÷ ${formatNumber(securedClients)} clients au net sécurisé${
+                  atRiskClients > 0
+                    ? ` · ${formatNumber(atRiskClients)} hors ratio (argent en litige)`
+                    : ""
+                }`
+          }
           info={EXPLAIN.revenuParClient}
         />
       </div>
@@ -444,13 +474,36 @@ export function OverviewTab({
                             et rapporter quand même — sans cette colonne, « 0 » se lit
                             comme une journée morte alors que le revenu est là. */}
                         <TableCell className="text-right text-xs tabular-nums">
-                          {(renewalsByDay.get(parisDayKey(d.ts)) ?? 0) > 0 ? (
-                            <span className="font-medium text-emerald-700">
-                              {formatNumber(renewalsByDay.get(parisDayKey(d.ts)) ?? 0)}
-                            </span>
-                          ) : (
-                            <span className="text-slate-300">0</span>
-                          )}
+                          {(() => {
+                            const k = parisDayKey(d.ts);
+                            const ren = renewalsByDay.get(k) ?? 0;
+                            const nouveaux = clientsByDay.get(k) ?? 0;
+                            const pay = payCountByDay.get(k);
+                            // Écart = un paiement compté dans les DEUX colonnes.
+                            const ecart =
+                              pay !== undefined && nouveaux + ren !== pay
+                                ? nouveaux + ren - pay
+                                : 0;
+                            return (
+                              <>
+                                {ren > 0 ? (
+                                  <span className="font-medium text-emerald-700">
+                                    {formatNumber(ren)}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-300">0</span>
+                                )}
+                                {ecart !== 0 ? (
+                                  <span
+                                    className="ml-1 cursor-help font-medium text-amber-700"
+                                    title={`${formatNumber(nouveaux)} nouveau(x) + ${formatNumber(ren)} renouvellement(s) = ${formatNumber(nouveaux + ren)}, pour ${formatNumber(pay as number)} paiement(s) composant le revenu net. Écart de ${formatNumber(Math.abs(ecart))} : un paiement est compté dans les deux colonnes (renouvellement qui est aussi le premier encaissement de son abonnement).`}
+                                  >
+                                    ⚠
+                                  </span>
+                                ) : null}
+                              </>
+                            );
+                          })()}
                         </TableCell>
                         <TableCell className="text-right text-xs tabular-nums">
                           {failed > 0 ? (

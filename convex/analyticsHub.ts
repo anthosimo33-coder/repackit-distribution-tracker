@@ -1174,6 +1174,21 @@ export interface ReliabilityResult {
     /** RENOUVELLEMENTS encaissés par jour Paris — colonne jumelle de « Nouveaux
      *  clients », qui ne compte QUE les premiers paiements. Source Whop. */
     dailyRenewals: { day: string; renewals: number }[];
+    /**
+     * Paiements COMPOSANT le revenu net, par jour Paris (paid|disputed). Sert au
+     * contrôle de ligne : « nouveaux clients + renouvellements » doit égaler ce
+     * nombre. Un écart = un paiement compté deux fois (typiquement un
+     * renouvellement qui est AUSSI le premier encaissement de son abonnement,
+     * quand le paiement initial a été remboursé).
+     */
+    dailyPaymentCount: { day: string; payments: number }[];
+    /**
+     * Clients dont AU MOINS un paiement contribue au net SÉCURISÉ. Dénominateur
+     * du revenu par client : le numérateur exclut les litiges, le dénominateur
+     * doit les exclure aussi (sinon la moyenne est tirée vers le bas en silence).
+     * `whopMembersTotal` reste le compte de clients ACQUIS (litiges inclus).
+     */
+    whopSecuredMembers: number | null;
     /** Tentatives de paiement ÉCHOUÉES Whop PAR JOUR Paris (statut "failed",
      *  internes exclus) — colonne « Échecs » du Détail par jour. Une tentative
      *  échouée n'est PAS un client (0 au net) mais doit être visible. */
@@ -1275,6 +1290,8 @@ export const getReliability = adminQuery({
     let whopExcludedAfter = 0;
     let dailyPaidClients: { day: string; clients: number }[] = [];
     let dailyRenewals: { day: string; renewals: number }[] = [];
+    let dailyPaymentCount: { day: string; payments: number }[] = [];
+    let whopSecuredMembers: number | null = null;
     let dailyFailedPayments: { day: string; count: number }[] = [];
     let whopInternalExcluded = 0;
     let whopSyncMs: number | null = null;
@@ -1349,6 +1366,21 @@ export const getReliability = adminQuery({
       dailyRenewals = [...renewalsByDay.entries()]
         .map(([day, renewals]) => ({ day, renewals }))
         .sort((a, b) => (a.day < b.day ? -1 : 1));
+
+      // Paiements composant le net, par jour + clients au net SÉCURISÉ.
+      const payCountByDay = new Map<string, number>();
+      const secured = new Set<string>();
+      for (const p of payments) {
+        if (!p.membershipId || whopCollectedAmount(p) <= 0) continue;
+        if (isInternalWhopMembership(p.membershipId, internalCfg)) continue;
+        const day = parisDay(p.paidAt);
+        payCountByDay.set(day, (payCountByDay.get(day) ?? 0) + 1);
+        if (whopNetContribution(p) > 0) secured.add(p.membershipId);
+      }
+      dailyPaymentCount = [...payCountByDay.entries()]
+        .map(([day, count]) => ({ day, payments: count }))
+        .sort((a, b) => (a.day < b.day ? -1 : 1));
+      whopSecuredMembers = secured.size;
 
       // Tentatives de paiement ÉCHOUÉES par jour Paris (colonne « Échecs »).
       // On compte les LIGNES "failed" (une par tentative), internes exclus — une
@@ -1436,6 +1468,8 @@ export const getReliability = adminQuery({
         whopExcludedAfter,
         dailyPaidClients,
         dailyRenewals,
+        dailyPaymentCount,
+        whopSecuredMembers,
         dailyFailedPayments,
         dailySubs,
         todayParis,
