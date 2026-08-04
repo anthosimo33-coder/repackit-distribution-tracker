@@ -289,6 +289,10 @@ export const upsertWhopMemberships = internalMutation({
         createdAt: v.number(),
         canceledAt: v.optional(v.number()),
         accessEndsAt: v.optional(v.number()),
+        abVariant: v.optional(v.string()),
+        abExperiment: v.optional(v.string()),
+        abForced: v.optional(v.boolean()),
+        distinctId: v.optional(v.string()),
       }),
     ),
   },
@@ -311,6 +315,10 @@ export const upsertWhopMemberships = internalMutation({
         createdAt: m.createdAt,
         canceledAt: m.canceledAt,
         accessEndsAt: m.accessEndsAt,
+        abVariant: m.abVariant,
+        abExperiment: m.abExperiment,
+        abForced: m.abForced,
+        distinctId: m.distinctId,
         updatedAt: now,
       };
       if (existing) await ctx.db.patch(existing._id, fields);
