@@ -1341,6 +1341,14 @@ export default defineSchema({
     // fournit. planId sert AUSSI au filtrage anti-mélange (projects.whop.planIds).
     planId: v.optional(v.string()),
     membershipId: v.optional(v.string()),
+    // MOTIF de facturation Whop : `subscription_create` = premier paiement d'un
+    // abonnement (client NOUVEAU), `subscription_cycle` = échéance suivante
+    // (RENOUVELLEMENT). C'est le SEUL champ qui sépare acquisition et rétention
+    // dans le revenu : sans lui, une journée entièrement faite de
+    // renouvellements affiche « 0 client payant » sans rien pour l'expliquer.
+    // Valeur BRUTE (pas un booléen) : une valeur future inconnue reste lisible.
+    // Optionnel : absent des rows importées avant sa capture.
+    billingReason: v.optional(v.string()),
     // Pseudo Whop du client (username) — pour identifier un litige à traiter.
     // Optionnel : peuplé à partir de la re-synchro (rows anciennes = absent).
     memberName: v.optional(v.string()),

@@ -124,6 +124,16 @@ export function OverviewTab({
       ),
     [coh],
   );
+  // RENOUVELLEMENTS/jour (Whop, billing_reason=subscription_cycle). Colonne jumelle :
+  // `dailyPaidClients` ne compte que les PREMIERS paiements, donc une journée faite
+  // uniquement de renouvellements y affiche 0 à côté d'un revenu non nul.
+  const renewalsByDay = useMemo(
+    () =>
+      new Map(
+        (coh?.dailyRenewals ?? []).map((d) => [d.day, d.renewals] as const),
+      ),
+    [coh],
+  );
   const paidClientsPts: TrendPoint[] = daily.map((d) => ({
     ts: d.ts,
     value: clientsByDay.get(parisDayKey(d.ts)) ?? 0,
@@ -389,7 +399,8 @@ export function OverviewTab({
                     <TableHead className="text-right">Visiteurs</TableHead>
                     <TableHead className="text-right">Inscriptions</TableHead>
                     <TableHead className="text-right">Checkouts ouverts</TableHead>
-                    <TableHead className="text-right">Clients payants</TableHead>
+                    <TableHead className="text-right">Nouveaux clients</TableHead>
+                    <TableHead className="text-right">Renouvellements</TableHead>
                     <TableHead className="text-right">Échecs</TableHead>
                     <TableHead className="text-right">Revenu net</TableHead>
                   </TableRow>
@@ -414,6 +425,18 @@ export function OverviewTab({
                         </TableCell>
                         <TableCell className="text-right text-xs tabular-nums">
                           {formatNumber(clientsByDay.get(parisDayKey(d.ts)) ?? 0)}
+                        </TableCell>
+                        {/* Renouvellements : un jour peut n'avoir AUCUN nouveau client
+                            et rapporter quand même — sans cette colonne, « 0 » se lit
+                            comme une journée morte alors que le revenu est là. */}
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {(renewalsByDay.get(parisDayKey(d.ts)) ?? 0) > 0 ? (
+                            <span className="font-medium text-emerald-700">
+                              {formatNumber(renewalsByDay.get(parisDayKey(d.ts)) ?? 0)}
+                            </span>
+                          ) : (
+                            <span className="text-slate-300">0</span>
+                          )}
                         </TableCell>
                         <TableCell className="text-right text-xs tabular-nums">
                           {failed > 0 ? (

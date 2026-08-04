@@ -13,6 +13,10 @@ import {
   summarizeWhopRevenue,
   whopNetContribution,
   whopCollectedAmount,
+  splitRevenueByOrigin,
+  renewalsByPlan,
+  computeRenewalStats,
+  whopBillingOrigin,
 } from "./whopRevenue";
 import {
   POSTHOG_CACHE_KEYS,
@@ -895,6 +899,54 @@ function intervalToDaysServer(interval: string | null | undefined): number | nul
  * CLIENT par lib/churn.computeChurn (module pur, pas de réplique convex) : ici on ne
  * réunit que les entrées. Comptes internes exclus (A4).
  */
+/**
+ * RENOUVELLEMENTS — la métrique qui décide si le moteur est viable. Un client
+ * acquis à un coût donné ne l'est que s'il rapporte plus que ça sur sa durée de
+ * vie ; tant qu'aucun renouvellement n'était observé, la question restait ouverte.
+ * Source : Whop SEUL (billing_reason + état des abonnements) — PostHog ne sait
+ * rien des échéances.
+ */
+export interface RenewalsPayload {
+  /** Revenu par jour Europe/Paris, séparé nouveau / renouvellement, avec cumuls. */
+  days: {
+    day: string;
+    newNet: number;
+    renewalNet: number;
+    unknownNet: number;
+    newCount: number;
+    renewalCount: number;
+    unknownCount: number;
+    cumulativeNewNet: number;
+    cumulativeRenewalNet: number;
+  }[];
+  newNet: number;
+  renewalNet: number;
+  unknownNet: number;
+  newCount: number;
+  renewalCount: number;
+  /** Part du revenu venant du renouvellement (fraction 0–1). null si rien de classé. */
+  renewalShare: number | null;
+  /**
+   * Paiements dont l'origine est INCONNUE : importés avant la capture de
+   * `billing_reason`. Ils ne sont comptés ni en acquisition ni en rétention —
+   * l'afficher évite de lire une part de rétention faussement basse.
+   */
+  unknownPayments: number;
+  /** Renouvellements par offre (libellé joint côté client via planLabels). */
+  byPlan: { planId: string; renewalCount: number; renewalNet: number; members: number }[];
+  dueSubscriptions: number;
+  renewedSubscriptions: number;
+  renewalRate: number | null;
+  notYetDue: number;
+  averageCycles: number | null;
+  cycleDistribution: { cycles: number; members: number }[];
+  netPerPayment: number | null;
+  lifetimeValue: number | null;
+  payingMembers: number;
+  failedRenewalAttempts: number;
+  failedRenewalAmount: number;
+}
+
 export const getChurn = adminQuery({
   args: {},
   handler: async (ctx) => {
@@ -907,6 +959,7 @@ export const getChurn = adminQuery({
         netPerPayment: null as number | null,
         memberships: [] as MembershipEntry[],
         planLabels: [] as { planId: string; name: string | null }[],
+        renewals: null as RenewalsPayload | null,
       };
     }
     const internalCfg = internalAccountsFor(project.slug);
@@ -968,6 +1021,45 @@ export const getChurn = adminQuery({
     const computedAt =
       members.length > 0 ? Math.max(...members.map((m) => m.updatedAt)) : null;
 
+    // ─── Renouvellements (Whop fait foi) ───────────────────────────────────
+    // Même base que le churn : paiements et abonnements NON internes. Le jour est
+    // bucketisé Europe/Paris, comme le reste du hub, pour que la courbe coïncide
+    // au jour près avec « Détail par jour ».
+    const origin = splitRevenueByOrigin(nonInternalPayments, parisDay);
+    const stats = computeRenewalStats(
+      nonInternalPayments,
+      members
+        .filter((m) => !isInternalWhopMembership(m.whopMembershipId, internalCfg))
+        .map((m) => ({
+          whopMembershipId: m.whopMembershipId,
+          planId: m.planId,
+          accessEndsAt: m.accessEndsAt,
+        })),
+      Date.now(),
+    );
+    const renewals: RenewalsPayload = {
+      days: origin.days,
+      newNet: origin.newNet,
+      renewalNet: origin.renewalNet,
+      unknownNet: origin.unknownNet,
+      newCount: origin.newCount,
+      renewalCount: origin.renewalCount,
+      renewalShare: origin.renewalShare,
+      unknownPayments: origin.unknownPayments,
+      byPlan: renewalsByPlan(nonInternalPayments),
+      dueSubscriptions: stats.dueSubscriptions,
+      renewedSubscriptions: stats.renewedSubscriptions,
+      renewalRate: stats.renewalRate,
+      notYetDue: stats.notYetDue,
+      averageCycles: stats.averageCycles,
+      cycleDistribution: stats.cycleDistribution,
+      netPerPayment: stats.netPerPayment,
+      lifetimeValue: stats.lifetimeValue,
+      payingMembers: stats.payingMembers,
+      failedRenewalAttempts: stats.failedRenewalAttempts,
+      failedRenewalAmount: stats.failedRenewalAmount,
+    };
+
     return {
       configured: true as const,
       computedAt,
@@ -975,6 +1067,7 @@ export const getChurn = adminQuery({
       netPerPayment,
       memberships,
       planLabels: plans.map((pl) => ({ planId: pl.planId, name: pl.name ?? null })),
+      renewals,
     };
   },
 });
@@ -1042,6 +1135,9 @@ export interface ReliabilityResult {
      *  internes exclus) — série « Clients payants », SOURCE DE VÉRITÉ affichée sur
      *  la courbe + la colonne (remplace PostHog subs, décalé). */
     dailyPaidClients: { day: string; clients: number }[];
+    /** RENOUVELLEMENTS encaissés par jour Paris — colonne jumelle de « Nouveaux
+     *  clients », qui ne compte QUE les premiers paiements. Source Whop. */
+    dailyRenewals: { day: string; renewals: number }[];
     /** Tentatives de paiement ÉCHOUÉES Whop PAR JOUR Paris (statut "failed",
      *  internes exclus) — colonne « Échecs » du Détail par jour. Une tentative
      *  échouée n'est PAS un client (0 au net) mais doit être visible. */
@@ -1142,6 +1238,7 @@ export const getReliability = adminQuery({
     let whopExcludedPre = 0;
     let whopExcludedAfter = 0;
     let dailyPaidClients: { day: string; clients: number }[] = [];
+    let dailyRenewals: { day: string; renewals: number }[] = [];
     let dailyFailedPayments: { day: string; count: number }[] = [];
     let whopInternalExcluded = 0;
     let whopSyncMs: number | null = null;
@@ -1199,6 +1296,22 @@ export const getReliability = adminQuery({
       }
       dailyPaidClients = [...paidClientsByDay.entries()]
         .map(([day, clients]) => ({ day, clients }))
+        .sort((a, b) => (a.day < b.day ? -1 : 1));
+
+      // RENOUVELLEMENTS par jour Paris — colonne jumelle de « Nouveaux clients ».
+      // `dailyPaidClients` ne compte QUE le premier paiement d'un abonnement : une
+      // journée entièrement faite de renouvellements y affiche 0, ce qui est juste
+      // mais illisible sans cette colonne (cas du 03/08 : 0 nouveau, 5 renouvellements).
+      const renewalsByDay = new Map<string, number>();
+      for (const p of payments) {
+        if (!p.membershipId || whopCollectedAmount(p) <= 0) continue;
+        if (isInternalWhopMembership(p.membershipId, internalCfg)) continue;
+        if (whopBillingOrigin(p.billingReason) !== "renewal") continue;
+        const day = parisDay(p.paidAt);
+        renewalsByDay.set(day, (renewalsByDay.get(day) ?? 0) + 1);
+      }
+      dailyRenewals = [...renewalsByDay.entries()]
+        .map(([day, renewals]) => ({ day, renewals }))
         .sort((a, b) => (a.day < b.day ? -1 : 1));
 
       // Tentatives de paiement ÉCHOUÉES par jour Paris (colonne « Échecs »).
@@ -1280,6 +1393,7 @@ export const getReliability = adminQuery({
         whopExcludedPre,
         whopExcludedAfter,
         dailyPaidClients,
+        dailyRenewals,
         dailyFailedPayments,
         dailySubs,
         todayParis,
