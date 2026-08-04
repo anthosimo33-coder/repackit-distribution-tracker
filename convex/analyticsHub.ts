@@ -74,6 +74,20 @@ function parisDay(ms: number): string {
   }).format(new Date(ms));
 }
 
+/**
+ * LUNDI (Europe/Paris) de la semaine d'un ts → "YYYY-MM-DD". Clé des cohortes
+ * d'acquisition : même fuseau que le reste du hub, sinon une cohorte changerait
+ * de semaine selon l'heure de la journée.
+ */
+function parisWeek(ms: number): string {
+  const day = parisDay(ms); // "YYYY-MM-DD" en Europe/Paris
+  const d = new Date(`${day}T00:00:00Z`);
+  // getUTCDay : 0 = dimanche → on ramène au lundi précédent.
+  const shift = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - shift);
+  return d.toISOString().slice(0, 10);
+}
+
 /** Arrondi au centime (partagé). */
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
@@ -928,23 +942,34 @@ export interface RenewalsPayload {
   renewalShare: number | null;
   /**
    * Paiements dont l'origine est INCONNUE : importés avant la capture de
-   * `billing_reason`. Ils ne sont comptés ni en acquisition ni en rétention —
-   * l'afficher évite de lire une part de rétention faussement basse.
+   * `billing_reason`. Ni acquisition ni rétention — affiché pour éviter de lire
+   * une part de rétention faussement basse.
    */
   unknownPayments: number;
   /** Renouvellements par offre (libellé joint côté client via planLabels). */
   byPlan: { planId: string; renewalCount: number; renewalNet: number; members: number }[];
-  dueSubscriptions: number;
-  renewedSubscriptions: number;
-  renewalRate: number | null;
-  notYetDue: number;
+  /** Issues des échéances : renouvelée / échouée / EN ATTENTE / pas encore due. */
+  due: { renewed: number; failed: number; pending: number; notYetDue: number };
+  renewalRateResolved: number | null;
+  renewalRateWorstCase: number | null;
+  resolvedDueCount: number;
   averageCycles: number | null;
   cycleDistribution: { cycles: number; members: number }[];
   netPerPayment: number | null;
-  lifetimeValue: number | null;
+  netTotal: number;
+  revenueToDatePerClient: number | null;
+  projectedPerClientResolved: number | null;
+  projectedPerClientWorstCase: number | null;
+  cohorts: {
+    week: string;
+    clients: number;
+    cycles: number;
+    net: number;
+    netPerClient: number;
+  }[];
+  matureShare: number | null;
   payingMembers: number;
-  failedRenewalAttempts: number;
-  failedRenewalAmount: number;
+  pendingRenewalAmount: number;
 }
 
 export const getChurn = adminQuery({
@@ -1035,7 +1060,7 @@ export const getChurn = adminQuery({
           planId: m.planId,
           accessEndsAt: m.accessEndsAt,
         })),
-      Date.now(),
+      { now: Date.now(), weekKeyOf: parisWeek },
     );
     const renewals: RenewalsPayload = {
       days: origin.days,
@@ -1047,17 +1072,7 @@ export const getChurn = adminQuery({
       renewalShare: origin.renewalShare,
       unknownPayments: origin.unknownPayments,
       byPlan: renewalsByPlan(nonInternalPayments),
-      dueSubscriptions: stats.dueSubscriptions,
-      renewedSubscriptions: stats.renewedSubscriptions,
-      renewalRate: stats.renewalRate,
-      notYetDue: stats.notYetDue,
-      averageCycles: stats.averageCycles,
-      cycleDistribution: stats.cycleDistribution,
-      netPerPayment: stats.netPerPayment,
-      lifetimeValue: stats.lifetimeValue,
-      payingMembers: stats.payingMembers,
-      failedRenewalAttempts: stats.failedRenewalAttempts,
-      failedRenewalAmount: stats.failedRenewalAmount,
+      ...stats,
     };
 
     return {
