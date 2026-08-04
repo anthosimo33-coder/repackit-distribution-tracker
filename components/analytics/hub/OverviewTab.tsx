@@ -162,12 +162,26 @@ export function OverviewTab({
     coh && coh.dashboardClients !== null && coh.whopMembers !== null
       ? Math.abs(coh.dashboardClients - coh.whopMembers)
       : null;
+  // L'écart dashboard/Whop n'est PAS un défaut à corriger : les deux côtés ne
+  // comptent pas la même unité. PostHog compte des PERSONNES (un person_id qui a
+  // émis subscription_completed), Whop compte des ABONNEMENTS (un membership dont
+  // le premier paiement est encaissé). Une personne qui prend plusieurs
+  // abonnements pèse 1 d'un côté et N de l'autre — vérifié en prod : 37
+  // abonnements payants pour 34 personnes. Tant que ce cas existe, les deux
+  // nombres ne PEUVENT pas coïncider : on nomme la cause au lieu de la masquer.
+  const dup = reliability?.membershipDuplicates;
+  const dupGap =
+    dup && dup.memberships > dup.users ? dup.memberships - dup.users : 0;
   const clientsHint =
     coh?.whopMembersTotal == null || clientEcart === null
       ? "ancré sur le paiement Whop"
       : clientEcart === 0
         ? "aligné avec le dashboard"
         : `écart de ${clientEcart} avec le dashboard${
+            dupGap > 0
+              ? ` · ${dup!.memberships} abonnements pour ${dup!.users} personnes`
+              : ""
+          }${
             coh.whopExcludedPre > 0
               ? ` · ${coh.whopExcludedPre} antérieur(s) à l'instrumentation`
               : ""
