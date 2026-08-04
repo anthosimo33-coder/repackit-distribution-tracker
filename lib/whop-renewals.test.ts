@@ -131,76 +131,153 @@ describe("renouvellements par offre", () => {
   });
 });
 
-describe("taux de renouvellement, cycles et durée de vie", () => {
+const SEM = (ms: number) => {
+  const d = new Date(ms);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+};
+
+describe("issues des échéances : trois états, jamais deux", () => {
   const NOW = Date.UTC(2026, 7, 4);
   const mem = (id: string, accessEndsAt?: number): WhopMembershipLike => ({
     whopMembershipId: id,
     accessEndsAt,
   });
+  const stats = (p: WhopRenewalPaymentLike[], m: WhopMembershipLike[]) =>
+    computeRenewalStats(p, m, { now: NOW, weekKeyOf: SEM });
 
-  it("un abonnement encore dans sa première période n'est PAS un échec", () => {
-    const s = computeRenewalStats(
-      [pay({ membershipId: "m1" })],
-      [mem("m1", NOW + 86_400_000)], // accès valide demain
-      NOW,
-    );
-    expect(s.dueSubscriptions).toBe(0);
-    expect(s.notYetDue).toBe(1);
-    expect(s.renewalRate).toBeNull(); // rien à conclure, surtout pas 0 %
+  it("un abonnement encore dans sa première période n'a rien décidé", () => {
+    const s = stats([pay({ membershipId: "m1" })], [mem("m1", NOW + 86_400_000)]);
+    expect(s.due).toEqual({ renewed: 0, failed: 0, pending: 0, notYetDue: 1 });
+    expect(s.renewalRateResolved).toBeNull();
   });
 
-  it("accès expiré sans nouveau paiement = échéance manquée", () => {
-    const s = computeRenewalStats(
-      [pay({ membershipId: "m1" })],
-      [mem("m1", NOW - 86_400_000)],
-      NOW,
-    );
-    expect(s.dueSubscriptions).toBe(1);
-    expect(s.renewedSubscriptions).toBe(0);
-    expect(s.renewalRate).toBe(0);
+  it("accès expiré sans nouveau paiement = échec CONSTATÉ", () => {
+    const s = stats([pay({ membershipId: "m1" })], [mem("m1", NOW - 86_400_000)]);
+    expect(s.due.failed).toBe(1);
+    expect(s.renewalRateResolved).toBe(0);
   });
 
-  it("deux paiements = a renouvelé, quelle que soit la date de fin d'accès", () => {
-    const s = computeRenewalStats(
+  it("un past_due est EN ATTENTE : ni succès ni échec", () => {
+    const s = stats(
+      [
+        pay({ membershipId: "m1" }),
+        pay({ membershipId: "m1", status: "failed", billingReason: "subscription_cycle", grossAmount: 4.99 }),
+      ],
+      [mem("m1", NOW - 86_400_000)], // accès expiré, MAIS relance en cours
+    );
+    expect(s.due).toEqual({ renewed: 0, failed: 0, pending: 1, notYetDue: 0 });
+    // Il ne compte NI dans le taux résolu (pas de dénominateur) NI comme échec.
+    expect(s.renewalRateResolved).toBeNull();
+    // Il pèse en revanche sur la borne basse.
+    expect(s.renewalRateWorstCase).toBe(0);
+    expect(s.pendingRenewalAmount).toBe(4.99);
+  });
+
+  it("les deux taux encadrent la vérité — le cas prod 6 renouvelés / 5 en attente", () => {
+    const payments: WhopRenewalPaymentLike[] = [];
+    const mems: WhopMembershipLike[] = [];
+    for (let i = 0; i < 6; i++) {
+      payments.push(pay({ membershipId: `r${i}` }), pay({ membershipId: `r${i}` }));
+      mems.push(mem(`r${i}`, NOW + 1));
+    }
+    for (let i = 0; i < 5; i++) {
+      payments.push(
+        pay({ membershipId: `p${i}` }),
+        pay({ membershipId: `p${i}`, status: "failed", billingReason: "subscription_cycle" }),
+      );
+      mems.push(mem(`p${i}`, NOW + 1));
+    }
+    const s = stats(payments, mems);
+    expect(s.due.renewed).toBe(6);
+    expect(s.due.pending).toBe(5);
+    expect(s.renewalRateResolved).toBe(1); // 6/6 — aucune échéance résolue en échec
+    expect(s.renewalRateWorstCase).toBe(0.5455); // 6/11
+  });
+});
+
+describe("les trois chiffres de revenu par client", () => {
+  const NOW = Date.UTC(2026, 7, 4);
+  const stats = (p: WhopRenewalPaymentLike[], m: WhopMembershipLike[]) =>
+    computeRenewalStats(p, m, { now: NOW, weekKeyOf: SEM });
+
+  it("revenu À CE JOUR = net encaissé / clients, sans aucune hypothèse", () => {
+    const s = stats(
+      [
+        pay({ membershipId: "m1", netAmount: 10 }),
+        pay({ membershipId: "m1", netAmount: 10 }),
+        pay({ membershipId: "m2", netAmount: 4 }),
+      ],
+      [{ whopMembershipId: "m1" }, { whopMembershipId: "m2" }],
+    );
+    expect(s.netTotal).toBe(24);
+    expect(s.payingMembers).toBe(2);
+    expect(s.revenueToDatePerClient).toBe(12);
+  });
+
+  it("la projection dérive du TAUX, pas d'une moyenne de cycles écrasée", () => {
+    // 1 renouvelé, 1 échec → taux 50 % → 1/(1−0,5) = 2 cycles × 10 € = 20 €.
+    const s = stats(
+      [
+        pay({ membershipId: "m1", netAmount: 10 }),
+        pay({ membershipId: "m1", netAmount: 10 }),
+        pay({ membershipId: "m2", netAmount: 10 }),
+      ],
+      [
+        { whopMembershipId: "m1", accessEndsAt: NOW + 1 },
+        { whopMembershipId: "m2", accessEndsAt: NOW - 1 },
+      ],
+    );
+    expect(s.renewalRateResolved).toBe(0.5);
+    expect(s.projectedPerClientResolved).toBe(20);
+    // La moyenne de cycles (1,5) donnerait 15 € — c'est le calcul trompeur.
+    expect(s.averageCycles).toBe(1.5);
+  });
+
+  it("un taux de 100 % n'est PAS une valeur infinie : la projection est null", () => {
+    const s = stats(
       [pay({ membershipId: "m1" }), pay({ membershipId: "m1" })],
-      [mem("m1", NOW + 86_400_000)],
-      NOW,
+      [{ whopMembershipId: "m1", accessEndsAt: NOW + 1 }],
     );
-    expect(s.dueSubscriptions).toBe(1);
-    expect(s.renewedSubscriptions).toBe(1);
-    expect(s.renewalRate).toBe(1);
+    expect(s.renewalRateResolved).toBe(1);
+    expect(s.projectedPerClientResolved).toBeNull();
   });
 
-  it("taux, cycles moyens, distribution et durée de vie sur un jeu mixte", () => {
+  it("la maturité dit combien de clients ont réellement atteint une échéance", () => {
+    const s = stats(
+      [
+        pay({ membershipId: "m1" }), pay({ membershipId: "m1" }),
+        pay({ membershipId: "m2" }),
+      ],
+      [
+        { whopMembershipId: "m1", accessEndsAt: NOW + 1 },
+        { whopMembershipId: "m2", accessEndsAt: NOW + 1 }, // encore en cours
+      ],
+    );
+    expect(s.matureShare).toBe(0.5); // 1 client sur 2
+  });
+});
+
+describe("cohortes par semaine d'acquisition", () => {
+  const NOW = Date.UTC(2026, 7, 4);
+  it("regroupe sur la semaine du PREMIER paiement et cumule le réel", () => {
     const s = computeRenewalStats(
       [
-        pay({ membershipId: "m1" }), pay({ membershipId: "m1" }), // 2 cycles
-        pay({ membershipId: "m2" }), // 1, expiré
-        pay({ membershipId: "m3" }), // 1, encore actif
+        // m1 acquis le lundi 27/07, deux cycles
+        pay({ membershipId: "m1", paidAt: Date.UTC(2026, 6, 27), netAmount: 7 }),
+        pay({ membershipId: "m1", paidAt: Date.UTC(2026, 7, 3), netAmount: 7 }),
+        // m2 acquis le jeudi 30/07 → MÊME semaine que m1
+        pay({ membershipId: "m2", paidAt: Date.UTC(2026, 6, 30), netAmount: 4 }),
+        // m3 acquis la semaine suivante
+        pay({ membershipId: "m3", paidAt: Date.UTC(2026, 7, 3), netAmount: 4 }),
       ],
-      [mem("m1", NOW + 1), mem("m2", NOW - 1), mem("m3", NOW + 1)],
-      NOW,
+      [{ whopMembershipId: "m1" }, { whopMembershipId: "m2" }, { whopMembershipId: "m3" }],
+      { now: NOW, weekKeyOf: SEM },
     );
-    expect(s.dueSubscriptions).toBe(2); // m1 (renouvelé) + m2 (expiré)
-    expect(s.renewedSubscriptions).toBe(1);
-    expect(s.renewalRate).toBe(0.5);
-    expect(s.notYetDue).toBe(1); // m3
-    expect(s.payingMembers).toBe(3);
-    expect(s.averageCycles).toBe(1.33); // 4 paiements / 3 clients
-    expect(s.cycleDistribution).toEqual([
-      { cycles: 1, members: 2 },
-      { cycles: 2, members: 1 },
+    expect(s.cohorts).toEqual([
+      { week: "2026-07-27", clients: 2, cycles: 3, net: 18, netPerClient: 9 },
+      { week: "2026-08-03", clients: 1, cycles: 1, net: 4, netPerClient: 4 },
     ]);
-    expect(s.netPerPayment).toBe(7.35);
-    expect(s.lifetimeValue).toBe(9.78); // 7,35 × 1,33
-  });
-
-  it("aucun paiement → tout à null, jamais 0 (0 se lirait comme un fait)", () => {
-    const s = computeRenewalStats([], [mem("m1", NOW - 1)], NOW);
-    expect(s.renewalRate).toBeNull();
-    expect(s.averageCycles).toBeNull();
-    expect(s.lifetimeValue).toBeNull();
-    expect(s.payingMembers).toBe(0);
   });
 });
 
@@ -215,7 +292,8 @@ describe("parité lib/ ↔ convex/ du moteur de renouvellement (A6)", () => {
     pay({ paidAt: J2, billingReason: "subscription_cycle", planId: "p1", membershipId: "m1" }),
     pay({ paidAt: J3, billingReason: "subscription_cycle", planId: "p2", membershipId: "m2" }),
     pay({ paidAt: J3, billingReason: undefined, planId: "p2", membershipId: "m3", netAmount: 99 }),
-    pay({ paidAt: J3, status: "refunded", billingReason: "subscription_cycle", membershipId: "m4" }),
+    pay({ paidAt: J3, status: "failed", billingReason: "subscription_cycle", membershipId: "m4" }),
+    pay({ paidAt: J3, status: "failed", billingReason: "subscription_cycle", membershipId: "m3" }),
   ];
   const mems: WhopMembershipLike[] = [
     { whopMembershipId: "m1", accessEndsAt: NOW + 1 },
@@ -238,35 +316,7 @@ describe("parité lib/ ↔ convex/ du moteur de renouvellement (A6)", () => {
   });
 
   it("computeRenewalStats rend la même chose des deux côtés", () => {
-    expect(srv.computeRenewalStats(jeu, mems, NOW)).toEqual(computeRenewalStats(jeu, mems, NOW));
-  });
-});
-
-describe("renouvellements en échec (past_due Whop)", () => {
-  const NOW = Date.UTC(2026, 7, 4);
-  it("une échéance tentée et non encaissée est comptée à part, ni churn ni revenu", () => {
-    const s = computeRenewalStats(
-      [
-        pay({ membershipId: "m1" }),
-        // past_due normalise en "failed" : Whop relancera.
-        pay({ membershipId: "m1", status: "failed", billingReason: "subscription_cycle", grossAmount: 4.99 }),
-      ],
-      [{ whopMembershipId: "m1", accessEndsAt: NOW + 1 }],
-      NOW,
-    );
-    expect(s.failedRenewalAttempts).toBe(1);
-    expect(s.failedRenewalAmount).toBe(4.99);
-    // Un échec en cours ne compte NI comme renouvellement NI comme échéance ratée.
-    expect(s.renewedSubscriptions).toBe(0);
-    expect(s.dueSubscriptions).toBe(0);
-  });
-
-  it("un premier paiement échoué n'est pas un renouvellement en échec", () => {
-    const s = computeRenewalStats(
-      [pay({ membershipId: "m1", status: "failed", billingReason: "subscription_create" })],
-      [{ whopMembershipId: "m1", accessEndsAt: NOW + 1 }],
-      NOW,
-    );
-    expect(s.failedRenewalAttempts).toBe(0);
+    const o = { now: NOW, weekKeyOf: SEM };
+    expect(srv.computeRenewalStats(jeu, mems, o)).toEqual(computeRenewalStats(jeu, mems, o));
   });
 });

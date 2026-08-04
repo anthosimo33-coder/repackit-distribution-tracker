@@ -434,92 +434,157 @@ export interface CycleBucket {
   members: number;
 }
 
-export interface RenewalStats {
-  /**
-   * Abonnements ARRIVÉS À ÉCHÉANCE : ceux qui ont réellement fait face à une
-   * décision de renouvellement. Deux cas, et seulement deux :
-   *  - ils ont renouvelé (≥ 2 paiements encaissés) ;
-   *  - leur accès a EXPIRÉ sans nouveau paiement (accessEndsAt dans le passé).
-   * Un abonnement encore dans sa première période (accessEndsAt à venir, un seul
-   * paiement) n'a rien décidé : le compter en échec écraserait le taux.
-   */
-  dueSubscriptions: number;
-  /** Parmi eux, ceux qui ont renouvelé au moins une fois. */
-  renewedSubscriptions: number;
-  /** dueSubscriptions > 0 ? renewed / due : null. FRACTION 0–1, l'UI ×100. */
-  renewalRate: number | null;
-  /** Abonnements encore dans leur première période — n'ont pas encore décidé. */
+/**
+ * ISSUE d'une échéance — TROIS états, jamais deux. Un renouvellement tenté et
+ * non encaissé (`past_due`, que Whop relance) n'est NI un succès NI un échec :
+ * il est INDÉTERMINÉ. Le ranger d'un côté ou de l'autre change le taux du tout
+ * au tout — vérifié en prod : 100 % en l'écartant, 55 % en le comptant en échec.
+ */
+export interface DueOutcomes {
+  /** A payé au moins un cycle supplémentaire. */
+  renewed: number;
+  /** Accès EXPIRÉ sans nouveau paiement — échec constaté. */
+  failed: number;
+  /** Renouvellement tenté, pas encore encaissé — issue INCONNUE. */
+  pending: number;
+  /** Encore dans sa première période : n'a rien décidé. */
   notYetDue: number;
-  /** Cycles moyens par client payant (paiements encaissés / clients). null si aucun. */
-  averageCycles: number | null;
-  /** Distribution : combien de clients à 1, 2, 3… paiements. Triée par cycles. */
-  cycleDistribution: CycleBucket[];
-  /** Net moyen par paiement encaissé. null si aucun. */
-  netPerPayment: number | null;
+}
+
+/** Une semaine d'acquisition et ce qu'elle a rapporté À CE JOUR. */
+export interface CohortWeek {
+  /** Clé de la semaine d'acquisition (fournie par `weekKeyOf`). */
+  week: string;
+  clients: number;
+  /** Cycles encaissés cumulés par la cohorte. */
+  cycles: number;
+  net: number;
+  /** Revenu net à ce jour rapporté au client de la cohorte. */
+  netPerClient: number;
+}
+
+export interface RenewalStats {
+  /** Issues des échéances — la base de tous les taux ci-dessous. */
+  due: DueOutcomes;
   /**
-   * Revenu sur la durée de vie = net moyen par paiement × cycles moyens. null si
-   * indéterminable. C'est une LECTURE DU PASSÉ, pas une projection : avec des
-   * abonnements encore jeunes elle SOUS-ESTIME la valeur finale.
+   * Taux sur les échéances RÉSOLUES (renouvelées + échouées). C'est le taux
+   * honnête : il ne se prononce pas sur ce qui n'est pas tranché. null si
+   * aucune échéance n'est résolue.
    */
-  lifetimeValue: number | null;
+  renewalRateResolved: number | null;
+  /**
+   * BORNE BASSE — taux si TOUTES les échéances en attente finissaient en échec.
+   * Affiché À CÔTÉ du taux résolu : entre les deux se trouve la vérité, et
+   * n'en montrer qu'un seul serait un choix caché.
+   */
+  renewalRateWorstCase: number | null;
+  /** Échéances tranchées (renouvelées + échouées) — taille d'échantillon du taux. */
+  resolvedDueCount: number;
+  /** Cycles moyens par client. DESCRIPTIF : écrasé par les abonnements jeunes. */
+  averageCycles: number | null;
+  cycleDistribution: CycleBucket[];
+  /** Net moyen par paiement encaissé. */
+  netPerPayment: number | null;
+  /** Revenu net TOTAL encaissé (renouvellements compris). */
+  netTotal: number;
+  /**
+   * 1 — REVENU À CE JOUR PAR CLIENT = net total / clients payants. Du RÉEL :
+   * aucune projection, aucune hypothèse. Se lit tel quel, monte tout seul.
+   */
+  revenueToDatePerClient: number | null;
+  /**
+   * 2 — REVENU PROJETÉ PAR CLIENT au taux RÉSOLU. Nombre de cycles espéré =
+   * 1 / (1 − taux), × net moyen par paiement. Dérivé du TAUX, pas d'une moyenne
+   * de cycles que les abonnements jeunes écrasent.
+   * null quand le taux vaut 1 : 1/(1−1) diverge. Un taux de 100 % sur un petit
+   * échantillon ne veut pas dire « valeur infinie », il veut dire « pas encore
+   * d'échec observé » — on ne projette pas là-dessus.
+   */
+  projectedPerClientResolved: number | null;
+  /** 2 bis — même projection à la BORNE BASSE (attentes comptées en échec). */
+  projectedPerClientWorstCase: number | null;
+  /** 3 — Cohortes par semaine d'acquisition, plus ancienne d'abord. */
+  cohorts: CohortWeek[];
+  /**
+   * MATURITÉ = part des clients ayant atteint au moins une échéance. Tant
+   * qu'elle est basse, aucun taux ni aucune projection n'est interprétable :
+   * c'est mesurer une espérance de vie sur une population encore vivante.
+   */
+  matureShare: number | null;
   /** Clients (abonnements) distincts ayant au moins un paiement encaissé. */
   payingMembers: number;
-  /**
-   * Renouvellements TENTÉS mais PAS encaissés (statut failed/pending — Whop
-   * relance un `past_due` plusieurs jours). Ce ne sont ni des churns confirmés
-   * ni du revenu : de l'argent EN SUSPENS. Les ignorer ferait lire un taux de
-   * renouvellement flatteur alors que des échéances sont en train d'échouer.
-   */
-  failedRenewalAttempts: number;
-  /** Montant brut de ces tentatives — le montant à relancer. */
-  failedRenewalAmount: number;
+  /** Montant brut des renouvellements en attente — l'argent en suspens. */
+  pendingRenewalAmount: number;
 }
 
 /**
- * Taux de renouvellement, cycles par client et revenu sur la durée de vie.
- * L'état des abonnements Whop FAIT FOI pour l'échéance ; les paiements font foi
- * pour les cycles. `now` est injecté (test déterministe).
+ * Taux de renouvellement, revenu par client (réel et projeté) et cohortes.
+ * L'état des abonnements Whop FAIT FOI pour l'échéance, les paiements pour les
+ * cycles. `now` et `weekKeyOf` sont injectés (test déterministe, fuseau décidé
+ * par l'appelant).
  */
 export function computeRenewalStats(
   payments: WhopRenewalPaymentLike[],
   memberships: WhopMembershipLike[],
-  now: number,
+  opts: { now: number; weekKeyOf: (ms: number) => string },
 ): RenewalStats {
-  // Cycles encaissés par abonnement.
   const cyclesByMember = new Map<string, number>();
+  const netByMember = new Map<string, number>();
+  const firstPaidByMember = new Map<string, number>();
+  /** Abonnements ayant une tentative de renouvellement NON encaissée en cours. */
+  const pendingByMember = new Map<string, number>();
+  let pendingRenewalAmount = 0;
   let paidPayments = 0;
-  let paidNet = 0;
-  let failedRenewalAttempts = 0;
-  let failedRenewalAmount = 0;
+  let netTotal = 0;
+
   for (const p of payments) {
-    // Renouvellement tenté et NON encaissé : ni churn ni revenu, argent en suspens.
-    if (
-      whopBillingOrigin(p.billingReason) === "renewal" &&
-      (p.status === "failed" || p.status === "pending")
-    ) {
-      failedRenewalAttempts += 1;
-      failedRenewalAmount = round2(failedRenewalAmount + finite(p.grossAmount));
+    const isRenewal = whopBillingOrigin(p.billingReason) === "renewal";
+    if (isRenewal && (p.status === "failed" || p.status === "pending")) {
+      if (p.membershipId) {
+        pendingByMember.set(
+          p.membershipId,
+          (pendingByMember.get(p.membershipId) ?? 0) + 1,
+        );
+      }
+      pendingRenewalAmount = round2(pendingRenewalAmount + finite(p.grossAmount));
     }
     if (!isCustomerPaid(p.status)) continue;
     paidPayments += 1;
-    paidNet = round2(paidNet + whopNetContribution(p));
+    const net = whopNetContribution(p);
+    netTotal = round2(netTotal + net);
     const id = p.membershipId;
     if (!id) continue;
     cyclesByMember.set(id, (cyclesByMember.get(id) ?? 0) + 1);
+    netByMember.set(id, round2((netByMember.get(id) ?? 0) + net));
+    const prev = firstPaidByMember.get(id);
+    if (prev === undefined || p.paidAt < prev) firstPaidByMember.set(id, p.paidAt);
   }
 
-  let due = 0;
-  let renewed = 0;
-  let notYetDue = 0;
+  // ─── Issues des échéances (trois états) ────────────────────────────────────
+  const due: DueOutcomes = { renewed: 0, failed: 0, pending: 0, notYetDue: 0 };
   for (const m of memberships) {
     const cycles = cyclesByMember.get(m.whopMembershipId) ?? 0;
     if (cycles === 0) continue; // jamais payé : hors sujet du renouvellement
-    const hasRenewed = cycles >= 2;
-    const lapsed = m.accessEndsAt !== undefined && m.accessEndsAt <= now;
-    if (hasRenewed) { due += 1; renewed += 1; }
-    else if (lapsed) { due += 1; }
-    else { notYetDue += 1; }
+    if (cycles >= 2) {
+      due.renewed += 1;
+    } else if ((pendingByMember.get(m.whopMembershipId) ?? 0) > 0) {
+      // Tentative en cours : l'issue n'est PAS connue, on ne tranche pas.
+      due.pending += 1;
+    } else if (m.accessEndsAt !== undefined && m.accessEndsAt <= opts.now) {
+      due.failed += 1;
+    } else {
+      due.notYetDue += 1;
+    }
   }
+
+  const resolvedDueCount = due.renewed + due.failed;
+  const renewalRateResolved =
+    resolvedDueCount > 0
+      ? Math.round((due.renewed / resolvedDueCount) * 10000) / 10000
+      : null;
+  const worstDenom = resolvedDueCount + due.pending;
+  const renewalRateWorstCase =
+    worstDenom > 0 ? Math.round((due.renewed / worstDenom) * 10000) / 10000 : null;
 
   const dist = new Map<number, number>();
   for (const n of cyclesByMember.values()) dist.set(n, (dist.get(n) ?? 0) + 1);
@@ -528,23 +593,54 @@ export function computeRenewalStats(
     .sort((a, b) => a.cycles - b.cycles);
 
   const payingMembers = cyclesByMember.size;
-  const averageCycles = payingMembers > 0 ? Math.round((paidPayments / payingMembers) * 100) / 100 : null;
-  const netPerPayment = paidPayments > 0 ? round2(paidNet / paidPayments) : null;
+  const averageCycles =
+    payingMembers > 0 ? Math.round((paidPayments / payingMembers) * 100) / 100 : null;
+  const netPerPayment = paidPayments > 0 ? round2(netTotal / paidPayments) : null;
 
+  /** Cycles espérés depuis un taux : 1/(1−t). null si t ≥ 1 (divergence). */
+  const projectFrom = (rate: number | null): number | null => {
+    if (rate === null || rate >= 1 || netPerPayment === null) return null;
+    return round2(netPerPayment * (1 / (1 - rate)));
+  };
+
+  // ─── Cohortes par semaine d'ACQUISITION (1er paiement encaissé) ────────────
+  const cohortAcc = new Map<string, { clients: number; cycles: number; net: number }>();
+  for (const [id, first] of firstPaidByMember) {
+    const week = opts.weekKeyOf(first);
+    const a = cohortAcc.get(week) ?? { clients: 0, cycles: 0, net: 0 };
+    a.clients += 1;
+    a.cycles += cyclesByMember.get(id) ?? 0;
+    a.net = round2(a.net + (netByMember.get(id) ?? 0));
+    cohortAcc.set(week, a);
+  }
+  const cohorts: CohortWeek[] = [...cohortAcc.entries()]
+    .map(([week, a]) => ({
+      week,
+      clients: a.clients,
+      cycles: a.cycles,
+      net: a.net,
+      netPerClient: a.clients > 0 ? round2(a.net / a.clients) : 0,
+    }))
+    .sort((x, y) => x.week.localeCompare(y.week));
+
+  const matured = due.renewed + due.failed + due.pending;
   return {
-    dueSubscriptions: due,
-    renewedSubscriptions: renewed,
-    renewalRate: due > 0 ? Math.round((renewed / due) * 10000) / 10000 : null,
-    notYetDue,
+    due,
+    renewalRateResolved,
+    renewalRateWorstCase,
+    resolvedDueCount,
     averageCycles,
     cycleDistribution,
     netPerPayment,
-    lifetimeValue:
-      netPerPayment !== null && averageCycles !== null
-        ? round2(netPerPayment * averageCycles)
-        : null,
+    netTotal,
+    revenueToDatePerClient:
+      payingMembers > 0 ? round2(netTotal / payingMembers) : null,
+    projectedPerClientResolved: projectFrom(renewalRateResolved),
+    projectedPerClientWorstCase: projectFrom(renewalRateWorstCase),
+    cohorts,
+    matureShare:
+      payingMembers > 0 ? Math.round((matured / payingMembers) * 10000) / 10000 : null,
     payingMembers,
-    failedRenewalAttempts,
-    failedRenewalAmount,
+    pendingRenewalAmount,
   };
 }

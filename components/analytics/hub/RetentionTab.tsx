@@ -27,7 +27,7 @@ import {
 } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import { UsersIcon } from "lucide-react";
-import type { ChurnData } from "./types";
+import type { ChurnData, AttributionData } from "./types";
 
 /**
  * Onglet RÉTENTION (churn). Deux états séparés : RÉSILIÉ (annulé, accès encore
@@ -68,9 +68,11 @@ function frDateTime(ms: number | null): string {
 
 export function RetentionTab({
   churn,
+  attribution,
   now,
 }: {
   churn: ChurnData;
+  attribution: AttributionData | undefined;
   now: number;
 }) {
   const result = useMemo(
@@ -91,16 +93,70 @@ export function RetentionTab({
   );
   const planLabel = (planId: string) => planName.get(planId) ?? planId;
 
-  // Projection LTV = net/paiement × nombre moyen de paiements (1 + renouvellements).
-  const ltv =
-    result.sampleSufficient &&
-    churn.netPerPayment !== null &&
-    result.avgRenewals !== null
-      ? Math.round(churn.netPerPayment * (1 + result.avgRenewals) * 100) / 100
-      : null;
+  // L'ANCIENNE projection (net/paiement × moyenne de cycles) est SUPPRIMÉE : elle
+  // comptait les abonnements encore en cours comme des clients à un seul cycle,
+  // ce qui écrasait la durée de vie — mesurer une espérance de vie sur une
+  // population encore vivante. Remplacée par les trois chiffres nommés plus bas
+  // (revenu à ce jour, projection dérivée du TAUX, cohortes).
 
   // Renouvellements — Whop SEUL fait foi (billing_reason + état des abonnements).
   const renewals = churn.configured ? churn.renewals : null;
+
+  /**
+   * Sous ce nombre d'échéances TRANCHÉES, aucun taux n'est interprétable et la
+   * projection qui en dérive encore moins.
+   */
+  const MIN_RESOLVED_DUE = 10;
+  const concluant =
+    renewals !== null && renewals.resolvedDueCount >= MIN_RESOLVED_DUE;
+  /** Cohortes mûres = la majorité des clients a atteint au moins une échéance. */
+  const cohortsMature =
+    renewals !== null && renewals.matureShare !== null && renewals.matureShare >= 0.5;
+
+  // Projection : dérivée du TAUX (1/(1−t)), pas d'une moyenne de cycles que les
+  // abonnements jeunes écrasent. À 100 % la formule diverge — un taux sans échec
+  // observé ne vaut pas « valeur infinie », on affiche la borne basse à la place.
+  const projectedLabel = !renewals
+    ? "—"
+    : !concluant
+      ? "non concluant"
+      : renewals.projectedPerClientResolved !== null
+        ? formatMoney(renewals.projectedPerClientResolved, churn.currency)
+        : renewals.projectedPerClientWorstCase !== null
+          ? `≥ ${formatMoney(renewals.projectedPerClientWorstCase, churn.currency)}`
+          : "—";
+  const projectedHint = !renewals
+    ? ""
+    : !concluant
+      ? `${formatNumber(renewals.resolvedDueCount)} échéance(s) tranchée(s), seuil ${MIN_RESOLVED_DUE}`
+      : renewals.projectedPerClientResolved !== null
+        ? `taux ${pct(renewals.renewalRateResolved)} · ${formatNumber(renewals.resolvedDueCount)} échéances observées`
+        : `taux ${pct(renewals.renewalRateResolved)} — 1/(1−t) diverge, borne basse affichée`;
+
+  // Coût d'acquisition : MÊME dénominateur que le revenu par client (les clients
+  // payants Whop), et converti dans la devise du revenu — le comparer brut
+  // reviendrait à opposer des dollars à des euros.
+  const acqCostPayCur =
+    attribution?.costs.promo != null && attribution.costs.promoBonus != null && renewals
+      ? renewals.payingMembers > 0
+        ? Math.round(
+            ((attribution.costs.promo + attribution.costs.promoBonus) /
+              renewals.payingMembers) *
+              100,
+          ) / 100
+        : null
+      : null;
+  const fx = attribution?.fxRateToRevenue ?? null;
+  const acqCostRevCur =
+    acqCostPayCur !== null && fx !== null
+      ? Math.round(acqCostPayCur * fx * 100) / 100
+      : null;
+  const ratioOf = (v: number | null | undefined): number | null =>
+    v != null && acqCostRevCur !== null && acqCostRevCur > 0
+      ? Math.round((v / acqCostRevCur) * 100) / 100
+      : null;
+  const ratioToDate = ratioOf(renewals?.revenueToDatePerClient);
+  const ratioWorst = ratioOf(renewals?.projectedPerClientWorstCase);
 
   if (!churn.configured) {
     return (
@@ -135,8 +191,8 @@ export function RetentionTab({
         </HubNotice>
       ) : null}
 
-      {/* KPI : résiliations, expirations, taux, LTV */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {/* KPI churn : résiliations, expirations, taux */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <KpiTile
           label="Résiliations"
           value={dash(result.resiliations)}
@@ -158,23 +214,28 @@ export function RetentionTab({
           hint={`${formatNumber(result.resiliations)} / ${formatNumber(result.clients)} clients`}
           info={EXPLAIN.tauxResiliation}
         />
-        <KpiTile
-          label="Renouvellement client (LTV)"
-          value={ltv === null ? "—" : formatMoney(ltv, churn.currency)}
-          delta={null}
-          hint={
-            ltv === null
-              ? "échantillon insuffisant"
-              : `net/paiement × ${formatNumber(Math.round((1 + (result.avgRenewals ?? 0)) * 100) / 100)} paiements`
-          }
-          info={EXPLAIN.projectionLtv}
-        />
       </div>
 
       {/* RENOUVELLEMENTS — la métrique qui décide si le moteur est viable */}
       {renewals ? (
         <>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <KpiTile
+              label="Revenu à ce jour par client"
+              value={
+                renewals.revenueToDatePerClient === null
+                  ? "—"
+                  : formatMoney(renewals.revenueToDatePerClient, churn.currency)
+              }
+              delta={null}
+              hint={`${formatMoney(renewals.netTotal, churn.currency)} encaissés / ${formatNumber(renewals.payingMembers)} clients · réel, sans projection`}
+            />
+            <KpiTile
+              label="Revenu projeté par client"
+              value={projectedLabel}
+              delta={null}
+              hint={projectedHint}
+            />
             <KpiTile
               label="Revenu de renouvellement"
               value={formatMoney(renewals.renewalNet, churn.currency)}
@@ -186,36 +247,241 @@ export function RetentionTab({
               }
             />
             <KpiTile
-              label="Revenu nouveau"
-              value={formatMoney(renewals.newNet, churn.currency)}
+              label="Maturité des cohortes"
+              value={renewals.matureShare === null ? "—" : pct(renewals.matureShare)}
               delta={null}
-              hint={`${formatNumber(renewals.newCount)} premiers paiements`}
-            />
-            <KpiTile
-              label="Taux de renouvellement"
-              value={renewals.renewalRate === null ? "—" : pct(renewals.renewalRate)}
-              delta={null}
-              hint={
-                renewals.renewalRate === null
-                  ? "aucune échéance atteinte"
-                  : `${formatNumber(renewals.renewedSubscriptions)} / ${formatNumber(renewals.dueSubscriptions)} arrivés à échéance`
-              }
-            />
-            <KpiTile
-              label="Revenu sur la durée de vie"
-              value={
-                renewals.lifetimeValue === null
-                  ? "—"
-                  : formatMoney(renewals.lifetimeValue, churn.currency)
-              }
-              delta={null}
-              hint={
-                renewals.lifetimeValue === null
-                  ? "aucun paiement encaissé"
-                  : `${formatMoney(renewals.netPerPayment ?? 0, churn.currency)} × ${formatNumber(renewals.averageCycles ?? 0)} cycles`
-              }
+              hint={`${formatNumber(renewals.due.notYetDue)} client(s) encore dans leur 1re période`}
             />
           </div>
+
+          {/* Le ratio ne veut rien dire tant que les cohortes sont vertes. */}
+          {!cohortsMature ? (
+            <HubNotice className="border-amber-200 bg-amber-50/70 text-amber-900">
+              <strong>Cohortes encore vertes.</strong>{" "}
+              {formatNumber(renewals.due.notYetDue)} client(s) sur{" "}
+              {formatNumber(renewals.payingMembers)} n&apos;ont pas encore atteint une
+              seule échéance. Tant que c&apos;est le cas, ni le taux de renouvellement
+              ni la projection ni le ratio face au coût d&apos;acquisition ne sont
+              interprétables — c&apos;est mesurer une espérance de vie sur une
+              population encore vivante.
+            </HubNotice>
+          ) : null}
+
+          {/* Taux de renouvellement — DEUX bornes, et le sort des past_due dit. */}
+          <Card>
+            <CardContent className="space-y-3 p-4">
+              <HubCardHeader
+                title="Taux de renouvellement"
+                subtitle="Calculé sur les seules échéances TRANCHÉES. Les renouvellements en cours de relance ne sont comptés ni en succès ni en échec — ils bornent la fourchette."
+              />
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <KpiTile
+                  label="Sur échéances résolues"
+                  value={
+                    renewals.renewalRateResolved === null
+                      ? "—"
+                      : pct(renewals.renewalRateResolved)
+                  }
+                  delta={null}
+                  hint={`${formatNumber(renewals.due.renewed)} renouvelées / ${formatNumber(renewals.resolvedDueCount)} tranchées`}
+                />
+                <KpiTile
+                  label="Borne basse"
+                  value={
+                    renewals.renewalRateWorstCase === null
+                      ? "—"
+                      : pct(renewals.renewalRateWorstCase)
+                  }
+                  delta={null}
+                  hint={`si les ${formatNumber(renewals.due.pending)} en attente échouaient toutes`}
+                />
+                <KpiTile
+                  label="En attente de relance"
+                  value={dash(renewals.due.pending)}
+                  delta={null}
+                  hint={`${formatMoney(renewals.pendingRenewalAmount, churn.currency)} bruts en suspens`}
+                />
+              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Issue de l&apos;échéance</TableHead>
+                    <TableHead className="text-right">Abonnements</TableHead>
+                    <TableHead>Compté dans le taux ?</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <TableRow>
+                    <TableCell className="text-xs">Renouvelée</TableCell>
+                    <TableCell className="text-right text-xs tabular-nums">
+                      {formatNumber(renewals.due.renewed)}
+                    </TableCell>
+                    <TableCell className="text-xs text-slate-500">
+                      oui — au numérateur
+                    </TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell className="text-xs">
+                      Échouée (accès expiré, sans relance)
+                    </TableCell>
+                    <TableCell className="text-right text-xs tabular-nums">
+                      {formatNumber(renewals.due.failed)}
+                    </TableCell>
+                    <TableCell className="text-xs text-slate-500">
+                      oui — au dénominateur
+                    </TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell className="text-xs font-medium text-amber-800">
+                      En attente (past_due, Whop relance)
+                    </TableCell>
+                    <TableCell className="text-right text-xs font-medium tabular-nums text-amber-800">
+                      {formatNumber(renewals.due.pending)}
+                    </TableCell>
+                    <TableCell className="text-xs font-medium text-amber-800">
+                      NON — issue inconnue, uniquement dans la borne basse
+                    </TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell className="text-xs">Pas encore due</TableCell>
+                    <TableCell className="text-right text-xs tabular-nums">
+                      {formatNumber(renewals.due.notYetDue)}
+                    </TableCell>
+                    <TableCell className="text-xs text-slate-500">
+                      non — n&apos;a rien décidé
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          {/* Face au coût d'acquisition — même dénominateur, devises converties. */}
+          <Card>
+            <CardContent className="space-y-3 p-4">
+              <HubCardHeader
+                title="Revenu par client contre coût d'acquisition"
+                subtitle="Deux devises : le coût créatrices est en dollars, le revenu Whop en euros. Le coût est converti au taux du projet pour être comparable — jamais soustrait brut."
+              />
+              {acqCostRevCur === null ? (
+                <p className="text-xs text-slate-500">
+                  Coût d&apos;acquisition indisponible (coût par vidéo manquant ou taux
+                  de change du projet non réglé) — aucun ratio affiché plutôt qu&apos;un
+                  ratio inventé.
+                </p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Grandeur</TableHead>
+                      <TableHead className="text-right">Par client</TableHead>
+                      <TableHead className="text-right">
+                        Ratio / coût d&apos;acquisition
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    <TableRow>
+                      <TableCell className="text-xs">
+                        Coût d&apos;acquisition
+                        <span className="text-slate-400">
+                          {" "}
+                          ({formatMoney(acqCostPayCur ?? 0, attribution?.payCurrency)}{" "}
+                          converti)
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {formatMoney(acqCostRevCur, churn.currency)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums text-slate-400">
+                        1,00
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell className="text-xs">Revenu à ce jour</TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {renewals.revenueToDatePerClient === null
+                          ? "—"
+                          : formatMoney(renewals.revenueToDatePerClient, churn.currency)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs font-medium tabular-nums">
+                        {ratioToDate === null ? "—" : ratioToDate.toFixed(2)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell className="text-xs">
+                        Revenu projeté (borne basse)
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {renewals.projectedPerClientWorstCase === null
+                          ? "—"
+                          : formatMoney(
+                              renewals.projectedPerClientWorstCase,
+                              churn.currency,
+                            )}
+                      </TableCell>
+                      <TableCell className="text-right text-xs font-medium tabular-nums">
+                        {ratioWorst === null ? "—" : ratioWorst.toFixed(2)}
+                      </TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              )}
+              <p className="text-xs text-slate-500">
+                Un ratio supérieur à 1 signifie que le client rapporte plus qu&apos;il
+                n&apos;a coûté. {cohortsMature ? "" : "Non concluant à ce stade : "}
+                {cohortsMature
+                  ? ""
+                  : "la majorité des abonnements n'a pas franchi une seule échéance."}
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* Cohortes — la seule lecture honnête de la durée de vie qui se construit */}
+          <Card>
+            <CardContent className="space-y-3 p-4">
+              <HubCardHeader
+                title="Cohortes par semaine d'acquisition"
+                subtitle="Les cohortes anciennes ont un historique, les récentes non. C'est là qu'on voit la durée de vie se construire, sans moyenne qui écrase."
+              />
+              {renewals.cohorts.length === 0 ? (
+                <p className="text-xs text-slate-500">Aucun client encaissé.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Semaine d&apos;acquisition</TableHead>
+                      <TableHead className="text-right">Clients</TableHead>
+                      <TableHead className="text-right">Cycles franchis</TableHead>
+                      <TableHead className="text-right">Revenu cumulé</TableHead>
+                      <TableHead className="text-right">Par client</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {renewals.cohorts.map((c) => (
+                      <TableRow key={c.week}>
+                        <TableCell className="whitespace-nowrap text-xs tabular-nums">
+                          {c.week}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {formatNumber(c.clients)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {formatNumber(c.cycles)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {formatMoney(c.net, churn.currency)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs font-medium tabular-nums">
+                          {formatMoney(c.netPerClient, churn.currency)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
 
           <Card>
             <CardContent className="space-y-3 p-4">
@@ -367,10 +633,11 @@ export function RetentionTab({
                       </TableBody>
                     </Table>
                     <p className="text-xs text-slate-500">
-                      {formatNumber(renewals.notYetDue)} abonnement(s) sont encore dans
-                      leur première période : ils n&apos;ont pas encore décidé, et sont
-                      exclus du taux de renouvellement (les compter en échec
-                      l&apos;écraserait).
+                      {formatNumber(renewals.due.notYetDue)} abonnement(s) sont encore
+                      dans leur première période : ils n&apos;ont pas encore décidé, et
+                      sont exclus du taux (les compter en échec l&apos;écraserait).
+                      Cette moyenne de cycles est DESCRIPTIVE — elle ne sert pas à
+                      projeter, justement parce que les abonnements jeunes l&apos;écrasent.
                     </p>
                   </>
                 )}
@@ -378,18 +645,6 @@ export function RetentionTab({
             </Card>
           </div>
 
-          {renewals.failedRenewalAttempts > 0 ? (
-            <HubNotice className="border-amber-200 bg-amber-50/70 text-amber-900">
-              <strong>
-                {formatNumber(renewals.failedRenewalAttempts)} renouvellement(s) en
-                échec
-              </strong>{" "}
-              ({formatMoney(renewals.failedRenewalAmount, churn.currency)} brut) :
-              échéances tentées et non encaissées (<code>past_due</code> côté Whop, qui
-              relance). Ni churn confirmé ni revenu — de l&apos;argent en suspens, exclu
-              du taux de renouvellement ci-dessus.
-            </HubNotice>
-          ) : null}
         </>
       ) : null}
 

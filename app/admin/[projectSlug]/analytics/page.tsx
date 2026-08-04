@@ -239,7 +239,7 @@ export default function AnalyticsPage() {
               {churn === undefined ? (
                 <Skeleton className="h-64 w-full" />
               ) : (
-                <RetentionTab churn={churn} now={now} />
+                <RetentionTab churn={churn} attribution={attribution} now={now} />
               )}
             </TabsContent>
 
