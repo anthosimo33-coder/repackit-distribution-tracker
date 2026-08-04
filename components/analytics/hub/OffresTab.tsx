@@ -114,6 +114,16 @@ export function OffresTab({
   const paywallConv = computeConversion(
     paywallRows.map((r) => ({ key: r.key, label: r.key, n: r.n, converted: r.converted })),
   );
+  // Fenêtre RÉELLE de la carte : ancrée sur la première émission de paywall_id,
+  // pas sur les 90 jours. Un taux calculé sur une autre fenêtre que celle
+  // annoncée est un chiffre faux — on écrit donc la date à l'écran.
+  const paywallStart =
+    analytics.paywallById.startMs != null
+      ? new Date(analytics.paywallById.startMs).toLocaleDateString("fr-FR", {
+          day: "numeric",
+          month: "long",
+        })
+      : null;
 
   // Un vrai test A/B n'existe que si experiment_id est émis (sinon « aucun test »).
   const abTestActive =
@@ -357,7 +367,11 @@ export function OffresTab({
         <CardContent className="space-y-3 p-4">
           <HubCardHeader
             title="Conversion par paywall"
-            subtitle="L'app a 7 emplacements de paywall, mais variant n'en distingue que 2 (gate/upsell)."
+            subtitle={
+              paywallStart === null
+                ? "L'app a 7 emplacements de paywall, mais variant n'en distingue que 2 (gate/upsell)."
+                : `Depuis le ${paywallStart}, première émission de paywall_id. L'historique antérieur est EXCLU : il n'a pas la propriété, l'inclure rangerait 80 % des personnes en « inconnu ».`
+            }
             info={EXPLAIN.conversionParPaywall}
           />
           {!paywallReady ? (

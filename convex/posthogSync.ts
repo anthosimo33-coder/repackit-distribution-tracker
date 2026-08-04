@@ -116,6 +116,13 @@ export interface TimeToValuePayload {
 }
 export interface ConversionPayload {
   rows: { key: string; n: number; converted: number }[];
+  /**
+   * Début de la fenêtre analysée (ms), quand l'agrégat est ANCRÉ sur la première
+   * émission de sa propriété plutôt que sur les 90 jours (cf. paywallById). null
+   * = fenêtre standard. L'UI l'affiche : un taux calculé sur une fenêtre
+   * différente de celle annoncée est un chiffre faux.
+   */
+  startMs?: number | null;
 }
 export interface CohortsPayload {
   segments: {
@@ -542,19 +549,31 @@ ORDER BY n DESC
 LIMIT ${SEGMENT_LIMIT}`,
 
   /**
-   * Conversion par PAYWALL (paywall_id) — l'app a 6 paywalls mais `variant` n'en
-   * distingue que 2. Tant que paywall_id n'est pas émis, tout tombe en '(inconnu)'
-   * et la carte affiche un tiret (elle s'allumera seule quand la propriété arrivera).
+   * Conversion par PAYWALL (paywall_id) — l'app a 7 emplacements mais `variant`
+   * n'en distingue que 2.
+   *
+   * FENÊTRE ANCRÉE SUR LA PREMIÈRE ÉMISSION de `paywall_id` (vérifié prod :
+   * 29/07 16:24 Paris). Sans cet ancrage, les 90 jours ramènent tout
+   * l'historique d'avant l'instrumentation en '(inconnu)' — 649 personnes sur
+   * 814, soit une carte à 80 % illisible qui donne l'impression d'un défaut
+   * d'émission alors que la propriété marche. Même parti que
+   * `firstSearchAfterPay`, qui s'ancre déjà sur son début d'instrumentation.
+   * `started` remonte l'horodatage pour que l'UI DISE sur quoi elle porte.
    */
   paywallById: `
-SELECT ${segExpr("paywall_id")} AS seg, count() AS n, countIf(subscribed > 0) AS converted
+SELECT ${segExpr("paywall_id")} AS seg, count() AS n, countIf(subscribed > 0) AS converted, min(started) AS started
 FROM (
   SELECT person_id,
     argMaxIf(properties.paywall_id, timestamp, event = 'paywall_viewed') AS paywall_id,
     countIf(event = 'subscription_completed') AS subscribed,
-    countIf(event = 'paywall_viewed') AS viewed
+    countIf(event = 'paywall_viewed') AS viewed,
+    (SELECT min(timestamp) FROM events
+      WHERE isNotNull(properties.paywall_id)
+        AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY) AS started
   FROM events
-  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+  WHERE timestamp >= (SELECT min(timestamp) FROM events
+      WHERE isNotNull(properties.paywall_id)
+        AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY)${notCounted}
     AND event IN ('paywall_viewed', 'subscription_completed')
   GROUP BY person_id
 )
@@ -1329,7 +1348,12 @@ export const runHourlySync = internalAction({
           apiKey,
           target,
           QUERIES.paywallById,
-          shapeConversion,
+          // Colonne 3 = début de fenêtre (première émission de paywall_id),
+          // identique sur chaque ligne → on la lit une fois.
+          (rows): ConversionPayload => ({
+            ...shapeConversion(rows),
+            startMs: rows.length > 0 ? cellTimeMs(rows[0], 3) : null,
+          }),
         ),
         await collect(
           POSTHOG_CACHE_KEYS.sources,
