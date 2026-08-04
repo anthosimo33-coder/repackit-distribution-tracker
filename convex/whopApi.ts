@@ -39,6 +39,15 @@ export interface NormalizedWhopPayment {
   paidAt: number;
   planId?: string;
   membershipId?: string;
+  /**
+   * MOTIF de facturation Whop (`billing_reason`) : `subscription_create` = premier
+   * paiement d'un abonnement (client NOUVEAU), `subscription_cycle` = échéance
+   * suivante (RENOUVELLEMENT). Sans lui, un renouvellement est indiscernable
+   * d'une acquisition — le jour où le revenu vient des seuls renouvellements,
+   * la lecture « 0 client payant » est juste mais incompréhensible.
+   * Absent sur les paiements anciens (non re-synchronisés) → `undefined`.
+   */
+  billingReason?: string;
   /** Pseudo Whop du client (username, sinon nom) — identifie un litige à traiter. */
   memberName?: string;
   /** Échéance de réponse au litige EN COURS (needs_response_by) — ms. Urgent. */
@@ -156,6 +165,10 @@ export function normalizeWhopPayment(raw: unknown): NormalizedWhopPayment | null
   const paidAt = toMs(r.paid_at) || toMs(r.created_at);
   const planId = getStr(asRecord(r.plan)?.id);
   const membershipId = getStr(asRecord(r.membership)?.id);
+  // Vérifié en prod le 03/08 : deux valeurs seulement, subscription_create (46) et
+  // subscription_cycle (13). On stocke la valeur BRUTE — une valeur future
+  // inconnue doit rester lisible, pas être écrasée dans un booléen.
+  const billingReason = getStr(r.billing_reason);
   // Client (pseudo public) — pour identifier un litige à traiter côté Whop.
   const memberName =
     getStr(asRecord(r.user)?.username) ??
@@ -175,6 +188,7 @@ export function normalizeWhopPayment(raw: unknown): NormalizedWhopPayment | null
     paidAt,
     planId,
     membershipId,
+    billingReason,
     memberName,
     disputeDueAt,
     disputeReason,

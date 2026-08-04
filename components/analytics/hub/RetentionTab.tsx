@@ -99,6 +99,9 @@ export function RetentionTab({
       ? Math.round(churn.netPerPayment * (1 + result.avgRenewals) * 100) / 100
       : null;
 
+  // Renouvellements — Whop SEUL fait foi (billing_reason + état des abonnements).
+  const renewals = churn.configured ? churn.renewals : null;
+
   if (!churn.configured) {
     return (
       <HubEmptyState
@@ -167,6 +170,228 @@ export function RetentionTab({
           info={EXPLAIN.projectionLtv}
         />
       </div>
+
+      {/* RENOUVELLEMENTS — la métrique qui décide si le moteur est viable */}
+      {renewals ? (
+        <>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <KpiTile
+              label="Revenu de renouvellement"
+              value={formatMoney(renewals.renewalNet, churn.currency)}
+              delta={null}
+              hint={
+                renewals.renewalShare === null
+                  ? "aucun revenu classé"
+                  : `${pct(renewals.renewalShare)} du revenu classé · ${formatNumber(renewals.renewalCount)} paiements`
+              }
+            />
+            <KpiTile
+              label="Revenu nouveau"
+              value={formatMoney(renewals.newNet, churn.currency)}
+              delta={null}
+              hint={`${formatNumber(renewals.newCount)} premiers paiements`}
+            />
+            <KpiTile
+              label="Taux de renouvellement"
+              value={renewals.renewalRate === null ? "—" : pct(renewals.renewalRate)}
+              delta={null}
+              hint={
+                renewals.renewalRate === null
+                  ? "aucune échéance atteinte"
+                  : `${formatNumber(renewals.renewedSubscriptions)} / ${formatNumber(renewals.dueSubscriptions)} arrivés à échéance`
+              }
+            />
+            <KpiTile
+              label="Revenu sur la durée de vie"
+              value={
+                renewals.lifetimeValue === null
+                  ? "—"
+                  : formatMoney(renewals.lifetimeValue, churn.currency)
+              }
+              delta={null}
+              hint={
+                renewals.lifetimeValue === null
+                  ? "aucun paiement encaissé"
+                  : `${formatMoney(renewals.netPerPayment ?? 0, churn.currency)} × ${formatNumber(renewals.averageCycles ?? 0)} cycles`
+              }
+            />
+          </div>
+
+          <Card>
+            <CardContent className="space-y-3 p-4">
+              <HubCardHeader
+                title="Revenu nouveau contre revenu de renouvellement"
+                subtitle="Source Whop (billing_reason). Un renouvellement n'est PAS un nouveau client : sans cette séparation, une journée faite de renouvellements affiche « 0 client payant » à côté d'un revenu non nul."
+              />
+              {renewals.unknownPayments > 0 ? (
+                <HubNotice>
+                  <strong>
+                    {formatNumber(renewals.unknownPayments)} paiement(s) d&apos;origine
+                    inconnue
+                  </strong>{" "}
+                  ({formatMoney(renewals.unknownNet, churn.currency)}) : importés avant
+                  la capture de <code>billing_reason</code>. Ils ne sont comptés ni en
+                  acquisition ni en rétention — la part de renouvellement porte
+                  uniquement sur le revenu classé.
+                </HubNotice>
+              ) : null}
+              {renewals.days.length === 0 ? (
+                <p className="text-xs text-slate-500">Aucun paiement encaissé.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Jour</TableHead>
+                      <TableHead className="text-right">
+                        <ColLabel label="Nouveau" />
+                      </TableHead>
+                      <TableHead className="text-right">
+                        <ColLabel label="Renouvellement" />
+                      </TableHead>
+                      <TableHead className="text-right">
+                        <ColLabel label="Cumul renouv." />
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {[...renewals.days].reverse().map((d) => (
+                      <TableRow key={d.day}>
+                        <TableCell className="whitespace-nowrap text-xs tabular-nums">
+                          {d.day}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {d.newCount === 0 ? (
+                            <span className="text-slate-400">—</span>
+                          ) : (
+                            <>
+                              {formatMoney(d.newNet, churn.currency)}{" "}
+                              <span className="text-slate-400">
+                                ({formatNumber(d.newCount)})
+                              </span>
+                            </>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right text-xs font-medium tabular-nums">
+                          {d.renewalCount === 0 ? (
+                            <span className="text-slate-400">—</span>
+                          ) : (
+                            <>
+                              {formatMoney(d.renewalNet, churn.currency)}{" "}
+                              <span className="text-slate-400">
+                                ({formatNumber(d.renewalCount)})
+                              </span>
+                            </>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums text-slate-500">
+                          {formatMoney(d.cumulativeRenewalNet, churn.currency)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <Card>
+              <CardContent className="space-y-3 p-4">
+                <HubCardHeader
+                  title="Renouvellements par offre"
+                  subtitle="Quelle offre se reconduit, et pour combien de clients distincts."
+                />
+                {renewals.byPlan.length === 0 ? (
+                  <p className="text-xs text-slate-500">Aucun renouvellement encaissé.</p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Offre</TableHead>
+                        <TableHead className="text-right">Renouv.</TableHead>
+                        <TableHead className="text-right">Clients</TableHead>
+                        <TableHead className="text-right">Net</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {renewals.byPlan.map((r) => (
+                        <TableRow key={r.planId}>
+                          <TableCell className="text-xs">
+                            {planLabel(r.planId)}
+                          </TableCell>
+                          <TableCell className="text-right text-xs tabular-nums">
+                            {formatNumber(r.renewalCount)}
+                          </TableCell>
+                          <TableCell className="text-right text-xs tabular-nums">
+                            {formatNumber(r.members)}
+                          </TableCell>
+                          <TableCell className="text-right text-xs tabular-nums">
+                            {formatMoney(r.renewalNet, churn.currency)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="space-y-3 p-4">
+                <HubCardHeader
+                  title="Cycles par client"
+                  subtitle="Combien de fois un même abonnement a payé. La moyenne SOUS-ESTIME tant que des abonnements sont jeunes."
+                />
+                {renewals.cycleDistribution.length === 0 ? (
+                  <p className="text-xs text-slate-500">Aucun paiement encaissé.</p>
+                ) : (
+                  <>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Cycles payés</TableHead>
+                          <TableHead className="text-right">Clients</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {renewals.cycleDistribution.map((c) => (
+                          <TableRow key={c.cycles}>
+                            <TableCell className="text-xs tabular-nums">
+                              {formatNumber(c.cycles)}
+                            </TableCell>
+                            <TableCell className="text-right text-xs tabular-nums">
+                              {formatNumber(c.members)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    <p className="text-xs text-slate-500">
+                      {formatNumber(renewals.notYetDue)} abonnement(s) sont encore dans
+                      leur première période : ils n&apos;ont pas encore décidé, et sont
+                      exclus du taux de renouvellement (les compter en échec
+                      l&apos;écraserait).
+                    </p>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {renewals.failedRenewalAttempts > 0 ? (
+            <HubNotice className="border-amber-200 bg-amber-50/70 text-amber-900">
+              <strong>
+                {formatNumber(renewals.failedRenewalAttempts)} renouvellement(s) en
+                échec
+              </strong>{" "}
+              ({formatMoney(renewals.failedRenewalAmount, churn.currency)} brut) :
+              échéances tentées et non encaissées (<code>past_due</code> côté Whop, qui
+              relance). Ni churn confirmé ni revenu — de l&apos;argent en suspens, exclu
+              du taux de renouvellement ci-dessus.
+            </HubNotice>
+          ) : null}
+        </>
+      ) : null}
 
       {/* Ce qui ARRIVE — pertes d'accès à venir + clients projetés */}
       <Card>
