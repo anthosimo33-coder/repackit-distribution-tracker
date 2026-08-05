@@ -17,6 +17,7 @@ import {
   checkMonotonicity,
   funnelCoherenceChecks,
   buildCoherenceChecks,
+  abArmCoherenceChecks,
   parisDayKey,
   parisShortDate,
   daysUntil,
@@ -630,5 +631,114 @@ describe("daysUntil — décompte de réponse à un litige", () => {
     expect(daysUntil(now - 2 * DAY, now)).toBe(-2);
     expect(daysUntil(null, now)).toBeNull();
     expect(daysUntil(NaN, now)).toBeNull();
+  });
+});
+
+describe("abArmCoherenceChecks — garde-fou de la carte Test A/B", () => {
+  /** Un bras sain : 1 client sur 1 checkout, 6 cibles ajoutées après paiement. */
+  const soft = {
+    variant: "soft",
+    exposed: 24,
+    paywallViewers: 11,
+    checkouts: 1,
+    paid: 1,
+    paidWithoutCheckout: 0,
+    clientTargets: 6,
+    armTargets: 14,
+    shownCompletionPct: 100,
+    shownTargetsPerClient: 6,
+  };
+  /** Bras sans aucun target_added : le ratio par client n'est pas mesurable. */
+  const hard = {
+    variant: "hard",
+    exposed: 20,
+    paywallViewers: 13,
+    checkouts: 4,
+    paid: 1,
+    paidWithoutCheckout: 0,
+    clientTargets: 0,
+    armTargets: 0,
+    shownCompletionPct: 25,
+    shownTargetsPerClient: null,
+  };
+  const byKey = (checks: { key: string; status: string; detail: string }[]) =>
+    new Map(checks.map((c) => [c.key, c]));
+
+  it("carte conforme → tout au vert", () => {
+    const m = byKey(abArmCoherenceChecks([soft, hard]));
+    expect(m.get("ab_completion_subset")?.status).toBe("ok");
+    expect(m.get("ab_completion_matches_columns")?.status).toBe("ok");
+    expect(m.get("ab_columns_monotone")?.status).toBe("ok");
+    expect(m.get("ab_targets_per_client")?.status).toBe("ok");
+  });
+
+  it("aucun contrôle sur une carte vide (aucun bras assigné)", () => {
+    expect(abArmCoherenceChecks([])).toEqual([]);
+  });
+
+  it("attrape le bug d'unité : un ratio affiché à la place d'un pourcentage", () => {
+    // Le bug réel : pct(paid / checkouts) rendait « 0,5 % » pour 50 %.
+    const m = byKey(
+      abArmCoherenceChecks([
+        { ...hard, paid: 2, checkouts: 4, shownCompletionPct: 0.5 },
+      ]),
+    );
+    const c = m.get("ab_completion_matches_columns");
+    expect(c?.status).toBe("violation");
+    expect(c?.detail).toContain("50 % réel");
+    expect(c?.detail).toContain("×100 manquant");
+  });
+
+  it("complétion > 100 % → violation (numérateur hors dénominateur)", () => {
+    const m = byKey(
+      abArmCoherenceChecks([
+        { ...hard, paid: 5, checkouts: 4, shownCompletionPct: 125 },
+      ]),
+    );
+    expect(m.get("ab_completion_subset")?.status).toBe("violation");
+    expect(m.get("ab_completion_subset")?.detail).toContain("taux > 100 %");
+  });
+
+  it("un payé sans checkout est signalé même si le total reste sous 100 %", () => {
+    const m = byKey(
+      abArmCoherenceChecks([{ ...hard, paidWithoutCheckout: 1 }]),
+    );
+    expect(m.get("ab_completion_subset")?.status).toBe("info");
+    expect(m.get("ab_completion_subset")?.detail).toContain("sans checkout_started");
+  });
+
+  it("colonnes non emboîtées → violation", () => {
+    const m = byKey(
+      abArmCoherenceChecks([{ ...hard, paywallViewers: 25, checkouts: 26 }]),
+    );
+    expect(m.get("ab_columns_monotone")?.status).toBe("violation");
+  });
+
+  it("cibles : un ratio affiché sans aucun target_added est une violation", () => {
+    const m = byKey(
+      abArmCoherenceChecks([{ ...hard, shownTargetsPerClient: 0 }]),
+    );
+    expect(m.get("ab_targets_per_client")?.status).toBe("violation");
+    expect(m.get("ab_targets_per_client")?.detail).toContain("aucun target_added");
+  });
+
+  it("cibles : attrape le bug de population (cibles du BRAS ÷ clients)", () => {
+    // Le bug réel : le numérateur prenait les cibles de TOUT le bras (14, dont 8
+    // de gens qui n'ont jamais payé) et le dénominateur les seuls clients (1).
+    const m = byKey(
+      abArmCoherenceChecks([{ ...soft, shownTargetsPerClient: 14 }]),
+    );
+    expect(m.get("ab_targets_per_client")?.status).toBe("violation");
+    expect(m.get("ab_targets_per_client")?.detail).toContain("14 affiché pour 6");
+  });
+
+  it("cibles : le numérateur ne peut pas dépasser les cibles du bras", () => {
+    const m = byKey(
+      abArmCoherenceChecks([
+        { ...soft, clientTargets: 20, shownTargetsPerClient: 20 },
+      ]),
+    );
+    expect(m.get("ab_targets_per_client")?.status).toBe("violation");
+    expect(m.get("ab_targets_per_client")?.detail).toContain("20 cibles clients");
   });
 });

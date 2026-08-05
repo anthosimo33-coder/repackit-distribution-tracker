@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/table";
 import { formatNumber } from "@/lib/format";
 import { formatMoney } from "@/lib/format-rate";
-import { computeConversion } from "@/lib/analytics-hub";
+import { computeConversion, abArmCoherenceChecks } from "@/lib/analytics-hub";
 import {
   EXPECTED_ARM_PRICING,
   EXPECTED_PAYWALL_IDS,
@@ -136,7 +136,44 @@ export function OffresTab({
 
   // ─── Test A/B par BRAS ────────────────────────────────────────────────────
   // Sessions FORCÉES déjà exclues côté requête (notForcedExperimentClause).
-  const arms = analytics.abArms.rows;
+  //
+  // Chaque taux est calculé UNE fois ici, puis passé au garde-fou avec la valeur
+  // affichée : le contrôle compare l'affiché au recalculé, seule façon d'attraper
+  // une erreur d'unité (la complétion sortait un ratio dans un formateur de %).
+  const arms = useMemo(
+    () =>
+      analytics.abArms.rows.map((a) => ({
+        ...a,
+        completion: ratePct(a.paid, a.checkouts),
+        // Cibles PAYANTES par client : cibles ajoutées par les clients APRÈS
+        // leur paiement ÷ clients. Un bras qui n'émet AUCUN target_added n'a pas
+        // « 0 cible par client », il n'est pas mesuré → tiret.
+        targetsPerClient:
+          a.paid > 0 && a.armTargets > 0
+            ? Math.round((a.clientTargets / a.paid) * 100) / 100
+            : null,
+      })),
+    [analytics.abArms.rows],
+  );
+  const armChecks = useMemo(
+    () =>
+      abArmCoherenceChecks(
+        arms.map((a) => ({
+          variant: a.variant,
+          exposed: a.exposed,
+          paywallViewers: a.paywallViewers,
+          checkouts: a.checkouts,
+          paid: a.paid,
+          paidWithoutCheckout: a.paidWithoutCheckout,
+          clientTargets: a.clientTargets,
+          armTargets: a.armTargets,
+          shownCompletionPct: a.completion,
+          shownTargetsPerClient: a.targetsPerClient,
+        })),
+      ),
+    [arms],
+  );
+  const armAlerts = armChecks.filter((c) => c.status !== "ok");
   /** Sous ce nombre d'exposés PAR BRAS, aucune comparaison n'a de sens. */
   const AB_THRESHOLD = 330;
   const abMinExposed = arms.length > 0 ? Math.min(...arms.map((a) => a.exposed)) : 0;
@@ -386,12 +423,15 @@ export function OffresTab({
                 <TableHeader>
                   <TableRow>
                     <TableHead>Bras</TableHead>
-                    <TableHead className="text-right">Exposés</TableHead>
+                    {/* « Assignés », pas « exposés » : l'assignation est l'unité de
+                        randomisation, la moitié ne verra jamais le paywall. */}
+                    <TableHead className="text-right">Assignés</TableHead>
+                    <TableHead className="text-right">Ont vu le paywall</TableHead>
                     <TableHead className="text-right">Checkouts</TableHead>
-                    <TableHead className="text-right">Payés</TableHead>
+                    <TableHead className="text-right">Nouveaux clients</TableHead>
                     <TableHead className="text-right">Complétion</TableHead>
                     <TableHead className="text-right">Cibles / client</TableHead>
-                    <TableHead className="text-right">Net / exposé</TableHead>
+                    <TableHead className="text-right">Net / assigné</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -404,18 +444,38 @@ export function OffresTab({
                         {formatNumber(a.exposed)}
                       </TableCell>
                       <TableCell className="text-right text-xs tabular-nums">
+                        {formatNumber(a.paywallViewers)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
                         {formatNumber(a.checkouts)}
                       </TableCell>
+                      {/* Nouveaux clients SEULEMENT. subscription_completed est
+                          réémis à chaque cycle : un renouvellement compté ici
+                          gonflerait le bras d'une conversion qui n'en est pas une. */}
                       <TableCell className="text-right text-xs tabular-nums">
                         {formatNumber(a.paid)}
+                        {a.renewals > 0 ? (
+                          <span
+                            className="ml-1 cursor-help font-medium text-slate-400"
+                            title={`${a.renewals} renouvellement(s) d'abonnés ANTÉRIEURS au test dans ce bras, exclus des nouveaux clients : leur abonnement n'a pas été décidé par ce paywall. Ils restent comptés dans les assignés.`}
+                          >
+                            +{formatNumber(a.renewals)} renouv.
+                          </span>
+                        ) : null}
                       </TableCell>
                       <TableCell className="text-right text-xs tabular-nums">
-                        {a.checkouts > 0 ? pct(a.paid / a.checkouts) : dash(null)}
+                        {pct(a.completion)}
                       </TableCell>
                       <TableCell className="text-right text-xs tabular-nums">
-                        {a.paid > 0
-                          ? formatNumber(Math.round((a.targets / a.paid) * 100) / 100)
-                          : dash(null)}
+                        {dash(a.targetsPerClient)}
+                        {a.targetsPerClient === null && a.paid > 0 ? (
+                          <span
+                            className="ml-1 cursor-help text-slate-400"
+                            title="Aucun target_added émis sur ce bras : le nombre de cibles par client n'est pas mesuré. Ce n'est pas « zéro cible »."
+                          >
+                            (non mesuré)
+                          </span>
+                        ) : null}
                       </TableCell>
                       {/* Revenu par bras : rattaché par metadata.abVariant du
                           membership Whop, repli par distinctId. Un bras SANS
@@ -427,15 +487,18 @@ export function OffresTab({
                           if (!r || r.memberships === 0) {
                             return <span className="text-slate-300">—</span>;
                           }
-                          const perExposed =
+                          // Dénominateur = les ASSIGNÉS, pas ceux qui ont vu le
+                          // paywall : c'est la comparaison en intention de traiter,
+                          // la seule que la randomisation garantit non biaisée.
+                          const perAssigned =
                             a.exposed > 0
                               ? Math.round((r.net / a.exposed) * 100) / 100
                               : null;
                           return (
                             <>
-                              {perExposed === null
+                              {perAssigned === null
                                 ? "—"
-                                : formatMoney(perExposed, currency)}
+                                : formatMoney(perAssigned, currency)}
                               {r.atRiskMemberships > 0 ? (
                                 <span
                                   className="ml-1 cursor-help font-medium text-amber-700"
@@ -452,10 +515,34 @@ export function OffresTab({
                   ))}
                 </TableBody>
               </Table>
+              {/* Le garde-fou de la carte : chaque taux doit avoir son numérateur
+                  inclus dans son dénominateur ET porter sur la colonne annoncée.
+                  Silencieux quand tout va bien, comme le contrôle de ligne du
+                  tableau « Détail par jour ». */}
+              {armAlerts.length > 0 ? (
+                <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
+                  <strong>Contrôle du tableau : {formatNumber(armAlerts.length)} écart(s).</strong>{" "}
+                  {armAlerts.map((c) => `${c.label} — ${c.detail}`).join(" · ")}. Un taux
+                  dont le numérateur sort de son dénominateur, ou qui ne vaut pas le
+                  ratio des colonnes affichées, ne se lit pas : corriger avant de
+                  décider quoi que ce soit sur ce test.
+                </HubNotice>
+              ) : null}
               <p className="text-xs text-slate-500">
-                <strong>Net par personne exposée</strong> = revenu net sécurisé des
-                abonnements rattachés au bras, divisé par les exposés. Rattachement par{" "}
-                <code>metadata.abVariant</code> du membership Whop, repli par{" "}
+                <strong>Complétion</strong> = nouveaux clients ÷{" "}
+                <strong>checkouts ouverts</strong> (pas les assignés, pas ceux qui ont vu
+                le paywall) : la part des gens qui, une fois le paiement ouvert, sont
+                allés au bout. <strong>Cibles / client</strong> = cibles ajoutées par les
+                nouveaux clients APRÈS leur paiement, divisées par ces clients — ni les
+                cibles du plan gratuit, ni celles ajoutées avant l&apos;abonnement, ni
+                celles des personnes qui n&apos;ont jamais payé.
+              </p>
+              <p className="text-xs text-slate-500">
+                <strong>Net par assigné</strong> = revenu net sécurisé des abonnements
+                rattachés au bras, divisé par les <strong>assignés</strong> : c&apos;est
+                le tirage au sort qui rend les deux bras comparables, diviser par les
+                seuls visiteurs du paywall rendrait la comparaison biaisée. Rattachement
+                par <code>metadata.abVariant</code> du membership Whop, repli par{" "}
                 <code>distinctId</code> vers la personne PostHog. Un bras sans aucun
                 abonnement rattaché reste au tiret : <strong>0,00 € et « aucun
                 abonnement » ne veulent pas dire la même chose.</strong>
@@ -504,7 +591,7 @@ export function OffresTab({
               </p>
             ))}
             <p>
-              Décision sur le <strong>revenu net par personne exposée</strong>, fenêtre
+              Décision sur le <strong>revenu net par personne assignée</strong>, fenêtre
               de 14 jours.
             </p>
           </div>
