@@ -135,17 +135,70 @@ export interface ConversionPayload {
 export interface AbArmsPayload {
   rows: {
     variant: string;
-    /** Personnes exposées (assignation NATURELLE uniquement). */
+    /**
+     * Personnes ASSIGNÉES au bras (assignation naturelle). C'est l'unité de
+     * randomisation, pas une exposition au paywall : la moitié d'entre elles
+     * n'en verra jamais. Dénominateur des taux « par assigné » (intention de
+     * traiter), JAMAIS d'un taux de complétion.
+     */
     exposed: number;
+    /** Sous-ensemble d'`exposed` ayant réellement VU un paywall. */
+    paywallViewers: number;
     /** Personnes ayant ouvert un checkout. */
     checkouts: number;
-    /** Personnes ayant un abonnement confirmé. */
+    /**
+     * NOUVEAUX clients : personnes dont le PREMIER `subscription_completed` de
+     * la fenêtre 90 j tombe après le début du test. Un renouvellement n'est pas
+     * une conversion — l'event est émis à chaque cycle, côté serveur.
+     */
     paid: number;
-    /** Cibles ajoutées par le bras (÷ clients = cibles par client). */
-    targets: number;
+    /** Personnes payantes du bras dont l'abonnement PRÉCÈDE le test (renouvellements). */
+    renewals: number;
+    /**
+     * Nouveaux clients SANS `checkout_started` — le numérateur de la complétion
+     * n'est alors pas un sous-ensemble de son dénominateur (garde-fou de carte).
+     */
+    paidWithoutCheckout: number;
+    /** Cibles ajoutées par les nouveaux clients APRÈS leur paiement (= cibles payantes). */
+    clientTargets: number;
+    /**
+     * Cibles ajoutées par TOUT le bras (payants ou non). Sert uniquement à savoir
+     * si `target_added` est instrumenté ici : 0 sur tout un bras ⇒ le ratio par
+     * client n'est pas mesurable, il ne vaut pas « zéro cible ».
+     */
+    armTargets: number;
   }[];
   /** Début de la fenêtre = 1re émission d'experiment_variant (ms). */
   startMs: number | null;
+}
+
+/**
+ * Recale une charge `abArms` lue du cache sur la forme COURANTE. Un cache écrit
+ * par la version précédente n'a ni `paywallViewers`, ni `renewals`, ni la
+ * séparation cibles-du-bras / cibles-des-clients : on rend 0 au lieu de laisser
+ * passer un `undefined` qui deviendrait NaN à l'écran.
+ *
+ * Fenêtre de transition ≤ 1 h (le cron horaire réécrit la charge complète) :
+ * pendant ce temps les nouvelles colonnes sont à 0 et le garde-fou de la carte
+ * peut signaler « colonnes non emboîtées ». C'est assumé — un contrôle qui
+ * s'allume à tort se voit et se résorbe seul, un NaN se lit comme un chiffre.
+ */
+export function normalizeAbArms(payload: AbArmsPayload): AbArmsPayload {
+  const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  return {
+    startMs: payload.startMs,
+    rows: payload.rows.map((r) => ({
+      variant: r.variant,
+      exposed: num(r.exposed),
+      paywallViewers: num(r.paywallViewers),
+      checkouts: num(r.checkouts),
+      paid: num(r.paid),
+      renewals: num(r.renewals),
+      paidWithoutCheckout: num(r.paidWithoutCheckout),
+      clientTargets: num(r.clientTargets),
+      armTargets: num(r.armTargets),
+    })),
+  };
 }
 
 /**
@@ -625,26 +678,47 @@ LIMIT ${SEGMENT_LIMIT}`,
    * Le revenu par bras n'est PAS ici : la variante n'est pas dans la metadata du
    * checkout Whop, donc aucun paiement n'est rattachable à un bras — l'UI
    * affiche un tiret plutôt qu'un revenu inventé.
+   *
+   * Trois pièges, tous corrigés ici et à ne pas réintroduire :
+   *   1. `exposed` compte les ASSIGNÉS, pas les gens qui ont vu un paywall (en
+   *      prod : 24 assignés pour 11 qui l'ont vu). Bon dénominateur d'un taux
+   *      « par assigné » (intention de traiter), faux pour un taux de complétion
+   *      — d'où `paywall_viewers`, exposé à côté.
+   *   2. `subscription_completed` est réémis à CHAQUE cycle par le serveur : sans
+   *      distinguer le 1er abonnement, un renouvellement comptait comme une
+   *      conversion du bras (cas réel : un abonné du 29/07 « converti » le 05/08).
+   *   3. Les cibles doivent être celles des CLIENTS après paiement, pas celles de
+   *      tout le bras : mélanger les deux donnait 14 cibles pour 1 client.
+   * L'inner scanne 90 j (il faut le 1er abonnement historique) et chaque compteur
+   * est borné à la fenêtre du test par `timestamp >= ab_start`.
    */
   abArms: `
+WITH (SELECT min(timestamp) FROM events
+      WHERE isNotNull(properties.experiment_variant)
+        AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY) AS ab_start
 SELECT bras AS variant, uniq(person_id) AS exposed,
-  uniqIf(person_id, checkouts > 0) AS checkouts,
-  uniqIf(person_id, paid > 0) AS paid,
-  sum(targets) AS targets,
+  uniqIf(person_id, n_paywalls > 0) AS paywall_viewers,
+  uniqIf(person_id, n_checkouts > 0) AS checkouts,
+  uniqIf(person_id, n_subs > 0 AND t_first_sub >= ab_start) AS paid,
+  uniqIf(person_id, n_subs > 0 AND t_first_sub < ab_start) AS renewals,
+  uniqIf(person_id, n_subs > 0 AND t_first_sub >= ab_start AND n_checkouts = 0) AS paid_without_checkout,
+  sum(if(n_subs > 0 AND t_first_sub >= ab_start, arrayCount(x -> x >= t_first_sub, target_ts), 0)) AS client_targets,
+  sum(length(target_ts)) AS arm_targets,
   min(started) AS started
 FROM (
   SELECT person_id,
     argMaxIf(toString(properties.experiment_variant), timestamp, isNotNull(properties.experiment_variant)) AS bras,
-    countIf(event = 'checkout_started') AS checkouts,
-    countIf(event = 'subscription_completed') AS paid,
-    countIf(event = 'target_added') AS targets,
-    (SELECT min(timestamp) FROM events
-      WHERE isNotNull(properties.experiment_variant)
-        AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY) AS started
+    countIf(event = 'paywall_viewed' AND timestamp >= ab_start) AS n_paywalls,
+    countIf(event = 'checkout_started' AND timestamp >= ab_start) AS n_checkouts,
+    countIf(event = 'subscription_completed' AND timestamp >= ab_start) AS n_subs,
+    -- 1er abonnement sur TOUTE la fenêtre 90 j (pas seulement depuis le test) :
+    -- c'est ce qui sépare un nouveau client d'un renouvellement. minIf sans
+    -- correspondance rend l'epoch 0, jamais null → toujours gardé par n_subs > 0.
+    minIf(timestamp, event = 'subscription_completed') AS t_first_sub,
+    groupArrayIf(timestamp, event = 'target_added' AND timestamp >= ab_start) AS target_ts,
+    ab_start AS started
   FROM events
-  WHERE timestamp >= (SELECT min(timestamp) FROM events
-      WHERE isNotNull(properties.experiment_variant)
-        AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY)${notCounted}
+  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
   GROUP BY person_id
 )
 WHERE isNotNull(bras) AND bras != '' AND bras != 'NULL'
@@ -1452,11 +1526,15 @@ export const runHourlySync = internalAction({
             rows: rows.map((r) => ({
               variant: cellStr(r, 0),
               exposed: cellNum(r, 1),
-              checkouts: cellNum(r, 2),
-              paid: cellNum(r, 3),
-              targets: cellNum(r, 4),
+              paywallViewers: cellNum(r, 2),
+              checkouts: cellNum(r, 3),
+              paid: cellNum(r, 4),
+              renewals: cellNum(r, 5),
+              paidWithoutCheckout: cellNum(r, 6),
+              clientTargets: cellNum(r, 7),
+              armTargets: cellNum(r, 8),
             })),
-            startMs: rows.length > 0 ? cellTimeMs(rows[0], 5) : null,
+            startMs: rows.length > 0 ? cellTimeMs(rows[0], 9) : null,
           }),
         ),
         await collect(
@@ -1932,10 +2010,16 @@ export const getProductAnalytics = adminQuery({
       timeToValue: read(POSTHOG_CACHE_KEYS.timeToValue, empty.timeToValue),
       paywall: read(POSTHOG_CACHE_KEYS.paywall, EMPTY_CONVERSION),
       paywallById: read(POSTHOG_CACHE_KEYS.paywallById, EMPTY_CONVERSION),
-      abArms: read<AbArmsPayload>(POSTHOG_CACHE_KEYS.abArms, {
-        rows: [],
-        startMs: null,
-      }),
+      // Colonnes ajoutées après coup (vues du paywall, renouvellements, cibles
+      // des clients) : entre le déploiement et le prochain cron, le cache porte
+      // encore l'ANCIENNE forme. Sans ce recalage, l'écran afficherait NaN sur
+      // des champs absents — un chiffre faux plutôt qu'un chiffre en attente.
+      abArms: normalizeAbArms(
+        read<AbArmsPayload>(POSTHOG_CACHE_KEYS.abArms, {
+          rows: [],
+          startMs: null,
+        }),
+      ),
       sources: read(POSTHOG_CACHE_KEYS.sources, EMPTY_CONVERSION),
       cohorts: read(POSTHOG_CACHE_KEYS.cohorts, empty.cohorts),
       predictors: read(POSTHOG_CACHE_KEYS.predictors, empty.predictors),

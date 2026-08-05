@@ -25,6 +25,7 @@ import {
   type InstrumentationPayload,
   type InternalExcludedPayload,
   type AbPersonArmsPayload,
+  type AbArmsPayload,
 } from "./posthogSync";
 import {
   internalAccountsFor,
@@ -830,11 +831,32 @@ export const getRevenueBreakdown = adminQuery({
     const personArms = new Map(
       armsPayload.rows.map((r) => [r.distinctId, r.variant] as const),
     );
-    const abStartMs = abMemberships.reduce<number | null>(
-      (min, m) =>
-        m.abVariant ? (min === null || m.createdAt < min ? m.createdAt : min) : min,
-      null,
-    );
+    // Début du test = celui du CACHE POSTHOG (1re émission d'experiment_variant),
+    // la même borne que le tableau par bras. Le déduire du 1er membership portant
+    // un abVariant datait le test de sa 1re VENTE : tout abonnement conclu entre
+    // le lancement et cette vente tombait « hors fenêtre » et perdait son revenu.
+    // Repli sur les memberships tant que le cache PostHog n'a pas tourné.
+    const abArmsRow = await ctx.db
+      .query("posthogCache")
+      .withIndex("by_project_key", (q) =>
+        q.eq("projectId", ctx.projectId).eq("key", POSTHOG_CACHE_KEYS.abArms),
+      )
+      .first();
+    let abArmsStartMs: number | null = null;
+    if (abArmsRow && abArmsRow.json !== "") {
+      try {
+        abArmsStartMs = (JSON.parse(abArmsRow.json) as AbArmsPayload).startMs;
+      } catch {
+        abArmsStartMs = null;
+      }
+    }
+    const abStartMs =
+      abArmsStartMs ??
+      abMemberships.reduce<number | null>(
+        (min, m) =>
+          m.abVariant ? (min === null || m.createdAt < min ? m.createdAt : min) : min,
+        null,
+      );
     const netByMembership = new Map<string, { net: number; atRisk: number }>();
     for (const p of payments) {
       if (!p.membershipId) continue;

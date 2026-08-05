@@ -395,6 +395,152 @@ function stepBy(steps: FunnelStepInput[], key: string): number | null {
   return steps.find((s) => s.key === key)?.count ?? null;
 }
 
+// ─── Garde-fou de la carte Test A/B ──────────────────────────────────────────
+
+/**
+ * Une ligne du tableau par bras, avec les valeurs RÉELLEMENT AFFICHÉES. Le
+ * contrôle compare l'affiché au recalculé : c'est la seule façon d'attraper une
+ * erreur d'UNITÉ. Cas vécu : la complétion passait un ratio (0,5) à un
+ * formateur attendant des points de % → « 0,5 % » à l'écran pour 50 % réels.
+ * Un contrôle qui recalcule sans comparer à l'affiché ne l'aurait jamais vu.
+ */
+export interface AbArmRateInput {
+  variant: string;
+  /** Assignés au bras (unité de randomisation). */
+  exposed: number;
+  /** Sous-ensemble ayant vu un paywall. */
+  paywallViewers: number;
+  /** Personnes ayant ouvert un checkout. */
+  checkouts: number;
+  /** NOUVEAUX clients (renouvellements exclus). */
+  paid: number;
+  /** Nouveaux clients sans checkout_started (numérateur hors dénominateur). */
+  paidWithoutCheckout: number;
+  /** Cibles ajoutées par les clients APRÈS paiement. */
+  clientTargets: number;
+  /** Cibles ajoutées par tout le bras (0 ⇒ non instrumenté ici). */
+  armTargets: number;
+  /** Complétion telle qu'affichée, en POINTS DE % (null = tiret). */
+  shownCompletionPct: number | null;
+  /** Cibles par client telles qu'affichées (null = tiret). */
+  shownTargetsPerClient: number | null;
+}
+
+/** Écart toléré entre un taux affiché et son recalcul (arrondis d'affichage). */
+const RATE_MATCH_EPSILON = 0.05;
+
+/**
+ * Contrôles de la carte Test A/B, un jeu par bras. Chaque taux doit (a) avoir un
+ * numérateur inclus dans son dénominateur, (b) porter sur la colonne annoncée.
+ * Une complétion > 100 % ou différente du ratio réel est une VIOLATION : le
+ * chiffre doit être remplacé par son état, pas montré faux.
+ */
+export function abArmCoherenceChecks(rows: AbArmRateInput[]): CoherenceCheck[] {
+  const checks: CoherenceCheck[] = [];
+  if (rows.length === 0) return checks;
+
+  // (a) Numérateur ⊆ dénominateur : payer sans checkout_started rend la
+  // « complétion » ininterprétable, même quand le total reste sous 100 %.
+  const overflow = rows.filter((r) => r.paid > r.checkouts);
+  const outside = rows.filter((r) => r.paidWithoutCheckout > 0);
+  checks.push({
+    key: "ab_completion_subset",
+    label: "Complétion : payés ⊆ checkouts",
+    status: overflow.length > 0 ? "violation" : outside.length > 0 ? "info" : "ok",
+    detail:
+      overflow.length > 0
+        ? overflow
+            .map((r) => `${r.variant} : ${r.paid} payé(s) pour ${r.checkouts} checkout(s) — taux > 100 %`)
+            .join(" ; ")
+        : outside.length > 0
+          ? outside
+              .map((r) => `${r.variant} : ${r.paidWithoutCheckout} client(s) sans checkout_started`)
+              .join(" ; ")
+          : "chaque payé a ouvert un checkout",
+  });
+
+  // (b) Le taux affiché porte bien sur la colonne annoncée (payés / checkouts).
+  const mismatched = rows
+    .map((r) => ({ r, expected: rateOf(r.paid, r.checkouts) }))
+    .filter(({ r, expected }) => !sameRate(r.shownCompletionPct, expected));
+  checks.push({
+    key: "ab_completion_matches_columns",
+    label: "Complétion = payés ÷ checkouts",
+    status: mismatched.length > 0 ? "violation" : "ok",
+    detail:
+      mismatched.length > 0
+        ? mismatched
+            .map(({ r, expected }) => {
+              const shown = r.shownCompletionPct;
+              const unit =
+                shown !== null && expected !== null && sameRate(shown * 100, expected)
+                  ? " (ratio affiché à la place d'un pourcentage : ×100 manquant)"
+                  : "";
+              return `${r.variant} : ${shown === null ? "—" : shown} % affiché pour ${
+                expected === null ? "—" : expected
+              } % réel (${r.paid}/${r.checkouts})${unit}`;
+            })
+            .join(" ; ")
+        : "affiché = recalculé sur toutes les lignes",
+  });
+
+  // Monotonie des colonnes : checkouts ⊆ ayant vu le paywall ⊆ assignés.
+  const breaks = rows.flatMap((r) => {
+    const b: string[] = [];
+    if (r.paywallViewers > r.exposed) {
+      b.push(`${r.variant} : ${r.paywallViewers} ont vu le paywall pour ${r.exposed} assignés`);
+    }
+    if (r.checkouts > r.paywallViewers) {
+      b.push(`${r.variant} : ${r.checkouts} checkouts pour ${r.paywallViewers} ayant vu le paywall`);
+    }
+    return b;
+  });
+  checks.push({
+    key: "ab_columns_monotone",
+    label: "Colonnes emboîtées (checkouts ≤ paywall ≤ assignés)",
+    status: breaks.length > 0 ? "violation" : "ok",
+    detail: breaks.length > 0 ? breaks.join(" ; ") : "",
+  });
+
+  // Cibles par client : numérateur = cibles DES CLIENTS, donc ≤ cibles du bras ;
+  // et un bras sans aucun target_added ne vaut pas « 0 cible » mais « pas mesuré ».
+  const targetIssues = rows.flatMap((r) => {
+    const b: string[] = [];
+    if (r.clientTargets > r.armTargets) {
+      b.push(`${r.variant} : ${r.clientTargets} cibles clients pour ${r.armTargets} sur le bras`);
+    }
+    if (r.armTargets === 0 && r.shownTargetsPerClient !== null) {
+      b.push(`${r.variant} : ratio affiché alors qu'aucun target_added n'est émis`);
+    }
+    const expected = r.paid > 0 && r.armTargets > 0 ? round2(r.clientTargets / r.paid) : null;
+    if (!sameRate(r.shownTargetsPerClient, expected)) {
+      b.push(
+        `${r.variant} : ${r.shownTargetsPerClient ?? "—"} affiché pour ${expected ?? "—"} recalculé`,
+      );
+    }
+    return b;
+  });
+  checks.push({
+    key: "ab_targets_per_client",
+    label: "Cibles / client = cibles des clients ÷ clients",
+    status: targetIssues.length > 0 ? "violation" : "ok",
+    detail: targetIssues.length > 0 ? targetIssues.join(" ; ") : "",
+  });
+
+  return checks;
+}
+
+/** Taux en points de %, null si le dénominateur est nul. */
+function rateOf(num: number, den: number): number | null {
+  return den > 0 ? roundPct((num / den) * 100) : null;
+}
+
+/** Deux valeurs affichables égales à l'arrondi près (null compris). */
+function sameRate(shown: number | null, expected: number | null): boolean {
+  if (shown === null || expected === null) return shown === expected;
+  return Math.abs(shown - expected) <= RATE_MATCH_EPSILON;
+}
+
 /** Contrôle « Σ jours ≤ total » : ratio > 1,5 = violation, > 1,05 = info, sinon ok. */
 function pushSumCheck(
   checks: CoherenceCheck[],
