@@ -166,6 +166,42 @@ export function payableAssignmentViews(pubs: PublicationViews[]): PayableViews {
 }
 
 /**
+ * Part de la paie d'UNE vidéo réellement engagée pour ses posts PROMO — sert aux
+ * indicateurs dont le DÉNOMINATEUR est en vues promo (RPM coût, coût
+ * d'acquisition), où mélanger les deux périmètres gonfle le chiffre.
+ *
+ * Le CPM est payé sur les vues PAYABLES (posts rémunérés), qui incluent un post
+ * warmup RÉMUNÉRÉ — l'exception historique traitée par le champ `remunere`. Ces
+ * vues-là sont HORS promo : sans prorata, une vidéo qui mêle un post promo et un
+ * post warmup rémunéré ferait entrer sa paie de warmup au numérateur alors que
+ * ses vues de warmup restent hors du dénominateur. Le CPM étant linéaire en vues,
+ * le prorata `promoPaidViews / payableViews` est EXACT, pas une estimation (et il
+ * répartit proportionnellement une vidéo plafonnée à MAX_PAY_PER_VIDEO_EUR).
+ *
+ * Le FIXE, lui, est par VIDÉO : une vidéo qui porte au moins un post promo est
+ * une vidéo promo, son fixe compte EN ENTIER. Une vidéo entièrement warmup n'a
+ * aucun post promo et n'est pas censée passer par ici.
+ *
+ * `payableViews` à 0 (vidéo publiée pas encore mesurée) ⇒ aucun CPM n'a pu être
+ * gagné, il ne reste que le fixe. Le CPM étant calculé SUR ces vues payables, il
+ * vaut alors 0 de toute façon ; on retient 0 plutôt que 1 pour que le contrat de
+ * la fonction (aucune paie hors promo au numérateur) tienne même sur une entrée
+ * incohérente. SOURCE UNIQUE (pure, testée Vitest) — RÉPLIQUÉE dans
+ * convex/pricing.ts (règle A6).
+ */
+export function promoVideoCost(
+  fixed: number,
+  cpm: number,
+  payableViews: number,
+  promoPaidViews: number,
+): number {
+  const payable = Math.max(0, payableViews);
+  const promo = Math.min(Math.max(0, promoPaidViews), payable);
+  const share = payable > 0 ? promo / payable : 0;
+  return round2(Math.max(0, fixed) + Math.max(0, cpm) * share);
+}
+
+/**
  * Paie du mois (FIXE + CPM) à partir des vidéos publiées (1 item par assignment
  * publié). PAS de bonus par vidéo en v2 (le bonus est créateur-niveau à paliers
  * cumulés, géré séparément).

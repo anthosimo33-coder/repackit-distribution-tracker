@@ -17,6 +17,14 @@ import type { AttributionData, RevenueData, ViewCountersData } from "./types";
  * (hors warmup), affichées sur la carte — elles ne se déduisaient jusqu'ici que du
  * ratio arrondi de « Vues promo → abonné ».
  *
+ * PÉRIMÈTRE UNIQUE des deux côtés : le coût est la paie des PUBLICATIONS PROMO
+ * (fixe + CPM), jamais le coût complet du moteur. Le warmup n'est pas rémunéré —
+ * sauf l'exception historique portée par le champ `remunere`, dont les vues
+ * sortent du dénominateur ET la paie du numérateur (promoVideoCost, côté serveur).
+ * Compter le warmup au numérateur reviendrait à facturer un coût qu'on ne paie
+ * pas. La carte Rentabilité des Paiements, elle, mesure autre chose (le coût
+ * COMPLET du moteur, warmup inclus) et reste inchangée.
+ *
  * DEUX DEVISES (règle du produit) : le revenu Whop est en euros, la paie créatrices
  * en dollars. Le coût est donc CONVERTI au taux du projet pour que l'écart existe,
  * et le taux utilisé est écrit sur la carte. Sans taux renseigné : chaque RPM reste
@@ -70,9 +78,12 @@ export function PromoRpmCard({
 
   const rpm = computePromoRpm({
     revenueNet,
-    // Coût COMPLET du moteur (warmup inclus) : l'écart doit valoir la marge
-    // réelle, pas une marge qui oublierait la chauffe payée pour produire ces vues.
-    creatorCost: attribution?.costs.total ?? null,
+    // Paie des PUBLICATIONS PROMO (fixe + CPM), et rien d'autre : le warmup n'est
+    // pas rémunéré, sauf l'exception historique traitée par le champ `remunere`,
+    // dont les vues sortent du dénominateur — sa paie ne doit donc pas entrer au
+    // numérateur (elle en est retirée par promoVideoCost, côté serveur). Le
+    // périmètre est le même des deux côtés : les publications promo.
+    creatorCost: attribution?.costs.promo ?? null,
     promoViews: viewCounters?.promo ?? null,
     fxRateToRevenue: fx,
   });
@@ -89,10 +100,10 @@ export function PromoRpmCard({
         : "—";
   const costHint =
     rpm.cost === null
-      ? "toute la paie créatrices, warmup inclus"
+      ? "fixe + CPM des publications promo · hors bonus de paliers"
       : rpm.costConverted !== null
-        ? `${formatMoney(rpm.cost, payCurrency)} converti · toute la paie créatrices, warmup inclus`
-        : "toute la paie créatrices, warmup inclus · devise non convertie";
+        ? `${formatMoney(rpm.cost, payCurrency)} converti · fixe + CPM des publications promo, hors bonus de paliers`
+        : "fixe + CPM des publications promo, hors bonus de paliers · devise non convertie";
 
   const symPay = currencySymbol(payCurrency);
   const symRevenue = currencySymbol(currency);
@@ -145,6 +156,14 @@ export function PromoRpmCard({
             : `${formatNumber(rpm.promoViews)} vues promo cumulées, hors warmup`}
           {" · "}
           {rateLabel}
+        </p>
+        {/* Le périmètre, écrit : c'est ce qui rend l'écart lisible (numérateur et
+            dénominateur portent sur les mêmes publications). */}
+        <p className="text-xs text-slate-400">
+          Le RPM coût ne porte que sur les publications promo : le warmup est exclu
+          des deux côtés, parce qu&apos;il n&apos;est pas rémunéré — hors exception
+          historique, traitée par le champ « rémunéré », dont la paie est retirée du
+          numérateur puisque ses vues le sont du dénominateur.
         </p>
       </CardContent>
     </Card>

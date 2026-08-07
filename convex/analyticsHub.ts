@@ -6,6 +6,7 @@ import {
   assignmentPublishedAt,
   assignmentViewsAndMetrics,
   computeLivePricingBreakdown,
+  promoVideoCost,
   type PricingBreakdown,
 } from "./pricing";
 import { periodOf } from "./payments";
@@ -147,6 +148,14 @@ export interface AttributionRow {
   hasPromoPost: boolean;
   /** Coût réel de la vidéo (fixe/vidéo + CPM). null = hors moteur v2 (legacy). */
   cost: number | null;
+  /**
+   * Part de ce coût engagée pour les posts PROMO : fixe entier + la seule part du
+   * CPM gagnée sur des vues promo. Égal à `cost` sauf sur une vidéo MIXTE (post
+   * promo + post warmup rémunéré) — voir promoVideoCost. Base des indicateurs
+   * divisés par des vues promo, pour que numérateur et dénominateur portent sur
+   * le même périmètre. null aux mêmes conditions que `cost`.
+   */
+  promoCost: number | null;
 }
 
 export interface AttributionResult {
@@ -292,6 +301,7 @@ export const getAttribution = adminQuery({
 
       // Coût réel de la vidéo : fixe/vidéo de son pricing + son CPM.
       let cost: number | null = null;
+      let promoCost: number | null = null;
       if (a.pricingSnapshot) {
         const b = await breakdownFor(a.creatorId, period);
         const perAssignment = b.perAssignment.find(
@@ -301,10 +311,15 @@ export const getAttribution = adminQuery({
           (p) => p.pricingId === (a.pricingSnapshot!.pricingId as string),
         );
         if (perAssignment || perPricing) {
-          cost =
-            Math.round(
-              ((perPricing?.fixePerVideo ?? 0) + (perAssignment?.cpm ?? 0)) * 100,
-            ) / 100;
+          const fixed = perPricing?.fixePerVideo ?? 0;
+          const cpm = perAssignment?.cpm ?? 0;
+          cost = round2(fixed + cpm);
+          promoCost = promoVideoCost(
+            fixed,
+            cpm,
+            views.payableViews,
+            views.bonusTierViews,
+          );
         }
       }
 
@@ -330,6 +345,7 @@ export const getAttribution = adminQuery({
         isWarmupOnly: !views.hasPayablePost,
         hasPromoPost: views.hasPromoPost,
         cost,
+        promoCost,
       });
     }
 
@@ -361,8 +377,14 @@ export const getAttribution = adminQuery({
     }
     const payableCost = rows.reduce((s, r) => s + (r.cost ?? 0), 0);
     const promoRows = rows.filter((r) => r.hasPromoPost);
-    const promoNullCost = promoRows.some((r) => r.cost === null);
-    const promoFixeCpm = round2(promoRows.reduce((s, r) => s + (r.cost ?? 0), 0));
+    const promoNullCost = promoRows.some((r) => r.promoCost === null);
+    // `promoCost` et non `cost` : sur une vidéo MIXTE (post promo + post warmup
+    // RÉMUNÉRÉ), le CPM payé sur les vues de warmup ne doit pas entrer dans un
+    // coût que l'on divise ensuite par les seules vues promo. Aucune vidéo mixte
+    // en prod au 07/08/2026 (les 10 posts warmup rémunérés sont sur des vidéos
+    // 100 % warmup, déjà hors promoRows) : le total est donc inchangé aujourd'hui,
+    // et le reste si le cas apparaît.
+    const promoFixeCpm = round2(promoRows.reduce((s, r) => s + (r.promoCost ?? 0), 0));
     // Clé : part des vues PAYABLES qui sont PROMO (bornée [0,1] — un post promo
     // non rémunéré resterait hors payable). Bonus promo = bonusTotal × clé.
     const totalPayableViews = rows.reduce((s, r) => s + r.payableViews, 0);

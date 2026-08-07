@@ -840,11 +840,12 @@ export interface PromoRpmInput {
   /** Revenu Whop NET cumulé, devise du REVENU (€). null = Whop non configuré. */
   revenueNet: number | null;
   /**
-   * Paie créatrices cumulée — le coût COMPLET du moteur (fixe + CPM + 100 % du
-   * bonus, warmup rémunéré inclus), devise de la PAIE ($). Warmup compris à
-   * dessein : sans lui aucun compte ne publie de promo, c'est un coût de
-   * production des vues promo. L'écart ci-dessous vaut donc bien la MARGE
-   * (revenu net − toute la paie) ramenée à mille vues, pas une marge partielle.
+   * Paie des PUBLICATIONS PROMO cumulée (fixe + CPM), devise de la PAIE ($) —
+   * MÊME PÉRIMÈTRE que `promoViews` ci-dessous, c'est ce qui rend l'écart
+   * lisible. Le warmup en est absent des DEUX côtés : il n'est pas rémunéré,
+   * hors exception historique (champ `remunere`) dont la paie est retirée en
+   * amont, puisque ses vues sont hors promo. Le bonus de paliers n'y est pas non
+   * plus : il est attaché à la CRÉATRICE, pas à une publication.
    */
   creatorCost: number | null;
   /** Vues PROMO cumulées (hors warmup) — dénominateur COMMUN aux trois valeurs. */

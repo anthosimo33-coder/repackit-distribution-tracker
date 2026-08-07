@@ -112,6 +112,26 @@ function payableAssignmentViews(pubs: PublicationViews[]): {
   };
 }
 
+/**
+ * Part de la paie d'UNE vidéo engagée pour ses posts PROMO : fixe entier (il est
+ * par VIDÉO) + la seule part du CPM gagnée sur des vues promo. Le CPM est payé sur
+ * les vues PAYABLES, qui incluent un post warmup RÉMUNÉRÉ (exception historique) :
+ * sans ce prorata, une vidéo mixte ferait entrer sa paie de warmup dans un coût
+ * ensuite divisé par les seules vues promo. RÉPLIQUE EXACTE de
+ * lib/pricing-engine.promoVideoCost (testée Vitest là-bas).
+ */
+export function promoVideoCost(
+  fixed: number,
+  cpm: number,
+  payableViews: number,
+  promoPaidViews: number,
+): number {
+  const payable = Math.max(0, payableViews);
+  const promo = Math.min(Math.max(0, promoPaidViews), payable);
+  const share = payable > 0 ? promo / payable : 0;
+  return round2(Math.max(0, fixed) + Math.max(0, cpm) * share);
+}
+
 /** RÉPLIQUE de lib/pricing-engine.computeMonthlyPayout (DOIT rester identique). */
 export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
   const groups = new Map<string, PayoutItem[]>();

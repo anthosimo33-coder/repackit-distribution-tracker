@@ -6,6 +6,7 @@ import {
   tiersOf,
   evaluateBonusTiers,
   payableAssignmentViews,
+  promoVideoCost,
   type PricingSnapshot,
   type PayoutItem,
   type PublicationViews,
@@ -259,6 +260,38 @@ describe("payableAssignmentViews — exclusion warmup (par POST)", () => {
       payableViews: 0,
       hasPayablePost: true,
     });
+  });
+});
+
+/**
+ * Le CPM est payé sur les vues PAYABLES, qui incluent un post warmup RÉMUNÉRÉ
+ * (exception historique). Rapporté aux seules vues PROMO, ce CPM-là gonflerait le
+ * chiffre : numérateur et dénominateur doivent porter sur le même périmètre.
+ */
+describe("promoVideoCost — la paie warmup ne remonte jamais dans un coût promo", () => {
+  it("aucun warmup rémunéré : fixe + CPM entier (cas courant, INCHANGÉ)", () => {
+    expect(promoVideoCost(10, 40, 100_000, 100_000)).toBe(50);
+  });
+
+  it("vidéo MIXTE : seule la part du CPM gagnée en promo est retenue", () => {
+    // 100k vues payées dont 25k promo → 25 % du CPM ; le fixe reste entier.
+    expect(promoVideoCost(10, 40, 100_000, 25_000)).toBe(20);
+  });
+
+  it("le fixe est par VIDÉO : une vidéo promo le porte en entier", () => {
+    expect(promoVideoCost(12, 0, 100_000, 1)).toBe(12);
+  });
+
+  it("vidéo publiée pas encore mesurée : rien à répartir, il reste le fixe", () => {
+    expect(promoVideoCost(10, 40, 0, 0)).toBe(10);
+  });
+
+  it("vues promo bornées aux vues payées : jamais plus de 100 % du CPM", () => {
+    expect(promoVideoCost(10, 40, 50_000, 999_999)).toBe(50);
+  });
+
+  it("aucune vue promo payée : le CPM tombe, le fixe subsiste", () => {
+    expect(promoVideoCost(10, 40, 100_000, 0)).toBe(10);
   });
 });
 
