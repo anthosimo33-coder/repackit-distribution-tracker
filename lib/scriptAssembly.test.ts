@@ -29,7 +29,10 @@ describe("assembleScript", () => {
     const out = assembleScript(input);
     expect(out).toContain("## Hook");
     expect(out).toContain("## Flux");
-    expect(out).toContain("## CTA");
+    // Le kind `cta` s'AFFICHE « Description » (le type de donnée, lui, reste
+    // `cta`) : les titres viennent de KIND_LABELS, jamais d'un littéral.
+    expect(out).toContain("## Description");
+    expect(out).not.toContain("## CTA");
     expect(out).not.toContain("## Corps");
     expect(out).not.toContain("## Démo");
   });

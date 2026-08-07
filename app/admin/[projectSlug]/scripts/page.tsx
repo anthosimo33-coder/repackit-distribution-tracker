@@ -263,7 +263,8 @@ function CampaignDialog({
             {isEdit ? "Modifier la campagne" : "Nouvelle campagne"}
           </DialogTitle>
           <DialogDescription>
-            Une campagne regroupe les hooks, flux et CTA d&apos;un angle de test.
+            Une campagne regroupe les hooks, flux et descriptions d&apos;un angle
+            de test.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">

@@ -297,7 +297,7 @@ export function AssignScriptCampaignDialog({
       return;
     }
     if (comboMode === "chosen" && !imposedCombo) {
-      toast.error("Choisis les 3 briques du combo (hook, flux, cta).");
+      toast.error("Choisis les 3 briques du combo (hook, flux, description).");
       return;
     }
     if (!slotsComplete) {
@@ -444,7 +444,7 @@ export function AssignScriptCampaignDialog({
     }
     if (pricingId === NONE) return "Le barème de paie est requis.";
     if (comboMode === "chosen" && !imposedCombo) {
-      return "Choisis les 3 briques du combo (hook, flux, cta).";
+      return "Choisis les 3 briques du combo (hook, flux, description).";
     }
     if (!slotsComplete)
       return "Place chaque vidéo sur un jour du calendrier.";

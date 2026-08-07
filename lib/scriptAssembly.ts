@@ -20,10 +20,20 @@ export const SCRIPT_KINDS: readonly ScriptKind[] = [
   "cta",
 ] as const;
 
+/**
+ * Libellés AFFICHÉS des 3 briques — SOURCE UNIQUE de tout texte montré à un
+ * humain (titres de section, selects, empty states, aperçu admin, analytics).
+ *
+ * Le kind `cta` s'affiche « Description » : la brique contient le texte que la
+ * créatrice colle en description de sa publication, et « CTA » ne lui parlait
+ * pas. Le TYPE DE DONNÉE reste `cta` (schéma, enums, clés Convex, variables) —
+ * seul le libellé change. Toute string qui nomme cette brique doit passer par
+ * ici : elle est féminine (« une description »), là où « CTA » était masculin.
+ */
 export const KIND_LABELS: Record<ScriptKind, string> = {
   hook: "Hook",
   flux: "Flux",
-  cta: "CTA",
+  cta: "Description",
 };
 
 export interface AssembleInput {
@@ -35,7 +45,9 @@ export interface AssembleInput {
 export interface AssembleOptions {
   /**
    * true (défaut) → chaque section préfixée par son titre `## Hook`/`## Flux`/
-   * `## CTA` (aperçu ADMIN, on veut voir la structure). false → script NATUREL,
+   * `## Description` (aperçu ADMIN, on veut voir la structure ; ce rendu n'est
+   * JAMAIS stocké — l'assemblage persisté passe par `labels: false`). false →
+   * script NATUREL,
    * sans étiquettes de type ni titres (rendu CRÉATEUR : il lit un script, pas un
    * document à sections nommées).
    */
@@ -52,11 +64,12 @@ export function assembleScript(
   options: AssembleOptions = {},
 ): string {
   const labels = options.labels ?? true;
-  const sections: Array<[string, string]> = [
-    ["Hook", input.hook],
-    ["Flux", input.flux],
-    ["CTA", input.cta],
-  ];
+  // Titres tirés de KIND_LABELS (source unique) et ordre de SCRIPT_KINDS : un
+  // renommage d'affichage ne se patche pas ici en plus.
+  const sections: Array<[string, string]> = SCRIPT_KINDS.map((kind) => [
+    KIND_LABELS[kind],
+    input[kind],
+  ]);
   if (labels) {
     return sections
       .map(([title, body]) => `## ${title}\n\n${body.trim()}`)

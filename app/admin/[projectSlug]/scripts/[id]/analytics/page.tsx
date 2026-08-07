@@ -17,6 +17,7 @@ import { formatNumber } from "@/lib/format";
 import { tierLabel } from "@/lib/script-tier";
 import { JUGEABLE_THRESHOLD } from "@/lib/scriptStats";
 import { parseComboKey } from "@/lib/scriptCombos";
+import { KIND_LABELS } from "@/lib/scriptAssembly";
 import { AssignScriptCampaignDialog } from "@/components/admin/AssignScriptCampaignDialog";
 import type { ReplaySource } from "@/components/admin/ChosenComboPicker";
 import {
@@ -54,16 +55,14 @@ type Dimension = Decisions["dimensions"][number];
 type BrickDecision = Dimension["decisions"][number];
 type StrongSignal = Decisions["strongSignals"][number];
 
-const KIND_LABEL: Record<string, string> = {
-  flux: "Flux",
-  cta: "CTA",
-  hook: "Hook",
-};
+// Libellés de brique : repris de KIND_LABELS (source unique) plutôt que redéclarés
+// — c'est ce qui rendait « CTA » présent en double ici après le renommage.
+const KIND_LABEL: Record<string, string> = { ...KIND_LABELS };
 
 const DIMENSION_LABEL: Record<string, string> = {
   tier: "Tiers de hook",
-  flux: "Flux",
-  cta: "CTA",
+  flux: KIND_LABELS.flux,
+  cta: KIND_LABELS.cta,
 };
 
 export default function ScriptAnalyticsPage() {
