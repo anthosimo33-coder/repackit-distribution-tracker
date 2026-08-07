@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/table";
 import { formatNumber, formatDate } from "@/lib/format";
 import { buildCoherenceChecks, type CoherenceStatus } from "@/lib/analytics-hub";
-import { HubCardHeader } from "./HubPrimitives";
+import { HubCardHeader, KpiTile, dash } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import type { ReliabilityData } from "./types";
 
@@ -87,6 +87,7 @@ export function FiabiliteTab({
       dailySignupsSum: c.dailySignupsSum,
       dailySubs: c.dailySubs,
       dailyPaidClients: c.dailyPaidClients,
+      dailyRenewals: c.dailyRenewals,
       todayParis: c.todayParis,
     });
   }, [reliability.coherence]);
@@ -179,16 +180,24 @@ export function FiabiliteTab({
               </div>
             </div>
           ) : null}
-          <p className="text-xs text-slate-400">
-            Comptes internes exclus partout, des DEUX côtés :{" "}
-            <strong>{formatNumber(reliability.internalExcluded.persons)}</strong>{" "}
-            personne(s) côté PostHog (sur{" "}
-            {formatNumber(reliability.internalExcluded.totalPersons)}) et{" "}
-            <strong>{formatNumber(reliability.whopInternalExcluded)}</strong>{" "}
-            membership(s) côté Whop (le compte de test de l&apos;admin).
-          </p>
         </CardContent>
       </Card>
+
+      {/* Comptes internes exclus — VENUE de la Vue d'ensemble : c'est une donnée
+          de fiabilité qu'on relit une fois par mois, pas un indicateur de
+          pilotage quotidien. Elle remplace ici le paragraphe qui répétait les
+          mêmes nombres sous le tableau d'instrumentation. */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <KpiTile
+          label="Comptes internes exclus"
+          value={dash(reliability.internalExcluded.persons)}
+          delta={null}
+          hint={`sur ${formatNumber(reliability.internalExcluded.totalPersons)} personnes PostHog · ${dash(
+            reliability.whopInternalExcluded,
+          )} abonnement(s) Whop (compte de test de l'admin)`}
+          info={EXPLAIN.comptesInternes}
+        />
+      </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Contrôles de cohérence */}

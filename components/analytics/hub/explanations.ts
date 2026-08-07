@@ -24,19 +24,19 @@ export const EXPLAIN = {
   vuesPromoClient:
     "Combien de vues des vidéos promo il faut en moyenne pour obtenir un client payant. On n'utilise que les vidéos promo, car ce sont les seules qui parlent de l'app. Sert à mesurer l'efficacité de l'acquisition, pas à payer les créatrices.",
   coutAcquisition:
-    "Ce qu'on paie pour les vidéos promo divisé par le nombre de clients payants : le vrai coût pour gagner un client. Il additionne le fixe et le CPM des publications promo, plus une part du bonus. Le bonus est attaché à la créatrice et non à une vidéo, donc sa répartition entre promo et warmup est une estimation, pas une mesure.",
+    "Ce qu'on paie pour les vidéos promo divisé par le nombre de clients payants : le vrai coût pour gagner un client. Il additionne le fixe et le CPM des publications promo, plus la totalité du bonus de paliers. Le bonus y entre en entier parce qu'un palier ne se gagne que sur des vues promo : une vidéo de chauffe ne fait plus avancer le compteur, donc tout bonus débloqué a bien été gagné par de la promo.",
   coutComplet:
-    "Toute la paie créatrices, divisée par le nombre de clients payants. Le warmup est inclus, parce que sans lui aucun compte ne peut publier de promo : c'est le vrai coût du système. À comparer au coût d'acquisition pour voir le poids de la construction des comptes.",
+    "Toute la paie créatrices, plus les récompenses en nature déjà gagnées, divisées par le nombre de clients payants. Le warmup est inclus, parce que sans lui aucun compte ne peut publier de promo : c'est le vrai coût du système. Les récompenses promises mais pas encore gagnées n'y sont pas, ce sont des engagements et non des dépenses ; on les voit dans l'onglet Acquisition.",
   revenuParClient:
     "Le revenu net encaissé, divisé par le nombre de clients payants. Ce chiffre monte avec le temps parce que l'abonnement se renouvelle, alors que le coût d'acquisition n'est payé qu'une seule fois. Il est en euros et les deux coûts en dollars : on les regarde côte à côte, jamais soustraits.",
+  rpmPromo:
+    "Ce que mille vues promo rapportent, ce qu'elles coûtent, et l'écart entre les deux, qui est la marge par millier de vues. Les vues promo excluent les vidéos de chauffe, parce que les vidéos promo sont les seules qui mentionnent l'app. Ce chiffre monte avec le temps sans aucune vue nouvelle, puisque chaque renouvellement s'ajoute au même stock de vues déjà acquises : ce n'est pas un RPM publicitaire figé une fois la vue passée.",
   completionCheckout:
     "Sur cent personnes qui ouvrent l'écran de paiement, combien vont au bout et paient. Un taux bas veut dire que le paiement bloque quelque part. Ne compte que les personnes qui ont suivi toutes les étapes dans l'ordre.",
   visiteurs:
     "Le nombre de personnes qui ont ouvert le site sur la période choisie. Chaque personne n'est comptée qu'une fois par jour. Suit le sélecteur 7, 30 ou 90 jours en haut de page.",
   inscrits:
     "Le nombre de personnes qui ont créé un compte sur la période choisie. Chaque personne n'est comptée qu'une fois par jour. Suit le sélecteur 7, 30 ou 90 jours en haut de page.",
-  comptesInternes:
-    "Les comptes de l'équipe, retirés de tous les chiffres pour ne pas gonfler les résultats. On les compte quand même ici, par transparence. L'exclusion vaut des deux côtés, côté PostHog et côté Whop.",
   detailParJour:
     "Une ligne par jour avec les chiffres clés, du plus récent au plus ancien. Sert à repérer d'un coup d'œil un pic ou un creux, comme la journée du 27 juillet. Les visiteurs, inscrits et checkouts viennent de PostHog (le funnel) ; les clients payants, les échecs de paiement et le revenu viennent de Whop, qui encaisse vraiment l'argent.",
 
@@ -89,6 +89,8 @@ export const EXPLAIN = {
     "Ce que coûte réellement un scan, séparé entre le scan léger et le scan complet. Une cible gratuite ne déclenche que des scans légers, donc son coût suit ce tarif, en dollars, pas celui du scan complet réservé aux cibles payantes. Le chiffre vient du coût réel émis par l'app, pas d'une supposition.",
 
   // ─── Fiabilité ─────────────────────────────────────────────────────────────
+  comptesInternes:
+    "Les comptes de l'équipe, retirés de tous les chiffres pour ne pas gonfler les résultats. On les compte quand même ici, par transparence. L'exclusion vaut des deux côtés, côté PostHog et côté Whop.",
   gardeFous:
     "Des vérifications lancées à chaque synchro pour repérer un chiffre qui se contredit. Si deux sources donnent un total trop différent, le chiffre est masqué au lieu d'être montré faux. Un chiffre absent vaut mieux qu'un chiffre faux.",
 
@@ -97,6 +99,8 @@ export const EXPLAIN = {
     "Quatre compteurs différents qu'il ne faut jamais additionner. Les totales servent à l'affichage et au suivi, les payables au fixe et au CPM, les promo à tous les taux de conversion parce que ce sont les seules vidéos qui mentionnent l'app, et les paliers au cumul qui débloque les bonus. Paliers et payables diffèrent sur une vidéo de chauffe quand même rémunérée : elle est payée, mais elle ne fait pas avancer le palier, parce qu'un bonus de vues ne se gagne que sur des vues de promo.",
   joursSolo:
     "Les jours où une seule créatrice a publié : les seuls où on sait à qui attribuer un client, faute de lien tracké par créatrice. Cette limite ne concerne que l'attribution PAR créatrice. Les coûts globaux de la Vue d'ensemble, eux, divisent la paie par tous les clients et n'ont pas besoin d'attribuer chacun.",
+  recompensesNature:
+    "Les récompenses qui ne sont pas de l'argent : un téléphone, un ordinateur, une voiture. « Déjà dû » veut dire que le palier est franchi et que l'objet est à livrer, c'est une vraie dépense, comptée dans le coût complet du moteur mais jamais dans le coût par client. « Engagé » veut dire que la promesse existe mais que le palier n'est pas atteint : ce n'est pas encore une dépense, et les montants affichés sont ce que l'objet nous coûte, pas son prix en magasin.",
   efficaciteCreatrice:
     "La médiane prédit la prochaine vidéo, le taux de vidéos à succès prédit le volume du mois. La moyenne, elle, ne prédit rien, donc on ne l'affiche pas. Sert à repérer les créatrices régulières plutôt que celles à un seul coup de chance.",
 

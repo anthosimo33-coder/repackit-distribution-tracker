@@ -6,6 +6,10 @@ import {
   assignmentPublishedAt,
   assignmentViewsAndMetrics,
   computeLivePricingBreakdown,
+  creatorCumulViews,
+  effectiveBonusPricing,
+  natureRewardsDue,
+  promoVideoCost,
   type PricingBreakdown,
 } from "./pricing";
 import { periodOf } from "./payments";
@@ -147,6 +151,14 @@ export interface AttributionRow {
   hasPromoPost: boolean;
   /** Coût réel de la vidéo (fixe/vidéo + CPM). null = hors moteur v2 (legacy). */
   cost: number | null;
+  /**
+   * Part de ce coût engagée pour les posts PROMO : fixe entier + la seule part du
+   * CPM gagnée sur des vues promo. Égal à `cost` sauf sur une vidéo MIXTE (post
+   * promo + post warmup rémunéré) — voir promoVideoCost. Base des indicateurs
+   * divisés par des vues promo, pour que numérateur et dénominateur portent sur
+   * le même périmètre. null aux mêmes conditions que `cost`.
+   */
+  promoCost: number | null;
 }
 
 export interface AttributionResult {
@@ -166,14 +178,19 @@ export interface AttributionResult {
   fxRateToRevenue: number | null;
   /**
    * Coûts créateurs (paie, en devise $), pour les deux cartes d'éco unitaire :
-   *  - `total` = coût COMPLET du moteur (fixe + CPM + 100 % du bonus), tous posts
-   *    payables, warmup rémunéré INCLUS (sans warmup aucun compte ne publie de promo) ;
+   *  - `total` = coût COMPLET du moteur (fixe + CPM + 100 % du bonus cash + les
+   *    récompenses en NATURE déjà DUES), tous posts payables, warmup rémunéré
+   *    INCLUS (sans warmup aucun compte ne publie de promo). Les récompenses en
+   *    nature NON franchies n'y sont PAS : un palier pas atteint est un
+   *    engagement, pas une dépense (elles vivent dans `getNatureRewards`) ;
    *  - `promo` = fixe + CPM des publications PROMO (non-warmup), sommés depuis la
    *    paie RÉELLE de ces vidéos, jamais un ratio de vues ;
-   *  - `promoBonus` = part du BONUS attribuée au promo, RÉPARTIE au prorata de la
-   *    part de vues payables qui sont promo (`promoViewShare`). Le bonus est attaché
-   *    à la CRÉATRICE, pas à une vidéo : c'est une ESTIMATION, pas une mesure, et
-   *    l'UI l'affiche comme telle. Le coût d'acquisition = promo + promoBonus.
+   *  - `promoBonus` = le bonus paliers EN ENTIER (100 %), plus aucun prorata.
+   *    Depuis le 2026-08-07 (commit 2b7a1e6) un palier ne se gagne QUE sur des vues
+   *    rémunérées ET promo (`bonusTierViews`, cf pricing.creatorCumulViews) : chaque
+   *    vue qui a servi à débloquer un palier est une vue promo, donc la totalité du
+   *    bonus est un coût promo. Ce n'est plus une estimation mais une mesure.
+   *    Le coût d'acquisition = promo + promoBonus.
    * `promo`/`promoBonus` sont `null` seulement si un coût PAR VIDÉO manque (legacy
    * sans pricingSnapshot) → tiret, jamais une paie inventée.
    */
@@ -181,10 +198,29 @@ export interface AttributionResult {
     total: number;
     promo: number | null;
     promoBonus: number | null;
-    /** Clé de répartition du bonus = part des vues payables qui sont promo (0–1). */
+    /**
+     * Part des vues PAYABLES qui sont promo (0–1) — DIAGNOSTIC seulement. Ce fut la
+     * clé de répartition du bonus jusqu'au 2026-08-07 ; elle ne l'est PLUS (voir
+     * `promoBonus`). Reste exposée parce qu'elle chiffre le poids du warmup
+     * rémunéré dans le CPM payé (≈ 0,25 en prod : les trois quarts du CPM portent
+     * sur des vues hors promo).
+     */
     promoViewShare: number;
     /** Bonus paliers cash TOTAL (niveau créatrice) — 100 % dans `total`. */
     bonusTotal: number;
+    /**
+     * Récompenses en NATURE déjà DUES (paliers franchis), valorisées à leur coût
+     * réel figé. Incluses dans `total`, JAMAIS dans `promo`/`promoBonus` : un
+     * iPhone ou une voiture n'est pas un coût par client, c'est un engagement
+     * pris sur le volume.
+     */
+    natureDue: number;
+    /**
+     * Nb de récompenses en nature DUES dont le coût réel n'est pas renseigné —
+     * elles sont donc ABSENTES de `natureDue` et de `total`. > 0 ⇒ l'UI doit dire
+     * que le coût complet est sous-estimé, plutôt que de le présenter comme entier.
+     */
+    natureDueMissingCost: number;
   };
 }
 
@@ -292,6 +328,7 @@ export const getAttribution = adminQuery({
 
       // Coût réel de la vidéo : fixe/vidéo de son pricing + son CPM.
       let cost: number | null = null;
+      let promoCost: number | null = null;
       if (a.pricingSnapshot) {
         const b = await breakdownFor(a.creatorId, period);
         const perAssignment = b.perAssignment.find(
@@ -301,10 +338,15 @@ export const getAttribution = adminQuery({
           (p) => p.pricingId === (a.pricingSnapshot!.pricingId as string),
         );
         if (perAssignment || perPricing) {
-          cost =
-            Math.round(
-              ((perPricing?.fixePerVideo ?? 0) + (perAssignment?.cpm ?? 0)) * 100,
-            ) / 100;
+          const fixed = perPricing?.fixePerVideo ?? 0;
+          const cpm = perAssignment?.cpm ?? 0;
+          cost = round2(fixed + cpm);
+          promoCost = promoVideoCost(
+            fixed,
+            cpm,
+            views.payableViews,
+            views.bonusTierViews,
+          );
         }
       }
 
@@ -330,6 +372,7 @@ export const getAttribution = adminQuery({
         isWarmupOnly: !views.hasPayablePost,
         hasPromoPost: views.hasPromoPost,
         cost,
+        promoCost,
       });
     }
 
@@ -361,17 +404,48 @@ export const getAttribution = adminQuery({
     }
     const payableCost = rows.reduce((s, r) => s + (r.cost ?? 0), 0);
     const promoRows = rows.filter((r) => r.hasPromoPost);
-    const promoNullCost = promoRows.some((r) => r.cost === null);
-    const promoFixeCpm = round2(promoRows.reduce((s, r) => s + (r.cost ?? 0), 0));
-    // Clé : part des vues PAYABLES qui sont PROMO (bornée [0,1] — un post promo
-    // non rémunéré resterait hors payable). Bonus promo = bonusTotal × clé.
+    const promoNullCost = promoRows.some((r) => r.promoCost === null);
+    // `promoCost` et non `cost` : sur une vidéo MIXTE (post promo + post warmup
+    // RÉMUNÉRÉ), le CPM payé sur les vues de warmup ne doit pas entrer dans un
+    // coût que l'on divise ensuite par les seules vues promo. Aucune vidéo mixte
+    // en prod au 07/08/2026 (les 10 posts warmup rémunérés sont sur des vidéos
+    // 100 % warmup, déjà hors promoRows) : le total est donc inchangé aujourd'hui,
+    // et le reste si le cas apparaît.
+    const promoFixeCpm = round2(promoRows.reduce((s, r) => s + (r.promoCost ?? 0), 0));
+    // Part des vues PAYABLES qui sont PROMO (bornée [0,1]) — DIAGNOSTIC seulement,
+    // ce n'est PLUS la clé de répartition du bonus (voir juste en dessous).
     const totalPayableViews = rows.reduce((s, r) => s + r.payableViews, 0);
     const totalPromoViews = rows.reduce((s, r) => s + r.promoViews, 0);
     const promoViewShare =
       totalPayableViews > 0
         ? Math.min(1, totalPromoViews / totalPayableViews)
         : 0;
-    const promoBonus = round2(bonusTotal * promoViewShare);
+    // Bonus promo = 100 % du bonus, plus aucun prorata. Depuis le 2026-08-07
+    // (commit 2b7a1e6) le cumul qui débloque un palier ne compte QUE les vues
+    // rémunérées ET promo (`bonusTierViews`) : une vue de warmup ne fait plus
+    // avancer un palier, donc tout bonus débloqué l'a été par du promo et sa
+    // totalité est un coût promo. Le prorata précédent (× promoViewShare ≈ 0,25 en
+    // prod) sous-comptait le bonus d'environ 75 % dans le coût d'acquisition.
+    //
+    // AUCUN régime transitoire n'est nécessaire : vérifié sur l'export prod du
+    // 2026-08-07, la table `bonusUnlocks` est VIDE (le resync rétroactif du même
+    // jour a révoqué le seul palier existant) et les 10 paiements sont tous
+    // `accruing`, lineItems vides — aucun bonus n'a donc jamais été débloqué, a
+    // fortiori aucun sur des vues warmup. Rien à conserver sous l'ancienne clé.
+    const promoBonus = bonusTotal;
+
+    // Récompenses en NATURE déjà dues (iPhone, MacBook, voiture…) : une dépense
+    // réelle, invisible jusqu'ici parce que `bonusTierCashTotal` ne somme que le
+    // cash. Elles entrent dans le coût COMPLET du moteur et nulle part ailleurs —
+    // ce n'est pas un coût par client. Sans coût réel renseigné, une récompense
+    // est comptée comme MANQUANTE plutôt qu'à 0 (un 0 se lirait « gratuit »).
+    const natureEntries = await natureRewardsDue(ctx, ctx.projectId);
+    const natureDue = round2(
+      natureEntries.reduce((s, n) => s + (n.coutReel ?? 0), 0),
+    );
+    const natureDueMissingCost = natureEntries.filter(
+      (n) => n.coutReel === null,
+    ).length;
 
     return {
       rows,
@@ -383,12 +457,139 @@ export const getAttribution = adminQuery({
       payCurrency: project?.payCurrency ?? null,
       fxRateToRevenue: project?.fxRateToRevenue ?? null,
       costs: {
-        total: round2(payableCost + bonusTotal),
+        total: round2(payableCost + bonusTotal + natureDue),
         promo: promoNullCost ? null : promoFixeCpm,
         promoBonus: promoNullCost ? null : promoBonus,
         promoViewShare: Math.round(promoViewShare * 1000) / 1000,
         bonusTotal,
+        natureDue,
+        natureDueMissingCost,
       },
+    };
+  },
+});
+
+// ─── Récompenses en nature (dû vs engagé) ────────────────────────────────────
+
+/** Une ligne de la carte : un palier NATURE d'une grille, avec son état réel. */
+export interface NatureRewardRow {
+  seuilVues: number;
+  libelle: string | null;
+  /** Coût réel unitaire. null = non renseigné → tiret, jamais 0. */
+  coutReel: number | null;
+  /** Créatrices ayant DÉJÀ franchi ce palier (récompense due). */
+  dueCount: number;
+  /** Créatrices concernées par la grille et ne l'ayant PAS encore franchi. */
+  engagedCount: number;
+  /** Cumul de paliers de la créatrice la PLUS PROCHE, parmi les engagées. */
+  closestCumul: number | null;
+  closestCreatorName: string | null;
+}
+
+export interface NatureRewardsResult {
+  /** Devise de la PAIE ($) — les coûts réels sont exprimés dedans. */
+  payCurrency: string | null;
+  rows: NatureRewardRow[];
+  /** DÉPENSE : Σ des coûts réels des récompenses déjà dues. */
+  dueTotal: number;
+  /** Récompenses dues dont le coût réel manque (donc hors de `dueTotal`). */
+  dueMissingCost: number;
+  /** ENGAGEMENT, PAS une dépense : Σ des coûts réels des paliers pas encore franchis. */
+  engagedTotal: number;
+  /** Engagements dont le coût réel manque (donc hors de `engagedTotal`). */
+  engagedMissingCost: number;
+  /** Aucun palier nature dans aucune grille ⇒ la carte ne s'affiche pas. */
+  hasNatureTiers: boolean;
+  /** Aucun `coutReel` renseigné nulle part ⇒ l'UI explique quoi remplir et où. */
+  anyCostConfigured: boolean;
+}
+
+/**
+ * Récompenses en NATURE du projet, en séparant les deux natures de chiffre :
+ *  - DÛ = palier franchi, l'objet est à livrer → c'est une DÉPENSE, et elle entre
+ *    dans le coût complet du moteur (cf getAttribution.costs.natureDue) ;
+ *  - ENGAGÉ = palier pas encore franchi → ce n'est PAS une dépense mais un
+ *    engagement pris sur le volume. Il n'entre dans AUCUN coût, et la carte le
+ *    dit : promettre une voiture à 100 M de vues doit être visible sans être
+ *    compté comme dépensé.
+ *
+ * Les deux se lisent sur la grille EFFECTIVE de chaque créatrice (perso, sinon
+ * défaut projet) — la même que celle qui pilote les déblocages, donc jamais un
+ * palier affiché ici et non débloqué là-bas. Un engagement est compté PAR
+ * CRÉATRICE : deux créatrices sur la même grille, c'est deux objets à prévoir.
+ */
+export const getNatureRewards = adminQuery({
+  args: {},
+  handler: async (ctx): Promise<NatureRewardsResult> => {
+    const project = await ctx.db.get(ctx.projectId);
+    const payCurrency = project?.payCurrency ?? null;
+    const creators = await ctx.db
+      .query("creators")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+
+    const due = await natureRewardsDue(ctx, ctx.projectId);
+    const dueKey = (creatorId: string, seuil: number) => `${creatorId}:${seuil}`;
+    const dueSet = new Set(due.map((d) => dueKey(d.creatorId as string, d.seuilVues)));
+
+    // Regroupement par PALIER (seuil + libellé) : trois créatrices sur « iPhone 17
+    // à 10 M » forment une ligne à trois engagements, pas trois lignes.
+    const byTier = new Map<string, NatureRewardRow>();
+    for (const creator of creators) {
+      const eff = await effectiveBonusPricing(ctx, creator);
+      if (!eff) continue;
+      const natureTiers = eff.tiers.filter((t) => t.rewardType === "nature");
+      if (natureTiers.length === 0) continue;
+      const cumul = await creatorCumulViews(ctx, ctx.projectId, creator._id);
+      for (const t of natureTiers) {
+        const key = `${t.seuilVues}|${t.libelle ?? ""}`;
+        const row: NatureRewardRow = byTier.get(key) ?? {
+          seuilVues: t.seuilVues,
+          libelle: t.libelle ?? null,
+          coutReel: typeof t.coutReel === "number" ? t.coutReel : null,
+          dueCount: 0,
+          engagedCount: 0,
+          closestCumul: null,
+          closestCreatorName: null,
+        };
+        if (dueSet.has(dueKey(creator._id as string, t.seuilVues))) {
+          row.dueCount += 1;
+        } else {
+          row.engagedCount += 1;
+          // Créatrice la plus proche du seuil : la seule progression qui rende
+          // l'engagement lisible (« la voiture est-elle une hypothèse lointaine ? »).
+          if (row.closestCumul === null || cumul > row.closestCumul) {
+            row.closestCumul = cumul;
+            row.closestCreatorName = creator.name;
+          }
+        }
+        byTier.set(key, row);
+      }
+    }
+
+    const rows = [...byTier.values()].sort((a, b) => a.seuilVues - b.seuilVues);
+    // Le DÛ se somme sur les unlocks RÉELS (coût FIGÉ au déblocage), pas sur la
+    // grille courante : renégocier le prix ne réécrit pas ce qui est déjà dû.
+    const dueTotal = round2(due.reduce((s, d) => s + (d.coutReel ?? 0), 0));
+    const dueMissingCost = due.filter((d) => d.coutReel === null).length;
+    const engagedTotal = round2(
+      rows.reduce((s, r) => s + (r.coutReel ?? 0) * r.engagedCount, 0),
+    );
+    const engagedMissingCost = rows
+      .filter((r) => r.coutReel === null)
+      .reduce((s, r) => s + r.engagedCount, 0);
+
+    return {
+      payCurrency,
+      rows,
+      dueTotal,
+      dueMissingCost,
+      engagedTotal,
+      engagedMissingCost,
+      hasNatureTiers: rows.length > 0,
+      anyCostConfigured:
+        rows.some((r) => r.coutReel !== null) ||
+        due.some((d) => d.coutReel !== null),
     };
   },
 });

@@ -49,6 +49,8 @@ type TierForm = {
   rewardType: "cash" | "nature";
   montant: string;
   libelle: string;
+  /** NATURE — ce que l'objet nous coûte réellement (jamais son prix public). */
+  coutReel: string;
 };
 
 const EMPTY = {
@@ -106,6 +108,7 @@ export default function PricingsPage() {
         rewardType: t.rewardType,
         montant: t.montant != null ? String(t.montant) : "",
         libelle: t.libelle ?? "",
+        coutReel: t.coutReel != null ? String(t.coutReel) : "",
       })),
     );
     setOpen(true);
@@ -114,7 +117,7 @@ export default function PricingsPage() {
   function addTier() {
     setTiers((ts) => [
       ...ts,
-      { seuilVues: "", rewardType: "cash", montant: "", libelle: "" },
+      { seuilVues: "", rewardType: "cash", montant: "", libelle: "", coutReel: "" },
     ]);
   }
   function updateTier(i: number, patch: Partial<TierForm>) {
@@ -131,6 +134,12 @@ export default function PricingsPage() {
       rewardType: t.rewardType,
       montant: t.rewardType === "cash" ? Number(t.montant) : undefined,
       libelle: t.rewardType === "nature" ? t.libelle.trim() : undefined,
+      // Coût réel : NATURE seulement, et seulement s'il est renseigné. Vide =>
+      // undefined (absent), jamais 0 : « pas encore chiffré » n'est pas « gratuit ».
+      coutReel:
+        t.rewardType === "nature" && t.coutReel.trim() !== ""
+          ? Number(t.coutReel)
+          : undefined,
     }));
     const args = {
       name: form.name.trim(),
@@ -461,6 +470,25 @@ export default function PricingsPage() {
                       </>
                     )}
                   </div>
+                  {/* Coût réel — NATURE seulement. Facultatif : sans lui la
+                      récompense reste visible mais non chiffrée (tiret), elle
+                      n'entre alors dans aucun total. Ce n'est PAS le prix public
+                      et ce n'est jamais montré à la créatrice. */}
+                  {t.rewardType === "nature" && (
+                    <div className="min-w-[8rem] flex-1 space-y-1">
+                      <Label className="text-xs">
+                        Coût réel ({currencySymbol(payCurrency)})
+                      </Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        placeholder="ce qu'il nous coûte"
+                        value={t.coutReel}
+                        onChange={(e) => updateTier(i, { coutReel: e.target.value })}
+                      />
+                    </div>
+                  )}
                   <Button
                     type="button"
                     variant="ghost"

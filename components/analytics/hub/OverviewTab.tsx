@@ -27,6 +27,7 @@ import {
   pct,
 } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
+import { PromoRpmCard } from "./PromoRpmCard";
 import { PayCurrencyWarning } from "@/components/PayCurrencyWarning";
 import type { TrendPoint } from "./HubTrendChart";
 import type {
@@ -103,9 +104,13 @@ export function OverviewTab({
       whopExcludedAfter: c.whopExcludedAfter,
       dailyClientsSum: c.dailyClientsSum,
       dailySignupsSum: c.dailySignupsSum,
-      // Contrôle CROISÉ PAR JOUR : PostHog subs vs Whop clients payants.
+      // Contrôle CROISÉ PAR JOUR : PostHog subs vs Whop clients payants. Les
+      // renouvellements servent à reconnaître la cause CONNUE d'un excès PostHog
+      // (subscription_completed réémis à chaque cycle) — sans eux, le bandeau
+      // rouge sonnerait tous les jours pour ce seul motif.
       dailySubs: c.dailySubs,
       dailyPaidClients: c.dailyPaidClients,
+      dailyRenewals: c.dailyRenewals,
       todayParis: c.todayParis,
     });
   }, [reliability]);
@@ -218,10 +223,16 @@ export function OverviewTab({
   const promoPlusBonus =
     c && c.promo !== null && c.promoBonus !== null ? c.promo + c.promoBonus : null;
   const acquisitionCost = perClient(promoPlusBonus);
-  const acquisitionBonus = c?.promoBonus ?? null; // bonus (total) inclus dans l'acquisition
-  const acquisitionShare = c?.promoViewShare ?? 0; // clé de répartition (part promo)
-  // Carte 2 — coût complet du moteur : toute la paie (warmup + 100% bonus) / clients.
+  // Bonus inclus EN ENTIER : un palier ne se gagne que sur des vues promo, donc
+  // tout bonus débloqué est un coût promo (plus de prorata, cf getAttribution).
+  const acquisitionBonus = c?.promoBonus ?? null;
+  // Carte 2 — coût complet du moteur : toute la paie (warmup + 100 % du bonus cash
+  // + les récompenses en NATURE déjà dues) / clients. Une récompense en nature sans
+  // coût réel renseigné est ABSENTE du total : on le dit, plutôt que de présenter
+  // un coût incomplet comme entier.
   const fullEngineCost = perClient(attribution?.costs.total);
+  const natureDue = attribution?.costs.natureDue ?? 0;
+  const natureMissing = attribution?.costs.natureDueMissingCost ?? 0;
 
   const seq = analytics.funnels.sequential.segments[0]?.steps ?? [];
   const checkoutN = stepCount(seq, "checkout_started");
@@ -281,13 +292,26 @@ export function OverviewTab({
         </HubNotice>
       ) : null}
 
+      {/* Contrôles en écart — la RAISON est écrite dans le bandeau, pas seulement
+          le nom du contrôle : une alerte dont on doit aller chercher la cause
+          ailleurs finit par ne plus être lue. Les écarts à cause CONNUE (les
+          renouvellements comptés comme des conversions) ne sont plus des
+          violations et ne passent donc plus par ici — voir buildCoherenceChecks. */}
       {violations.length > 0 ? (
         <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
           <strong>
             {violations.length} contrôle{violations.length > 1 ? "s" : ""} de
             cohérence en écart.
-          </strong>{" "}
-          {violations.map((v) => v.label).join(" · ")}. Voir l&apos;onglet Fiabilité.
+          </strong>
+          <ul className="mt-1 space-y-0.5">
+            {violations.map((v) => (
+              <li key={v.key}>
+                <span className="font-medium">{v.label}</span>
+                {v.detail ? ` — ${v.detail}` : ""}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1">Détail complet dans l&apos;onglet Fiabilité.</p>
         </HubNotice>
       ) : null}
 
@@ -303,7 +327,9 @@ export function OverviewTab({
           delta={null}
           hint={
             acquisitionBonus !== null && acquisitionBonus > 0
-              ? `dont ${formatMoney(acquisitionBonus, payCurrency)} de bonus estimé · clé ${Math.round(acquisitionShare * 100)} % promo`
+              ? `dont ${formatMoney(acquisitionBonus, payCurrency)} de bonus de paliers, débloqué sur des vues promo${
+                  clients !== null ? ` · ÷ ${formatNumber(clients)} clients acquis` : ""
+                }`
               : clients !== null
                 ? `publications promo · ÷ ${formatNumber(clients)} clients acquis`
                 : "publications promo uniquement"
@@ -315,9 +341,15 @@ export function OverviewTab({
           value={fullEngineCost === null ? "—" : formatMoney(fullEngineCost, payCurrency)}
           delta={null}
           hint={
-            clients !== null
-              ? `warmup inclus · ÷ ${formatNumber(clients)} clients acquis`
-              : "warmup inclus · tout le moteur"
+            natureMissing > 0
+              ? `warmup inclus · sous-estimé : ${formatNumber(natureMissing)} récompense(s) en nature sans coût réel`
+              : natureDue > 0
+                ? `warmup + ${formatMoney(natureDue, payCurrency)} de récompenses en nature dues${
+                    clients !== null ? ` · ÷ ${formatNumber(clients)} clients acquis` : ""
+                  }`
+                : clients !== null
+                  ? `warmup inclus · ÷ ${formatNumber(clients)} clients acquis`
+                  : "warmup inclus · tout le moteur"
           }
           info={EXPLAIN.coutComplet}
         />
@@ -337,6 +369,14 @@ export function OverviewTab({
           info={EXPLAIN.revenuParClient}
         />
       </div>
+
+      {/* RPM promo — revenu, coût et écart pour 1 000 vues promo. Placée avec
+          l'éco unitaire : c'est le même bloc « ce que rapporte / ce que coûte ». */}
+      <PromoRpmCard
+        revenue={revenue}
+        attribution={attribution}
+        viewCounters={viewCounters}
+      />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {dashboardWhopViolation ? (
@@ -381,7 +421,7 @@ export function OverviewTab({
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <KpiTile
           label="Complétion checkout"
           value={pct(completion)}
@@ -408,17 +448,6 @@ export function OverviewTab({
           points={signupsPts}
           hint="ancré sur l'inscription"
           info={EXPLAIN.inscrits}
-        />
-        <KpiTile
-          label="Comptes internes exclus"
-          value={dash(reliability?.internalExcluded.persons ?? null)}
-          delta={null}
-          hint={
-            reliability
-              ? `PostHog · ${dash(reliability.whopInternalExcluded)} côté Whop`
-              : "—"
-          }
-          info={EXPLAIN.comptesInternes}
         />
       </div>
 

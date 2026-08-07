@@ -112,6 +112,26 @@ function payableAssignmentViews(pubs: PublicationViews[]): {
   };
 }
 
+/**
+ * Part de la paie d'UNE vidéo engagée pour ses posts PROMO : fixe entier (il est
+ * par VIDÉO) + la seule part du CPM gagnée sur des vues promo. Le CPM est payé sur
+ * les vues PAYABLES, qui incluent un post warmup RÉMUNÉRÉ (exception historique) :
+ * sans ce prorata, une vidéo mixte ferait entrer sa paie de warmup dans un coût
+ * ensuite divisé par les seules vues promo. RÉPLIQUE EXACTE de
+ * lib/pricing-engine.promoVideoCost (testée Vitest là-bas).
+ */
+export function promoVideoCost(
+  fixed: number,
+  cpm: number,
+  payableViews: number,
+  promoPaidViews: number,
+): number {
+  const payable = Math.max(0, payableViews);
+  const promo = Math.min(Math.max(0, promoPaidViews), payable);
+  const share = payable > 0 ? promo / payable : 0;
+  return round2(Math.max(0, fixed) + Math.max(0, cpm) * share);
+}
+
 /** RÉPLIQUE de lib/pricing-engine.computeMonthlyPayout (DOIT rester identique). */
 export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
   const groups = new Map<string, PayoutItem[]>();
@@ -180,6 +200,11 @@ export type BonusTier = {
   rewardType: "cash" | "nature";
   montant?: number;
   libelle?: string;
+  /**
+   * NATURE uniquement — ce que l'objet nous COÛTE réellement, jamais son prix
+   * public. RÉPLIQUE de lib/pricing-engine.BonusTier (A6). Absent ⇒ tiret.
+   */
+  coutReel?: number;
 };
 
 export function tiersOf(pricing: {
@@ -403,6 +428,45 @@ export async function creatorBonusTiers(
   return eff?.tiers ?? [];
 }
 
+/** Une récompense en NATURE déjà DUE (palier franchi), avec son coût réel figé. */
+export interface NatureDueEntry {
+  creatorId: Id<"creators">;
+  seuilVues: number;
+  libelle: string | null;
+  /** Coût réel FIGÉ au déblocage. null = jamais renseigné → hors du total. */
+  coutReel: number | null;
+  unlockedAt: number;
+}
+
+/**
+ * Récompenses en NATURE déjà DUES d'un projet (un palier nature franchi = un
+ * objet qu'on doit livrer). SOURCE UNIQUE partagée par le coût complet du moteur
+ * (getAttribution) et la carte de détail (getNatureRewards) → les deux ne peuvent
+ * pas diverger.
+ *
+ * Une récompense sans `coutReel` renseigné est renvoyée avec `null` : elle est
+ * DUE mais non chiffrable. L'appelant l'exclut du total ET le signale — un coût
+ * manquant qui disparaîtrait en silence ferait lire le total comme complet.
+ */
+export async function natureRewardsDue(
+  ctx: QueryCtx | MutationCtx,
+  projectId: Id<"projects">,
+): Promise<NatureDueEntry[]> {
+  const unlocks = await ctx.db
+    .query("bonusUnlocks")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+  return unlocks
+    .filter((u) => u.rewardType === "nature")
+    .map((u) => ({
+      creatorId: u.creatorId,
+      seuilVues: u.seuilVues,
+      libelle: u.libelle ?? null,
+      coutReel: typeof u.coutReel === "number" ? u.coutReel : null,
+      unlockedAt: u.unlockedAt,
+    }));
+}
+
 /**
  * Le $ de cet unlock est-il DÉJÀ GELÉ dans un paiement payé ? Le gel écrit une
  * lineItem `bonus_tier` AGRÉGÉE (aucun détail par palier récupérable), donc on
@@ -519,6 +583,8 @@ export async function syncBonusUnlocks(
       rewardType: tier.rewardType,
       montant: tier.montant,
       libelle: tier.libelle,
+      // Figé comme le reste : le coût de CET objet-là, au moment où il devient dû.
+      coutReel: tier.coutReel,
       unlockedAt: now,
       cumulAtUnlock: cumul,
       attributionPeriod,
@@ -769,8 +835,20 @@ function validatePricingFields(args: PricingInput): PricingInput {
       if (!Number.isFinite(t.montant ?? NaN) || (t.montant ?? -1) < 0) {
         throw new ConvexError("Un palier cash exige un montant $ ≥ 0.");
       }
-    } else if (!(t.libelle ?? "").trim()) {
-      throw new ConvexError("Un palier nature exige un libellé (ex. iPhone).");
+    } else {
+      if (!(t.libelle ?? "").trim()) {
+        throw new ConvexError("Un palier nature exige un libellé (ex. iPhone).");
+      }
+      // Facultatif, mais s'il est fourni il doit être un vrai montant : un coût
+      // négatif ou NaN entrerait tel quel dans le coût complet du moteur.
+      if (t.coutReel !== undefined && (!Number.isFinite(t.coutReel) || t.coutReel < 0)) {
+        throw new ConvexError("Le coût réel d'un palier nature doit être ≥ 0.");
+      }
+    }
+    if (t.rewardType === "cash" && t.coutReel !== undefined) {
+      throw new ConvexError(
+        "Le coût réel ne concerne que les paliers nature (le cash porte déjà son montant).",
+      );
     }
   }
   return { ...args, name };
@@ -794,6 +872,9 @@ const BONUS_TIER_VALIDATOR = v.object({
   rewardType: v.union(v.literal("cash"), v.literal("nature")),
   montant: v.optional(v.number()),
   libelle: v.optional(v.string()),
+  // NATURE — coût réel pour NOUS. Facultatif : une récompense non chiffrée reste
+  // visible (tiret) plutôt que d'être bloquée à la saisie ou comptée à 0.
+  coutReel: v.optional(v.number()),
 });
 
 const PRICING_ARGS = {
