@@ -704,7 +704,7 @@ function PreviewDialog({
           <DialogTitle>Aperçu d&apos;un script monté</DialogTitle>
           <DialogDescription>
             {snytch
-              ? "Ce que verra la créatrice : 🎬 hook + flux vont dans la vidéo, 📝 le CTA va en description du post."
+              ? "Ce que verra la créatrice : 🎬 hook + flux vont dans la vidéo, 📝 la description va sous la publication."
               : "Le rendu final d'une vidéo (ce que verra le créateur), sans les briques séparées."}
           </DialogDescription>
         </DialogHeader>

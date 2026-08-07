@@ -146,7 +146,7 @@ export function EditScriptComboDialog({
         <DialogHeader>
           <DialogTitle>Modifier le combo — {creatorName}</DialogTitle>
           <DialogDescription>
-            Remplace UNE brique (hook, flux ou CTA). Une seule correction
+            Remplace UNE brique (hook, flux ou description). Une seule correction
             possible, avant publication. Le pricing n&apos;est pas impacté.
           </DialogDescription>
         </DialogHeader>
