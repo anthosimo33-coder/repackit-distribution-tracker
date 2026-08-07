@@ -1204,6 +1204,11 @@ export default defineSchema({
           rewardType: v.union(v.literal("cash"), v.literal("nature")),
           montant: v.optional(v.number()),
           libelle: v.optional(v.string()),
+          // NATURE uniquement — ce que l'objet nous COÛTE (prix d'achat négocié),
+          // jamais son prix public. Fait entrer les récompenses en nature dans le
+          // coût complet du moteur. Absent ⇒ la valeur s'affiche en tiret, jamais
+          // à 0 (un 0 se lirait comme « gratuit »). JAMAIS montré à la créatrice.
+          coutReel: v.optional(v.number()),
         }),
       ),
     ),
@@ -1225,6 +1230,9 @@ export default defineSchema({
     rewardType: v.union(v.literal("cash"), v.literal("nature")),
     montant: v.optional(v.number()),
     libelle: v.optional(v.string()),
+    // Coût réel FIGÉ au déblocage, comme le reste de la récompense : renégocier
+    // le prix d'un iPhone ne doit pas réécrire ce qu'a coûté celui déjà dû.
+    coutReel: v.optional(v.number()),
     unlockedAt: v.number(),
     cumulAtUnlock: v.number(),
     // "YYYY-MM" — période où la récompense cash compte (cf periodOf). Jamais une

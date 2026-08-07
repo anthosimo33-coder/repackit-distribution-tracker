@@ -14,7 +14,12 @@ import { formatViews } from "@/lib/format-rate";
 import { HubCardHeader, HubEmptyState, dash } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import { UsersIcon } from "lucide-react";
-import type { AttributionData, ViewCountersData } from "./types";
+import { NatureRewardsCard } from "./NatureRewardsCard";
+import type {
+  AttributionData,
+  NatureRewardsData,
+  ViewCountersData,
+} from "./types";
 
 /**
  * Onglet ACQUISITION — les trois compteurs de vues (jamais additionnés),
@@ -31,12 +36,18 @@ function frDay(day: string): string {
 export function AcquisitionTab({
   attribution,
   viewCounters,
+  natureRewards,
 }: {
   attribution: AttributionData;
   viewCounters: ViewCountersData | undefined;
+  natureRewards: NatureRewardsData | undefined;
 }) {
   return (
     <div className="space-y-6">
+      {/* Récompenses en nature — dû (dépense) vs engagé (promesse). Placée ici :
+          ce sont les cumuls de vues de cet onglet qui font tomber les paliers. */}
+      <NatureRewardsCard data={natureRewards} />
+
       {/* Quatre compteurs de vues */}
       <Card>
         <CardContent className="space-y-3 p-4">

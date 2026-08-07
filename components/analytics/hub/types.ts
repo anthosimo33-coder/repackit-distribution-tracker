@@ -22,4 +22,7 @@ export type ReliabilityData = FunctionReturnType<
 export type ViewCountersData = FunctionReturnType<
   typeof api.analyticsHub.getViewCounters
 >;
+export type NatureRewardsData = FunctionReturnType<
+  typeof api.analyticsHub.getNatureRewards
+>;
 export type ChurnData = FunctionReturnType<typeof api.analyticsHub.getChurn>;

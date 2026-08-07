@@ -226,8 +226,13 @@ export function OverviewTab({
   // Bonus inclus EN ENTIER : un palier ne se gagne que sur des vues promo, donc
   // tout bonus débloqué est un coût promo (plus de prorata, cf getAttribution).
   const acquisitionBonus = c?.promoBonus ?? null;
-  // Carte 2 — coût complet du moteur : toute la paie (warmup + 100% bonus) / clients.
+  // Carte 2 — coût complet du moteur : toute la paie (warmup + 100 % du bonus cash
+  // + les récompenses en NATURE déjà dues) / clients. Une récompense en nature sans
+  // coût réel renseigné est ABSENTE du total : on le dit, plutôt que de présenter
+  // un coût incomplet comme entier.
   const fullEngineCost = perClient(attribution?.costs.total);
+  const natureDue = attribution?.costs.natureDue ?? 0;
+  const natureMissing = attribution?.costs.natureDueMissingCost ?? 0;
 
   const seq = analytics.funnels.sequential.segments[0]?.steps ?? [];
   const checkoutN = stepCount(seq, "checkout_started");
@@ -336,9 +341,15 @@ export function OverviewTab({
           value={fullEngineCost === null ? "—" : formatMoney(fullEngineCost, payCurrency)}
           delta={null}
           hint={
-            clients !== null
-              ? `warmup inclus · ÷ ${formatNumber(clients)} clients acquis`
-              : "warmup inclus · tout le moteur"
+            natureMissing > 0
+              ? `warmup inclus · sous-estimé : ${formatNumber(natureMissing)} récompense(s) en nature sans coût réel`
+              : natureDue > 0
+                ? `warmup + ${formatMoney(natureDue, payCurrency)} de récompenses en nature dues${
+                    clients !== null ? ` · ÷ ${formatNumber(clients)} clients acquis` : ""
+                  }`
+                : clients !== null
+                  ? `warmup inclus · ÷ ${formatNumber(clients)} clients acquis`
+                  : "warmup inclus · tout le moteur"
           }
           info={EXPLAIN.coutComplet}
         />

@@ -56,6 +56,7 @@ export default function AnalyticsPage() {
   const revenue = useProjectQuery(api.analyticsHub.getRevenueBreakdown, {});
   const reliability = useProjectQuery(api.analyticsHub.getReliability, {});
   const viewCounters = useProjectQuery(api.analyticsHub.getViewCounters, {});
+  const natureRewards = useProjectQuery(api.analyticsHub.getNatureRewards, {});
   const churn = useProjectQuery(api.analyticsHub.getChurn, {});
   const requestSync = useProjectMutation(api.posthogSync.requestPosthogSync);
   const [syncing, setSyncing] = useState(false);
@@ -219,7 +220,11 @@ export default function AnalyticsPage() {
               {attribution === undefined ? (
                 <Skeleton className="h-64 w-full" />
               ) : (
-                <AcquisitionTab attribution={attribution} viewCounters={viewCounters} />
+                <AcquisitionTab
+                  attribution={attribution}
+                  viewCounters={viewCounters}
+                  natureRewards={natureRewards}
+                />
               )}
             </TabsContent>
 

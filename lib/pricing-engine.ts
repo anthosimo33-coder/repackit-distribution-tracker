@@ -282,6 +282,14 @@ export type BonusTier = {
   rewardType: "cash" | "nature";
   montant?: number;
   libelle?: string;
+  /**
+   * Récompense NATURE uniquement — ce que l'objet nous COÛTE réellement (prix
+   * d'achat négocié), JAMAIS son prix public ni sa valeur perçue par la
+   * créatrice. Sert à faire entrer les iPhone/MacBook/voitures dans l'économie du
+   * moteur ; absent ⇒ la récompense s'affiche sans montant (tiret), jamais à 0.
+   * Non affiché à la créatrice : c'est un coût interne, pas sa rémunération.
+   */
+  coutReel?: number;
 };
 
 /** Source de paliers d'un pricing (avec fallback legacy seuil unique → 1 cash). */

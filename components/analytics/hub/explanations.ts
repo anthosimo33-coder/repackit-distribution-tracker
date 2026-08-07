@@ -26,7 +26,7 @@ export const EXPLAIN = {
   coutAcquisition:
     "Ce qu'on paie pour les vidéos promo divisé par le nombre de clients payants : le vrai coût pour gagner un client. Il additionne le fixe et le CPM des publications promo, plus la totalité du bonus de paliers. Le bonus y entre en entier parce qu'un palier ne se gagne que sur des vues promo : une vidéo de chauffe ne fait plus avancer le compteur, donc tout bonus débloqué a bien été gagné par de la promo.",
   coutComplet:
-    "Toute la paie créatrices, divisée par le nombre de clients payants. Le warmup est inclus, parce que sans lui aucun compte ne peut publier de promo : c'est le vrai coût du système. À comparer au coût d'acquisition pour voir le poids de la construction des comptes.",
+    "Toute la paie créatrices, plus les récompenses en nature déjà gagnées, divisées par le nombre de clients payants. Le warmup est inclus, parce que sans lui aucun compte ne peut publier de promo : c'est le vrai coût du système. Les récompenses promises mais pas encore gagnées n'y sont pas, ce sont des engagements et non des dépenses ; on les voit dans l'onglet Acquisition.",
   revenuParClient:
     "Le revenu net encaissé, divisé par le nombre de clients payants. Ce chiffre monte avec le temps parce que l'abonnement se renouvelle, alors que le coût d'acquisition n'est payé qu'une seule fois. Il est en euros et les deux coûts en dollars : on les regarde côte à côte, jamais soustraits.",
   rpmPromo:
@@ -99,6 +99,8 @@ export const EXPLAIN = {
     "Quatre compteurs différents qu'il ne faut jamais additionner. Les totales servent à l'affichage et au suivi, les payables au fixe et au CPM, les promo à tous les taux de conversion parce que ce sont les seules vidéos qui mentionnent l'app, et les paliers au cumul qui débloque les bonus. Paliers et payables diffèrent sur une vidéo de chauffe quand même rémunérée : elle est payée, mais elle ne fait pas avancer le palier, parce qu'un bonus de vues ne se gagne que sur des vues de promo.",
   joursSolo:
     "Les jours où une seule créatrice a publié : les seuls où on sait à qui attribuer un client, faute de lien tracké par créatrice. Cette limite ne concerne que l'attribution PAR créatrice. Les coûts globaux de la Vue d'ensemble, eux, divisent la paie par tous les clients et n'ont pas besoin d'attribuer chacun.",
+  recompensesNature:
+    "Les récompenses qui ne sont pas de l'argent : un téléphone, un ordinateur, une voiture. « Déjà dû » veut dire que le palier est franchi et que l'objet est à livrer, c'est une vraie dépense, comptée dans le coût complet du moteur mais jamais dans le coût par client. « Engagé » veut dire que la promesse existe mais que le palier n'est pas atteint : ce n'est pas encore une dépense, et les montants affichés sont ce que l'objet nous coûte, pas son prix en magasin.",
   efficaciteCreatrice:
     "La médiane prédit la prochaine vidéo, le taux de vidéos à succès prédit le volume du mois. La moyenne, elle, ne prédit rien, donc on ne l'affiche pas. Sert à repérer les créatrices régulières plutôt que celles à un seul coup de chance.",
 
