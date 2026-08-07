@@ -14,6 +14,7 @@ import {
   costPerAcquisition,
   per1kViews,
   computeUnitEconomics,
+  computePromoRpm,
   checkMonotonicity,
   funnelCoherenceChecks,
   buildCoherenceChecks,
@@ -578,6 +579,149 @@ describe("buildCoherenceChecks", () => {
   it("croisé : absent si les séries ne sont pas fournies", () => {
     const m = byKey(buildCoherenceChecks(base));
     expect(m.has("daily_clients_posthog_vs_whop")).toBe(false);
+  });
+
+  // CAUSE CONNUE : subscription_completed est réémis à chaque cycle par le lot
+  // serveur → PostHog compte les renouvellements comme des conversions. Le
+  // bandeau rouge sonnait tous les jours pour ce seul motif.
+  it("croisé : excès PostHog couvert par les renouvellements du jour → info, cause écrite", () => {
+    const checks = buildCoherenceChecks({
+      ...base,
+      dailySubs: [{ day: "2026-08-05", subs: 10 }],
+      dailyPaidClients: [{ day: "2026-08-05", clients: 3 }],
+      dailyRenewals: [{ day: "2026-08-05", renewals: 7 }],
+      todayParis: "2026-08-07",
+    });
+    const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(c?.status).toBe("info");
+    expect(c?.detail).toContain("renouvellements");
+    expect(c?.detail).toContain("is_renewal");
+  });
+
+  it("croisé : SANS les renouvellements, le même jour reste une violation", () => {
+    const m = byKey(
+      buildCoherenceChecks({
+        ...base,
+        dailySubs: [{ day: "2026-08-05", subs: 10 }],
+        dailyPaidClients: [{ day: "2026-08-05", clients: 3 }],
+        todayParis: "2026-08-07",
+      }),
+    );
+    expect(m.get("daily_clients_posthog_vs_whop")).toBe("violation");
+  });
+
+  it("croisé : excès PostHog TROP GRAND pour les renouvellements → reste une violation", () => {
+    const checks = buildCoherenceChecks({
+      ...base,
+      dailySubs: [{ day: "2026-08-05", subs: 12 }],
+      dailyPaidClients: [{ day: "2026-08-05", clients: 2 }],
+      dailyRenewals: [{ day: "2026-08-05", renewals: 3 }],
+      todayParis: "2026-08-07",
+    });
+    const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(c?.status).toBe("violation");
+    expect(c?.detail).toContain("2026-08-05");
+  });
+
+  it("croisé : PostHog SOUS Whop n'est jamais expliqué par les renouvellements", () => {
+    const m = byKey(
+      buildCoherenceChecks({
+        ...base,
+        dailySubs: [{ day: "2026-07-29", subs: 0 }],
+        dailyPaidClients: [{ day: "2026-07-29", clients: 5 }],
+        dailyRenewals: [{ day: "2026-07-29", renewals: 9 }],
+        todayParis: "2026-07-30",
+      }),
+    );
+    expect(m.get("daily_clients_posthog_vs_whop")).toBe("violation");
+  });
+
+  it("croisé : un jour inexpliqué alerte ET signale les jours expliqués", () => {
+    const checks = buildCoherenceChecks({
+      ...base,
+      dailySubs: [
+        { day: "2026-08-04", subs: 9 },
+        { day: "2026-08-05", subs: 0 },
+      ],
+      dailyPaidClients: [
+        { day: "2026-08-04", clients: 2 },
+        { day: "2026-08-05", clients: 4 },
+      ],
+      dailyRenewals: [{ day: "2026-08-04", renewals: 7 }],
+      todayParis: "2026-08-07",
+    });
+    const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(c?.status).toBe("violation");
+    expect(c?.detail).toContain("2026-08-05");
+    expect(c?.detail).not.toContain("2026-08-04");
+    expect(c?.detail).toContain("1 autre(s) jour(s) expliqués");
+  });
+});
+
+/**
+ * RPM PROMO — trois valeurs sur un dénominateur COMMUN (les vues promo, warmup
+ * exclu) et DEUX devises : l'écart n'existe que si le taux du projet les relie.
+ */
+describe("computePromoRpm", () => {
+  const base = {
+    revenueNet: 1200, // €
+    creatorCost: 800, // $
+    promoViews: 400_000,
+    fxRateToRevenue: 0.9,
+  };
+
+  it("ramène revenu et coût à mille vues promo, et l'écart à leur différence", () => {
+    const r = computePromoRpm(base);
+    expect(r.revenue).toBe(3); // 1200 / 400 milliers
+    expect(r.cost).toBe(2); // 800 / 400 milliers ($)
+    expect(r.costConverted).toBe(1.8); // 2 × 0,9 (€)
+    expect(r.margin).toBe(1.2); // 3 − 1,8, exactement l'écart affiché
+    expect(r.promoViews).toBe(400_000);
+  });
+
+  it("l'écart se lit sur les valeurs AFFICHÉES (revenu − coût converti)", () => {
+    const r = computePromoRpm(base);
+    expect(r.margin).toBe(
+      Math.round(((r.revenue as number) - (r.costConverted as number)) * 100) / 100,
+    );
+  });
+
+  it("sans taux de change : chaque RPM existe, l'écart non (jamais deux devises soustraites)", () => {
+    const r = computePromoRpm({ ...base, fxRateToRevenue: null });
+    expect(r.revenue).toBe(3);
+    expect(r.cost).toBe(2);
+    expect(r.costConverted).toBeNull();
+    expect(r.margin).toBeNull();
+  });
+
+  it("même devise (taux 1) : le coût converti vaut le coût", () => {
+    const r = computePromoRpm({ ...base, fxRateToRevenue: 1 });
+    expect(r.costConverted).toBe(2);
+    expect(r.margin).toBe(1);
+  });
+
+  it("aucune vue promo : tout est null, jamais un RPM infini ni un zéro inventé", () => {
+    for (const promoViews of [0, null]) {
+      const r = computePromoRpm({ ...base, promoViews });
+      expect(r.revenue).toBeNull();
+      expect(r.cost).toBeNull();
+      expect(r.costConverted).toBeNull();
+      expect(r.margin).toBeNull();
+      expect(r.promoViews).toBe(0);
+    }
+  });
+
+  it("Whop non configuré : le RPM coût reste lisible, le revenu et l'écart non", () => {
+    const r = computePromoRpm({ ...base, revenueNet: null });
+    expect(r.revenue).toBeNull();
+    expect(r.cost).toBe(2);
+    expect(r.margin).toBeNull();
+  });
+
+  it("coût au-dessus du revenu : écart NÉGATIF, jamais borné à zéro", () => {
+    const r = computePromoRpm({ ...base, revenueNet: 400 });
+    expect(r.revenue).toBe(1);
+    expect(r.margin).toBe(-0.8);
   });
 });
 

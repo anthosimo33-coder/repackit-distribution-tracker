@@ -29,14 +29,14 @@ export const EXPLAIN = {
     "Toute la paie créatrices, divisée par le nombre de clients payants. Le warmup est inclus, parce que sans lui aucun compte ne peut publier de promo : c'est le vrai coût du système. À comparer au coût d'acquisition pour voir le poids de la construction des comptes.",
   revenuParClient:
     "Le revenu net encaissé, divisé par le nombre de clients payants. Ce chiffre monte avec le temps parce que l'abonnement se renouvelle, alors que le coût d'acquisition n'est payé qu'une seule fois. Il est en euros et les deux coûts en dollars : on les regarde côte à côte, jamais soustraits.",
+  rpmPromo:
+    "Ce que mille vues promo rapportent, ce qu'elles coûtent, et l'écart entre les deux, qui est la marge par millier de vues. Les vues promo excluent les vidéos de chauffe, parce que les vidéos promo sont les seules qui mentionnent l'app. Ce chiffre monte avec le temps sans aucune vue nouvelle, puisque chaque renouvellement s'ajoute au même stock de vues déjà acquises : ce n'est pas un RPM publicitaire figé une fois la vue passée.",
   completionCheckout:
     "Sur cent personnes qui ouvrent l'écran de paiement, combien vont au bout et paient. Un taux bas veut dire que le paiement bloque quelque part. Ne compte que les personnes qui ont suivi toutes les étapes dans l'ordre.",
   visiteurs:
     "Le nombre de personnes qui ont ouvert le site sur la période choisie. Chaque personne n'est comptée qu'une fois par jour. Suit le sélecteur 7, 30 ou 90 jours en haut de page.",
   inscrits:
     "Le nombre de personnes qui ont créé un compte sur la période choisie. Chaque personne n'est comptée qu'une fois par jour. Suit le sélecteur 7, 30 ou 90 jours en haut de page.",
-  comptesInternes:
-    "Les comptes de l'équipe, retirés de tous les chiffres pour ne pas gonfler les résultats. On les compte quand même ici, par transparence. L'exclusion vaut des deux côtés, côté PostHog et côté Whop.",
   detailParJour:
     "Une ligne par jour avec les chiffres clés, du plus récent au plus ancien. Sert à repérer d'un coup d'œil un pic ou un creux, comme la journée du 27 juillet. Les visiteurs, inscrits et checkouts viennent de PostHog (le funnel) ; les clients payants, les échecs de paiement et le revenu viennent de Whop, qui encaisse vraiment l'argent.",
 
@@ -89,6 +89,8 @@ export const EXPLAIN = {
     "Ce que coûte réellement un scan, séparé entre le scan léger et le scan complet. Une cible gratuite ne déclenche que des scans légers, donc son coût suit ce tarif, en dollars, pas celui du scan complet réservé aux cibles payantes. Le chiffre vient du coût réel émis par l'app, pas d'une supposition.",
 
   // ─── Fiabilité ─────────────────────────────────────────────────────────────
+  comptesInternes:
+    "Les comptes de l'équipe, retirés de tous les chiffres pour ne pas gonfler les résultats. On les compte quand même ici, par transparence. L'exclusion vaut des deux côtés, côté PostHog et côté Whop.",
   gardeFous:
     "Des vérifications lancées à chaque synchro pour repérer un chiffre qui se contredit. Si deux sources donnent un total trop différent, le chiffre est masqué au lieu d'être montré faux. Un chiffre absent vaut mieux qu'un chiffre faux.",
 

@@ -233,6 +233,12 @@ export interface CoherenceInputs {
   dailySubs?: { day: string; subs: number }[];
   /** Nouveaux clients payants Whop par jour Paris — l'autre côté du contrôle croisé. */
   dailyPaidClients?: { day: string; clients: number }[];
+  /**
+   * Renouvellements Whop par jour Paris. Sert à RECONNAÎTRE la cause connue d'un
+   * écart PostHog↔Whop (cf `pushDailyCrossCheck`) : sans eux, tous les jours
+   * divergents restent « inexpliqués » et le contrôle alerte comme avant.
+   */
+  dailyRenewals?: { day: string; renewals: number }[];
   /** Jour Paris courant — exclu du contrôle croisé (partiel des deux côtés). */
   todayParis?: string;
 }
@@ -336,57 +342,105 @@ export function buildCoherenceChecks(i: CoherenceInputs): CoherenceCheck[] {
   // Cohérence CROISÉE PAR JOUR entre deux CARTES qui montrent la même notion
   // (nouveaux abonnés/jour) depuis deux sources : PostHog subs vs Whop clients.
   // Le contrôle par TOTAUX ne voit PAS un écart d'un seul jour (la Σ peut concorder).
-  pushDailyCrossCheck(checks, i.dailySubs, i.dailyPaidClients, i.todayParis);
+  pushDailyCrossCheck(
+    checks,
+    i.dailySubs,
+    i.dailyPaidClients,
+    i.dailyRenewals,
+    i.todayParis,
+  );
 
   return checks;
+}
+
+/**
+ * Écart SIGNIFICATIF entre deux comptes d'un même jour : ≥ 3 en absolu, OU ≥ 2
+ * avec forte proportion (petits jours). Un ±2 sur ~13 (bruit
+ * checkout↔encaissement) n'alerte pas.
+ */
+function significantGap(a: number, b: number): boolean {
+  const diff = Math.abs(a - b);
+  const rel = Math.max(a, b) > 0 ? diff / Math.max(a, b) : 0;
+  return diff >= 2 && (diff >= 3 || rel >= 0.5);
+}
+
+/** Un jour divergent du contrôle croisé. */
+interface DailyMismatch {
+  day: string;
+  subs: number;
+  clients: number;
+  diff: number;
 }
 
 /**
  * Contrôle CROISÉ PAR JOUR — PostHog `subs` vs Whop nouveaux clients payants, jour
  * Paris par jour Paris. Les deux mesurent « nouveaux abonnés/jour » ; un écart un
  * jour donné = trou/latence (ex. cache PostHog en retard sur un paiement Whop). On
- * exclut le jour COURANT (partiel des deux côtés). Un écart est SIGNIFICATIF s'il
- * est ≥ 3 en absolu, OU ≥ 2 avec forte proportion (petits jours) — un ±2 sur ~13
- * (bruit checkout↔encaissement) n'alerte pas ; pire écart absolu ≥ 3 = violation.
+ * exclut le jour COURANT (partiel des deux côtés).
+ *
+ * CAUSE CONNUE, écartée de l'alerte : `subscription_completed` est RÉÉMIS à chaque
+ * cycle par le lot serveur, donc PostHog compte les renouvellements comme des
+ * conversions et dépasse structurellement Whop TOUS LES JOURS. Un jour dont l'excès
+ * PostHog disparaît une fois les renouvellements Whop ajoutés est classé EXPLIQUÉ
+ * (statut info, cause écrite) : sans ça, le bandeau rouge sonne en permanence pour
+ * un motif su, et on apprend à ne plus le lire. Un écart NON couvert par les
+ * renouvellements (ou en sens inverse, PostHog sous Whop) reste une violation :
+ * c'est justement ce que l'alerte doit encore attraper. À retirer quand l'app
+ * émettra `is_renewal` et que le cache pourra filtrer les réabonnements à la source.
  */
 function pushDailyCrossCheck(
   checks: CoherenceCheck[],
   dailySubs: { day: string; subs: number }[] | undefined,
   dailyClients: { day: string; clients: number }[] | undefined,
+  dailyRenewals: { day: string; renewals: number }[] | undefined,
   today: string | undefined,
 ): void {
   if (!dailySubs || !dailyClients) return;
   const subsBy = new Map(dailySubs.map((d) => [d.day, d.subs]));
   const cliBy = new Map(dailyClients.map((d) => [d.day, d.clients]));
+  const renBy = new Map((dailyRenewals ?? []).map((d) => [d.day, d.renewals]));
   const days = [...new Set([...subsBy.keys(), ...cliBy.keys()])];
-  const mismatches: { day: string; subs: number; clients: number; diff: number }[] =
-    [];
+  const explained: DailyMismatch[] = [];
+  const unexplained: DailyMismatch[] = [];
   for (const day of days) {
     if (today && day >= today) continue; // jour courant/futur = partiel → ignoré
     const subs = subsBy.get(day) ?? 0;
     const clients = cliBy.get(day) ?? 0;
-    const diff = Math.abs(subs - clients);
-    const rel = Math.max(subs, clients) > 0 ? diff / Math.max(subs, clients) : 0;
-    if (diff >= 2 && (diff >= 3 || rel >= 0.5)) {
-      mismatches.push({ day, subs, clients, diff });
-    }
+    if (!significantGap(subs, clients)) continue;
+    const renewals = renBy.get(day) ?? 0;
+    const m = { day, subs, clients, diff: Math.abs(subs - clients) };
+    // Excès PostHog absorbé par les renouvellements du même jour ⇒ cause connue.
+    const knownCause =
+      subs > clients && renewals > 0 && !significantGap(subs, clients + renewals);
+    (knownCause ? explained : unexplained).push(m);
   }
-  mismatches.sort((a, b) => b.diff - a.diff);
-  if (mismatches.length === 0) {
+  explained.sort((a, b) => b.diff - a.diff);
+  unexplained.sort((a, b) => b.diff - a.diff);
+
+  const key = "daily_clients_posthog_vs_whop";
+  const label = "Clients/jour PostHog vs Whop";
+  if (unexplained.length === 0) {
     checks.push({
-      key: "daily_clients_posthog_vs_whop",
-      label: "Clients/jour PostHog vs Whop",
-      status: "ok",
-      detail: "concordent jour par jour",
+      key,
+      label,
+      status: explained.length === 0 ? "ok" : "info",
+      detail:
+        explained.length === 0
+          ? "concordent jour par jour"
+          : `${explained.length} jour(s) où PostHog dépasse Whop, expliqués par les renouvellements du jour : subscription_completed est réémis à chaque cycle par le lot serveur, donc un réabonnement compte comme une conversion. Alerte levée tant que la propriété is_renewal n'est pas émise par l'app.`,
     });
     return;
   }
-  const worst = mismatches[0];
+  const worst = unexplained[0];
   checks.push({
-    key: "daily_clients_posthog_vs_whop",
-    label: "Clients/jour PostHog vs Whop",
+    key,
+    label,
     status: worst.diff >= 3 ? "violation" : "info",
-    detail: `${mismatches.length} jour(s) divergent(s) — pire : ${worst.day} PostHog ${worst.subs} vs Whop ${worst.clients} (écart ${worst.diff})`,
+    detail:
+      `${unexplained.length} jour(s) divergent(s) hors renouvellements — pire : ${worst.day} PostHog ${worst.subs} vs Whop ${worst.clients} (écart ${worst.diff})` +
+      (explained.length > 0
+        ? ` · ${explained.length} autre(s) jour(s) expliqués par les renouvellements comptés comme des conversions`
+        : ""),
   });
 }
 
@@ -777,5 +831,74 @@ export function computeUnitEconomics(i: UnitEconomicsInput): UnitEconomics {
       cac !== null && i.monthlyArpu !== null && i.monthlyArpu > 0
         ? round2(cac / i.monthlyArpu)
         : null,
+  };
+}
+
+// ─── RPM promo (revenu, coût, écart) ─────────────────────────────────────────
+
+export interface PromoRpmInput {
+  /** Revenu Whop NET cumulé, devise du REVENU (€). null = Whop non configuré. */
+  revenueNet: number | null;
+  /**
+   * Paie créatrices cumulée — le coût COMPLET du moteur (fixe + CPM + 100 % du
+   * bonus, warmup rémunéré inclus), devise de la PAIE ($). Warmup compris à
+   * dessein : sans lui aucun compte ne publie de promo, c'est un coût de
+   * production des vues promo. L'écart ci-dessous vaut donc bien la MARGE
+   * (revenu net − toute la paie) ramenée à mille vues, pas une marge partielle.
+   */
+  creatorCost: number | null;
+  /** Vues PROMO cumulées (hors warmup) — dénominateur COMMUN aux trois valeurs. */
+  promoViews: number | null;
+  /** Taux paie→revenu EFFECTIF (1 si même devise, null si non reliées). */
+  fxRateToRevenue: number | null;
+}
+
+export interface PromoRpm {
+  /** Revenu net pour 1 000 vues promo, devise du REVENU. null si aucune vue promo. */
+  revenue: number | null;
+  /** Coût créatrices pour 1 000 vues promo, devise de la PAIE. null si aucune vue. */
+  cost: number | null;
+  /** Le MÊME coût converti dans la devise du revenu. null sans taux de change. */
+  costConverted: number | null;
+  /** Écart = marge par millier de vues promo, devise du revenu. null si l'un manque. */
+  margin: number | null;
+  /** Vues promo retenues (0 ⇒ tout est null, jamais un RPM infini). */
+  promoViews: number;
+}
+
+/**
+ * RPM promo — les trois chiffres qui disent si le moteur UGC gagne de l'argent :
+ * ce que mille vues promo RAPPORTENT, ce qu'elles COÛTENT, et l'écart entre les
+ * deux. Dénominateur commun aux trois : les vues PROMO (hors warmup), les seules
+ * vidéos qui mentionnent l'app.
+ *
+ * Deux devises : le revenu est en euros, la paie en dollars. L'écart n'existe donc
+ * que si le taux du projet les relie — sans lui `margin` est `null` (on ne
+ * soustrait jamais deux devises sans conversion), les deux RPM restant chacun
+ * lisible dans sa propre devise.
+ *
+ * L'écart est calculé sur les valeurs AFFICHÉES (déjà arrondies) : à l'écran,
+ * revenu − coût donne exactement l'écart montré.
+ */
+export function computePromoRpm(i: PromoRpmInput): PromoRpm {
+  const views = i.promoViews !== null && i.promoViews > 0 ? i.promoViews : 0;
+  const per1k = (amount: number | null): number | null =>
+    amount !== null && Number.isFinite(amount) && views > 0
+      ? round2(amount / (views / 1000))
+      : null;
+  const revenue = per1k(i.revenueNet);
+  const cost = per1k(i.creatorCost);
+  const fx = i.fxRateToRevenue;
+  const costConverted =
+    cost !== null && fx !== null && fx > 0 ? round2(cost * fx) : null;
+  return {
+    revenue,
+    cost,
+    costConverted,
+    margin:
+      revenue !== null && costConverted !== null
+        ? round2(revenue - costConverted)
+        : null,
+    promoViews: views,
   };
 }
