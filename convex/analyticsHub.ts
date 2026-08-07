@@ -393,23 +393,30 @@ export const getAttribution = adminQuery({
   },
 });
 
-// ─── Trois compteurs de vues (A2) ────────────────────────────────────────────
+// ─── Quatre compteurs de vues (A2) ───────────────────────────────────────────
 
 export interface ViewCountersResult {
-  /** Σ toutes vues (warmup incl.) — usage : paliers. */
+  /** Σ toutes vues (warmup incl.) — usage : affichage et suivi. */
   totales: number;
-  /** Σ vues des posts rémunérés — usage : moteur de paie. */
+  /** Σ vues des posts rémunérés — usage : fixe + CPM. */
   payables: number;
   /** Σ vues des posts non-warmup (promo) — usage : taux de conversion. */
   promo: number;
+  /** Σ vues rémunérées ET en promo — usage : cumul des paliers de bonus. */
+  paliers: number;
   /** Libellé d'usage de chaque compteur (la carte DÉCLARE lequel elle lit). */
-  usage: { totales: string; payables: string; promo: string };
+  usage: {
+    totales: string;
+    payables: string;
+    promo: string;
+    paliers: string;
+  };
   /** Nb de publications comptées (transparence). */
   publications: number;
 }
 
 /**
- * Les TROIS compteurs de vues du projet (règle A2) — chacun sa base, JAMAIS
+ * Les QUATRE compteurs de vues du projet (règle A2) — chacun sa base, JAMAIS
  * additionnés entre eux. La définition de la promo a une source UNIQUE
  * (convex/viewCounters.isPromoPost) : le jour où `datePromoStart` remplace
  * « non-warmup », seule cette fonction change.
@@ -432,6 +439,7 @@ export const getViewCounters = adminQuery({
       totales: counters.totales,
       payables: counters.payables,
       promo: counters.promo,
+      paliers: counters.paliers,
       usage: { ...VIEW_COUNTER_USAGE },
       publications: pubs.length,
     };

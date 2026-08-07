@@ -37,11 +37,11 @@ export function AcquisitionTab({
 }) {
   return (
     <div className="space-y-6">
-      {/* Trois compteurs de vues */}
+      {/* Quatre compteurs de vues */}
       <Card>
         <CardContent className="space-y-3 p-4">
           <HubCardHeader
-            title="Vues — trois compteurs"
+            title="Vues — quatre compteurs"
             subtitle="Jamais mélangés, jamais additionnés. Chacun a un seul usage."
             info={EXPLAIN.troisCompteurs}
           />
@@ -94,6 +94,23 @@ export function AcquisitionTab({
                   </TableCell>
                   <TableCell className="text-xs text-slate-400">
                     {viewCounters.usage.promo}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-xs font-medium text-slate-700">
+                    Paliers{" "}
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] text-slate-500"
+                    >
+                      rémunéré + promo
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right text-xs tabular-nums">
+                    {formatViews(viewCounters.paliers)}
+                  </TableCell>
+                  <TableCell className="text-xs text-slate-400">
+                    {viewCounters.usage.paliers}
                   </TableCell>
                 </TableRow>
               </TableBody>

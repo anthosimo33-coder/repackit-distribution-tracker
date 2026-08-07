@@ -8,9 +8,9 @@ import { ConvexError, v } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { periodOf } from "./payments";
-import { cycleIndexOf } from "./payCycle";
+import { cycleIndexOf, cyclePeriodKey, cycleWindow } from "./payCycle";
 import { isRemunerated, type RemunerationFlags } from "./remunerate";
-import { isPromoPost } from "./viewCounters";
+import { isBonusTierPost, isPromoPost } from "./viewCounters";
 
 /**
  * Pricing v2 — barèmes + MOTEUR de paie (réplique serveur).
@@ -254,12 +254,17 @@ export function assignmentPublishedAt(a: Doc<"assignments">): number {
  *
  *  - `totalViews` : Σ de TOUTES les vues (warmup INCLUS) → AFFICHAGE/suivi (un
  *    post warmup reste tracké normalement, ses vues restent visibles).
- *  - `payableViews` : Σ des vues des posts NON-warmup → CPM + cumul de paliers.
+ *  - `payableViews` : Σ des vues des posts RÉMUNÉRÉS (isRemunerated) → fixe + CPM.
+ *  - `bonusTierViews` : Σ des vues RÉMUNÉRÉES **et** en PROMO (isBonusTierPost) →
+ *    cumul des PALIERS de bonus, et RIEN d'autre. Sous-ensemble de payableViews :
+ *    un post warmup rémunéré (cas Kelly) est payé au fixe/CPM mais ne fait pas
+ *    avancer les paliers. Cf convex/viewCounters (point de décision unique).
  *  - `hasPayablePost` : la vidéo compte-t-elle pour le FIXE (false = tout-warmup).
  *  - `hasMetrics` : suivi actif vs en cours de calcul (côté créatrice).
  *
- * Sans aucun post warmup, payableViews === totalViews et hasPayablePost === true
- * → la paie est INCHANGÉE. Cf lib/pricing-engine.payableAssignmentViews (A6).
+ * Sans aucun post warmup, payableViews === bonusTierViews === totalViews et
+ * hasPayablePost === true → la paie est INCHANGÉE. Cf
+ * lib/pricing-engine.payableAssignmentViews (A6).
  */
 export async function assignmentViewsAndMetrics(
   ctx: QueryCtx | MutationCtx,
@@ -267,6 +272,8 @@ export async function assignmentViewsAndMetrics(
 ): Promise<{
   totalViews: number;
   payableViews: number;
+  /** Vues RÉMUNÉRÉES et en PROMO — SEULE base du cumul de paliers. */
+  bonusTierViews: number;
   /** Vues des posts en phase PROMO (non-warmup) — base des taux de conversion. */
   promoViews: number;
   hasPayablePost: boolean;
@@ -302,10 +309,16 @@ export async function assignmentViewsAndMetrics(
     0,
   );
   const hasPromoPost = pubs.some((p) => isPromoPost(p));
+  // Paliers : rémunéré ET promo (isBonusTierPost, point de décision unique).
+  const bonusTierViews = pubs.reduce(
+    (s, p) => s + (isBonusTierPost(p) ? Math.max(0, p.views) : 0),
+    0,
+  );
   const { payableViews, hasPayablePost } = payableAssignmentViews(pubs);
   return {
     totalViews,
     payableViews,
+    bonusTierViews,
     promoViews,
     hasPayablePost,
     hasPromoPost,
@@ -323,10 +336,16 @@ function nextPeriod(period: string): string {
 
 /**
  * CUMUL TOTAL À VIE des vues du créateur sur le projet (Guard D) : somme des
- * vues PAYABLES (posts warmup EXCLUS) de TOUTES ses vidéos publiées/payées à
- * pricingSnapshot, SANS filtre de période (≠ du fixe/CPM qui sont mensuels).
- * Même base de vues que le CPM → jauge, CPM et paliers cohérents (un post
- * warmup ne fait avancer NI le CPM NI le cumul de paliers).
+ * `bonusTierViews` (RÉMUNÉRÉES **et** en promo) de TOUTES ses vidéos
+ * publiées/payées à pricingSnapshot, SANS filtre de période (≠ du fixe/CPM qui
+ * sont mensuels).
+ *
+ * ⚠️ BASE DISTINCTE DU CPM depuis le chantier « bonus sur vues rémunérées ». Un
+ * post warmup RÉMUNÉRÉ (cas Kelly) est payé au fixe/CPM mais ne fait PAS avancer
+ * les paliers → `cumul ≤ Σ payableViews`. C'est voulu : un bonus de vues ne se
+ * gagne que sur des vues de promo. SEUL point d'entrée du cumul de paliers,
+ * partagé par la PAIE (syncBonusUnlocks), la JAUGE (bonusStatusFor) et la
+ * PROGRESSION → jamais un palier affiché mais non payé, ni l'inverse.
  */
 export async function creatorCumulViews(
   ctx: QueryCtx | MutationCtx,
@@ -346,7 +365,7 @@ export async function creatorCumulViews(
   );
   let cumul = 0;
   for (const a of assignments) {
-    cumul += (await assignmentViewsAndMetrics(ctx, a)).payableViews;
+    cumul += (await assignmentViewsAndMetrics(ctx, a)).bonusTierViews;
   }
   return cumul;
 }
@@ -385,27 +404,89 @@ export async function creatorBonusTiers(
 }
 
 /**
- * SYNC IDEMPOTENTE des paliers débloqués d'un créateur. Calcule le cumul, lit sa
- * grille, et pour chaque palier franchi SANS row d'unlock existante (Guard E —
- * clé (creatorId, pricingId, seuilVues)), INSÈRE un unlock IMMUABLE : récompense
- * FIGÉE + `attributionPeriod` (Guard A : période courante ; rollover si déjà
- * payée → période ouverte courante, jamais perdu). Sans effet si rien de neuf.
+ * Le $ de cet unlock est-il DÉJÀ GELÉ dans un paiement payé ? Le gel écrit une
+ * lineItem `bonus_tier` AGRÉGÉE (aucun détail par palier récupérable), donc on
+ * raisonne par FENÊTRE, et sur les DEUX modes de paie possibles :
+ *  - mensuel : `attributionPeriod` correspond à une row payée ;
+ *  - cycles J+30 : le cycle de `unlockedAt` correspond à une row payée
+ *    (computeCyclePricingBreakdown fenêtre les unlocks par unlockedAt).
+ * Vrai ⇒ intouchable : l'argent est parti, on ne le reprend pas en base.
+ */
+async function unlockIsFrozen(
+  ctx: MutationCtx,
+  u: Doc<"bonusUnlocks">,
+  creator: Doc<"creators">,
+): Promise<boolean> {
+  const paid = (
+    await ctx.db
+      .query("payments")
+      .withIndex("by_creator", (q) => q.eq("creatorId", u.creatorId))
+      .collect()
+  ).filter((p) => p.projectId === u.projectId && p.status === "paid");
+  if (paid.length === 0) return false;
+  if (paid.some((p) => p.period === u.attributionPeriod)) return true;
+  if (creator.firstPostAt !== undefined) {
+    const k = cycleIndexOf(creator.firstPostAt, u.unlockedAt);
+    const key = cyclePeriodKey(cycleWindow(creator.firstPostAt, k).cycleStart);
+    if (paid.some((p) => p.period === key)) return true;
+  }
+  return false;
+}
+
+/**
+ * SYNC IDEMPOTENTE des paliers débloqués d'un créateur, dans LES DEUX SENS.
+ *
+ * MONTÉE — pour chaque palier franchi SANS row d'unlock existante (clé
+ * (creatorId, pricingId, seuilVues)), INSÈRE un unlock : récompense FIGÉE +
+ * `attributionPeriod` (Guard A : période courante ; rollover si déjà payée →
+ * période ouverte courante, jamais perdu).
+ *
+ * DESCENTE — RÉVOQUE les unlocks de la grille EFFECTIVE dont le seuil n'est plus
+ * atteint par le cumul. Guard E (immuabilité) est ainsi LEVÉ : il rendait le
+ * changement « bonus sur vues rémunérées » inopérant, puisqu'un post basculé en
+ * warmup après coup faisait tomber le cumul sans jamais reprendre le palier.
+ * Deux garde-fous :
+ *  - un unlock déjà GELÉ dans un paiement payé n'est JAMAIS révoqué
+ *    (`unlockIsFrozen`) — on ne reprend pas de l'argent déjà versé ;
+ *  - seuls les unlocks de la grille COURANTE (`pricingId`) sont candidats : un
+ *    unlock gagné sous une grille précédente reste acquis.
+ * Conséquence assumée : un palier révoqué puis re-franchi est ré-inséré avec un
+ * `unlockedAt` neuf (nouvelle `attributionPeriod`, célébration rejouée).
  */
 export async function syncBonusUnlocks(
   ctx: MutationCtx,
   projectId: Id<"projects">,
   creatorId: Id<"creators">,
-): Promise<{ unlocked: number }> {
+): Promise<{ unlocked: number; revoked: number }> {
   const creator = await ctx.db.get(creatorId);
-  if (!creator || creator.projectId !== projectId) return { unlocked: 0 };
+  if (!creator || creator.projectId !== projectId) {
+    return { unlocked: 0, revoked: 0 };
+  }
   // Grille EFFECTIVE (perso ou défaut projet) → mêmes paliers que l'affichage,
   // et `pricingId` de la grille réellement utilisée (clé d'idempotence).
   const eff = await effectiveBonusPricing(ctx, creator);
-  if (!eff || eff.tiers.length === 0) return { unlocked: 0 };
+  if (!eff || eff.tiers.length === 0) return { unlocked: 0, revoked: 0 };
   const { pricingId, tiers } = eff;
   const cumul = await creatorCumulViews(ctx, projectId, creatorId);
   const now = Date.now();
   let unlocked = 0;
+  let revoked = 0;
+
+  // DESCENTE d'abord : un palier qui n'est plus tenu sort avant qu'on réévalue
+  // les montées (une même passe ne doit jamais insérer ET révoquer le même seuil).
+  const existingUnlocks = (
+    await ctx.db
+      .query("bonusUnlocks")
+      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+      .collect()
+  ).filter((u) => u.projectId === projectId && u.pricingId === pricingId);
+  for (const u of existingUnlocks) {
+    if (cumul >= u.seuilVues) continue;
+    if (await unlockIsFrozen(ctx, u, creator)) continue;
+    await ctx.db.delete(u._id);
+    revoked += 1;
+  }
+
   for (const tier of tiers) {
     if (cumul < tier.seuilVues) continue;
     const existing = await ctx.db
@@ -417,7 +498,7 @@ export async function syncBonusUnlocks(
           .eq("seuilVues", tier.seuilVues),
       )
       .first();
-    if (existing) continue; // Guard E — immuable, jamais redéclenché.
+    if (existing) continue; // Déjà débloqué sous cette grille — pas de doublon.
     // Guard A — attribution : période du déblocage ; si DÉJÀ payée pour ce
     // créateur, on roule au mois suivant (période ouverte) → cash jamais perdu.
     let attributionPeriod = periodOf(now);
@@ -444,7 +525,7 @@ export async function syncBonusUnlocks(
     });
     unlocked += 1;
   }
-  return { unlocked };
+  return { unlocked, revoked };
 }
 
 /**

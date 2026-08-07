@@ -94,7 +94,7 @@ export const EXPLAIN = {
 
   // ─── Acquisition ───────────────────────────────────────────────────────────
   troisCompteurs:
-    "Trois compteurs différents qu'il ne faut jamais additionner. Les totales servent aux paliers de bonus des créatrices, les payables au calcul de la paie, les promo à tous les taux de conversion parce que ce sont les seules vidéos qui mentionnent l'app.",
+    "Quatre compteurs différents qu'il ne faut jamais additionner. Les totales servent à l'affichage et au suivi, les payables au fixe et au CPM, les promo à tous les taux de conversion parce que ce sont les seules vidéos qui mentionnent l'app, et les paliers au cumul qui débloque les bonus. Paliers et payables diffèrent sur une vidéo de chauffe quand même rémunérée : elle est payée, mais elle ne fait pas avancer le palier, parce qu'un bonus de vues ne se gagne que sur des vues de promo.",
   joursSolo:
     "Les jours où une seule créatrice a publié : les seuls où on sait à qui attribuer un client, faute de lien tracké par créatrice. Cette limite ne concerne que l'attribution PAR créatrice. Les coûts globaux de la Vue d'ensemble, eux, divisent la paie par tous les clients et n'ont pas besoin d'attribuer chacun.",
   efficaciteCreatrice:

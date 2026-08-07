@@ -1,8 +1,15 @@
-import { internalMutation } from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { REPACKIT_SLUG, getProjectBySlug, SNYTCH_SLUG } from "./projects";
 import { isWarmupComplete } from "./warmup";
+import {
+  assignmentPublishedAt,
+  computeLivePricingBreakdown,
+  creatorCumulViews,
+  syncBonusUnlocks,
+} from "./pricing";
+import { periodOf } from "./payments";
 
 const DEFAULT_ACCENT = "#FF5200";
 const DEFAULT_PAYOUT_DAY = 5;
@@ -362,5 +369,195 @@ export const backfillCreatorPrePromoWarmup = internalMutation({
       patched: dryRun ? 0 : affected.length,
       publications: affected,
     };
+  },
+});
+
+/**
+ * Chantier « bonus sur vues rémunérées » — RECALCUL RÉTROACTIF des paliers.
+ *
+ * Depuis le passage du cumul de paliers sur `bonusTierViews` (rémunéré ET promo,
+ * cf convex/viewCounters.isBonusTierPost), un palier débloqué grâce à des vues
+ * warmup n'est plus justifié. `syncBonusUnlocks` sait désormais révoquer ; cette
+ * migration ne fait que le RAPPORTER puis le DÉCLENCHER sur tout le monde.
+ *
+ * dryRun par défaut (n'écrit RIEN, liste ce qui tomberait) ; commit=true applique.
+ *   ./node_modules/.bin/convex run migrations:resyncBonusTiers [--prod]
+ *   ./node_modules/.bin/convex run migrations:resyncBonusTiers '{"commit":true}' [--prod]
+ *
+ * Un unlock déjà GELÉ dans un paiement payé est ÉPARGNÉ (l'argent est versé) et
+ * remonte dans `proteges` — à traiter à la main si tu veux vraiment le reprendre.
+ */
+export const resyncBonusTiers = internalMutation({
+  args: { commit: v.optional(v.boolean()) },
+  handler: async (ctx, { commit }) => {
+    const dryRun = commit !== true;
+    const creators = await ctx.db.query("creators").collect();
+    const revoques: {
+      creator: string;
+      seuilVues: number;
+      rewardType: string;
+      montant: number | null;
+      libelle: string | null;
+      cumulAtUnlock: number;
+      cumulRecalcule: number;
+      attributionPeriod: string;
+    }[] = [];
+    const proteges: typeof revoques = [];
+    let cashRevoque = 0;
+
+    for (const c of creators) {
+      const cumul = await creatorCumulViews(ctx, c.projectId, c._id);
+      const unlocks = (
+        await ctx.db
+          .query("bonusUnlocks")
+          .withIndex("by_creator", (q) => q.eq("creatorId", c._id))
+          .collect()
+      ).filter((u) => u.projectId === c.projectId);
+      for (const u of unlocks) {
+        if (cumul >= u.seuilVues) continue;
+        const row = {
+          creator: c.name,
+          seuilVues: u.seuilVues,
+          rewardType: u.rewardType,
+          montant: u.montant ?? null,
+          libelle: u.libelle ?? null,
+          cumulAtUnlock: u.cumulAtUnlock,
+          cumulRecalcule: cumul,
+          attributionPeriod: u.attributionPeriod,
+        };
+        // Même prédicat que syncBonusUnlocks : gelé dans un paiement payé ⇒ épargné.
+        const paid = (
+          await ctx.db
+            .query("payments")
+            .withIndex("by_creator", (q) => q.eq("creatorId", c._id))
+            .collect()
+        ).filter((p) => p.projectId === c.projectId && p.status === "paid");
+        if (paid.some((p) => p.period === u.attributionPeriod)) {
+          proteges.push(row);
+          continue;
+        }
+        revoques.push(row);
+        if (u.rewardType === "cash") cashRevoque += u.montant ?? 0;
+      }
+    }
+
+    let unlocked = 0;
+    let revoked = 0;
+    if (!dryRun) {
+      for (const c of creators) {
+        const r = await syncBonusUnlocks(ctx, c.projectId, c._id);
+        unlocked += r.unlocked;
+        revoked += r.revoked;
+      }
+    }
+
+    return {
+      dryRun,
+      creators: creators.length,
+      aRevoquer: revoques.length,
+      cashRevoque: Math.round(cashRevoque * 100) / 100,
+      proteges: proteges.length,
+      revoques,
+      protegesDetail: proteges,
+      applique: dryRun ? null : { unlocked, revoked },
+    };
+  },
+});
+
+/**
+ * AUDIT des paliers de bonus (lecture seule, aucune écriture) — outil de
+ * contrôle après le chantier « bonus sur vues rémunérées », et de diagnostic en
+ * cas de litige sur un payout.
+ *
+ * Par créatrice : le cumul de PALIERS tel que le calcule le moteur DÉPLOYÉ
+ * (creatorCumulViews → bonusTierViews), le total FIXE + CPM (base `payableViews`,
+ * qui NE doit PAS bouger avec ce chantier — c'est l'invariant du choix retenu),
+ * et l'état de chaque unlock. `incoherent: true` = un unlock dont le seuil n'est
+ * plus atteint et qui n'est pas gelé dans un paiement payé → ne devrait jamais
+ * exister après un resyncBonusTiers.
+ *   ./node_modules/.bin/convex run migrations:auditBonusTiers --prod
+ */
+export const auditBonusTiers = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const creators = await ctx.db.query("creators").collect();
+    const lignes = [];
+    let incoherents = 0;
+
+    for (const c of creators) {
+      const cumulPaliers = await creatorCumulViews(ctx, c.projectId, c._id);
+
+      // FIXE + CPM sur toutes les périodes où la créatrice a publié. Base
+      // `payableViews` — volontairement DISJOINT du cumul de paliers.
+      const assignments = (
+        await ctx.db
+          .query("assignments")
+          .withIndex("by_creator", (q) => q.eq("creatorId", c._id))
+          .collect()
+      ).filter(
+        (a) =>
+          a.projectId === c.projectId &&
+          a.pricingSnapshot !== undefined &&
+          (a.status === "published" || a.status === "paid"),
+      );
+      const periodes = [
+        ...new Set(assignments.map((a) => periodOf(assignmentPublishedAt(a)))),
+      ];
+      let fixe = 0;
+      let cpm = 0;
+      for (const p of periodes) {
+        const b = await computeLivePricingBreakdown(
+          ctx,
+          c.projectId,
+          c._id,
+          p,
+          new Set(),
+        );
+        fixe += b.fixedTotal;
+        cpm += b.cpmTotal;
+      }
+
+      const paid = (
+        await ctx.db
+          .query("payments")
+          .withIndex("by_creator", (q) => q.eq("creatorId", c._id))
+          .collect()
+      ).filter((p) => p.projectId === c.projectId && p.status === "paid");
+      const unlocks = (
+        await ctx.db
+          .query("bonusUnlocks")
+          .withIndex("by_creator", (q) => q.eq("creatorId", c._id))
+          .collect()
+      )
+        .filter((u) => u.projectId === c.projectId)
+        .map((u) => {
+          const gele = paid.some((p) => p.period === u.attributionPeriod);
+          const incoherent = cumulPaliers < u.seuilVues && !gele;
+          if (incoherent) incoherents += 1;
+          return {
+            seuilVues: u.seuilVues,
+            rewardType: u.rewardType,
+            montant: u.montant ?? null,
+            tenu: cumulPaliers >= u.seuilVues,
+            gele,
+            incoherent,
+          };
+        });
+
+      if (cumulPaliers === 0 && fixe === 0 && cpm === 0 && unlocks.length === 0) {
+        continue; // créatrice sans activité — hors rapport
+      }
+      lignes.push({
+        creatrice: c.name,
+        cumulPaliers,
+        fixe: Math.round(fixe * 100) / 100,
+        cpm: Math.round(cpm * 100) / 100,
+        fixeCpm: Math.round((fixe + cpm) * 100) / 100,
+        unlocks,
+      });
+    }
+
+    lignes.sort((a, b) => b.cumulPaliers - a.cumulPaliers);
+    return { creatrices: lignes.length, incoherents, lignes };
   },
 });
