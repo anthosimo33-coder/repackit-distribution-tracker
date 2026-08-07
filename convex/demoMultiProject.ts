@@ -6,6 +6,10 @@ import { getOrCreatePayment, periodOf } from "./payments";
 import { buildPricingSnapshot, syncBonusUnlocks } from "./pricing";
 import { recomputeLatestMetrics } from "./metricSnapshots";
 import { defaultTargetDays } from "./warmup";
+import {
+  deleteStorageBestEffort,
+  purgePublicationImage,
+} from "./storageCleanup";
 
 /**
  * Seed de DÉMO MULTI-PROJETS — cible un COMPTE CRÉATEUR EXISTANT (par email,
@@ -134,6 +138,8 @@ async function cleanupProjectDemo(
     for (const t of a.targets ?? []) {
       if (t.publicationId) pubIds.add(t.publicationId);
     }
+    // TD-011 — voir demoSeed : une soumission réelle sur une mission démo.
+    await deleteStorageBestEffort(ctx, a.submittedVideoStorageId);
     await ctx.db.delete(a._id);
     counts.assignments += 1;
   }
@@ -167,6 +173,7 @@ async function cleanupProjectDemo(
     }
     const pub = await ctx.db.get(pubId);
     if (pub) {
+      await purgePublicationImage(ctx, pub);
       await ctx.db.delete(pubId);
       counts.publications += 1;
     }

@@ -10,6 +10,10 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { REPACKIT_SLUG } from "./projects";
 import { accrueBaseLineItem, upsertBonusLineItem, periodOf } from "./payments";
 import { defaultTargetDays } from "./warmup";
+import {
+  deleteStorageBestEffort,
+  purgePublicationImage,
+} from "./storageCleanup";
 
 /**
  * Seed de DÉMO RÉVERSIBLE — peuple le projet repackit d'un créateur de test
@@ -796,6 +800,9 @@ export const cleanupDemoData = internalMutation({
         .collect();
       for (const a of assignments) {
         if (a.publicationId) pubIds.add(a.publicationId);
+        // TD-011 — le seed n'uploade pas de vidéo, mais une soumission réelle
+        // faite depuis le portail sur une mission démo en laisserait une.
+        await deleteStorageBestEffort(ctx, a.submittedVideoStorageId);
         await ctx.db.delete(a._id);
         counts.assignments += 1;
       }
@@ -856,6 +863,7 @@ export const cleanupDemoData = internalMutation({
       }
       const pub = await ctx.db.get(pubId);
       if (pub) {
+        await purgePublicationImage(ctx, pub);
         await ctx.db.delete(pub._id);
         counts.publications += 1;
       }

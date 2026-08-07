@@ -92,4 +92,17 @@ crons.daily(
   {},
 );
 
+// Balayage des blobs orphelins du File Storage — QUOTIDIEN. Filet de sécurité
+// pour les uploads ABANDONNÉS (blob POSTé, mutation d'attache jamais passée) :
+// aucune suppression de row ne peut les rattraper, ils ne sont référencés nulle
+// part. 04:15 UTC — creux de nuit, clair des relevés de vues (07/08/09h) et des
+// crons horaires (:30 Whop, :45 PostHog). Fenêtre de grâce de 24 h côté
+// mutation → un upload en cours n'est JAMAIS touché. Cf convex/storageCleanup.ts.
+crons.daily(
+  "purge-orphan-storage-blobs",
+  { hourUTC: 4, minuteUTC: 15 },
+  internal.storageCleanup.purgerBlobsOrphelins,
+  {},
+);
+
 export default crons;

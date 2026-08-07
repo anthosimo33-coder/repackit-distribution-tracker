@@ -56,3 +56,6 @@ e2e/.auth/
 # désactiver « Bureau & Documents » dans iCloud) est le vrai correctif.
 /components/comptes/WarmupGuideAccordion.tsx
 /components/comptes/WarmupGuideButton.tsx
+dt-backup.zip
+dt-full-backup.zip
+dt-env-backup.txt

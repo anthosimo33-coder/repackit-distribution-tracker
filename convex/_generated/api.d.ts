@@ -74,6 +74,7 @@ import type * as snapshotMatching from "../snapshotMatching.js";
 import type * as snytchDrive from "../snytchDrive.js";
 import type * as soloDays from "../soloDays.js";
 import type * as storage from "../storage.js";
+import type * as storageCleanup from "../storageCleanup.js";
 import type * as trackerData from "../trackerData.js";
 import type * as viewCounters from "../viewCounters.js";
 import type * as warmup from "../warmup.js";
@@ -157,6 +158,7 @@ declare const fullApi: ApiFromModules<{
   snytchDrive: typeof snytchDrive;
   soloDays: typeof soloDays;
   storage: typeof storage;
+  storageCleanup: typeof storageCleanup;
   trackerData: typeof trackerData;
   viewCounters: typeof viewCounters;
   warmup: typeof warmup;

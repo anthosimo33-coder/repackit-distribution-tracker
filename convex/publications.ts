@@ -14,6 +14,11 @@ import { resolveDisplayMetrics } from "./metricsDisplay";
 import { isTikTokShortlink } from "./modelVideoEmbeds";
 import { cycleIndexOf, cycleWindow, cyclePeriodKey } from "./payCycle";
 import { assignmentPublishedAt, syncBonusForPublication } from "./pricing";
+import {
+  deleteStorageBestEffort,
+  purgePublicationImage,
+  purgeUnreferencedImage,
+} from "./storageCleanup";
 
 const mecaniqueValidator = v.union(
   v.literal("Erreur"),
@@ -869,6 +874,9 @@ export const deletePublication = adminMutation({
   handler: async (ctx, args) => {
     const pub = await ctx.db.get(args.id);
     if (!pub || pub.projectId !== ctx.projectId) return { ok: true };
+    // TD-011 — l'image ScreenRecorder part avec la row, SAUF si un duplicat la
+    // partage encore (duplicateCarousel réutilise le même storageId).
+    await purgePublicationImage(ctx, pub);
     await ctx.db.delete(args.id);
     return { ok: true };
   },
@@ -1224,8 +1232,28 @@ export const updateDraft = adminMutation({
       }
     }
 
+    // TD-011 — images remplacées : mémorise les anciennes AVANT le patch pour
+    // les purger après, si plus personne ne les référence.
+    const replacedImages =
+      args.patch.image !== undefined
+        ? new Set(
+            rows
+              .map((r) => r.image)
+              .filter(
+                (i): i is Id<"_storage"> =>
+                  i !== undefined && i !== args.patch.image,
+              ),
+          )
+        : new Set<Id<"_storage">>();
+
     for (const r of rows) {
       await ctx.db.patch(r._id, update);
+    }
+
+    // Après patch : les rows du carrousel portent la nouvelle image, un blob
+    // encore référencé ne peut donc l'être que par un duplicat → on le garde.
+    for (const image of replacedImages) {
+      await purgeUnreferencedImage(ctx, ctx.projectId, image);
     }
 
     return { ok: true, rowsPatched: rows.length };
@@ -1451,6 +1479,7 @@ export const cleanupTestPublications = e2eMutation({
     let deleted = 0;
     for (const p of all) {
       if (p.notes.startsWith("[E2E_TEST]")) {
+        await purgePublicationImage(ctx, p);
         await ctx.db.delete(p._id);
         deleted++;
       }
@@ -1472,12 +1501,22 @@ export const wipeAllPublications = e2eMutation({
       await ctx.db.delete(s._id);
     }
     const pubs = await ctx.db.query("publications").collect();
+    // TD-011 — tout part : chaque image devient orpheline par construction, on
+    // purge sans contrôle de partage (dédupe par Set, un duplicat partage le
+    // storageId de sa source).
+    const images = new Set(
+      pubs.map((p) => p.image).filter((i): i is Id<"_storage"> => i !== undefined),
+    );
+    for (const image of images) {
+      await deleteStorageBestEffort(ctx, image);
+    }
     for (const p of pubs) {
       await ctx.db.delete(p._id);
     }
     return {
       deletedPublications: pubs.length,
       deletedSnapshots: snaps.length,
+      deletedImages: images.size,
     };
   },
 });

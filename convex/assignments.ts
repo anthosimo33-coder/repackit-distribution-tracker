@@ -28,6 +28,10 @@ import {
 } from "./pricing";
 import { isAccountAvailable } from "./warmup";
 import { isSnytchProject } from "./projects";
+import {
+  deleteStorageBestEffort,
+  purgePublicationImage,
+} from "./storageCleanup";
 // Statuts « balle au créateur » — source unique partagée avec le cron de rappel.
 import { UNFINISHED_STATUSES } from "./emails";
 import { internal } from "./_generated/api";
@@ -686,9 +690,7 @@ export async function purgeAndDeleteAssignment(
   ctx: MutationCtx,
   a: Doc<"assignments">,
 ): Promise<void> {
-  if (a.submittedVideoStorageId) {
-    await ctx.storage.delete(a.submittedVideoStorageId);
-  }
+  await deleteStorageBestEffort(ctx, a.submittedVideoStorageId);
   if (a.submittedVideoStreamUid) {
     await ctx.scheduler.runAfter(
       0,
@@ -2206,7 +2208,7 @@ export const submitVideo = creatorMutation({
     // Remplacement : l'ancienne vidéo (refusée) est purgée du storage, et sa
     // copie Cloudflare Stream supprimée (best-effort, hygiène de coût).
     if (a.submittedVideoStorageId && a.submittedVideoStorageId !== storageId) {
-      await ctx.storage.delete(a.submittedVideoStorageId);
+      await deleteStorageBestEffort(ctx, a.submittedVideoStorageId);
     }
     if (a.submittedVideoStreamUid) {
       await ctx.scheduler.runAfter(
@@ -2419,9 +2421,7 @@ async function confirmPublicationCore(
 
   // PURGE du MP4 (1 vidéo pour toutes les cibles, inutile une fois publiée) —
   // côté Convex ET côté Cloudflare Stream (best-effort, hygiène de coût).
-  if (a.submittedVideoStorageId) {
-    await ctx.storage.delete(a.submittedVideoStorageId);
-  }
+  await deleteStorageBestEffort(ctx, a.submittedVideoStorageId);
   if (a.submittedVideoStreamUid) {
     await ctx.scheduler.runAfter(
       0,
@@ -2693,9 +2693,13 @@ export const cleanupTestAssignments = e2eMutation({
             .withIndex("by_publication", (q) => q.eq("publicationId", pubId))
             .collect();
           for (const s of snaps) await ctx.db.delete(s._id);
+          const pub = await ctx.db.get(pubId);
+          if (pub) await purgePublicationImage(ctx, pub);
           await ctx.db.delete(pubId);
         }
-        await ctx.db.delete(a._id);
+        // TD-011 — passe par la purge partagée : la vidéo soumise (jusqu'à
+        // 300 Mo) et la copie Cloudflare Stream partent avec la row.
+        await purgeAndDeleteAssignment(ctx, a);
         deleted++;
       }
     }

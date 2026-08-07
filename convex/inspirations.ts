@@ -1,6 +1,7 @@
 import { e2eMutation, adminMutation, adminQuery } from "./functions";
 import { internal } from "./_generated/api";
 import { v, ConvexError } from "convex/values";
+import { deleteStorageBestEffort } from "./storageCleanup";
 
 const plateformeValidator = v.union(
   v.literal("TikTok"),
@@ -221,6 +222,11 @@ export const updateInspiration = adminMutation({
     if (args.plateforme !== undefined) patch.plateforme = args.plateforme;
     if (args.thumbnail !== undefined) {
       patch.thumbnail = args.thumbnail === null ? undefined : args.thumbnail;
+      // TD-011 — remplacement/retrait : l'ancienne vignette n'est plus
+      // référencée nulle part (aucune duplication d'inspiration n'existe).
+      if (existing.thumbnail && existing.thumbnail !== args.thumbnail) {
+        await deleteStorageBestEffort(ctx, existing.thumbnail);
+      }
     }
     if (args.titre !== undefined) patch.titre = args.titre;
     if (args.notes !== undefined) patch.notes = args.notes;
@@ -236,8 +242,9 @@ export const updateInspiration = adminMutation({
 });
 
 /**
- * Batch G — suppression dure. Pas de cleanup du blob storage associé
- * (parallèle au tracker, cf TD-011 à traiter séparément). Idempotent :
+ * Batch G — suppression dure. TD-011 traité : la vignette uploadée part avec la
+ * row (best-effort — un blob déjà absent ne doit pas bloquer la suppression).
+ * `autoThumbnailUrl` n'est pas concerné (URL externe, pas un blob). Idempotent :
  * suppression d'un id inexistant est silencieuse.
  */
 export const deleteInspiration = adminMutation({
@@ -245,6 +252,7 @@ export const deleteInspiration = adminMutation({
   handler: async (ctx, args) => {
     const existing = await ctx.db.get(args.id);
     if (!existing || existing.projectId !== ctx.projectId) return;
+    await deleteStorageBestEffort(ctx, existing.thumbnail);
     await ctx.db.delete(args.id);
   },
 });
@@ -267,6 +275,7 @@ export const cleanupTestInspirations = e2eMutation({
         (i.titre ?? "").startsWith("[E2E_TEST]") ||
         i.url.includes("tiktok.com/@insp/video");
       if (isTest) {
+        await deleteStorageBestEffort(ctx, i.thumbnail);
         await ctx.db.delete(i._id);
         deleted++;
       }

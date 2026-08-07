@@ -1,5 +1,6 @@
 import { adminMutation, adminQuery, e2eMutation } from "./functions";
 import { ConvexError, v } from "convex/values";
+import { purgeAssetBlobs } from "./storageCleanup";
 
 /**
  * Assets — bibliothèque de FICHIERS en dossiers (matériel à télécharger par le
@@ -134,7 +135,7 @@ export const deleteAssetFolder = adminMutation({
       .withIndex("by_folder", (q) => q.eq("folderId", args.id))
       .collect();
     for (const a of assets) {
-      await ctx.storage.delete(a.storageId);
+      await purgeAssetBlobs(ctx, a);
       await ctx.db.delete(a._id);
     }
     // Délie les assignments du projet qui pointaient ce dossier — dans le array
@@ -244,7 +245,9 @@ export const deleteAsset = adminMutation({
   handler: async (ctx, { id }) => {
     const asset = await ctx.db.get(id);
     if (!asset || asset.projectId !== ctx.projectId) return { ok: true };
-    await ctx.storage.delete(asset.storageId);
+    // TD-011 — purge le fichier ET la sauvegarde de l'original
+    // (postprocessBackup), invisible de l'UI mais aussi lourde.
+    await purgeAssetBlobs(ctx, asset);
     await ctx.db.delete(id);
     return { ok: true };
   },
@@ -265,7 +268,7 @@ export const cleanupTestAssets = e2eMutation({
         .withIndex("by_folder", (q) => q.eq("folderId", f._id))
         .collect();
       for (const a of assets) {
-        await ctx.storage.delete(a.storageId);
+        await purgeAssetBlobs(ctx, a);
         await ctx.db.delete(a._id);
       }
       await ctx.db.delete(f._id);
