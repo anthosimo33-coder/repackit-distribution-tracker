@@ -223,8 +223,9 @@ export function OverviewTab({
   const promoPlusBonus =
     c && c.promo !== null && c.promoBonus !== null ? c.promo + c.promoBonus : null;
   const acquisitionCost = perClient(promoPlusBonus);
-  const acquisitionBonus = c?.promoBonus ?? null; // bonus (total) inclus dans l'acquisition
-  const acquisitionShare = c?.promoViewShare ?? 0; // clé de répartition (part promo)
+  // Bonus inclus EN ENTIER : un palier ne se gagne que sur des vues promo, donc
+  // tout bonus débloqué est un coût promo (plus de prorata, cf getAttribution).
+  const acquisitionBonus = c?.promoBonus ?? null;
   // Carte 2 — coût complet du moteur : toute la paie (warmup + 100% bonus) / clients.
   const fullEngineCost = perClient(attribution?.costs.total);
 
@@ -321,7 +322,9 @@ export function OverviewTab({
           delta={null}
           hint={
             acquisitionBonus !== null && acquisitionBonus > 0
-              ? `dont ${formatMoney(acquisitionBonus, payCurrency)} de bonus estimé · clé ${Math.round(acquisitionShare * 100)} % promo`
+              ? `dont ${formatMoney(acquisitionBonus, payCurrency)} de bonus de paliers, débloqué sur des vues promo${
+                  clients !== null ? ` · ÷ ${formatNumber(clients)} clients acquis` : ""
+                }`
               : clients !== null
                 ? `publications promo · ÷ ${formatNumber(clients)} clients acquis`
                 : "publications promo uniquement"

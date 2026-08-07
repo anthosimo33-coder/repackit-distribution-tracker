@@ -24,7 +24,7 @@ export const EXPLAIN = {
   vuesPromoClient:
     "Combien de vues des vidéos promo il faut en moyenne pour obtenir un client payant. On n'utilise que les vidéos promo, car ce sont les seules qui parlent de l'app. Sert à mesurer l'efficacité de l'acquisition, pas à payer les créatrices.",
   coutAcquisition:
-    "Ce qu'on paie pour les vidéos promo divisé par le nombre de clients payants : le vrai coût pour gagner un client. Il additionne le fixe et le CPM des publications promo, plus une part du bonus. Le bonus est attaché à la créatrice et non à une vidéo, donc sa répartition entre promo et warmup est une estimation, pas une mesure.",
+    "Ce qu'on paie pour les vidéos promo divisé par le nombre de clients payants : le vrai coût pour gagner un client. Il additionne le fixe et le CPM des publications promo, plus la totalité du bonus de paliers. Le bonus y entre en entier parce qu'un palier ne se gagne que sur des vues promo : une vidéo de chauffe ne fait plus avancer le compteur, donc tout bonus débloqué a bien été gagné par de la promo.",
   coutComplet:
     "Toute la paie créatrices, divisée par le nombre de clients payants. Le warmup est inclus, parce que sans lui aucun compte ne peut publier de promo : c'est le vrai coût du système. À comparer au coût d'acquisition pour voir le poids de la construction des comptes.",
   revenuParClient:

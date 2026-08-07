@@ -179,10 +179,12 @@ export interface AttributionResult {
    *    payables, warmup rémunéré INCLUS (sans warmup aucun compte ne publie de promo) ;
    *  - `promo` = fixe + CPM des publications PROMO (non-warmup), sommés depuis la
    *    paie RÉELLE de ces vidéos, jamais un ratio de vues ;
-   *  - `promoBonus` = part du BONUS attribuée au promo, RÉPARTIE au prorata de la
-   *    part de vues payables qui sont promo (`promoViewShare`). Le bonus est attaché
-   *    à la CRÉATRICE, pas à une vidéo : c'est une ESTIMATION, pas une mesure, et
-   *    l'UI l'affiche comme telle. Le coût d'acquisition = promo + promoBonus.
+   *  - `promoBonus` = le bonus paliers EN ENTIER (100 %), plus aucun prorata.
+   *    Depuis le 2026-08-07 (commit 2b7a1e6) un palier ne se gagne QUE sur des vues
+   *    rémunérées ET promo (`bonusTierViews`, cf pricing.creatorCumulViews) : chaque
+   *    vue qui a servi à débloquer un palier est une vue promo, donc la totalité du
+   *    bonus est un coût promo. Ce n'est plus une estimation mais une mesure.
+   *    Le coût d'acquisition = promo + promoBonus.
    * `promo`/`promoBonus` sont `null` seulement si un coût PAR VIDÉO manque (legacy
    * sans pricingSnapshot) → tiret, jamais une paie inventée.
    */
@@ -190,7 +192,13 @@ export interface AttributionResult {
     total: number;
     promo: number | null;
     promoBonus: number | null;
-    /** Clé de répartition du bonus = part des vues payables qui sont promo (0–1). */
+    /**
+     * Part des vues PAYABLES qui sont promo (0–1) — DIAGNOSTIC seulement. Ce fut la
+     * clé de répartition du bonus jusqu'au 2026-08-07 ; elle ne l'est PLUS (voir
+     * `promoBonus`). Reste exposée parce qu'elle chiffre le poids du warmup
+     * rémunéré dans le CPM payé (≈ 0,25 en prod : les trois quarts du CPM portent
+     * sur des vues hors promo).
+     */
     promoViewShare: number;
     /** Bonus paliers cash TOTAL (niveau créatrice) — 100 % dans `total`. */
     bonusTotal: number;
@@ -385,15 +393,27 @@ export const getAttribution = adminQuery({
     // 100 % warmup, déjà hors promoRows) : le total est donc inchangé aujourd'hui,
     // et le reste si le cas apparaît.
     const promoFixeCpm = round2(promoRows.reduce((s, r) => s + (r.promoCost ?? 0), 0));
-    // Clé : part des vues PAYABLES qui sont PROMO (bornée [0,1] — un post promo
-    // non rémunéré resterait hors payable). Bonus promo = bonusTotal × clé.
+    // Part des vues PAYABLES qui sont PROMO (bornée [0,1]) — DIAGNOSTIC seulement,
+    // ce n'est PLUS la clé de répartition du bonus (voir juste en dessous).
     const totalPayableViews = rows.reduce((s, r) => s + r.payableViews, 0);
     const totalPromoViews = rows.reduce((s, r) => s + r.promoViews, 0);
     const promoViewShare =
       totalPayableViews > 0
         ? Math.min(1, totalPromoViews / totalPayableViews)
         : 0;
-    const promoBonus = round2(bonusTotal * promoViewShare);
+    // Bonus promo = 100 % du bonus, plus aucun prorata. Depuis le 2026-08-07
+    // (commit 2b7a1e6) le cumul qui débloque un palier ne compte QUE les vues
+    // rémunérées ET promo (`bonusTierViews`) : une vue de warmup ne fait plus
+    // avancer un palier, donc tout bonus débloqué l'a été par du promo et sa
+    // totalité est un coût promo. Le prorata précédent (× promoViewShare ≈ 0,25 en
+    // prod) sous-comptait le bonus d'environ 75 % dans le coût d'acquisition.
+    //
+    // AUCUN régime transitoire n'est nécessaire : vérifié sur l'export prod du
+    // 2026-08-07, la table `bonusUnlocks` est VIDE (le resync rétroactif du même
+    // jour a révoqué le seul palier existant) et les 10 paiements sont tous
+    // `accruing`, lineItems vides — aucun bonus n'a donc jamais été débloqué, a
+    // fortiori aucun sur des vues warmup. Rien à conserver sous l'ancienne clé.
+    const promoBonus = bonusTotal;
 
     return {
       rows,
