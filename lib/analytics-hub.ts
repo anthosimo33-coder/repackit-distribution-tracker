@@ -233,12 +233,10 @@ export interface CoherenceInputs {
   dailySubs?: { day: string; subs: number }[];
   /** Nouveaux clients payants Whop par jour Paris — l'autre côté du contrôle croisé. */
   dailyPaidClients?: { day: string; clients: number }[];
-  /**
-   * Renouvellements Whop par jour Paris. Sert à RECONNAÎTRE la cause connue d'un
-   * écart PostHog↔Whop (cf `pushDailyCrossCheck`) : sans eux, tous les jours
-   * divergents restent « inexpliqués » et le contrôle alerte comme avant.
-   */
-  dailyRenewals?: { day: string; renewals: number }[];
+  // NB : les renouvellements Whop par jour ne sont PLUS une entrée des contrôles.
+  // Ils restent dans le payload `coherence` (colonne jumelle de « Nouveaux
+  // clients » à l'écran), mais les deux séries croisées ne comptent désormais que
+  // des premiers paiements — cf `pushDailyCrossCheck`.
   /** Jour Paris courant — exclu du contrôle croisé (partiel des deux côtés). */
   todayParis?: string;
 }
@@ -342,13 +340,7 @@ export function buildCoherenceChecks(i: CoherenceInputs): CoherenceCheck[] {
   // Cohérence CROISÉE PAR JOUR entre deux CARTES qui montrent la même notion
   // (nouveaux abonnés/jour) depuis deux sources : PostHog subs vs Whop clients.
   // Le contrôle par TOTAUX ne voit PAS un écart d'un seul jour (la Σ peut concorder).
-  pushDailyCrossCheck(
-    checks,
-    i.dailySubs,
-    i.dailyPaidClients,
-    i.dailyRenewals,
-    i.todayParis,
-  );
+  pushDailyCrossCheck(checks, i.dailySubs, i.dailyPaidClients, i.todayParis);
 
   return checks;
 }
@@ -378,69 +370,53 @@ interface DailyMismatch {
  * jour donné = trou/latence (ex. cache PostHog en retard sur un paiement Whop). On
  * exclut le jour COURANT (partiel des deux côtés).
  *
- * CAUSE CONNUE, écartée de l'alerte : `subscription_completed` est RÉÉMIS à chaque
- * cycle par le lot serveur, donc PostHog compte les renouvellements comme des
- * conversions et dépasse structurellement Whop TOUS LES JOURS. Un jour dont l'excès
- * PostHog disparaît une fois les renouvellements Whop ajoutés est classé EXPLIQUÉ
- * (statut info, cause écrite) : sans ça, le bandeau rouge sonne en permanence pour
- * un motif su, et on apprend à ne plus le lire. Un écart NON couvert par les
- * renouvellements (ou en sens inverse, PostHog sous Whop) reste une violation :
- * c'est justement ce que l'alerte doit encore attraper. À retirer quand l'app
- * émettra `is_renewal` et que le cache pourra filtrer les réabonnements à la source.
+ * LES DEUX CÔTÉS COMPTENT DES PREMIERS PAIEMENTS : `QUERIES.overview` filtre
+ * `is_renewal` côté PostHog (propriété émise depuis le 28/07 01:09 UTC, vérifiée
+ * en prod contre `whopPayments.billingReason`), et `dailyPaidClients` ne retient
+ * que le 1er paiement encaissé d'un membership côté Whop. La tolérance « excès
+ * absorbé par les renouvellements du jour » a donc été RETIRÉE : elle comparait un
+ * compte renouvellements INCLUS à un compte renouvellements EXCLUS, et elle
+ * éteignait l'alerte pour un motif qui n'existe plus. Tout écart significatif
+ * redevient un écart.
+ *
+ * Résidu ASSUMÉ, mesuré le 08/08 : le chemin temps réel a étiqueté
+ * `is_renewal=false` deux renouvellements (06 et 07/08) → au plus 1 faux
+ * « nouveau » par jour côté PostHog, sous le seuil de `significantGap`. Si ce
+ * résidu devenait quotidien et massif, c'est l'alerte qui doit sonner — pas la
+ * tolérance qui doit revenir.
  */
 function pushDailyCrossCheck(
   checks: CoherenceCheck[],
   dailySubs: { day: string; subs: number }[] | undefined,
   dailyClients: { day: string; clients: number }[] | undefined,
-  dailyRenewals: { day: string; renewals: number }[] | undefined,
   today: string | undefined,
 ): void {
   if (!dailySubs || !dailyClients) return;
   const subsBy = new Map(dailySubs.map((d) => [d.day, d.subs]));
   const cliBy = new Map(dailyClients.map((d) => [d.day, d.clients]));
-  const renBy = new Map((dailyRenewals ?? []).map((d) => [d.day, d.renewals]));
   const days = [...new Set([...subsBy.keys(), ...cliBy.keys()])];
-  const explained: DailyMismatch[] = [];
-  const unexplained: DailyMismatch[] = [];
+  const mismatches: DailyMismatch[] = [];
   for (const day of days) {
     if (today && day >= today) continue; // jour courant/futur = partiel → ignoré
     const subs = subsBy.get(day) ?? 0;
     const clients = cliBy.get(day) ?? 0;
     if (!significantGap(subs, clients)) continue;
-    const renewals = renBy.get(day) ?? 0;
-    const m = { day, subs, clients, diff: Math.abs(subs - clients) };
-    // Excès PostHog absorbé par les renouvellements du même jour ⇒ cause connue.
-    const knownCause =
-      subs > clients && renewals > 0 && !significantGap(subs, clients + renewals);
-    (knownCause ? explained : unexplained).push(m);
+    mismatches.push({ day, subs, clients, diff: Math.abs(subs - clients) });
   }
-  explained.sort((a, b) => b.diff - a.diff);
-  unexplained.sort((a, b) => b.diff - a.diff);
+  mismatches.sort((a, b) => b.diff - a.diff);
 
   const key = "daily_clients_posthog_vs_whop";
   const label = "Clients/jour PostHog vs Whop";
-  if (unexplained.length === 0) {
-    checks.push({
-      key,
-      label,
-      status: explained.length === 0 ? "ok" : "info",
-      detail:
-        explained.length === 0
-          ? "concordent jour par jour"
-          : `${explained.length} jour(s) où PostHog dépasse Whop, expliqués par les renouvellements du jour : subscription_completed est réémis à chaque cycle par le lot serveur, donc un réabonnement compte comme une conversion. Alerte levée tant que la propriété is_renewal n'est pas émise par l'app.`,
-    });
+  if (mismatches.length === 0) {
+    checks.push({ key, label, status: "ok", detail: "concordent jour par jour" });
     return;
   }
-  const worst = unexplained[0];
+  const worst = mismatches[0];
   checks.push({
     key,
     label,
     status: worst.diff >= 3 ? "violation" : "info",
-    detail:
-      `${unexplained.length} jour(s) divergent(s) hors renouvellements — pire : ${worst.day} PostHog ${worst.subs} vs Whop ${worst.clients} (écart ${worst.diff})` +
-      (explained.length > 0
-        ? ` · ${explained.length} autre(s) jour(s) expliqués par les renouvellements comptés comme des conversions`
-        : ""),
+    detail: `${mismatches.length} jour(s) divergent(s) — pire : ${worst.day} PostHog ${worst.subs} vs Whop ${worst.clients} (écart ${worst.diff})`,
   });
 }
 

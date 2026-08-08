@@ -87,7 +87,6 @@ export function FiabiliteTab({
       dailySignupsSum: c.dailySignupsSum,
       dailySubs: c.dailySubs,
       dailyPaidClients: c.dailyPaidClients,
-      dailyRenewals: c.dailyRenewals,
       todayParis: c.todayParis,
     });
   }, [reliability.coherence]);
