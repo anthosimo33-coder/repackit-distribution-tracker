@@ -506,13 +506,32 @@ export function buildQueries(notCounted: string, internalMarker: string) {
    * sur le fuseau EUROPE/PARIS (et non UTC) : c'est le jour « métier » de l'équipe
    * et surtout la base des JOURS SOLO (attribution A3), où le jour de publication
    * (postDate à minuit UTC+1) DOIT coïncider avec le jour des inscriptions.
+   *
+   * `subs` = NOUVEAUX abonnés seulement. `subscription_completed` est réémis à
+   * CHAQUE cycle par le lot serveur ; la propriété `is_renewal` (émise depuis le
+   * 28/07 01:09 UTC, présente sur 100 % des events depuis) sépare les deux. Sans
+   * ce filtre, une journée faite de renouvellements affichait des « nouveaux
+   * clients » qui n'en étaient pas, et la série divergeait de Whop (04/08 : 8
+   * personnes côté PostHog pour 2 nouveaux clients Whop).
+   *
+   * `!= 'true'` et NON `= 'false'` : les events antérieurs au 28/07 n'ont pas la
+   * propriété et sont tous des premiers paiements — un `= 'false'` effacerait
+   * tout l'historique d'avant l'instrumentation.
+   *
+   * ⚠️ Défaut résiduel MESURÉ en prod le 08/08 (jointure `properties.membership_id`
+   * ↔ `whopPayments.billingReason`) : le chemin TEMPS RÉEL a étiqueté
+   * `is_renewal=false` deux renouvellements (06/08 05:27 et 07/08 20:15) ; le lot
+   * de 06:00 UTC, lui, étiquette juste. Reste donc ≤ 1 faux « nouveau » par jour,
+   * sous le seuil du contrôle croisé et sans effet sur la courbe « Clients
+   * payants », qui vient de Whop.
    */
   overview: `
 SELECT toStartOfDay(timestamp, 'Europe/Paris') AS d,
        uniqIf(person_id, event = '$pageview') AS visitors,
        uniqIf(person_id, event = 'signup_completed') AS signups,
        uniqIf(person_id, event = 'checkout_started') AS checkouts,
-       uniqIf(person_id, event = 'subscription_completed') AS subs
+       uniqIf(person_id, event = 'subscription_completed'
+              AND ifNull(toString(properties.is_renewal), '') != 'true') AS subs
 FROM events
 WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
 GROUP BY d
@@ -675,9 +694,12 @@ LIMIT ${SEGMENT_LIMIT}`,
    * TEST A/B par BRAS. `notCounted` écarte déjà les internes ET les sessions à
    * bras forcé (cf internalAccounts.notForcedExperimentClause) : une session de
    * QA n'est pas du trafic. Fenêtre ancrée sur la 1re émission de la propriété.
-   * Le revenu par bras n'est PAS ici : la variante n'est pas dans la metadata du
-   * checkout Whop, donc aucun paiement n'est rattachable à un bras — l'UI
-   * affiche un tiret plutôt qu'un revenu inventé.
+   * Le revenu par bras n'est PAS ici : la metadata `abVariant` du membership Whop
+   * EXISTE (cf convex/whopApi) mais n'est quasiment jamais posée — 1 membership
+   * sur 47 en prod au 08/08 (mem_9DufjkSMZ6ipdb, créé le 04/08, bras soft). Le
+   * rattachement d'un paiement à un bras reste donc l'exception, via cette
+   * metadata ou le repli `distinctId` ; un bras sans abonnement rattaché affiche
+   * un tiret plutôt qu'un revenu inventé.
    *
    * Trois pièges, tous corrigés ici et à ne pas réintroduire :
    *   1. `exposed` compte les ASSIGNÉS, pas les gens qui ont vu un paywall (en

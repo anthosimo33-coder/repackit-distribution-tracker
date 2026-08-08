@@ -107,7 +107,23 @@ export const CONTRACT_EVENTS: ContractEvent[] = [
   { name: "checkout_handoff", category: "monetization", props: ["is_webview", "webview_source", "reason"] },
   { name: "payment_failed", category: "monetization", props: ["cause", "reason", "is_webview"] },
   { name: "confirmation_pending", category: "monetization", props: ["duration_ms"] },
-  { name: "subscription_completed", category: "monetization", props: ["plan_name", "method", "server_side"] },
+  {
+    name: "subscription_completed",
+    category: "monetization",
+    // `membership_id` est la CLÉ DE JOINTURE avec Whop (whopPayments.membershipId) :
+    // c'est elle qui permet de confronter un event à son `billingReason` et donc de
+    // vérifier `is_renewal` au lieu de le croire. Sans elle, un event n'est
+    // rattachable à aucun encaissement (cas des events antérieurs au 28/07).
+    // `is_renewal` sépare premier paiement et renouvellement — l'event est réémis à
+    // chaque cycle par le lot serveur ; la série quotidienne (QUERIES.overview) la
+    // filtre pour ne compter que les nouveaux clients.
+    props: [
+      "plan_name", "method", "server_side",
+      "is_renewal", "membership_id",
+      "amount", "currency", "plan_id", "cadence", "slot_type",
+    ],
+    note: "is_renewal émise depuis le 28/07 ; le chemin temps réel l'a mise à false sur 2 renouvellements (06 et 07/08), le lot de 06:00 UTC étiquette juste",
+  },
   { name: "subscription_cancelled", category: "monetization", props: ["reason", "plan_name"] },
   { name: "purchase_celebrated", category: "monetization", props: [] },
 

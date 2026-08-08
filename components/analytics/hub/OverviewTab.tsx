@@ -104,13 +104,11 @@ export function OverviewTab({
       whopExcludedAfter: c.whopExcludedAfter,
       dailyClientsSum: c.dailyClientsSum,
       dailySignupsSum: c.dailySignupsSum,
-      // Contrôle CROISÉ PAR JOUR : PostHog subs vs Whop clients payants. Les
-      // renouvellements servent à reconnaître la cause CONNUE d'un excès PostHog
-      // (subscription_completed réémis à chaque cycle) — sans eux, le bandeau
-      // rouge sonnerait tous les jours pour ce seul motif.
+      // Contrôle CROISÉ PAR JOUR : PostHog subs vs Whop clients payants. Les deux
+      // séries comptent des PREMIERS paiements (subs filtre `is_renewal`), donc
+      // aucune tolérance « renouvellements » n'est passée au contrôle.
       dailySubs: c.dailySubs,
       dailyPaidClients: c.dailyPaidClients,
-      dailyRenewals: c.dailyRenewals,
       todayParis: c.todayParis,
     });
   }, [reliability]);

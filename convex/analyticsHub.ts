@@ -257,6 +257,9 @@ export const getAttribution = adminQuery({
 
     // Série QUOTIDIENNE PostHog (overview, internes exclus, bucket Europe/Paris)
     // — support des jours solo. Absente ⇒ jours solo sans compteurs (null).
+    // `subs` ne compte QUE les nouveaux abonnés (renouvellements filtrés par
+    // `is_renewal`, cf QUERIES.overview) : un réabonnement n'est pas attribuable à
+    // la vidéo publiée ce jour-là, il ne doit donc pas entrer dans un jour solo.
     const cacheRow = await ctx.db
       .query("posthogCache")
       .withIndex("by_project_key", (q) =>
@@ -1614,6 +1617,9 @@ export const getReliability = adminQuery({
     const dashboardClients = stepCount(sequentialSteps, "subscription_completed");
     // Somme des valeurs quotidiennes vs total sur la même période (garde-fou :
     // une somme de jours qui dépasse le total = double comptage inter-jours).
+    // Borne devenue LÂCHE côté clients : la série quotidienne exclut les
+    // renouvellements alors que le total d'atteinte les inclut, donc Σ < total est
+    // désormais l'état normal — le contrôle n'attrape plus qu'un dépassement franc.
     const overview = read<OverviewPayload>(POSTHOG_CACHE_KEYS.overview, {
       daily: [],
     });

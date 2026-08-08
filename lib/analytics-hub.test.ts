@@ -581,62 +581,67 @@ describe("buildCoherenceChecks", () => {
     expect(m.has("daily_clients_posthog_vs_whop")).toBe(false);
   });
 
-  // CAUSE CONNUE : subscription_completed est réémis à chaque cycle par le lot
-  // serveur → PostHog compte les renouvellements comme des conversions. Le
-  // bandeau rouge sonnait tous les jours pour ce seul motif.
-  it("croisé : excès PostHog couvert par les renouvellements du jour → info, cause écrite", () => {
+  // TOLÉRANCE RETIRÉE : les deux séries comptent désormais des PREMIERS paiements
+  // (`subs` filtre `is_renewal` dans QUERIES.overview), donc un excès PostHog n'est
+  // plus « expliqué » par les renouvellements du jour — il redevient un écart.
+  it("croisé : un excès PostHog n'est plus absorbé par les renouvellements du jour", () => {
     const checks = buildCoherenceChecks({
       ...base,
       dailySubs: [{ day: "2026-08-05", subs: 10 }],
       dailyPaidClients: [{ day: "2026-08-05", clients: 3 }],
-      dailyRenewals: [{ day: "2026-08-05", renewals: 7 }],
-      todayParis: "2026-08-07",
-    });
-    const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");
-    expect(c?.status).toBe("info");
-    expect(c?.detail).toContain("renouvellements");
-    expect(c?.detail).toContain("is_renewal");
-  });
-
-  it("croisé : SANS les renouvellements, le même jour reste une violation", () => {
-    const m = byKey(
-      buildCoherenceChecks({
-        ...base,
-        dailySubs: [{ day: "2026-08-05", subs: 10 }],
-        dailyPaidClients: [{ day: "2026-08-05", clients: 3 }],
-        todayParis: "2026-08-07",
-      }),
-    );
-    expect(m.get("daily_clients_posthog_vs_whop")).toBe("violation");
-  });
-
-  it("croisé : excès PostHog TROP GRAND pour les renouvellements → reste une violation", () => {
-    const checks = buildCoherenceChecks({
-      ...base,
-      dailySubs: [{ day: "2026-08-05", subs: 12 }],
-      dailyPaidClients: [{ day: "2026-08-05", clients: 2 }],
-      dailyRenewals: [{ day: "2026-08-05", renewals: 3 }],
       todayParis: "2026-08-07",
     });
     const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");
     expect(c?.status).toBe("violation");
     expect(c?.detail).toContain("2026-08-05");
+    expect(c?.detail).not.toContain("renouvellements");
   });
 
-  it("croisé : PostHog SOUS Whop n'est jamais expliqué par les renouvellements", () => {
+  // Le cas réel qui tenait le bandeau rouge (04/08 : 8 personnes PostHog, 2
+  // nouveaux clients Whop, 2 renouvellements) : une fois les renouvellements
+  // filtrés à la source, PostHog tombe à 2 et le jour concorde.
+  it("croisé : le 04/08 filtré à la source (2 vs 2) ne diverge plus", () => {
+    const m = byKey(
+      buildCoherenceChecks({
+        ...base,
+        dailySubs: [{ day: "2026-08-04", subs: 2 }],
+        dailyPaidClients: [{ day: "2026-08-04", clients: 2 }],
+        todayParis: "2026-08-07",
+      }),
+    );
+    expect(m.get("daily_clients_posthog_vs_whop")).toBe("ok");
+  });
+
+  // Résidu ASSUMÉ : un renouvellement mal étiqueté `is_renewal=false` par le
+  // chemin temps réel (1/jour, cas des 06 et 07/08) reste sous le seuil d'alerte.
+  it("croisé : 1 faux « nouveau » par jour reste sous le seuil", () => {
+    const m = byKey(
+      buildCoherenceChecks({
+        ...base,
+        dailySubs: [
+          { day: "2026-08-06", subs: 1 },
+          { day: "2026-08-07", subs: 1 },
+        ],
+        dailyPaidClients: [],
+        todayParis: "2026-08-08",
+      }),
+    );
+    expect(m.get("daily_clients_posthog_vs_whop")).toBe("ok");
+  });
+
+  it("croisé : PostHog SOUS Whop reste une violation", () => {
     const m = byKey(
       buildCoherenceChecks({
         ...base,
         dailySubs: [{ day: "2026-07-29", subs: 0 }],
         dailyPaidClients: [{ day: "2026-07-29", clients: 5 }],
-        dailyRenewals: [{ day: "2026-07-29", renewals: 9 }],
         todayParis: "2026-07-30",
       }),
     );
     expect(m.get("daily_clients_posthog_vs_whop")).toBe("violation");
   });
 
-  it("croisé : un jour inexpliqué alerte ET signale les jours expliqués", () => {
+  it("croisé : plusieurs jours divergents → le pire est nommé, tous sont comptés", () => {
     const checks = buildCoherenceChecks({
       ...base,
       dailySubs: [
@@ -647,14 +652,12 @@ describe("buildCoherenceChecks", () => {
         { day: "2026-08-04", clients: 2 },
         { day: "2026-08-05", clients: 4 },
       ],
-      dailyRenewals: [{ day: "2026-08-04", renewals: 7 }],
       todayParis: "2026-08-07",
     });
     const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");
     expect(c?.status).toBe("violation");
-    expect(c?.detail).toContain("2026-08-05");
-    expect(c?.detail).not.toContain("2026-08-04");
-    expect(c?.detail).toContain("1 autre(s) jour(s) expliqués");
+    expect(c?.detail).toContain("2 jour(s) divergent(s)");
+    expect(c?.detail).toContain("2026-08-04"); // écart 7 = le pire
   });
 });
 
