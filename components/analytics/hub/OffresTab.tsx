@@ -176,6 +176,17 @@ export function OffresTab({
   const armAlerts = armChecks.filter((c) => c.status !== "ok");
   /** Sous ce nombre d'exposés PAR BRAS, aucune comparaison n'a de sens. */
   const AB_THRESHOLD = 330;
+  /** Personnes écartées du tableau faute de bras stable (cf QUERIES.abArms). */
+  const abExcluded = arms.reduce((sum, a) => sum + a.excludedFlippers, 0);
+  /**
+   * MARQUEUR DE RUPTURE — correctif SERVEUR du tirage de bras. Vérifié en prod le
+   * 09/08 : dernière bascule à l'identification le 07/08 22:02:46.735 UTC,
+   * première identification propre le 08/08 10:24:45.484 UTC. Non datable par
+   * `app_version` : la même build client (20260806-1724) est des deux côtés de la
+   * rupture. Écrit en dur ici, comme AB_THRESHOLD : c'est un fait d'observation
+   * daté, pas une donnée que le cache saurait recalculer.
+   */
+  const AB_BREAK_LABEL = "8 août 2026, 10 h 24 UTC";
   const abMinExposed = arms.length > 0 ? Math.min(...arms.map((a) => a.exposed)) : 0;
   const abConcluant = arms.length >= 2 && abMinExposed >= AB_THRESHOLD;
   /** Personnes restantes à recruter, tous bras confondus, pour atteindre le seuil. */
@@ -527,6 +538,36 @@ export function OffresTab({
                   ratio des colonnes affichées, ne se lit pas : corriger avant de
                   décider quoi que ce soit sur ce test.
                 </HubNotice>
+              ) : null}
+              {/* Rupture de comparabilité : le bras était tiré DEUX fois (client
+                  avant le compte, serveur à sa création) et les deux tirages
+                  divergeaient. Un marqueur visible vaut mieux qu'une note perdue
+                  ailleurs — sans lui, on compare deux périodes qui ne se comparent
+                  pas. */}
+              <HubNotice className="border-amber-200 bg-amber-50/70 text-amber-900">
+                <strong>Rupture le {AB_BREAK_LABEL}.</strong> Le bras était tiré deux
+                fois — une fois côté navigateur avant le compte, une fois côté serveur
+                à sa création — et les deux tirages ne tombaient pas d&apos;accord.
+                Avant cette date, <strong>56 % des personnes mises à l&apos;épreuve</strong>{" "}
+                (10 sur 18 ayant une assignation de part et d&apos;autre de
+                l&apos;inscription) changeaient de bras à l&apos;identification ; après,
+                aucune sur 47. <strong>Les données d&apos;avant ne sont pas comparables
+                à celles d&apos;après.</strong>
+              </HubNotice>
+              {abExcluded > 0 ? (
+                <p className="text-xs text-slate-500">
+                  <strong>
+                    {formatNumber(abExcluded)} personne(s) écartée(s) du tableau
+                  </strong>{" "}
+                  : deux valeurs d&apos;<code>experiment_variant</code> sur la même
+                  personne, donc on ignore quel bras elle a réellement subi. Retirées
+                  de TOUTES les colonnes, revenu compris.{" "}
+                  <strong>Ce retrait n&apos;est pas neutre</strong> : ces personnes ont
+                  vu un paywall et certaines ont converti — on retire de vraies
+                  conversions pour ne pas les attribuer au mauvais bras. Détection par
+                  la double valeur, jamais par une liste figée (elle grossit) ni par
+                  une fenêtre de date (elle jetterait aussi les cohortes saines).
+                </p>
               ) : null}
               <p className="text-xs text-slate-500">
                 <strong>Complétion</strong> = nouveaux clients ÷{" "}
