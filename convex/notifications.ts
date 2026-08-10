@@ -134,32 +134,39 @@ export const getProjectNotify = internalQuery({
 });
 
 /**
- * Résout le contexte d'envoi d'un projet POUR UN ÉVÉNEMENT donné, ou `null` si
- * rien ne doit partir. Trois refus distincts, tous silencieux et loggés :
- * projet introuvable, canal non configuré, événement éteint côté admin.
+ * Résout le contexte d'envoi d'un projet, ou `null` si rien ne doit partir.
+ * Trois refus distincts, tous silencieux et loggés : projet introuvable, canal
+ * non configuré, aucun des événements demandés activé côté admin.
  *
  * Point de passage OBLIGÉ de toutes les actions : la vérification « cet
  * événement est-il activé ? » ne doit exister qu'ici.
+ *
+ * `events` accepte PLUSIEURS clés, et il suffit qu'UNE soit active. C'est requis
+ * par le message groupé des soumissions : sa fenêtre mélange première soumission
+ * et re-soumission, qui ont deux bascules distinctes. N'en tester qu'une jetterait
+ * tout le tampon d'un projet qui n'a activé que l'autre.
  */
 export async function resolveNotifyContext(
   ctx: ActionCtx,
   projectId: Id<"projects">,
-  event: NotificationEventKey,
+  events: NotificationEventKey | NotificationEventKey[],
 ): Promise<NotifyContext | null> {
+  const wanted = Array.isArray(events) ? events : [events];
   const p = await ctx.runQuery(internal.notifications.getProjectNotify, {
     projectId,
   });
   if (p === null) return null;
   const cfg = notifyConfig(p.notify);
   if (cfg === null) {
-    warnDisabled(event);
+    warnDisabled(wanted.join("/"));
     return null;
   }
-  if (!isEventEnabled(p.notify?.enabledEvents, event)) return null;
+  const enabled = p.notify?.enabledEvents;
+  if (!wanted.some((e) => isEventEnabled(enabled, e))) return null;
   return {
     projectName: p.name,
     projectSlug: p.slug,
-    enabledEvents: p.notify?.enabledEvents ?? [],
+    enabledEvents: enabled ?? [],
     cfg,
   };
 }
@@ -362,13 +369,14 @@ export const flushWindow = internalAction({
     if (claimResult === null) return { ok: false, reason: "not-found" };
     if (claimResult.total === 0) return { ok: false, reason: "nothing-to-say" };
 
-    // La bascule est relue ici : elle a pu être éteinte pendant la fenêtre.
-    // `video_submitted` porte le groupage des deux types (cf SUBMISSION_KIND).
-    const nctx = await resolveNotifyContext(
-      ctx,
-      claimResult.projectId,
+    // Les bascules sont relues ici : elles ont pu être éteintes pendant la
+    // fenêtre. LES DEUX sont testées — la fenêtre mélange soumissions et
+    // re-soumissions (cf SUBMISSION_KIND), n'en tester qu'une jetterait tout le
+    // tampon d'un projet qui n'a activé que l'autre.
+    const nctx = await resolveNotifyContext(ctx, claimResult.projectId, [
       "video_submitted",
-    );
+      "video_resubmitted",
+    ]);
     if (nctx === null) return DISABLED;
 
     return deliver(
@@ -630,6 +638,7 @@ export const collectDigest = internalQuery({
         if (cycles.some((cy) => isCycleDue(cy, now))) {
           payCycles.push({ creatorName: c.name });
         }
+        if (payCycles.length >= DIGEST_SECTION_LIMIT) break;
       }
     }
 
