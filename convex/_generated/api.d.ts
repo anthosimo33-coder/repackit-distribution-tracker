@@ -50,6 +50,7 @@ import type * as migrations from "../migrations.js";
 import type * as modelVideoEmbeds from "../modelVideoEmbeds.js";
 import type * as notificationEvents from "../notificationEvents.js";
 import type * as notificationMessage from "../notificationMessage.js";
+import type * as notificationWindow from "../notificationWindow.js";
 import type * as notifications from "../notifications.js";
 import type * as notifyApi from "../notifyApi.js";
 import type * as passwordReset from "../passwordReset.js";
@@ -138,6 +139,7 @@ declare const fullApi: ApiFromModules<{
   modelVideoEmbeds: typeof modelVideoEmbeds;
   notificationEvents: typeof notificationEvents;
   notificationMessage: typeof notificationMessage;
+  notificationWindow: typeof notificationWindow;
   notifications: typeof notifications;
   notifyApi: typeof notifyApi;
   passwordReset: typeof passwordReset;

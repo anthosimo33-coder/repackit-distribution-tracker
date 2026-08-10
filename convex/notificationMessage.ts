@@ -43,10 +43,14 @@ function bullet(text: string): string {
 /**
  * Rend une liste à puces PLAFONNÉE. Le repli est explicite (« et 12 autres »)
  * plutôt que silencieux : une troncature muette se lit comme un total.
+ *
+ * `total` permet d'annoncer le vrai nombre quand l'échantillon reçu est LUI-MÊME
+ * déjà plafonné en amont (tampon anti-flood : on garde 25 lignes mais on compte
+ * tout). Absent ⇒ le total est celui des lignes fournies.
  */
-function bulletList(lines: string[], cap = LIST_CAP): string {
+function bulletList(lines: string[], total = lines.length, cap = LIST_CAP): string {
   const shown = lines.slice(0, cap).map(bullet);
-  const rest = lines.length - cap;
+  const rest = total - Math.min(lines.length, cap);
   if (rest > 0) shown.push(`• … et ${rest} ${plural(rest, "autre")}`);
   return shown.join("\n");
 }
@@ -173,16 +177,19 @@ export function buildSubmissionMessage(params: {
  * soumissions, aucune n'est « la » bonne.
  */
 export function buildGroupedSubmissionsMessage(params: {
+  /** Échantillon des lignes conservées (le tampon plafonne à PENDING_CAP). */
   lines: string[];
+  /** Total RÉEL de soumissions tamponnées — peut dépasser `lines.length`. */
+  total?: number;
   appBaseUrl: string;
   projectSlug: string;
 }): string {
   const { lines, appBaseUrl, projectSlug } = params;
-  const n = lines.length;
+  const n = params.total ?? lines.length;
   return [
     `🎬 <b>${n} autre${n > 1 ? "s" : ""} ${plural(n, "vidéo")} à valider</b>`,
     "",
-    bulletList(lines),
+    bulletList(lines, n),
     "",
     link("Ouvrir la validation", validationUrl(appBaseUrl, projectSlug)),
   ].join("\n");

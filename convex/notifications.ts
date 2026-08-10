@@ -1,4 +1,10 @@
-import { action, internalQuery, type ActionCtx } from "./_generated/server";
+import {
+  action,
+  internalAction,
+  internalMutation,
+  internalQuery,
+  type ActionCtx,
+} from "./_generated/server";
 import { adminMutation, adminQuery } from "./functions";
 import { customAction } from "convex-helpers/server/customFunctions";
 import { getAuthUserId } from "@convex-dev/auth/server";
@@ -11,12 +17,23 @@ import {
   sendNotification,
   type NotifyConfig,
 } from "./notifyApi";
-import { buildTestMessage } from "./notificationMessage";
+import {
+  buildGroupedSubmissionsMessage,
+  buildSubmissionMessage,
+  buildTestMessage,
+  submissionLine,
+} from "./notificationMessage";
 import {
   isEventEnabled,
   sanitizeEnabledEvents,
   type NotificationEventKey,
 } from "./notificationEvents";
+import {
+  claimed,
+  decideOnEvent,
+  freshWindow,
+  WINDOW_MS,
+} from "./notificationWindow";
 
 /**
  * NOTIFICATIONS hors-app (Telegram) — configuration et répartition.
@@ -196,6 +213,259 @@ export const setNotifySettings = adminMutation({
       },
     });
     return { ok: true, cleared: false };
+  },
+});
+
+// ─── Fenêtre anti-flood : les deux mutations transactionnelles ───────────────
+
+/**
+ * Ouvre la fenêtre du couple (projet, type) ou tamponne dedans. UNE transaction.
+ *
+ * Rend `lead: true` quand la fenêtre vient d'être ouverte → l'appelant envoie
+ * immédiatement (front montant). Sinon la ligne est tamponnée et partira dans le
+ * message groupé.
+ *
+ * Toute la décision est dans `convex/notificationWindow.ts` (pur, testé) ; ici
+ * on ne fait qu'écrire et planifier.
+ */
+export const openOrAppendWindow = internalMutation({
+  args: {
+    projectId: v.id("projects"),
+    kind: v.string(),
+    line: v.string(),
+  },
+  handler: async (ctx, { projectId, kind, line }): Promise<{ lead: boolean }> => {
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("notificationWindows")
+      .withIndex("by_project_kind", (q) =>
+        q.eq("projectId", projectId).eq("kind", kind),
+      )
+      .first();
+
+    const decision = decideOnEvent(
+      existing === null
+        ? null
+        : {
+            openedAt: existing.openedAt,
+            pending: existing.pending,
+            pendingCount: existing.pendingCount,
+          },
+      line,
+      now,
+    );
+
+    if (decision.action === "open") {
+      const fresh = freshWindow(now);
+      const windowId = await ctx.db.insert("notificationWindows", {
+        projectId,
+        kind,
+        openedAt: fresh.openedAt,
+        pending: fresh.pending,
+        pendingCount: fresh.pendingCount,
+      });
+      await ctx.scheduler.runAfter(
+        WINDOW_MS,
+        internal.notifications.flushWindow,
+        { windowId },
+      );
+      return { lead: true };
+    }
+
+    // `existing` est forcément non-null ici (decideOnEvent ne rend "open" que
+    // sur null) — la garde satisfait le typeur sans changer le comportement.
+    if (existing === null) return { lead: true };
+    await ctx.db.patch(existing._id, {
+      pending: decision.state.pending,
+      pendingCount: decision.state.pendingCount,
+    });
+    if (decision.action === "drain") {
+      // Fenêtre orpheline (flush jamais arrivé) : on la vide tout de suite,
+      // sinon elle retiendrait indéfiniment toutes les soumissions suivantes.
+      console.warn(
+        `[notifications] fenêtre « ${kind} » orpheline (ouverte depuis ${Math.round(
+          (now - existing.openedAt) / 1000,
+        )} s) — drainage immédiat.`,
+      );
+      await ctx.scheduler.runAfter(0, internal.notifications.flushWindow, {
+        windowId: existing._id,
+      });
+    }
+    return { lead: false };
+  },
+});
+
+/**
+ * REVENDIQUE une fenêtre : lit son tampon ET supprime le document dans la MÊME
+ * transaction.
+ *
+ * L'atomicité est le cœur du garde-fou, pas un détail d'implémentation. Lire
+ * puis supprimer en deux temps (runQuery puis runMutation depuis l'action)
+ * laisserait une soumission s'intercaler : elle serait écrite dans un document
+ * sur le point d'être supprimé, donc PERDUE. Cf le test qui démontre cette perte
+ * dans lib/notification-window.test.ts (« pourquoi la revendication doit être
+ * ATOMIQUE »). NE PAS scinder cette mutation.
+ *
+ * Rend `null` si le document n'existe plus (déjà revendiqué) — cas normal, pas
+ * une erreur.
+ */
+export const claimWindow = internalMutation({
+  args: { windowId: v.id("notificationWindows") },
+  handler: async (
+    ctx,
+    { windowId },
+  ): Promise<{
+    projectId: Id<"projects">;
+    lines: string[];
+    total: number;
+  } | null> => {
+    const doc = await ctx.db.get(windowId);
+    if (doc === null) return null;
+    const { lines, total } = claimed({
+      openedAt: doc.openedAt,
+      pending: doc.pending,
+      pendingCount: doc.pendingCount,
+    });
+    await ctx.db.delete(windowId);
+    return { projectId: doc.projectId, lines, total };
+  },
+});
+
+/**
+ * Ferme une fenêtre et envoie le message groupé — s'il y a quelque chose à dire.
+ * Un tampon vide (cas courant : une seule soumission, déjà partie en front
+ * montant) ne produit AUCUN message.
+ */
+export const flushWindow = internalAction({
+  args: { windowId: v.id("notificationWindows") },
+  handler: async (ctx, { windowId }): Promise<Outcome> => {
+    const claimResult = await ctx.runMutation(
+      internal.notifications.claimWindow,
+      { windowId },
+    );
+    if (claimResult === null) return { ok: false, reason: "not-found" };
+    if (claimResult.total === 0) return { ok: false, reason: "nothing-to-say" };
+
+    // La bascule est relue ici : elle a pu être éteinte pendant la fenêtre.
+    // `video_submitted` porte le groupage des deux types (cf SUBMISSION_KIND).
+    const nctx = await resolveNotifyContext(
+      ctx,
+      claimResult.projectId,
+      "video_submitted",
+    );
+    if (nctx === null) return DISABLED;
+
+    return deliver(
+      nctx.cfg,
+      "soumissions groupées",
+      buildGroupedSubmissionsMessage({
+        lines: claimResult.lines,
+        total: claimResult.total,
+        appBaseUrl: nctx.cfg.appBaseUrl,
+        projectSlug: nctx.projectSlug,
+      }),
+    );
+  },
+});
+
+// ─── 1 & 2. Soumission / re-soumission vidéo ─────────────────────────────────
+
+/**
+ * Type de fenêtre partagé par la soumission ET la re-soumission : côté lecteur
+ * c'est le même geste (une vidéo entre dans la file de validation), donc une
+ * rafale mixte doit se grouper en UN message.
+ */
+const SUBMISSION_KIND = "submission";
+
+/**
+ * Contexte d'affichage d'une soumission. Reprend les jointures de
+ * `assignments.listVideoSubmitted` pour UN assignment (créatrice, campagne,
+ * format, cibles) — mêmes sources, pour que le message dise ce que montre
+ * l'écran de validation.
+ */
+export const getSubmissionContext = internalQuery({
+  args: { assignmentId: v.id("assignments") },
+  handler: async (ctx, { assignmentId }) => {
+    const a = await ctx.db.get(assignmentId);
+    if (a === null) return null;
+    const creator = await ctx.db.get(a.creatorId);
+    const format = a.formatId ? await ctx.db.get(a.formatId) : null;
+    const campaign = a.scriptCombo
+      ? await ctx.db.get(a.scriptCombo.campaignId)
+      : null;
+    const targets = await Promise.all(
+      (a.targets ?? []).map(async (t) => ({
+        platform: t.platform,
+        accountHandle: t.accountId
+          ? ((await ctx.db.get(t.accountId))?.handle ?? null)
+          : null,
+      })),
+    );
+    return {
+      projectId: a.projectId,
+      creatorName: creator?.name ?? a.creatorNameSnapshot ?? "—",
+      campaignName: campaign?.name ?? null,
+      formatName: format?.name ?? null,
+      targets,
+    };
+  },
+});
+
+/**
+ * Événement « une vidéo est entrée dans la file de validation ».
+ *
+ * Planifiée par `assignments.submitVideo` via ctx.scheduler → la soumission est
+ * DÉJÀ committée quand cette action démarre. Elle ne peut donc structurellement
+ * pas faire échouer la soumission, quoi qu'il arrive ici.
+ */
+export const notifySubmission = internalAction({
+  args: {
+    assignmentId: v.id("assignments"),
+    isResubmission: v.boolean(),
+  },
+  handler: async (ctx, { assignmentId, isResubmission }): Promise<Outcome> => {
+    const sub = await ctx.runQuery(
+      internal.notifications.getSubmissionContext,
+      { assignmentId },
+    );
+    if (sub === null) return { ok: false, reason: "not-found" };
+
+    const event: NotificationEventKey = isResubmission
+      ? "video_resubmitted"
+      : "video_submitted";
+    const nctx = await resolveNotifyContext(ctx, sub.projectId, event);
+    if (nctx === null) return { ok: false, reason: "event-off" };
+
+    const context = {
+      creatorName: sub.creatorName,
+      campaignName: sub.campaignName,
+      formatName: sub.formatName,
+      targets: sub.targets,
+    };
+
+    // Front montant : la fenêtre décide si CE message part maintenant ou s'il
+    // rejoint le groupé de fin de fenêtre.
+    const { lead } = await ctx.runMutation(
+      internal.notifications.openOrAppendWindow,
+      {
+        projectId: sub.projectId,
+        kind: SUBMISSION_KIND,
+        line: submissionLine(context),
+      },
+    );
+    if (!lead) return { ok: true };
+
+    return deliver(
+      nctx.cfg,
+      event,
+      buildSubmissionMessage({
+        ctx: context,
+        isResubmission,
+        appBaseUrl: nctx.cfg.appBaseUrl,
+        projectSlug: nctx.projectSlug,
+        assignmentId,
+      }),
+    );
   },
 });
 

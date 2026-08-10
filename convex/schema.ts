@@ -1795,4 +1795,28 @@ export default defineSchema({
       }),
     ),
   }).index("by_keyword", ["keyword"]),
+
+  // ─── Garde-fou ANTI-FLOOD des notifications ────────────────────────────────
+  // Une fenêtre de groupage OUVERTE, par (projet, type d'événement). Table de
+  // TRAVAIL, pas d'historique : un document naît au front montant et est
+  // SUPPRIMÉ par son flush.
+  //
+  // C'est l'EXISTENCE du document qui fait foi, jamais une comparaison de temps :
+  // le flush lit et supprime dans la MÊME transaction (notifications.claimWindow),
+  // donc une soumission qui arrive pile à la fermeture est soit incluse dans le
+  // message groupé, soit à l'origine d'une nouvelle fenêtre — jamais perdue entre
+  // les deux. La démonstration des deux ordonnancements est dans
+  // lib/notification-window.test.ts. Logique pure : convex/notificationWindow.ts.
+  notificationWindows: defineTable({
+    projectId: v.id("projects"),
+    // Type d'événement groupé. "submission" couvre soumission ET re-soumission :
+    // c'est le même geste côté lecteur (une vidéo entre dans la file de validation).
+    kind: v.string(),
+    openedAt: v.number(),
+    // ÉCHANTILLON des lignes tamponnées (plafonné, cf PENDING_CAP)…
+    pending: v.array(v.string()),
+    // …et le total RÉEL, jamais plafonné : le message annonce le vrai nombre et
+    // n'affiche qu'un échantillon. Un décompte tronqué se lirait comme un total.
+    pendingCount: v.number(),
+  }).index("by_project_kind", ["projectId", "kind"]),
 });

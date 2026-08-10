@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, type MouseEvent } from "react";
+import { Suspense, useEffect, useRef, useState, type MouseEvent } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   useProjectQuery,
   useProjectMutation,
@@ -74,10 +75,26 @@ type ManagedToPublishRow =
 const nf = new Intl.NumberFormat("fr-FR");
 const formatDate = (ts: number) => new Date(ts).toLocaleDateString("fr-FR");
 
+/**
+ * Wrapper Suspense pour useSearchParams (Next 16 le suspend) — cf le même
+ * découpage dans app/admin/[projectSlug]/inspirations/page.tsx.
+ */
 export default function ValidationPage() {
+  return (
+    <Suspense fallback={<Skeleton className="h-96 w-full" />}>
+      <ValidationPageInner />
+    </Suspense>
+  );
+}
+
+function ValidationPageInner() {
   // Devise de la PAIE créatrices (dollars) — pour les montants de bonus affichés.
   const payCurrency = useProject().project.payCurrency;
   const toReview = useProjectQuery(api.assignments.listVideoSubmitted, {});
+  // Lien profond des notifications hors-app : `?soumission=<assignmentId>` cible
+  // UNE soumission (« un lien vers l'écran de validation de CETTE soumission,
+  // pas vers la liste »). Sa carte est surlignée et amenée à l'écran.
+  const highlightedId = useSearchParams().get("soumission");
   const managedToPublish = useProjectQuery(
     api.assignments.listManagedToPublish,
     {},
@@ -118,10 +135,25 @@ export default function ValidationPage() {
         ) : (
           <div className="grid gap-4 lg:grid-cols-2">
             {toReview.map((a) => (
-              <VideoReviewCard key={a._id} a={a} />
+              <VideoReviewCard
+                key={a._id}
+                a={a}
+                highlighted={a._id === highlightedId}
+              />
             ))}
           </div>
         )}
+        {/* Le lien pointait une soumission qui n'est plus dans la file (déjà
+            validée, refusée, supprimée). On le DIT : sans ça, le lien semble
+            simplement ne rien faire. */}
+        {highlightedId !== null &&
+          toReview !== undefined &&
+          !toReview.some((a) => a._id === highlightedId) && (
+            <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">
+              La soumission de ce lien n&apos;est plus en attente de revue — elle
+              a déjà été traitée.
+            </p>
+          )}
       </section>
 
       {/* ─── Comptes gérés — à publier ──────────────────────────────────────── */}
@@ -216,9 +248,17 @@ export default function ValidationPage() {
   );
 }
 
-function VideoReviewCard({ a }: { a: VideoSubmittedRow }) {
+function VideoReviewCard({
+  a,
+  highlighted = false,
+}: {
+  a: VideoSubmittedRow;
+  /** Cible du lien profond `?soumission=` : surlignée et amenée à l'écran. */
+  highlighted?: boolean;
+}) {
   const approve = useProjectMutation(api.assignments.reviewVideoApprove);
   const reject = useProjectMutation(api.assignments.reviewVideoReject);
+  const cardRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [feedback, setFeedback] = useState("");
@@ -303,8 +343,20 @@ function VideoReviewCard({ a }: { a: VideoSubmittedRow }) {
     }
   }
 
+  // Amène la carte ciblée par le lien profond à l'écran. Effet DOM pur (aucun
+  // setState) : la file peut être longue, arriver dessus sans scroller est tout
+  // l'intérêt d'un lien qui vise UNE soumission.
+  useEffect(() => {
+    if (!highlighted) return;
+    cardRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [highlighted]);
+
   return (
-    <Card>
+    <Card
+      ref={cardRef}
+      data-testid={highlighted ? "submission-highlighted" : undefined}
+      className={cn(highlighted && "ring-2 ring-primary ring-offset-2")}
+    >
       <CardContent className="space-y-3 p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-0.5">
