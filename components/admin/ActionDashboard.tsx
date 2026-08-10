@@ -29,7 +29,11 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/format";
 import { formatMoney } from "@/lib/format-rate";
-import { missedDays } from "@/lib/warmup";
+import {
+  isCycleUnpaid,
+  isOverdueMission,
+  isWarmupLate,
+} from "@/lib/ops-digest";
 import {
   getEffectiveStatus,
   getEffectiveWarmupDuration,
@@ -132,18 +136,21 @@ export function ActionDashboard() {
       .filter((a) => a.status === "video_submitted")
       .sort((a, b) => a.createdAt - b.createdAt);
 
-    // Carte 2 — comptes en warmup avec des jours manqués (lib/warmup).
-    const warmupLate = comptes.filter((c) => {
-      if (getEffectiveStatus(c) !== "warmup" || c.warmupStartedAt === undefined)
-        return false;
-      return (
-        missedDays(
-          c.warmupStartedAt,
-          c.warmupProtocol?.dailyChecks ?? [],
-          getEffectiveWarmupDuration(c),
-        ) > 0
-      );
-    });
+    // Carte 2 — comptes en warmup avec des jours manqués. Le prédicat est
+    // PARTAGÉ avec le digest quotidien (lib/ops-digest, jumeau serveur
+    // convex/opsDigest apparié par test) : le message du matin et cet écran
+    // doivent compter la même chose.
+    const warmupLate = comptes.filter((c) =>
+      isWarmupLate(
+        {
+          effectiveStatus: getEffectiveStatus(c),
+          warmupStartedAt: c.warmupStartedAt,
+          dailyChecks: c.warmupProtocol?.dailyChecks ?? [],
+          targetDays: getEffectiveWarmupDuration(c),
+        },
+        now,
+      ),
+    );
 
     // Carte 3 — total DÛ = tous les cycles non payés, exactement le même
     // ensemble que le total de /paiements (les deux lisent listPayments).
@@ -198,18 +205,17 @@ export function ActionDashboard() {
       .filter((a) => a.status === "to_publish" && a.managedByAdmin === true)
       .sort((a, b) => a.dueDate - b.dueDate);
 
-    // Cycles dus non payés (argent dû aux créateurs).
+    // Cycles dus non payés (argent dû aux créateurs). Notion « non payé », qui
+    // inclut le cycle EN COURS — le digest quotidien emploie la notion plus
+    // étroite `isCycleDue` (cycle refermé), cf lib/ops-digest.
     const unpaidCycles = payments
-      .filter((p) => p.status !== "paid" && p.totalDue > 0)
+      .filter(isCycleUnpaid)
       .sort((a, b) => b.totalDue - a.totalDue);
 
-    // Missions en retard : échéance dépassée, balle au créateur.
+    // Missions en retard : échéance dépassée, balle au créateur. Prédicat
+    // PARTAGÉ avec le digest quotidien (cf warmupLate ci-dessus).
     const overdueMissions = assignments
-      .filter(
-        (a) =>
-          (a.status === "todo" || a.status === "in_progress") &&
-          a.dueDate < now,
-      )
+      .filter((a) => isOverdueMission(a, now))
       .sort((a, b) => a.dueDate - b.dueDate);
 
     // Refus qui STAGNENT : refusés il y a >= N jours sans re-soumission (le

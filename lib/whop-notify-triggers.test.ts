@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 // Module SERVEUR pur (aucun import `_generated`) — chargeable tel quel par vitest.
 import {
+  DIGEST_LOOKBACK_MS,
   FRESH_INSERT_MS,
   isActionableRenewalFailure,
+  isDigestableRenewalFailure,
   isDisputed,
   isRetryableRenewalFailure,
   shouldNotifyDispute,
@@ -158,6 +160,41 @@ describe("renouvellement échoué — notification au PASSAGE", () => {
         NOW,
       ),
     ).toBe(false);
+  });
+});
+
+describe("ligne de digest — les échecs relançables changent de canal, pas de sort", () => {
+  it("un échec relançable de la journée entre dans le digest", () => {
+    expect(
+      isDigestableRenewalFailure(echecRenouv({ retryable: true }), NOW),
+    ).toBe(true);
+  });
+
+  it("passé 24 h, il en sort — le digest est un flux, pas un stock", () => {
+    // Sans cette borne, un échec relançable non résolu reviendrait dans le
+    // message tous les matins jusqu'à sa résolution.
+    expect(
+      isDigestableRenewalFailure(
+        echecRenouv({ retryable: true, paidAt: NOW - DIGEST_LOOKBACK_MS - 1 }),
+        NOW,
+      ),
+    ).toBe(false);
+  });
+
+  it("un échec ÉPUISÉ n'est pas dans le digest (il est parti en immédiat)", () => {
+    // La ligne de partage : chaque échec emprunte UN canal, jamais les deux.
+    const epuise = echecRenouv({ retryable: false });
+    expect(isDigestableRenewalFailure(epuise, NOW)).toBe(false);
+    expect(shouldNotifyRenewalFailure(paiement(), epuise, NOW)).toBe(true);
+  });
+
+  it("aucun échec ne peut emprunter les deux canaux à la fois", () => {
+    for (const retryable of [true, false, undefined]) {
+      const s = echecRenouv({ retryable });
+      const immediat = shouldNotifyRenewalFailure(paiement(), s, NOW);
+      const digest = isDigestableRenewalFailure(s, NOW);
+      expect(immediat && digest).toBe(false);
+    }
   });
 });
 

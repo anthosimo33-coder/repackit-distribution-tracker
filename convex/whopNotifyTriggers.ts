@@ -93,6 +93,25 @@ export function isRetryableRenewalFailure(s: WhopPaymentSnapshot): boolean {
 }
 
 /**
+ * Fenêtre du digest : il couvre la JOURNÉE écoulée. Sans borne, un échec
+ * relançable resterait dans le message tous les matins jusqu'à sa résolution —
+ * le digest deviendrait un stock au lieu d'un flux.
+ */
+export const DIGEST_LOOKBACK_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Échec relançable SURVENU dans la journée écoulée : la ligne du digest promise
+ * par l'arbitrage (immédiat pour les échecs épuisés, digest pour ceux que Whop
+ * va rejouer).
+ */
+export function isDigestableRenewalFailure(
+  s: WhopPaymentSnapshot,
+  now: number,
+): boolean {
+  return isRetryableRenewalFailure(s) && now - s.paidAt <= DIGEST_LOOKBACK_MS;
+}
+
+/**
  * Passage dans un état notifiable. `prev === null` = ligne neuve (insert), qui
  * n'est retenue que si elle est FRAÎCHE (cf l'en-tête).
  */

@@ -399,7 +399,10 @@ function frozenLineItemsFromBreakdown(b: PricingBreakdown): LineItem[] {
  * ancien ; on garde ceux avec gains + TOUJOURS le cycle courant (« prochaine paie »
  * = son cycleEnd). firstPostAt absent (aucun post) → aucun cycle (liste vide).
  */
-async function cyclePaymentsForCreator(
+// EXPORTÉ pour convex/notifications.ts (section « cycles dus » du digest
+// quotidien) : le digest doit compter EXACTEMENT les mêmes cycles que l'écran
+// Paiements, donc il lit la même source plutôt qu'un second calcul.
+export async function cyclePaymentsForCreator(
   ctx: QueryCtx,
   projectId: Id<"projects">,
   creatorId: Id<"creators">,

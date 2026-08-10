@@ -274,6 +274,7 @@ const EMPTY: DigestSections = {
   overdueMissions: [],
   payCycles: [],
   warmupLate: [],
+  retryableRenewalFailures: [],
 };
 
 describe("buildDigestMessage", () => {
@@ -286,6 +287,36 @@ describe("buildDigestMessage", () => {
         projectSlug: SLUG,
       }),
     ).toBeNull();
+  });
+
+  it("les renouvellements relançables ont leur ligne — l'arbitrage les déplace, ne les supprime pas", () => {
+    const msg = buildDigestMessage({
+      projectName: "Snytch",
+      sections: {
+        ...EMPTY,
+        retryableRenewalFailures: [
+          { memberName: "marc_d" },
+          { memberName: "julie_p" },
+        ],
+      },
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+    });
+    expect(msg).toContain("2 renouvellements en échec");
+    expect(msg).toContain("Whop les relancera");
+    expect(msg).toContain("marc_d");
+  });
+
+  it("une seule section suffit à produire un message", () => {
+    const msg = buildDigestMessage({
+      projectName: "Snytch",
+      sections: { ...EMPTY, retryableRenewalFailures: [{ memberName: "x" }] },
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+    });
+    expect(msg).not.toBeNull();
+    expect(msg).toContain("1 renouvellement en échec");
+    expect(msg).toContain("Whop le relancera");
   });
 
   it("n'affiche QUE les sections non vides", () => {
@@ -311,6 +342,7 @@ describe("buildDigestMessage", () => {
         ],
         payCycles: [{ creatorName: "Kelly" }, { creatorName: "Léa" }],
         warmupLate: [{ handle: "@kelly.repack", missedDays: 3 }],
+        retryableRenewalFailures: [],
       },
       appBaseUrl: BASE,
       projectSlug: SLUG,
@@ -343,6 +375,7 @@ function everyMessage(): string[] {
     ],
     payCycles: [{ creatorName: "Kelly" }, { creatorName: "Léa" }],
     warmupLate: [{ handle: "@kelly.repack", missedDays: 3 }],
+    retryableRenewalFailures: [{ memberName: "marc_d" }],
   };
   return [
     buildSubmissionMessage({

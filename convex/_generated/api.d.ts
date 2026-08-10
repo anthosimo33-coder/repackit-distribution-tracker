@@ -53,6 +53,7 @@ import type * as notificationMessage from "../notificationMessage.js";
 import type * as notificationWindow from "../notificationWindow.js";
 import type * as notifications from "../notifications.js";
 import type * as notifyApi from "../notifyApi.js";
+import type * as opsDigest from "../opsDigest.js";
 import type * as passwordReset from "../passwordReset.js";
 import type * as payCycle from "../payCycle.js";
 import type * as payments from "../payments.js";
@@ -143,6 +144,7 @@ declare const fullApi: ApiFromModules<{
   notificationWindow: typeof notificationWindow;
   notifications: typeof notifications;
   notifyApi: typeof notifyApi;
+  opsDigest: typeof opsDigest;
   passwordReset: typeof passwordReset;
   payCycle: typeof payCycle;
   payments: typeof payments;

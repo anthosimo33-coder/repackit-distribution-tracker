@@ -18,6 +18,7 @@ import {
   type NotifyConfig,
 } from "./notifyApi";
 import {
+  buildDigestMessage,
   buildDisputeMessage,
   buildGroupedSubmissionsMessage,
   buildRenewalFailedMessage,
@@ -25,6 +26,19 @@ import {
   buildTestMessage,
   submissionLine,
 } from "./notificationMessage";
+import {
+  isCycleDue,
+  isOverdueMission,
+  missionDaysLate,
+  warmupMissedDays,
+} from "./opsDigest";
+import { effectiveStatus } from "./comptes";
+import { effectiveTargetDays } from "./warmup";
+import { cyclePaymentsForCreator } from "./payments";
+import {
+  DIGEST_LOOKBACK_MS,
+  isDigestableRenewalFailure,
+} from "./whopNotifyTriggers";
 import {
   isEventEnabled,
   sanitizeEnabledEvents,
@@ -543,6 +557,199 @@ export const notifyWhopRenewalFailed = internalAction({
         projectSlug: nctx.projectSlug,
       }),
     );
+  },
+});
+
+// ─── 5, 6, 7. Digest quotidien ───────────────────────────────────────────────
+
+/** Borne le nombre d'entrées collectées par section (le message plafonne déjà). */
+const DIGEST_SECTION_LIMIT = 100;
+
+/**
+ * Rassemble les trois sections du digest pour un projet.
+ *
+ * Chaque section est calculée avec le prédicat PARTAGÉ de `convex/opsDigest.ts`,
+ * dont le jumeau `lib/ops-digest.ts` sert le dashboard admin — les deux sont
+ * appariés par `lib/ops-digest.test.ts`. Sans ça, le message du matin et l'écran
+ * compteraient deux choses différentes en ayant tous deux l'air justes.
+ *
+ * Une section ÉTEINTE côté admin est rendue VIDE : le message n'a alors pas à
+ * connaître les bascules.
+ *
+ * AUCUN MONTANT n'est collecté pour les cycles — seulement des noms. Le montant
+ * dû est une donnée de paie individuelle, exclue des messages.
+ */
+export const collectDigest = internalQuery({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }) => {
+    const project = await ctx.db.get(projectId);
+    if (project === null) return null;
+    const enabled = project.notify?.enabledEvents;
+    const now = Date.now();
+
+    // ── Deadlines de production dépassées ──────────────────────────────────
+    const overdueMissions: {
+      creatorName: string;
+      missionLabel: string;
+      daysLate: number;
+    }[] = [];
+    if (isEventEnabled(enabled, "digest_overdue_missions")) {
+      const assignments = await ctx.db
+        .query("assignments")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect();
+      const late = assignments
+        .filter((a) => isOverdueMission(a, now))
+        .sort((a, b) => a.dueDate - b.dueDate)
+        .slice(0, DIGEST_SECTION_LIMIT);
+      for (const a of late) {
+        const creator = await ctx.db.get(a.creatorId);
+        const format = a.formatId ? await ctx.db.get(a.formatId) : null;
+        const campaign = a.scriptCombo
+          ? await ctx.db.get(a.scriptCombo.campaignId)
+          : null;
+        overdueMissions.push({
+          creatorName: creator?.name ?? a.creatorNameSnapshot ?? "—",
+          missionLabel: campaign?.name ?? format?.name ?? "mission",
+          daysLate: missionDaysLate(a, now),
+        });
+      }
+    }
+
+    // ── Cycles de paiement dus ─────────────────────────────────────────────
+    const payCycles: { creatorName: string }[] = [];
+    if (isEventEnabled(enabled, "digest_pay_cycles")) {
+      const creators = await ctx.db
+        .query("creators")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect();
+      for (const c of creators) {
+        const cycles = await cyclePaymentsForCreator(ctx, projectId, c._id, now);
+        // Une créatrice apparaît UNE fois même si plusieurs cycles sont dus :
+        // le digest dit qui attend, pas combien de lignes comptables.
+        if (cycles.some((cy) => isCycleDue(cy, now))) {
+          payCycles.push({ creatorName: c.name });
+        }
+      }
+    }
+
+    // ── Comptes en warmup en retard ────────────────────────────────────────
+    const warmupLate: { handle: string; missedDays: number }[] = [];
+    if (isEventEnabled(enabled, "digest_warmup_late")) {
+      const comptes = await ctx.db
+        .query("comptes")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect();
+      for (const c of comptes) {
+        const shape = {
+          effectiveStatus: effectiveStatus(c),
+          warmupStartedAt: c.warmupStartedAt,
+          dailyChecks: c.warmupProtocol?.dailyChecks ?? [],
+          targetDays: effectiveTargetDays(c),
+        };
+        const missed = warmupMissedDays(shape, now);
+        if (missed > 0) warmupLate.push({ handle: c.handle, missedDays: missed });
+      }
+      warmupLate.sort((a, b) => b.missedDays - a.missedDays);
+    }
+
+    // ── Renouvellements échoués que Whop VA relancer ───────────────────────
+    // Contrepartie de l'arbitrage « immédiat seulement si non relançable » :
+    // ceux-là ne disparaissent pas, ils changent de canal. Même bascule que
+    // l'alerte immédiate (`whop_renewal_failed`), autre acheminement.
+    // Bornés à la journée écoulée, sinon le digest deviendrait un stock.
+    const retryableRenewalFailures: { memberName: string }[] = [];
+    if (isEventEnabled(enabled, "whop_renewal_failed")) {
+      const recent = await ctx.db
+        .query("whopPayments")
+        .withIndex("by_project_paidAt", (q) =>
+          q.eq("projectId", projectId).gte("paidAt", now - DIGEST_LOOKBACK_MS),
+        )
+        .collect();
+      for (const p of recent) {
+        if (isDigestableRenewalFailure(p, now)) {
+          retryableRenewalFailures.push({ memberName: p.memberName ?? "inconnu" });
+        }
+      }
+    }
+
+    return {
+      projectName: project.name,
+      projectSlug: project.slug,
+      sections: {
+        overdueMissions,
+        payCycles,
+        warmupLate: warmupLate.slice(0, DIGEST_SECTION_LIMIT),
+        retryableRenewalFailures: retryableRenewalFailures.slice(
+          0,
+          DIGEST_SECTION_LIMIT,
+        ),
+      },
+    };
+  },
+});
+
+/** Projets ayant une config de notification — seuls candidats au digest. */
+export const listNotifyProjects = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const projects = await ctx.db.query("projects").collect();
+    return projects
+      .filter((p) => p.notify !== undefined && p.status === "active")
+      .map((p) => p._id);
+  },
+});
+
+export type DigestSummary = {
+  projects: number;
+  sent: number;
+  silent: number;
+};
+
+/**
+ * Cron quotidien. UN message par projet configuré — et AUCUN message quand il
+ * n'y a rien à signaler (`buildDigestMessage` rend null sur trois sections
+ * vides). Un digest « rien à signaler » quotidien apprendrait à ignorer le
+ * canal ; c'est explicitement ce qu'on ne veut pas.
+ */
+export const runDailyDigest = internalAction({
+  args: {},
+  handler: async (ctx): Promise<DigestSummary> => {
+    const projectIds = await ctx.runQuery(
+      internal.notifications.listNotifyProjects,
+      {},
+    );
+    let sent = 0;
+    let silent = 0;
+    for (const projectId of projectIds) {
+      const data = await ctx.runQuery(internal.notifications.collectDigest, {
+        projectId,
+      });
+      if (data === null) continue;
+      // Le canal est résolu par projet : un projet dont le jeton manque est
+      // simplement sauté (log unique), sans interrompre les autres.
+      const p = await ctx.runQuery(internal.notifications.getProjectNotify, {
+        projectId,
+      });
+      const cfg = notifyConfig(p?.notify);
+      if (cfg === null) {
+        warnDisabled("digest quotidien");
+        continue;
+      }
+      const text = buildDigestMessage({
+        projectName: data.projectName,
+        sections: data.sections,
+        appBaseUrl: cfg.appBaseUrl,
+        projectSlug: data.projectSlug,
+      });
+      if (text === null) {
+        silent += 1;
+        continue;
+      }
+      const res = await deliver(cfg, "digest quotidien", text);
+      if (res.ok) sent += 1;
+    }
+    return { projects: projectIds.length, sent, silent };
   },
 });
 

@@ -267,6 +267,13 @@ export interface DigestSections {
   overdueMissions: { creatorName: string; missionLabel: string; daysLate: number }[];
   payCycles: { creatorName: string }[];
   warmupLate: { handle: string; missedDays: number }[];
+  /**
+   * Échecs de renouvellement que Whop VA relancer, survenus dans la journée.
+   * Contrepartie de l'arbitrage « immédiat seulement si non relançable » : ils
+   * ne disparaissent pas, ils changent de canal. Rattachés à la bascule
+   * `whop_renewal_failed` (même événement, autre acheminement).
+   */
+  retryableRenewalFailures: { memberName: string }[];
 }
 
 export function buildDigestMessage(params: {
@@ -276,11 +283,13 @@ export function buildDigestMessage(params: {
   projectSlug: string;
 }): string | null {
   const { projectName, sections, appBaseUrl, projectSlug } = params;
-  const { overdueMissions, payCycles, warmupLate } = sections;
+  const { overdueMissions, payCycles, warmupLate, retryableRenewalFailures } =
+    sections;
   if (
     overdueMissions.length === 0 &&
     payCycles.length === 0 &&
-    warmupLate.length === 0
+    warmupLate.length === 0 &&
+    retryableRenewalFailures.length === 0
   ) {
     return null;
   }
@@ -323,6 +332,14 @@ export function buildDigestMessage(params: {
               `${w.handle} (${w.missedDays} ${plural(w.missedDays, "jour")} ${plural(w.missedDays, "manqué")})`,
           ),
         ),
+    );
+  }
+
+  if (retryableRenewalFailures.length > 0) {
+    const n = retryableRenewalFailures.length;
+    blocks.push(
+      `💳 <b>${n} ${plural(n, "renouvellement")} en échec</b> — Whop ${n > 1 ? "les" : "le"} relancera\n` +
+        bulletList(retryableRenewalFailures.map((r) => r.memberName)),
     );
   }
 
