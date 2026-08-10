@@ -167,6 +167,13 @@ export interface AbArmsPayload {
      * client n'est pas mesurable, il ne vaut pas « zéro cible ».
      */
     armTargets: number;
+    /**
+     * Personnes ÉCARTÉES de toutes les colonnes ci-dessus faute de bras stable
+     * (deux valeurs d'`experiment_variant` sur la même personne), rangées sous
+     * leur dernier bras. Compteur VISIBLE : une exclusion silencieuse se lit
+     * comme un bras qui recrute mal.
+     */
+    excludedFlippers: number;
   }[];
   /** Début de la fenêtre = 1re émission d'experiment_variant (ms). */
   startMs: number | null;
@@ -197,6 +204,7 @@ export function normalizeAbArms(payload: AbArmsPayload): AbArmsPayload {
       paidWithoutCheckout: num(r.paidWithoutCheckout),
       clientTargets: num(r.clientTargets),
       armTargets: num(r.armTargets),
+      excludedFlippers: num(r.excludedFlippers),
     })),
   };
 }
@@ -711,6 +719,16 @@ LIMIT ${SEGMENT_LIMIT}`,
    *      conversion du bras (cas réel : un abonné du 29/07 « converti » le 05/08).
    *   3. Les cibles doivent être celles des CLIENTS après paiement, pas celles de
    *      tout le bras : mélanger les deux donnait 14 cibles pour 1 client.
+   *   4. Une personne dont le bras a CHANGÉ en cours de route est écartée de tous
+   *      les compteurs (`stable`) et comptée à part (`excluded_flippers`). Le
+   *      bras était tiré DEUX fois — client sur le distinct_id anonyme, serveur à
+   *      la création du compte (cf `experiment_source` : anonymous / account) — et
+   *      les deux tirages divergeaient : 15 personnes sur 28 avant le correctif
+   *      serveur du 08/08 10:24 UTC, 0 sur 47 après. Une personne exposée au
+   *      paywall d'un bras et comptée dans l'autre casse la randomisation, seule
+   *      chose qui rend les deux colonnes comparables. Critère de DÉTECTION, pas
+   *      liste ni fenêtre de date : la liste grossit (18 → 21 en 24 h) et une
+   *      fenêtre jetterait aussi la cohorte saine.
    * L'inner scanne 90 j (il faut le 1er abonnement historique) et chaque compteur
    * est borné à la fenêtre du test par `timestamp >= ab_start`.
    */
@@ -718,18 +736,24 @@ LIMIT ${SEGMENT_LIMIT}`,
 WITH (SELECT min(timestamp) FROM events
       WHERE isNotNull(properties.experiment_variant)
         AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY) AS ab_start
-SELECT bras AS variant, uniq(person_id) AS exposed,
-  uniqIf(person_id, n_paywalls > 0) AS paywall_viewers,
-  uniqIf(person_id, n_checkouts > 0) AS checkouts,
-  uniqIf(person_id, n_subs > 0 AND t_first_sub >= ab_start) AS paid,
-  uniqIf(person_id, n_subs > 0 AND t_first_sub < ab_start) AS renewals,
-  uniqIf(person_id, n_subs > 0 AND t_first_sub >= ab_start AND n_checkouts = 0) AS paid_without_checkout,
-  sum(if(n_subs > 0 AND t_first_sub >= ab_start, arrayCount(x -> x >= t_first_sub, target_ts), 0)) AS client_targets,
-  sum(length(target_ts)) AS arm_targets,
+SELECT bras AS variant, uniqIf(person_id, stable) AS exposed,
+  uniqIf(person_id, stable AND n_paywalls > 0) AS paywall_viewers,
+  uniqIf(person_id, stable AND n_checkouts > 0) AS checkouts,
+  uniqIf(person_id, stable AND n_subs > 0 AND t_first_sub >= ab_start) AS paid,
+  uniqIf(person_id, stable AND n_subs > 0 AND t_first_sub < ab_start) AS renewals,
+  uniqIf(person_id, stable AND n_subs > 0 AND t_first_sub >= ab_start AND n_checkouts = 0) AS paid_without_checkout,
+  sum(if(stable AND n_subs > 0 AND t_first_sub >= ab_start, arrayCount(x -> x >= t_first_sub, target_ts), 0)) AS client_targets,
+  sum(if(stable, length(target_ts), 0)) AS arm_targets,
+  -- Écartées faute de bras stable. Rangées sous leur DERNIER bras (argMaxIf) :
+  -- c'est celui que la carte leur aurait attribué, donc la ligne qu'elles
+  -- auraient faussée.
+  uniqIf(person_id, NOT stable) AS excluded_flippers,
   min(started) AS started
 FROM (
   SELECT person_id,
     argMaxIf(toString(properties.experiment_variant), timestamp, isNotNull(properties.experiment_variant)) AS bras,
+    -- Un seul bras vu sur toute la fenêtre = tirage tenu.
+    uniqIf(toString(properties.experiment_variant), isNotNull(properties.experiment_variant)) = 1 AS stable,
     countIf(event = 'paywall_viewed' AND timestamp >= ab_start) AS n_paywalls,
     countIf(event = 'checkout_started' AND timestamp >= ab_start) AS n_checkouts,
     countIf(event = 'subscription_completed' AND timestamp >= ab_start) AS n_subs,
@@ -751,7 +775,12 @@ LIMIT ${SEGMENT_LIMIT}`,
   /**
    * `distinct_id → bras` pour le REPLI de rattachement (cf AbPersonArmsPayload).
    * Même fenêtre et mêmes exclusions que `abArms` : internes et sessions à bras
-   * forcé écartés, ancrage sur la 1re émission de la propriété.
+   * forcé écartés, ancrage sur la 1re émission de la propriété — PLUS les
+   * personnes à bras instable (même critère que `stable` dans abArms, appliqué au
+   * niveau PERSONNE : une même personne peut avoir plusieurs distinct_id, chacun
+   * stable de son côté). Sans ça, le revenu d'une personne écartée du tableau
+   * serait quand même rattaché à un bras — l'argent dirait ce que les colonnes
+   * refusent de dire.
    */
   abPersonArms: `
 SELECT distinct_id, bras AS variant FROM (
@@ -761,6 +790,13 @@ SELECT distinct_id, bras AS variant FROM (
   WHERE timestamp >= (SELECT min(timestamp) FROM events
       WHERE isNotNull(properties.experiment_variant)
         AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY)${notCounted}
+    AND NOT (person_id IN (
+      SELECT person_id FROM events
+      WHERE isNotNull(properties.experiment_variant)
+        AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+      GROUP BY person_id
+      HAVING uniq(toString(properties.experiment_variant)) > 1
+    ))
   GROUP BY distinct_id
 )
 WHERE isNotNull(bras) AND bras != '' AND bras != 'NULL'
@@ -1555,8 +1591,9 @@ export const runHourlySync = internalAction({
               paidWithoutCheckout: cellNum(r, 6),
               clientTargets: cellNum(r, 7),
               armTargets: cellNum(r, 8),
+              excludedFlippers: cellNum(r, 9),
             })),
-            startMs: rows.length > 0 ? cellTimeMs(rows[0], 9) : null,
+            startMs: rows.length > 0 ? cellTimeMs(rows[0], 10) : null,
           }),
         ),
         await collect(
