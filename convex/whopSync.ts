@@ -14,6 +14,10 @@ import {
 } from "./whopApi";
 import { summarizeWhopRevenue } from "./whopRevenue";
 import { periodOf } from "./payments";
+import {
+  shouldNotifyDispute,
+  shouldNotifyRenewalFailure,
+} from "./whopNotifyTriggers";
 
 /**
  * Ingestion du REVENU WHOP par projet (rentabilité P2). Un cron horaire
@@ -172,12 +176,64 @@ export const upsertWhopPayments = internalMutation({
         .query("whopPayments")
         .withIndex("by_whopId", (q) => q.eq("whopId", p.whopId))
         .first();
+
+      // ANTI-MÉLANGE d'abord : un paiement déjà rattaché à un AUTRE projet est
+      // écarté sans rien déclencher. Sans cette garde en tête de boucle, il
+      // serait vu comme une ligne neuve et pourrait notifier le mauvais projet.
+      if (existing && existing.projectId !== projectId) {
+        skipped += 1;
+        continue;
+      }
+
+      // NOTIFICATIONS hors-app — repérées ici parce que c'est le seul endroit qui
+      // voit l'AVANT et l'APRÈS. On notifie au PASSAGE dans l'état, jamais sur
+      // l'état : sans ça, la re-synchro horaire ré-alerterait chaque heure tant
+      // qu'un litige reste ouvert. Décision entièrement dans
+      // convex/whopNotifyTriggers.ts (pur, testé) ; ici on ne fait que planifier.
+      //
+      // Les envois passent par ctx.scheduler : ils sont donc hors de cette
+      // transaction, et un canal en panne ne peut pas faire échouer la synchro.
+      const nextSnapshot = {
+        status: p.status,
+        billingReason: p.billingReason,
+        retryable: p.retryable,
+        disputeDueAt: p.disputeDueAt,
+        paidAt: p.paidAt,
+      };
+      const prevSnapshot = existing
+        ? {
+            status: existing.status,
+            billingReason: existing.billingReason,
+            retryable: existing.retryable,
+            disputeDueAt: existing.disputeDueAt,
+            paidAt: existing.paidAt,
+          }
+        : null;
+      if (shouldNotifyDispute(prevSnapshot, nextSnapshot, now)) {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.notifications.notifyWhopDispute,
+          {
+            projectId,
+            memberName: p.memberName ?? null,
+            reason: p.disputeReason ?? null,
+            dueAt: p.disputeDueAt ?? null,
+          },
+        );
+      }
+      if (shouldNotifyRenewalFailure(prevSnapshot, nextSnapshot, now)) {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.notifications.notifyWhopRenewalFailed,
+          {
+            projectId,
+            memberName: p.memberName ?? null,
+            failureMessage: p.failureMessage ?? null,
+          },
+        );
+      }
+
       if (existing) {
-        if (existing.projectId !== projectId) {
-          // Ce paiement appartient déjà à un AUTRE projet → on ne le déplace pas.
-          skipped += 1;
-          continue;
-        }
         await ctx.db.patch(existing._id, {
           status: p.status,
           rawStatus: p.rawStatus,

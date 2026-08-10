@@ -18,7 +18,9 @@ import {
   type NotifyConfig,
 } from "./notifyApi";
 import {
+  buildDisputeMessage,
   buildGroupedSubmissionsMessage,
+  buildRenewalFailedMessage,
   buildSubmissionMessage,
   buildTestMessage,
   submissionLine,
@@ -464,6 +466,81 @@ export const notifySubmission = internalAction({
         appBaseUrl: nctx.cfg.appBaseUrl,
         projectSlug: nctx.projectSlug,
         assignmentId,
+      }),
+    );
+  },
+});
+
+// ─── 3. Litige bancaire Whop ─────────────────────────────────────────────────
+
+/**
+ * Planifiée par `whopSync.upsertWhopPayments` quand un litige vient de s'OUVRIR
+ * (cf convex/whopNotifyTriggers.shouldNotifyDispute). Les données voyagent en
+ * arguments plutôt que d'être relues : la ligne vient d'être écrite, l'action
+ * n'a rien à redemander.
+ *
+ * Détection au rythme du cron horaire (:30) — « immédiat » vaut donc « sous une
+ * heure ». Arbitré : le délai de réponse à un litige se compte en jours.
+ */
+export const notifyWhopDispute = internalAction({
+  args: {
+    projectId: v.id("projects"),
+    memberName: v.union(v.string(), v.null()),
+    reason: v.union(v.string(), v.null()),
+    dueAt: v.union(v.number(), v.null()),
+  },
+  handler: async (
+    ctx,
+    { projectId, memberName, reason, dueAt },
+  ): Promise<Outcome> => {
+    const nctx = await resolveNotifyContext(ctx, projectId, "whop_dispute");
+    if (nctx === null) return { ok: false, reason: "event-off" };
+    return deliver(
+      nctx.cfg,
+      "litige Whop",
+      buildDisputeMessage({
+        memberName,
+        reason,
+        dueAt,
+        now: Date.now(),
+        appBaseUrl: nctx.cfg.appBaseUrl,
+        projectSlug: nctx.projectSlug,
+      }),
+    );
+  },
+});
+
+// ─── 4. Renouvellement échoué (non relançable) ───────────────────────────────
+
+/**
+ * Planifiée quand un renouvellement devient un échec ACTIONNABLE — c'est-à-dire
+ * que Whop ne le relancera plus (cf shouldNotifyRenewalFailure). Un échec encore
+ * relançable n'appelle aucune action et part dans le digest.
+ */
+export const notifyWhopRenewalFailed = internalAction({
+  args: {
+    projectId: v.id("projects"),
+    memberName: v.union(v.string(), v.null()),
+    failureMessage: v.union(v.string(), v.null()),
+  },
+  handler: async (
+    ctx,
+    { projectId, memberName, failureMessage },
+  ): Promise<Outcome> => {
+    const nctx = await resolveNotifyContext(
+      ctx,
+      projectId,
+      "whop_renewal_failed",
+    );
+    if (nctx === null) return { ok: false, reason: "event-off" };
+    return deliver(
+      nctx.cfg,
+      "renouvellement échoué",
+      buildRenewalFailedMessage({
+        memberName,
+        failureMessage,
+        appBaseUrl: nctx.cfg.appBaseUrl,
+        projectSlug: nctx.projectSlug,
       }),
     );
   },

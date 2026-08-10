@@ -85,6 +85,7 @@ import type * as viewCounters from "../viewCounters.js";
 import type * as warmup from "../warmup.js";
 import type * as warmupMode from "../warmupMode.js";
 import type * as whopApi from "../whopApi.js";
+import type * as whopNotifyTriggers from "../whopNotifyTriggers.js";
 import type * as whopRevenue from "../whopRevenue.js";
 import type * as whopSync from "../whopSync.js";
 import type * as youtubeApi from "../youtubeApi.js";
@@ -174,6 +175,7 @@ declare const fullApi: ApiFromModules<{
   warmup: typeof warmup;
   warmupMode: typeof warmupMode;
   whopApi: typeof whopApi;
+  whopNotifyTriggers: typeof whopNotifyTriggers;
   whopRevenue: typeof whopRevenue;
   whopSync: typeof whopSync;
   youtubeApi: typeof youtubeApi;
