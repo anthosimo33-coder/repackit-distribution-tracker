@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import {
   BarChart3Icon,
+  BellIcon,
   BookmarkIcon,
   ImagesIcon,
   ChevronsLeftIcon,
@@ -117,6 +118,11 @@ export function Sidebar({
       icon: BarChart3Icon,
       label: "Analytics",
       ...item(projectPath("/analytics")),
+    },
+    {
+      icon: BellIcon,
+      label: "Notifications",
+      ...item(projectPath("/notifications")),
     },
   ];
 

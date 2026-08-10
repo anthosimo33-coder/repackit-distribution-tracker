@@ -2236,6 +2236,16 @@ export const submitVideo = creatorMutation({
       internal.cloudflareStream.startStreamCopy,
       { assignmentId: id },
     );
+    // NOTIFICATION hors-app (Telegram) — même contrat que Cloudflare ci-dessus :
+    // planifiée, donc la soumission est DÉJÀ committée quand l'action part. Un
+    // canal en panne ne peut structurellement pas faire échouer la soumission.
+    // Le statut de DÉPART distingue la première soumission de la re-soumission
+    // après refus : c'est la seule chose que l'action ne pourrait plus lire (le
+    // statut vaut déjà "video_submitted" quand elle s'exécute).
+    await ctx.scheduler.runAfter(0, internal.notifications.notifySubmission, {
+      assignmentId: id,
+      isResubmission: a.status === "video_rejected",
+    });
     return { ok: true };
   },
 });

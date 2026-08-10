@@ -34,6 +34,31 @@ export function todayKey(now: number): string {
   return new Date(now).toISOString().slice(0, 10);
 }
 
+const DAY_MS = 86_400_000;
+
+/** Jours pleins écoulés depuis le début du warmup (réplique de lib/warmup.daysElapsed). */
+export function daysElapsed(warmupStartedAt: number, now: number): number {
+  return Math.floor((now - warmupStartedAt) / DAY_MS);
+}
+
+/**
+ * Jours manqués — RÉPLIQUE de lib/warmup.missedDays (A6). Jours pleinement
+ * écoulés (aujourd'hui exclu, capé à targetDays) moins les checks posés,
+ * clampé à 0. TZ-robuste : ne dérive aucune date depuis warmupStartedAt.
+ *
+ * Parité verrouillée par lib/ops-digest.test.ts, qui compare les deux versions
+ * à travers isWarmupLate.
+ */
+export function missedDays(
+  warmupStartedAt: number,
+  dailyChecks: string[],
+  targetDays: number,
+  now: number,
+): number {
+  const fullDays = Math.min(daysElapsed(warmupStartedAt, now), targetDays);
+  return Math.max(0, fullDays - dailyChecks.length);
+}
+
 /** Le check du jour est-il déjà posé ? */
 export function checkedToday(dailyChecks: string[], now: number): boolean {
   return dailyChecks.includes(todayKey(now));

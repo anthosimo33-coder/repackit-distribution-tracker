@@ -126,6 +126,28 @@ export default defineSchema({
     // 1 unité de payCurrency = fxRateToRevenue unités de la devise du revenu (ex.
     // 1 $ = 0,92 €). ABSENT ⇒ la marge combinée n'est PAS calculée (ni inventée).
     fxRateToRevenue: v.optional(v.number()),
+    // ─── Notifications hors-app (Telegram) — canal PAR PROJET ─────────────────
+    // MÊME contrat de secret que `whop` et `posthog` ci-dessus : le JETON du bot
+    // n'est JAMAIS stocké ici — `tokenEnvVar` NOMME la variable d'env (Convex env)
+    // qui le porte. `chatId` (destinataire : conversation ou groupe, négatif pour
+    // un groupe) n'est pas un secret et vit en base — c'est précisément ce qui
+    // rend le destinataire modifiable depuis l'écran admin SANS redéploiement.
+    // Absent = AUCUNE notification pour ce projet. Édité par
+    // notifications.setNotifySettings (adminMutation, écran /notifications).
+    notify: v.optional(
+      v.object({
+        // Union d'un seul membre AUJOURD'HUI : le transport est isolé dans
+        // convex/notifyApi.ts, ajouter "slack" = un second sendX, pas une refonte.
+        channel: v.literal("telegram"),
+        chatId: v.string(),
+        tokenEnvVar: v.string(),
+        // LISTE D'AUTORISATION des événements actifs (clés de
+        // convex/notificationEvents.ts). Ce qui n'y figure pas est ÉTEINT.
+        // Un tableau plutôt qu'un objet de 7 booléens : ajouter un 8e événement
+        // plus tard ne demande alors aucune migration, et il arrive éteint.
+        enabledEvents: v.array(v.string()),
+      }),
+    ),
   }).index("by_slug", ["slug"]),
 
   // Appartenance d'un user à un projet, avec rôle par-projet. Le superadmin
@@ -1773,4 +1795,28 @@ export default defineSchema({
       }),
     ),
   }).index("by_keyword", ["keyword"]),
+
+  // ─── Garde-fou ANTI-FLOOD des notifications ────────────────────────────────
+  // Une fenêtre de groupage OUVERTE, par (projet, type d'événement). Table de
+  // TRAVAIL, pas d'historique : un document naît au front montant et est
+  // SUPPRIMÉ par son flush.
+  //
+  // C'est l'EXISTENCE du document qui fait foi, jamais une comparaison de temps :
+  // le flush lit et supprime dans la MÊME transaction (notifications.claimWindow),
+  // donc une soumission qui arrive pile à la fermeture est soit incluse dans le
+  // message groupé, soit à l'origine d'une nouvelle fenêtre — jamais perdue entre
+  // les deux. La démonstration des deux ordonnancements est dans
+  // lib/notification-window.test.ts. Logique pure : convex/notificationWindow.ts.
+  notificationWindows: defineTable({
+    projectId: v.id("projects"),
+    // Type d'événement groupé. "submission" couvre soumission ET re-soumission :
+    // c'est le même geste côté lecteur (une vidéo entre dans la file de validation).
+    kind: v.string(),
+    openedAt: v.number(),
+    // ÉCHANTILLON des lignes tamponnées (plafonné, cf PENDING_CAP)…
+    pending: v.array(v.string()),
+    // …et le total RÉEL, jamais plafonné : le message annonce le vrai nombre et
+    // n'affiche qu'un échantillon. Un décompte tronqué se lirait comme un total.
+    pendingCount: v.number(),
+  }).index("by_project_kind", ["projectId", "kind"]),
 });

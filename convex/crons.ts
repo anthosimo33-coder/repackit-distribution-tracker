@@ -92,6 +92,20 @@ crons.daily(
   {},
 );
 
+// Digest quotidien des notifications hors-app — UN message par projet configuré,
+// et AUCUN message s'il n'y a rien à signaler (trois sections vides → pas
+// d'envoi). 06:00 UTC = 08:00 Europe/Paris en ÉTÉ, 07:00 en HIVER : le décalage
+// DST est ici sans conséquence (c'est un point du matin, pas une heure exacte),
+// même arbitrage que l'en-tête de ce fichier. Clair des relevés de vues
+// (07/08/09h) et des rappels créateurs (10h). No-op complet si aucun projet n'a
+// de canal configuré. Cf convex/notifications.ts.
+crons.daily(
+  "daily-ops-digest",
+  { hourUTC: 6, minuteUTC: 0 },
+  internal.notifications.runDailyDigest,
+  {},
+);
+
 // Balayage des blobs orphelins du File Storage — QUOTIDIEN. Filet de sécurité
 // pour les uploads ABANDONNÉS (blob POSTé, mutation d'attache jamais passée) :
 // aucune suppression de row ne peut les rattraper, ils ne sont référencés nulle
