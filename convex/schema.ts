@@ -126,6 +126,28 @@ export default defineSchema({
     // 1 unité de payCurrency = fxRateToRevenue unités de la devise du revenu (ex.
     // 1 $ = 0,92 €). ABSENT ⇒ la marge combinée n'est PAS calculée (ni inventée).
     fxRateToRevenue: v.optional(v.number()),
+    // ─── Notifications hors-app (Telegram) — canal PAR PROJET ─────────────────
+    // MÊME contrat de secret que `whop` et `posthog` ci-dessus : le JETON du bot
+    // n'est JAMAIS stocké ici — `tokenEnvVar` NOMME la variable d'env (Convex env)
+    // qui le porte. `chatId` (destinataire : conversation ou groupe, négatif pour
+    // un groupe) n'est pas un secret et vit en base — c'est précisément ce qui
+    // rend le destinataire modifiable depuis l'écran admin SANS redéploiement.
+    // Absent = AUCUNE notification pour ce projet. Édité par
+    // notifications.setNotifySettings (adminMutation, écran /notifications).
+    notify: v.optional(
+      v.object({
+        // Union d'un seul membre AUJOURD'HUI : le transport est isolé dans
+        // convex/notifyApi.ts, ajouter "slack" = un second sendX, pas une refonte.
+        channel: v.literal("telegram"),
+        chatId: v.string(),
+        tokenEnvVar: v.string(),
+        // LISTE D'AUTORISATION des événements actifs (clés de
+        // convex/notificationEvents.ts). Ce qui n'y figure pas est ÉTEINT.
+        // Un tableau plutôt qu'un objet de 7 booléens : ajouter un 8e événement
+        // plus tard ne demande alors aucune migration, et il arrive éteint.
+        enabledEvents: v.array(v.string()),
+      }),
+    ),
   }).index("by_slug", ["slug"]),
 
   // Appartenance d'un user à un projet, avec rôle par-projet. Le superadmin
