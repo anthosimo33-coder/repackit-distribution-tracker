@@ -47,6 +47,14 @@ playwright/.cache/
 # Session e2e (storageState avec tokens Convex Auth — jamais commitée)
 e2e/.auth/
 
+# Backend Convex LOCAL des e2e (cf scripts/convex-local.sh). Contient la base
+# SQLite, le file storage, le secret d'instance, la clé admin et les clés JWT du
+# déploiement local. RIEN de tout ça ne doit être commité — et surtout ces
+# variables self-hosted ne doivent JAMAIS atterrir dans `.env.local` : Convex
+# refuse le mélange cloud / self-hosted, précisément pour qu'on ne pousse pas au
+# mauvais endroit.
+.convex-local/
+
 # Doublons fantômes du guide warmup — RESSUSCITÉS par la synchro iCloud du
 # dossier ~/Desktop (le repo y vit). Le guide warmup a été DÉPLACÉ vers
 # components/warmup/ (chantier A) ; iCloud restaure parfois ces chemins

@@ -6,14 +6,10 @@ on:
   pull_request:
     branches: [main]
 
-# Le déploiement Convex de test (laudable-viper-831) est PARTAGÉ entre toutes les
-# PR (pas éphémère). On SÉRIALISE les runs e2e : un seul à la fois pousse son
-# code puis teste. Sans ça, une 2e PR qui démarre écraserait le Convex déployé
-# par la 1re pendant que celle-ci teste encore (course → faux rouges).
-# cancel-in-progress: false = on ne tue pas le run en cours, le suivant attend.
-concurrency:
-  group: e2e-convex-test
-  cancel-in-progress: false
+# PLUS de groupe `concurrency`. Il sérialisait les runs parce que le déploiement
+# Convex de test était PARTAGÉ entre toutes les PR (une 2e PR écrasait le Convex
+# de la 1re pendant qu'elle testait). Chaque run a désormais SON backend local,
+# en SQLite, jeté à la fin : deux PR peuvent tester en parallèle sans se voir.
 
 jobs:
   test:
@@ -35,17 +31,33 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Pousse schéma + fonctions Convex de LA BRANCHE sur le déploiement de TEST
-      # AVANT le build Next et Playwright → chaque PR teste SON propre code, plus
-      # un Convex périmé (fin des déploiements manuels). La deploy key détermine
-      # la cible : CONVEX_TEST_DEPLOY_KEY est scopée sur le MÊME déploiement de
-      # test (laudable-viper-831) que l'URL CONVEX_TEST_URL interrogée ensuite —
-      # surtout PAS la prod. Placé tôt (avant browsers/build) pour échouer vite
-      # si la clé manque ou si le code Convex ne compile pas.
-      - name: Deploy Convex (test)
-        run: npx convex deploy
-        env:
-          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_TEST_DEPLOY_KEY }}
+      # Le tag du backend est lu DANS le script (source unique). Un tag bumpé
+      # là-bas sans toucher ce workflow provoque au pire un cache miss — donc un
+      # téléchargement de 57 Mo, jamais une exécution sur la mauvaise version.
+      - name: Résoudre le tag du backend Convex
+        id: backend
+        run: |
+          tag=$(grep -oE 'precompiled-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9a-f]+' \
+            scripts/convex-local.sh | head -1)
+          [ -n "$tag" ] || { echo "Tag du backend introuvable dans scripts/convex-local.sh"; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Backend Convex épinglé : $tag"
+
+      - name: Cache du binaire backend Convex
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/convex/binaries/${{ steps.backend.outputs.tag }}
+          key: convex-backend-${{ runner.os }}-${{ steps.backend.outputs.tag }}
+
+      # Démarre le backend en tâche de fond, attend `/version`, pousse schéma +
+      # fonctions de LA BRANCHE, puis pose les variables d'auth et le secret e2e.
+      # Le script échoue vite (set -e) si l'une de ces étapes ne passe pas.
+      #
+      # AUCUN secret GitHub n'est nécessaire : le secret d'instance, la clé admin,
+      # les clés JWT et E2E_SECRET sont générés PAR RUN. Il n'y a donc plus rien à
+      # reposer quand le repo change de remote, et rien à faire fuiter.
+      - name: Démarrer le backend Convex local
+        run: ./scripts/convex-local.sh start
 
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
@@ -53,16 +65,13 @@ jobs:
       - name: Build Next.js
         run: pnpm build
         env:
-          NEXT_PUBLIC_CONVEX_URL: ${{ secrets.CONVEX_TEST_URL }}
+          NEXT_PUBLIC_CONVEX_URL: http://127.0.0.1:3210
 
       - name: Run Playwright tests
-        run: pnpm test:e2e
+        run: |
+          eval "$(./scripts/convex-local.sh env)"
+          pnpm test:e2e
         env:
-          NEXT_PUBLIC_CONVEX_URL: ${{ secrets.CONVEX_TEST_URL }}
-          # Remédiation sécurité — gate des mutations de seed/cleanup e2e +
-          # mot de passe du user e2e. Doit être identique à la variable
-          # E2E_SECRET du deployment Convex de test (cf README §Auth).
-          E2E_SECRET: ${{ secrets.E2E_SECRET }}
           CI: "true"
 
       - name: Upload Playwright report
@@ -72,3 +81,17 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
+      # Les logs du backend disent ce que le rapport Playwright ne dit pas : la
+      # ConvexError exacte levée côté serveur, et l'ordre des requêtes.
+      - name: Upload logs du backend Convex
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: convex-backend-log
+          path: .convex-local/backend.log
+          retention-days: 7
+
+      - name: Arrêter le backend Convex local
+        if: always()
+        run: ./scripts/convex-local.sh stop
