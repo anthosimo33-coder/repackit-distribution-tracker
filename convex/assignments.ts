@@ -816,6 +816,11 @@ export const listAssignments = adminQuery({
       comptes.map((c) => [c._id, c.targetCountry ?? null]),
     );
     const campaignMap = new Map(campaigns.map((c) => [c._id, c.name]));
+    // Statut de la campagne — le filtre admin range les ARCHIVÉES à part (et
+    // grisées) tout en les gardant sélectionnables : sur Snytch, 6 campagnes
+    // archivées portent 23 % des assignations, les masquer rendrait ces
+    // livrables introuvables.
+    const campaignStatusMap = new Map(campaigns.map((c) => [c._id, c.status]));
     const brickMap = new Map(scriptBricks.map((b) => [b._id, b]));
     const assetFolderMap = new Map(assetFolders.map((f) => [f._id, f.name]));
     const assetCountByFolder = new Map<string, number>();
@@ -830,10 +835,17 @@ export const listAssignments = adminQuery({
       .map((a) => {
         // S2 — résumé combo (ADMIN voit la décomposition ; le créateur, non).
         let scriptCampaignName: string | null = null;
+        let scriptCampaignId: string | null = null;
+        let scriptCampaignStatus: "active" | "archived" | null = null;
         let comboSummary: string | null = null;
         if (a.scriptCombo) {
           scriptCampaignName =
             campaignMap.get(a.scriptCombo.campaignId) ?? "—";
+          scriptCampaignId = a.scriptCombo.campaignId;
+          // null = campagne référencée mais absente (supprimée) : le filtre la
+          // rangera avec les archivées plutôt que de la faire disparaître.
+          scriptCampaignStatus =
+            campaignStatusMap.get(a.scriptCombo.campaignId) ?? null;
           const hook = brickMap.get(a.scriptCombo.hookBrickId);
           const flux = brickMap.get(a.scriptCombo.fluxBrickId);
           const cta = brickMap.get(a.scriptCombo.ctaBrickId);
@@ -859,6 +871,8 @@ export const listAssignments = adminQuery({
           targets,
           origin: (a.scriptCombo ? "script" : "format") as "script" | "format",
           scriptCampaignName,
+          scriptCampaignId,
+          scriptCampaignStatus,
           comboSummary,
           // Date de publication réelle (confirmation) → statut calendrier (B) et
           // vue calendrier (C). null si pas encore publié.

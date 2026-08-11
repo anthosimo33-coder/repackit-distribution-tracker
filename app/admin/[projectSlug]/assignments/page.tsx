@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   useProjectQuery,
   useProjectMutation,
@@ -43,6 +43,7 @@ import {
   ClapperboardIcon,
   ClipboardListIcon,
   FileTextIcon,
+  FilterXIcon,
   ImagesIcon,
   ListIcon,
   Loader2Icon,
@@ -70,6 +71,13 @@ import { AssignmentAttachments } from "@/components/admin/AssignmentAttachments"
 import { AssignmentDetailSheet } from "@/components/admin/AssignmentDetailSheet";
 import { ImposedComboBadge } from "@/components/admin/ImposedComboBadge";
 import { FilterMultiSelect } from "@/components/filters/FilterMultiSelect";
+import { useProject } from "@/components/project/ProjectProvider";
+import {
+  buildCampaignOptions,
+  campaignTriggerLabel,
+  matchesCampaignFilter,
+  sanitizeCampaignSelection,
+} from "@/lib/assignment-campaign-filter";
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
 import { canDeleteAssignment } from "@/lib/assignment-delete";
 import {
@@ -110,8 +118,18 @@ function formatDate(ts: number) {
 /** Clé de mémorisation du dernier mode d'affichage (défaut = calendrier). */
 const VIEW_MODE_KEY = "repackit.assignments.viewMode";
 
+/**
+ * Clé du filtre campagne — PAR PROJET. Une clé globale rapatrierait les ids de
+ * campagne d'un projet dans l'autre : ils n'y matcheraient rien et la liste
+ * paraîtrait vide sans cause visible. Le contenu est en plus repassé par
+ * sanitizeCampaignSelection au chargement (campagne supprimée entre-temps).
+ */
+const campaignFilterKey = (slug: string) =>
+  `repackit.assignments.campaignFilter.${slug}`;
+
 export default function AssignmentsPage() {
   const assignments = useProjectQuery(api.assignments.listAssignments, {});
+  const projectSlug = useProject().project.slug;
   // Ancre temporelle stable au montage (rang d'urgence de l'ordre + filtre
   // « en retard »). Impure au render sinon (cf react-hooks/purity, comme le
   // dashboard créateur) → l'ordre ne se réordonne pas à chaque re-render.
@@ -143,7 +161,13 @@ export default function AssignmentsPage() {
       // idem : on tolère l'absence de persistance.
     }
   }
-  const [formatFilter, setFormatFilter] = useState("all");
+  // Filtre CAMPAGNE de scripts (Set vide = toutes) — remplace l'ancien « Tous
+  // formats », qui ne filtrait que les assignations d'origine FORMAT : il n'en
+  // existe AUCUNE en prod, son menu était donc vide. Partagé liste + calendrier.
+  const [campaignIds, setCampaignIds] = useState<Set<string>>(new Set());
+  // Verrou de restauration en REF (pas en state) : il ne doit rien re-rendre, et
+  // ça laisse un seul setState dans l'effet ci-dessous.
+  const campaignRestored = useRef(false);
   const [statusFilter, setStatusFilter] = useState("all");
   // Filtre de STATUT CALENDRIER (vue calendrier uniquement) — MÊME emplacement
   // que le filtre de statut de production, mais axe distinct (dérivé). On ne crée
@@ -245,21 +269,77 @@ export default function AssignmentsPage() {
     for (const a of assignments ?? []) m.set(a.creatorId, a.creatorName);
     return [...m.entries()].sort((x, y) => x[1].localeCompare(y[1], "fr"));
   }, [assignments]);
-  const formats = useMemo(() => {
-    const m = new Map<string, string>();
-    // S2 — seuls les assignments FORMAT alimentent le filtre format (les
-    // assignments script n'ont pas de formatId).
-    for (const a of assignments ?? []) {
-      if (a.formatId && a.formatName) m.set(a.formatId, a.formatName);
+  // Options du filtre CAMPAGNE : construites depuis les ASSIGNATIONS (une
+  // campagne sans assignation n'a rien à filtrer), triées par effectif
+  // décroissant, archivées en seconde section mais SÉLECTIONNABLES — elles
+  // portent 23 % des livrables sur Snytch. Cf lib/assignment-campaign-filter.
+  const campaignOptions = useMemo(
+    () => buildCampaignOptions(assignments ?? []),
+    [assignments],
+  );
+
+  // RESTAURATION du filtre campagne — après chargement, pour pouvoir purger les
+  // ids devenus fantômes (campagne supprimée, ou clé d'un autre projet). Sans
+  // cette purge, un id orphelin ne matcherait rien et la liste paraîtrait vide
+  // sans cause visible. Une seule fois : ensuite l'utilisateur est maître.
+  useEffect(() => {
+    if (assignments === undefined || campaignRestored.current) return;
+    campaignRestored.current = true;
+    try {
+      const raw = localStorage.getItem(campaignFilterKey(projectSlug));
+      const saved: unknown = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(saved)) return;
+      const clean = sanitizeCampaignSelection(
+        saved.filter((v): v is string => typeof v === "string"),
+        buildCampaignOptions(assignments),
+      );
+      // Hydratation post-mount depuis localStorage (même pattern best-effort que
+      // le mode d'affichage ci-dessus) → pas de mismatch SSR ; setState assumé.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (clean.size > 0) setCampaignIds(clean);
+    } catch {
+      // localStorage indisponible ou JSON corrompu → aucun filtre restauré.
     }
-    return [...m.entries()].sort((x, y) => x[1].localeCompare(y[1], "fr"));
-  }, [assignments]);
+  }, [assignments, projectSlug]);
+
+  /** Change le filtre ET le mémorise (par projet). */
+  function changeCampaignIds(next: Set<string>) {
+    setCampaignIds(next);
+    try {
+      localStorage.setItem(
+        campaignFilterKey(projectSlug),
+        JSON.stringify([...next]),
+      );
+    } catch {
+      // idem : on tolère l'absence de persistance.
+    }
+  }
+
+  // Un filtre actif doit être VISIBLE au retour sur la page — le compteur
+  // « 42 / 139 » est trop discret pour ça.
+  const activeFilterCount =
+    (creatorIds.size > 0 ? 1 : 0) +
+    (campaignIds.size > 0 ? 1 : 0) +
+    (statusFilter !== "all" && viewMode === "list" ? 1 : 0) +
+    (calStatusFilter !== "all" && viewMode === "calendar" ? 1 : 0) +
+    (overdueOnly ? 1 : 0);
+
+  function resetFilters() {
+    setCreatorIds(new Set());
+    changeCampaignIds(new Set());
+    setStatusFilter("all");
+    setCalStatusFilter("all");
+    setOverdueOnly(false);
+  }
 
   const rows = useMemo(() => {
     const now = nowMs;
     const filtered = (assignments ?? []).filter((a) => {
       if (creatorIds.size > 0 && !creatorIds.has(a.creatorId)) return false;
-      if (formatFilter !== "all" && a.formatId !== formatFilter) return false;
+      // Campagne — appliqué AVANT la bascule de vue, donc actif en liste ET en
+      // calendrier (tous deux consomment `rows`) : changer de vue ne fait pas
+      // sauter le filtre en silence.
+      if (!matchesCampaignFilter(a, campaignIds)) return false;
       // Statut de PRODUCTION : filtre la LISTE. En vue calendrier, c'est le statut
       // CALENDRIER (calStatusFilter, appliqué dans AssignmentsCalendar) qui filtre.
       if (
@@ -301,7 +381,7 @@ export default function AssignmentsPage() {
   }, [
     assignments,
     creatorIds,
-    formatFilter,
+    campaignIds,
     statusFilter,
     overdueOnly,
     nowMs,
@@ -332,23 +412,30 @@ export default function AssignmentsPage() {
           width="w-44"
         />
 
-        <Select value={formatFilter} onValueChange={(v) => v && setFormatFilter(v)}>
-          <SelectTrigger className="w-44" aria-label="Filtrer par format">
-            <SelectValue>
-              {formatFilter === "all"
-                ? "Tous formats"
-                : (formats.find((f) => f[0] === formatFilter)?.[1] ?? "Format")}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Tous formats</SelectItem>
-            {formats.map(([id, name]) => (
-              <SelectItem key={id} value={id}>
-                {name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* Campagne de scripts MULTI (Set vide = toutes) — partagé liste +
+            calendrier. Le déclencheur NOMME la sélection au lieu d'afficher
+            « N sélectionnés » : un filtre persistant doit se lire d'un coup
+            d'œil au retour sur la page. */}
+        <FilterMultiSelect
+          label="Campagne"
+          selectedValues={campaignIds}
+          onChange={changeCampaignIds}
+          options={campaignOptions.map((o) => ({
+            value: o.value,
+            label: o.label,
+            count: o.count,
+            section: o.section,
+            muted: o.section === "archived",
+          }))}
+          sectionLabels={{ active: "Actives", archived: "Archivées" }}
+          allLabel="Toutes campagnes"
+          triggerLabel={campaignTriggerLabel(
+            campaignIds,
+            campaignOptions,
+            "Toutes campagnes",
+          )}
+          width="w-56"
+        />
 
         {/* Filtre STATUT — MÊME emplacement, axe selon la vue : production en
             liste, calendrier (à l'heure/en retard/manqué/prévu) en calendrier. */}
@@ -397,6 +484,25 @@ export default function AssignmentsPage() {
           />
           En retard seulement
         </label>
+
+        {/* Le filtre campagne PERSISTE d'une visite à l'autre : sans un repère
+            franc, revenir trois jours plus tard sur une liste restreinte se lit
+            comme « des assignations ont disparu ». Ce bouton n'apparaît QUE
+            lorsqu'un filtre est actif — il est alors à la fois le signal et le
+            remède. */}
+        {activeFilterCount > 0 && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-9 gap-1.5 border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100"
+            onClick={resetFilters}
+          >
+            <FilterXIcon className="size-3.5" />
+            Réinitialiser {activeFilterCount} filtre
+            {activeFilterCount > 1 ? "s" : ""}
+          </Button>
+        )}
 
         {/* Bascule Liste / Calendrier (mêmes filtres partagés). */}
         <div
