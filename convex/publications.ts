@@ -15,6 +15,11 @@ import { isTikTokShortlink } from "./modelVideoEmbeds";
 import { cycleIndexOf, cycleWindow, cyclePeriodKey } from "./payCycle";
 import { assignmentPublishedAt, syncBonusForPublication } from "./pricing";
 import {
+  divergesFromWarmup,
+  isRemunerated,
+  normalizeRemunere,
+} from "./remunerate";
+import {
   deleteStorageBestEffort,
   purgePublicationImage,
   purgeUnreferencedImage,
@@ -778,20 +783,40 @@ export const updatePublishedAccount = adminMutation({
 // ─── Warmup — flag PAR POST excluant de la paie (rentabilité P1) ─────────────
 
 /**
- * Contexte warmup d'un post. `locked` = le CYCLE de paie du post est DÉJÀ PAYÉ
- * (flag figé). RÉUTILISE la logique de cycle existante (aucune réinvention) :
- * résout la vidéo (assignment) propriétaire du post — même résolution que
- * pricing.syncBonusForPublication — → son créateur (firstPostAt = ancre) →
- * l'index de cycle de la date de publication (cycleIndexOf) → la clé de période
- * (cyclePeriodKey), puis cherche une row payments `paid` sur cette période.
- * `payLinked` = le post est rattaché à une vidéo (sinon le flag n'a aucun effet
- * sur la paie). Un post sans vidéo / sans ancre n'a AUCUN cycle → jamais
+ * Contexte de PAIE d'un post — sert les DEUX bascules (warmup éditorial et
+ * rémunération financière), qui partagent exactement le même verrou.
+ *
+ * `locked` = le CYCLE de paie du post est DÉJÀ PAYÉ (flags figés). RÉUTILISE la
+ * logique de cycle existante (aucune réinvention) : résout la vidéo (assignment)
+ * propriétaire du post — même résolution que pricing.syncBonusForPublication —
+ * → son créateur (firstPostAt = ancre) → l'index de cycle de la date de
+ * publication (cycleIndexOf) → la clé de période (cyclePeriodKey), puis cherche
+ * une row payments `paid` sur cette période.
+ *
+ * `payLinked` = le post est rattaché à une vidéo (sinon les flags n'ont aucun
+ * effet sur la paie). Un post sans vidéo / sans ancre n'a AUCUN cycle → jamais
  * verrouillé (rien à geler).
+ *
+ * Les BORNES du cycle et la date de paiement remontent avec : un refus doit
+ * pouvoir dire POURQUOI et DEPUIS QUAND, pas seulement « impossible ».
  */
-async function publicationWarmupContext(
+async function publicationPayContext(
   ctx: QueryCtx | MutationCtx,
   pub: Doc<"publications">,
-): Promise<{ payLinked: boolean; locked: boolean }> {
+): Promise<{
+  payLinked: boolean;
+  locked: boolean;
+  cycleStart: number | null;
+  cycleEnd: number | null;
+  paidAt: number | null;
+}> {
+  const UNLINKED = {
+    payLinked: false,
+    locked: false,
+    cycleStart: null,
+    cycleEnd: null,
+    paidAt: null,
+  };
   const assignments = await ctx.db
     .query("assignments")
     .withIndex("by_project", (q) => q.eq("projectId", pub.projectId))
@@ -801,50 +826,111 @@ async function publicationWarmupContext(
       (x.targets ?? []).some((t) => t.publicationId === pub._id) ||
       x.publicationId === pub._id,
   );
-  if (!a) return { payLinked: false, locked: false };
+  if (!a) return UNLINKED;
   const creator = await ctx.db.get(a.creatorId);
   const firstPostAt = creator?.firstPostAt;
-  if (firstPostAt === undefined) return { payLinked: true, locked: false };
+  if (firstPostAt === undefined) return { ...UNLINKED, payLinked: true };
   const cycleIndex = cycleIndexOf(firstPostAt, assignmentPublishedAt(a));
-  const period = cyclePeriodKey(cycleWindow(firstPostAt, cycleIndex).cycleStart);
-  const locked = (
+  const { cycleStart, cycleEnd } = cycleWindow(firstPostAt, cycleIndex);
+  const period = cyclePeriodKey(cycleStart);
+  const paidRow = (
     await ctx.db
       .query("payments")
       .withIndex("by_creator", (q) => q.eq("creatorId", a.creatorId))
       .collect()
-  ).some(
+  ).find(
     (p) =>
       p.projectId === pub.projectId &&
       p.period === period &&
       p.status === "paid",
   );
-  return { payLinked: true, locked };
+  return {
+    payLinked: true,
+    locked: paidRow !== undefined,
+    cycleStart,
+    cycleEnd,
+    paidAt: paidRow?.paidAt ?? null,
+  };
+}
+
+/** Date FR courte et déterministe (UTC) — messages de verrou. */
+function frDate(ms: number): string {
+  const d = new Date(ms);
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `${dd}/${mm}/${d.getUTCFullYear()}`;
 }
 
 /**
- * ADMIN — état du flag warmup d'un post + verrou, pour piloter le toggle. null si
- * le post n'existe pas / hors projet. `locked` grise le toggle (cycle payé) ;
- * `payLinked` = false signale que le flag est sans effet sur la paie (post non
- * rattaché à une vidéo rémunérée).
+ * Message de refus DATÉ. « Impossible » n'apprend rien : on dit quel cycle est
+ * en cause, sur quelles bornes, et depuis quand il est payé.
  */
-export const getPublicationWarmup = adminQuery({
+function lockedMessage(
+  quoi: string,
+  ctxInfo: { cycleStart: number | null; cycleEnd: number | null; paidAt: number | null },
+): string {
+  const bornes =
+    ctxInfo.cycleStart !== null && ctxInfo.cycleEnd !== null
+      ? ` du ${frDate(ctxInfo.cycleStart)} au ${frDate(ctxInfo.cycleEnd)}`
+      : "";
+  const quand =
+    ctxInfo.paidAt !== null ? `, payé le ${frDate(ctxInfo.paidAt)}` : " (déjà payé)";
+  return (
+    `Le cycle de paie${bornes} de ce post est clos${quand} : ${quoi} y est figé. ` +
+    `Le montant déjà versé n'est jamais recalculé — modifier ce réglage ferait ` +
+    `diverger l'affichage de ce qui a réellement été payé.`
+  );
+}
+
+/**
+ * ADMIN — état des DEUX flags d'un post + verrou, pour piloter les deux bascules.
+ * null si le post n'existe pas / hors projet.
+ *
+ * Rend l'état EFFECTIF (`isRemunerated`) et pas seulement les champs bruts : le
+ * piège du LOT 2 est précisément que `remunere` prime silencieusement sur
+ * `isWarmup`, donc l'écran doit montrer la conclusion, pas les ingrédients.
+ * `diverges` = le post s'écarte de la règle par défaut « payé ssi pas warmup »,
+ * ce qui mérite d'être dit explicitement à l'écran.
+ */
+export const getPublicationPayFlags = adminQuery({
   args: { publicationId: v.id("publications") },
   handler: async (ctx, { publicationId }) => {
     const pub = await ctx.db.get(publicationId);
     if (!pub || pub.projectId !== ctx.projectId) return null;
-    const { payLinked, locked } = await publicationWarmupContext(ctx, pub);
-    return { isWarmup: pub.isWarmup === true, locked, payLinked };
+    const { payLinked, locked, cycleStart, cycleEnd, paidAt } =
+      await publicationPayContext(ctx, pub);
+    const flags = { isWarmup: pub.isWarmup === true, remunere: pub.remunere };
+    return {
+      isWarmup: flags.isWarmup,
+      isRemunerated: isRemunerated(flags),
+      diverges: divergesFromWarmup(flags),
+      locked,
+      payLinked,
+      cycleStart,
+      cycleEnd,
+      paidAt,
+    };
   },
 });
 
 /**
- * ADMIN — pose/retire le flag warmup d'un post (jamais le créateur). Un post
- * warmup reste publié et tracké normalement mais EXCLU de toute paie (fixe/CPM/
- * paliers, cf convex/pricing). Réversible MAIS borné : VERROUILLÉ dès que le
- * cycle du post est payé — garde SERVEUR, pas seulement l'UI. Ne touche JAMAIS
- * un cycle déjà payé (il lit ses lineItems gelées, jamais recalculées). Re-sync
- * des paliers ensuite : retirer le warmup peut refranchir un palier (idempotent,
- * immuable — ne retire jamais un unlock déjà acquis).
+ * ADMIN — pose/retire le flag WARMUP d'un post (fait ÉDITORIAL : le contenu ne
+ * mentionne pas l'app). Jamais le créateur.
+ *
+ * ⚠️ Ce flag pilote les VUES PROMO et le cumul des PALIERS. Il ne pilote la paie
+ * (fixe/CPM) que par DÉFAUT — un post dont la rémunération a été fixée
+ * explicitement (`remunere`, cf setPublicationRemuneration) garde sa paie quoi
+ * qu'on fasse ici. C'est la séparation du LOT 2 ; l'UI doit le dire.
+ *
+ * La rémunération est RENORMALISÉE après coup : si l'écart explicite disparaît
+ * (le post revient sur la règle par défaut), on efface `remunere` pour que la
+ * bascule warmup reste opérante à l'avenir — sans jamais changer la valeur
+ * effective (cf normalizeRemunere).
+ *
+ * Réversible MAIS borné : VERROUILLÉ dès que le cycle du post est payé — garde
+ * SERVEUR, pas seulement l'UI, et le refus est DATÉ. Ne touche jamais un cycle
+ * payé (il lit ses lineItems gelées). Re-sync des paliers ensuite : retirer le
+ * warmup peut refranchir un palier (idempotent, immuable).
  */
 export const setPublicationWarmup = adminMutation({
   args: { publicationId: v.id("publications"), isWarmup: v.boolean() },
@@ -853,19 +939,68 @@ export const setPublicationWarmup = adminMutation({
     if (!pub || pub.projectId !== ctx.projectId) {
       throw new ConvexError("Publication introuvable.");
     }
-    const { locked } = await publicationWarmupContext(ctx, pub);
-    if (locked) {
-      throw new ConvexError(
-        "Cycle déjà payé : le flag warmup est verrouillé sur ce post.",
-      );
+    const payCtx = await publicationPayContext(ctx, pub);
+    if (payCtx.locked) {
+      throw new ConvexError(lockedMessage("le réglage warmup", payCtx));
     }
     if ((pub.isWarmup === true) === isWarmup) {
       return { ok: true, isWarmup }; // déjà dans l'état voulu — no-op
     }
-    await ctx.db.patch(publicationId, { isWarmup });
+    // La valeur EFFECTIVE de la rémunération est conservée telle quelle ; seule
+    // sa forme stockée est renormalisée face au nouveau warmup.
+    const effectif = isRemunerated({
+      isWarmup: pub.isWarmup === true,
+      remunere: pub.remunere,
+    });
+    await ctx.db.patch(publicationId, {
+      isWarmup,
+      remunere: normalizeRemunere(isWarmup, effectif),
+    });
     // Le cumul PAYABLE du créateur change → re-sync des paliers de bonus.
     await syncBonusForPublication(ctx, publicationId);
     return { ok: true, isWarmup };
+  },
+});
+
+/**
+ * ADMIN — pose/retire la RÉMUNÉRATION d'un post (fait FINANCIER : ce post est-il
+ * payé ?). Contrepartie manquante de `setPublicationWarmup` : jusqu'ici aucune
+ * mutation applicative n'écrivait `remunere` (seules deux migrations CLI le
+ * faisaient), donc on pouvait sortir une vidéo des vues promo mais PAS de la paie.
+ *
+ * Pilote le fixe, le CPM et — conjointement avec le warmup — le cumul des paliers
+ * (isBonusTierPost = rémunéré ET en promo).
+ *
+ * STOCKAGE NORMALISÉ : la valeur n'est écrite que si elle DIVERGE de la règle par
+ * défaut « payé ssi pas warmup ». Poser une valeur redondante épinglerait le post
+ * et rendrait sa bascule warmup silencieusement inopérante — c'est exactement le
+ * défaut qu'avait introduit backfillRemunere (cf normalizeRemunere).
+ *
+ * MÊME VERROU que le warmup, et pour la même raison : un cycle payé lit ses
+ * lineItems gelées, donc modifier ce réglage ne réécrirait aucun montant versé
+ * mais ferait diverger l'affichage de ce qui a réellement été payé.
+ */
+export const setPublicationRemuneration = adminMutation({
+  args: { publicationId: v.id("publications"), remunere: v.boolean() },
+  handler: async (ctx, { publicationId, remunere }) => {
+    const pub = await ctx.db.get(publicationId);
+    if (!pub || pub.projectId !== ctx.projectId) {
+      throw new ConvexError("Publication introuvable.");
+    }
+    const payCtx = await publicationPayContext(ctx, pub);
+    if (payCtx.locked) {
+      throw new ConvexError(lockedMessage("la rémunération", payCtx));
+    }
+    const isWarmup = pub.isWarmup === true;
+    if (isRemunerated({ isWarmup, remunere: pub.remunere }) === remunere) {
+      return { ok: true, remunere }; // déjà dans l'état voulu — no-op
+    }
+    await ctx.db.patch(publicationId, {
+      remunere: normalizeRemunere(isWarmup, remunere),
+    });
+    // Le cumul PAYABLE du créateur change → re-sync des paliers de bonus.
+    await syncBonusForPublication(ctx, publicationId);
+    return { ok: true, remunere };
   },
 });
 
