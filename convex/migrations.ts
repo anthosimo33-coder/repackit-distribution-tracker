@@ -1,5 +1,6 @@
 import { internalMutation, internalQuery } from "./_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
+import { divergesFromWarmup, isRemunerated } from "./remunerate";
 import type { Id } from "./_generated/dataModel";
 import { REPACKIT_SLUG, getProjectBySlug, SNYTCH_SLUG } from "./projects";
 import { isWarmupComplete } from "./warmup";
@@ -309,6 +310,91 @@ export const backfillRemunere = internalMutation({
       wouldSetTrue: toSet.filter((p) => p.isWarmup !== true).length,
       wouldSetFalse: toSet.filter((p) => p.isWarmup === true).length,
       patched: dryRun ? 0 : toSet.length,
+    };
+  },
+});
+
+/**
+ * DÉSÉPINGLAGE — efface `remunere` partout où il ne fait que RÉPÉTER la
+ * déduction `!isWarmup`, ne le conservant que sur les posts qui en DIVERGENT.
+ *
+ * POURQUOI. `backfillRemunere` a posé une valeur explicite sur toutes les
+ * publications existantes. Comme `isRemunerated` fait primer l'explicite, ces
+ * posts se sont retrouvés ÉPINGLÉS : basculer leur warmup ne changeait plus rien
+ * à la paie, en silence. Les posts créés APRÈS le backfill, eux, n'ont pas de
+ * valeur et suivent la déduction — la bascule y fonctionne. Résultat : le
+ * comportement du toggle dépendait de la date de publication du post, sans que
+ * rien ne le montre à l'écran.
+ *
+ * En n'épinglant que la divergence, la bascule warmup redevient opérante partout
+ * où l'admin n'a pas explicitement décidé le contraire, et `remunere !== undefined`
+ * désigne exactement les cas à piloter à la main.
+ *
+ * ISO-PAIE, par construction : on n'efface QUE les valeurs égales à `!isWarmup`,
+ * donc `isRemunerated` rend le même résultat avant et après, sur chaque post.
+ * Verrouillé par test (lib/remunerate.test.ts, « désépinglage »).
+ *
+ * dryRun par défaut → compte et LISTE les divergentes conservées ; commit=true
+ * patche. Les cycles déjà payés lisent leurs lineItems gelées → aucun montant ne
+ * peut bouger, même sur un post verrouillé.
+ *   ./node_modules/.bin/convex run migrations:unpinRedundantRemunere '{"commit":true}' [--prod]
+ */
+export const unpinRedundantRemunere = internalMutation({
+  args: { commit: v.optional(v.boolean()) },
+  handler: async (ctx, { commit }) => {
+    const dryRun = commit !== true;
+    const pubs = await ctx.db.query("publications").collect();
+
+    const explicit = pubs.filter((p) => p.remunere !== undefined);
+    const kept = explicit.filter((p) =>
+      divergesFromWarmup({ isWarmup: p.isWarmup === true, remunere: p.remunere }),
+    );
+    const redundant = explicit.filter(
+      (p) =>
+        !divergesFromWarmup({
+          isWarmup: p.isWarmup === true,
+          remunere: p.remunere,
+        }),
+    );
+
+    // Filet : on RE-VÉRIFIE l'iso-paie post par post avant d'écrire. Une seule
+    // divergence annule tout — une migration qui touche à la paie doit prouver
+    // qu'elle ne la touche pas, pas l'affirmer.
+    const wouldChangePay = redundant.filter(
+      (p) =>
+        isRemunerated({ isWarmup: p.isWarmup === true, remunere: p.remunere }) !==
+        isRemunerated({ isWarmup: p.isWarmup === true, remunere: undefined }),
+    );
+    if (wouldChangePay.length > 0) {
+      throw new ConvexError(
+        `ABANDON : ${wouldChangePay.length} publication(s) verraient leur paie changer. Aucune écriture.`,
+      );
+    }
+
+    if (!dryRun) {
+      for (const p of redundant) {
+        await ctx.db.patch(p._id, { remunere: undefined });
+      }
+    }
+
+    return {
+      dryRun,
+      totalPublications: pubs.length,
+      explicitBefore: explicit.length,
+      unpinned: dryRun ? 0 : redundant.length,
+      wouldUnpin: redundant.length,
+      explicitAfter: kept.length,
+      /** Les SEULS cas où warmup et rémunération divergent — à piloter à la main. */
+      divergentes: kept
+        .map((p) => ({
+          publicationId: p._id,
+          datePubli: p.datePubli,
+          compte: p.compte,
+          vues: p.vuesLatest ?? 0,
+          isWarmup: p.isWarmup === true,
+          remunere: p.remunere === true,
+        }))
+        .sort((a, b) => a.datePubli - b.datePubli),
     };
   },
 });
