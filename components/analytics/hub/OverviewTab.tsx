@@ -110,6 +110,8 @@ export function OverviewTab({
       dailySubs: c.dailySubs,
       dailyPaidClients: c.dailyPaidClients,
       todayParis: c.todayParis,
+      // Montant dû : total affiché vs somme de ses parts (fixe + CPM + paliers).
+      payDue: c.payDue,
     });
   }, [reliability]);
 
