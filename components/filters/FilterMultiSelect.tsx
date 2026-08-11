@@ -13,6 +13,20 @@ import { cn } from "@/lib/utils";
 export type FilterMultiSelectOption = {
   value: string;
   label: string;
+  /**
+   * Effectif derrière l'option, rendu en suffixe « (46) ». Évite de cocher une
+   * entrée pour découvrir qu'elle ne contient qu'une ligne. Absent = rien affiché.
+   */
+  count?: number;
+  /**
+   * Regroupement optionnel. Deux options consécutives de sections différentes
+   * font apparaître un intertitre — l'ORDRE reste entièrement décidé par
+   * l'appelant (aucun tri interne), ce qui permet p.ex. un classement par
+   * effectif décroissant à l'intérieur de chaque section.
+   */
+  section?: string;
+  /** Rendu atténué (option encore sélectionnable mais secondaire, ex. archivée). */
+  muted?: boolean;
 };
 
 /**
@@ -32,6 +46,8 @@ export function FilterMultiSelect({
   options,
   allLabel = "Tous",
   width,
+  sectionLabels,
+  triggerLabel: triggerLabelOverride,
 }: {
   label: string;
   selectedValues: Set<string>;
@@ -39,17 +55,25 @@ export function FilterMultiSelect({
   options: FilterMultiSelectOption[];
   allLabel?: string;
   width?: string;
+  /** Intertitre affiché par clé de section (clé absente = pas d'intertitre). */
+  sectionLabels?: Record<string, string>;
+  /**
+   * Remplace le libellé du déclencheur. Sans lui, le comportement historique est
+   * conservé (nom unique, sinon « N sélectionnés »).
+   */
+  triggerLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
 
   const triggerLabel = useMemo(() => {
+    if (triggerLabelOverride !== undefined) return triggerLabelOverride;
     if (selectedValues.size === 0) return allLabel;
     if (selectedValues.size === 1) {
       const only = Array.from(selectedValues)[0];
       return options.find((o) => o.value === only)?.label ?? only;
     }
     return `${selectedValues.size} sélectionnés`;
-  }, [selectedValues, options, allLabel]);
+  }, [selectedValues, options, allLabel, triggerLabelOverride]);
 
   const allSelected = selectedValues.size === options.length;
 
@@ -91,7 +115,11 @@ export function FilterMultiSelect({
           }
         />
         <PopoverContent
-          className="w-[220px] p-1"
+          // Largeur ADAPTÉE au contenu, bornée. À 220 px fixes, deux campagnes
+          // dont les noms ne divergent qu'après 20 caractères se rendaient
+          // identiques (« Format 3 - POV Dem… ») — on ne pouvait plus les
+          // distinguer pour cocher la bonne.
+          className="w-max min-w-[220px] max-w-[420px] p-1"
           align="start"
         >
           <div className="flex items-center justify-between border-b border-slate-100 px-2 pb-1.5">
@@ -109,10 +137,21 @@ export function FilterMultiSelect({
             )}
           </div>
           <ul className="space-y-0.5 pt-1">
-            {options.map((o) => {
+            {options.map((o, i) => {
               const checked = selectedValues.has(o.value);
+              // Intertitre au CHANGEMENT de section (l'ordre vient de l'appelant).
+              const prev = i > 0 ? options[i - 1].section : undefined;
+              const heading =
+                o.section !== undefined && o.section !== prev
+                  ? sectionLabels?.[o.section]
+                  : undefined;
               return (
                 <li key={o.value}>
+                  {heading !== undefined && (
+                    <div className="px-2 pt-2 pb-1 text-[11px] font-medium uppercase tracking-wider text-slate-400">
+                      {heading}
+                    </div>
+                  )}
                   <button
                     type="button"
                     role="option"
@@ -135,7 +174,19 @@ export function FilterMultiSelect({
                         className={cn("size-3", !checked && "opacity-0")}
                       />
                     </span>
-                    <span className="flex-1 truncate">{o.label}</span>
+                    <span
+                      className={cn(
+                        "flex-1 truncate",
+                        o.muted && !checked && "text-slate-500 italic",
+                      )}
+                    >
+                      {o.label}
+                    </span>
+                    {o.count !== undefined && (
+                      <span className="shrink-0 text-xs tabular-nums text-slate-400">
+                        {o.count}
+                      </span>
+                    )}
                   </button>
                 </li>
               );
