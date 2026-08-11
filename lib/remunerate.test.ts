@@ -3,6 +3,7 @@ import {
   divergesFromWarmup,
   isRemunerated,
   normalizeRemunere,
+  remunereAfterWarmupToggle,
   type RemunerationFlags,
 } from "./remunerate";
 // Réplique serveur (A6) importée en RELATIF (module pur) : parité verrouillée.
@@ -172,5 +173,74 @@ describe("cas Kelly (le seul qui compte) : warmup ET payé", () => {
   it("séparation des deux flags : payé (financier) ≠ promo (éditorial)", () => {
     expect(isRemunerated(kelly)).toBe(true); // dans la paie
     expect(passesWarmupMode(kelly.isWarmup, "exclude")).toBe(false); // hors promo
+  });
+});
+
+/**
+ * LA RÈGLE de la bascule warmup — testée ici et pas seulement en e2e : le e2e
+ * couvre le scénario (un post, un écran), ces cas couvrent la règle.
+ *
+ * Le bug corrigé : `setPublicationWarmup` calculait la valeur effective sur
+ * l'ANCIEN warmup, ce qui revenait à « la bascule ne change jamais la paie » et
+ * ÉPINGLAIT tout post implicite dès son premier passage en warmup — exactement le
+ * mode de panne que `normalizeRemunere` documente avoir déjà subi
+ * (`backfillRemunere`, 143 publications).
+ */
+describe("remunereAfterWarmupToggle — la paie suit, sauf décision explicite", () => {
+  it("post IMPLICITE → reste implicite, la paie SUIT le nouveau warmup", () => {
+    // Passer un post normal en warmup le sort de la paie…
+    expect(remunereAfterWarmupToggle(true, undefined)).toBeUndefined();
+    expect(
+      isRemunerated({ isWarmup: true, remunere: remunereAfterWarmupToggle(true, undefined) }),
+    ).toBe(false);
+    // …et l'en sortir l'y remet. Aucune trace stockée dans un sens ni l'autre.
+    expect(remunereAfterWarmupToggle(false, undefined)).toBeUndefined();
+    expect(
+      isRemunerated({ isWarmup: false, remunere: remunereAfterWarmupToggle(false, undefined) }),
+    ).toBe(true);
+  });
+
+  it("post implicite : la bascule ne l'ÉPINGLE JAMAIS (le bug corrigé)", () => {
+    // Régression directe : avant le correctif, ce cas rendait `true` (la valeur
+    // effective de l'ancien état), donc un post warmup RESTAIT payé et épinglé.
+    const stored = remunereAfterWarmupToggle(true, undefined);
+    expect(stored).toBeUndefined();
+    expect(divergesFromWarmup({ isWarmup: true, remunere: stored })).toBe(false);
+  });
+
+  it("post EXPLICITE (cas Kelly) → sa décision garde son EFFET", () => {
+    // Kelly : warmup + payé. On retire le warmup → toujours payé.
+    const stored = remunereAfterWarmupToggle(false, true);
+    expect(isRemunerated({ isWarmup: false, remunere: stored })).toBe(true);
+    // Et rien de redondant n'est stocké : « payé sans warmup » EST la règle par
+    // défaut, donc plus rien à piloter à la main → la divergence disparaît
+    // légitimement (l'argent, lui, ne bouge pas).
+    expect(stored).toBeUndefined();
+    expect(divergesFromWarmup({ isWarmup: false, remunere: stored })).toBe(false);
+  });
+
+  it("post explicite NON payé hors warmup → reste non payé après la bascule", () => {
+    const stored = remunereAfterWarmupToggle(true, false);
+    expect(isRemunerated({ isWarmup: true, remunere: stored })).toBe(false);
+    expect(stored).toBeUndefined();
+  });
+
+  it("la valeur EFFECTIVE d'une décision explicite est toujours préservée", () => {
+    for (const decision of [true, false]) {
+      for (const next of [true, false]) {
+        const stored = remunereAfterWarmupToggle(next, decision);
+        expect(isRemunerated({ isWarmup: next, remunere: stored })).toBe(decision);
+      }
+    }
+  });
+
+  it("parité lib/ ↔ convex/ (règle A6)", () => {
+    for (const next of [true, false]) {
+      for (const current of [true, false, undefined]) {
+        expect(convexRemunerate.remunereAfterWarmupToggle(next, current)).toBe(
+          remunereAfterWarmupToggle(next, current),
+        );
+      }
+    }
   });
 });

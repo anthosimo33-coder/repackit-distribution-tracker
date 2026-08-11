@@ -62,3 +62,37 @@ export function normalizeRemunere(
 ): boolean | undefined {
   return remunere === !isWarmup ? undefined : remunere;
 }
+
+/**
+ * Forme STOCKÉE de `remunere` APRÈS une bascule du warmup — c'est la règle que
+ * `setPublicationWarmup` applique.
+ *
+ * Deux cas, et un seul est une décision :
+ *  - `remunere` ABSENT (le post suit la règle par défaut) → il continue de la
+ *    suivre : on ne stocke RIEN et la paie SUIT le nouveau warmup. Poser une
+ *    valeur ici épinglerait un post que personne n'a jamais décidé d'épingler.
+ *  - `remunere` EXPLICITE (l'admin a décidé le fait financier) → sa valeur
+ *    EFFECTIVE est conservée, et seule sa forme stockée est renormalisée face au
+ *    nouveau warmup. Si l'écart devient la règle par défaut, on l'efface (même
+ *    effet, plus d'épinglage) ; sinon on le garde.
+ *
+ * POURQUOI cette fonction existe : `setPublicationWarmup` calculait la valeur
+ * effective sur l'ANCIEN warmup, ce qui revenait à « la bascule warmup ne change
+ * jamais la paie » — et transformait tout post implicite en post ÉPINGLÉ, en
+ * silence. C'est exactement le mode de panne que `normalizeRemunere` ci-dessus
+ * documente avoir déjà subi (`backfillRemunere`, 143 publications). La protection
+ * était écrite juste au-dessus du code qui la contournait.
+ *
+ * ⚠️ Conséquence à connaître : un post DIVERGENT redevient implicite après une
+ * bascule, car un écart vis-à-vis de l'ancien warmup EST la règle par défaut
+ * vis-à-vis du nouveau (diverger ⇔ `remunere === isWarmup`). Sa valeur payée ne
+ * bouge pas — seule la trace « à piloter à la main » disparaît, ce qui est
+ * correct : il n'y a plus rien à piloter.
+ */
+export function remunereAfterWarmupToggle(
+  nextIsWarmup: boolean,
+  currentRemunere: boolean | undefined,
+): boolean | undefined {
+  if (currentRemunere === undefined) return undefined;
+  return normalizeRemunere(nextIsWarmup, currentRemunere);
+}
