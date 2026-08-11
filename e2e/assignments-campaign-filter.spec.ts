@@ -33,6 +33,8 @@ test.describe("Assignments — filtre par campagne de scripts", () => {
     count: number,
     ts: number,
     pricingId: Id<"pricings">,
+    /** Discriminant du handle de la cible (unique par campagne du test). */
+    slug: string,
   ): Promise<Id<"scriptCampaigns">> {
     const campaignId = await admin.mutation(api.scripts.createCampaign, { name });
     const brick = (kind: "hook" | "flux" | "cta", label: string, tier?: "S") =>
@@ -43,24 +45,29 @@ test.describe("Assignments — filtre par campagne de scripts", () => {
         content: `${label} ${name}`,
         ...(tier ? { tier } : {}),
       });
-    await brick("hook", "H", "S");
+    // `count` HOOKS (× 1 flux × 1 cta) = `count` combos distincts. C'est le
+    // nombre de combos qui borne le nombre de vidéos attribuables (anti-
+    // coordination : un créateur ne reçoit jamais deux fois le même combo) — avec
+    // un seul hook, demander 3 vidéos n'en produirait qu'une, en pénurie.
+    for (let i = 0; i < count; i++) await brick("hook", `H${i}`, "S");
     await brick("flux", "F");
     await brick("cta", "C");
-    const targets = [];
-    for (let i = 0; i < count; i++) {
-      targets.push(
-        await availableTarget({
-          e2eClient: admin,
-          creatorId,
-          platform: "TikTok",
-          handle: `@e2ecf${ts}${name.slice(-2)}${i}`,
-        }),
-      );
-    }
+    // ⚠️ `targets` = les PLATEFORMES D'UNE vidéo (1 cible par plateforme, 1 à 3),
+    // PAS la liste des vidéos : c'est `videosPerCreator` qui décide du nombre de
+    // livrables. La version initiale passait `count` cibles TikTok à un seul
+    // appel, ce que `validateTargets` refuse (« Une seule cible par plateforme
+    // (TikTok en double) ») dès que count > 1 — la spec n'avait donc jamais pu
+    // passer, indépendamment de tout état partagé.
+    const target = await availableTarget({
+      e2eClient: admin,
+      creatorId,
+      platform: "TikTok",
+      handle: `@e2ecf${slug}${ts}`,
+    });
     await admin.mutation(api.scripts.assignScriptCampaign, {
       campaignId,
       creatorId,
-      targets,
+      targets: [target],
       videosPerCreator: count,
       dueDate: ts + 7 * DAY,
       pricingId,
@@ -89,8 +96,15 @@ test.describe("Assignments — filtre par campagne de scripts", () => {
     // volume vérifie aussi le tri par effectif décroissant.
     const grosse = `[E2E_TEST] Grosse ${ts}`;
     const petite = `[E2E_TEST] Archivee ${ts}`;
-    await makeCampaign(grosse, creator.creatorId, 3, ts, pricingId);
-    const archivedId = await makeCampaign(petite, creator.creatorId, 1, ts, pricingId);
+    await makeCampaign(grosse, creator.creatorId, 3, ts, pricingId, "g");
+    const archivedId = await makeCampaign(
+      petite,
+      creator.creatorId,
+      1,
+      ts,
+      pricingId,
+      "a",
+    );
     await admin.mutation(api.scripts.updateCampaign, {
       id: archivedId,
       status: "archived",

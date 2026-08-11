@@ -2,6 +2,7 @@ import { test as base, expect } from "@playwright/test";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../convex/_generated/api";
 import { E2E_EMAIL, E2E_PASSWORD } from "../helpers/authed-client";
+import { cleanupTestData } from "../helpers/cleanup";
 import { config } from "dotenv";
 
 config({ path: ".env.local" });
@@ -36,7 +37,49 @@ const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:3000";
  * la fenêtre bootstrap). Specs : importer { test, expect } DE CE FICHIER au lieu
  * de "@playwright/test".
  */
-export const test = base.extend({
+export const test = base.extend<
+  { freshProjectData: void },
+  { cleanedFiles: Set<string> }
+>({
+  // ─── ISOLATION D'ÉTAT — un nettoyage par FICHIER de spec ────────────────────
+  //
+  // La base est PARTAGÉE par toute la suite et `cleanupTestData` ne tournait
+  // qu'au global setup/teardown. Résultat : les specs s'observaient entre elles.
+  // Six d'entre elles échouaient en suite complète alors qu'elles passaient
+  // TOUTES en isolement — déterministe, reproduit sur deux runs base vierge.
+  // Aucune n'était une régression produit : c'était le couplage d'état.
+  //
+  // GRANULARITÉ = LE FICHIER, pas le test. C'est exactement la condition
+  // « passe seule » qu'on rétablit : le 1er test d'un fichier part d'une base
+  // nettoyée, les suivants voient ce que leurs prédécesseurs du MÊME fichier ont
+  // créé (plusieurs specs enchaînent délibérément dans un fichier). Nettoyer par
+  // test casserait ces enchaînements ; nettoyer par worker ne nettoierait qu'une
+  // fois (workers: 1).
+  //
+  // Le Set est porté par une fixture de portée WORKER : c'est lui qui donne la
+  // granularité fichier, Playwright n'exposant pas de portée « suite ».
+  //
+  // ⚠️ Ordre des hooks Playwright : fixtures worker → `beforeAll` du fichier →
+  // fixtures de test. Une spec qui SÈMERAIT dans un `test.beforeAll` verrait donc
+  // sa semence effacée juste après. Aucune des 103 specs passant par cette
+  // fixture n'en utilise (ni `describe.serial`) — vérifié. Si tu en ajoutes une,
+  // sème dans le test lui-même, pas dans un `beforeAll`.
+  cleanedFiles: [
+    async ({}, provide) => {
+      await provide(new Set<string>());
+    },
+    { scope: "worker" },
+  ],
+  freshProjectData: [
+    async ({ cleanedFiles }, provide, testInfo) => {
+      if (!cleanedFiles.has(testInfo.file)) {
+        cleanedFiles.add(testInfo.file);
+        await cleanupTestData();
+      }
+      await provide();
+    },
+    { auto: true },
+  ],
   // 2e param Playwright (la fonction « use ») renommé `provide` : éviter le
   // faux positif react-hooks/rules-of-hooks (qui croit voir le hook React `use`).
   storageState: async ({}, provide) => {

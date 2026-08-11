@@ -40,8 +40,17 @@ test.describe("Notifications — configuration admin", () => {
     await expect(
       page.getByRole("heading", { name: "Notifications", level: 1 }),
     ).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText("Notifications immédiates")).toBeVisible();
-    await expect(page.getByText("Digest quotidien")).toBeVisible();
+    // Titres de SECTION ciblés par leur rôle (h2), pas par leur texte : « Digest
+    // quotidien » apparaît AUSSI dans les hints des 3 événements de digest
+    // (« Section du digest quotidien. »), et getByText matche en sous-chaîne
+    // insensible à la casse → 4 éléments, strict mode violation. Ça n'avait rien
+    // d'un couplage d'état : le locator était faux dès l'écriture.
+    await expect(
+      page.getByRole("heading", { name: "Notifications immédiates", level: 2 }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Digest quotidien", level: 2 }),
+    ).toBeVisible();
 
     for (const label of [
       "Vidéo soumise",
