@@ -152,18 +152,37 @@ test.describe("Hooks — Vue variantes via Popover", () => {
       });
     }).toPass({ timeout: 30_000 });
 
-    // Click la 1ère entrée → navigation /carrousels?carouselId=… (Batch B :
+    // Click sur NOTRE variante → navigation /carrousels?carouselId=… (Batch B :
     // HookVariantsPopover route directement vers la page format au lieu de
     // /tracker?carouselId qui passait par le redirect catch-all).
+    //
+    // ⚠️ On cible l'entrée par SON carouselId, pas `.first()`. Le popover liste
+    // TOUTES les variantes du hook : en suite complète, d'autres specs en ont
+    // laissé, la 1ère entrée n'est donc pas la nôtre et l'attente échouait
+    // (timeout de 30 s, déterministe sur deux runs). Cibler l'id rend le test
+    // indépendant du contenu laissé par les autres — et l'assertion d'URL
+    // vérifie du même coup qu'on a bien atterri sur CE carrousel.
     // toBeEnabled : attend que l'entrée soit réellement actionnable (le popover
-    // se re-rend au fil des résolutions de métriques) plutôt que de cliquer sur
-    // un élément encore instable.
-    const firstEntry = popover.locator("button").first();
-    await expect(firstEntry).toBeEnabled({ timeout: 10_000 });
-    await firstEntry.click();
-    await expect(page).toHaveURL(/\/carrousels\?carouselId=C\d+/, {
-      timeout: 15_000,
-    });
+    // se re-rend au fil des résolutions de métriques).
+    // Même raison qu'à l'ouverture (TD-018) : on retente le GESTE ENTIER jusqu'à
+    // ce que la navigation ait eu lieu, au lieu d'attendre une stabilité
+    // ponctuelle. Le popover se re-rend au fil des résolutions de métriques, donc
+    // l'entrée peut être détachée entre la résolution du locator et le clic — ce
+    // qui faisait expirer `click()` après 30 s en suite complète (là où d'autres
+    // specs ont laissé des variantes, donc plus de re-renders).
+    await expect(async () => {
+      if (!(await popover.isVisible())) await variantsBtn.click();
+      const ourEntry = popover
+        .locator("button")
+        .filter({ hasText: nextCid })
+        .first();
+      await ourEntry.scrollIntoViewIfNeeded({ timeout: 2_000 });
+      await ourEntry.click({ timeout: 2_000 });
+      await expect(page).toHaveURL(
+        new RegExp(`/carrousels\\?carouselId=${nextCid}`),
+        { timeout: 3_000 },
+      );
+    }).toPass({ timeout: 30_000 });
 
     // Bannière visible + Effacer
     const banner = page.getByText(/filtré sur le carrousel/i);

@@ -104,3 +104,31 @@ Ce fichier liste les anti-patterns repérés dans la zone touchée par chaque fe
 - **Imprécision** : si la confirmation est **décalée** (créatrice qui poste lundi mais confirme mercredi), le statut affichera « en retard » à tort (ou « à l'heure » si le décalage compense). Aucune tolérance dans le calcul → le décalage de confirmation se voit directement, côté pilotage admin **ET** côté créatrice (mêmes statuts, `CALENDAR_STATUS_META` partagé).
 - **Vrai fix (non fait, scope volontairement exclu)** : ingérer le vrai timestamp plateforme. Il est **déjà récupéré mais jeté** par la synchro — `convex/apifyApi.ts` (Apify `createTime`) et `convex/youtubeApi.ts` (`snippet.publishedAt`, `part: "snippet"` déjà demandé). Le persister (nouveau champ, p.ex. `publications.platformPublishedAt` + backfill) puis le préférer à `target.publishedAt` dans `representativePostedAt` (`lib/calendar-status.ts` + réplique convex A6). La fonction de statut ne bouge pas (elle prend `postedAt` en paramètre).
 - **Où** : `lib/calendar-status.ts` (`calendarStatus`, `representativePostedAt`), réplique convex `convex/assignments.ts:representativePostedAt` (exposé en `listAssignments.postedAt`).
+
+## Détecté en rétablissant le filet e2e (août 2026)
+
+### TD-021 — `carouselId` réutilisé après suppression (rattaché à TD-004)
+- **Constat** : `getNextCarouselId` / `computeNextPublicationId` dérivent le
+  prochain identifiant du **maximum des lignes existantes** du projet. Supprimer
+  une publication fait donc **redescendre le compteur**, et la création suivante
+  **réutilise** un identifiant déjà porté par une ligne **publiée** subsistante
+  (`carouselId` n'est pas unique en base : plusieurs lignes le partagent, une par
+  plateforme, cf `by_project_carouselId`).
+- **Symptôme observé** : `updateDraft` refuse l'édition avec « Carrousel
+  partiellement publié, édition impossible. Vide d'abord les liens de
+  publication » (`convex/publications.ts:1266`) sur un carrousel que l'appelant
+  vient de créer et croit vierge. Reproduit par `e2e/tracker-metrics.spec.ts` en
+  suite complète (une spec antérieure supprime des publications, la spec suivante
+  récupère un id déjà publié). Le symptôme e2e est éteint par l'isolation d'état
+  par fichier (fixture `freshProjectData`), mais **la cause reste**.
+- **Portée réelle** : suppose qu'une publication soit **supprimée**, ce qui
+  n'arrive quasiment jamais en production → fragilité, pas incident. Décision
+  cadrée : **on ne touche pas au compteur** (le chantier rôles ne dérive pas pour
+  ça). Documenté ici pour ne pas le redécouvrir à ses dépens.
+- **Vrai fix (non fait)** : rendre le compteur monotone — le persister au niveau
+  du projet plutôt que de le recalculer depuis les lignes (le déduire du max
+  historique, pas du max vivant). Alternative plus légère : refuser la création
+  quand l'id calculé existe déjà, au lieu de le réutiliser en silence.
+- **Où** : `convex/publications.ts` (`computeNextPublicationId`,
+  `getNextCarouselId`, `getNextPublicationId`, garde `updateDraft:1266`).
+  Parent : TD-004 (`carouselId` est une string libre, pas un identifiant typé).

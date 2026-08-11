@@ -90,7 +90,13 @@ test.describe("Comptes — supprimer / réassigner depuis le menu ⋯", () => {
     await page.getByRole("menuitem", { name: "Supprimer" }).click();
 
     const dialog = page.getByTestId("compte-delete-dialog");
-    await expect(dialog.getByText(/vierge/i)).toBeVisible();
+    // Assertion portée par le DIALOGUE lui-même (élément unique par testid), pas
+    // par un locator de texte : `getByText(/vierge/i)` résolvait 2 éléments —
+    // le handle de test contient lui-même « vierge » (`@test_e2e_vierge…`) et le
+    // mot apparaît dans la phrase du dialogue. `toContainText` sur le dialogue
+    // supprime l'ambiguïté par construction, et la phrase visée ne dépend plus du
+    // nom du compte.
+    await expect(dialog).toContainText(/aucune ligne de paie/i);
     await dialog.getByRole("button", { name: /^supprimer$/i }).click();
     await expect(row).toHaveCount(0);
   });
