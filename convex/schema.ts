@@ -158,7 +158,19 @@ export default defineSchema({
     userId: v.id("users"),
     // Requis (greenfield, pas de migration) — NE PAS rendre optional.
     projectId: v.id("projects"),
-    role: v.union(v.literal("admin"), v.literal("creator")),
+    // "creator" = créateur PARTENAIRE historique (flux inchangé). "talent" et
+    // "clipper" sont deux populations AJOUTÉES À CÔTÉ, avec des littéraux
+    // DISTINCTS — et c'est précisément ce qui rend l'ajout sûr : requireCreator
+    // (convex/functions.ts) exige role === "creator", donc un talent ou un
+    // clippeur est rejeté MÉCANIQUEMENT de toutes les fonctions créateur
+    // existantes, sans qu'aucune d'elles soit modifiée. Le littéral dérive de
+    // `creators.kind` au signup (cf convex/roles.roleForKind + convex/auth.ts).
+    role: v.union(
+      v.literal("admin"),
+      v.literal("creator"),
+      v.literal("talent"),
+      v.literal("clipper"),
+    ),
   })
     .index("by_user", ["userId"])
     .index("by_project", ["projectId"])
@@ -705,6 +717,26 @@ export default defineSchema({
     name: v.string(),
     email: v.string(),
     phone: v.optional(v.string()),
+    // ─── POPULATION de la fiche — partenaire / talent / clippeur ───────────────
+    // ABSENT = "partner" (créateur partenaire historique) ⇒ 0 migration : toutes
+    // les fiches existantes restent des partenaires, au comportement inchangé.
+    // Cette fiche est la SOURCE DE VÉRITÉ du rôle : le littéral `memberships.role`
+    // en DÉRIVE au signup (convex/roles.roleForKind, appelé dans convex/auth.ts)
+    // plutôt que d'être recopié sur l'invitation — régénérer un lien d'invitation
+    // ne peut donc pas dériver du rôle réel de la personne.
+    kind: v.optional(
+      v.union(
+        v.literal("partner"),
+        v.literal("talent"),
+        v.literal("clipper"),
+      ),
+    ),
+    // ─── TALENT uniquement — le clippeur qui exploite ses rushes ───────────────
+    // Q3 : 1 talent → 1 clippeur, 1 clippeur → 1..N talents. Un champ sur la fiche
+    // du TALENT suffit donc (pas de table de jointure). Absent = pas encore
+    // apparié ⇒ ses rushes ne sont visibles d'AUCUN clippeur. Posé par l'écran
+    // d'appariement admin (chantier C2). Ignoré pour les autres populations.
+    clipperId: v.optional(v.id("creators")),
     status: v.union(
       v.literal("invited"),
       v.literal("onboarding"),

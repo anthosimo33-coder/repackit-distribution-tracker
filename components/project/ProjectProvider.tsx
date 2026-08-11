@@ -11,9 +11,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { Loader2Icon } from "lucide-react";
+import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
-import type { Doc, Id } from "@/convex/_generated/dataModel";
+import type { Id } from "@/convex/_generated/dataModel";
 import { projectPath } from "@/lib/project-path";
+import { portalPathForRole } from "@/lib/portal-path";
 
 /**
  * P3 Multi-tenant — contexte du projet courant, DÉRIVÉ DU SEGMENT D'URL
@@ -31,13 +33,25 @@ import { projectPath } from "@/lib/project-path";
  *   - forbidden : slug existant mais l'utilisateur n'a pas de membership
  *     (et n'est pas superadmin) → accès refusé.
  *
- * P1 Créateurs — un creator a un membership sur le projet (status "ok") mais
- * AUCUN accès à l'app interne : il est redirigé vers /app. La vraie barrière
- * est serveur (adminQuery/adminMutation) ; ce redirect n'est que du confort UX.
+ * Rôles de PORTAIL — un créateur partenaire, un talent ou un clippeur a un
+ * membership sur le projet (status "ok") mais AUCUN accès à l'app interne : il est
+ * redirigé vers SON portail (table unique lib/portal-path). La vraie barrière est
+ * serveur (adminQuery/adminMutation) ; ce redirect n'est que du confort UX.
+ *
+ * `project` n'est PAS le document complet : la query en renvoie une PROJECTION
+ * whitelistée (convex/projects.projectForClient) — la configuration interne du
+ * projet (Whop, PostHog, canal de notification, taux de change) n'a rien à faire
+ * dans un bundle client. Le type est dérivé du retour de la query, donc tsc casse
+ * si un écran lit un champ non projeté.
  */
+type ProjectForClient = Extract<
+  FunctionReturnType<typeof api.projects.getProjectForCurrentUser>,
+  { status: "ok" }
+>["project"];
+
 type ProjectContextValue = {
   projectId: Id<"projects">;
-  project: Doc<"projects">;
+  project: ProjectForClient;
 };
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
@@ -73,9 +87,11 @@ export function ProjectProvider({
     );
   }
 
-  // Creator → l'app interne ne le concerne pas : on le renvoie vers son portail.
-  if (result.isCreator) {
-    return <RedirectTo href="/app" />;
+  // Rôle de portail (partenaire / talent / clippeur) → l'app interne ne le
+  // concerne pas : on le renvoie vers SON portail.
+  const portalPath = portalPathForRole(result.portalRole);
+  if (portalPath) {
+    return <RedirectTo href={portalPath} />;
   }
 
   return (
