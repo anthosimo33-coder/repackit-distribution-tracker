@@ -59,6 +59,7 @@ import { SourceIdCombobox } from "@/components/shorts/SourceIdCombobox";
 import { cn } from "@/lib/utils";
 import {
   CalendarIcon,
+  CoinsIcon,
   ExternalLinkIcon,
   FlameIcon,
   Loader2Icon,
@@ -159,71 +160,221 @@ export function PublicationDetailDialog({
   );
 }
 
+/** Date FR courte (UTC) — cohérente avec le message de verrou côté serveur. */
+function frDate(ms: number): string {
+  const d = new Date(ms);
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `${dd}/${mm}/${d.getUTCFullYear()}`;
+}
+
 /**
- * Toggle ADMIN "Warmup" d'un post publié (rentabilité P1). Un post warmup reste
- * publié et suivi (vues trackées) mais est EXCLU de toute paie (fixe/CPM/paliers).
- * Réversible TANT QUE le cycle du post n'est pas payé — au-delà le toggle est
- * GRISÉ (le verrou est AUSSI côté serveur, cf setPublicationWarmup). Admin-only
- * par construction (surface admin + adminMutation).
+ * Contrôles ADMIN d'un post publié — DEUX réglages INDÉPENDANTS (séparation
+ * LOT 2), et c'est tout l'objet de ce composant de le rendre évident :
+ *
+ *   • WARMUP        (éditorial)  → gouverne les VUES PROMO ;
+ *   • RÉMUNÉRATION  (financier)  → gouverne la PAIE (fixe + CPM).
+ *
+ * Le cumul des PALIERS exige les deux (rémunéré ET en promo).
+ *
+ * L'écran précédent n'affichait que le warmup en annonçant « exclu de la
+ * rémunération » — faux dès que `remunere` porte une valeur explicite, puisque
+ * celle-ci prime. On basculait un réglage en croyant en changer un autre. D'où
+ * l'état EFFECTIF affiché en tête, et une mention par bascule de ce qu'elle
+ * change réellement.
+ *
+ * Les deux partagent le même verrou : figés dès que le cycle du post est payé
+ * (garde AUSSI côté serveur, cf setPublicationWarmup / setPublicationRemuneration).
+ * Admin-only par construction (surface admin + adminMutation).
  */
-function WarmupControl({ publication }: { publication: PublicationWithImage }) {
-  const state = useProjectQuery(api.publications.getPublicationWarmup, {
+function PayFlagsControl({ publication }: { publication: PublicationWithImage }) {
+  const state = useProjectQuery(api.publications.getPublicationPayFlags, {
     publicationId: publication._id,
   });
   const setWarmup = useProjectMutation(api.publications.setPublicationWarmup);
+  const setRemuneration = useProjectMutation(
+    api.publications.setPublicationRemuneration,
+  );
   const [saving, setSaving] = useState(false);
-  // Le doc porte déjà isWarmup (affichage immédiat) ; l'état serveur affine le
-  // verrou + le rattachement paie dès qu'il arrive.
-  const isWarmup = state?.isWarmup ?? publication.isWarmup === true;
-  const locked = state?.locked ?? false;
-  const payLinked = state?.payLinked ?? true;
-  const pending = state === undefined || saving;
 
-  async function onToggle(next: boolean) {
+  async function run(action: () => Promise<unknown>, ok: string, ko: string) {
     setSaving(true);
     try {
-      await setWarmup({ publicationId: publication._id, isWarmup: next });
-      toast.success(
-        next
-          ? "Post marqué warmup — exclu de la rémunération"
-          : "Warmup retiré — le post redevient payant",
-      );
+      await action();
+      toast.success(ok);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Impossible de modifier le warmup."));
+      toast.error(convexErrorMessage(e, ko));
     } finally {
       setSaving(false);
     }
   }
 
+  // Le doc porte déjà isWarmup (affichage immédiat) ; l'état serveur affine le
+  // reste (rémunération effective, verrou, rattachement paie) dès qu'il arrive.
+  const isWarmup = state?.isWarmup ?? publication.isWarmup === true;
   return (
-    <div className="flex items-start justify-between gap-3 rounded-md border border-amber-200 bg-amber-50/60 p-3">
-      <div className="space-y-0.5">
-        <div className="flex items-center gap-1.5 text-sm font-medium text-slate-900">
-          <FlameIcon className="size-4 text-amber-600" />
-          Warmup — exclu de la rémunération
-        </div>
-        <p className="text-xs text-slate-500">
-          Le post reste publié et suivi (ses vues sont trackées), mais il ne
-          compte NI dans le fixe, NI dans le CPM, NI dans le cumul des paliers.
-        </p>
-        {locked ? (
-          <p className="text-xs font-medium text-amber-700">
-            Cycle déjà payé — flag verrouillé.
-          </p>
-        ) : (
-          !payLinked && (
-            <p className="text-xs text-slate-400">
-              Post non rattaché à une vidéo rémunérée — sans effet sur la paie.
-            </p>
-          )
-        )}
+    <PayFlagsControlView
+      isWarmup={isWarmup}
+      isRemunerated={state?.isRemunerated ?? !isWarmup}
+      diverges={state?.diverges ?? false}
+      locked={state?.locked ?? false}
+      payLinked={state?.payLinked ?? true}
+      cycleStart={state?.cycleStart ?? null}
+      cycleEnd={state?.cycleEnd ?? null}
+      paidAt={state?.paidAt ?? null}
+      pending={state === undefined || saving}
+      onWarmupChange={(next) =>
+        run(
+          () => setWarmup({ publicationId: publication._id, isWarmup: next }),
+          next
+            ? "Warmup posé — post retiré des vues promo"
+            : "Warmup retiré — post recompté en promo",
+          "Impossible de modifier le warmup.",
+        )
+      }
+      onRemunerationChange={(next) =>
+        run(
+          () =>
+            setRemuneration({ publicationId: publication._id, remunere: next }),
+          next
+            ? "Post rémunéré — recompté dans la paie"
+            : "Rémunération retirée — post sorti de la paie",
+          "Impossible de modifier la rémunération.",
+        )
+      }
+    />
+  );
+}
+
+export interface PayFlagsView {
+  isWarmup: boolean;
+  isRemunerated: boolean;
+  diverges: boolean;
+  locked: boolean;
+  payLinked: boolean;
+  cycleStart: number | null;
+  cycleEnd: number | null;
+  paidAt: number | null;
+  pending: boolean;
+  onWarmupChange: (next: boolean) => void;
+  onRemunerationChange: (next: boolean) => void;
+}
+
+/**
+ * PRÉSENTATION pure des deux réglages — aucun accès données. Séparée du câblage
+ * pour pouvoir en rendre les états (défaut / écart manuel / cycle verrouillé)
+ * hors session, et vérifier de visu que l'écran dit bien ce que chaque bascule
+ * change (c'était tout le grief : on basculait un réglage en croyant en changer
+ * un autre).
+ */
+export function PayFlagsControlView({
+  isWarmup,
+  isRemunerated,
+  diverges,
+  locked,
+  payLinked,
+  cycleStart,
+  cycleEnd,
+  paidAt,
+  pending,
+  onWarmupChange,
+  onRemunerationChange,
+}: PayFlagsView) {
+  const state = { cycleStart, cycleEnd, paidAt };
+  return (
+    <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50/60 p-3">
+      {/* ── État EFFECTIF en tête : la conclusion, pas les ingrédients ───── */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-medium text-slate-900">
+          État de ce post
+        </span>
+        <Badge variant={isRemunerated ? "default" : "outline"}>
+          {isRemunerated ? "Payé" : "Non payé"}
+        </Badge>
+        <Badge variant={isWarmup ? "outline" : "secondary"}>
+          {isWarmup ? "Hors promo (warmup)" : "Compté en promo"}
+        </Badge>
       </div>
-      <Switch
-        checked={isWarmup}
-        disabled={locked || pending}
-        onCheckedChange={onToggle}
-        aria-label="Marquer ce post comme warmup"
-      />
+
+      {diverges && (
+        <p className="rounded bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+          Réglage manuel : ce post s&apos;écarte de la règle par défaut
+          («&nbsp;payé sauf si warmup&nbsp;»). Les deux bascules ci-dessous sont
+          donc indépendantes l&apos;une de l&apos;autre.
+        </p>
+      )}
+
+      {locked && (
+        <p className="rounded bg-slate-100 px-2 py-1.5 text-xs font-medium text-slate-700">
+          Cycle de paie
+          {state?.cycleStart != null && state?.cycleEnd != null
+            ? ` du ${frDate(state.cycleStart)} au ${frDate(state.cycleEnd)}`
+            : ""}{" "}
+          clos
+          {state?.paidAt != null ? `, payé le ${frDate(state.paidAt)}` : ""}{" "}
+          — les deux réglages sont figés. Le montant versé n&apos;est jamais
+          recalculé.
+        </p>
+      )}
+
+      {!locked && !payLinked && (
+        <p className="text-xs text-slate-400">
+          Post non rattaché à une vidéo — ces réglages n&apos;ont aucun effet sur
+          la paie.
+        </p>
+      )}
+
+      {/* ── Bascule 1 : WARMUP (éditorial → vues promo) ───────────────────── */}
+      <div className="flex items-start justify-between gap-3 border-t border-slate-200 pt-2">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-1.5 text-sm font-medium text-slate-900">
+            <FlameIcon className="size-4 text-amber-600" />
+            Warmup
+          </div>
+          <p className="text-xs text-slate-500">
+            Le contenu ne mentionne pas l&apos;app. Retire ce post des{" "}
+            <strong>vues promo</strong> et du cumul des paliers.{" "}
+            {diverges ? (
+              // La mise en garde ne vaut QUE si un écart manuel a été posé —
+              // l'afficher toujours ferait croire que le warmup ne touche jamais
+              // la paie, ce qui est faux dans le cas courant.
+              <>
+                La rémunération étant réglée à la main ci-dessous, cette bascule
+                ne change <strong>pas</strong> la paie.
+              </>
+            ) : (
+              <>Sans réglage manuel ci-dessous, la paie suit.</>
+            )}
+          </p>
+        </div>
+        <Switch
+          checked={isWarmup}
+          disabled={locked || pending}
+          onCheckedChange={onWarmupChange}
+          aria-label="Marquer ce post comme warmup"
+        />
+      </div>
+
+      {/* ── Bascule 2 : RÉMUNÉRATION (financier → paie) ───────────────────── */}
+      <div className="flex items-start justify-between gap-3 border-t border-slate-200 pt-2">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-1.5 text-sm font-medium text-slate-900">
+            <CoinsIcon className="size-4 text-emerald-600" />
+            Rémunéré
+          </div>
+          <p className="text-xs text-slate-500">
+            Ce post compte dans la <strong>paie</strong> de la créatrice (fixe et
+            CPM). Le désactiver le sort du montant dû sur les cycles encore
+            ouverts.
+          </p>
+        </div>
+        <Switch
+          checked={isRemunerated}
+          disabled={locked || pending}
+          onCheckedChange={onRemunerationChange}
+          aria-label="Marquer ce post comme rémunéré"
+        />
+      </div>
     </div>
   );
 }
@@ -328,7 +479,7 @@ function PublishedView({
               )}
           </div>
 
-          <WarmupControl publication={publication} />
+          <PayFlagsControl publication={publication} />
 
           {/* Batch D — Section ScreenRecorder : image preview large +
               titre. Affiché uniquement pour ce mediaType (carousel/short
