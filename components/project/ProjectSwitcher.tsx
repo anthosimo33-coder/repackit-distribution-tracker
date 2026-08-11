@@ -174,7 +174,9 @@ function ProjectAvatar({
 }: {
   name: string;
   accentColor: string;
-  logoUrl?: string;
+  /** `null` quand la projection serveur normalise l'absence (cf
+   *  convex/projects.projectForClient) ; `undefined` sur un appel sans le champ. */
+  logoUrl?: string | null;
 }) {
   if (logoUrl) {
     return (

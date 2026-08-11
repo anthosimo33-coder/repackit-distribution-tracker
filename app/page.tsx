@@ -6,11 +6,13 @@ import { useQuery } from "convex/react";
 import { Loader2Icon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { projectPath } from "@/lib/project-path";
+import { portalPathForRole } from "@/lib/portal-path";
 
 /**
- * Multi-tenant + P1 Créateurs — `/` route par RÔLE (api.creators.getMyPortal) :
+ * Multi-tenant + rôles — `/` route par RÔLE (api.creators.getMyPortal) :
  *   - admin / superadmin → dashboard scopé `/admin/<slug>/dashboard` ;
- *   - creator → portail `/app` ;
+ *   - rôle de PORTAIL (créateur partenaire, talent, clippeur) → son portail,
+ *     résolu par la table de décision UNIQUE `lib/portal-path` ;
  *   - aucun projet / rôle → état vide.
  * Rendu sous <Authenticated> (AppShell), hors ProjectProvider : useQuery brut.
  */
@@ -20,11 +22,12 @@ export default function RootRedirectPage() {
 
   useEffect(() => {
     if (!portal) return;
-    if (portal.role === "creator") {
-      router.replace("/app");
-    } else if (portal.role === "admin" && portal.slug) {
-      router.replace(projectPath(portal.slug, "/dashboard"));
+    if (portal.role === "admin") {
+      if (portal.slug) router.replace(projectPath(portal.slug, "/dashboard"));
+      return;
     }
+    const portalPath = portalPathForRole(portal.role);
+    if (portalPath) router.replace(portalPath);
   }, [portal, router]);
 
   if (portal && portal.role === "none") {

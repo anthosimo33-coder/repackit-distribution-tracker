@@ -2,6 +2,7 @@ import { convexAuth } from "@convex-dev/auth/server";
 import { Password } from "@convex-dev/auth/providers/Password";
 import { ConvexError, type Value } from "convex/values";
 import type { MutationCtx } from "./_generated/server";
+import { roleForKind } from "./roles";
 
 /**
  * Remédiation sécurité — Convex Auth, provider Password (email + mot de
@@ -130,10 +131,15 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
       }
 
       const userId = await db.insert("users", { email, role: "member" });
+      // Le littéral de membership DÉRIVE de la population de la fiche
+      // (creators.kind) — il n'est plus écrit en dur. La fiche est la source de
+      // vérité : l'invitation ne porte aucun rôle, donc régénérer un lien ne peut
+      // pas dériver du rôle réel. Fiche sans `kind` (toutes les existantes) →
+      // "creator", soit exactement le comportement d'avant. Cf convex/roles.ts.
       await db.insert("memberships", {
         userId,
         projectId: invitation.projectId,
-        role: "creator",
+        role: roleForKind(creator.kind),
       });
       await db.patch(invitation.creatorId, {
         userId,

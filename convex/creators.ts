@@ -11,6 +11,7 @@ import {
   requireProjectAdmin,
 } from "./functions";
 import { getProjectBySlug, REPACKIT_SLUG } from "./projects";
+import { isPortalRole, type PortalRole } from "./roles";
 import { internal } from "./_generated/api";
 import { syncBonusUnlocks } from "./pricing";
 import { DELETABLE_STATUSES, purgeAndDeleteAssignment } from "./assignments";
@@ -127,6 +128,16 @@ export const inviteCreator = adminMutation({
     name: v.string(),
     email: v.string(),
     phone: v.optional(v.string()),
+    // POPULATION invitée. ABSENT = "partner" (créateur partenaire) → un appelant
+    // existant qui n'envoie rien obtient EXACTEMENT le comportement d'avant. Le
+    // littéral `memberships.role` en dérivera au signup (convex/roles.roleForKind).
+    kind: v.optional(
+      v.union(
+        v.literal("partner"),
+        v.literal("talent"),
+        v.literal("clipper"),
+      ),
+    ),
   },
   handler: async (ctx, args) => {
     const name = args.name.trim();
@@ -151,6 +162,13 @@ export const inviteCreator = adminMutation({
       email,
       phone: args.phone?.trim() || undefined,
       status: "invited",
+      // Posé UNIQUEMENT si ce n'est pas un partenaire : une fiche de partenaire
+      // reste sans `kind`, indistinguable des fiches existantes (0 bruit, et le
+      // défaut de lecture resolveCreatorKind fait le reste).
+      kind:
+        args.kind === undefined || args.kind === "partner"
+          ? undefined
+          : args.kind,
       createdAt: now,
     });
     const token = crypto.randomUUID();
@@ -563,10 +581,19 @@ export const getInvitationPreview = publicQuery({
 /**
  * Portail de l'utilisateur courant — base du routage par rôle :
  *   - superadmin OU au moins un membership "admin" → role "admin" + slug du
- *     projet par défaut (cible de redirection depuis / et /app).
- *   - sinon, au moins un membership "creator" → role "creator" + nom du
- *     créateur (pour l'accueil /app).
+ *     projet par défaut (cible de redirection depuis / et les portails).
+ *   - sinon, au moins un membership de PORTAIL → ce rôle ("creator" partenaire,
+ *     "talent" ou "clipper") + nom de la fiche (pour l'accueil du portail).
+ *     L'admin PRIME (un humain admin+créateur va sur l'app interne) ; entre
+ *     rôles de portail, le PREMIER trouvé dans l'ordre creator → talent →
+ *     clipper gagne : un même humain n'est pas censé cumuler deux populations,
+ *     et si ça arrive, mieux vaut un choix déterministe qu'un écran vide.
  *   - sinon → role "none".
+ *
+ * La FORME du retour est volontairement UNIQUE pour les trois portails (mêmes
+ * champs projectId/payoutDay/accentColor) : un objet discriminé par rôle
+ * obligerait chaque appelant front à narrower avant de lire `projectId`, pour
+ * zéro gain — la donnée est la même, seul le portail cible change.
  */
 export const getMyPortal = authedQuery({
   args: {},
@@ -578,7 +605,9 @@ export const getMyPortal = authedQuery({
       .collect();
     const isSuperadmin = user?.role === "superadmin";
     const hasAdmin = memberships.some((m) => m.role === "admin");
-    const hasCreator = memberships.some((m) => m.role === "creator");
+    const portalRole: PortalRole | undefined = (
+      ["creator", "talent", "clipper"] as const
+    ).find((r) => memberships.some((m) => m.role === r));
 
     if (isSuperadmin || hasAdmin) {
       let slug: string | null = null;
@@ -596,7 +625,10 @@ export const getMyPortal = authedQuery({
       return { role: "admin" as const, slug, creatorName: null };
     }
 
-    if (hasCreator) {
+    if (portalRole !== undefined) {
+      // Résolution INCHANGÉE (`.first()` par userId) : le partenaire multi-projets
+      // continue de passer par getMyCreatorProjects pour la liste ; ici on ne sert
+      // que le nom d'accueil + le projet par défaut du portail.
       const creator = await ctx.db
         .query("creators")
         .withIndex("by_user", (q) => q.eq("userId", ctx.userId))
@@ -613,11 +645,11 @@ export const getMyPortal = authedQuery({
         accentColor = project?.accentColor ?? null;
       }
       return {
-        role: "creator" as const,
+        role: portalRole,
         slug: null,
         creatorName: creator?.name ?? null,
-        // P5 — projectId du créateur : le portail /app le passe aux
-        // creatorQuery (qui exigent projectId, hors ProjectProvider).
+        // P5 — projectId du créateur : le portail le passe aux creator/talent/
+        // clipperQuery (qui exigent projectId, hors ProjectProvider).
         projectId: creator?.projectId ?? null,
         payoutDay,
         accentColor,
@@ -701,11 +733,16 @@ export const updateMyProfile = creatorMutation({
 // modèle avec N=1 : 0 migration, 0 perte.
 
 /**
- * Projets du créateur courant (pour le switcher du portail /app). Liste les
- * projets où l'utilisateur a un membership "creator", avec le branding par
+ * Projets du PORTAIL de l'utilisateur courant (switcher /app, et résolution du
+ * projet pour les portails talent/clippeur). Liste les projets où il a un
+ * membership de portail — "creator", "talent" ou "clipper" — avec le branding par
  * projet (nom, accent, logo) + payoutDay + le nom de SA fiche sur ce projet.
- * Vide si l'utilisateur n'est creator nulle part. N'expose JAMAIS un projet où
- * il n'est pas membre.
+ * Vide s'il n'a aucun membership de portail. N'expose JAMAIS un projet où il n'est
+ * pas membre, ni un projet où il n'est QU'admin (l'app interne a son propre
+ * résolveur, `projects.getProjectForCurrentUser`).
+ *
+ * Un utilisateur n'ayant qu'UNE population, cette liste reste, pour un partenaire,
+ * exactement celle d'avant : le rôle est porté par le membership, jamais mélangé.
  */
 export const getMyCreatorProjects = authedQuery({
   args: {},
@@ -730,7 +767,7 @@ export const getMyCreatorProjects = authedQuery({
       payCurrency: string | null;
     }[] = [];
     for (const m of memberships) {
-      if (m.role !== "creator") continue;
+      if (!isPortalRole(m.role)) continue;
       const project = await ctx.db.get(m.projectId);
       if (!project) continue;
       const fiche = fiches.find((c) => c.projectId === m.projectId);

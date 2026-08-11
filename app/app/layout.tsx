@@ -1,16 +1,17 @@
 "use client";
 
-import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useQuery } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
-import { HelpCircleIcon, Loader2Icon, LogOutIcon } from "lucide-react";
-import { api } from "@/convex/_generated/api";
-import { projectPath } from "@/lib/project-path";
+import { HelpCircleIcon, LogOutIcon } from "lucide-react";
 import { AccentStyle } from "@/components/project/AccentStyle";
 import { CreatorBottomNav } from "@/components/portal/CreatorBottomNav";
 import { CreatorSidebar } from "@/components/portal/CreatorSidebar";
+import {
+  PortalEmpty,
+  PortalPending,
+  usePortalGate,
+} from "@/components/portal/PortalRoleGate";
 import {
   CreatorProjectProvider,
   useCreatorProject,
@@ -23,10 +24,13 @@ import { isSnytchProject } from "@/lib/snytch-drive";
 import { cn } from "@/lib/utils";
 
 /**
- * P5 — shell du portail créateur (/app/*). Garde par rôle centralisée :
- *   - creator → rend le shell (sidebar desktop / header + bottom nav mobile)
- *     et les pages enfants, sous CreatorProjectProvider (projet courant) ;
+ * P5 — shell du portail créateur PARTENAIRE (/app/*). La garde par rôle est
+ * déléguée à `usePortalGate("creator")` (source unique de la matrice de
+ * redirection, partagée avec les portails /talent et /clip) :
+ *   - créateur partenaire → rend le shell (sidebar desktop / header + bottom nav
+ *     mobile) et les pages enfants, sous CreatorProjectProvider ;
  *   - admin / superadmin → redirigé vers son /admin (l'app interne) ;
+ *   - talent / clippeur → redirigé vers SON portail (ils n'ont rien à faire ici) ;
  *   - none → état vide.
  * Rendu sous <Authenticated> (AppShell), hors ProjectProvider.
  */
@@ -35,40 +39,12 @@ export default function AppPortalLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const portal = useQuery(api.creators.getMyPortal, {});
-  const router = useRouter();
+  const gate = usePortalGate("creator");
 
-  useEffect(() => {
-    if (portal?.role === "admin" && portal.slug) {
-      router.replace(projectPath(portal.slug, "/dashboard"));
-    }
-  }, [portal, router]);
+  if (gate.state === "pending") return <PortalPending />;
+  if (gate.state === "empty") return <PortalEmpty />;
 
-  if (portal === undefined || (portal.role === "admin" && portal.slug)) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <Loader2Icon className="size-6 animate-spin text-slate-400" />
-      </div>
-    );
-  }
-
-  if (portal.role === "none") {
-    return (
-      <div className="flex h-screen items-center justify-center px-6 text-center">
-        <div className="max-w-sm space-y-2">
-          <p className="text-sm font-medium text-slate-900">
-            Aucun espace disponible
-          </p>
-          <p className="text-sm text-slate-500">
-            Ton compte n&apos;est rattaché à aucun projet. Contacte un
-            administrateur.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // role creator : projet courant + switcher gérés par le provider.
+  // Créateur partenaire : projet courant + switcher gérés par le provider.
   return (
     <CreatorProjectProvider>
       <CreatorShell>{children}</CreatorShell>

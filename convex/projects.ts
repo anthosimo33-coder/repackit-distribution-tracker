@@ -6,6 +6,7 @@ import {
   superadminMutation,
 } from "./functions";
 import { internalMutation } from "./_generated/server";
+import { isPortalRole } from "./roles";
 import { ConvexError, v } from "convex/values";
 import type { QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -98,7 +99,40 @@ const RESERVED_SLUGS = new Set([
   "p",
   "_next",
   "dashboard",
+  // Portails talent / clippeur (segments top-level, cf lib/portal-path.ts).
+  "talent",
+  "clip",
 ]);
+
+/**
+ * PROJECTION du document projet servie au CLIENT (app interne).
+ *
+ * `getProjectForCurrentUser` renvoyait le document COMPLET à tout membre — donc
+ * aussi à un rôle de portail, qui a bien un membership. Le doc porte la
+ * configuration interne du projet : `whop.companyId`, `notify.chatId`,
+ * `posthog.posthogProjectId`, `fxRateToRevenue`, `defaultBonusPricingId`. Aucun
+ * secret (les clés vivent en env, jamais en base — cf schema) mais aucune raison
+ * de l'envoyer sur le téléphone d'un talent ou d'un clippeur externe.
+ *
+ * On aligne donc sur ce que fait DÉJÀ `creators.getMyCreatorProjects` : une liste
+ * de champs EXPLICITE. Ces 8 champs sont exactement ceux que l'UI consomme via
+ * `useProject()` ; en ajouter un est une décision consciente, et tsc casse si un
+ * écran lit un champ non projeté.
+ */
+export function projectForClient(p: Doc<"projects">) {
+  return {
+    _id: p._id,
+    _creationTime: p._creationTime,
+    slug: p.slug,
+    name: p.name,
+    accentColor: p.accentColor,
+    logoUrl: p.logoUrl ?? null,
+    payoutDay: p.payoutDay,
+    payCurrency: p.payCurrency ?? null,
+    sidebarLinks: p.sidebarLinks ?? null,
+    status: p.status,
+  };
+}
 
 /**
  * P3 — résolution du projet par slug d'URL pour l'utilisateur courant. L'URL est
@@ -113,8 +147,12 @@ export const getProjectForCurrentUser = authedQuery({
     if (project === null) return { status: "not_found" as const };
     const user = await ctx.db.get(ctx.userId);
     if (user?.role === "superadmin") {
-      // P1 — superadmin n'est jamais creator (accès admin implicite).
-      return { status: "ok" as const, project, isCreator: false };
+      // P1 — superadmin n'est jamais un rôle de portail (accès admin implicite).
+      return {
+        status: "ok" as const,
+        project: projectForClient(project),
+        portalRole: null,
+      };
     }
     const membership = await ctx.db
       .query("memberships")
@@ -123,13 +161,15 @@ export const getProjectForCurrentUser = authedQuery({
       )
       .first();
     if (membership === null) return { status: "forbidden" as const };
-    // P1 — un creator a accès au projet (membership) mais PAS à l'app interne :
-    // le ProjectProvider le redirige vers /app. La vraie barrière reste serveur
-    // (adminQuery/adminMutation), ce flag n'est que du confort de routage.
+    // Un rôle de PORTAIL (creator partenaire / talent / clippeur) a accès au projet
+    // (membership) mais PAS à l'app interne : le ProjectProvider le renvoie vers SON
+    // portail (lib/portal-path). On renvoie le rôle plutôt qu'un booléen — avec trois
+    // portails, un `isCreator` ne dit plus où rediriger. La vraie barrière reste
+    // serveur (adminQuery/adminMutation), ce champ n'est que du confort de routage.
     return {
       status: "ok" as const,
-      project,
-      isCreator: membership.role === "creator",
+      project: projectForClient(project),
+      portalRole: isPortalRole(membership.role) ? membership.role : null,
     };
   },
 });

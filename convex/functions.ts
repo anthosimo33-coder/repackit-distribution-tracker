@@ -9,6 +9,7 @@ import { ConvexError, v } from "convex/values";
 import { action, mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { roleForKind, type PortalRole } from "./roles";
 
 /**
  * Remédiation sécurité — wrappers de gating pour TOUTES les fonctions
@@ -229,14 +230,42 @@ export async function requireCreator(
   userId: Id<"users">,
   projectId: Id<"projects">,
 ): Promise<Id<"creators">> {
+  return requirePortalMember(ctx, userId, projectId, "creator");
+}
+
+/** Message de rejet PROPRE à chaque population. Celui de "creator" est conservé
+ *  À L'IDENTIQUE (aucun appelant ni spec ne change de comportement). */
+const PORTAL_REJECTION: Record<PortalRole, string> = {
+  creator: "Réservé aux créateurs du projet.",
+  talent: "Réservé aux talents du projet.",
+  clipper: "Réservé aux clippeurs du projet.",
+};
+
+/**
+ * Cœur PARTAGÉ des trois portails : membership du projet au littéral de la
+ * population visée, puis résolution de SA fiche `creators` (par userId, scopée
+ * projet) dont l'id est injecté dans `ctx`. Un seul chemin de résolution pour
+ * creator / talent / clipper → aucune dérive possible entre eux.
+ *
+ * ⚠️ La séparation des rôles ne tient PAS à ce helper mais aux littéraux DISTINCTS
+ * de `memberships.role` (cf convex/roles.ts) : `requireCreator` exigeant
+ * "creator", un talent ou un clippeur est rejeté de TOUTES les fonctions créateur
+ * existantes sans qu'aucune ne soit touchée. Ce helper ne fait que factoriser.
+ */
+async function requirePortalMember(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+  projectId: Id<"projects">,
+  role: PortalRole,
+): Promise<Id<"creators">> {
   const membership = await ctx.db
     .query("memberships")
     .withIndex("by_user_project", (q) =>
       q.eq("userId", userId).eq("projectId", projectId),
     )
     .first();
-  if (membership === null || membership.role !== "creator") {
-    throw new ConvexError("Réservé aux créateurs du projet.");
+  if (membership === null || membership.role !== role) {
+    throw new ConvexError(PORTAL_REJECTION[role]);
   }
   const fiches = await ctx.db
     .query("creators")
@@ -246,7 +275,32 @@ export async function requireCreator(
   if (creator === undefined) {
     throw new ConvexError("Fiche créateur introuvable.");
   }
+  // Défense en profondeur : le membership et la fiche doivent s'accorder sur la
+  // population. Un membership "clipper" pointant une fiche de talent (ou une fiche
+  // dont le `kind` a été changé après coup) est un état incohérent — on refuse
+  // plutôt que de servir les données de l'un sous le rôle de l'autre.
+  if (roleForKind(creator.kind) !== role) {
+    throw new ConvexError(PORTAL_REJECTION[role]);
+  }
   return creator._id;
+}
+
+/** Talent — dépose des rushes. Ne voit ni script, ni compte, ni statistique. */
+export async function requireTalent(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+  projectId: Id<"projects">,
+): Promise<Id<"creators">> {
+  return requirePortalMember(ctx, userId, projectId, "talent");
+}
+
+/** Clippeur — ses comptes, les rushes de SES talents, montage et publication. */
+export async function requireClipper(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+  projectId: Id<"projects">,
+): Promise<Id<"creators">> {
+  return requirePortalMember(ctx, userId, projectId, "clipper");
 }
 
 export const creatorQuery = customQuery(query, {
@@ -263,6 +317,53 @@ export const creatorMutation = customMutation(mutation, {
   input: async (ctx, { projectId }) => {
     const userId = await requireUserId(ctx);
     const creatorId = await requireCreator(ctx, userId, projectId);
+    return { ctx: { userId, projectId, creatorId }, args: {} };
+  },
+});
+
+/**
+ * TALENT — même contrat que creatorQuery/creatorMutation (`projectId` en arg
+ * public obligatoire, `ctx.userId` + `ctx.projectId` + `ctx.creatorId` injectés).
+ * `ctx.creatorId` est la fiche du talent : toute donnée servie par ces wrappers
+ * DOIT être filtrée serveur par cet id (un talent ne voit que SES rushes).
+ */
+export const talentQuery = customQuery(query, {
+  args: { projectId: v.id("projects") },
+  input: async (ctx, { projectId }) => {
+    const userId = await requireUserId(ctx);
+    const creatorId = await requireTalent(ctx, userId, projectId);
+    return { ctx: { userId, projectId, creatorId }, args: {} };
+  },
+});
+
+export const talentMutation = customMutation(mutation, {
+  args: { projectId: v.id("projects") },
+  input: async (ctx, { projectId }) => {
+    const userId = await requireUserId(ctx);
+    const creatorId = await requireTalent(ctx, userId, projectId);
+    return { ctx: { userId, projectId, creatorId }, args: {} };
+  },
+});
+
+/**
+ * CLIPPEUR — même contrat. `ctx.creatorId` est la fiche du clippeur : ses comptes,
+ * ses assignations de clip, et les rushes de SES talents (ceux dont la fiche porte
+ * `clipperId === ctx.creatorId`) — jamais ceux d'un autre clippeur.
+ */
+export const clipperQuery = customQuery(query, {
+  args: { projectId: v.id("projects") },
+  input: async (ctx, { projectId }) => {
+    const userId = await requireUserId(ctx);
+    const creatorId = await requireClipper(ctx, userId, projectId);
+    return { ctx: { userId, projectId, creatorId }, args: {} };
+  },
+});
+
+export const clipperMutation = customMutation(mutation, {
+  args: { projectId: v.id("projects") },
+  input: async (ctx, { projectId }) => {
+    const userId = await requireUserId(ctx);
+    const creatorId = await requireClipper(ctx, userId, projectId);
     return { ctx: { userId, projectId, creatorId }, args: {} };
   },
 });
