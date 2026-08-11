@@ -18,6 +18,7 @@ import {
   divergesFromWarmup,
   isRemunerated,
   normalizeRemunere,
+  remunereAfterWarmupToggle,
 } from "./remunerate";
 import {
   deleteStorageBestEffort,
@@ -917,15 +918,19 @@ export const getPublicationPayFlags = adminQuery({
  * ADMIN — pose/retire le flag WARMUP d'un post (fait ÉDITORIAL : le contenu ne
  * mentionne pas l'app). Jamais le créateur.
  *
- * ⚠️ Ce flag pilote les VUES PROMO et le cumul des PALIERS. Il ne pilote la paie
- * (fixe/CPM) que par DÉFAUT — un post dont la rémunération a été fixée
- * explicitement (`remunere`, cf setPublicationRemuneration) garde sa paie quoi
- * qu'on fasse ici. C'est la séparation du LOT 2 ; l'UI doit le dire.
+ * ⚠️ Ce flag pilote les VUES PROMO et le cumul des PALIERS. Côté PAIE (fixe/CPM),
+ * deux cas — c'est la séparation du LOT 2, et l'UI doit le dire :
+ *   - post SANS `remunere` explicite (le cas normal) : la paie SUIT la bascule.
+ *     Passer un post en warmup le sort de la paie, l'en sortir l'y remet.
+ *   - post dont la rémunération a été fixée EXPLICITEMENT (`remunere`, cf
+ *     setPublicationRemuneration) : cette décision garde son effet, la bascule ne
+ *     la contredit pas.
  *
- * La rémunération est RENORMALISÉE après coup : si l'écart explicite disparaît
- * (le post revient sur la règle par défaut), on efface `remunere` pour que la
- * bascule warmup reste opérante à l'avenir — sans jamais changer la valeur
- * effective (cf normalizeRemunere).
+ * La forme stockée est RENORMALISÉE dans les deux cas (remunereAfterWarmupToggle) :
+ * on n'écrit jamais une valeur qui ne fait que répéter la règle par défaut, sans
+ * quoi le post serait ÉPINGLÉ et ses bascules futures deviendraient silencieusement
+ * inopérantes — le mode de panne qu'avait produit `backfillRemunere` sur 143
+ * publications (cf lib/remunerate.ts).
  *
  * Réversible MAIS borné : VERROUILLÉ dès que le cycle du post est payé — garde
  * SERVEUR, pas seulement l'UI, et le refus est DATÉ. Ne touche jamais un cycle
@@ -946,15 +951,16 @@ export const setPublicationWarmup = adminMutation({
     if ((pub.isWarmup === true) === isWarmup) {
       return { ok: true, isWarmup }; // déjà dans l'état voulu — no-op
     }
-    // La valeur EFFECTIVE de la rémunération est conservée telle quelle ; seule
-    // sa forme stockée est renormalisée face au nouveau warmup.
-    const effectif = isRemunerated({
-      isWarmup: pub.isWarmup === true,
-      remunere: pub.remunere,
-    });
+    // Règle PURE et testée (lib/remunerate.remunereAfterWarmupToggle, jumeau A6) :
+    // sans `remunere` explicite la paie SUIT le nouveau warmup ; avec, la décision
+    // de l'admin garde son effet. Dans les deux cas rien de redondant n'est stocké.
+    //
+    // ⚠️ Ne PAS recalculer la valeur effective sur l'ANCIEN warmup : c'était le bug
+    // (« la bascule ne change jamais la paie »), qui épinglait tout post implicite
+    // au premier passage en warmup, en silence.
     await ctx.db.patch(publicationId, {
       isWarmup,
-      remunere: normalizeRemunere(isWarmup, effectif),
+      remunere: remunereAfterWarmupToggle(isWarmup, pub.remunere),
     });
     // Le cumul PAYABLE du créateur change → re-sync des paliers de bonus.
     await syncBonusForPublication(ctx, publicationId);

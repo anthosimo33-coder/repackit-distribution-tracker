@@ -58,3 +58,18 @@ export function normalizeRemunere(
 ): boolean | undefined {
   return remunere === !isWarmup ? undefined : remunere;
 }
+
+/**
+ * Forme STOCKÉE de `remunere` APRÈS une bascule du warmup (règle appliquée par
+ * `setPublicationWarmup`). `remunere` absent → on ne stocke RIEN et la paie SUIT
+ * le nouveau warmup ; `remunere` explicite → valeur effective conservée, forme
+ * renormalisée. Cf `lib/remunerate.ts` pour le pourquoi complet (et le bug
+ * d'épinglage silencieux que cette règle corrige).
+ */
+export function remunereAfterWarmupToggle(
+  nextIsWarmup: boolean,
+  currentRemunere: boolean | undefined,
+): boolean | undefined {
+  if (currentRemunere === undefined) return undefined;
+  return normalizeRemunere(nextIsWarmup, currentRemunere);
+}
