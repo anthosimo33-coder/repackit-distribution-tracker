@@ -177,16 +177,60 @@ Compte perdu ou `E2E_SECRET` changé après création du user e2e :
 `./node_modules/.bin/convex run maintenance:wipeAuthTables` rouvre la fenêtre
 bootstrap (purge users + sessions).
 
+### Deux pièges de provisionnement (Convex Auth)
+
+Ces deux-là coûtent une heure chacun si on ne les connaît pas.
+
+**1. `JWKS` s'écrit en JSON BRUT, jamais requoté.** Une valeur double-encodée
+(`JWKS="{\"keys\":…}"` au lieu de `JWKS={"keys":…}`) fait servir au déploiement
+un document de découverte invalide, et le backend répond :
+
+```
+AuthProviderDiscoveryFailed: Auth provider discovery of http://… failed
+Error discovering auth provider: …, Failed to parse server response
+```
+
+Le message accuse la **découverte réseau** alors que la cause est l'encodage :
+les endpoints répondent bien 200, c'est leur contenu qui n'est pas du JSON.
+
+**2. Ne passe JAMAIS la clé privée en ARGUMENT.**
+`convex env set JWT_PRIVATE_KEY -- "-----BEGIN PRIVATE KEY----- …"` : le CLI
+interprète `-----BEGIN` comme une option, échoue avec
+`error: unknown option '-----BEGIN PRIVATE KEY----- …'` — et **écho la clé
+privée en clair** dans ce message. Toujours passer par un fichier :
+
+```bash
+convex env set --from-file <fichier.env>   # valeurs jamais en argv
+```
+
 ### E2E et CI
 
 - Le user e2e (`e2e@repackit.test`, mot de passe = `E2E_SECRET`) est créé au
   premier run par `e2e/auth.setup.ts` via la fenêtre bootstrap ; sa session
   (storageState) est partagée par toutes les specs.
-- En local : `E2E_SECRET` doit être dans `.env.local` ET sur le deployment
-  Convex visé par `NEXT_PUBLIC_CONVEX_URL`.
-- En CI : secrets GitHub `CONVEX_TEST_URL` (existant) + **`E2E_SECRET`**
-  (même valeur que la variable du deployment de test). Le deployment de test
-  doit être provisionné (étapes ci-dessus) avec les fonctions à jour.
+- **Backend LOCAL (chemin par défaut, local ET CI)** — la suite e2e ne dépend
+  plus d'un déploiement cloud :
+
+  ```bash
+  ./scripts/convex-local.sh start                  # backend + schéma + auth (~4 s)
+  eval "$(./scripts/convex-local.sh env)" && pnpm test:e2e
+  ./scripts/convex-local.sh reset                  # base VIERGE (état résiduel)
+  ./scripts/convex-local.sh stop
+  ```
+
+  Backend Convex open-source, SQLite, **base neuve par run**. Le tag du binaire
+  est **épinglé** dans le script (upstream ne publie aucune matrice de
+  compatibilité CLI ↔ backend, et l'image Docker n'existe qu'en `:latest`) : le
+  monter est une décision délibérée, à valider en relançant la suite entière.
+  Tout l'état vit dans `.convex-local/` (gitignoré) ; `.env.local` n'est jamais
+  touché, les variables self-hosted passent par `--env-file`. Mélanger cloud et
+  self-hosted dans un même fichier est refusé par Convex.
+- **En CI** : aucun secret GitHub n'est nécessaire (secret d'instance, clé admin,
+  clés JWT et `E2E_SECRET` sont générés par run). Deux PR peuvent tester en
+  parallèle : chacune a son backend.
+- **Contre le cloud** (dépannage ponctuel) : exporter `NEXT_PUBLIC_CONVEX_URL` +
+  `E2E_SECRET` vers le deployment visé, qui doit être provisionné avec les
+  fonctions à jour. À réserver au diagnostic d'une divergence backend.
 - Re-seed des hooks en prod (exceptionnel) : définir temporairement
   `E2E_SECRET` sur la prod via `convex env set --prod`, lancer
   `pnpm tsx scripts/run-seed.ts --env prod`, puis retirer la variable.
