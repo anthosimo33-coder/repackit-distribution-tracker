@@ -161,22 +161,28 @@ function PricingBreakdown({
   currency?: string | null;
 }) {
   if (b.total <= 0 && b.perPricing.length === 0) return null;
-  const g = b.perPricing[0];
+  // Un cycle peut mélanger DEUX barèmes (un pricing édité en place laisse des
+  // vidéos figées sur l'ancien) : on rend alors une ligne PAR barème, sinon le
+  // libellé du premier groupe décrirait un total qui en couvre deux.
+  const groupes = b.perPricing;
   return (
     <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-4">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
         Détail (temps réel)
       </p>
-      <Row
-        label={
-          g
-            ? `Fixe — ${g.videoCount}/${g.nbVideosCible} vidéos publiées`
-            : "Fixe"
-        }
-        sub={g ? `sur ${formatMoney(g.montantFixe, currency)}` : undefined}
-        amount={b.fixedTotal}
-        currency={currency}
-      />
+      {groupes.length === 0 ? (
+        <Row label="Fixe" amount={b.fixedTotal} currency={currency} />
+      ) : (
+        groupes.map((g) => (
+          <Row
+            key={`${g.pricingId}:${g.montantFixe}:${g.nbVideosCible}`}
+            label={`Fixe — ${g.videoCount}/${g.nbVideosCible} vidéos publiées`}
+            sub={`sur ${formatMoney(g.montantFixe, currency)}`}
+            amount={g.fixed}
+            currency={currency}
+          />
+        ))
+      )}
       <Row label="CPM accumulé (sur tes vues)" amount={b.cpmTotal} currency={currency} />
       {b.bonusTierCashTotal > 0 &&
         (b.bonusTierCashUnlocks.length > 0 ? (

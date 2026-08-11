@@ -889,3 +889,70 @@ describe("abArmCoherenceChecks — garde-fou de la carte Test A/B", () => {
     expect(m.get("ab_targets_per_client")?.detail).toContain("20 cibles clients");
   });
 });
+
+describe("contrôle de cohérence — montant dû = somme des cycles calculés", () => {
+  const base = {
+    sequentialSteps: [],
+    reachSteps: [],
+    currencyCount: 1,
+    dashboardClients: null,
+    whopMembers: null,
+  };
+  const find = (checks: ReturnType<typeof buildCoherenceChecks>) =>
+    checks.find((c) => c.key === "pay_due_matches_parts");
+
+  it("absent si le payload ne porte pas le dû (rétrocompatible)", () => {
+    expect(find(buildCoherenceChecks(base))).toBeUndefined();
+  });
+
+  it("ok quand le total recoupe ses parts", () => {
+    const c = find(
+      buildCoherenceChecks({
+        ...base,
+        payDue: {
+          displayedTotal: 978.6,
+          recomputedTotal: 978.6,
+          cycles: 6,
+          creators: 5,
+        },
+      }),
+    );
+    expect(c?.status).toBe("ok");
+    expect(c?.detail).toContain("978.60");
+  });
+
+  it("violation dès qu'un écart dépasse le centime, avec les deux montants", () => {
+    // C'est le cas qui aurait cadré la dérive du barème édité en place : un
+    // total qui ne se recompose plus depuis son propre détail.
+    const c = find(
+      buildCoherenceChecks({
+        ...base,
+        payDue: {
+          displayedTotal: 1130.15,
+          recomputedTotal: 998.6,
+          cycles: 6,
+          creators: 5,
+        },
+      }),
+    );
+    expect(c?.status).toBe("violation");
+    expect(c?.detail).toContain("131.55");
+    expect(c?.detail).toContain("1130.15");
+    expect(c?.detail).toContain("998.60");
+  });
+
+  it("un centime d'arrondi ne déclenche rien", () => {
+    const c = find(
+      buildCoherenceChecks({
+        ...base,
+        payDue: {
+          displayedTotal: 100.01,
+          recomputedTotal: 100.0,
+          cycles: 1,
+          creators: 1,
+        },
+      }),
+    );
+    expect(c?.status).toBe("ok");
+  });
+});

@@ -12,7 +12,7 @@ import {
   promoVideoCost,
   type PricingBreakdown,
 } from "./pricing";
-import { periodOf } from "./payments";
+import { cyclePaymentsForCreator, periodOf } from "./payments";
 import {
   summarizeWhopRevenue,
   whopNetContribution,
@@ -1557,6 +1557,23 @@ export interface ReliabilityResult {
     dailySubs: { day: string; subs: number }[];
     /** Jour Paris courant — exclu du contrôle croisé (partiel des deux côtés). */
     todayParis: string;
+    /**
+     * MONTANT DÛ — le total affiché doit égaler la somme de ses PARTS.
+     *
+     * `totalDue` d'un cycle est calculé une fois (lignes legacy + fixe + CPM +
+     * bonus paliers) puis affiché tel quel ; rien ne vérifiait qu'il concordait
+     * encore avec le détail présenté juste à côté. Un écart signale un moteur qui
+     * a dérivé de son propre détail — c'est ce contrôle qui aurait cadré la
+     * divergence du barème édité en place.
+     */
+    payDue: {
+      /** Σ des `totalDue` des cycles NON payés (ce que le dashboard affiche). */
+      displayedTotal: number;
+      /** Σ des PARTS de ces mêmes cycles, recomposée depuis le détail. */
+      recomputedTotal: number;
+      cycles: number;
+      creators: number;
+    };
   };
   /** Fraîcheur par source : dernière synchro (ms). Le CLIENT juge le « périmé ». */
   freshness: { source: "posthog" | "whop" | "scraping"; lastSyncMs: number | null }[];
@@ -1631,6 +1648,47 @@ export const getReliability = adminQuery({
       subs: d.subs,
     }));
     const todayParis = parisDay(Date.now());
+
+    // ─── Montant dû : total affiché vs somme de ses parts ───────────────────
+    // On repasse par la MÊME source que l'écran Paiements (cyclePaymentsForCreator)
+    // et on recompose le total depuis son détail. Les deux doivent coïncider.
+    let dueDisplayed = 0;
+    let dueRecomputed = 0;
+    let dueCycles = 0;
+    let dueCreators = 0;
+    const allCreators = await ctx.db
+      .query("creators")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    for (const cre of allCreators) {
+      const cycles = await cyclePaymentsForCreator(
+        ctx,
+        ctx.projectId,
+        cre._id,
+        Date.now(),
+      );
+      let touched = false;
+      for (const cy of cycles) {
+        if (cy.status === "paid") continue;
+        const parts =
+          cy.lineItems.reduce((s, li) => s + li.amount, 0) +
+          cy.pricingBreakdown.fixedTotal +
+          cy.pricingBreakdown.cpmTotal +
+          cy.pricingBreakdown.bonusTierCashTotal;
+        dueDisplayed += cy.totalDue;
+        dueRecomputed += parts;
+        dueCycles += 1;
+        touched = true;
+      }
+      if (touched) dueCreators += 1;
+    }
+    const payDue = {
+      displayedTotal: Math.round(dueDisplayed * 100) / 100,
+      recomputedTotal: Math.round(dueRecomputed * 100) / 100,
+      cycles: dueCycles,
+      creators: dueCreators,
+    };
+
     const posthogSyncMs =
       cacheRows.length > 0
         ? Math.max(...cacheRows.map((r) => r.computedAt))
@@ -1835,6 +1893,7 @@ export const getReliability = adminQuery({
         dailyFailedPayments,
         dailySubs,
         todayParis,
+        payDue,
       },
       freshness: [
         { source: "posthog", lastSyncMs: posthogSyncMs },

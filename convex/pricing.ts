@@ -53,6 +53,8 @@ type PayoutItem = {
 
 export type PerPricing = {
   pricingId: string;
+  /** Un assignment RÉEL de ce groupe (représentant de la ligne « Fixe » gelée). */
+  firstAssignmentId: string;
   videoCount: number;
   nbVideosCible: number;
   montantFixe: number;
@@ -132,32 +134,49 @@ export function promoVideoCost(
   return round2(Math.max(0, fixed) + Math.max(0, cpm) * share);
 }
 
+/**
+ * Clé de GROUPE — RÉPLIQUE de lib/pricing-engine.payoutGroupKey. Le pricingId NE
+ * SUFFIT PAS : un pricing édité EN PLACE laisse deux générations de snapshot sous
+ * le MÊME id, et lire les termes de groupe sur `groupItems[0]` rendait la part
+ * fixe dépendante de l'ORDRE DES DOCUMENTS (constaté en prod : 69,50 $ ou
+ * 37,83 $ pour le même cycle). La clé inclut donc tous les termes lus au niveau
+ * du groupe. Cf lib/pricing-engine.ts pour le raisonnement complet.
+ */
+function payoutGroupKey(s: PricingSnapshot): string {
+  return [s.pricingId, s.montantFixe, s.nbVideosCible, s.tauxCPM].join("|");
+}
+
 /** RÉPLIQUE de lib/pricing-engine.computeMonthlyPayout (DOIT rester identique). */
 export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
   const groups = new Map<string, PayoutItem[]>();
   for (const it of items) {
-    const arr = groups.get(it.snapshot.pricingId);
+    const key = payoutGroupKey(it.snapshot);
+    const arr = groups.get(key);
     if (arr) arr.push(it);
-    else groups.set(it.snapshot.pricingId, [it]);
+    else groups.set(key, [it]);
   }
   const perPricing: MonthlyPayout["perPricing"] = [];
   const perAssignment: MonthlyPayout["perAssignment"] = [];
   let fixedTotal = 0;
   let cpmTotal = 0;
-  for (const [pricingId, groupItems] of groups) {
-    const snapshot = groupItems[0].snapshot;
-    const perVideo = fixePerVideo(snapshot);
+  for (const groupItems of groups.values()) {
+    // Seul le BUDGET fixe reste lu au niveau du groupe, et il est identique pour
+    // tous ses membres par construction (cf payoutGroupKey) → indépendant de
+    // l'ordre. Le reste se lit par ITEM, sur SON snapshot, comme le CPM.
+    const groupSnapshot = groupItems[0].snapshot;
+    const budgetFixe = groupSnapshot.montantFixe;
     const videoCount = groupItems.length;
-    // Fixe du groupe (plafonné au budget montantFixe) — arrondi au niveau groupe.
-    const fixedGroup = round2(Math.min(videoCount * perVideo, snapshot.montantFixe));
     // Plafond 150 $/vidéo (RÉPLIQUE lib/pricing-engine) : dépassement rogné sur le
     // CPM d'abord, puis la part fixe (pathologique). Sans dépassement = inchangé.
-    let remainingFixe = snapshot.montantFixe;
+    let remainingFixe = budgetFixe;
+    let fixedRaw = 0;
     let groupCpm = 0;
     let fixedOverflow = 0;
     for (const it of groupItems) {
+      const perVideo = fixePerVideo(it.snapshot);
       const fixedShare = Math.min(perVideo, Math.max(0, remainingFixe));
       remainingFixe -= fixedShare;
+      fixedRaw += fixedShare;
       const cpm = assignmentCpm(it.snapshot, it.totalViews);
       const excess = Math.max(0, fixedShare + cpm - MAX_PAY_PER_VIDEO_EUR);
       const cpmOverflow = Math.min(cpm, excess);
@@ -171,13 +190,18 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
         cpm: cappedCpm,
       });
     }
-    const fixed = round2(fixedGroup - fixedOverflow);
+    const fixed = round2(round2(fixedRaw) - fixedOverflow);
     perPricing.push({
-      pricingId,
+      pricingId: groupSnapshot.pricingId,
+      // Un membre RÉEL de CE groupe : depuis que deux générations de snapshot
+      // peuvent partager un pricingId, chercher un représentant par pricingId
+      // seul renverrait le même assignment pour les deux groupes (ligne « Fixe »
+      // gelée attribuée à la mauvaise vidéo).
+      firstAssignmentId: groupItems[0].assignmentId,
       videoCount,
-      nbVideosCible: snapshot.nbVideosCible,
-      montantFixe: snapshot.montantFixe,
-      fixePerVideo: round2(perVideo),
+      nbVideosCible: groupSnapshot.nbVideosCible,
+      montantFixe: budgetFixe,
+      fixePerVideo: round2(fixePerVideo(groupSnapshot)),
       fixed,
       cpm: groupCpm,
     });
@@ -955,6 +979,117 @@ export const listPricings = adminQuery({
       ? all
       : all.filter((p) => p.status === "active");
     return rows.sort((a, b) => a.name.localeCompare(b.name));
+  },
+});
+
+/**
+ * DÉRIVE DE SNAPSHOT — assignations dont le barème FIGÉ ne correspond plus aux
+ * termes actuels de leur pricing.
+ *
+ * Le snapshot est figé à l'attribution et jamais réécrit ; éditer un barème
+ * EN PLACE n'affecte donc que les attributions futures. Rien ne le montrait :
+ * sur Snytch, 56 assignations sont restées à 100 $/60 + 1,1 alors que l'écran
+ * affichait 0 $/60 + 1,0, et le pricingId identique masquait l'écart.
+ *
+ * Renvoie, PAR pricing, les générations de snapshot divergentes avec leur
+ * effectif et un échantillon d'assignations (pour le détail au clic).
+ */
+export const listPricingSnapshotDrift = adminQuery({
+  args: {},
+  handler: async (ctx) => {
+    const pricings = await ctx.db
+      .query("pricings")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const assignments = await ctx.db
+      .query("assignments")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const creators = new Map(
+      (
+        await ctx.db
+          .query("creators")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect()
+      ).map((c) => [c._id, c.name]),
+    );
+
+    type Gen = {
+      montantFixe: number;
+      nbVideosCible: number;
+      tauxCPM: number;
+      count: number;
+      /** Échantillon borné — le détail au clic n'a pas à charger 500 lignes. */
+      sample: {
+        assignmentId: Id<"assignments">;
+        creatorName: string;
+        createdAt: number;
+        status: string;
+      }[];
+    };
+    const SAMPLE_MAX = 25;
+    const byPricing = new Map<string, Map<string, Gen>>();
+
+    for (const a of assignments) {
+      const snap = a.pricingSnapshot;
+      if (!snap) continue;
+      const live = pricings.find((p) => p._id === snap.pricingId);
+      if (!live) continue; // pricing supprimé : hors périmètre de la comparaison
+      const same =
+        snap.montantFixe === live.montantFixe &&
+        snap.nbVideosCible === live.nbVideosCible &&
+        snap.tauxCPM === live.tauxCPM;
+      if (same) continue;
+      const key = `${snap.montantFixe}|${snap.nbVideosCible}|${snap.tauxCPM}`;
+      let gens = byPricing.get(snap.pricingId);
+      if (!gens) {
+        gens = new Map();
+        byPricing.set(snap.pricingId, gens);
+      }
+      let g = gens.get(key);
+      if (!g) {
+        g = {
+          montantFixe: snap.montantFixe,
+          nbVideosCible: snap.nbVideosCible,
+          tauxCPM: snap.tauxCPM,
+          count: 0,
+          sample: [],
+        };
+        gens.set(key, g);
+      }
+      g.count += 1;
+      if (g.sample.length < SAMPLE_MAX) {
+        g.sample.push({
+          assignmentId: a._id,
+          creatorName: creators.get(a.creatorId) ?? a.creatorNameSnapshot ?? "—",
+          createdAt: a.createdAt,
+          status: a.status,
+        });
+      }
+    }
+
+    return pricings
+      .map((p) => {
+        const gens = [...(byPricing.get(p._id)?.values() ?? [])].sort(
+          (x, y) => y.count - x.count,
+        );
+        return {
+          pricingId: p._id,
+          pricingName: p.name,
+          /** Termes ACTUELS, pour l'affichage « figé X vs actuel Y ». */
+          current: {
+            montantFixe: p.montantFixe,
+            nbVideosCible: p.nbVideosCible,
+            tauxCPM: p.tauxCPM,
+          },
+          driftCount: gens.reduce((s, g) => s + g.count, 0),
+          generations: gens.map((g) => ({
+            ...g,
+            sample: g.sample.sort((x, y) => x.createdAt - y.createdAt),
+          })),
+        };
+      })
+      .filter((r) => r.driftCount > 0);
   },
 });
 

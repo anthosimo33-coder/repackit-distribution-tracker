@@ -239,6 +239,16 @@ export interface CoherenceInputs {
   // des premiers paiements — cf `pushDailyCrossCheck`.
   /** Jour Paris courant — exclu du contrôle croisé (partiel des deux côtés). */
   todayParis?: string;
+  /**
+   * MONTANT DÛ — total affiché vs somme de ses parts (fixe + CPM + paliers +
+   * lignes legacy), sur les mêmes cycles non payés.
+   */
+  payDue?: {
+    displayedTotal: number;
+    recomputedTotal: number;
+    cycles: number;
+    creators: number;
+  };
 }
 
 /** Écart relatif toléré (points de %) entre clients dashboard et Whop. */
@@ -272,6 +282,26 @@ export function buildCoherenceChecks(i: CoherenceInputs): CoherenceCheck[] {
     status: "ok",
     detail: "sous-ensembles de totales (garanti par construction)",
   });
+
+  // Montant dû : le total affiché doit égaler la somme de ses parts. Le cas qui
+  // motive ce contrôle : un moteur de paie qui dérive de son propre détail
+  // (barème édité en place, part fixe lue au mauvais endroit) produit un total
+  // que rien ne recoupe. Tolérance au CENTIME — au-delà, c'est un écart de calcul,
+  // pas un arrondi.
+  if (i.payDue) {
+    const { displayedTotal, recomputedTotal, cycles, creators } = i.payDue;
+    const diff = Math.round((displayedTotal - recomputedTotal) * 100) / 100;
+    const perimetre = `${cycles} cycle${cycles > 1 ? "s" : ""} ouvert${cycles > 1 ? "s" : ""} · ${creators} créatrice${creators > 1 ? "s" : ""}`;
+    checks.push({
+      key: "pay_due_matches_parts",
+      label: "Montant dû = somme des cycles calculés",
+      status: Math.abs(diff) > 0.01 ? "violation" : "ok",
+      detail:
+        Math.abs(diff) > 0.01
+          ? `écart de ${diff.toFixed(2)} entre le total affiché (${displayedTotal.toFixed(2)}) et la somme de ses parts (${recomputedTotal.toFixed(2)}) — ${perimetre}`
+          : `${displayedTotal.toFixed(2)} recoupé part par part — ${perimetre}`,
+    });
+  }
 
   // Aucune addition inter-devises (on ne somme jamais ; info si multi-devise).
   checks.push({
