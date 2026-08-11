@@ -37,6 +37,7 @@ import { Loader2Icon, PlusIcon } from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { formatMoney } from "@/lib/format-rate";
+import { formatDate } from "@/lib/format";
 import { currencySymbol } from "@/lib/currency";
 import { PayCurrencyWarning } from "@/components/PayCurrencyWarning";
 import type { FunctionReturnType } from "convex/server";
@@ -76,6 +77,12 @@ export default function PricingsPage() {
   const update = useProjectMutation(api.pricing.updatePricing);
   const archive = useProjectMutation(api.pricing.archivePricing);
   const remove = useProjectMutation(api.pricing.deletePricing);
+  // Assignations dont le barème FIGÉ ne correspond plus aux termes actuels du
+  // pricing. Éditer un barème en place n'affecte que les futures attributions —
+  // rien ne le montrait jusqu'ici, et l'écart restait invisible parce que le
+  // pricingId, lui, ne change pas.
+  const drift = useProjectQuery(api.pricing.listPricingSnapshotDrift, {});
+  const [driftFor, setDriftFor] = useState<string | null>(null);
   const defaultBonusId = useProjectQuery(
     api.pricing.getDefaultBonusPricingId,
     {},
@@ -321,11 +328,95 @@ export default function PricingsPage() {
                     </>
                   )}
                 </CardDescription>
+                {(() => {
+                  const d = drift?.find((x) => x.pricingId === p._id);
+                  if (!d) return null;
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => setDriftFor(p._id)}
+                      className="mt-1 w-fit rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-left text-xs text-amber-900 hover:bg-amber-100"
+                    >
+                      <span className="font-medium">
+                        {d.driftCount} assignation{d.driftCount > 1 ? "s" : ""}
+                      </span>{" "}
+                      port{d.driftCount > 1 ? "ent" : "e"} un barème figé
+                      différent de celui-ci — voir le détail
+                    </button>
+                  );
+                })()}
               </CardHeader>
             </Card>
           ))}
         </div>
       )}
+
+      {/* Détail de la dérive — les barèmes figés qui ne correspondent plus. */}
+      <Dialog
+        open={driftFor !== null}
+        onOpenChange={(o) => !o && setDriftFor(null)}
+      >
+        <DialogContent className="max-h-[80vh] overflow-y-auto">
+          {(() => {
+            const d = drift?.find((x) => x.pricingId === driftFor);
+            if (!d) return null;
+            const terms = (m: number, n: number, c: number) =>
+              `${formatMoney(m, payCurrency)} / ${n} vidéos · CPM ${formatMoney(c, payCurrency)}`;
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle>Barèmes figés — {d.pricingName}</DialogTitle>
+                  <DialogDescription>
+                    Le barème est figé à l&apos;attribution : ces assignations
+                    gardent les termes en vigueur ce jour-là, et leur paie ne
+                    changera pas si tu modifies le barème. Termes actuels :{" "}
+                    {terms(
+                      d.current.montantFixe,
+                      d.current.nbVideosCible,
+                      d.current.tauxCPM,
+                    )}
+                    .
+                  </DialogDescription>
+                </DialogHeader>
+                {/* min-w-0 : DialogContent est une GRILLE — sans lui, l'enfant
+                    prend sa largeur de contenu et le `truncate` plus bas ne
+                    s'applique jamais (le dialogue déborde à l'horizontale). */}
+                <div className="min-w-0 space-y-4">
+                  {d.generations.map((g) => (
+                    <div
+                      key={`${g.montantFixe}-${g.nbVideosCible}-${g.tauxCPM}`}
+                      className="space-y-1.5 rounded-md border border-slate-200 p-3"
+                    >
+                      <p className="text-sm font-medium text-slate-900">
+                        {g.count} assignation{g.count > 1 ? "s" : ""} à{" "}
+                        {terms(g.montantFixe, g.nbVideosCible, g.tauxCPM)}
+                      </p>
+                      <ul className="space-y-0.5 text-xs text-slate-500">
+                        {g.sample.map((a) => (
+                          <li key={a.assignmentId} className="flex min-w-0 gap-2">
+                            <span className="w-20 shrink-0 tabular-nums">
+                              {formatDate(a.createdAt)}
+                            </span>
+                            <span className="flex-1 truncate">{a.creatorName}</span>
+                            <span className="shrink-0">{a.status}</span>
+                          </li>
+                        ))}
+                        {g.count > g.sample.length && (
+                          <li className="italic">
+                            … et {g.count - g.sample.length} autre
+                            {g.count - g.sample.length > 1 ? "s" : ""} (échantillon
+                            borné)
+                          </li>
+                        )}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
