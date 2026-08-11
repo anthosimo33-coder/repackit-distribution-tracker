@@ -44,6 +44,8 @@ export type PayoutItem = {
 
 export type PerPricing = {
   pricingId: string;
+  /** Un assignment RÉEL de ce groupe (représentant de la ligne « Fixe » gelée). */
+  firstAssignmentId: string;
   videoCount: number;
   nbVideosCible: number;
   montantFixe: number;
@@ -206,12 +208,34 @@ export function promoVideoCost(
  * publié). PAS de bonus par vidéo en v2 (le bonus est créateur-niveau à paliers
  * cumulés, géré séparément).
  */
+/**
+ * Clé de GROUPE — le pricingId NE SUFFIT PAS.
+ *
+ * Le barème est FIGÉ par assignation (`pricingSnapshot`) mais un pricing peut
+ * être ÉDITÉ EN PLACE : deux assignations du MÊME pricingId portent alors des
+ * termes différents. Grouper sur le seul pricingId mélangeait ces générations,
+ * et le calcul de groupe lisait `groupItems[0].snapshot` → la part fixe
+ * dépendait de l'ORDRE DES DOCUMENTS. Constaté en prod : un cycle de 7 vidéos
+ * à 100 $/60 + 12 à 0 $/60 valait 69,50 $ ou 37,83 $ selon le tirage.
+ *
+ * La clé inclut donc TOUS les termes que le calcul de groupe utilise. Deux
+ * générations = deux groupes, chacun avec SON budget `montantFixe` — ce qui est
+ * la seule lecture cohérente avec le figement : les vidéos attribuées sous un
+ * barème à 0 $ de fixe ne peuvent pas puiser dans le budget fixe d'un autre.
+ *
+ * ⚠️ Toute valeur de barème lue AU NIVEAU DU GROUPE doit figurer ici.
+ */
+function payoutGroupKey(s: PricingSnapshot): string {
+  return [s.pricingId, s.montantFixe, s.nbVideosCible, s.tauxCPM].join("|");
+}
+
 export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
   const groups = new Map<string, PayoutItem[]>();
   for (const it of items) {
-    const arr = groups.get(it.snapshot.pricingId);
+    const key = payoutGroupKey(it.snapshot);
+    const arr = groups.get(key);
     if (arr) arr.push(it);
-    else groups.set(it.snapshot.pricingId, [it]);
+    else groups.set(key, [it]);
   }
 
   const perPricing: PerPricing[] = [];
@@ -219,25 +243,30 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
   let fixedTotal = 0;
   let cpmTotal = 0;
 
-  for (const [pricingId, groupItems] of groups) {
-    const snapshot = groupItems[0].snapshot;
-    const perVideo = fixePerVideo(snapshot);
+  for (const groupItems of groups.values()) {
+    // Le budget fixe est le SEUL paramètre encore lu au niveau du groupe, et il
+    // est identique pour tous ses membres par construction (cf payoutGroupKey) —
+    // donc indépendant de l'ordre. Tout le reste se lit par ITEM, sur SON
+    // snapshot, exactement comme le CPM.
+    const groupSnapshot = groupItems[0].snapshot;
+    const budgetFixe = groupSnapshot.montantFixe;
     const videoCount = groupItems.length;
-    // Fixe du groupe (plafonné au budget montantFixe) — arrondi AU NIVEAU DU
-    // GROUPE, calcul INCHANGÉ hors plafond 150 (sous-cap = octet pour octet).
-    const fixedGroup = round2(Math.min(videoCount * perVideo, snapshot.montantFixe));
 
     // ─── Plafond 150 $/vidéo ───────────────────────────────────────────────
     // Chaque vidéo = part fixe (répartie, bornée au budget montantFixe) + CPM.
     // Le dépassement au-delà de MAX_PAY_PER_VIDEO_EUR est rogné sur le CPM en
     // premier, puis sur la part fixe (cas pathologique fixe/vidéo > 150). Sans
     // dépassement, fixedOverflow reste 0 → fixe et CPM identiques à avant.
-    let remainingFixe = snapshot.montantFixe;
+    let remainingFixe = budgetFixe;
+    let fixedRaw = 0;
     let groupCpm = 0;
     let fixedOverflow = 0;
     for (const it of groupItems) {
+      // Part fixe de CETTE vidéo, lue sur SON snapshot (jamais celui du voisin).
+      const perVideo = fixePerVideo(it.snapshot);
       const fixedShare = Math.min(perVideo, Math.max(0, remainingFixe));
       remainingFixe -= fixedShare;
+      fixedRaw += fixedShare;
       const cpm = assignmentCpm(it.snapshot, it.totalViews);
       const excess = Math.max(0, fixedShare + cpm - MAX_PAY_PER_VIDEO_EUR);
       const cpmOverflow = Math.min(cpm, excess);
@@ -251,14 +280,22 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
         cpm: cappedCpm,
       });
     }
-    const fixed = round2(fixedGroup - fixedOverflow);
+    // Arrondi AU NIVEAU DU GROUPE, comme avant : à snapshots homogènes (le cas
+    // normal) la somme des parts vaut min(videoCount × perVideo, budget) et le
+    // résultat est identique au centime près à l'implémentation précédente.
+    const fixed = round2(round2(fixedRaw) - fixedOverflow);
 
     perPricing.push({
-      pricingId,
+      pricingId: groupSnapshot.pricingId,
+      // Un membre RÉEL de CE groupe : depuis que deux générations de snapshot
+      // peuvent partager un pricingId, chercher un représentant par pricingId
+      // seul renverrait le même assignment pour les deux groupes (ligne « Fixe »
+      // gelée attribuée à la mauvaise vidéo).
+      firstAssignmentId: groupItems[0].assignmentId,
       videoCount,
-      nbVideosCible: snapshot.nbVideosCible,
-      montantFixe: snapshot.montantFixe,
-      fixePerVideo: round2(perVideo),
+      nbVideosCible: groupSnapshot.nbVideosCible,
+      montantFixe: budgetFixe,
+      fixePerVideo: round2(fixePerVideo(groupSnapshot)),
       fixed,
       cpm: groupCpm,
     });

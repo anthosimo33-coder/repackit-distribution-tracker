@@ -363,9 +363,12 @@ function frozenLineItemsFromBreakdown(b: PricingBreakdown): LineItem[] {
   const out: LineItem[] = [];
   for (const g of b.perPricing) {
     if (g.fixed <= 0) continue;
-    const rep = b.perAssignment.find((a) => a.pricingId === g.pricingId);
     out.push({
-      assignmentId: rep?.assignmentId as Id<"assignments"> | undefined,
+      // Représentant pris DANS le groupe. Chercher par pricingId seul renvoyait
+      // le même assignment pour deux groupes distincts depuis qu'un pricing
+      // édité en place peut laisser deux générations de snapshot sous un id
+      // unique — la ligne « Fixe » de l'un aurait pointé une vidéo de l'autre.
+      assignmentId: g.firstAssignmentId as Id<"assignments"> | undefined,
       label: `Fixe — ${g.videoCount} vidéo${g.videoCount > 1 ? "s" : ""} publiée${g.videoCount > 1 ? "s" : ""}`,
       amount: g.fixed,
       kind: "fixed",

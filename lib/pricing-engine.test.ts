@@ -11,7 +11,11 @@ import {
   type PayoutItem,
   type PublicationViews,
   type BonusTier,
+  MAX_PAY_PER_VIDEO_EUR,
 } from "./pricing-engine";
+// Réplique serveur (A6) — le moteur de paie est dupliqué côté convex ; la parité
+// n'était couverte par aucun test alors qu'elle porte sur de l'argent.
+import * as convexPricing from "../convex/pricing";
 
 /** Pricing de référence : fixe 100$/60 vidéos, CPM 2$/1000. */
 const P: PricingSnapshot = {
@@ -376,5 +380,161 @@ describe("warmup — un post warmup n'ajoute NI fixe, NI CPM, NI cumul palier", 
     ]);
     expect(cumul).toBe(1_500_000);
     expect(evaluateBonusTiers(cumul, TIERS).crossed).toHaveLength(0);
+  });
+});
+
+// ─── Cycle MIXTE : deux générations de snapshot sous le MÊME pricingId ───────
+//
+// Un pricing peut être ÉDITÉ EN PLACE (Snytch : 100 $/60 + 1,1 → 0 $/60 + 1,0).
+// Les assignations déjà attribuées gardent leur snapshot FIGÉ, donc un même
+// cycle mélange deux barèmes portant le même `pricingId`.
+//
+// L'implémentation précédente groupait sur ce seul id et lisait les termes de
+// groupe sur `groupItems[0].snapshot` : la part fixe dépendait alors de l'ORDRE
+// DES DOCUMENTS. Constaté en prod sur le cycle 1 de Kelly (7 anciennes +
+// 12 nouvelles) : 69,50 $ ou 37,83 $ pour exactement les mêmes données.
+//
+// C'est le test qui aurait attrapé le bug, et celui qui l'empêche de revenir.
+
+/** Ancien barème : 100 $ pour 60 vidéos (1,6667/vidéo), CPM 1,1. */
+const ANCIEN: PricingSnapshot = {
+  pricingId: "meme-id",
+  montantFixe: 100,
+  nbVideosCible: 60,
+  tauxCPM: 1.1,
+  seuilBonusVues: 0,
+  montantBonus: 0,
+};
+/** Nouveau barème, MÊME pricingId : 0 $ de fixe, CPM 1,0. */
+const NOUVEAU: PricingSnapshot = {
+  ...ANCIEN,
+  montantFixe: 0,
+  tauxCPM: 1,
+};
+
+describe("computeMonthlyPayout — indépendance à l'ordre des documents", () => {
+  const mixte: PayoutItem[] = [
+    ...items(7, 10_000, ANCIEN, "vieux"),
+    ...items(12, 2_000, NOUVEAU, "neuf"),
+  ];
+
+  it("l'ordre inverse donne EXACTEMENT le même total", () => {
+    const direct = computeMonthlyPayout(mixte);
+    const inverse = computeMonthlyPayout([...mixte].reverse());
+    expect(inverse.total).toBe(direct.total);
+    expect(inverse.fixedTotal).toBe(direct.fixedTotal);
+    expect(inverse.cpmTotal).toBe(direct.cpmTotal);
+  });
+
+  it("toutes les permutations testées donnent le même total", () => {
+    // Entrelacements variés : le bug ne se révélait que si un item d'une autre
+    // génération passait en tête du groupe.
+    const permutations: PayoutItem[][] = [
+      mixte,
+      [...mixte].reverse(),
+      // alternance stricte
+      mixte.filter((_, i) => i % 2 === 0).concat(mixte.filter((_, i) => i % 2 === 1)),
+      // un « neuf » en tête, le reste inchangé
+      [mixte[mixte.length - 1], ...mixte.slice(0, -1)],
+      // un « vieux » en queue
+      [...mixte.slice(1), mixte[0]],
+    ];
+    const totaux = permutations.map((p) => computeMonthlyPayout(p).total);
+    expect(new Set(totaux).size).toBe(1);
+  });
+
+  it("chaque génération paie SON fixe, jamais celui du voisin", () => {
+    const r = computeMonthlyPayout(mixte);
+    // 7 vidéos à 1,6667 $ = 11,67 $ ; les 12 du barème à 0 $ n'ajoutent rien —
+    // et surtout ne puisent pas dans le budget de 100 $ de l'ancien.
+    expect(r.fixedTotal).toBe(11.67);
+    // CPM par item, chacun à SON taux : 7×10 000×1,1/1000 + 12×2 000×1,0/1000.
+    expect(r.cpmTotal).toBe(101);
+  });
+
+  it("deux groupes distincts sont exposés, un par génération", () => {
+    const r = computeMonthlyPayout(mixte);
+    expect(r.perPricing).toHaveLength(2);
+    const budgets = r.perPricing.map((g) => g.montantFixe).sort((a, b) => a - b);
+    expect(budgets).toEqual([0, 100]);
+    // La somme des groupes fait le total (invariant d'affichage : le détail
+    // par groupe ne doit jamais contredire le sous-total).
+    const sommeFixe = r.perPricing.reduce((s, g) => s + g.fixed, 0);
+    expect(Math.round(sommeFixe * 100) / 100).toBe(r.fixedTotal);
+  });
+
+  it("le CPM était DÉJÀ par vidéo — il reste inchangé, quel que soit l'ordre", () => {
+    const direct = computeMonthlyPayout(mixte);
+    const inverse = computeMonthlyPayout([...mixte].reverse());
+    const cpmOf = (r: ReturnType<typeof computeMonthlyPayout>) =>
+      Object.fromEntries(r.perAssignment.map((a) => [a.assignmentId, a.cpm]));
+    expect(cpmOf(inverse)).toEqual(cpmOf(direct));
+  });
+
+  it("un cycle HOMOGÈNE est strictement inchangé (non-régression)", () => {
+    // Le correctif ne doit rien bouger sur le cas normal : un seul barème.
+    const r = computeMonthlyPayout(items(30, 5_000, ANCIEN));
+    expect(r.fixedTotal).toBe(50); // 30 × 1,6667, sous le budget de 100
+    expect(r.cpmTotal).toBe(165); // 30 × 5 000 × 1,1 / 1000
+    expect(r.perPricing).toHaveLength(1);
+  });
+
+  it("le budget fixe reste plafonné PAR GÉNÉRATION", () => {
+    // 80 vidéos à 1,6667 dépasseraient 133 $ : le budget de 100 $ borne, et la
+    // seconde génération garde le sien (0 $) sans y toucher.
+    const r = computeMonthlyPayout([
+      ...items(80, 0, ANCIEN, "v"),
+      ...items(5, 0, NOUVEAU, "n"),
+    ]);
+    expect(r.fixedTotal).toBe(100);
+  });
+});
+
+// ─── Parité lib/ ↔ convex/ du MOTEUR DE PAIE (règle A6) ─────────────────────
+//
+// `convex/pricing.ts` réplique computeMonthlyPayout / assignmentCpm parce qu'un
+// module convex ne peut pas importer lib/. Cette parité n'était vérifiée par
+// AUCUN test : les deux copies pouvaient diverger sur de l'ARGENT sans que rien
+// ne casse. Le correctif d'ordre ci-dessus touchant les deux, on la verrouille.
+
+describe("parité lib/ ↔ convex/ du moteur de paie (règle A6)", () => {
+  const JEUX: { nom: string; items: PayoutItem[] }[] = [
+    { nom: "vide", items: [] },
+    { nom: "une vidéo", items: items(1, 5_000) },
+    { nom: "sous le budget fixe", items: items(30, 12_000) },
+    { nom: "au-dessus du budget fixe", items: items(75, 12_000) },
+    { nom: "plafond 150 franchi", items: items(3, 1_000_000) },
+    { nom: "vues nulles", items: items(4, 0) },
+    { nom: "cycle mixte (deux générations)", items: [
+      ...items(7, 10_000, ANCIEN, "vieux"),
+      ...items(12, 2_000, NOUVEAU, "neuf"),
+    ] },
+    { nom: "cycle mixte inversé", items: [
+      ...items(12, 2_000, NOUVEAU, "neuf"),
+      ...items(7, 10_000, ANCIEN, "vieux"),
+    ] },
+  ];
+
+  for (const { nom, items: jeu } of JEUX) {
+    it(`résultats identiques — ${nom}`, () => {
+      const a = computeMonthlyPayout(jeu);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const b = convexPricing.computeMonthlyPayout(jeu as any);
+      expect(b.fixedTotal).toBe(a.fixedTotal);
+      expect(b.cpmTotal).toBe(a.cpmTotal);
+      expect(b.total).toBe(a.total);
+      expect(b.perAssignment).toEqual(a.perAssignment);
+      expect(b.perPricing).toEqual(a.perPricing);
+    });
+  }
+
+  it("assignmentCpm identique, plafond MAX_PAY_PER_VIDEO_EUR identique", () => {
+    for (const views of [0, 1, 999, 1_000, 123_456, 10_000_000]) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect(convexPricing.assignmentCpm(P as any, views)).toBe(
+        assignmentCpm(P, views),
+      );
+    }
+    expect(convexPricing.MAX_PAY_PER_VIDEO_EUR).toBe(MAX_PAY_PER_VIDEO_EUR);
   });
 });
