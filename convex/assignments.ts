@@ -1040,6 +1040,13 @@ export const reviewVideoApprove = adminMutation({
     await ctx.scheduler.runAfter(0, internal.emails.sendVideoApproved, {
       assignmentId: id,
     });
+    // Notification hors-app — même contrat : planifiée, donc la validation est
+    // DÉJÀ committée. Placée APRÈS le retour idempotent ci-dessus : re-valider
+    // n'envoie pas un second message.
+    await ctx.scheduler.runAfter(0, internal.notifications.notifyVideoReviewed, {
+      assignmentId: id,
+      actorUserId: ctx.userId,
+    });
     return { ok: true, alreadyApproved: false };
   },
 });
@@ -1070,6 +1077,13 @@ export const reviewVideoReject = adminMutation({
     // échoue.
     await ctx.scheduler.runAfter(0, internal.emails.sendVideoRejected, {
       assignmentId: id,
+    });
+    // Le MOTIF voyage en argument : il est déjà validé non vide ici, et le
+    // message hors-app le rend EN ENTIER (c'est tout son contenu utile).
+    await ctx.scheduler.runAfter(0, internal.notifications.notifyVideoReviewed, {
+      assignmentId: id,
+      actorUserId: ctx.userId,
+      rejectionReason: fb,
     });
     return { ok: true };
   },
@@ -2547,6 +2561,16 @@ async function confirmPublicationCore(
   if (creator && creator.firstPostAt === undefined) {
     await ctx.db.patch(a.creatorId, { firstPostAt: effectiveDate });
   }
+
+  // Notification hors-app. Posée dans le CŒUR PARTAGÉ, donc déclenchée aussi
+  // bien par la créatrice (confirmPublication) que par l'admin en secours
+  // (confirmPublicationAsAdmin) — le message distingue les deux via publishedBy,
+  // qui vient d'être patché juste au-dessus. Planifiée : la publication est déjà
+  // committée, un canal en panne ne peut pas la faire échouer. Hors du retour
+  // idempotent en tête de fonction → re-confirmer n'envoie rien.
+  await ctx.scheduler.runAfter(0, internal.notifications.notifyPublication, {
+    assignmentId: a._id,
+  });
 
   return { ok: true, alreadyPublished: false, publicationIds };
 }

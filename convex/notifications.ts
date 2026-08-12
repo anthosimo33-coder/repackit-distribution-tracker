@@ -20,7 +20,12 @@ import {
 import {
   buildDigestMessage,
   buildDisputeMessage,
+  buildGroupedPublicationsMessage,
   buildGroupedSubmissionsMessage,
+  buildPublicationMessage,
+  buildVideoApprovedMessage,
+  buildVideoRejectedMessage,
+  publicationLine,
   buildRenewalFailedMessage,
   buildSubmissionMessage,
   buildTestMessage,
@@ -339,6 +344,8 @@ export const claimWindow = internalMutation({
     { windowId },
   ): Promise<{
     projectId: Id<"projects">;
+    /** Type de fenêtre — le flush ne peut pas le deviner après suppression. */
+    kind: string;
     lines: string[];
     total: number;
   } | null> => {
@@ -350,7 +357,7 @@ export const claimWindow = internalMutation({
       pendingCount: doc.pendingCount,
     });
     await ctx.db.delete(windowId);
-    return { projectId: doc.projectId, lines, total };
+    return { projectId: doc.projectId, kind: doc.kind, lines, total };
   },
 });
 
@@ -370,24 +377,31 @@ export const flushWindow = internalAction({
     if (claimResult.total === 0) return { ok: false, reason: "nothing-to-say" };
 
     // Les bascules sont relues ici : elles ont pu être éteintes pendant la
-    // fenêtre. LES DEUX sont testées — la fenêtre mélange soumissions et
-    // re-soumissions (cf SUBMISSION_KIND), n'en tester qu'une jetterait tout le
-    // tampon d'un projet qui n'a activé que l'autre.
-    const nctx = await resolveNotifyContext(ctx, claimResult.projectId, [
-      "video_submitted",
-      "video_resubmitted",
-    ]);
+    // fenêtre. Pour les soumissions, LES DEUX clés sont testées — la fenêtre
+    // mélange soumission et re-soumission (cf SUBMISSION_KIND), n'en tester
+    // qu'une jetterait tout le tampon d'un projet qui n'a activé que l'autre.
+    const publication = claimResult.kind === PUBLICATION_KIND;
+    const nctx = await resolveNotifyContext(
+      ctx,
+      claimResult.projectId,
+      publication
+        ? ["publication_confirmed"]
+        : ["video_submitted", "video_resubmitted"],
+    );
     if (nctx === null) return DISABLED;
 
+    const commun = {
+      lines: claimResult.lines,
+      total: claimResult.total,
+      appBaseUrl: nctx.cfg.appBaseUrl,
+      projectSlug: nctx.projectSlug,
+    };
     return deliver(
       nctx.cfg,
-      "soumissions groupées",
-      buildGroupedSubmissionsMessage({
-        lines: claimResult.lines,
-        total: claimResult.total,
-        appBaseUrl: nctx.cfg.appBaseUrl,
-        projectSlug: nctx.projectSlug,
-      }),
+      publication ? "publications groupées" : "soumissions groupées",
+      publication
+        ? buildGroupedPublicationsMessage(commun)
+        : buildGroupedSubmissionsMessage(commun),
     );
   },
 });
@@ -490,6 +504,167 @@ export const notifySubmission = internalAction({
         assignmentId,
       }),
     );
+  },
+});
+
+// ─── Publication confirmée / revue vidéo ─────────────────────────────────────
+
+/**
+ * Type de fenêtre des PUBLICATIONS — distinct de SUBMISSION_KIND : une rafale de
+ * publications ne doit pas se mélanger à une rafale de soumissions dans le même
+ * message groupé.
+ */
+const PUBLICATION_KIND = "publication";
+
+/**
+ * Contexte d'une publication ET d'une décision de revue — mêmes jointures que
+ * `getSubmissionContext`, plus les URL publiées et le nom de l'admin.
+ *
+ * `actorUserId` est résolu en NOM. Jamais en email : la contrainte de
+ * confidentialité du canal l'interdit, et un repli « un administrateur » vaut
+ * mieux qu'une adresse.
+ */
+export const getAssignmentEventContext = internalQuery({
+  args: {
+    assignmentId: v.id("assignments"),
+    actorUserId: v.optional(v.id("users")),
+  },
+  handler: async (ctx, { assignmentId, actorUserId }) => {
+    const a = await ctx.db.get(assignmentId);
+    if (a === null) return null;
+    const creator = await ctx.db.get(a.creatorId);
+    const format = a.formatId ? await ctx.db.get(a.formatId) : null;
+    const campaign = a.scriptCombo
+      ? await ctx.db.get(a.scriptCombo.campaignId)
+      : null;
+    const targets = await Promise.all(
+      (a.targets ?? []).map(async (t) => ({
+        platform: t.platform,
+        accountHandle: t.accountId
+          ? ((await ctx.db.get(t.accountId))?.handle ?? null)
+          : null,
+        url: t.publishedUrl ?? null,
+      })),
+    );
+    const actor = actorUserId ? await ctx.db.get(actorUserId) : null;
+    const actorName = actor?.name?.trim() ? actor.name.trim() : null;
+    return {
+      projectId: a.projectId,
+      creatorName: creator?.name ?? a.creatorNameSnapshot ?? "—",
+      campaignName: campaign?.name ?? null,
+      formatName: format?.name ?? null,
+      targets,
+      actorName,
+      /** Traçabilité posée par confirmPublicationCore (creator vs admin secours). */
+      publishedBy: a.publishedBy ?? null,
+    };
+  },
+});
+
+/**
+ * Événement « une publication est confirmée ».
+ *
+ * Planifiée depuis `confirmPublicationCore` — le cœur PARTAGÉ par la créatrice
+ * (`confirmPublication`) et par l'admin en secours (`confirmPublicationAsAdmin`).
+ * Un lien collé par l'admin déclenche donc la notification exactement comme
+ * celui de la créatrice ; le message le DIT (`byAdmin`), puisque le geste n'a
+ * pas la même valeur de preuve.
+ *
+ * Même garde-fou anti-flood que les soumissions : front montant immédiat, puis
+ * un message groupé pour la rafale (« ses cinq vidéos du jour »).
+ */
+export const notifyPublication = internalAction({
+  args: { assignmentId: v.id("assignments") },
+  handler: async (ctx, { assignmentId }): Promise<Outcome> => {
+    const data = await ctx.runQuery(
+      internal.notifications.getAssignmentEventContext,
+      { assignmentId },
+    );
+    if (data === null) return { ok: false, reason: "not-found" };
+    const nctx = await resolveNotifyContext(
+      ctx,
+      data.projectId,
+      "publication_confirmed",
+    );
+    if (nctx === null) return { ok: false, reason: "event-off" };
+
+    const context = {
+      creatorName: data.creatorName,
+      campaignName: data.campaignName,
+      formatName: data.formatName,
+      targets: data.targets,
+      byAdmin: data.publishedBy === "admin",
+    };
+    const { lead } = await ctx.runMutation(
+      internal.notifications.openOrAppendWindow,
+      {
+        projectId: data.projectId,
+        kind: PUBLICATION_KIND,
+        line: publicationLine(context),
+      },
+    );
+    if (!lead) return { ok: true };
+
+    return deliver(
+      nctx.cfg,
+      "publication_confirmed",
+      buildPublicationMessage({
+        ctx: context,
+        appBaseUrl: nctx.cfg.appBaseUrl,
+        projectSlug: nctx.projectSlug,
+      }),
+    );
+  },
+});
+
+/**
+ * Événements « vidéo validée » et « vidéo refusée ». Planifiées depuis
+ * `reviewVideoApprove` / `reviewVideoReject` → la décision est DÉJÀ committée.
+ *
+ * PAS de groupage ici, et c'est délibéré pour le refus : son MOTIF est tout le
+ * contenu du message, un message de synthèse le tronquerait.
+ */
+export const notifyVideoReviewed = internalAction({
+  args: {
+    assignmentId: v.id("assignments"),
+    actorUserId: v.optional(v.id("users")),
+    /** Motif du refus, EN ENTIER. Absent = validation. */
+    rejectionReason: v.optional(v.string()),
+  },
+  handler: async (
+    ctx,
+    { assignmentId, actorUserId, rejectionReason },
+  ): Promise<Outcome> => {
+    const data = await ctx.runQuery(
+      internal.notifications.getAssignmentEventContext,
+      { assignmentId, actorUserId },
+    );
+    if (data === null) return { ok: false, reason: "not-found" };
+    const event: NotificationEventKey =
+      rejectionReason === undefined ? "video_approved" : "video_rejected";
+    const nctx = await resolveNotifyContext(ctx, data.projectId, event);
+    if (nctx === null) return { ok: false, reason: "event-off" };
+
+    const context = {
+      creatorName: data.creatorName,
+      campaignName: data.campaignName,
+      formatName: data.formatName,
+      actorName: data.actorName,
+    };
+    const text =
+      rejectionReason === undefined
+        ? buildVideoApprovedMessage({
+            ctx: context,
+            appBaseUrl: nctx.cfg.appBaseUrl,
+            projectSlug: nctx.projectSlug,
+          })
+        : buildVideoRejectedMessage({
+            ctx: context,
+            reason: rejectionReason,
+            appBaseUrl: nctx.cfg.appBaseUrl,
+            projectSlug: nctx.projectSlug,
+          });
+    return deliver(nctx.cfg, event, text);
   },
 });
 

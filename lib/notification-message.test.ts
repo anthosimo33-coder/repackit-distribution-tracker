@@ -5,6 +5,13 @@ import { join } from "path";
 // vitest, comme le fait déjà lib/warmup-mode.test.ts pour convex/warmupMode.
 import {
   buildDigestMessage,
+  buildGroupedPublicationsMessage,
+  buildPublicationMessage,
+  buildVideoApprovedMessage,
+  buildVideoRejectedMessage,
+  publicationLine,
+  type PublicationContext,
+  type ReviewContext,
   buildDisputeMessage,
   buildGroupedSubmissionsMessage,
   buildRenewalFailedMessage,
@@ -36,6 +43,27 @@ const CTX: SubmissionContext = {
     { platform: "TikTok", accountHandle: "@kelly.repack" },
     { platform: "Instagram", accountHandle: null },
   ],
+};
+
+const PUB_CTX: PublicationContext = {
+  creatorName: "Kelly",
+  campaignName: "Campagne Été",
+  formatName: "Hook Erreur",
+  targets: [
+    {
+      platform: "TikTok",
+      accountHandle: "@kelly.repack",
+      url: "https://www.tiktok.com/@kelly.repack/video/7666925524865830176",
+    },
+  ],
+  byAdmin: false,
+};
+
+const REVIEW_CTX: ReviewContext = {
+  creatorName: "Kelly",
+  campaignName: "Campagne Été",
+  formatName: "Hook Erreur",
+  actorName: "Anthony",
 };
 
 // ─── Transport : échappement et plafond ──────────────────────────────────────
@@ -198,6 +226,149 @@ describe("buildGroupedSubmissionsMessage — le message de fin de fenêtre", () 
     expect(msg).toContain("20 autres vidéos à valider");
     expect(msg).toContain("et 12 autres");
     expect(msg).not.toContain("Créatrice 19");
+  });
+});
+
+// ─── Publication confirmée ───────────────────────────────────────────────────
+
+describe("buildPublicationMessage", () => {
+  const msg = buildPublicationMessage({
+    ctx: PUB_CTX,
+    appBaseUrl: BASE,
+    projectSlug: SLUG,
+  });
+
+  it("porte créatrice, compte, plateforme, format et campagne", () => {
+    expect(msg).toContain("Kelly");
+    expect(msg).toContain("@kelly.repack");
+    expect(msg).toContain("TikTok");
+    expect(msg).toContain("Campagne Été");
+    expect(msg).toContain("Hook Erreur");
+  });
+
+  it("le lien du post est CLIQUABLE, pas un renvoi vers Jarvia", () => {
+    expect(msg).toContain(
+      '<a href="https://www.tiktok.com/@kelly.repack/video/7666925524865830176">',
+    );
+  });
+
+  it("saisie créatrice → pas d'avertissement de secours", () => {
+    // Assertion ciblée sur la MENTION, pas sur le mot « admin » : l'URL Jarvia
+    // (/admin/<slug>/assignments) le contient forcément.
+    expect(msg).not.toContain("saisi par l'admin");
+  });
+
+  it("saisie ADMIN en secours → le dit explicitement", () => {
+    const parAdmin = buildPublicationMessage({
+      ctx: { ...PUB_CTX, byAdmin: true },
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+    });
+    expect(parAdmin).toContain("saisi par l'admin en secours");
+  });
+
+  it("un post sans URL connue ne rend aucun lien mort", () => {
+    const sansUrl = buildPublicationMessage({
+      ctx: { ...PUB_CTX, targets: [{ platform: "TikTok", accountHandle: "@k", url: null }] },
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+    });
+    expect(sansUrl).not.toContain("Voir le post");
+    expect(sansUrl).toContain("Ouvrir les missions");
+  });
+
+  it("plusieurs plateformes → un lien par post", () => {
+    const multi = buildPublicationMessage({
+      ctx: {
+        ...PUB_CTX,
+        targets: [
+          { platform: "TikTok", accountHandle: "@k", url: "https://tk/1" },
+          { platform: "Instagram", accountHandle: "@k2", url: "https://ig/2" },
+        ],
+      },
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+    });
+    expect(multi).toContain("Voir le post TikTok");
+    expect(multi).toContain("Voir le post Instagram");
+  });
+});
+
+describe("buildGroupedPublicationsMessage", () => {
+  it("groupe la rafale et signale les saisies admin ligne par ligne", () => {
+    const msg = buildGroupedPublicationsMessage({
+      lines: [
+        publicationLine(PUB_CTX),
+        publicationLine({ ...PUB_CTX, creatorName: "Léa", byAdmin: true }),
+      ],
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+    });
+    expect(msg).toContain("2 autres publications");
+    expect(msg).toContain("Kelly");
+    expect(msg).toContain("Léa");
+    expect(msg).toContain("(saisi par l'admin)");
+  });
+
+  it("une seule → singulier", () => {
+    const msg = buildGroupedPublicationsMessage({
+      lines: [publicationLine(PUB_CTX)],
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+    });
+    expect(msg).toContain("1 autre publication");
+  });
+});
+
+// ─── Revue vidéo ─────────────────────────────────────────────────────────────
+
+describe("buildVideoApprovedMessage / buildVideoRejectedMessage", () => {
+  it("la validation nomme la créatrice, la mission et QUI a validé", () => {
+    const msg = buildVideoApprovedMessage({
+      ctx: REVIEW_CTX,
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+    });
+    expect(msg).toContain("Kelly");
+    expect(msg).toContain("Hook Erreur");
+    expect(msg).toContain("Validée par Anthony");
+  });
+
+  it("le refus rend le MOTIF EN ENTIER, jamais tronqué", () => {
+    // Le motif est tout le contenu utile du message : aucun plafond local (seul
+    // le plafond global de l'API Telegram s'applique, en dernier recours).
+    const motif =
+      "Le hook est coupé, on n'entend pas la première phrase. " +
+      "Refais la prise en te rapprochant du micro, et garde le cadrage vertical. ".repeat(6);
+    const msg = buildVideoRejectedMessage({
+      ctx: REVIEW_CTX,
+      reason: motif,
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+    });
+    expect(msg).toContain(motif.trim().slice(0, 60));
+    expect(msg).toContain("garde le cadrage vertical");
+    expect(msg).toContain("Refusée par Anthony");
+    expect(msg).not.toContain("…");
+  });
+
+  it("un motif à caractères spéciaux est échappé, pas cassé", () => {
+    const msg = buildVideoRejectedMessage({
+      ctx: REVIEW_CTX,
+      reason: "Le <hook> & la fin ne collent pas",
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+    });
+    expect(msg).toContain("&lt;hook&gt; &amp; la fin");
+  });
+
+  it("nom d'admin inconnu → repli explicite, JAMAIS un email", () => {
+    const msg = buildVideoApprovedMessage({
+      ctx: { ...REVIEW_CTX, actorName: null },
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+    });
+    expect(msg).toContain("Validée par un administrateur");
   });
 });
 
@@ -364,6 +535,13 @@ describe("buildDigestMessage", () => {
 
 /** Adresse email : quelque chose@quelque.chose — un @handle TikTok n'en est pas une. */
 const EMAIL = /[^\s@<>]+@[^\s@<>]+\.[a-z]{2,}/i;
+/**
+ * Les URL sont retirées AVANT le scan d'email : un lien de post contient
+ * « tiktok.com/@kelly.repack », qui coche le motif « quelquechose@quelque.chose »
+ * sans être une adresse. Sans ce retrait, le garde-fou crierait au loup sur
+ * chaque publication et finirait désarmé.
+ */
+const sansUrl = (t: string) => t.replace(/https?:\/\/\S+/g, " ");
 /** Symbole ou code ISO de devise = un montant s'est glissé dans le message. */
 const CURRENCY = /[$€£¥]|\b(?:USD|EUR|GBP)\b/i;
 
@@ -418,13 +596,39 @@ function everyMessage(): string[] {
       projectSlug: SLUG,
     }) ?? "",
     buildTestMessage("Snytch"),
+    buildPublicationMessage({
+      ctx: PUB_CTX,
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+    }),
+    buildPublicationMessage({
+      ctx: { ...PUB_CTX, byAdmin: true },
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+    }),
+    buildGroupedPublicationsMessage({
+      lines: [publicationLine(PUB_CTX)],
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+    }),
+    buildVideoApprovedMessage({
+      ctx: REVIEW_CTX,
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+    }),
+    buildVideoRejectedMessage({
+      ctx: REVIEW_CTX,
+      reason: "Le hook est coupé, on n'entend pas la première phrase.",
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+    }),
   ];
 }
 
 describe("aucune donnée confidentielle ne sort dans un message", () => {
   it("aucun message ne contient d'adresse email", () => {
     for (const msg of everyMessage()) {
-      expect(msg).not.toMatch(EMAIL);
+      expect(sansUrl(msg)).not.toMatch(EMAIL);
     }
   });
 
@@ -435,7 +639,15 @@ describe("aucune donnée confidentielle ne sort dans un message", () => {
   });
 
   it("le garde-fou attrape bien une vraie fuite (il n'est pas vide de sens)", () => {
-    expect("Contacte kelly@exemple.com").toMatch(EMAIL);
+    expect(sansUrl("Contacte kelly@exemple.com")).toMatch(EMAIL);
+    // …et le retrait des URL ne doit PAS masquer une vraie adresse voisine.
+    expect(
+      sansUrl("https://tiktok.com/@k et kelly@exemple.com"),
+    ).toMatch(EMAIL);
+    // Une URL de post seule ne déclenche rien.
+    expect(
+      sansUrl("https://www.tiktok.com/@kelly.repack/video/123"),
+    ).not.toMatch(EMAIL);
     expect("Dû : 1 240 $").toMatch(CURRENCY);
     // …et ne se déclenche PAS sur un handle réseau social, qui est légitime.
     expect("@kelly.repack").not.toMatch(EMAIL);

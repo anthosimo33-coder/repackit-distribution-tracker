@@ -84,6 +84,10 @@ export function dashboardUrl(appBaseUrl: string, projectSlug: string): string {
   return `${appBaseUrl}/admin/${projectSlug}/dashboard`;
 }
 
+export function assignmentsUrl(appBaseUrl: string, projectSlug: string): string {
+  return `${appBaseUrl}/admin/${projectSlug}/assignments`;
+}
+
 // ─── Délais ──────────────────────────────────────────────────────────────────
 
 /**
@@ -123,8 +127,18 @@ export interface SubmissionContext {
   targets: { platform: string; accountHandle: string | null }[];
 }
 
-/** « Campagne Été (format : Hook Erreur) », ou l'un des deux, ou « — ». */
-function describeMission(ctx: SubmissionContext): string {
+/**
+ * « Campagne Été (format : Hook Erreur) », ou l'un des deux, ou « — ».
+ *
+ * Signature réduite aux DEUX champs réellement lus : le nommage d'une mission est
+ * le même pour une soumission, une publication ou une décision de revue, et
+ * exiger un `SubmissionContext` complet obligerait les autres à inventer des
+ * cibles qu'ils n'ont pas.
+ */
+function describeMission(ctx: {
+  campaignName: string | null;
+  formatName: string | null;
+}): string {
   const { campaignName, formatName } = ctx;
   if (campaignName && formatName) return `${campaignName} (format : ${formatName})`;
   return campaignName ?? formatName ?? "—";
@@ -192,6 +206,154 @@ export function buildGroupedSubmissionsMessage(params: {
     bulletList(lines, n),
     "",
     link("Ouvrir la validation", validationUrl(appBaseUrl, projectSlug)),
+  ].join("\n");
+}
+
+// ─── Publication confirmée ───────────────────────────────────────────────────
+
+/**
+ * Contexte d'UNE publication. Même règle de confidentialité que le reste : ni
+ * email, ni montant. L'URL du post est PUBLIQUE par nature — c'est le lien que
+ * la créatrice vient de coller.
+ */
+export interface PublicationContext {
+  creatorName: string;
+  campaignName: string | null;
+  formatName: string | null;
+  /** Une entrée par plateforme publiée, avec le lien du post. */
+  targets: { platform: string; accountHandle: string | null; url: string | null }[];
+  /**
+   * true = l'admin a saisi le lien EN SECOURS à la place de la créatrice. À dire
+   * explicitement : le geste n'a pas la même valeur de preuve, et c'est la seule
+   * façon de distinguer « elle a publié » de « on a rattrapé ».
+   */
+  byAdmin: boolean;
+}
+
+/** « TikTok · @handle » par cible publiée (le lien est rendu à part, cliquable). */
+function describePublicationTargets(ctx: PublicationContext): string {
+  if (ctx.targets.length === 0) return "aucune cible";
+  return ctx.targets
+    .map((t) => (t.accountHandle ? `${t.platform} · ${t.accountHandle}` : t.platform))
+    .join(", ");
+}
+
+/** Ligne compacte d'une publication, pour le message groupé. */
+export function publicationLine(ctx: PublicationContext): string {
+  const suffix = ctx.byAdmin ? " (saisi par l'admin)" : "";
+  return `${ctx.creatorName} — ${describeMission(ctx)} → ${describePublicationTargets(ctx)}${suffix}`;
+}
+
+/**
+ * Message d'UNE publication (front montant de la fenêtre anti-flood). Un lien
+ * CLIQUABLE par plateforme publiée : c'est l'objet même de la notification, on
+ * ne renvoie pas vers Jarvia pour aller le chercher.
+ */
+export function buildPublicationMessage(params: {
+  ctx: PublicationContext;
+  appBaseUrl: string;
+  projectSlug: string;
+}): string {
+  const { ctx, appBaseUrl, projectSlug } = params;
+  const lignes = [
+    "🚀 <b>Publication confirmée</b>",
+    "",
+    `<b>${escapeTelegram(ctx.creatorName)}</b> — ${escapeTelegram(describeMission(ctx))}`,
+    `→ ${escapeTelegram(describePublicationTargets(ctx))}`,
+  ];
+  if (ctx.byAdmin) {
+    lignes.push("⚠️ Lien saisi par l'admin en secours, pas par la créatrice.");
+  }
+  const liens = ctx.targets
+    .filter((t): t is typeof t & { url: string } => Boolean(t.url))
+    .map((t) => link(`Voir le post ${t.platform}`, t.url));
+  if (liens.length > 0) {
+    lignes.push("", ...liens);
+  }
+  lignes.push("", link("Ouvrir les missions", assignmentsUrl(appBaseUrl, projectSlug)));
+  return lignes.join("\n");
+}
+
+/**
+ * Message GROUPÉ des publications arrivées pendant la fenêtre anti-flood — même
+ * mécanique que les soumissions : une créatrice qui poste ses cinq vidéos du
+ * jour ne doit pas produire cinq messages.
+ */
+export function buildGroupedPublicationsMessage(params: {
+  lines: string[];
+  total?: number;
+  appBaseUrl: string;
+  projectSlug: string;
+}): string {
+  const { lines, appBaseUrl, projectSlug } = params;
+  const n = params.total ?? lines.length;
+  return [
+    `🚀 <b>${n} autre${n > 1 ? "s" : ""} ${plural(n, "publication")}</b>`,
+    "",
+    bulletList(lines, n),
+    "",
+    link("Ouvrir les missions", assignmentsUrl(appBaseUrl, projectSlug)),
+  ].join("\n");
+}
+
+// ─── Revue vidéo : validée / refusée ─────────────────────────────────────────
+
+/**
+ * Contexte d'une décision de revue. `actorName` = qui a tranché.
+ *
+ * L'auteur de l'action reçoit AUSSI la notification : le canal est un groupe
+ * partagé, pas une boîte personnelle — il n'existe pas de destinataire
+ * individuel à comparer à l'auteur, et le groupe sert de journal pour l'équipe.
+ */
+export interface ReviewContext {
+  creatorName: string;
+  campaignName: string | null;
+  formatName: string | null;
+  /** Nom de l'admin. JAMAIS son email — repli explicite si le nom manque. */
+  actorName: string | null;
+}
+
+const actorLabel = (a: string | null) => a ?? "un administrateur";
+
+export function buildVideoApprovedMessage(params: {
+  ctx: ReviewContext;
+  appBaseUrl: string;
+  projectSlug: string;
+}): string {
+  const { ctx, appBaseUrl, projectSlug } = params;
+  return [
+    "✅ <b>Vidéo validée</b>",
+    "",
+    `<b>${escapeTelegram(ctx.creatorName)}</b> — ${escapeTelegram(describeMission(ctx))}`,
+    `Validée par ${escapeTelegram(actorLabel(ctx.actorName))}`,
+    "",
+    link("Ouvrir les missions", assignmentsUrl(appBaseUrl, projectSlug)),
+  ].join("\n");
+}
+
+/**
+ * Refus. Le MOTIF est rendu EN ENTIER et jamais tronqué ici : c'est l'unique
+ * contenu utile du message (le plafond global de l'API reste le seul garde-fou,
+ * cf clampToTelegramLimit). Il est mis en dernier, juste avant le lien, pour
+ * rester lisible même long.
+ */
+export function buildVideoRejectedMessage(params: {
+  ctx: ReviewContext;
+  reason: string;
+  appBaseUrl: string;
+  projectSlug: string;
+}): string {
+  const { ctx, reason, appBaseUrl, projectSlug } = params;
+  return [
+    "❌ <b>Vidéo refusée</b>",
+    "",
+    `<b>${escapeTelegram(ctx.creatorName)}</b> — ${escapeTelegram(describeMission(ctx))}`,
+    `Refusée par ${escapeTelegram(actorLabel(ctx.actorName))}`,
+    "",
+    "<b>Motif :</b>",
+    escapeTelegram(reason),
+    "",
+    link("Ouvrir les missions", assignmentsUrl(appBaseUrl, projectSlug)),
   ].join("\n");
 }
 
