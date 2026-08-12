@@ -90,6 +90,16 @@ export default defineSchema({
     // NB : la nav du portail PARTENAIRE (« Mes fichiers ») reste gatée sur le
     // slug côté client — le chantier talent ne change rien à l'écran partenaire.
     fileDropEnabled: v.optional(v.boolean()),
+    // ─── BRIEF PERMANENT du talent — quel format lui sert de consigne ─────────
+    // Le talent n'a pas d'assignation : son brief est PERMANENT, le même à chaque
+    // dépôt (« voilà comment on filme un hook chez nous »). Plutôt qu'un champ
+    // texte de plus, il pointe un `formats` existant — l'admin l'édite avec
+    // l'outil qu'il connaît déjà, exemples vidéo compris.
+    // ⚠️ Seuls `brief` et `exampleVideos` de ce format sortent côté talent (cf
+    // convex/talentBriefFields.ts) : les `hooks` sont des textes de SCRIPT et
+    // `rateModel` est de la paie. Absent = aucun brief affiché (état honnête,
+    // jamais un écran vide inexpliqué). Posé via projects.setTalentSettings.
+    talentBriefFormatId: v.optional(v.id("formats")),
     // ─── Grille de bonus par DÉFAUT du projet (paliers cumul de vues) ──────────
     // Grille (pricings) héritée par toute créatrice SANS grille perso
     // (creators.bonusPricingId). Sert l'AFFICHAGE (progression) ET la PAIE

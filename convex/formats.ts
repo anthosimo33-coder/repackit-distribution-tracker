@@ -1,4 +1,13 @@
-import { adminMutation, adminQuery, e2eMutation } from "./functions";
+import {
+  adminMutation,
+  adminQuery,
+  e2eMutation,
+  talentQuery,
+} from "./functions";
+import {
+  pickTalentBrief,
+  TALENT_BRIEF_FIELDS,
+} from "./talentBriefFields";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -8,6 +17,11 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
  * exemples « fichier » sont stockées dans Convex storage (jamais téléchargeables,
  * jamais publiées) ; leur URL est résolue SERVEUR dans les queries (cf
  * publications → imageUrl). Les hooks sont embarqués en TEXTE (auto-suffisant).
+ *
+ * Ce module était 100 % adminQuery/adminMutation. Une seule exception depuis le
+ * chantier talent : `getMyTalentBrief`, dont la sortie est réduite par une
+ * allowlist (cf convex/talentBriefFields.ts) — un format porte des textes de
+ * script et une grille de paie, il ne sort jamais entier hors de l'admin.
  */
 
 const typeValidator = v.union(
@@ -72,6 +86,19 @@ export async function withResolvedExamples(ctx: QueryCtx, format: Doc<"formats">
   );
   return { ...format, exampleVideos };
 }
+
+/** Format ENRICHI (URLs signées résolues) — la forme que rend withResolvedExamples. */
+type ResolvedFormat = Awaited<ReturnType<typeof withResolvedExamples>>;
+
+/**
+ * Brief servi au TALENT. Le type DÉRIVE de l'allowlist : ajouter un champ à
+ * `TALENT_BRIEF_FIELDS` l'ouvre ici, et rien d'autre ne peut sortir sans y
+ * passer — tsc refuse le reste.
+ */
+export type TalentBriefView = Pick<
+  ResolvedFormat,
+  (typeof TALENT_BRIEF_FIELDS)[number]
+>;
 
 /**
  * Un format est-il « référencé » (→ suppression interdite, archivage proposé) ?
@@ -148,6 +175,38 @@ export const getFormat = adminQuery({
     if (!format || format.projectId !== ctx.projectId) return null;
     const resolved = await withResolvedExamples(ctx, format);
     return { ...resolved, isReferenced: await isFormatReferenced(ctx, id) };
+  },
+});
+
+/**
+ * BRIEF PERMANENT DU TALENT — la seule lecture non-admin de ce module.
+ *
+ * Le talent n'a pas d'assignation : là où le partenaire découvre un brief à
+ * travers une mission, lui a une consigne PERMANENTE, la même à chaque dépôt.
+ * Elle pointe un `formats` du projet (projects.talentBriefFormatId) pour que
+ * l'admin l'édite avec l'outil qu'il connaît déjà, exemples vidéo compris.
+ *
+ * ⚠️ Un format est un objet RICHE, conçu pour le partenaire : il porte aussi des
+ * TEXTES DE SCRIPT (`hooks`) et une grille de RÉMUNÉRATION (`rateModel`). La
+ * sortie passe donc par une allowlist (convex/talentBriefFields.ts), jamais par
+ * un spread — c'est exactement le geste qui a produit deux fuites réelles côté
+ * assignments (#167, #169).
+ *
+ * Renvoie `null` si aucun format n'est désigné, ou s'il a été supprimé : l'écran
+ * affiche un état honnête plutôt qu'un cadre vide inexpliqué.
+ */
+export const getMyTalentBrief = talentQuery({
+  args: {},
+  handler: async (ctx): Promise<TalentBriefView | null> => {
+    const project = await ctx.db.get(ctx.projectId);
+    const formatId = project?.talentBriefFormatId;
+    if (!formatId) return null;
+    const format = await ctx.db.get(formatId);
+    // Défense en profondeur : un format d'un AUTRE projet ne sort jamais, même
+    // si le champ le désignait (édition manuelle, projet dupliqué).
+    if (!format || format.projectId !== ctx.projectId) return null;
+    const resolved = await withResolvedExamples(ctx, format);
+    return pickTalentBrief(resolved) as TalentBriefView;
   },
 });
 
