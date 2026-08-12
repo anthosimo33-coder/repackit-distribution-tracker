@@ -14,6 +14,7 @@ import { internal } from "./_generated/api";
 import { getProjectBySlug, SNYTCH_SLUG } from "./projects";
 import { isFileDropEnabled } from "./fileDrop";
 import { ConvexError, v } from "convex/values";
+import type { ActionCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import {
   googleDriveConfig,
@@ -275,11 +276,75 @@ export type UploadSessionResult =
   | { ok: false; reason: "disabled" | "not-enabled" };
 
 /**
- * Renvoie une URL de session d'upload RESUMABLE pour le dossier du créateur
- * courant. Le client PUT ensuite le fichier DIRECTEMENT sur cette URL (Google) —
- * le gros fichier ne passe pas par Convex. Self-heal : crée le dossier s'il
- * manque encore. `disabled` = env Drive absent (rien à faire côté client) ;
- * `not-snytch` = projet non concerné (défense en profondeur).
+ * CŒUR PARTAGÉ de l'octroi de session d'upload — un SEUL chemin pour les deux
+ * portails (partenaire → snytchDriveFiles, talent → rushes).
+ *
+ * Pourquoi factoriser plutôt que recopier 30 lignes : ce code décide DANS QUEL
+ * DOSSIER Drive atterrit un fichier. Deux copies qui divergent, c'est le dépôt
+ * d'un talent qui se retrouve chez quelqu'un d'autre — une panne silencieuse et
+ * irréversible (le binaire est parti). Le `role` est fixé par la fonction
+ * appelante, jamais par le client.
+ *
+ * Self-heal : crée le dossier s'il manque encore. `disabled` = env Drive absent
+ * (rien à faire côté client) ; `not-enabled` = dépôt fermé sur ce projet.
+ */
+export async function openUploadSession(
+  ctx: ActionCtx,
+  args: {
+    userId: Id<"users">;
+    projectId: Id<"projects">;
+    role: "creator" | "talent";
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+  },
+): Promise<UploadSessionResult> {
+  const me = await ctx.runQuery(internal.snytchDrive.resolveMyFolder, {
+    userId: args.userId,
+    projectId: args.projectId,
+    role: args.role,
+  });
+  if (!me.fileDropEnabled) return { ok: false, reason: "not-enabled" };
+
+  let folderId = me.driveFolderId;
+  if (!folderId) {
+    const ensured = await ctx.runAction(
+      internal.snytchDrive.ensureCreatorFolder,
+      { creatorId: me.creatorId },
+    );
+    folderId = ensured.folderId ?? null;
+  }
+  if (!folderId) return { ok: false, reason: "disabled" };
+
+  const config = googleDriveConfig();
+  if (!config) return { ok: false, reason: "disabled" };
+
+  try {
+    const uploadUrl = await initResumableUpload(
+      config,
+      folderId,
+      sanitizeFileName(args.fileName),
+      args.mimeType,
+      args.sizeBytes,
+    );
+    // Diagnostic : confirme que l'ÉTAPE 1 (init resumable côté serveur) réussit.
+    // L'upload du binaire est ensuite relayé par /api/snytch-drive/upload
+    // (même origine → pas de CORS). On ne logge JAMAIS l'uploadUrl (capacité).
+    console.info(
+      "[snytch-drive] session resumable initiée (étape 1 OK) — upload relayé same-origin.",
+    );
+    return { ok: true, uploadUrl };
+  } catch (e) {
+    console.error(`[snytch-drive] init upload échoué: ${errMsg(e)}`);
+    throw new ConvexError(
+      "Impossible de démarrer l'upload vers Drive. Réessaie.",
+    );
+  }
+}
+
+/**
+ * Session d'upload du CRÉATEUR PARTENAIRE (« Mes fichiers »). Le client PUT
+ * ensuite le fichier par chunks via le relais same-origin.
  */
 export const getUploadSession = authedAction({
   args: {
@@ -291,49 +356,15 @@ export const getUploadSession = authedAction({
   handler: async (
     ctx,
     { projectId, fileName, mimeType, sizeBytes },
-  ): Promise<UploadSessionResult> => {
-    const me = await ctx.runQuery(internal.snytchDrive.resolveMyFolder, {
+  ): Promise<UploadSessionResult> =>
+    openUploadSession(ctx, {
       userId: ctx.userId,
       projectId,
       role: "creator",
-    });
-    if (!me.fileDropEnabled) return { ok: false, reason: "not-enabled" };
-
-    let folderId = me.driveFolderId;
-    if (!folderId) {
-      const ensured = await ctx.runAction(
-        internal.snytchDrive.ensureCreatorFolder,
-        { creatorId: me.creatorId },
-      );
-      folderId = ensured.folderId ?? null;
-    }
-    if (!folderId) return { ok: false, reason: "disabled" };
-
-    const config = googleDriveConfig();
-    if (!config) return { ok: false, reason: "disabled" };
-
-    try {
-      const uploadUrl = await initResumableUpload(
-        config,
-        folderId,
-        sanitizeFileName(fileName),
-        mimeType,
-        sizeBytes,
-      );
-      // Diagnostic : confirme que l'ÉTAPE 1 (init resumable côté serveur) réussit.
-      // L'upload du binaire est ensuite relayé par /api/snytch-drive/upload
-      // (même origine → pas de CORS). On ne logge JAMAIS l'uploadUrl (capacité).
-      console.info(
-        "[snytch-drive] session resumable initiée (étape 1 OK) — upload relayé same-origin.",
-      );
-      return { ok: true, uploadUrl };
-    } catch (e) {
-      console.error(`[snytch-drive] init upload échoué: ${errMsg(e)}`);
-      throw new ConvexError(
-        "Impossible de démarrer l'upload vers Drive. Réessaie.",
-      );
-    }
-  },
+      fileName,
+      mimeType,
+      sizeBytes,
+    }),
 });
 
 /**
