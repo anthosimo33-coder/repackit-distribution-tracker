@@ -132,3 +132,14 @@ Ce fichier liste les anti-patterns repérés dans la zone touchée par chaque fe
 - **Où** : `convex/publications.ts` (`computeNextPublicationId`,
   `getNextCarouselId`, `getNextPublicationId`, garde `updateDraft:1266`).
   Parent : TD-004 (`carouselId` est une string libre, pas un identifiant typé).
+
+---
+
+## Détecté pendant le chantier notifications hors-app (août 2026)
+
+### TD-022 — Les notifications RELISENT la donnée au lieu de la figer à l'émission
+- **Fichiers** : `convex/notifications.ts` (`getSubmissionContext`, `getAssignmentEventContext`), appelés par `notifySubmission` / `notifyPublication` / `notifyVideoReviewed`.
+- **Constat** : la mutation planifie l'action avec le seul `assignmentId` ; l'action relit l'assignation pour composer le message. Le contenu du message est donc l'état AU MOMENT DE L'ENVOI, pas au moment du geste.
+- **Pourquoi c'est une dette et pas un bug** : entre planification et exécution il s'écoule des millisecondes, et les bornes d'ordre de `confirmPublicationCore` (cf `lib/notification-wiring.test.ts`) garantissent que tout ce que le message lit est déjà persisté. Le mode d'échec est un mode d'échec de DÉVELOPPEMENT — un chantier qui déplacerait une écriture — et il est désormais attrapé par test.
+- **Ce qui tranchera le jour du correctif** : le dépôt a déjà répondu à cette question partout ailleurs. `rateSnapshot`, `pricingSnapshot`, `scriptCombo.assembledScript`, `creatorNameSnapshot` : la convention est de FIGER ce qu'on communique au moment où on le communique. Une notification est par nature une affirmation sur un instant.
+- **Condition** : basculer les DEUX mécanismes ensemble (soumission ET publication/revue). Deux notifications voisines avec deux mécanismes différents seraient pires que le risque latent.
