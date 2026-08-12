@@ -1,4 +1,5 @@
 import {
+  adminMutation,
   authedQuery,
   e2eMutation,
   publicQuery,
@@ -242,6 +243,54 @@ export const setProjectCurrencyBySlug = internalMutation({
       patch.fxRateToRevenue = fxRateToRevenue > 0 ? fxRateToRevenue : undefined;
     }
     await ctx.db.patch(project._id, patch);
+    return { updated: true };
+  },
+});
+
+/**
+ * Réglages de l'espace TALENT d'un projet : quel format sert de brief permanent,
+ * et le dépôt de fichiers est-il ouvert.
+ *
+ * `adminMutation` et non `internalMutation` : ce n'est pas de l'exploitation
+ * ponctuelle comme les devises ou le mapping Whop, c'est un réglage qu'un admin
+ * de projet ajuste (changer le brief = changer la consigne de tournage). L'écran
+ * qui l'appellera arrive avec la revue des rushes ; le passer par un wrapper
+ * admin dès maintenant évite d'inventer une surface réservée aux tests.
+ *
+ * Patch PARTIEL : un champ omis reste inchangé. `talentBriefFormatId: null`
+ * retire le brief (l'espace talent affiche alors un état honnête, pas un cadre
+ * vide). Le format désigné est vérifié comme appartenant AU PROJET — un id d'un
+ * autre projet est refusé plutôt que stocké et filtré à la lecture.
+ *
+ * ⚠️ `fileDropEnabled` ne commande QUE le dépôt Drive. Le régime strict de
+ * disponibilité des comptes reste sur le slug (cf convex/fileDrop.ts).
+ */
+export const setTalentSettings = adminMutation({
+  args: {
+    talentBriefFormatId: v.optional(v.union(v.id("formats"), v.null())),
+    fileDropEnabled: v.optional(v.boolean()),
+  },
+  handler: async (
+    ctx,
+    { talentBriefFormatId, fileDropEnabled },
+  ): Promise<{ updated: true }> => {
+    const patch: {
+      talentBriefFormatId?: Id<"formats"> | undefined;
+      fileDropEnabled?: boolean;
+    } = {};
+    if (talentBriefFormatId !== undefined) {
+      if (talentBriefFormatId === null) {
+        patch.talentBriefFormatId = undefined;
+      } else {
+        const format = await ctx.db.get(talentBriefFormatId);
+        if (!format || format.projectId !== ctx.projectId) {
+          throw new ConvexError("Format introuvable dans ce projet.");
+        }
+        patch.talentBriefFormatId = talentBriefFormatId;
+      }
+    }
+    if (fileDropEnabled !== undefined) patch.fileDropEnabled = fileDropEnabled;
+    await ctx.db.patch(ctx.projectId, patch);
     return { updated: true };
   },
 });

@@ -325,3 +325,35 @@ export async function initResumableUpload(
   if (!sessionUrl) throw new Error("Init upload Drive: URL de session absente.");
   return sessionUrl;
 }
+
+/**
+ * Supprime DÉFINITIVEMENT un fichier Drive (pas de corbeille : le service account
+ * en est propriétaire, la corbeille compterait encore dans le quota). Sert à la
+ * purge du binaire d'un rush refusé ou expiré, les métadonnées restant en base.
+ *
+ * Renvoie `true` si le fichier n'est plus là APRÈS l'appel — donc aussi sur un
+ * 404, qui signifie « déjà supprimé » et rend l'opération idempotente : rejouer
+ * une purge ne doit pas échouer. Tout autre échec renvoie `false` et l'appelant
+ * NE marque pas le rush comme purgé — mieux vaut réessayer plus tard que
+ * prétendre qu'un fichier encore présent a disparu.
+ */
+export async function deleteDriveFile(
+  config: GoogleDriveConfig,
+  fileId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<boolean> {
+  const token = await getAccessToken(config, fetchImpl);
+  const res = await fetchWithTimeout(
+    `${DRIVE_API}/files/${encodeURIComponent(fileId)}`,
+    { method: "DELETE", headers: { Authorization: `Bearer ${token}` } },
+    fetchImpl,
+  );
+  // 204 = supprimé ; 404/410 = déjà parti (idempotence).
+  if (res.ok || res.status === 404 || res.status === 410) return true;
+  const json: unknown = await res.json().catch(() => null);
+  console.error(
+    `[snytch-drive] suppression Drive échouée (HTTP ${res.status}) : ` +
+      (driveErrorMessage(json) ?? "raison inconnue"),
+  );
+  return false;
+}

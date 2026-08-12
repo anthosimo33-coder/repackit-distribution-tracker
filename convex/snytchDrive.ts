@@ -8,10 +8,13 @@ import {
   creatorMutation,
   creatorQuery,
   requireCreator,
+  requireTalent,
 } from "./functions";
 import { internal } from "./_generated/api";
 import { getProjectBySlug, SNYTCH_SLUG } from "./projects";
+import { isFileDropEnabled } from "./fileDrop";
 import { ConvexError, v } from "convex/values";
+import type { ActionCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import {
   googleDriveConfig,
@@ -21,14 +24,25 @@ import {
 } from "./googleDriveApi";
 
 /**
- * Dépôt de fichiers Snytch (Google Drive, service account) — orchestration.
+ * Dépôt de fichiers (Google Drive, service account) — orchestration.
  *
- * SNYTCH UNIQUEMENT. Chaque créateur a un sous-dossier Drive (creators.
- * driveFolderId) dans le dossier racine du fondateur ; il y dépose vidéos +
- * photos par UPLOAD DIRECT navigateur → Drive (le gros fichier ne transite
- * JAMAIS par Convex). Cette table `snytchDriveFiles` ne stocke que des
- * métadonnées (liste « ce que tu as déposé »). Aucune vue admin in-app : le
- * fondateur accède aux fichiers via son Google Drive.
+ * OUVERT PAR PROJET (`projects.fileDropEnabled`, cf convex/fileDrop.ts). Le gate
+ * était `slug === "snytch"` en dur ; il est désormais un champ de projet dont
+ * l'ABSENCE retombe exactement sur l'ancien comportement (Snytch, et lui seul).
+ * ⚠️ Ce dégatage ne concerne QUE le dépôt : le régime strict de disponibilité
+ * des comptes reste sur `projects.isSnytchProject` (risque 8 du diagnostic).
+ *
+ * Chaque fiche `creators` a un sous-dossier Drive (creators.driveFolderId) dans
+ * le dossier racine du fondateur ; le PARTENAIRE y dépose vidéos + photos par
+ * UPLOAD DIRECT navigateur → Drive (le gros fichier ne transite JAMAIS par
+ * Convex). Cette table `snytchDriveFiles` ne stocke que des métadonnées (liste
+ * « ce que tu as déposé »). Aucune vue admin in-app : le fondateur accède aux
+ * fichiers via son Google Drive.
+ *
+ * Le TALENT emprunte le même transport (session resumable + relais same-origin)
+ * mais écrit dans `rushes`, qui porte une machine à états — cf convex/rushes.ts.
+ * Seule la résolution de dossier est partagée (resolveMyFolder, paramétrée par
+ * un rôle fixé par la fonction appelante).
  *
  * FLUX (mêmes idiomes que convex/cloudflareStream.ts) :
  *   - Création dossier : à l'invitation (creators.inviteCreator) + rattachement
@@ -75,11 +89,13 @@ function sanitizeFileName(name: string): string {
 
 interface CreatorFolderInfo {
   name: string;
-  slug: string | null;
+  /** Décision RÉSOLUE serveur (cf convex/fileDrop.ts) — l'action ne réimplémente
+   *  pas la règle et ne compare plus aucun slug. */
+  fileDropEnabled: boolean;
   driveFolderId: string | null;
 }
 
-/** Nom + slug projet + dossier courant d'un créateur (pour ensureCreatorFolder). */
+/** Nom + dépôt ouvert ? + dossier courant d'un créateur (pour ensureCreatorFolder). */
 export const getCreatorFolderInfo = internalQuery({
   args: { creatorId: v.id("creators") },
   handler: async (ctx, { creatorId }): Promise<CreatorFolderInfo | null> => {
@@ -88,7 +104,7 @@ export const getCreatorFolderInfo = internalQuery({
     const project = await ctx.db.get(creator.projectId);
     return {
       name: creator.name,
-      slug: project?.slug ?? null,
+      fileDropEnabled: isFileDropEnabled(project),
       driveFolderId: creator.driveFolderId ?? null,
     };
   },
@@ -109,32 +125,57 @@ export const setDriveFolderId = internalMutation({
   },
 });
 
-/** creatorId + nom + slug + dossier du créateur AUTHENTIFIÉ (scoping strict). */
+/**
+ * creatorId + nom + dépôt ouvert ? + dossier du membre de portail AUTHENTIFIÉ.
+ *
+ * `role` est fixé par la FONCTION APPELANTE, jamais par le client : chaque
+ * portail a son action dédiée qui passe son propre littéral (le partenaire
+ * "creator" via getUploadSession, le talent "talent" via
+ * rushes.getDepositSession). Un rôle transmis depuis le navigateur n'ouvrirait
+ * rien de plus — requireTalent/requireCreator vérifient le membership — mais il
+ * ferait passer pour un choix client ce qui est une propriété de l'appelant.
+ */
 export const resolveMyFolder = internalQuery({
-  args: { userId: v.id("users"), projectId: v.id("projects") },
+  args: {
+    userId: v.id("users"),
+    projectId: v.id("projects"),
+    role: v.optional(v.union(v.literal("creator"), v.literal("talent"))),
+  },
   handler: async (
     ctx,
-    { userId, projectId },
+    { userId, projectId, role },
   ): Promise<{
     creatorId: Id<"creators">;
     name: string;
-    slug: string | null;
+    fileDropEnabled: boolean;
     driveFolderId: string | null;
   }> => {
-    // Rejette si l'appelant n'est pas un créateur de CE projet.
-    const creatorId = await requireCreator(ctx, userId, projectId);
+    // Rejette si l'appelant n'a pas le rôle attendu sur CE projet. Défaut
+    // "creator" : le comportement d'avant, pour l'appelant d'avant.
+    const creatorId =
+      role === "talent"
+        ? await requireTalent(ctx, userId, projectId)
+        : await requireCreator(ctx, userId, projectId);
     const creator = await ctx.db.get(creatorId);
     const project = await ctx.db.get(projectId);
     return {
       creatorId,
       name: creator?.name ?? "Créateur",
-      slug: project?.slug ?? null,
+      fileDropEnabled: isFileDropEnabled(project),
       driveFolderId: creator?.driveFolderId ?? null,
     };
   },
 });
 
-/** Créateurs Snytch sans dossier Drive (candidats backfill). */
+/**
+ * Créateurs Snytch sans dossier Drive (candidats backfill).
+ *
+ * VOLONTAIREMENT resté sur le slug, à la différence du chemin vivant : ce
+ * backfill est un one-shot historique (rattraper les créateurs antérieurs à la
+ * feature), déjà passé en prod, et son nom dit ce qu'il fait. Un projet qui
+ * ouvrirait le dépôt plus tard n'en a pas besoin — `ensureCreatorFolder` est
+ * planifié à chaque invitation, et les sessions d'upload se réparent seules.
+ */
 export const listSnytchCreatorsNeedingFolder = internalQuery({
   args: { limit: v.number() },
   handler: async (ctx, { limit }): Promise<Id<"creators">[]> => {
@@ -159,15 +200,17 @@ export const listSnytchCreatorsNeedingFolder = internalQuery({
 
 interface EnsureFolderResult {
   ok: boolean;
-  reason?: "not-found" | "not-snytch" | "disabled" | "create-failed";
+  reason?: "not-found" | "not-enabled" | "disabled" | "create-failed";
   folderId?: string;
 }
 
 /**
- * Crée (si besoin) le dossier Drive d'UN créateur Snytch. Idempotent (dossier
- * déjà posé → no-op), Snytch-gaté (RepackIt & co ignorés), dégradation propre
- * (env absent → log + no-op). Planifié à la création du créateur + réutilisé par
- * le backfill et le self-heal de getUploadSession.
+ * Crée (si besoin) le dossier Drive d'UNE fiche `creators` — partenaire comme
+ * talent, la fiche est la même table. Idempotent (dossier déjà posé → no-op),
+ * gaté par le DÉPÔT DU PROJET (cf convex/fileDrop.ts : absent ⇒ Snytch seul,
+ * comme avant), dégradation propre (env absent → log + no-op). Planifié à la
+ * création du créateur + réutilisé par le backfill et le self-heal des sessions
+ * d'upload.
  */
 export const ensureCreatorFolder = internalAction({
   args: { creatorId: v.id("creators") },
@@ -176,8 +219,8 @@ export const ensureCreatorFolder = internalAction({
       creatorId,
     });
     if (!info) return { ok: false, reason: "not-found" };
-    // SNYTCH ONLY — jamais de dossier pour les autres projets (RepackIt Creator).
-    if (info.slug !== SNYTCH_SLUG) return { ok: false, reason: "not-snytch" };
+    // Dépôt fermé sur ce projet → jamais de dossier (RepackIt Creator & co).
+    if (!info.fileDropEnabled) return { ok: false, reason: "not-enabled" };
     // Idempotent — déjà un dossier.
     if (info.driveFolderId) return { ok: true, folderId: info.driveFolderId };
 
@@ -228,16 +271,80 @@ export const ensureCreatorFolder = internalAction({
 
 // ─── Upload : session resumable (action) + confirmation (mutation) ───────────
 
-type UploadSessionResult =
+export type UploadSessionResult =
   | { ok: true; uploadUrl: string }
-  | { ok: false; reason: "disabled" | "not-snytch" };
+  | { ok: false; reason: "disabled" | "not-enabled" };
 
 /**
- * Renvoie une URL de session d'upload RESUMABLE pour le dossier du créateur
- * courant. Le client PUT ensuite le fichier DIRECTEMENT sur cette URL (Google) —
- * le gros fichier ne passe pas par Convex. Self-heal : crée le dossier s'il
- * manque encore. `disabled` = env Drive absent (rien à faire côté client) ;
- * `not-snytch` = projet non concerné (défense en profondeur).
+ * CŒUR PARTAGÉ de l'octroi de session d'upload — un SEUL chemin pour les deux
+ * portails (partenaire → snytchDriveFiles, talent → rushes).
+ *
+ * Pourquoi factoriser plutôt que recopier 30 lignes : ce code décide DANS QUEL
+ * DOSSIER Drive atterrit un fichier. Deux copies qui divergent, c'est le dépôt
+ * d'un talent qui se retrouve chez quelqu'un d'autre — une panne silencieuse et
+ * irréversible (le binaire est parti). Le `role` est fixé par la fonction
+ * appelante, jamais par le client.
+ *
+ * Self-heal : crée le dossier s'il manque encore. `disabled` = env Drive absent
+ * (rien à faire côté client) ; `not-enabled` = dépôt fermé sur ce projet.
+ */
+export async function openUploadSession(
+  ctx: ActionCtx,
+  args: {
+    userId: Id<"users">;
+    projectId: Id<"projects">;
+    role: "creator" | "talent";
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+  },
+): Promise<UploadSessionResult> {
+  const me = await ctx.runQuery(internal.snytchDrive.resolveMyFolder, {
+    userId: args.userId,
+    projectId: args.projectId,
+    role: args.role,
+  });
+  if (!me.fileDropEnabled) return { ok: false, reason: "not-enabled" };
+
+  let folderId = me.driveFolderId;
+  if (!folderId) {
+    const ensured = await ctx.runAction(
+      internal.snytchDrive.ensureCreatorFolder,
+      { creatorId: me.creatorId },
+    );
+    folderId = ensured.folderId ?? null;
+  }
+  if (!folderId) return { ok: false, reason: "disabled" };
+
+  const config = googleDriveConfig();
+  if (!config) return { ok: false, reason: "disabled" };
+
+  try {
+    const uploadUrl = await initResumableUpload(
+      config,
+      folderId,
+      sanitizeFileName(args.fileName),
+      args.mimeType,
+      args.sizeBytes,
+    );
+    // Diagnostic : confirme que l'ÉTAPE 1 (init resumable côté serveur) réussit.
+    // L'upload du binaire est ensuite relayé par /api/snytch-drive/upload
+    // (même origine → pas de CORS). On ne logge JAMAIS l'uploadUrl (capacité).
+    console.info(
+      "[snytch-drive] session resumable initiée (étape 1 OK) — upload relayé same-origin.",
+    );
+    return { ok: true, uploadUrl };
+  } catch (e) {
+    console.error(`[snytch-drive] init upload échoué: ${errMsg(e)}`);
+    throw new ConvexError(
+      "Impossible de démarrer l'upload vers Drive. Réessaie.",
+    );
+  }
+}
+
+/**
+ * Session d'upload du CRÉATEUR PARTENAIRE (« Mes fichiers »). Le client PUT
+ * ensuite le fichier par chunks via le relais same-origin.
  */
 export const getUploadSession = authedAction({
   args: {
@@ -249,54 +356,22 @@ export const getUploadSession = authedAction({
   handler: async (
     ctx,
     { projectId, fileName, mimeType, sizeBytes },
-  ): Promise<UploadSessionResult> => {
-    const me = await ctx.runQuery(internal.snytchDrive.resolveMyFolder, {
+  ): Promise<UploadSessionResult> =>
+    openUploadSession(ctx, {
       userId: ctx.userId,
       projectId,
-    });
-    if (me.slug !== SNYTCH_SLUG) return { ok: false, reason: "not-snytch" };
-
-    let folderId = me.driveFolderId;
-    if (!folderId) {
-      const ensured = await ctx.runAction(
-        internal.snytchDrive.ensureCreatorFolder,
-        { creatorId: me.creatorId },
-      );
-      folderId = ensured.folderId ?? null;
-    }
-    if (!folderId) return { ok: false, reason: "disabled" };
-
-    const config = googleDriveConfig();
-    if (!config) return { ok: false, reason: "disabled" };
-
-    try {
-      const uploadUrl = await initResumableUpload(
-        config,
-        folderId,
-        sanitizeFileName(fileName),
-        mimeType,
-        sizeBytes,
-      );
-      // Diagnostic : confirme que l'ÉTAPE 1 (init resumable côté serveur) réussit.
-      // L'upload du binaire est ensuite relayé par /api/snytch-drive/upload
-      // (même origine → pas de CORS). On ne logge JAMAIS l'uploadUrl (capacité).
-      console.info(
-        "[snytch-drive] session resumable initiée (étape 1 OK) — upload relayé same-origin.",
-      );
-      return { ok: true, uploadUrl };
-    } catch (e) {
-      console.error(`[snytch-drive] init upload échoué: ${errMsg(e)}`);
-      throw new ConvexError(
-        "Impossible de démarrer l'upload vers Drive. Réessaie.",
-      );
-    }
-  },
+      role: "creator",
+      fileName,
+      mimeType,
+      sizeBytes,
+    }),
 });
 
 /**
  * Enregistre les métadonnées d'un fichier déposé (après upload direct → Drive
  * réussi). Scopé au créateur courant (ctx.creatorId). Idempotent par driveFileId
- * (un ré-appel du client ne duplique pas). Snytch only (défense en profondeur).
+ * (un ré-appel du client ne duplique pas). Gaté par le dépôt du projet (défense
+ * en profondeur — l'octroi de session l'a déjà vérifié).
  */
 export const confirmUpload = creatorMutation({
   args: {
@@ -309,8 +384,8 @@ export const confirmUpload = creatorMutation({
   },
   handler: async (ctx, args): Promise<{ ok: true }> => {
     const project = await ctx.db.get(ctx.projectId);
-    if (project?.slug !== SNYTCH_SLUG) {
-      throw new ConvexError("Dépôt de fichiers réservé à Snytch.");
+    if (!isFileDropEnabled(project)) {
+      throw new ConvexError("Dépôt de fichiers indisponible pour ce projet.");
     }
     const existing = await ctx.db
       .query("snytchDriveFiles")

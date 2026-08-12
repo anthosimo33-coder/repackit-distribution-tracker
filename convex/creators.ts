@@ -1061,6 +1061,13 @@ export const cleanupTestCreators = e2eMutation({
         .withIndex("by_creator", (q) => q.eq("creatorId", c._id))
         .collect();
       for (const u of unlocks) await ctx.db.delete(u._id);
+      // Rushes déposés si la fiche est un TALENT (cascade, comme ci-dessus) :
+      // sans ça, chaque run laisse des rushes orphelins pointant une fiche morte.
+      const rushes = await ctx.db
+        .query("rushes")
+        .withIndex("by_talent", (q) => q.eq("talentId", c._id))
+        .collect();
+      for (const r of rushes) await ctx.db.delete(r._id);
       await ctx.db.delete(c._id);
       deleted++;
     }

@@ -15,7 +15,18 @@ correspond à un bug réel évité, mesuré ou constaté en production.
 **Découpage du chantier** : 7 PRs, une à la fois, dans cet ordre — 1 rôles &
 routage · 2 rushes & espace talent · 3 moteur de phase et quota · 4 revue &
 assignation script→rush · 5 comptes & appariement clippeur↔talent · 6 espace
-clippeur · 7 pricing. PR 1 mergée le 2026-08-11 (#25).
+clippeur · 7 pricing. PR 1 mergée le 2026-08-11 (#25), PR 2 le 2026-08-12.
+
+**Deux points posés en PR 2 dont la PR 4 hérite** :
+
+1. Le **motif de refus d'un rush est LU PAR LE TALENT** (`rushes.rejectionReason`,
+   inscrit dans l'allowlist `convex/talentRushFields.ts`). L'écran admin qui le
+   saisira doit donc l'annoncer — ce n'est pas un champ de note interne. Il est
+   borné serveur à 500 caractères et rendu en texte brut, jamais en markdown.
+2. Côté talent, l'état `assigned` s'affiche **« Validé »** et jamais « Retenu » ni
+   « Assigné » (`convex/rushStatus.TALENT_STATUS_LABELS`, verrouillé par un test
+   qui refuse tout libellé évoquant script, compte, clippeur ou assignation). Le
+   vocabulaire système reste dans le code.
 
 ---
 

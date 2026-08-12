@@ -119,4 +119,20 @@ crons.daily(
   {},
 );
 
+// Expiration des rushes jamais retenus — QUOTIDIEN. Un hook brut qui n'a pas
+// servi en 60 jours n'a plus de valeur d'usage et son binaire encombre Drive :
+// le rush passe `expired` et son fichier est purgé (métadonnées conservées).
+// Ne touche QUE les rushes encore libres — un rush déjà retenu ne périme pas,
+// la purge emporterait le binaire sous le clip en cours. 04:45 UTC : creux de
+// nuit, juste après la purge des blobs orphelins (04:15) avec laquelle il partage
+// la nature — du nettoyage — et clair de tous les relevés (07/08/09h) et des
+// crons horaires (:30 Whop, :45 PostHog, sur d'autres heures). Idempotent :
+// rejouer ne repasse pas sur ce qui est déjà expiré. Cf convex/rushes.ts.
+crons.daily(
+  "expire-unassigned-rushes",
+  { hourUTC: 4, minuteUTC: 45 },
+  internal.rushes.runExpiration,
+  {},
+);
+
 export default crons;

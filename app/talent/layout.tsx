@@ -10,6 +10,7 @@ import {
   usePortalGate,
 } from "@/components/portal/PortalRoleGate";
 import { Button } from "@/components/ui/button";
+import { TalentProjectProvider } from "@/components/talent/TalentProjectProvider";
 
 /**
  * Shell du portail TALENT (/talent/*) — la personne qui tourne et dépose les
@@ -37,7 +38,9 @@ export default function TalentPortalLayout({
   const gate = usePortalGate("talent");
 
   if (gate.state === "pending") return <PortalPending />;
-  if (gate.state === "empty") return <PortalEmpty />;
+  // `projectId` absent = fiche non rattachée : rien à afficher, et surtout pas un
+  // écran de dépôt qui échouerait à la première requête.
+  if (gate.state === "empty" || gate.projectId === null) return <PortalEmpty />;
 
   async function handleSignOut() {
     await signOut();
@@ -68,7 +71,9 @@ export default function TalentPortalLayout({
       </header>
       <main className="overflow-x-hidden">
         <div className="container mx-auto px-4 py-6 sm:px-6 sm:py-8">
-          {children}
+          <TalentProjectProvider projectId={gate.projectId}>
+            {children}
+          </TalentProjectProvider>
         </div>
       </main>
     </div>
