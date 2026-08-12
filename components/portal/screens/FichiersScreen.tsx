@@ -1,10 +1,14 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
 import { useViewAs } from "@/components/portal/ViewAsContext";
-import { DriveUploader } from "@/components/portal/DriveUploader";
+import {
+  DriveUploader,
+  type DriveUploadCopy,
+  type DriveUploadLimits,
+} from "@/components/portal/DriveUploader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FilmIcon, ImageIcon, FilesIcon, InboxIcon } from "lucide-react";
@@ -24,6 +28,25 @@ const KIND_LABEL: Record<"video" | "photo" | "other", string> = {
   video: "Vidéo",
   photo: "Photo",
   other: "Fichier",
+};
+
+/**
+ * Bornes et libellés du dépôt PARTENAIRE — repris à l'identique de ce que
+ * DriveUploader portait en dur avant d'être partagé avec l'espace talent (5 Go,
+ * vidéos + photos, extensions Apple). Aucun changement de comportement ici.
+ */
+const PARTNER_LIMITS: DriveUploadLimits = {
+  maxBytes: 5 * 1024 * 1024 * 1024,
+  accept: "video/*,image/*,.mov,.MOV,.heic,.HEIC,.heif",
+  kinds: ["video", "photo"],
+};
+
+const PARTNER_COPY: DriveUploadCopy = {
+  title: "Glisse tes vidéos et photos ici",
+  hint: "Vidéos et photos (iPhone .mov / .heic acceptés) — jusqu'à 5 Go",
+  button: "Choisir des fichiers",
+  tooBig: (name) => `${name} : trop lourd (5 Go max).`,
+  wrongKind: (name) => `${name} : accepte uniquement vidéos et photos.`,
 };
 
 function Notice({ title, body }: { title: string; body: string }) {
@@ -49,6 +72,8 @@ export default function FichiersScreen() {
     api.snytchDrive.listMyDriveFiles,
     snytch && !va ? { projectId: current.projectId } : "skip",
   );
+  const getUploadSession = useAction(api.snytchDrive.getUploadSession);
+  const confirmUpload = useMutation(api.snytchDrive.confirmUpload);
 
   // Mode admin « voir l'espace d'un créateur » : pas de vue fichiers in-app.
   if (va) {
@@ -82,7 +107,16 @@ export default function FichiersScreen() {
         </p>
       </header>
 
-      <DriveUploader projectId={current.projectId} />
+      <DriveUploader
+        backend={{
+          requestSession: (args) =>
+            getUploadSession({ projectId: current.projectId, ...args }),
+          confirm: (args) =>
+            confirmUpload({ projectId: current.projectId, ...args }),
+        }}
+        limits={PARTNER_LIMITS}
+        copy={PARTNER_COPY}
+      />
 
       <section className="space-y-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">

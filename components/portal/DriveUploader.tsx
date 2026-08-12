@@ -1,9 +1,6 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { useAction, useMutation } from "convex/react";
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import {
   CloudUploadIcon,
@@ -20,23 +17,72 @@ import { classifyDriveKind, formatBytes } from "@/lib/snytch-drive";
 import { cn } from "@/lib/utils";
 
 /**
- * Dépôt de contenu Snytch — upload navigateur → Google Drive (le gros fichier ne
+ * Dépôt de fichiers — upload navigateur → Google Drive (le gros fichier ne
  * transite JAMAIS par Convex). Par fichier :
- *   1. getUploadSession (action Convex) → URL de session resumable Drive (dossier
- *      du créateur + métadonnées fixés serveur, service account) ;
+ *   1. `backend.requestSession` (action Convex) → URL de session resumable Drive
+ *      (dossier de la personne + métadonnées fixés serveur, service account) ;
  *   2. upload PAR CHUNKS via le route handler same-origin /api/snytch-drive/upload
  *      (uploadViaProxy) — le PUT DIRECT navigateur → Google est bloqué par CORS,
  *      on relaie donc chaque chunk côté serveur (même origine = pas de CORS) ;
- *   3. confirmUpload (mutation) → enregistre les métadonnées (la liste « déposé »
- *      se rafraîchit toute seule via la réactivité Convex).
+ *   3. `backend.confirm` (mutation) → enregistre les métadonnées (la liste se
+ *      rafraîchit toute seule via la réactivité Convex).
  *
- * Multi-fichiers (séquentiel par lot), retry par fichier. Accepte vidéos +
- * photos, extensions Apple (.mov/.heic) tolérées. Mobile-first (dépôts iPhone).
+ * Multi-fichiers (séquentiel par lot), retry par fichier, extensions Apple
+ * (.mov/.heic) tolérées. Mobile-first (dépôts iPhone).
+ *
+ * DEUX PORTAILS, UN SEUL TRANSPORT. Le créateur partenaire dépose vidéos +
+ * photos dans `snytchDriveFiles` ; le talent dépose des rushes vidéo dans
+ * `rushes`. Les fonctions Convex, les bornes et les libellés sont donc INJECTÉS
+ * — ce composant ne connaît ni l'une ni l'autre des deux populations. La
+ * mécanique d'upload, elle, reste unique : c'est elle qui a été éprouvée, et la
+ * dupliquer pour changer trois libellés serait le meilleur moyen de la voir
+ * diverger.
  */
 
-/** Garde-fou : 5 Go max par fichier (au-delà, upload navigateur peu fiable). */
-const MAX_BYTES = 5 * 1024 * 1024 * 1024;
-const ACCEPT = "video/*,image/*,.mov,.MOV,.heic,.HEIC,.heif";
+/** Réponse d'octroi de session — forme structurelle, alignée sur le serveur. */
+export type DriveUploadSession =
+  | { ok: true; uploadUrl: string }
+  | { ok: false; reason: "disabled" | "not-enabled" };
+
+/** Fonctions Convex du portail appelant (le rôle est fixé côté serveur). */
+export type DriveUploadBackend = {
+  requestSession: (args: {
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+  }) => Promise<DriveUploadSession>;
+  confirm: (args: {
+    driveFileId: string;
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+    webViewLink?: string;
+    thumbnailLink?: string;
+  }) => Promise<unknown>;
+};
+
+/**
+ * Bornes du dépôt. `kinds` filtre ce qui est accepté (classifyDriveKind) et
+ * `maxBytes` refuse AVANT tout upload : les deux doivent décrire le dépôt réel,
+ * pas le maximum technique — un écran qui annonce 5 Go à quelqu'un qui dépose des
+ * prises de 5 secondes lui fait croire qu'on attend autre chose.
+ */
+export type DriveUploadLimits = {
+  maxBytes: number;
+  /** Attribut `accept` de l'input fichier. */
+  accept: string;
+  kinds: ReadonlyArray<"video" | "photo">;
+};
+
+/** Libellés — propres à chaque population, jamais devinés par le composant. */
+export type DriveUploadCopy = {
+  title: string;
+  hint: string;
+  button: string;
+  /** Message d'un fichier trop lourd / d'un type refusé (nom du fichier fourni). */
+  tooBig: (fileName: string) => string;
+  wrongKind: (fileName: string) => string;
+};
 
 type ItemStatus = "uploading" | "done" | "error";
 type UploadItem = {
@@ -121,12 +167,18 @@ async function uploadViaProxy(
   };
 }
 
-export function DriveUploader({ projectId }: { projectId: Id<"projects"> }) {
+export function DriveUploader({
+  backend,
+  limits,
+  copy,
+}: {
+  backend: DriveUploadBackend;
+  limits: DriveUploadLimits;
+  copy: DriveUploadCopy;
+}) {
   const [items, setItems] = useState<UploadItem[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const getUploadSession = useAction(api.snytchDrive.getUploadSession);
-  const confirmUpload = useMutation(api.snytchDrive.confirmUpload);
 
   function patch(localId: string, next: Partial<UploadItem>) {
     setItems((prev) =>
@@ -137,8 +189,7 @@ export function DriveUploader({ projectId }: { projectId: Id<"projects"> }) {
   async function uploadOne(item: UploadItem) {
     patch(item.localId, { status: "uploading", progress: 0, error: undefined });
     try {
-      const session = await getUploadSession({
-        projectId,
+      const session = await backend.requestSession({
         fileName: item.file.name,
         mimeType: item.file.type,
         sizeBytes: item.file.size,
@@ -155,8 +206,7 @@ export function DriveUploader({ projectId }: { projectId: Id<"projects"> }) {
       const res = await uploadViaProxy(session.uploadUrl, item.file, (pct) =>
         patch(item.localId, { progress: pct }),
       );
-      await confirmUpload({
-        projectId,
+      await backend.confirm({
         driveFileId: res.id,
         fileName: item.file.name,
         mimeType: item.file.type || "application/octet-stream",
@@ -183,13 +233,13 @@ export function DriveUploader({ projectId }: { projectId: Id<"projects"> }) {
     const files = Array.from(fileList);
     const batch: UploadItem[] = [];
     for (const file of files) {
-      if (file.size > MAX_BYTES) {
-        toast.error(`${file.name} : trop lourd (5 Go max).`);
+      if (file.size > limits.maxBytes) {
+        toast.error(copy.tooBig(file.name));
         continue;
       }
       const kind = classifyDriveKind(file.type, file.name);
-      if (kind === "other") {
-        toast.error(`${file.name} : accepte uniquement vidéos et photos.`);
+      if (kind === "other" || !limits.kinds.includes(kind)) {
+        toast.error(copy.wrongKind(file.name));
         continue;
       }
       batch.push({
@@ -236,12 +286,8 @@ export function DriveUploader({ projectId }: { projectId: Id<"projects"> }) {
       >
         <CloudUploadIcon className="size-8 text-slate-400" />
         <div>
-          <p className="text-sm font-medium text-slate-700">
-            Glisse tes vidéos et photos ici
-          </p>
-          <p className="text-xs text-slate-500">
-            Vidéos et photos (iPhone .mov / .heic acceptés) — jusqu&apos;à 5 Go
-          </p>
+          <p className="text-sm font-medium text-slate-700">{copy.title}</p>
+          <p className="text-xs text-slate-500">{copy.hint}</p>
         </div>
         <Button
           type="button"
@@ -249,19 +295,19 @@ export function DriveUploader({ projectId }: { projectId: Id<"projects"> }) {
           onClick={() => inputRef.current?.click()}
           className="h-11 w-full text-base sm:h-9 sm:w-auto sm:text-sm"
         >
-          Choisir des fichiers
+          {copy.button}
         </Button>
         <input
           ref={inputRef}
           type="file"
-          accept={ACCEPT}
+          accept={limits.accept}
           multiple
           className="hidden"
           onChange={(e) => {
             if (e.target.files?.length) enqueue(e.target.files);
             e.target.value = "";
           }}
-          aria-label="Sélectionner des vidéos ou des photos"
+          aria-label={copy.button}
         />
       </div>
 
