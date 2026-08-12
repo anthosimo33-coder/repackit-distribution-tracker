@@ -27,7 +27,8 @@ export type NotificationEventKey =
   | "whop_renewal_failed"
   | "digest_overdue_missions"
   | "digest_pay_cycles"
-  | "digest_warmup_late";
+  | "digest_warmup_late"
+  | "digest_clipper_sans_talent";
 
 /**
  * `immediate` = part dès la détection (garde-fou anti-flood en amont pour les
@@ -103,7 +104,13 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
     key: "digest_warmup_late",
     kind: "digest",
     label: "Comptes en warmup en retard",
-    hint: "Section du digest quotidien.",
+    hint: "Section du digest quotidien. Créateurs partenaires uniquement — les comptes de clippeur suivent un autre modèle.",
+  },
+  {
+    key: "digest_clipper_sans_talent",
+    kind: "digest",
+    label: "Comptes en chauffe sans talent apparié",
+    hint: "Section du digest quotidien. Alerte PENDANT la chauffe : après, les trois jours sont perdus.",
   },
 ] as const;
 

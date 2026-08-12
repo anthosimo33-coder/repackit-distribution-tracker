@@ -436,6 +436,12 @@ export interface DigestSections {
    * `whop_renewal_failed` (même événement, autre acheminement).
    */
   retryableRenewalFailures: { memberName: string }[];
+  /**
+   * Comptes de clippeur EN COURS de chauffe dont le clippeur n'a aucun talent
+   * apparié. Signalés pendant, jamais après : une fois la chauffe finie, les
+   * trois jours sont perdus et l'alerte n'appelle plus aucune action.
+   */
+  chauffeSansTalent: { handle: string; clipperName: string; joursRestants: number }[];
 }
 
 export function buildDigestMessage(params: {
@@ -445,13 +451,19 @@ export function buildDigestMessage(params: {
   projectSlug: string;
 }): string | null {
   const { projectName, sections, appBaseUrl, projectSlug } = params;
-  const { overdueMissions, payCycles, warmupLate, retryableRenewalFailures } =
-    sections;
+  const {
+    overdueMissions,
+    payCycles,
+    warmupLate,
+    retryableRenewalFailures,
+    chauffeSansTalent,
+  } = sections;
   if (
     overdueMissions.length === 0 &&
     payCycles.length === 0 &&
     warmupLate.length === 0 &&
-    retryableRenewalFailures.length === 0
+    retryableRenewalFailures.length === 0 &&
+    chauffeSansTalent.length === 0
   ) {
     return null;
   }
@@ -502,6 +514,19 @@ export function buildDigestMessage(params: {
     blocks.push(
       `💳 <b>${n} ${plural(n, "renouvellement")} en échec</b> — Whop ${n > 1 ? "les" : "le"} relancera\n` +
         bulletList(retryableRenewalFailures.map((r) => r.memberName)),
+    );
+  }
+
+  if (chauffeSansTalent.length > 0) {
+    const n = chauffeSansTalent.length;
+    blocks.push(
+      `🧊 <b>${n} ${plural(n, "compte")} en chauffe sans talent apparié</b>\n` +
+        bulletList(
+          chauffeSansTalent.map(
+            (c) =>
+              `${c.handle} (${c.clipperName}) — sort de chauffe dans ${c.joursRestants} ${plural(c.joursRestants, "jour")}`,
+          ),
+        ),
     );
   }
 
