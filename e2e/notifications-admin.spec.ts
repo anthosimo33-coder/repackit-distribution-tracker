@@ -32,7 +32,7 @@ test.describe("Notifications — configuration admin", () => {
   test.beforeEach(resetNotifySettings);
   test.afterAll(resetNotifySettings);
 
-  test("les 7 événements sont proposés, groupés immédiat / digest", async ({
+  test("les 10 événements sont proposés, groupés immédiat / digest", async ({
     page,
   }) => {
     await page.goto(adminPath("/notifications"));
@@ -55,6 +55,9 @@ test.describe("Notifications — configuration admin", () => {
     for (const label of [
       "Vidéo soumise",
       "Vidéo re-soumise",
+      "Vidéo validée",
+      "Vidéo refusée",
+      "Publication confirmée",
       "Litige bancaire Whop",
       "Renouvellement échoué",
       "Deadlines de production dépassées",

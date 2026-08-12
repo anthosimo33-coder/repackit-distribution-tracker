@@ -20,6 +20,9 @@
 export type NotificationEventKey =
   | "video_submitted"
   | "video_resubmitted"
+  | "video_approved"
+  | "video_rejected"
+  | "publication_confirmed"
   | "whop_dispute"
   | "whop_renewal_failed"
   | "digest_overdue_missions"
@@ -53,6 +56,24 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
     kind: "immediate",
     label: "Vidéo re-soumise",
     hint: "Une vidéo repart en validation après une demande de correction.",
+  },
+  {
+    key: "video_approved",
+    kind: "immediate",
+    label: "Vidéo validée",
+    hint: "Une vidéo passe la revue. Notifié même si c'est toi qui valides — le groupe sert de journal.",
+  },
+  {
+    key: "video_rejected",
+    kind: "immediate",
+    label: "Vidéo refusée",
+    hint: "Une vidéo est renvoyée à sa créatrice, avec le motif complet.",
+  },
+  {
+    key: "publication_confirmed",
+    kind: "immediate",
+    label: "Publication confirmée",
+    hint: "Un lien de publication est saisi — par la créatrice ou par l'admin en secours. Les publications rapprochées sont regroupées.",
   },
   {
     key: "whop_dispute",
