@@ -614,6 +614,49 @@ export const archiveCompte = adminMutation({
   },
 });
 
+/**
+ * REFUSE un compte de la file de validation (admin). Archive + horodate + motif.
+ *
+ * Le refus n'a pas de statut à lui : il ARCHIVE, en réutilisant le statut
+ * terminal existant. Ajouter un littéral « refusé » à l'union `status` la ferait
+ * traverser effectiveStatus, les badges, les filtres, isAccountAvailable et
+ * isSelectableForPublication — soit le chemin PARTENAIRE modifié pour un besoin
+ * clippeur. Les deux champs additifs suffisent à distinguer les deux morts.
+ *
+ * Le MOTIF est obligatoire, comme sur un refus de vidéo (`reviewVideoReject`) :
+ * un refus sans raison ne s'explique pas au clippeur, et ne s'explique plus à
+ * soi-même trois semaines plus tard.
+ *
+ * IDEMPOTENT sur un compte déjà refusé (on ne réécrit ni la date ni le motif —
+ * le premier refus est celui qui compte). Un compte déjà archivé pour une autre
+ * raison peut être refusé : c'est une qualification, pas une transition.
+ */
+export const refuseCompte = adminMutation({
+  args: { id: v.id("comptes"), reason: v.string() },
+  handler: async (ctx, { id, reason }) => {
+    const compte = await ctx.db.get(id);
+    if (!compte || compte.projectId !== ctx.projectId) {
+      throw new ConvexError("Compte introuvable.");
+    }
+    const motif = reason.trim();
+    if (motif.length === 0) {
+      throw new ConvexError("Un motif de refus est requis.");
+    }
+    if (compte.refusedAt !== undefined) {
+      return { ok: true, alreadyRefused: true };
+    }
+    await ctx.db.patch(id, {
+      status: "archived",
+      actif: false,
+      // Même geste qu'archiveCompte : le warmup est gelé, pas poursuivi.
+      warmupStartedAt: undefined,
+      refusedAt: Date.now(),
+      refusedReason: motif,
+    });
+    return { ok: true, alreadyRefused: false };
+  },
+});
+
 /** Réactive un compte archivé → "actif" (action ADMIN ; le créateur ne peut pas). */
 export const unarchiveCompte = adminMutation({
   args: { id: v.id("comptes") },
@@ -632,6 +675,10 @@ export const unarchiveCompte = adminMutation({
       ...(compte.validatedAt === undefined
         ? { validatedAt: Date.now() }
         : {}),
+      // Réactiver, c'est revenir sur le refus : la trace part avec lui. La
+      // laisser ferait afficher « refusé le … » sur un compte en service.
+      refusedAt: undefined,
+      refusedReason: undefined,
     });
     return { ok: true };
   },
