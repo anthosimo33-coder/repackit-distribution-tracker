@@ -817,6 +817,68 @@ export default defineSchema({
     thumbnailLink: v.optional(v.string()),
   }).index("by_creator", ["creatorId"]),
 
+  // ─── RUSHES — les prises brutes déposées par un TALENT ─────────────────────
+  // 1 row = 1 fichier vidéo brut. Le BINAIRE vit sur Google Drive (jamais dans
+  // Convex, cf risque de quota) ; cette table porte les métadonnées ET la
+  // MACHINE À ÉTATS, ce qui la distingue de `snytchDriveFiles` (liste plate du
+  // créateur partenaire, sans cycle de vie). Les deux tables ne se mélangent
+  // jamais : un dépôt de talent n'écrit QUE ici.
+  //
+  // ÉTATS (cf convex/rushStatus.ts, source unique des transitions) :
+  //   deposited → assigned → published, plus rejected et expired (terminaux).
+  //   `assigned` = un script a été monté dessus (chantier PR 4) ; le talent, lui,
+  //   lit « Validé » — il ne connaît ni script, ni clippeur, ni appariement.
+  //
+  // BINAIRE : purgé au rejet et à l'expiration (60 j sans être retenu), les
+  // métadonnées restant en base pour l'historique. `binaryPurgedAt` n'est posé
+  // QUE si la suppression Drive a réellement eu lieu — un faux « purgé » sur un
+  // fichier encore présent serait pire que pas de champ du tout.
+  //
+  // `sizeBytes` est une donnée OPÉRATIONNELLE (savoir si un talent filme en 4K60
+  // quand 1080p suffirait), jamais une variable de décision : rien n'arbitre
+  // dessus.
+  rushes: defineTable({
+    projectId: v.id("projects"),
+    // Fiche `creators` du talent (kind "talent"). Le portail filtre TOUJOURS
+    // dessus côté serveur : un talent ne voit jamais le rush d'un autre.
+    talentId: v.id("creators"),
+    // Référence Drive du binaire. Clé de dédup idempotente de confirmDeposit.
+    driveFileId: v.string(),
+    fileName: v.string(),
+    mimeType: v.string(),
+    sizeBytes: v.number(),
+    status: v.union(
+      v.literal("deposited"),
+      v.literal("assigned"),
+      v.literal("published"),
+      v.literal("rejected"),
+      v.literal("expired"),
+    ),
+    depositedAt: v.number(),
+    webViewLink: v.optional(v.string()),
+    thumbnailLink: v.optional(v.string()),
+    // ─── Jalons du cycle de vie (posés à la transition, jamais réécrits) ──────
+    // L'assignation script→rush est le chantier PR 4 : ces deux champs sont
+    // écrits là-bas, jamais ici.
+    assignmentId: v.optional(v.id("assignments")),
+    assignedAt: v.optional(v.number()),
+    publishedAt: v.optional(v.number()),
+    rejectedAt: v.optional(v.number()),
+    // ⚠️ CE TEXTE EST LU PAR LE TALENT (allowlist convex/talentRushFields.ts).
+    // Écrit par un admin, affiché tel quel dans l'espace du talent : ce n'est PAS
+    // un champ de note interne, et il est rendu en TEXTE BRUT côté écran (jamais
+    // en markdown — c'est de la saisie libre répétée qui franchit une frontière
+    // de rôle, pas du contenu éditorial). Borné serveur, cf rushes.rejectRush.
+    rejectionReason: v.optional(v.string()),
+    expiredAt: v.optional(v.number()),
+    // Horodatage de la suppression EFFECTIVE du binaire sur Drive. Absent = le
+    // fichier est (ou peut être) encore là — y compris sur un déploiement sans
+    // env Drive, où la purge no-ope et ne ment pas.
+    binaryPurgedAt: v.optional(v.number()),
+  })
+    .index("by_talent", ["talentId"])
+    .index("by_project_status", ["projectId", "status"]),
+
   // ─── Reset mot de passe admin (Voie B) — lien à usage unique sans email ────
   // Un admin génère un lien /reset-password/<token> qu'il transmet au créateur
   // (WhatsApp). Pas de flux self-service "mot de passe oublié" (aucun service
