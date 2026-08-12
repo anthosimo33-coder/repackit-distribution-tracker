@@ -38,6 +38,7 @@ import { InviteCreatorDialog } from "@/components/creators/InviteCreatorDialog";
 import { DeleteCreatorDialog } from "@/components/creators/DeleteCreatorDialog";
 import { joinUrl } from "@/components/creators/CopyableLink";
 import { CreatorLeaderboard } from "@/components/admin/leaderboard/CreatorLeaderboard";
+import { AppariementSection } from "@/components/creators/AppariementSection";
 
 export default function CreateursPage() {
   const creators = useProjectQuery(api.creators.listCreators, {});
@@ -88,6 +89,10 @@ export default function CreateursPage() {
       </header>
 
       <CreatorLeaderboard />
+
+      {/* Appariement clippeur ↔ talent. Ne s'affiche que sur un projet qui a des
+          talents ou des clippeurs — invisible sur un projet 100 % partenaires. */}
+      <AppariementSection />
 
       {creators === undefined ? (
         <Skeleton className="h-64 w-full" />
