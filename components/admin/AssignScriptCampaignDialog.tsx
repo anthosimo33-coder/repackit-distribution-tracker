@@ -29,6 +29,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { formatDate } from "@/lib/format";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { Loader2Icon, VideoIcon } from "lucide-react";
 import { SCRIPT_TIERS, tierLabel } from "@/lib/script-tier";
@@ -67,6 +68,31 @@ function resizeSlots(prev: (number | null)[], n: number): (number | null)[] {
   const next = prev.slice(0, n);
   while (next.length < n) next.push(null);
   return next;
+}
+
+/**
+ * Avertissement de phase d'un compte de clippeur, ou `null`.
+ *
+ * INFORMATIF : le compte reste sélectionnable. Un compte en chauffe est
+ * `available` (statut actif) mais son quota du jour est 0 — sans cette mention,
+ * l'assignation passe et c'est la publication qui refusera, sans que rien ne
+ * l'ait annoncé. `null` pour un partenaire : le modèle de phase ne le concerne pas.
+ */
+function phaseHint(
+  c:
+    | {
+        phase: string | null;
+        postsPerDay: number | null;
+        sortieDeChauffeAt: number | null;
+      }
+    | undefined,
+): string | null {
+  if (!c || c.phase === null || c.postsPerDay === null || c.postsPerDay > 0) {
+    return null;
+  }
+  return c.sortieDeChauffeAt !== null
+    ? `En chauffe jusqu'au ${formatDate(c.sortieDeChauffeAt)} — la publication sera refusée.`
+    : "Aucune publication possible dans cette phase.";
 }
 
 export function AssignScriptCampaignDialog({
@@ -694,8 +720,10 @@ export function AssignScriptCampaignDialog({
               ) : (
                 PLATFORMS.map((p) => {
                   const opts = optionsByPlatform(p);
+                  const hint = phaseHint(opts.find((o) => o._id === picks[p]));
                   return (
-                    <div key={p} className="flex items-center gap-2">
+                    <div key={p} className="space-y-1">
+                      <div className="flex items-center gap-2">
                       <span className="w-24 shrink-0 text-sm font-medium text-slate-600">
                         {p}
                       </span>
@@ -732,6 +760,10 @@ export function AssignScriptCampaignDialog({
                             ))}
                           </SelectContent>
                         </Select>
+                      )}
+                      </div>
+                      {hint !== null && (
+                        <p className="pl-26 text-xs text-amber-700">{hint}</p>
                       )}
                     </div>
                   );

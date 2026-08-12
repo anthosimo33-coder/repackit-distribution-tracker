@@ -446,6 +446,7 @@ const EMPTY: DigestSections = {
   payCycles: [],
   warmupLate: [],
   retryableRenewalFailures: [],
+  chauffeSansTalent: [],
 };
 
 describe("buildDigestMessage", () => {
@@ -490,6 +491,44 @@ describe("buildDigestMessage", () => {
     expect(msg).toContain("Whop le relancera");
   });
 
+  it("chauffe sans talent : nomme le compte, son clippeur et le temps restant", () => {
+    const msg = buildDigestMessage({
+      projectName: "Snytch",
+      sections: {
+        ...EMPTY,
+        chauffeSansTalent: [
+          { handle: "@clip.marine", clipperName: "Yanis", joursRestants: 1 },
+          { handle: "@clip.lea", clipperName: "Yanis", joursRestants: 2 },
+        ],
+      },
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+    });
+    expect(msg).toContain("2 comptes en chauffe sans talent apparié");
+    expect(msg).toContain("@clip.marine");
+    expect(msg).toContain("Yanis");
+    // Le temps restant est ce qui rend l'alerte actionnable : sans lui on ne
+    // sait pas s'il reste deux jours ou s'il faut apparier maintenant.
+    expect(msg).toContain("dans 1 jour");
+    expect(msg).toContain("dans 2 jours");
+  });
+
+  it("cette section seule suffit à produire un message", () => {
+    const msg = buildDigestMessage({
+      projectName: "Snytch",
+      sections: {
+        ...EMPTY,
+        chauffeSansTalent: [
+          { handle: "@x", clipperName: "Yanis", joursRestants: 3 },
+        ],
+      },
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+    });
+    expect(msg).not.toBeNull();
+    expect(msg).toContain("1 compte en chauffe sans talent apparié");
+  });
+
   it("n'affiche QUE les sections non vides", () => {
     const msg = buildDigestMessage({
       projectName: "Snytch",
@@ -514,6 +553,7 @@ describe("buildDigestMessage", () => {
         payCycles: [{ creatorName: "Kelly" }, { creatorName: "Léa" }],
         warmupLate: [{ handle: "@kelly.repack", missedDays: 3 }],
         retryableRenewalFailures: [],
+        chauffeSansTalent: [],
       },
       appBaseUrl: BASE,
       projectSlug: SLUG,
@@ -554,6 +594,9 @@ function everyMessage(): string[] {
     payCycles: [{ creatorName: "Kelly" }, { creatorName: "Léa" }],
     warmupLate: [{ handle: "@kelly.repack", missedDays: 3 }],
     retryableRenewalFailures: [{ memberName: "marc_d" }],
+    chauffeSansTalent: [
+      { handle: "@clip.marine", clipperName: "Yanis", joursRestants: 1 },
+    ],
   };
   return [
     buildSubmissionMessage({

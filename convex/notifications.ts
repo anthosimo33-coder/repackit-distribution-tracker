@@ -38,6 +38,11 @@ import {
   warmupMissedDays,
 } from "./opsDigest";
 import { effectiveStatus } from "./comptes";
+import { resolveCreatorKind } from "./roles";
+import {
+  isChauffeSansTalent,
+  joursAvantSortieDeChauffe,
+} from "./clipperReadiness";
 import { effectiveTargetDays } from "./warmup";
 import { cyclePaymentsForCreator } from "./payments";
 import {
@@ -817,14 +822,66 @@ export const collectDigest = internalQuery({
       }
     }
 
-    // ── Comptes en warmup en retard ────────────────────────────────────────
+    // ── Comptes : warmup partenaire en retard, et chauffe clippeur sans talent ─
+    // Les deux sections lisent la MÊME collection, chargée une fois — et se
+    // partagent la population : un compte appartient à un partenaire OU à un
+    // clippeur, jamais aux deux signaux.
     const warmupLate: { handle: string; missedDays: number }[] = [];
-    if (isEventEnabled(enabled, "digest_warmup_late")) {
-      const comptes = await ctx.db
-        .query("comptes")
-        .withIndex("by_project", (q) => q.eq("projectId", projectId))
-        .collect();
+    const chauffeSansTalent: {
+      handle: string;
+      clipperName: string;
+      joursRestants: number;
+    }[] = [];
+    const veutWarmup = isEventEnabled(enabled, "digest_warmup_late");
+    const veutChauffe = isEventEnabled(enabled, "digest_clipper_sans_talent");
+    if (veutWarmup || veutChauffe) {
+      const [comptes, creators] = await Promise.all([
+        ctx.db
+          .query("comptes")
+          .withIndex("by_project", (q) => q.eq("projectId", projectId))
+          .collect(),
+        ctx.db
+          .query("creators")
+          .withIndex("by_project", (q) => q.eq("projectId", projectId))
+          .collect(),
+      ]);
+      const creatorMap = new Map(creators.map((c) => [c._id, c]));
+      // Talents appariés PAR clippeur — le dénominateur du signal de chauffe.
+      const talentsParClippeur = new Map<string, number>();
+      for (const c of creators) {
+        if (resolveCreatorKind(c.kind) !== "talent" || !c.clipperId) continue;
+        talentsParClippeur.set(
+          c.clipperId,
+          (talentsParClippeur.get(c.clipperId) ?? 0) + 1,
+        );
+      }
+
       for (const c of comptes) {
+        const owner = c.creatorId ? creatorMap.get(c.creatorId) : undefined;
+        const estClippeur =
+          owner !== undefined && resolveCreatorKind(owner.kind) === "clipper";
+
+        if (estClippeur) {
+          // ⚠️ CORRECTION d'un faux positif préexistant : les comptes de clippeur
+          // n'ont PAS de checks quotidiens (leur modèle est dérivé d'une date,
+          // arbitrage D3). Le compteur de checks manqués les faisait donc
+          // remonter « en retard » dès J+1, tous les jours, depuis leur
+          // déclaration. Ils sortent du signal partenaire — rien ne change pour
+          // les partenaires eux-mêmes.
+          if (!veutChauffe) continue;
+          const talentCount = talentsParClippeur.get(owner._id) ?? 0;
+          if (!isChauffeSansTalent({ validatedAt: c.validatedAt, talentCount }, now)) {
+            continue;
+          }
+          chauffeSansTalent.push({
+            handle: c.handle,
+            clipperName: owner.name,
+            joursRestants: joursAvantSortieDeChauffe(c.validatedAt, now) ?? 0,
+          });
+          continue;
+        }
+
+        if (!veutWarmup) continue;
         const shape = {
           effectiveStatus: effectiveStatus(c),
           warmupStartedAt: c.warmupStartedAt,
@@ -835,6 +892,8 @@ export const collectDigest = internalQuery({
         if (missed > 0) warmupLate.push({ handle: c.handle, missedDays: missed });
       }
       warmupLate.sort((a, b) => b.missedDays - a.missedDays);
+      // Le plus urgent d'abord : celui qui sort de chauffe le plus tôt.
+      chauffeSansTalent.sort((a, b) => a.joursRestants - b.joursRestants);
     }
 
     // ── Renouvellements échoués que Whop VA relancer ───────────────────────
@@ -864,6 +923,7 @@ export const collectDigest = internalQuery({
         overdueMissions,
         payCycles,
         warmupLate: warmupLate.slice(0, DIGEST_SECTION_LIMIT),
+        chauffeSansTalent: chauffeSansTalent.slice(0, DIGEST_SECTION_LIMIT),
         retryableRenewalFailures: retryableRenewalFailures.slice(
           0,
           DIGEST_SECTION_LIMIT,

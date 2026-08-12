@@ -47,6 +47,7 @@ import { IcpsManagerSection } from "@/components/icps/IcpsManagerSection";
 import { WarmupGuideButton } from "@/components/warmup/WarmupGuideButton";
 import CompteDialog, { type Compte } from "@/components/comptes/CompteDialog";
 import { CompteAdminActions } from "@/components/comptes/CompteAdminActions";
+import { ComptesAValiderSection } from "@/components/comptes/ComptesAValiderSection";
 
 type StatusFilter = "all" | CompteStatus;
 
@@ -209,6 +210,11 @@ function ComptesPageInner() {
 
   return (
     <div className="space-y-6">
+      {/* File de validation des comptes de clippeur — en TÊTE parce qu'elle est
+          bloquante pour eux : tant qu'un compte n'est pas validé, son compteur
+          de phase n'a pas démarré et il ne peut rien publier. La section
+          s'efface d'elle-même quand la file est vide. */}
+      <ComptesAValiderSection />
       <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
           <h1 className="text-3xl font-semibold tracking-tight text-slate-900">

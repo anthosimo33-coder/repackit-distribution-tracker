@@ -10,6 +10,7 @@ import {
   CalendarClockIcon,
   CheckCircle2Icon,
   FlameIcon,
+  SnowflakeIcon,
   Loader2Icon,
   MessageSquareWarningIcon,
   UploadCloudIcon,
@@ -34,6 +35,11 @@ import {
   isOverdueMission,
   isWarmupLate,
 } from "@/lib/ops-digest";
+import { resolveCreatorKind } from "@/convex/roles";
+import {
+  isChauffeSansTalent,
+  joursAvantSortieDeChauffe,
+} from "@/convex/clipperReadiness";
 import {
   getEffectiveStatus,
   getEffectiveWarmupDuration,
@@ -136,12 +142,36 @@ export function ActionDashboard() {
       .filter((a) => a.status === "video_submitted")
       .sort((a, b) => a.createdAt - b.createdAt);
 
+    // Population du propriétaire de chaque compte. Sert aux DEUX signaux
+    // ci-dessous, qui se partagent les comptes sans jamais se recouvrir.
+    const creatorById = new Map((creators ?? []).map((c) => [c._id, c]));
+    const estCompteDeClippeur = (creatorId: Id<"creators"> | undefined) =>
+      creatorId !== undefined &&
+      resolveCreatorKind(creatorById.get(creatorId)?.kind) === "clipper";
+    // Talents appariés par clippeur — dénominateur du signal de chauffe.
+    const talentsParClippeur = new Map<string, number>();
+    for (const c of creators ?? []) {
+      if (resolveCreatorKind(c.kind) !== "talent" || !c.clipperId) continue;
+      talentsParClippeur.set(
+        c.clipperId,
+        (talentsParClippeur.get(c.clipperId) ?? 0) + 1,
+      );
+    }
+
     // Carte 2 — comptes en warmup avec des jours manqués. Le prédicat est
     // PARTAGÉ avec le digest quotidien (lib/ops-digest, jumeau serveur
     // convex/opsDigest apparié par test) : le message du matin et cet écran
     // doivent compter la même chose.
+    //
+    // ⚠️ Les comptes de CLIPPEUR en sortent : ils n'ont pas de checks quotidiens
+    // (leur modèle est dérivé d'une date, arbitrage D3), le compteur de checks
+    // manqués les faisait donc remonter « en retard » dès J+1, tous les jours.
+    // Même correction que côté digest, au même moment, pour que les deux
+    // continuent de compter la même chose.
     const warmupLate = comptes.filter((c) =>
-      isWarmupLate(
+      estCompteDeClippeur(c.creatorId)
+        ? false
+        : isWarmupLate(
         {
           effectiveStatus: getEffectiveStatus(c),
           warmupStartedAt: c.warmupStartedAt,
@@ -230,9 +260,27 @@ export function ActionDashboard() {
       )
       .sort((a, b) => (a.videoRejectedAt ?? 0) - (b.videoRejectedAt ?? 0));
 
+    // Comptes de clippeur EN CHAUFFE dont le clippeur n'a aucun talent apparié.
+    // Signalé PENDANT : une fois la chauffe finie, les trois jours sont perdus.
+    const chauffeSansTalent = comptes
+      .filter((c) => {
+        if (!estCompteDeClippeur(c.creatorId)) return false;
+        const talentCount = talentsParClippeur.get(c.creatorId!) ?? 0;
+        return isChauffeSansTalent(
+          { validatedAt: c.validatedAt, talentCount },
+          now,
+        );
+      })
+      .sort(
+        (a, b) =>
+          (joursAvantSortieDeChauffe(a.validatedAt, now) ?? 0) -
+          (joursAvantSortieDeChauffe(b.validatedAt, now) ?? 0),
+      );
+
     return {
       submitted,
       warmupLate,
+      chauffeSansTalent,
       dueTotal,
       deadlines7,
       creatorActivity,
@@ -249,6 +297,7 @@ export function ActionDashboard() {
   const {
     submitted,
     warmupLate,
+    chauffeSansTalent,
     dueTotal,
     deadlines7,
     creatorActivity,
@@ -342,7 +391,9 @@ export function ActionDashboard() {
         en retard), 5. refus qui stagnent (créateur bloqué sur un retour).
       */}
       <Section title="À traiter maintenant">
-        {worklistCount === 0 && warmupLate.length === 0 ? (
+        {worklistCount === 0 &&
+        warmupLate.length === 0 &&
+        chauffeSansTalent.length === 0 ? (
           <EmptyRow
             icon={CheckCircle2Icon}
             label="Rien à traiter, tout est à jour."
@@ -497,6 +548,25 @@ export function ActionDashboard() {
                   ))}
                 </div>
               </>
+            )}
+
+            {chauffeSansTalent.length > 0 && (
+              <Link
+                href={projectPath("/createurs")}
+                className="flex items-center justify-between gap-3 border-t border-slate-100 py-2.5 transition-colors hover:bg-slate-50"
+              >
+                <div className="flex items-center gap-2 text-sm text-slate-700">
+                  <SnowflakeIcon className="size-4 text-sky-600" />
+                  <span>
+                    <span className="font-medium">
+                      {chauffeSansTalent.length}
+                    </span>{" "}
+                    compte{chauffeSansTalent.length > 1 ? "s" : ""} en chauffe
+                    sans talent apparié — à apparier avant la sortie
+                  </span>
+                </div>
+                <ArrowRightIcon className="size-4 shrink-0 text-slate-400" />
+              </Link>
             )}
 
             {warmupLate.length > 0 && (

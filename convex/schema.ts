@@ -539,6 +539,20 @@ export default defineSchema({
     // qu'aux comptes dont le propriétaire est un clippeur (D3 — coexistence, pas
     // remplacement : leur warmup par checks réels reste intact).
     validatedAt: v.optional(v.number()),
+    // ─── REFUS d'un compte déclaré (file de validation clippeur) ──────────────
+    // Refuser ARCHIVE le compte : le statut reste `archived`, aucune union n'est
+    // touchée, donc AUCUN impact sur le chemin partenaire (effectiveStatus,
+    // badges, filtres, isAccountAvailable, isSelectableForPublication).
+    //
+    // Ces deux champs existent pour une seule raison : sans eux, un compte refusé
+    // est indistinguable d'un compte archivé pour une autre raison, et personne
+    // ne sait plus POURQUOI il est mort. Le motif est obligatoire à l'écriture
+    // (refuseCompte), jamais vide.
+    //
+    // Effacés si le compte est réactivé : un compte remis en service n'est plus
+    // un compte refusé, et laisser le motif traîner ferait mentir l'affichage.
+    refusedAt: v.optional(v.number()),
+    refusedReason: v.optional(v.string()),
     // LEGACY rétro-compat : passé en optional (était v.boolean()). Maintenu
     // synchronisé par les mutations (actif === (status === "actif")) le temps
     // que les callers e2e/UI migrent vers `status`. Suppression = TD-017.

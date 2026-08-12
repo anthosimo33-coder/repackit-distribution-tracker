@@ -18,6 +18,13 @@ import {
   effectiveTargetDays,
 } from "./warmup";
 import { isSnytchProject } from "./projects";
+import { resolveCreatorKind } from "./roles";
+import { auditCompteHandle } from "./handleHygiene";
+import { postsPerDayAt } from "./accountPhase";
+import {
+  phaseOfClipperAccount,
+  sortieDeChauffeAt,
+} from "./clipperReadiness";
 import { countryValidator } from "./countries";
 import { v, ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -304,12 +311,32 @@ export const listCreatorAvailableComptes = adminQuery({
         q.eq("projectId", ctx.projectId).eq("creatorId", creatorId),
       )
       .collect();
+    // Phase du compte — AVERTISSEMENT seulement. `available` est INCHANGÉ : un
+    // compte en chauffe reste cochable, c'est la publication qui refusera. On
+    // donne l'information au moment du geste, la garde reste au moment qui compte.
+    //
+    // ⚠️ Calculée UNIQUEMENT si le propriétaire est un CLIPPEUR. `updateCompte`
+    // pose `validatedAt` sur n'importe quel compte passé en actif, partenaires
+    // compris — afficher « en chauffe » sur le compte d'une partenaire ferait
+    // fuiter le modèle clippeur dans un écran qui n'en relève pas (arbitrage D3).
+    const owner = await ctx.db.get(creatorId);
+    const estClippeur =
+      owner !== null && resolveCreatorKind(owner.kind) === "clipper";
+    const now = Date.now();
     return comptes
       .map((c) => ({
         _id: c._id,
         handle: c.handle,
         plateforme: c.plateforme,
         available: isAccountAvailable(c, { strict }),
+        /** Phase du compte, ou `null` hors population clippeur. */
+        phase: estClippeur ? phaseOfClipperAccount(c.validatedAt, now) : null,
+        /** Quota de posts du jour — 0 = la publication sera refusée. */
+        postsPerDay: estClippeur ? postsPerDayAt(c.validatedAt, now) : null,
+        /** Date de sortie de chauffe, à écrire en clair. `null` hors chauffe. */
+        sortieDeChauffeAt: estClippeur
+          ? sortieDeChauffeAt(c.validatedAt, now)
+          : null,
       }))
       .sort((a, b) =>
         a.handle.localeCompare(b.handle, "fr", { sensitivity: "base" }),
@@ -614,6 +641,114 @@ export const archiveCompte = adminMutation({
   },
 });
 
+/**
+ * FILE DE VALIDATION — comptes déclarés par un CLIPPEUR, en attente de la
+ * décision admin.
+ *
+ * Critère : statut `warmup` ET pas encore d'ancre de phase (`validatedAt`). Les
+ * deux, parce qu'ils ne disent pas la même chose — un compte remis en chauffe
+ * par `restartWarmup` a bien perdu son ancre et doit REPASSER par la file, alors
+ * qu'un compte simplement archivé puis réactivé garde la sienne et n'y revient
+ * pas.
+ *
+ * PROPRIÉTAIRE CLIPPEUR UNIQUEMENT. Un compte de partenaire en warmup n'est pas
+ * « à valider » : son warmup se termine par des CHECKS RÉELS, pas par une
+ * décision (arbitrage D3). Le mélanger ici transformerait la file en liste de
+ * tous les warmups en cours du projet.
+ *
+ * Chaque ligne porte son audit de pseudo (cf convex/handleHygiene) — calculé
+ * SERVEUR parce qu'il a besoin du nom du projet et de la liste des talents, que
+ * l'écran des comptes ne charge pas.
+ */
+export const listComptesAValider = adminQuery({
+  args: {},
+  handler: async (ctx) => {
+    const project = await ctx.db.get(ctx.projectId);
+    const creators = await ctx.db
+      .query("creators")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const creatorMap = new Map(creators.map((c) => [c._id, c]));
+    // Noms du produit : le projet et son slug, jamais une liste saisie — elle
+    // serait périmée au premier renommage.
+    const productNames = [project?.name, project?.slug].filter(
+      (x): x is string => typeof x === "string" && x.length > 0,
+    );
+    const talentNames = creators
+      .filter((c) => resolveCreatorKind(c.kind) === "talent")
+      .map((c) => c.name);
+
+    const comptes = await ctx.db
+      .query("comptes")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+
+    return comptes
+      .filter((c) => {
+        if (effectiveStatus(c) !== "warmup") return false;
+        if (c.validatedAt !== undefined) return false;
+        if (!c.creatorId) return false;
+        const owner = creatorMap.get(c.creatorId);
+        return owner !== undefined && resolveCreatorKind(owner.kind) === "clipper";
+      })
+      .map((c) => ({
+        _id: c._id,
+        handle: c.handle,
+        plateforme: c.plateforme,
+        url: c.url ?? null,
+        declaredAt: c._creationTime,
+        clipperName: c.creatorId
+          ? (creatorMap.get(c.creatorId)?.name ?? "—")
+          : "—",
+        audit: auditCompteHandle(c.handle, { productNames, talentNames }),
+      }))
+      .sort((a, b) => a.declaredAt - b.declaredAt);
+  },
+});
+
+/**
+ * REFUSE un compte de la file de validation (admin). Archive + horodate + motif.
+ *
+ * Le refus n'a pas de statut à lui : il ARCHIVE, en réutilisant le statut
+ * terminal existant. Ajouter un littéral « refusé » à l'union `status` la ferait
+ * traverser effectiveStatus, les badges, les filtres, isAccountAvailable et
+ * isSelectableForPublication — soit le chemin PARTENAIRE modifié pour un besoin
+ * clippeur. Les deux champs additifs suffisent à distinguer les deux morts.
+ *
+ * Le MOTIF est obligatoire, comme sur un refus de vidéo (`reviewVideoReject`) :
+ * un refus sans raison ne s'explique pas au clippeur, et ne s'explique plus à
+ * soi-même trois semaines plus tard.
+ *
+ * IDEMPOTENT sur un compte déjà refusé (on ne réécrit ni la date ni le motif —
+ * le premier refus est celui qui compte). Un compte déjà archivé pour une autre
+ * raison peut être refusé : c'est une qualification, pas une transition.
+ */
+export const refuseCompte = adminMutation({
+  args: { id: v.id("comptes"), reason: v.string() },
+  handler: async (ctx, { id, reason }) => {
+    const compte = await ctx.db.get(id);
+    if (!compte || compte.projectId !== ctx.projectId) {
+      throw new ConvexError("Compte introuvable.");
+    }
+    const motif = reason.trim();
+    if (motif.length === 0) {
+      throw new ConvexError("Un motif de refus est requis.");
+    }
+    if (compte.refusedAt !== undefined) {
+      return { ok: true, alreadyRefused: true };
+    }
+    await ctx.db.patch(id, {
+      status: "archived",
+      actif: false,
+      // Même geste qu'archiveCompte : le warmup est gelé, pas poursuivi.
+      warmupStartedAt: undefined,
+      refusedAt: Date.now(),
+      refusedReason: motif,
+    });
+    return { ok: true, alreadyRefused: false };
+  },
+});
+
 /** Réactive un compte archivé → "actif" (action ADMIN ; le créateur ne peut pas). */
 export const unarchiveCompte = adminMutation({
   args: { id: v.id("comptes") },
@@ -632,6 +767,10 @@ export const unarchiveCompte = adminMutation({
       ...(compte.validatedAt === undefined
         ? { validatedAt: Date.now() }
         : {}),
+      // Réactiver, c'est revenir sur le refus : la trace part avec lui. La
+      // laisser ferait afficher « refusé le … » sur un compte en service.
+      refusedAt: undefined,
+      refusedReason: undefined,
     });
     return { ok: true };
   },
