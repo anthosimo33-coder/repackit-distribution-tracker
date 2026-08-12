@@ -98,6 +98,19 @@ describe("publication — la notification est la DERNIÈRE chose du cœur", () =
     );
   });
 
+  it("les publishedUrl sont PERSISTÉES avant la planification", () => {
+    // L'action RELIT l'assignation pour composer le message (comme celle de
+    // soumission — deux mécanismes différents pour deux notifications voisines
+    // seraient la prochaine confusion). Ce choix a une condition : les URL
+    // doivent être en base quand l'action s'exécute. Si un chantier déplaçait
+    // le patch des targets après la planification, le message dirait « aucune
+    // cible » EN SILENCE. Cette borne le dit au moment où le chantier s'écrit.
+    expect(pos("internal.notifications.notifyPublication")).toBeGreaterThan(
+      pos("targets: newTargets"),
+    );
+    expect(pos("targets: newTargets")).toBeGreaterThan(pos("publishedUrl: url"));
+  });
+
   it("AUCUN throw ne subsiste après la planification", () => {
     // La borne générique, celle qui tiendra face au prochain chantier : quoi
     // qu'on ajoute au cœur, ça doit se placer AVANT la notification si ça peut
