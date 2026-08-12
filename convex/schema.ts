@@ -519,6 +519,26 @@ export default defineSchema({
     // "warmup", unset sinon (transition warmup → autre). Décompte adaptatif
     // par plateforme côté UI (lib/compte-status, WARMUP_DURATION_BY_PLATFORM).
     warmupStartedAt: v.optional(v.number()),
+    // ─── ANCRE de la phase des comptes de CLIPPEUR ───────────────────────────
+    // Timestamp ms de la VALIDATION par l'admin (entrée en "actif"). C'est
+    // l'origine du compteur de jours dont dérivent la phase et le quota de posts
+    // (cf convex/accountPhase.ts) — jusqu'ici la transition warmup → actif
+    // n'écrivait AUCUNE date.
+    //
+    // FIGÉE À LA PREMIÈRE VALIDATION, jamais réécrite — sauf par `restartWarmup`
+    // qui l'EFFACE. Les deux moitiés de cette règle protègent contre un bug
+    // opposé : sans le gel, un simple aller-retour d'archivage remettrait un
+    // clippeur en phase de chauffe et lui couperait toute publication ; sans
+    // l'effacement, un compte remis en chauffe puis revalidé repartirait
+    // directement à 2 posts/jour sur un compte fraîchement réchauffé.
+    // `restartWarmup` est le SEUL événement qui signifie « ce compte repart de
+    // zéro », donc le seul qui remet le compteur à zéro.
+    //
+    // ABSENT ⇒ compte non validé ⇒ quota 0 (fermé par défaut). N'a AUCUN effet
+    // sur les comptes de créateurs partenaires : la garde de quota ne s'applique
+    // qu'aux comptes dont le propriétaire est un clippeur (D3 — coexistence, pas
+    // remplacement : leur warmup par checks réels reste intact).
+    validatedAt: v.optional(v.number()),
     // LEGACY rétro-compat : passé en optional (était v.boolean()). Maintenu
     // synchronisé par les mutations (actif === (status === "actif")) le temps
     // que les callers e2e/UI migrent vers `status`. Suppression = TD-017.
