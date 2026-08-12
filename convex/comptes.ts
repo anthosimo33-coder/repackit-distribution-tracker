@@ -18,6 +18,8 @@ import {
   effectiveTargetDays,
 } from "./warmup";
 import { isSnytchProject } from "./projects";
+import { resolveCreatorKind } from "./roles";
+import { auditCompteHandle } from "./handleHygiene";
 import { countryValidator } from "./countries";
 import { v, ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -611,6 +613,71 @@ export const archiveCompte = adminMutation({
       warmupStartedAt: undefined,
     });
     return { ok: true };
+  },
+});
+
+/**
+ * FILE DE VALIDATION — comptes déclarés par un CLIPPEUR, en attente de la
+ * décision admin.
+ *
+ * Critère : statut `warmup` ET pas encore d'ancre de phase (`validatedAt`). Les
+ * deux, parce qu'ils ne disent pas la même chose — un compte remis en chauffe
+ * par `restartWarmup` a bien perdu son ancre et doit REPASSER par la file, alors
+ * qu'un compte simplement archivé puis réactivé garde la sienne et n'y revient
+ * pas.
+ *
+ * PROPRIÉTAIRE CLIPPEUR UNIQUEMENT. Un compte de partenaire en warmup n'est pas
+ * « à valider » : son warmup se termine par des CHECKS RÉELS, pas par une
+ * décision (arbitrage D3). Le mélanger ici transformerait la file en liste de
+ * tous les warmups en cours du projet.
+ *
+ * Chaque ligne porte son audit de pseudo (cf convex/handleHygiene) — calculé
+ * SERVEUR parce qu'il a besoin du nom du projet et de la liste des talents, que
+ * l'écran des comptes ne charge pas.
+ */
+export const listComptesAValider = adminQuery({
+  args: {},
+  handler: async (ctx) => {
+    const project = await ctx.db.get(ctx.projectId);
+    const creators = await ctx.db
+      .query("creators")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const creatorMap = new Map(creators.map((c) => [c._id, c]));
+    // Noms du produit : le projet et son slug, jamais une liste saisie — elle
+    // serait périmée au premier renommage.
+    const productNames = [project?.name, project?.slug].filter(
+      (x): x is string => typeof x === "string" && x.length > 0,
+    );
+    const talentNames = creators
+      .filter((c) => resolveCreatorKind(c.kind) === "talent")
+      .map((c) => c.name);
+
+    const comptes = await ctx.db
+      .query("comptes")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+
+    return comptes
+      .filter((c) => {
+        if (effectiveStatus(c) !== "warmup") return false;
+        if (c.validatedAt !== undefined) return false;
+        if (!c.creatorId) return false;
+        const owner = creatorMap.get(c.creatorId);
+        return owner !== undefined && resolveCreatorKind(owner.kind) === "clipper";
+      })
+      .map((c) => ({
+        _id: c._id,
+        handle: c.handle,
+        plateforme: c.plateforme,
+        url: c.url ?? null,
+        declaredAt: c._creationTime,
+        clipperName: c.creatorId
+          ? (creatorMap.get(c.creatorId)?.name ?? "—")
+          : "—",
+        audit: auditCompteHandle(c.handle, { productNames, talentNames }),
+      }))
+      .sort((a, b) => a.declaredAt - b.declaredAt);
   },
 });
 

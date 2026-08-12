@@ -40,6 +40,7 @@ import type * as functions from "../functions.js";
 import type * as googleDriveApi from "../googleDriveApi.js";
 import type * as guide from "../guide.js";
 import type * as guideModules from "../guideModules.js";
+import type * as handleHygiene from "../handleHygiene.js";
 import type * as hooks from "../hooks.js";
 import type * as http from "../http.js";
 import type * as icps from "../icps.js";
@@ -140,6 +141,7 @@ declare const fullApi: ApiFromModules<{
   googleDriveApi: typeof googleDriveApi;
   guide: typeof guide;
   guideModules: typeof guideModules;
+  handleHygiene: typeof handleHygiene;
   hooks: typeof hooks;
   http: typeof http;
   icps: typeof icps;
