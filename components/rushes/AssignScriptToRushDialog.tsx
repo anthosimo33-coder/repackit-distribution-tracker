@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
+import { formatDate } from "@/lib/format";
 import { ConvexError } from "convex/values";
 
 /**
@@ -50,6 +51,25 @@ const JOUR = 86_400_000;
 /** Échéance par défaut : dans 3 jours, au format d'un <input type="date">. */
 function defaultDueDate(): string {
   return new Date(Date.now() + 3 * JOUR).toISOString().slice(0, 10);
+}
+
+/**
+ * Avertissement de phase d'un compte de clippeur, ou `null`.
+ *
+ * INFORMATIF : le compte reste cochable. Un compte en chauffe est `available`
+ * (statut actif) mais son quota du jour est 0 — sans cette mention, l'assignation
+ * passe et c'est la publication qui refusera, sans que rien ne l'ait annoncé.
+ * `null` pour un partenaire : le modèle de phase ne le concerne pas.
+ */
+function phaseHint(c: {
+  phase: string | null;
+  postsPerDay: number | null;
+  sortieDeChauffeAt: number | null;
+}): string | null {
+  if (c.phase === null || c.postsPerDay === null || c.postsPerDay > 0) return null;
+  return c.sortieDeChauffeAt !== null
+    ? `En chauffe jusqu'au ${formatDate(c.sortieDeChauffeAt)} — la publication sera refusée.`
+    : "Aucune publication possible dans cette phase.";
 }
 
 export function AssignScriptToRushDialog({
@@ -189,15 +209,26 @@ export function AssignScriptToRushDialog({
                 {available.map((c) => (
                   <label
                     key={c._id}
-                    className="flex items-center gap-2 text-sm text-slate-700"
+                    className="flex items-start gap-2 text-sm text-slate-700"
                   >
                     <Checkbox
+                      className="mt-0.5"
                       checked={isChecked(c._id)}
                       onCheckedChange={(v) => toggle(c._id, v === true)}
                     />
-                    <span className="truncate">
-                      {c.handle}{" "}
-                      <span className="text-slate-400">({c.plateforme})</span>
+                    {/* L'avertissement est SOUS le pseudo, hors du `truncate` :
+                        dans la largeur d'une modale il serait le premier coupé,
+                        alors que c'est précisément lui le message. */}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">
+                        {c.handle}{" "}
+                        <span className="text-slate-400">({c.plateforme})</span>
+                      </span>
+                      {phaseHint(c) !== null && (
+                        <span className="block text-xs text-amber-700">
+                          {phaseHint(c)}
+                        </span>
+                      )}
                     </span>
                   </label>
                 ))}

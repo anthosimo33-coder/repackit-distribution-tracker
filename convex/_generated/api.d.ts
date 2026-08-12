@@ -19,6 +19,7 @@ import type * as assetsMigration from "../assetsMigration.js";
 import type * as assignments from "../assignments.js";
 import type * as auth from "../auth.js";
 import type * as clipperAssignmentFields from "../clipperAssignmentFields.js";
+import type * as clipperReadiness from "../clipperReadiness.js";
 import type * as cloudflareStream from "../cloudflareStream.js";
 import type * as cloudflareStreamApi from "../cloudflareStreamApi.js";
 import type * as comptes from "../comptes.js";
@@ -120,6 +121,7 @@ declare const fullApi: ApiFromModules<{
   assignments: typeof assignments;
   auth: typeof auth;
   clipperAssignmentFields: typeof clipperAssignmentFields;
+  clipperReadiness: typeof clipperReadiness;
   cloudflareStream: typeof cloudflareStream;
   cloudflareStreamApi: typeof cloudflareStreamApi;
   comptes: typeof comptes;

@@ -20,6 +20,11 @@ import {
 import { isSnytchProject } from "./projects";
 import { resolveCreatorKind } from "./roles";
 import { auditCompteHandle } from "./handleHygiene";
+import { postsPerDayAt } from "./accountPhase";
+import {
+  phaseOfClipperAccount,
+  sortieDeChauffeAt,
+} from "./clipperReadiness";
 import { countryValidator } from "./countries";
 import { v, ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -306,12 +311,32 @@ export const listCreatorAvailableComptes = adminQuery({
         q.eq("projectId", ctx.projectId).eq("creatorId", creatorId),
       )
       .collect();
+    // Phase du compte — AVERTISSEMENT seulement. `available` est INCHANGÉ : un
+    // compte en chauffe reste cochable, c'est la publication qui refusera. On
+    // donne l'information au moment du geste, la garde reste au moment qui compte.
+    //
+    // ⚠️ Calculée UNIQUEMENT si le propriétaire est un CLIPPEUR. `updateCompte`
+    // pose `validatedAt` sur n'importe quel compte passé en actif, partenaires
+    // compris — afficher « en chauffe » sur le compte d'une partenaire ferait
+    // fuiter le modèle clippeur dans un écran qui n'en relève pas (arbitrage D3).
+    const owner = await ctx.db.get(creatorId);
+    const estClippeur =
+      owner !== null && resolveCreatorKind(owner.kind) === "clipper";
+    const now = Date.now();
     return comptes
       .map((c) => ({
         _id: c._id,
         handle: c.handle,
         plateforme: c.plateforme,
         available: isAccountAvailable(c, { strict }),
+        /** Phase du compte, ou `null` hors population clippeur. */
+        phase: estClippeur ? phaseOfClipperAccount(c.validatedAt, now) : null,
+        /** Quota de posts du jour — 0 = la publication sera refusée. */
+        postsPerDay: estClippeur ? postsPerDayAt(c.validatedAt, now) : null,
+        /** Date de sortie de chauffe, à écrire en clair. `null` hors chauffe. */
+        sortieDeChauffeAt: estClippeur
+          ? sortieDeChauffeAt(c.validatedAt, now)
+          : null,
       }))
       .sort((a, b) =>
         a.handle.localeCompare(b.handle, "fr", { sensitivity: "base" }),
