@@ -12,6 +12,15 @@ import {
   representativePostedAt,
 } from "./assignments";
 import { buildPricingSnapshot } from "./pricing";
+import { canTransition } from "./rushStatus";
+import { resolveCreatorKind } from "./roles";
+import {
+  describeIneligibleBrick,
+  describeNoEligibleCombo,
+  eligibleBricksForRush,
+  isBrickRushEligible,
+  isGuardedKind,
+} from "./rushScriptEligibility";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -1325,5 +1334,220 @@ export const cleanupTestScripts = e2eMutation({
       deleted++;
     }
     return { deleted };
+  },
+});
+
+// ─── PR 4 — ASSIGNER UN SCRIPT À UN RUSH ─────────────────────────────────────
+
+/**
+ * Monte un script sur un RUSH déposé par un talent, et crée le clip à produire.
+ *
+ * ⚠️ `assignScriptCampaign` n'est PAS modifiée : elle fait autre chose (elle tire
+ * N combos pour un créateur et ses cibles). Celle-ci part d'UN rush et crée UNE
+ * assignation. Tout ce qui pouvait être réutilisé l'est — `validateTargets`,
+ * `resolveManagedTargets`, `validateImposedCombo`, le tirage least-used — et rien
+ * du chemin partenaire n'est touché.
+ *
+ * QUI EST PAYÉ (D1) : `creatorId` = LE CLIPPEUR, dérivé de `talent.clipperId`. Il
+ * possède les comptes cibles et c'est lui qui publie ; c'est le `creatorId`
+ * naturel au sens du code existant (`validateTargets` exige que chaque cible lui
+ * appartienne). Le talent reste relié par le rush, pas par l'assignation.
+ *
+ * ⚠️ INVARIANT D'ARGENT — AUCUN `pricingSnapshot`, JAMAIS. C'est le chemin du
+ * DOUBLE PAIEMENT : `computeLivePricingBreakdown` ramasse tout assignment qui en
+ * porte un et lui applique fixe + CPM, alors que le clippeur est payé un montant
+ * FIXE PAR CLIP (chantier pricing, champ `clipRateSnapshot` DISJOINT). Une spec
+ * e2e échoue si cette ligne réapparaît, et elle a été vue rouge.
+ *
+ * GARDE D7 : les rushes sont muets, donc seules les briques `hook`/`flux` en
+ * « afficher » entrent dans le tirage (cf convex/rushScriptEligibility.ts). Le
+ * filtrage précède le tirage pour que l'erreur nomme la brique fautive.
+ */
+export const assignScriptToRush = adminMutation({
+  args: {
+    rushId: v.id("rushes"),
+    campaignId: v.id("scriptCampaigns"),
+    targets: v.array(targetInputValidator),
+    dueDate: v.number(),
+    tier: v.optional(TIER),
+    overlayText: v.optional(v.string()),
+    // Consigne de montage libre, propre à ce clip (champ partagé avec le flux
+    // partenaire, déjà classé dans les deux allowlists).
+    instructions: v.optional(v.string()),
+    // Combinaison imposée (même sémantique que l'assignation de campagne) : les
+    // 3 briques viennent de l'admin au lieu du tirage. Reste soumise à D7.
+    imposedCombo: v.optional(
+      v.object({
+        hookBrickId: v.id("scriptBricks"),
+        fluxBrickId: v.id("scriptBricks"),
+        ctaBrickId: v.id("scriptBricks"),
+      }),
+    ),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ assignmentId: Id<"assignments"> }> => {
+    const rush = await ctx.db.get(args.rushId);
+    if (!rush || rush.projectId !== ctx.projectId) {
+      throw new ConvexError("Rush introuvable dans ce projet.");
+    }
+    // Machine à états : un rush déjà retenu, publié, refusé ou expiré ne repart
+    // pas (cf convex/rushStatus.ts — les états terminaux ont vu leur binaire purgé).
+    if (!canTransition(rush.status, "assigned")) {
+      throw new ConvexError(
+        "Ce rush n'est plus assignable (déjà retenu, publié, refusé ou expiré).",
+      );
+    }
+
+    const talent = await ctx.db.get(rush.talentId);
+    if (!talent || talent.projectId !== ctx.projectId) {
+      throw new ConvexError("Talent introuvable dans ce projet.");
+    }
+    // Appariement requis — message qui NOMME le geste manquant plutôt qu'un code.
+    if (!talent.clipperId) {
+      throw new ConvexError(
+        `${talent.name} n'est apparié à aucun clippeur : rattache-lui un clippeur depuis sa fiche avant d'assigner un script.`,
+      );
+    }
+    const clipper = await ctx.db.get(talent.clipperId);
+    if (!clipper || clipper.projectId !== ctx.projectId) {
+      throw new ConvexError("Clippeur introuvable dans ce projet.");
+    }
+    if (resolveCreatorKind(clipper.kind) !== "clipper") {
+      throw new ConvexError(
+        `${clipper.name} n'est plus un clippeur : refais l'appariement de ${talent.name}.`,
+      );
+    }
+    if (
+      clipper.userId === undefined ||
+      (clipper.status !== "active" && clipper.status !== "onboarding")
+    ) {
+      throw new ConvexError(
+        `Clippeur non assignable (${clipper.name} : non onboardé ou inactif).`,
+      );
+    }
+
+    const campaign = await requireCampaign(ctx, args.campaignId, ctx.projectId);
+    if (campaign.status === "archived") {
+      throw new ConvexError("Campagne archivée : réactive-la pour l'assigner.");
+    }
+    if (args.targets.length === 0) {
+      throw new ConvexError("Choisis au moins un compte de publication.");
+    }
+    // Cibles : mêmes gardes que le flux partenaire (appartenance au clippeur,
+    // disponibilité du compte, homogénéité géré/non géré).
+    await validateTargets(ctx, ctx.projectId, talent.clipperId, args.targets);
+    const { managed } = await resolveManagedTargets(
+      ctx,
+      ctx.projectId,
+      talent.clipperId,
+      args.targets,
+    );
+
+    const allBricks = await ctx.db
+      .query("scriptBricks")
+      .withIndex("by_campaign", (q) => q.eq("campaignId", args.campaignId))
+      .collect();
+
+    let combo: ServerCombo;
+    if (args.imposedCombo) {
+      // Validé d'abord contre TOUTES les briques : sinon une brique refusée par
+      // D7 remonterait « introuvable (supprimée ?) », message faux et déroutant.
+      combo = validateImposedCombo(
+        allBricks,
+        args.imposedCombo,
+        args.campaignId,
+      );
+      const chosen = [
+        args.imposedCombo.hookBrickId,
+        args.imposedCombo.fluxBrickId,
+      ];
+      for (const id of chosen) {
+        const b = allBricks.find((x) => x._id === id);
+        if (b && !isBrickRushEligible(b)) {
+          throw new ConvexError(describeIneligibleBrick(b));
+        }
+      }
+    } else {
+      // D7 : filtrage AVANT le tirage. Le tier ne filtre que les hooks, comme
+      // dans le chemin partenaire.
+      const tiered =
+        args.tier === undefined
+          ? allBricks
+          : allBricks.filter((b) => b.kind !== "hook" || b.tier === args.tier);
+      const eligible = eligibleBricksForRush(tiered);
+      const combos = generateCombosServer(eligible);
+      if (combos.length === 0) {
+        // Message qui NOMME les briques à corriger — « aucun combo disponible »
+        // tout court laisse l'admin sans geste possible.
+        throw new ConvexError(
+          describeNoEligibleCombo(
+            tiered.filter((b) => isGuardedKind(b.kind) && !isBrickRushEligible(b)),
+          ),
+        );
+      }
+      // Unicité : règle PARTENAIRE (créateur, plateforme), conservée telle quelle.
+      // L'amendement B1 (clé par compte pour les clippeurs) touche un module pur
+      // PARTAGÉ avec les partenaires — hors périmètre ici. La règle actuelle est
+      // plus stricte, jamais plus permissive : elle ne peut pas produire de
+      // doublon, seulement écarter un combo qui aurait pu resservir.
+      const existing = await ctx.db
+        .query("assignments")
+        .withIndex("by_creator", (q) => q.eq("creatorId", talent.clipperId!))
+        .collect();
+      const usedKeys = usedComboKeysForPlatforms(
+        existing,
+        talent.clipperId,
+        args.targets.map((t) => t.platform),
+      );
+      const picked = pickCombosServer(combos, usedKeys, 1);
+      if (picked.length === 0) {
+        throw new ConvexError(
+          "Tous les scripts affichables de cette campagne ont déjà été utilisés sur ces comptes.",
+        );
+      }
+      combo = picked[0];
+    }
+
+    const now = Date.now();
+    const assignmentId = await ctx.db.insert("assignments", {
+      projectId: ctx.projectId,
+      creatorId: talent.clipperId,
+      scriptCombo: {
+        campaignId: args.campaignId,
+        hookBrickId: combo.hookBrickId,
+        fluxBrickId: combo.fluxBrickId,
+        ctaBrickId: combo.ctaBrickId,
+        assembledScript: combo.assembledScript,
+      },
+      comboKey: comboKeyOf(combo),
+      ...(args.imposedCombo ? { comboImposed: true } : {}),
+      targets: args.targets.map((t) => ({
+        platform: t.platform,
+        accountId: t.accountId,
+      })),
+      dueDate: args.dueDate,
+      status: managed ? "to_publish" : "todo",
+      managedByAdmin: managed ? true : undefined,
+      // Placeholder neutre exigé par le schéma. AUCUN pricingSnapshot : cf
+      // l'invariant d'argent en tête de cette mutation.
+      rateSnapshot: { basePerPost: 0 },
+      overlayText: normalizeOverlayText(args.overlayText),
+      ...(args.instructions?.trim()
+        ? { instructions: args.instructions.trim() }
+        : {}),
+      createdAt: now,
+    });
+
+    // Rush retenu — le talent lira « Validé », jamais « Assigné » (cf
+    // convex/rushStatus.TALENT_STATUS_LABELS).
+    await ctx.db.patch(args.rushId, {
+      status: "assigned",
+      assignedAt: now,
+      assignmentId,
+    });
+
+    return { assignmentId };
   },
 });

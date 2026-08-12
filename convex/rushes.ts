@@ -1,5 +1,6 @@
 import {
   adminMutation,
+  adminQuery,
   authedAction,
   e2eMutation,
   talentMutation,
@@ -15,7 +16,7 @@ import { openUploadSession, type UploadSessionResult } from "./snytchDrive";
 import { googleDriveConfig, deleteDriveFile } from "./googleDriveApi";
 import { isFileDropEnabled } from "./fileDrop";
 import { pickTalentRush, TALENT_RUSH_FIELDS } from "./talentRushFields";
-import { canTransition, isRushExpired } from "./rushStatus";
+import { canTransition, isRushExpired, RUSH_STATUSES } from "./rushStatus";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
@@ -347,5 +348,113 @@ export const purgeRushBinary = internalAction({
     if (!deleted) return { ok: false };
     await ctx.runMutation(internal.rushes.markBinaryPurged, { rushId });
     return { ok: true };
+  },
+});
+
+// ─── Revue admin ─────────────────────────────────────────────────────────────
+
+/** Ligne de la file de revue : le rush + de quoi décider sans rien rouvrir. */
+export interface RushReviewRow {
+  id: Id<"rushes">;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  status: Doc<"rushes">["status"];
+  depositedAt: number;
+  webViewLink: string | null;
+  thumbnailLink: string | null;
+  rejectionReason: string | null;
+  talentId: Id<"creators">;
+  talentName: string;
+  /** Clippeur apparié au talent — `null` = appariement manquant, l'assignation
+   *  est alors impossible et l'écran doit le dire AVANT d'ouvrir la modale. */
+  clipperId: Id<"creators"> | null;
+  clipperName: string | null;
+  assignmentId: Id<"assignments"> | null;
+}
+
+/**
+ * File de revue des rushes (admin). Le statut est filtrable ; par défaut on rend
+ * TOUT, récent → ancien, pour que l'écran garde son historique sous la main.
+ *
+ * Aucune allowlist ici, à la différence de la sortie talent : un admin du projet
+ * voit ses propres données (même contrat que `listComptes` ou `listCreators`).
+ * L'appariement est RÉSOLU côté serveur pour que l'écran n'ait pas à recharger
+ * les fiches une par une.
+ */
+export const listRushesForReview = adminQuery({
+  args: {
+    status: v.optional(
+      v.union(
+        v.literal("deposited"),
+        v.literal("assigned"),
+        v.literal("published"),
+        v.literal("rejected"),
+        v.literal("expired"),
+      ),
+    ),
+  },
+  handler: async (ctx, { status }): Promise<RushReviewRow[]> => {
+    // Sans filtre, on balaie les 5 états PAR L'INDEX plutôt que de scanner la
+    // table : `by_project_status` reste la seule porte d'entrée, et le scope
+    // projet est garanti par la clé, pas par un filtre en mémoire.
+    const wanted = status ? [status] : [...RUSH_STATUSES];
+    const rushes = (
+      await Promise.all(
+        wanted.map((s) =>
+          ctx.db
+            .query("rushes")
+            .withIndex("by_project_status", (q) =>
+              q.eq("projectId", ctx.projectId).eq("status", s),
+            )
+            .collect(),
+        ),
+      )
+    ).flat();
+
+    // Fiches chargées UNE fois (un talent dépose plusieurs rushes).
+    const fiches = new Map<string, Doc<"creators"> | null>();
+    const fiche = async (id: Id<"creators">) => {
+      const key = id as string;
+      if (!fiches.has(key)) fiches.set(key, await ctx.db.get(id));
+      return fiches.get(key) ?? null;
+    };
+
+    const rows: RushReviewRow[] = [];
+    for (const r of rushes) {
+      const talent = await fiche(r.talentId);
+      const clipper = talent?.clipperId ? await fiche(talent.clipperId) : null;
+      rows.push({
+        id: r._id,
+        fileName: r.fileName,
+        mimeType: r.mimeType,
+        sizeBytes: r.sizeBytes,
+        status: r.status,
+        depositedAt: r.depositedAt,
+        webViewLink: r.webViewLink ?? null,
+        thumbnailLink: r.thumbnailLink ?? null,
+        rejectionReason: r.rejectionReason ?? null,
+        talentId: r.talentId,
+        talentName: talent?.name ?? "Talent supprimé",
+        clipperId: clipper?._id ?? null,
+        clipperName: clipper?.name ?? null,
+        assignmentId: r.assignmentId ?? null,
+      });
+    }
+    return rows.sort((a, b) => b.depositedAt - a.depositedAt);
+  },
+});
+
+/** Badge de sidebar : nombre de rushes en attente de décision. */
+export const countRushesToReview = adminQuery({
+  args: {},
+  handler: async (ctx): Promise<number> => {
+    const waiting = await ctx.db
+      .query("rushes")
+      .withIndex("by_project_status", (q) =>
+        q.eq("projectId", ctx.projectId).eq("status", "deposited"),
+      )
+      .collect();
+    return waiting.length;
   },
 });

@@ -75,6 +75,7 @@ import type * as radar from "../radar.js";
 import type * as radarApi from "../radarApi.js";
 import type * as remunerate from "../remunerate.js";
 import type * as roles from "../roles.js";
+import type * as rushScriptEligibility from "../rushScriptEligibility.js";
 import type * as rushStatus from "../rushStatus.js";
 import type * as rushes from "../rushes.js";
 import type * as scriptAnalytics from "../scriptAnalytics.js";
@@ -174,6 +175,7 @@ declare const fullApi: ApiFromModules<{
   radarApi: typeof radarApi;
   remunerate: typeof remunerate;
   roles: typeof roles;
+  rushScriptEligibility: typeof rushScriptEligibility;
   rushStatus: typeof rushStatus;
   rushes: typeof rushes;
   scriptAnalytics: typeof scriptAnalytics;

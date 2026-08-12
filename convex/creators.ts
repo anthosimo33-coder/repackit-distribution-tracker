@@ -11,7 +11,7 @@ import {
   requireProjectAdmin,
 } from "./functions";
 import { getProjectBySlug, REPACKIT_SLUG } from "./projects";
-import { isPortalRole, type PortalRole } from "./roles";
+import { isPortalRole, resolveCreatorKind, type PortalRole } from "./roles";
 import { internal } from "./_generated/api";
 import { syncBonusUnlocks } from "./pricing";
 import { DELETABLE_STATUSES, purgeAndDeleteAssignment } from "./assignments";
@@ -277,6 +277,13 @@ export const updateCreator = adminMutation({
     // @ à créer par réseau (saisie libre admin). Absent = ne pas toucher ;
     // objet (réseaux vides) = effacer.
     handlesToCreate: v.optional(handlesToCreateValidator),
+    // ─── APPARIEMENT talent → clippeur (Q3 : 1 talent → 1 clippeur) ──────────
+    // Écrit sur la fiche du TALENT. null = désapparier, absent = ne pas toucher.
+    // L'ÉCRAN d'appariement est le chantier suivant ; ce write-side est posé ici
+    // parce que `assignScriptToRush` en dépend — sans lui la mutation est
+    // inassignable et intestable. La cible est vérifiée : elle doit être un
+    // CLIPPEUR du même projet, et le champ n'a de sens que sur un talent.
+    clipperId: v.optional(v.union(v.id("creators"), v.null())),
   },
   handler: async (ctx, args) => {
     const creator = await ctx.db.get(args.id);
@@ -311,6 +318,30 @@ export const updateCreator = adminMutation({
     }
     if (args.handlesToCreate !== undefined) {
       patch.handlesToCreate = normalizeHandlesToCreate(args.handlesToCreate);
+    }
+    if (args.clipperId !== undefined) {
+      if (args.clipperId === null) {
+        patch.clipperId = undefined;
+      } else {
+        // La fiche éditée doit être un TALENT : apparier un partenaire ou un
+        // clippeur à un clippeur n'a aucun sens et laisserait un champ mort que
+        // personne ne relirait.
+        if (resolveCreatorKind(creator.kind) !== "talent") {
+          throw new ConvexError(
+            "Seul un talent peut être apparié à un clippeur.",
+          );
+        }
+        const clipper = await ctx.db.get(args.clipperId);
+        if (!clipper || clipper.projectId !== ctx.projectId) {
+          throw new ConvexError("Clippeur introuvable dans le projet.");
+        }
+        if (resolveCreatorKind(clipper.kind) !== "clipper") {
+          throw new ConvexError(
+            `${clipper.name} n'est pas un clippeur : impossible de lui rattacher un talent.`,
+          );
+        }
+        patch.clipperId = args.clipperId;
+      }
     }
     await ctx.db.patch(args.id, patch);
     // Changer la grille de bonus → matérialise immédiatement les paliers déjà

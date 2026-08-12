@@ -923,7 +923,12 @@ export default defineSchema({
     binaryPurgedAt: v.optional(v.number()),
   })
     .index("by_talent", ["talentId"])
-    .index("by_project_status", ["projectId", "status"]),
+    .index("by_project_status", ["projectId", "status"])
+    // Sens INVERSE du lien rush ↔ assignation. Un index plutôt qu'un champ
+    // `rushId` sur `assignments` : tout nouveau champ là-bas doit être classé
+    // dans les DEUX allowlists (créatrice et clippeur), contrainte voulue qu'il
+    // n'y a aucune raison de payer ici. Consommé par l'espace clippeur.
+    .index("by_assignment", ["assignmentId"]),
 
   // ─── Reset mot de passe admin (Voie B) — lien à usage unique sans email ────
   // Un admin génère un lien /reset-password/<token> qu'il transmet au créateur

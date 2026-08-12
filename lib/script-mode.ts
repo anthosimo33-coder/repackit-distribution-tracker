@@ -5,14 +5,24 @@
  * sélecteur admin, la résolution du défaut (rétrocompat "les_deux") et le
  * libellé + icône affichés à la créatrice. Pur + testé (Vitest).
  *
- * `resolveBrickMode` est RÉPLIQUÉ côté serveur en `?? "les_deux"` inline
- * (convex/assignments.splitScriptZones, A6) — la sémantique DOIT rester
- * identique. La résolution du mode est ORTHOGONALE au contenu de la brique :
- * changer le mode ne modifie pas `assembledScript`, donc la garde anti-
- * divergence du split reste intacte.
+ * ⚠️ `resolveBrickMode` et le type `BrickMode` ne sont PLUS définis ici : ils
+ * vivent dans `convex/rushScriptEligibility.ts`, module PUR dont la garde D7
+ * (« un rush est muet, seul ce qui s'affiche est assignable ») dérive. A6
+ * interdit `convex/ → lib/`, pas l'inverse : une seule définition, consommée des
+ * deux côtés, plutôt qu'une paire à surveiller. Ce fichier reste le point
+ * d'entrée FRONT (ré-export + options du sélecteur + libellés) — aucun site
+ * d'appel n'a changé.
+ *
+ * Il reste UNE occurrence non fusionnée, hors périmètre : le `?? "les_deux"`
+ * inline de `convex/assignments.splitScriptZones`, qui rend le script de la
+ * créatrice PARTENAIRE. Sa garde anti-divergence existe déjà.
  */
 
-export type BrickMode = "dire" | "afficher" | "les_deux";
+export {
+  resolveBrickMode,
+  type BrickMode,
+} from "../convex/rushScriptEligibility";
+import type { BrickMode } from "../convex/rushScriptEligibility";
 
 /** Options ordonnées pour le sélecteur admin (hook / flux uniquement). */
 export const BRICK_MODE_OPTIONS: { value: BrickMode; label: string }[] = [
@@ -20,13 +30,6 @@ export const BRICK_MODE_OPTIONS: { value: BrickMode; label: string }[] = [
   { value: "afficher", label: "Afficher à l'écran" },
   { value: "les_deux", label: "Les deux" },
 ];
-
-/** Défaut rétrocompat : brique sans mode (ou valeur inconnue) → "les_deux". */
-export function resolveBrickMode(mode: string | null | undefined): BrickMode {
-  return mode === "dire" || mode === "afficher" || mode === "les_deux"
-    ? mode
-    : "les_deux";
-}
 
 /**
  * Libellé + icône affichés à la créatrice AU-DESSUS de chaque bloc de la zone

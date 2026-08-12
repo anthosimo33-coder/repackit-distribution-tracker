@@ -14,6 +14,7 @@ import {
   ClipboardCheckIcon,
   ClipboardListIcon,
   CoinsIcon,
+  FilmIcon,
   HelpCircleIcon,
   LayoutDashboardIcon,
   LogOutIcon,
@@ -70,6 +71,8 @@ export function Sidebar({
   const me = useQuery(api.projects.getMe, {});
   // Badge file de validation = nb de vidéos en attente de revue (video_submitted).
   const submittedCount = useProjectQuery(api.assignments.countVideoSubmitted, {});
+  // Prises déposées par les talents et pas encore tranchées (chantier rushes).
+  const rushesCount = useProjectQuery(api.rushes.countRushesToReview, {});
   const collapsed = isMobileDrawer ? false : isCollapsed;
 
   // Remédiation sécurité — déconnexion Convex Auth. push /login explicite :
@@ -98,6 +101,13 @@ export function Sidebar({
       // badge = nb d'assignments soumis en attente de validation (P8).
       badge: submittedCount,
       ...item(projectPath("/validation")),
+    },
+    {
+      icon: FilmIcon,
+      label: "Rushes",
+      // badge = prises en attente de décision (monter un script / refuser).
+      badge: rushesCount,
+      ...item(projectPath("/rushes")),
     },
     {
       icon: ClipboardListIcon,
