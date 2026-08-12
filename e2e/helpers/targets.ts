@@ -15,6 +15,12 @@ export async function availableTarget(opts: {
   creatorId: Id<"creators">;
   platform: Platform;
   handle: string;
+  /**
+   * Ancre de phase ANTIDATÉE (comptes de clippeur). Absente = compte non validé,
+   * ce qui est sans effet sur un compte de partenaire — la garde de quota ne
+   * regarde que les comptes de clippeur. Cf convex/accountPhase.ts.
+   */
+  validatedAt?: number;
 }): Promise<{ platform: Platform; accountId: Id<"comptes"> }> {
   const accountId = await opts.e2eClient.mutation(
     api.comptes.e2eSeedAvailableCompte,
@@ -23,6 +29,7 @@ export async function availableTarget(opts: {
       creatorId: opts.creatorId,
       plateforme: opts.platform,
       handle: opts.handle,
+      validatedAt: opts.validatedAt,
     },
   );
   return { platform: opts.platform, accountId };

@@ -2728,9 +2728,20 @@ export const e2eSetAssignmentStatus = e2eMutation({
       v.literal("paid"),
     ),
     videoReviewFeedback: v.optional(v.string()),
+    // Date de création ANTIDATÉE. `confirmPublicationAsAdmin` borne la date de
+    // publication réelle à [createdAt, now] : sans antidater l'assignation, cette
+    // fenêtre fait quelques millisecondes et il devient IMPOSSIBLE de prouver que
+    // le quota se compte sur la date SAISIE plutôt que sur `Date.now()` — les
+    // deux valent alors la même chose. Même rôle que le `now` injecté de
+    // l'expiration des rushes : le test exerce le vrai code, il ne le simule pas.
+    createdAt: v.optional(v.number()),
   },
-  handler: async (ctx, { id, status, videoReviewFeedback }) => {
-    await ctx.db.patch(id, { status, videoReviewFeedback });
+  handler: async (ctx, { id, status, videoReviewFeedback, createdAt }) => {
+    await ctx.db.patch(id, {
+      status,
+      videoReviewFeedback,
+      ...(createdAt !== undefined ? { createdAt } : {}),
+    });
     return { ok: true };
   },
 });
