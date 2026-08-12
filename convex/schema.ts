@@ -74,6 +74,22 @@ export default defineSchema({
         }),
       ),
     ),
+    // ─── Dépôt de fichiers (Drive) — ouvert sur ce projet ? ───────────────────
+    // Remplace le gate `slug === "snytch"` en dur du chemin Drive. ABSENT ⇒
+    // repli EXACT sur le comportement d'avant : Snytch ouvert, tout le reste
+    // fermé (cf convex/fileDrop.isFileDropEnabled) → 0 migration, Snytch
+    // inchangé. Un booléen explicite l'emporte dans les deux sens.
+    //
+    // ⚠️ NE COMMANDE QUE LE DÉPÔT. Le régime STRICT de disponibilité des comptes
+    // (isAccountAvailable({strict}), appelé par validateTargets et
+    // confirmPublicationCore) reste sur `projects.isSnytchProject` et n'est PAS
+    // concerné : les fusionner ferait cesser silencieusement d'être vrai
+    // l'invariant « un compte non validé ne peut rien publier » (risque 8 du
+    // diagnostic). Posé via projects.setTalentSettings (adminMutation).
+    //
+    // NB : la nav du portail PARTENAIRE (« Mes fichiers ») reste gatée sur le
+    // slug côté client — le chantier talent ne change rien à l'écran partenaire.
+    fileDropEnabled: v.optional(v.boolean()),
     // ─── Grille de bonus par DÉFAUT du projet (paliers cumul de vues) ──────────
     // Grille (pricings) héritée par toute créatrice SANS grille perso
     // (creators.bonusPricingId). Sert l'AFFICHAGE (progression) ET la PAIE
