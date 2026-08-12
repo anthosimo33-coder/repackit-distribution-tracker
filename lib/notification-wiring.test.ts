@@ -48,6 +48,79 @@ describe("publication — l'accroche vit dans le cœur PARTAGÉ", () => {
   });
 });
 
+/**
+ * ORDRE dans le cœur de publication.
+ *
+ * `confirmPublicationCore` est le point de CONTENTION du repo : trois chantiers
+ * y ont posé quelque chose en quelques jours (garde de quota clippeur,
+ * notification, et bientôt la saisie de date réelle côté clippeur). Le conflit
+ * de merge se verrait ; le conflit SÉMANTIQUE, non. D'où ces bornes.
+ *
+ * La propriété qui compte : rien ne doit pouvoir REFUSER la publication après
+ * que la notification a été planifiée. Un message « publication confirmée » sur
+ * une publication refusée serait pire que pas de message du tout.
+ */
+describe("publication — la notification est la DERNIÈRE chose du cœur", () => {
+  const coeur = coeurPublication();
+  const pos = (needle: string) => {
+    const i = coeur.indexOf(needle);
+    expect(i, `introuvable dans le cœur : ${needle}`).toBeGreaterThan(-1);
+    return i;
+  };
+
+  it("planifiée APRÈS le retour idempotent (re-confirmer n'envoie rien)", () => {
+    expect(pos("internal.notifications.notifyPublication")).toBeGreaterThan(
+      pos("alreadyPublished: true"),
+    );
+  });
+
+  it("planifiée APRÈS la garde de quota clippeur (un refus ne notifie pas)", () => {
+    // La garde jette (quotaRefusalMessage) : placée avant, la ligne de
+    // planification n'est jamais atteinte sur un refus.
+    expect(pos("internal.notifications.notifyPublication")).toBeGreaterThan(
+      pos("assertClipperDailyQuota"),
+    );
+  });
+
+  it("planifiée APRÈS le passage effectif en published", () => {
+    expect(pos("internal.notifications.notifyPublication")).toBeGreaterThan(
+      pos('status: "published"'),
+    );
+  });
+
+  it("planifiée APRÈS le patch de publishedBy, que le message LIT", () => {
+    // Le message distingue « la créatrice a publié » de « l'admin a rattrapé »
+    // en relisant publishedBy. Si un chantier déplaçait ce patch après la
+    // notification, l'admin en secours serait annoncé comme une créatrice —
+    // exactement l'inverse de ce que la mention doit éviter.
+    expect(pos("internal.notifications.notifyPublication")).toBeGreaterThan(
+      pos("publishedBy: opts.confirmedBy"),
+    );
+  });
+
+  it("AUCUN throw ne subsiste après la planification", () => {
+    // La borne générique, celle qui tiendra face au prochain chantier : quoi
+    // qu'on ajoute au cœur, ça doit se placer AVANT la notification si ça peut
+    // encore refuser la publication.
+    const apres = coeur.slice(
+      coeur.indexOf("internal.notifications.notifyPublication"),
+    );
+    expect(apres).not.toContain("throw ");
+  });
+
+  it("elle est la DERNIÈRE planification du cœur", () => {
+    // Comparer les index bruts serait tautologique : la ligne de notification
+    // contient elle-même « scheduler.runAfter( ». On regarde donc CE QUE plante
+    // la dernière planification.
+    const appels = [...coeur.matchAll(/scheduler\.runAfter\(/g)].map(
+      (m) => m.index ?? 0,
+    );
+    expect(appels.length).toBeGreaterThan(1); // le cœur en a d'autres (purge Stream)
+    const derniere = coeur.slice(Math.max(...appels), Math.max(...appels) + 160);
+    expect(derniere).toContain("internal.notifications.notifyPublication");
+  });
+});
+
 describe("revue vidéo — validation et refus notifient, hors transaction", () => {
   const bloc = (nom: string) => {
     const debut = SRC.indexOf(`export const ${nom} = adminMutation`);
