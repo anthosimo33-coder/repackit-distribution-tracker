@@ -46,11 +46,42 @@ function comparable(input: string): string {
  */
 const MIN_TERM_LENGTH = 3;
 
+/**
+ * Formes cherchables d'un terme : le terme ENTIER **et chacun de ses mots**.
+ *
+ * Un talent est enregistré sous son nom complet (« Marine Dupont »), alors qu'un
+ * pseudo n'en reprend qu'un morceau (« @marine.bn07 »). Ne chercher que la chaîne
+ * entière rendait l'audit muet sur le cas le plus courant — défaut invisible tant
+ * qu'on ne le teste qu'avec des prénoms nus.
+ *
+ * Les jetons purement NUMÉRIQUES sont écartés : une suite de chiffres dans un nom
+ * ne désigne rien, et elle collerait au hasard sur n'importe quel pseudo qui en
+ * contient.
+ */
+function searchableTokens(term: string): { affiche: string; cle: string }[] {
+  const out: { affiche: string; cle: string }[] = [];
+  const pousser = (affiche: string) => {
+    const cle = comparable(affiche);
+    if (cle.length < MIN_TERM_LENGTH) return;
+    if (/^\d+$/.test(cle)) return;
+    if (out.some((o) => o.cle === cle)) return;
+    out.push({ affiche, cle });
+  };
+  pousser(term);
+  for (const mot of term.split(/[\s,;/|]+/)) pousser(mot);
+  return out;
+}
+
+/**
+ * Premier jeton trouvé dans le pseudo. Rend le JETON, pas le terme d'origine :
+ * annoncer « contient “Marine Dupont” » sur un pseudo qui ne dit que « marine »
+ * ferait douter de l'audit.
+ */
 function findTerm(haystack: string, terms: readonly string[]): string | null {
   for (const term of terms) {
-    const needle = comparable(term);
-    if (needle.length < MIN_TERM_LENGTH) continue;
-    if (haystack.includes(needle)) return term;
+    for (const { affiche, cle } of searchableTokens(term)) {
+      if (haystack.includes(cle)) return affiche;
+    }
   }
   return null;
 }

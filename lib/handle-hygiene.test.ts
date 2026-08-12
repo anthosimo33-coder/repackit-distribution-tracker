@@ -44,6 +44,36 @@ describe("auditCompteHandle — ce qu'il doit attraper", () => {
   it("le nom d'un talent", () => {
     expect(auditCompteHandle("@marine.bn07", CTX).mentionsTalent).toBe("Marine");
   });
+
+  it("un PRÉNOM extrait d'un nom complet — la forme réelle des données", () => {
+    // Les talents sont enregistrés sous leur nom complet, les pseudos n'en
+    // reprennent qu'un morceau. Ne chercher que la chaîne entière rendait
+    // l'audit muet sur le cas le plus courant — et le défaut restait invisible
+    // tant que le test n'utilisait que des prénoms nus.
+    const a = auditCompteHandle("@marine.bn07", {
+      productNames: [],
+      talentNames: ["Marine Dupont-Lefèvre"],
+    });
+    expect(a.mentionsTalent).toBe("Marine");
+  });
+
+  it("le nom entier compte aussi, quand le pseudo le reprend en bloc", () => {
+    const a = auditCompteHandle("@marinedupont.off", {
+      productNames: [],
+      talentNames: ["Marine Dupont"],
+    });
+    expect(a.mentionsTalent).toBe("Marine Dupont");
+  });
+
+  it("un jeton purement NUMÉRIQUE n'est jamais cherché", () => {
+    // Une suite de chiffres dans un nom ne désigne rien, et collerait au hasard
+    // sur tout pseudo qui en contient (les jeux e2e suffixent par un timestamp).
+    const a = auditCompteHandle("@neutre1755012345", {
+      productNames: [],
+      talentNames: ["Talent 1755012345"],
+    });
+    expect(a.mentionsTalent).toBeNull();
+  });
 });
 
 describe("auditCompteHandle — ce qu'il ne doit PAS signaler", () => {

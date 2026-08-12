@@ -27,6 +27,8 @@ async function fiche(
   ts: number,
 ): Promise<Id<"creators">> {
   const { creatorId } = await admin.mutation(api.creators.inviteCreator, {
+    // ⚠️ Le nom est découpé en MOTS par l'audit de pseudo : garder des libellés
+    // sans mot commun avec les pseudos des autres specs.
     name: `[E2E_TEST] ${label} ${ts}`,
     email: `e2e-${label}-${ts}@repackit.test`,
     kind,
@@ -71,18 +73,22 @@ test.describe("Comptes — file de validation et refus", () => {
     test.setTimeout(150_000);
     const ts = Date.now() + 1;
     const clipperId = await fiche("clipper", "clip-audit", ts);
-    // Le projet e2e s'appelle « E2E Test » → on cible le talent, dont le nom
-    // est sous notre contrôle.
+    // Nom de talent volontairement improbable : la query calcule l'audit contre
+    // TOUS les talents du projet, et la base e2e est partagée.
     await fiche("talent", "Zorglubine", ts);
     const idSuspect = await compte(clipperId, `@zorglubine.clips${ts}`);
-    const idNeutre = await compte(clipperId, `@quotidien.neutre${ts}`);
 
     const file = await admin.query(api.comptes.listComptesAValider, {});
     const suspect = file.find((c) => c._id === idSuspect)!;
-    const neutre = file.find((c) => c._id === idNeutre)!;
-    expect(suspect.audit.mentionsTalent).not.toBeNull();
-    expect(neutre.audit.mentionsTalent).toBeNull();
-    expect(neutre.audit.mentionsProduct).toBeNull();
+    // Le pseudo ne reprend que le PRÉNOM d'un nom complet — la forme réelle des
+    // données, et ce que la première version de l'audit ratait.
+    expect(suspect.audit.mentionsTalent).toBe("Zorglubine");
+
+    // Pas d'assertion NÉGATIVE ici : la base e2e est partagée et l'audit compare
+    // contre tous les talents du projet, dont ceux d'autres specs. Le « ne
+    // signale rien » se teste avec des entrées contrôlées, en unitaire
+    // (lib/handle-hygiene.test.ts) ; ici on vérifie le CÂBLAGE — que la query
+    // calcule bien un audit à partir des vraies données du projet.
 
     // L'audit n'empêche RIEN : le compte signalé se valide normalement.
     await admin.mutation(api.comptes.updateCompte, {
