@@ -28,6 +28,13 @@ import {
 } from "./pricing";
 import { isAccountAvailable } from "./warmup";
 import { isSnytchProject } from "./projects";
+import { resolveCreatorKind } from "./roles";
+import {
+  accountPhaseAt,
+  postsPerDayAt,
+  quotaRefusalMessage,
+  utcDayRange,
+} from "./accountPhase";
 import {
   deleteStorageBestEffort,
   purgePublicationImage,
@@ -2274,6 +2281,66 @@ export const submitVideo = creatorMutation({
  * porte projectId (injecté par les deux wrappers). Type ANNOTÉ (matérialise via
  * ctx.runMutation(internal.*) → TS7022).
  */
+/**
+ * QUOTA DE POSTS PAR JOUR — garde SERVEUR, et le seul endroit qui compte.
+ *
+ * Une garde d'UI seule serait contournée dans la semaine ; le lien entre en base
+ * ICI, donc la règle vit ICI.
+ *
+ * ⚠️ NE REGARDE QUE LES COMPTES DE CLIPPEUR. Un propriétaire d'un autre type fait
+ * `continue` — pas une branche qui retomberait sur les mêmes valeurs, un vrai
+ * saut : les créateurs partenaires ne sont pas soumis à ce modèle (arbitrage D3,
+ * leur warmup se compte en checks réellement posés) et rien de leur flux ne doit
+ * dépendre de ce code.
+ *
+ * ⚠️ COMPTE SUR `at` (la date de publication RÉELLE), JAMAIS sur `Date.now()`.
+ * C'est le piège TD-020 : la date d'une publication est aujourd'hui celle où le
+ * lien est collé. Un clippeur qui poste à 22 h et colle le lien le lendemain
+ * matin produirait sinon un faux dépassement le jour J+1 et un faux trou le jour J.
+ */
+async function assertClipperDailyQuota(
+  ctx: MutationCtx & { projectId: Id<"projects"> },
+  targets: NonNullable<Doc<"assignments">["targets"]>,
+  at: number,
+): Promise<void> {
+  const { start, end } = utcDayRange(at);
+  let sameDay: Doc<"publications">[] | null = null;
+
+  for (const t of targets) {
+    if (!t.accountId) continue;
+    const compte = await ctx.db.get(t.accountId);
+    if (!compte || !compte.creatorId) continue;
+    const owner = await ctx.db.get(compte.creatorId);
+    if (resolveCreatorKind(owner?.kind) !== "clipper") continue;
+
+    const phase = accountPhaseAt(compte.validatedAt, at);
+    const quota = postsPerDayAt(compte.validatedAt, at);
+    if (quota === 0) {
+      // Non validé, ou phase de chauffe : rien ne sort, inutile de compter.
+      throw new ConvexError(quotaRefusalMessage(compte.handle, phase, quota));
+    }
+
+    // Publications du projet sur CETTE journée UTC — plage d'index, pas un scan
+    // de toutes les publications du projet (cf risque 9 du diagnostic). Chargées
+    // une seule fois pour toutes les cibles : elles partagent la même journée.
+    // Le rapprochement se fait par HANDLE — `publications.compte` est une string,
+    // pas un Id<"comptes"> (TD-001), et c'est la jointure canonique du dépôt.
+    sameDay ??= await ctx.db
+      .query("publications")
+      .withIndex("by_project_datePubli", (q) =>
+        q
+          .eq("projectId", ctx.projectId)
+          .gte("datePubli", start)
+          .lt("datePubli", end),
+      )
+      .collect();
+    const dejaSorties = sameDay.filter((p) => p.compte === compte.handle).length;
+    if (dejaSorties >= quota) {
+      throw new ConvexError(quotaRefusalMessage(compte.handle, phase, quota));
+    }
+  }
+}
+
 async function confirmPublicationCore(
   ctx: MutationCtx & { projectId: Id<"projects"> },
   a: Doc<"assignments">,
@@ -2382,6 +2449,12 @@ async function confirmPublicationCore(
     month: "2-digit",
   });
   const isScript = a.scriptCombo !== undefined && a.formatId === undefined;
+
+  // Quota de posts par jour des comptes de CLIPPEUR. Posé ICI et pas avec la
+  // garde warmup ci-dessus parce qu'il lui faut `effectiveDate` : le quota se
+  // compte sur la date de publication RÉELLE, jamais sur l'horodatage d'écriture.
+  // No-op complet pour les comptes de créateurs partenaires.
+  await assertClipperDailyQuota(ctx, targets, effectiveDate);
 
   const publicationIds: Id<"publications">[] = [];
   const newTargets: NonNullable<Doc<"assignments">["targets"]> = [];
@@ -2655,9 +2728,20 @@ export const e2eSetAssignmentStatus = e2eMutation({
       v.literal("paid"),
     ),
     videoReviewFeedback: v.optional(v.string()),
+    // Date de création ANTIDATÉE. `confirmPublicationAsAdmin` borne la date de
+    // publication réelle à [createdAt, now] : sans antidater l'assignation, cette
+    // fenêtre fait quelques millisecondes et il devient IMPOSSIBLE de prouver que
+    // le quota se compte sur la date SAISIE plutôt que sur `Date.now()` — les
+    // deux valent alors la même chose. Même rôle que le `now` injecté de
+    // l'expiration des rushes : le test exerce le vrai code, il ne le simule pas.
+    createdAt: v.optional(v.number()),
   },
-  handler: async (ctx, { id, status, videoReviewFeedback }) => {
-    await ctx.db.patch(id, { status, videoReviewFeedback });
+  handler: async (ctx, { id, status, videoReviewFeedback, createdAt }) => {
+    await ctx.db.patch(id, {
+      status,
+      videoReviewFeedback,
+      ...(createdAt !== undefined ? { createdAt } : {}),
+    });
     return { ok: true };
   },
 });

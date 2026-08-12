@@ -552,6 +552,13 @@ export const updateCompte = adminMutation({
       update.status = targetStatus;
       // Legacy synchronisé (TD-017).
       update.actif = targetStatus === "actif";
+      // ANCRE de phase — posée à la PREMIÈRE validation seulement (cf schema).
+      // Le `?? undefined` du côté droit n'existe pas : on ne touche au champ que
+      // s'il est absent, pour qu'une revalidation ne décale jamais la phase d'un
+      // compte de clippeur déjà en croisière.
+      if (targetStatus === "actif" && compte.validatedAt === undefined) {
+        update.validatedAt = Date.now();
+      }
     } else if (args.warmupStartedAt !== undefined) {
       // Édition de la date de warmup sans changer le statut.
       update.warmupStartedAt =
@@ -616,7 +623,16 @@ export const unarchiveCompte = adminMutation({
       throw new ConvexError("Compte introuvable.");
     }
     if (effectiveStatus(compte) !== "archived") return { ok: true };
-    await ctx.db.patch(id, { status: "actif", actif: true });
+    await ctx.db.patch(id, {
+      status: "actif",
+      actif: true,
+      // Même règle que updateCompte : ancre posée si elle manque, jamais
+      // réécrite. Désarchiver n'est pas revalider — un compte archivé trois mois
+      // puis remis en service garde sa phase, il n'a pas été réchauffé.
+      ...(compte.validatedAt === undefined
+        ? { validatedAt: Date.now() }
+        : {}),
+    });
     return { ok: true };
   },
 });
@@ -647,6 +663,12 @@ export const restartWarmup = adminMutation({
       // Legacy synchronisé (TD-017) : un compte en warmup n'est pas "actif".
       actif: false,
       warmupStartedAt: now,
+      // SEUL endroit qui efface l'ancre de phase. Relancer le warmup, c'est dire
+      // « ce compte repart de zéro » : sans cet effacement, un compte validé il y
+      // a 20 jours, remis en chauffe puis revalidé, repartirait à 2 posts/jour
+      // sur un compte fraîchement réchauffé. Sans effet sur les partenaires (la
+      // garde de quota ne les regarde pas).
+      validatedAt: undefined,
       warmupProtocol: {
         keywords: proto?.keywords ?? [],
         instructions: proto?.instructions ?? "",
@@ -1311,8 +1333,17 @@ export const e2eSeedAvailableCompte = e2eMutation({
     creatorId: v.id("creators"),
     plateforme: plateformeValidator,
     handle: v.string(),
+    // ANCRE DE PHASE antidatée — sans elle, impossible de tester un compte de
+    // clippeur « en croisière » sans attendre 14 jours. Même rôle que le `now`
+    // injecté de l'expiration des rushes : le test exerce le VRAI code de phase,
+    // il ne le simule pas. Absent = compte non validé (quota 0), ce qui est sans
+    // effet sur les comptes de partenaires — la garde ne les regarde pas.
+    validatedAt: v.optional(v.number()),
   },
-  handler: async (ctx, { creatorId, plateforme, handle }): Promise<Id<"comptes">> => {
+  handler: async (
+    ctx,
+    { creatorId, plateforme, handle, validatedAt },
+  ): Promise<Id<"comptes">> => {
     const creator = await ctx.db.get(creatorId);
     if (!creator) throw new ConvexError("Créateur introuvable.");
     return ctx.db.insert("comptes", {
@@ -1321,6 +1352,7 @@ export const e2eSeedAvailableCompte = e2eMutation({
       plateforme,
       notes: "[E2E_TEST] compte cible",
       status: "actif",
+      validatedAt,
       actif: true,
       creatorId,
     });
