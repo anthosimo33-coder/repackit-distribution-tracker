@@ -28,7 +28,7 @@ import {
 } from "./pricing";
 import { isAccountAvailable } from "./warmup";
 import { isSnytchProject } from "./projects";
-import { resolveCreatorKind } from "./roles";
+import { countOnHandle, ownerIsClipper, publicationsInRange } from "./clipQuota";
 import {
   accountPhaseAt,
   postsPerDayAt,
@@ -2323,9 +2323,8 @@ async function assertClipperDailyQuota(
   for (const t of targets) {
     if (!t.accountId) continue;
     const compte = await ctx.db.get(t.accountId);
-    if (!compte || !compte.creatorId) continue;
-    const owner = await ctx.db.get(compte.creatorId);
-    if (resolveCreatorKind(owner?.kind) !== "clipper") continue;
+    if (!compte) continue;
+    if (!(await ownerIsClipper(ctx, compte))) continue;
 
     const phase = accountPhaseAt(compte.validatedAt, at);
     const quota = postsPerDayAt(compte.validatedAt, at);
@@ -2334,22 +2333,12 @@ async function assertClipperDailyQuota(
       throw new ConvexError(quotaRefusalMessage(compte.handle, phase, quota, at));
     }
 
-    // Publications du projet sur CETTE journée UTC — plage d'index, pas un scan
-    // de toutes les publications du projet (cf risque 9 du diagnostic). Chargées
-    // une seule fois pour toutes les cibles : elles partagent la même journée.
-    // Le rapprochement se fait par HANDLE — `publications.compte` est une string,
-    // pas un Id<"comptes"> (TD-001), et c'est la jointure canonique du dépôt.
-    sameDay ??= await ctx.db
-      .query("publications")
-      .withIndex("by_project_datePubli", (q) =>
-        q
-          .eq("projectId", ctx.projectId)
-          .gte("datePubli", start)
-          .lt("datePubli", end),
-      )
-      .collect();
-    const dejaSorties = sameDay.filter((p) => p.compte === compte.handle).length;
-    if (dejaSorties >= quota) {
+    // Chargées une seule fois pour toutes les cibles : elles partagent la même
+    // journée. Le chargement ET le rapprochement par handle viennent de
+    // `convex/clipQuota.ts` — LA même implémentation que celle qui alimente le
+    // compteur de l'écran clippeur, pour qu'ils ne puissent pas se contredire.
+    sameDay ??= await publicationsInRange(ctx, ctx.projectId, start, end);
+    if (countOnHandle(sameDay, compte.handle) >= quota) {
       throw new ConvexError(quotaRefusalMessage(compte.handle, phase, quota, at));
     }
   }
