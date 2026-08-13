@@ -12,7 +12,9 @@
 > ouverte, parce qu'elle ne parle pas de ce chantier mais de la manière de tester.
 > Une sixième forme y a été ajoutée après coup (PR #47, TD-025) — elle a été
 > trouvée DANS une spec de ce chantier, ce qui est précisément l'argument pour
-> ne pas figer cette section.
+> ne pas figer cette section. Son second exemple est arrivé 24 h plus tard
+> (PR #49), sur une autre spec du même chantier : la règle a servi avant même
+> d'avoir fini d'être écrite.
 
 ## Ce qui a été livré
 
@@ -126,7 +128,7 @@ rencontrées, chacune sur du code réel :
 | 3 | **Jeu de données idéalisé** | un audit de pseudo | prénoms nus au lieu de noms complets — le vrai cas n'était jamais formé |
 | 4 | **Borne qui mesure la mise en page** | une règle métier | l'assertion tombait sur du code correct, à cause d'un rendu |
 | 5 | **Rouge pour la mauvaise raison** | un invariant d'argent | l'`insert` échouait avant l'assertion, jamais atteinte |
-| 6 | **Absence sans présence** | qu'une vue fausse n'est pas rendue | le motif cherché n'existait nulle part dans l'app — l'assertion était vraie quoi qu'il arrive |
+| 6 | **Absence sans présence** | qu'une vue fausse n'est pas rendue | le motif cherché n'était pas rendu à cet instant — l'assertion était vraie quoi qu'il arrive |
 
 **La question qui les couvre toutes, à se poser avant de considérer un test
 écrit :** *par quel chemin exact ce résultat s'est-il produit ?*
@@ -147,14 +149,35 @@ chose devrait être là. Sans elle, une absence peut devenir vraie pour la mauva
 raison : le libellé a changé, l'élément a été retiré de l'app, le sélecteur ne
 matche plus rien. Le test reste vert et ne garde plus rien.
 
-Découverte en août 2026 (PR #47, TD-025), et **plus grave que les cinq autres par
-son emplacement** : elle vivait dans une spec écrite pour prouver le correctif
-#45. Le correctif était bon ; sa garde ne gardait rien. `/paliers de bonus/i`
-n'existe nulle part dans le portail — l'assertion aurait été verte même en
-rendant la vue partenaire à une clippeuse, c'est-à-dire dans le cas exact qu'elle
-existait pour interdire. Personne ne l'aurait su.
+Deux incidents réels, à 24 heures d'intervalle, et **par deux mécanismes
+différents** — c'est ce qui rend la règle utile plutôt que théorique.
 
-Corollaire de précision, même PR : « Mes vidéos » est le TITRE de l'espace talent
+**1 — le marqueur n'a jamais existé** (PR #47, TD-025). Plus grave que les cinq
+autres formes par son emplacement : l'assertion vivait dans une spec écrite pour
+prouver le correctif #45. Le correctif était bon ; sa garde ne gardait rien.
+`/paliers de bonus/i` n'existe nulle part dans le portail — l'assertion aurait
+été verte même en rendant la vue partenaire à une clippeuse, c'est-à-dire dans le
+cas exact qu'elle existait pour interdire. Personne ne l'aurait su.
+
+**2 — le marqueur a cessé d'être rendu** (PR #49, agencement de l'écran talent).
+La spec talent gardait trois non-fuites du brief : le texte de script du format,
+le montant de la grille partenaire, le vocabulaire système. Le chantier a replié
+le brief par défaut — et le panneau replié est **démonté**, pas masqué. Les trois
+assertions seraient restées vertes en ne regardant plus rien.
+
+Le second cas est le plus instructif, parce qu'il ne suppose aucune erreur :
+personne n'a mal écrit la spec, personne n'a mal fait la mise en page. **Une
+garde de sécurité s'est vidée par un changement d'agencement, et rien dans la
+chaîne — ni la CI, ni la relecture, ni le test lui-même — ne l'aurait signalé.**
+Le correctif tient en une ligne : vérifier ces trois absences **panneau ouvert**,
+le seul état où la chose pourrait paraître.
+
+C'est la leçon à retenir des deux : une assertion d'absence ne dépend pas que du
+code qu'elle garde, elle dépend aussi de **l'état de l'écran au moment où elle
+s'exécute**. Cet état-là change sans prévenir, pour des raisons qui n'ont rien à
+voir avec la propriété gardée.
+
+Corollaire de précision (PR #47) : « Mes vidéos » est le TITRE de l'espace talent
 et une ENTRÉE DE NAV du portail partenaire. Une assertion d'absence portée sur le
 texte confondait les deux ; portée sur le rôle `link`, elle distingue. Quand un
 libellé est partagé par deux écrans, l'absence doit viser le rôle, pas la chaîne.
@@ -165,6 +188,21 @@ libellé est partagé par deux écrans, l'absence doit viser le rôle, pas la ch
    mise en échec en cassant volontairement le code qu'elle protège, puis remise au
    vert. Trois invariants de la PR #38 ont été traités ainsi ; l'un d'eux ne
    prouvait rien au premier essai.
+
+   **La séquence est : commiter, casser, restaurer.** Dans cet ordre, et elle
+   fait partie de la méthode — pas de l'hygiène git. Restaurer avec
+   `git checkout <fichier>` ramène au dernier commit : sur un fichier jamais
+   commité, cela efface le travail au lieu du cassage. C'est arrivé en PR #49 sur
+   un écran, sans conséquence parce qu'il était reconstructible ; sur un cassage
+   de code source au milieu d'un chantier, la perte serait silencieuse et
+   difficile à situer. Commiter d'abord rend le cassage réversible **et** rend
+   visible, au diff, tout ce que la restauration n'a pas rendu.
+
+   Corollaire : un cassage doit **isoler l'assertion visée**. En PR #49, le
+   premier cassage a bien produit un rouge — mais sur une autre assertion, qui
+   s'exécutait avant. Un rouge obtenu trop tôt ne dit rien de l'assertion qu'on
+   voulait éprouver ; il a fallu un second cassage plus étroit (un bloc neutre de
+   même hauteur, sans le contenu) pour l'atteindre.
 2. **Choisir le jeu de données avant les assertions.** Des décimales, un cycle
    partiel, un modèle legacy qui cohabite, et le cas vide. Des nombres propres
    laissent passer une somme fausse en la faisant tomber juste.
@@ -179,6 +217,13 @@ libellé est partagé par deux écrans, l'absence doit viser le rôle, pas la ch
    sens. Côté contrôles, chaque bouton vérifié absent en observation est d'abord
    vu présent sur l'écran de la personne, connectée par `/login` : sinon « le
    bouton n'est pas rendu » et « le bouton n'existe plus » sont indiscernables.
+
+   **Le même réflexe vaut pour une CONDITION, pas seulement pour un élément.**
+   Le brief talent est replié par défaut, sauf au premier passage : deux tests
+   opposés (replié avec un dépôt, ouvert sans) plutôt qu'un seul. Séparément,
+   chacun passerait avec un défaut constant dans son sens ; ensemble, ils
+   prouvent que c'est bien la condition qui décide. Une branche testée d'un seul
+   côté ne prouve pas qu'elle est une branche.
 
 **Et une forme de relevé, pour toute vérification de non-régression :** comparer
 la **signature de chaque ligne**, pas seulement le total — un total identique peut
