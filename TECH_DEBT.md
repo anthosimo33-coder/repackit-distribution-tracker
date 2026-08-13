@@ -175,35 +175,29 @@ Ce fichier liste les anti-patterns repérés dans la zone touchée par chaque fe
   dans les deux fonctions pures, et une spec par population (le partenaire reste
   bloqué cross-comptes, le clippeur ne l'est plus).
 
-### TD-025 — Le mode « voir l'espace » ne sait rendre que le portail PARTENAIRE
-- **Fichiers** : `app/admin/voir/[projectSlug]/[id]/**` (ré-exporte les écrans de
-  `components/portal/screens/`), garde dans `components/portal/ViewAsShell.tsx`.
-- **Constat** : la route ré-exporte STATIQUEMENT les écrans partenaire et ne lit
-  ni `kind` ni `portalRole`. Rendue pour un talent ou un clippeur, elle affichait
-  « Mes vidéos », des paliers de bonus et un warmup partenaire — une vue FAUSSE.
-  Depuis le correctif, elle s'abstient explicitement et dit quoi faire à la place.
-- **DÉCLENCHEUR** : le jour où un clippeur aura des comptes et des clips à
-  observer, et où il faudra diagnostiquer à distance sans lui demander une
-  capture d'écran. Aujourd'hui il n'a ni l'un ni l'autre — l'abstention ne coûte
-  rien.
-- **CHIFFRÉ le 2026-08-13** : **six queries** à rendre observables — talent
-  (`getMyTalentBrief`, `listMyRushes`), clippeur (`myQuotaWindow`,
-  `listMyClips`, `getMyClip`, `listMyClipperComptes`). C'est une PR, pas un
-  chantier. La note ci-dessous parlait d'un « ordre de grandeur » : le principe
-  était juste (le travail est serveur), le volume était surestimé. Un chiffre
-  non remesuré finit par être cru — cf le correctif des 7 briques devenues 77.
-- **FORME DU CORRECTIF** : extraire les six cœurs en fonctions partagées et les
-  exposer une seconde fois via `adminViewAsQuery`, comme le fait déjà
-  `comptes.listComptesAsAdmin`. JAMAIS un `creatorId` optionnel sur les fonctions
-  gatées — cf la règle écrite en tête de `adminViewAsQuery` dans
-  `convex/functions.ts`.
-- **LECTURE SEULE** : pas de `adminViewAsMutation`. La spec doit APPELER les
-  mutations talent/clippeur avec une session admin et vérifier qu'elles
-  refusent — un bouton grisé est du confort, le refus serveur est la garantie.
-- **⚠️ LE COÛT N'EST PAS LE ROUTAGE.** Faire rendre ces espaces demande un
-  `adminViewAs*` PAR POPULATION côté SERVEUR : les `talentQuery`/`clipperQuery`
-  filtrent par `ctx.creatorId` de la personne CONNECTÉE, donc un admin n'en
-  obtient rien. Il faut le pendant de `adminViewAsQuery` pour chaque famille de
-  fonctions exposée aux deux nouveaux portails, plus l'extraction des écrans
-  correspondants. Ce n'est pas une PR d'une journée, et quiconque lit « il suffit
-  de router sur le kind » se trompe d'un ordre de grandeur.
+### TD-025 — Le mode « voir l'espace » ne sait rendre que le portail PARTENAIRE ✅ RÉSOLU (août 2026)
+- **Constat d'origine** : la route ré-exportait STATIQUEMENT les écrans
+  partenaire et ne lisait ni `kind` ni `portalRole`. Rendue pour un talent ou un
+  clippeur, elle affichait « Mes vidéos », des paliers de bonus et un warmup
+  partenaire — une vue FAUSSE. #45 l'avait fait s'abstenir explicitement.
+- **Résolution** : le mode rend désormais les trois espaces. Six cœurs de lecture
+  extraits (`rushesForTalent`, `talentBriefFor`, `quotaWindowFor`,
+  `clipperComptesFor`, `clipsForClipper`, `clipDetailFor`), chacun avec deux
+  points d'entrée — la query de la personne et sa jumelle d'observation. Cœur
+  partagé donc allowlist partagée : l'admin lit exactement ce que la personne lit,
+  et les specs le prouvent par ÉGALITÉ des deux lectures, pas par « non vide ».
+- **Ce que le chiffrage d'origine n'avait pas vu** : la garde de population
+  devait descendre CÔTÉ SERVEUR. Router sur le `kind` à l'écran laissait
+  `listClipsAsAdmin` servir les assignations d'un partenaire sous l'allowlist du
+  clippeur — le défaut de #45 déplacé d'un cran. D'où `adminViewAsTalentQuery` /
+  `adminViewAsClipperQuery` (`convex/functions.ts`), un wrapper par population.
+  `adminViewAsQuery` (partenaire) reste volontairement kind-aveugle : lui poser
+  l'assertion changerait le comportement du chemin partenaire, ce qui sera une
+  décision à elle seule, avec sa spec. L'asymétrie est commentée sur place.
+- **Le chiffrage de #46 était juste, sa forme incomplète** : six queries, une PR
+  — le volume annoncé s'est vérifié, et la note « ordre de grandeur » qu'il
+  corrigeait était bien une surestimation. Ce qu'il n'avait pas vu : exposer les
+  six cœurs via `adminViewAsQuery` **ne suffisait pas**, faute de garde de
+  population. Deux remesures valent mieux qu'une (cf les 7 briques devenues 77).
+- **Reste dû, sans déclencheur connu** : rien. La lecture seule est structurelle
+  (aucun `adminViewAsMutation` n'existe, et il ne doit pas en exister).

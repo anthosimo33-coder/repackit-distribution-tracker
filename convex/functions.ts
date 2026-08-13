@@ -458,10 +458,10 @@ export const adminViewAsQuery = customQuery(query, {
  * population qui n'existe qu'à l'écran ne tient pas : on vient d'en faire la
  * démonstration.
  *
- * UN WRAPPER PAR POPULATION, pas un générique paramétré à l'appel : c'est la
- * règle de l'interdit du chantier (une fonction = une garde ET une population)
- * appliquée à l'autre bout de la chaîne. Le pendant exact de la vérification de
- * cohérence de `requirePortalMember`, côté admin.
+ * UN WRAPPER PAR POPULATION, pas un générique paramétré à l'appel : la règle
+ * ci-dessus, appliquée à l'autre bout de la chaîne — la population fait partie
+ * de la garde, elle ne se choisit pas au moment de l'appel. Pendant exact de la
+ * vérification de cohérence de `requirePortalMember`, côté admin.
  *
  * ⚠️ ASYMÉTRIE ASSUMÉE : `adminViewAsQuery` (partenaire) reste kind-aveugle. Lui
  * ajouter l'assertion changerait le comportement du chemin partenaire, qui est
