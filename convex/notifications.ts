@@ -450,6 +450,8 @@ export const getSubmissionContext = internalQuery({
       campaignName: campaign?.name ?? null,
       formatName: format?.name ?? null,
       targets,
+      /** CLIP ou vidéo de partenaire — le message ne dit pas la même chose. */
+      isClip: resolveCreatorKind(creator?.kind) === "clipper",
     };
   },
 });
@@ -484,6 +486,7 @@ export const notifySubmission = internalAction({
       campaignName: sub.campaignName,
       formatName: sub.formatName,
       targets: sub.targets,
+      isClip: sub.isClip,
     };
 
     // Front montant : la fenêtre décide si CE message part maintenant ou s'il
@@ -562,6 +565,12 @@ export const getAssignmentEventContext = internalQuery({
       actorName,
       /** Traçabilité posée par confirmPublicationCore (creator vs admin secours). */
       publishedBy: a.publishedBy ?? null,
+      /**
+       * CLIP ou post de partenaire. `publishedBy: "creator"` est CORRECT pour un
+       * clip (le clippeur EST le creatorId, arbitrage D1) — c'est justement pour
+       * ça qu'il ne suffit pas à distinguer les deux populations.
+       */
+      isClip: resolveCreatorKind(creator?.kind) === "clipper",
     };
   },
 });
@@ -599,6 +608,7 @@ export const notifyPublication = internalAction({
       formatName: data.formatName,
       targets: data.targets,
       byAdmin: data.publishedBy === "admin",
+      isClip: data.isClip,
     };
     const { lead } = await ctx.runMutation(
       internal.notifications.openOrAppendWindow,
@@ -655,6 +665,7 @@ export const notifyVideoReviewed = internalAction({
       campaignName: data.campaignName,
       formatName: data.formatName,
       actorName: data.actorName,
+      isClip: data.isClip,
     };
     const text =
       rejectionReason === undefined

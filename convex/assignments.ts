@@ -2,10 +2,16 @@ import {
   adminMutation,
   adminQuery,
   adminViewAsQuery,
+  clipperMutation,
+  clipperQuery,
   creatorMutation,
   creatorQuery,
   e2eMutation,
 } from "./functions";
+import {
+  CLIPPER_ASSIGNMENT_FIELDS,
+  pickClipperAssignment,
+} from "./clipperAssignmentFields";
 import { withResolvedExamples } from "./formats";
 import { isFormatAllowedOnPlatform } from "./publications";
 import { tierLabel } from "./scriptTier";
@@ -2117,6 +2123,82 @@ export const listAssignmentsAsAdmin = adminViewAsQuery({
   handler: async (ctx) => assignmentsForCreator(ctx, ctx.creatorId),
 });
 
+// ─── Lecture CLIPPEUR ────────────────────────────────────────────────────────
+//
+// Allowlist DISTINCTE de celle de la créatrice (convex/clipperAssignmentFields.ts,
+// écrite et testée en PR 4) : le clippeur ne reçoit ni `rateSnapshot` ni
+// `pricingSnapshot` — il est payé au clip, et un `pricingSnapshot` sur une
+// assignation de clip serait le chemin du double paiement. Les retirer ici est
+// une DEUXIÈME ligne de défense : même posé par erreur, le champ n'atteindrait
+// pas son écran.
+//
+// L'ordre d'affichage n'est PAS entrelacé par format : l'entrelacement existe
+// pour qu'une créatrice partenaire ne tourne pas cinq fois le même format
+// d'affilée. Un clippeur monte des rushes de SES talents, tous du même flux —
+// mélanger ses missions ne ferait que casser l'ordre d'échéance.
+
+/** Sous-ensemble d'un assignment EXPOSÉ au clippeur (allowlist, cf PR 4). */
+type ClipperAssignment = Pick<
+  Doc<"assignments">,
+  (typeof CLIPPER_ASSIGNMENT_FIELDS)[number]
+>;
+
+async function enrichForClipper(ctx: QueryCtx, a: Doc<"assignments">) {
+  const targets = await enrichTargets(ctx, a);
+  const safe = pickClipperAssignment(a) as ClipperAssignment;
+  return {
+    ...safe,
+    targets,
+    // Le TEXTE monté, jamais la décomposition (briques/ids/tier/campagne) : elle
+    // sert à l'anti-coordination et aux analytics, pas au montage.
+    assembledScript: a.scriptCombo ? a.scriptCombo.assembledScript : null,
+  };
+}
+
+/** MES clips (filtre serveur par creatorId), les plus urgents d'abord. */
+export const listMyClips = clipperQuery({
+  args: {},
+  handler: async (ctx) => {
+    const mine = await ctx.db
+      .query("assignments")
+      .withIndex("by_creator", (q) => q.eq("creatorId", ctx.creatorId))
+      .collect();
+    const ordered = [...mine].sort(
+      (x, y) => (x.dueDate ?? x.createdAt) - (y.dueDate ?? y.createdAt),
+    );
+    return Promise.all(ordered.map((a) => enrichForClipper(ctx, a)));
+  },
+});
+
+/**
+ * Fiche d'UN clip. `null` si ce n'est pas le mien — jamais une erreur : un
+ * assignment d'un autre clippeur doit être INTROUVABLE, pas « refusé ».
+ */
+export const getMyClip = clipperQuery({
+  args: { id: v.id("assignments") },
+  handler: async (ctx, { id }) => {
+    const a = await ctx.db.get(id);
+    if (!a || a.creatorId !== ctx.creatorId) return null;
+    const base = await enrichForClipper(ctx, a);
+    // SA vidéo soumise, URL signée résolue serveur (le blob n'est lisible que
+    // par lui et par l'admin qui la relit).
+    const submittedVideoUrl = a.submittedVideoStorageId
+      ? await ctx.storage.getUrl(a.submittedVideoStorageId)
+      : null;
+    const assets = await resolveAssignmentAssets(ctx, a);
+    const scriptZones = a.scriptCombo
+      ? await splitScriptZones(ctx, a, a.scriptCombo)
+      : null;
+    return {
+      ...base,
+      submittedVideoUrl,
+      submittedVideoMimeType: a.submittedVideoMimeType ?? "video/mp4",
+      assets,
+      scriptZones,
+    };
+  },
+});
+
 /**
  * Fiche assignment côté créateur. null si pas la mienne. ISOLATION : `scriptCombo`
  * et `comboKey` sont RETIRÉS de l'objet renvoyé — pour un assignment script, le
@@ -2201,38 +2283,81 @@ export const getAssignmentDetailAsAdmin = adminViewAsQuery({
   handler: async (ctx, { id }) => assignmentDetailFor(ctx, ctx.creatorId, id),
 });
 
+/**
+ * MA mission, ou rien. Contrôle d'appartenance PARTAGÉ par le chemin créatrice
+ * partenaire et le chemin clippeur : les deux wrappers (`creatorMutation`,
+ * `clipperMutation`) injectent `ctx.creatorId`, et pour un clip ce `creatorId`
+ * EST le clippeur (arbitrage D1). Le contrôle est donc littéralement le même —
+ * l'écrire deux fois n'apporterait qu'une occasion de le désaccorder.
+ *
+ * Message identique dans les deux cas : « introuvable » plutôt que « pas à
+ * toi », pour ne pas confirmer l'existence d'une mission d'un autre.
+ */
+async function requireOwnAssignment(
+  ctx: MutationCtx,
+  creatorId: Id<"creators">,
+  id: Id<"assignments">,
+): Promise<Doc<"assignments">> {
+  const a = await ctx.db.get(id);
+  if (!a || a.creatorId !== creatorId) {
+    throw new ConvexError("Assignment introuvable.");
+  }
+  return a;
+}
+
+/** Cœur « je commence » — PARTAGÉ créatrice / clippeur. */
+async function startAssignmentCore(
+  ctx: MutationCtx,
+  a: Doc<"assignments">,
+): Promise<void> {
+  if (a.status !== "todo") {
+    throw new ConvexError("Cet assignment est déjà démarré.");
+  }
+  await ctx.db.patch(a._id, { status: "in_progress" });
+}
+
 /** todo → in_progress (« Je commence »). */
 export const startAssignment = creatorMutation({
   args: { id: v.id("assignments") },
-  handler: async (ctx, { id }) => {
-    const a = await ctx.db.get(id);
-    if (!a || a.creatorId !== ctx.creatorId) {
-      throw new ConvexError("Assignment introuvable.");
-    }
-    if (a.status !== "todo") {
-      throw new ConvexError("Cet assignment est déjà démarré.");
-    }
-    await ctx.db.patch(id, { status: "in_progress" });
-  },
+  handler: async (ctx, { id }) =>
+    startAssignmentCore(
+      ctx,
+      await requireOwnAssignment(ctx, ctx.creatorId, id),
+    ),
+});
+
+/** todo → in_progress, côté CLIPPEUR. Même cœur, wrapper distinct (PR 1). */
+export const startClip = clipperMutation({
+  args: { id: v.id("assignments") },
+  handler: async (ctx, { id }) =>
+    startAssignmentCore(
+      ctx,
+      await requireOwnAssignment(ctx, ctx.creatorId, id),
+    ),
 });
 
 /**
- * SOUMISSION VIDÉO (MP4) — le créateur upload sa vidéo NON publiée. Le client a
- * déjà poussé le blob (generateUploadUrl → storage) et fournit le storageId.
- * Autorisé depuis todo / in_progress / video_rejected (re-soumission après
- * refus). Une re-soumission PURGE l'ancien blob refusé.
+ * Cœur SOUMISSION VIDÉO (MP4) — PARTAGÉ par la créatrice partenaire
+ * (`submitVideo`) et le clippeur (`submitClipVideo`). `a` est déjà AUTORISÉ par
+ * l'appelant (`requireOwnAssignment`).
+ *
+ * Le client a déjà poussé le blob (generateUploadUrl → storage) et fournit le
+ * storageId. Autorisé depuis todo / in_progress / video_rejected (re-soumission
+ * après refus). Une re-soumission PURGE l'ancien blob refusé.
+ *
+ * ⚠️ Partager ce cœur fait entrer les CLIPS dans la notification Telegram de
+ * soumission — c'est voulu (l'admin doit le savoir), et le message distingue
+ * désormais un clip d'une vidéo de partenaire (`isClip`, résolu côté
+ * notifications depuis le `kind` du propriétaire).
  */
-export const submitVideo = creatorMutation({
-  args: {
-    id: v.id("assignments"),
-    storageId: v.id("_storage"),
-    mimeType: v.optional(v.string()),
-  },
-  handler: async (ctx, { id, storageId, mimeType }) => {
-    const a = await ctx.db.get(id);
-    if (!a || a.creatorId !== ctx.creatorId) {
-      throw new ConvexError("Assignment introuvable.");
-    }
+async function submitVideoCore(
+  ctx: MutationCtx,
+  a: Doc<"assignments">,
+  storageId: Id<"_storage">,
+  mimeType: string | undefined,
+): Promise<{ ok: true }> {
+  const id = a._id;
+  {
     if (
       a.status !== "todo" &&
       a.status !== "in_progress" &&
@@ -2282,7 +2407,38 @@ export const submitVideo = creatorMutation({
       isResubmission: a.status === "video_rejected",
     });
     return { ok: true };
+  }
+}
+
+export const submitVideo = creatorMutation({
+  args: {
+    id: v.id("assignments"),
+    storageId: v.id("_storage"),
+    mimeType: v.optional(v.string()),
   },
+  handler: async (ctx, { id, storageId, mimeType }) =>
+    submitVideoCore(
+      ctx,
+      await requireOwnAssignment(ctx, ctx.creatorId, id),
+      storageId,
+      mimeType,
+    ),
+});
+
+/** Soumission du montage par le CLIPPEUR. Même cœur, wrapper distinct (PR 1). */
+export const submitClipVideo = clipperMutation({
+  args: {
+    id: v.id("assignments"),
+    storageId: v.id("_storage"),
+    mimeType: v.optional(v.string()),
+  },
+  handler: async (ctx, { id, storageId, mimeType }) =>
+    submitVideoCore(
+      ctx,
+      await requireOwnAssignment(ctx, ctx.creatorId, id),
+      storageId,
+      mimeType,
+    ),
 });
 
 /**
