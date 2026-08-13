@@ -14,6 +14,7 @@ import {
   pickClipperAssignment,
 } from "./clipperAssignmentFields";
 import { withResolvedExamples } from "./formats";
+import { formatDayMonthFr } from "./dateFr";
 import { isFormatAllowedOnPlatform } from "./publications";
 import { tierLabel } from "./scriptTier";
 import { SNYTCH_SLUG } from "./projects";
@@ -2634,10 +2635,11 @@ async function confirmPublicationCore(
   // (= now, inchangé). `now` reste l'horloge des tâches/bookkeeping (purge MP4, row
   // de paie de la période courante) pour ne pas rouvrir une période déjà close.
   const effectiveDate = opts.publishedAt ?? now;
-  const dateLabel = new Date(effectiveDate).toLocaleDateString("fr-FR", {
-    day: "2-digit",
-    month: "2-digit",
-  });
+  // Fuseau ÉPINGLÉ (cf. convex/dateFr.ts) : ce libellé part dans les lignes de
+  // paie, lues par l'admin et par la créatrice. Confirmer entre 00:00 et 02:00
+  // heure de Paris, c'est 22:00-24:00 UTC — sans l'épingle, la ligne annonce LA
+  // VEILLE. Fenêtre réelle : l'admin colle des liens le soir.
+  const dateLabel = formatDayMonthFr(effectiveDate);
   const isScript = a.scriptCombo !== undefined && a.formatId === undefined;
 
   // Quota de posts par jour des comptes de CLIPPEUR. Posé ICI et pas avec la
