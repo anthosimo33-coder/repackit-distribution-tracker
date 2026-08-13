@@ -22,6 +22,7 @@ import {
   CYCLE_LENGTH_MS,
   payAnchorOf,
 } from "./payCycle";
+import { resolveCreatorKind } from "./roles";
 import { ConvexError, v } from "convex/values";
 import { internalMutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -163,6 +164,13 @@ export async function accrueBaseLineItem(
   // si un futur appelant nous invoque par erreur (anti double paiement).
   const a = await ctx.db.get(args.assignmentId);
   if (a?.pricingSnapshot !== undefined) return;
+  // Guard D — SYMÉTRIQUE de Guard C, pour le 3e modèle. Un assignment à
+  // `clipRateSnapshot` est payé au CLIP (accrueClipLineItem) : lui écrire une
+  // base legacy en plus produirait une ligne à 0 $ dans le grand livre, qui se
+  // lirait « ce clip vaut zéro » à côté de sa vraie ligne, et que n'importe
+  // quelle agrégation future ramasserait. Avec ce guard, les trois modèles sont
+  // mutuellement exclusifs PAR CONSTRUCTION au lieu de se superposer.
+  if (a?.clipRateSnapshot !== undefined) return;
   const period = periodOf(args.now);
   const payment = await getOrCreatePayment(ctx, {
     projectId: args.projectId,
@@ -193,6 +201,90 @@ export async function accrueBaseLineItem(
     lineItems,
     totalDue: recomputeTotal(lineItems),
   });
+}
+
+/**
+ * Crédite la ligne d'un CLIP publié — le 3e modèle de rémunération.
+ *
+ * UNE LIGNE PAR CLIP, PAS PAR CIBLE. L'accrual partenaire est clé par
+ * (assignment, plateforme) parce qu'il paie chaque post ; le clippeur est payé
+ * au clip monté, qu'il sorte sur une ou deux plateformes. L'idempotence porte
+ * donc sur `assignmentId` SEUL, et la ligne ne porte pas de `platform`.
+ *
+ * ⚠️ `MAX_PAY_PER_VIDEO_EUR` NE S'APPLIQUE PAS ICI, et c'est délibéré : ce
+ * plafond protège d'une dérive du CPM (un montant calculé sur des vues). Le
+ * tarif d'un clip est un montant unitaire fixe réglé par l'admin — le caper
+ * amputerait silencieusement un tarif volontaire. Câblé explicitement plutôt que
+ * laissé à l'héritage : le montant passe tel quel, quel qu'il soit.
+ */
+export async function accrueClipLineItem(
+  ctx: MutationCtx,
+  args: {
+    projectId: Id<"projects">;
+    creatorId: Id<"creators">;
+    assignmentId: Id<"assignments">;
+    label: string;
+    amount: number;
+    now: number;
+  },
+): Promise<void> {
+  // Défense en profondeur : un assignment qui porterait AUSSI un pricingSnapshot
+  // serait le chemin du double paiement clip + CPM. Impossible par construction
+  // (assignScriptToRush n'en pose jamais, et une spec le prouve) — on refuse
+  // quand même plutôt que de payer deux fois.
+  const a = await ctx.db.get(args.assignmentId);
+  if (a?.pricingSnapshot !== undefined) return;
+  const payment = await getOrCreatePayment(ctx, {
+    projectId: args.projectId,
+    creatorId: args.creatorId,
+    period: periodOf(args.now),
+    now: args.now,
+  });
+  const already = payment.lineItems.some(
+    (li) => li.assignmentId === args.assignmentId && li.kind === "clip",
+  );
+  if (already) return;
+  const lineItems: LineItem[] = [
+    ...payment.lineItems,
+    {
+      assignmentId: args.assignmentId,
+      label: args.label,
+      amount: round2(args.amount),
+      kind: "clip",
+    },
+  ];
+  await ctx.db.patch(payment._id, {
+    lineItems,
+    totalDue: recomputeTotal(lineItems),
+  });
+}
+
+/**
+ * FORFAIT DE CYCLE d'un talent — la ligne due pour UN cycle, ou `null`.
+ *
+ * SOURCE UNIQUE lue par l'écran (cycles « en cours ») ET par le gel
+ * (`markCyclePaid`). Si les deux la calculaient séparément, l'admin finirait par
+ * payer un montant différent de celui qu'il a lu — c'est exactement la
+ * divergence que `convex/clipQuota.ts` a été créé pour empêcher côté quota.
+ *
+ * AUCUNE CONDITION DE LIVRAISON. Le cycle est dû parce qu'il a couru, pas parce
+ * qu'un nombre de rushes a été atteint : l'écran affiche le compte de rushes à
+ * côté du montant, et c'est l'admin qui décide de payer ou non. Un cycle sans
+ * aucun rush porte donc quand même sa ligne — c'est précisément le cas où
+ * l'admin doit voir « 0 rush » avant de poser son geste.
+ */
+export function retainerLineFor(
+  creator: Doc<"creators">,
+  cycleIndex: number,
+): LineItem | null {
+  if (resolveCreatorKind(creator.kind) !== "talent") return null;
+  const montant = creator.cycleRetainer;
+  if (typeof montant !== "number" || montant <= 0) return null;
+  return {
+    label: `Forfait — cycle ${cycleIndex + 1}`,
+    amount: round2(montant),
+    kind: "retainer",
+  };
 }
 
 /**
@@ -494,7 +586,12 @@ export async function cyclePaymentsForCreator(
       k,
       legacyIds,
     );
-    const legacyTotal = recomputeTotal(legacyItems);
+    // Forfait du talent — MÊME source que le gel (retainerLineFor) : l'admin ne
+    // peut pas lire un montant et en payer un autre. `null` pour toute autre
+    // population, donc chemin partenaire strictement inchangé.
+    const retainer = retainerLineFor(creator, k);
+    const items = retainer ? [...legacyItems, retainer] : legacyItems;
+    const legacyTotal = recomputeTotal(items);
     out.push({
       key: `${creatorId}:${k}`,
       cycleIndex: k,
@@ -503,7 +600,7 @@ export async function cyclePaymentsForCreator(
       period,
       status: "accruing",
       paidAt: null,
-      lineItems: legacyItems,
+      lineItems: items,
       totalDue: round2(legacyTotal + breakdown.total),
       pricingBreakdown: breakdown,
     });
@@ -780,7 +877,12 @@ export const markCyclePaid = adminMutation({
         });
       }
     }
-    const frozen = [...legacyOfCycle, ...frozenLineItemsFromBreakdown(breakdown)];
+    const retainer = retainerLineFor(creator, cycleIndex);
+    const frozen = [
+      ...legacyOfCycle,
+      ...frozenLineItemsFromBreakdown(breakdown),
+      ...(retainer ? [retainer] : []),
+    ];
     const now = Date.now();
     const target = existingRows[0];
     let paidTotal: number;

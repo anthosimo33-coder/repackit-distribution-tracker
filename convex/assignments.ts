@@ -22,6 +22,7 @@ import {
 } from "./creatorAssignmentFields";
 import {
   accrueBaseLineItem,
+  accrueClipLineItem,
   upsertBonusLineItem,
   computeEarnings,
   getOrCreatePayment,
@@ -2705,6 +2706,27 @@ async function confirmPublicationCore(
   const creator = await ctx.db.get(a.creatorId);
   if (creator && creator.firstPostAt === undefined) {
     await ctx.db.patch(a.creatorId, { firstPostAt: effectiveDate });
+  }
+
+  // PAIE DU CLIP — une ligne par CLIP, pas par cible. Placée ICI pour deux
+  // raisons qui ne se devinent pas :
+  //   1. atteindre ce point EST la preuve que le clip est sorti partout — le
+  //      cœur refuse plus haut tant qu'une cible n'a pas d'URL (B5). Rien à
+  //      revérifier ;
+  //   2. AVANT le bloc de notification, et sans rien planifier. Les bornes
+  //      posées par le chantier notifications exigent qu'aucun `throw` ne suive
+  //      la planification, et que celle-ci soit la dernière du cœur.
+  // Le placement n'est donc pas cosmétique : l'inverser fait rougir ces bornes,
+  // et elles auront raison.
+  if (a.clipRateSnapshot !== undefined) {
+    await accrueClipLineItem(ctx, {
+      projectId: ctx.projectId,
+      creatorId: a.creatorId,
+      assignmentId: a._id,
+      label: `Clip — ${dateLabel}`,
+      amount: a.clipRateSnapshot,
+      now,
+    });
   }
 
   // Notification hors-app. Posée dans le CŒUR PARTAGÉ, donc déclenchée aussi
