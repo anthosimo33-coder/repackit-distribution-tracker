@@ -129,12 +129,22 @@ const KIND_TAG: Record<string, { label: string; className: string }> = {
   fixed: { label: "Fixe", className: "bg-emerald-50 text-emerald-600" },
   cpm: { label: "CPM", className: "bg-sky-50 text-sky-600" },
   bonus_tier: { label: "Palier", className: "bg-amber-50 text-amber-600" },
+  // Chantier pricing talent/clippeur — quatre modèles, quatre étiquettes.
+  clip: { label: "Clip", className: "bg-violet-50 text-violet-600" },
+  retainer: { label: "Forfait", className: "bg-teal-50 text-teal-600" },
 };
 
 function KindTag({
   kind,
 }: {
-  kind: "base" | "bonus" | "fixed" | "cpm" | "bonus_tier";
+  kind:
+    | "base"
+    | "bonus"
+    | "fixed"
+    | "cpm"
+    | "bonus_tier"
+    | "clip"
+    | "retainer";
 }) {
   const t = KIND_TAG[kind] ?? KIND_TAG.base;
   return (

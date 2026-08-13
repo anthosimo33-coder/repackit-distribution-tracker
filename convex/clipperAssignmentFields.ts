@@ -77,6 +77,18 @@ export const NON_CLIPPER_ASSIGNMENT_FIELDS = [
   "managedByAdmin",
   "rateSnapshot",
   "pricingSnapshot",
+  // ⚠️ LIRE AVANT D'EN DÉDUIRE QUOI QUE CE SOIT. `clipRateSnapshot` est la
+  // rémunération DU CLIPPEUR LUI-MÊME pour CE clip. Il n'est PAS ici parce qu'il
+  // serait sensible — il ne l'est pas, c'est son propre tarif, l'exact équivalent
+  // de `rateSnapshot` qui est, lui, servi à la créatrice partenaire.
+  //
+  // Il est ici parce que RIEN NE L'AFFICHE AUJOURD'HUI. Cette liste dit ce qui
+  // SORT, pas ce qui pourrait sortir un jour : l'y inscrire « pour plus tard »
+  // contredirait sa règle de départ (on part de rien, on ajoute explicitement ce
+  // qui est rendu). Le jour où l'espace clippeur aura un écran de paie, le
+  // DÉPLACER dans CLIPPER_ASSIGNMENT_FIELDS est le geste attendu — pas une
+  // entorse à une règle de confidentialité qui n'existe pas.
+  "clipRateSnapshot",
   // Legacy mono-cible : l'info vit sur les cibles ENRICHIES.
   "accountId",
   "publishedUrl",

@@ -284,6 +284,15 @@ export const updateCreator = adminMutation({
     // inassignable et intestable. La cible est vérifiée : elle doit être un
     // CLIPPEUR du même projet, et le champ n'a de sens que sur un talent.
     clipperId: v.optional(v.union(v.id("creators"), v.null())),
+    // ─── TARIFS des deux nouvelles populations (chantier pricing) ────────────
+    // Scalaires, édités depuis l'écran Pricings. `null` = retirer le tarif,
+    // absent = ne pas toucher. Aucune validation croisée avec le `kind` : un
+    // tarif posé sur la mauvaise population est inerte (le moteur ne lit
+    // `clipRate` qu'à l'assignation d'un clip et `cycleRetainer` que sur un
+    // talent), et refuser ici obligerait à re-saisir après un changement de
+    // population.
+    clipRate: v.optional(v.union(v.number(), v.null())),
+    cycleRetainer: v.optional(v.union(v.number(), v.null())),
   },
   handler: async (ctx, args) => {
     const creator = await ctx.db.get(args.id);
@@ -309,6 +318,29 @@ export const updateCreator = adminMutation({
     }
     if (args.phone !== undefined) patch.phone = args.phone.trim() || undefined;
     if (args.status !== undefined) patch.status = args.status;
+    // ─── ANCRE DE CYCLE D'UN TALENT — la ligne la plus délicate de ce module ──
+    // Posée à la PREMIÈRE activation, jamais réécrite.
+    //
+    // ⚠️ LE GATE SUR LA POPULATION N'EST PAS UN CONFORT. Sans lui, un PARTENAIRE
+    // activé recevrait une ancre antérieure à son premier post : `cycleIndexOf`
+    // recalerait TOUS ses cycles, y compris ceux déjà payés, et des euros
+    // changeraient de cycle sans qu'aucun humain n'ait rien fait. Une spec le
+    // vérifie avec un partenaire réel.
+    if (
+      args.status === "active" &&
+      creator.payAnchorAt === undefined &&
+      resolveCreatorKind(creator.kind) === "talent"
+    ) {
+      patch.payAnchorAt = Date.now();
+    }
+    for (const champ of ["clipRate", "cycleRetainer"] as const) {
+      const valeur = args[champ];
+      if (valeur === undefined) continue;
+      if (valeur !== null && (!Number.isFinite(valeur) || valeur < 0)) {
+        throw new ConvexError("Le tarif doit être un nombre ≥ 0.");
+      }
+      patch[champ] = valeur === null ? undefined : valeur;
+    }
     if (args.paymentMethod !== undefined) patch.paymentMethod = args.paymentMethod;
     if (args.paymentDetails !== undefined) {
       patch.paymentDetails = args.paymentDetails.trim() || undefined;
@@ -1038,6 +1070,23 @@ export const e2eAssertViewAsAccess = e2eMutation({
 });
 
 /** Force l'expiration d'une invitation par token (spec « token expiré »). */
+/**
+ * e2e ONLY — ANTIDATE l'ancre de cycle d'un talent.
+ *
+ * `payAnchorAt` est posée par le moteur à l'activation (`Date.now()`) et jamais
+ * réécrite : sans antidatage, tester un talent qui a plusieurs cycles derrière
+ * lui demanderait d'attendre 30 jours par cycle. Même rôle que le `now` injecté
+ * de l'expiration des rushes et que le `validatedAt` du seed de compte — le test
+ * exerce le VRAI moteur de cycle, il ne le simule pas.
+ */
+export const e2eSetPayAnchor = e2eMutation({
+  args: { creatorId: v.id("creators"), payAnchorAt: v.number() },
+  handler: async (ctx, { creatorId, payAnchorAt }) => {
+    await ctx.db.patch(creatorId, { payAnchorAt });
+    return { ok: true };
+  },
+});
+
 export const e2eExpireInvitation = e2eMutation({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {

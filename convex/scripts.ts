@@ -1533,6 +1533,14 @@ export const assignScriptToRush = adminMutation({
       // Placeholder neutre exigé par le schéma. AUCUN pricingSnapshot : cf
       // l'invariant d'argent en tête de cette mutation.
       rateSnapshot: { basePerPost: 0 },
+      // TARIF DU CLIP figé ICI, à l'assignation — le moment où le travail est
+      // commandé, comme rateSnapshot/pricingSnapshot/assembledScript. Changer le
+      // tarif d'un clippeur ne réécrit aucun clip déjà commandé. Absent si aucun
+      // tarif n'est réglé : la publication n'accroche alors rien, et l'admin voit
+      // un clip sans montant plutôt qu'un montant inventé.
+      ...(typeof clipper.clipRate === "number" && clipper.clipRate > 0
+        ? { clipRateSnapshot: clipper.clipRate }
+        : {}),
       overlayText: normalizeOverlayText(args.overlayText),
       ...(args.instructions?.trim()
         ? { instructions: args.instructions.trim() }
