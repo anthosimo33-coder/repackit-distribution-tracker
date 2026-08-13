@@ -28,3 +28,24 @@ export function formatDateFr(ts: number): string {
     timeZone: "Europe/Paris",
   });
 }
+
+/**
+ * Date FR "JJ/MM", SANS l'année — même épingle de fuseau que `formatDateFr`.
+ *
+ * Sert aux libellés de lignes de paie (« Clip — 14/08 », « Vidéo — tiktok —
+ * 14/08 »), lus par l'admin ET par la créatrice sur l'écran Paiements.
+ *
+ * ⚠️ Pourquoi une variante plutôt que `formatDateFr` : ces libellés sont ÉCRITS
+ * dans `payments.lineItems[].label` à l'accrual et jamais recalculés à la
+ * lecture. Passer au format "JJ/MM/AA" ferait cohabiter deux formats dans la
+ * MÊME liste (lignes d'avant vs d'après le déploiement), pour une année de toute
+ * façon redondante — une ligne de paie est déjà rangée sous son cycle. Le défaut
+ * à corriger est le fuseau, pas le format.
+ */
+export function formatDayMonthFr(ts: number): string {
+  return new Date(ts).toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "Europe/Paris",
+  });
+}
