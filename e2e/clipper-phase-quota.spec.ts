@@ -3,6 +3,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
+import { formatUtcDayFr } from "../convex/accountPhase";
 import { availableTarget } from "./helpers/targets";
 import { config } from "dotenv";
 
@@ -206,9 +207,15 @@ test.describe("Comptes de clippeur — phase et quota de publication", () => {
 
     await publish(ids[0], `https://www.tiktok.com/@e2e/video/${ts}11`);
     await publish(ids[1], `https://www.tiktok.com/@e2e/video/${ts}12`);
+    // Le refus NOMME LA DATE : sans elle, un clippeur qui antidate se voit
+    // refuser un jour où il croit avoir des créneaux libres et conclut que
+    // l'outil est cassé. La journée nommée est celle du SEAU (UTC).
+    const jourUtc = formatUtcDayFr(Date.now());
     await expect(
       publish(ids[2], `https://www.tiktok.com/@e2e/video/${ts}13`),
-    ).rejects.toThrow(/quota du jour/i);
+    ).rejects.toThrow(
+      new RegExp(`quota atteint pour le ${jourUtc}`.replace(/\s+/g, "\\s+"), "i"),
+    );
   });
 
   test("une date de publication ANTÉRIEURE consomme le quota de CE jour-là", async () => {
@@ -322,7 +329,7 @@ test.describe("Comptes de clippeur — phase et quota de publication", () => {
     }
     await expect(
       publish(ids[1], `https://www.tiktok.com/@e2e/video/${ts}22`),
-    ).rejects.toThrow(/quota du jour/i);
+    ).rejects.toThrow(/quota atteint/i);
   });
 
   test("NON-RÉGRESSION : un compte de partenaire n'a aucun quota", async () => {

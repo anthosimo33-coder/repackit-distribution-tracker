@@ -128,19 +128,82 @@ export function utcDayRange(at: number): { start: number; end: number } {
   return { start, end: start + DAY_MS };
 }
 
-/** Motif de refus quand le quota est atteint — lu par le clippeur (PR 6). */
+const JOURS_FR = [
+  "dimanche",
+  "lundi",
+  "mardi",
+  "mercredi",
+  "jeudi",
+  "vendredi",
+  "samedi",
+] as const;
+
+const MOIS_FR = [
+  "janvier",
+  "février",
+  "mars",
+  "avril",
+  "mai",
+  "juin",
+  "juillet",
+  "août",
+  "septembre",
+  "octobre",
+  "novembre",
+  "décembre",
+] as const;
+
+/**
+ * Journée UTC en toutes lettres — « lundi 10 août ».
+ *
+ * ⚠️ UN SEUL REPÈRE. Le seau du quota est la journée UTC (`utcDayRange`) : le
+ * libellé DOIT l'être aussi. En heure locale, un post parisien de 00h30 se
+ * verrait refuser « pour le 11 » par un compteur qui compte le 10 — l'écran et
+ * le serveur se contrediraient dans la même vue, et c'est le seul endroit où un
+ * clippeur peut perdre confiance dans l'outil d'un coup.
+ *
+ * ⚠️ Table en dur plutôt que `toLocaleDateString("fr-FR", { month: "long" })` :
+ * l'ICU du runtime Convex n'est pas garanti complet, et un repli silencieux
+ * rendrait « August » dans un message français. Les seuls formats de date déjà
+ * utilisés côté serveur sont numériques, précisément pour cette raison. Ici on
+ * veut des lettres — donc on les fournit.
+ *
+ * Exporté : l'écran clippeur affiche la MÊME chaîne que celle du refus.
+ */
+export function formatUtcDayFr(at: number): string {
+  const d = new Date(at);
+  const quantieme = d.getUTCDate();
+  return `${JOURS_FR[d.getUTCDay()]} ${quantieme === 1 ? "1er" : quantieme} ${
+    MOIS_FR[d.getUTCMonth()]
+  }`;
+}
+
+/**
+ * Motif de refus — lu par le clippeur.
+ *
+ * ⚠️ NOMME LA DATE, toujours. Un clippeur qui publie deux posts lundi, les
+ * déclare lundi soir, en publie un troisième lundi tard et le déclare mardi
+ * matin daté de lundi se voit refuser un mardi où il croit avoir deux créneaux
+ * libres. Sans la date dans le message, le refus est incompréhensible et il
+ * conclura que l'outil est cassé. La phase elle-même est fonction de `at` : les
+ * trois branches la nomment.
+ */
 export function quotaRefusalMessage(
   handle: string,
   phase: AccountPhase | null,
   postsPerDay: number,
+  at: number,
 ): string {
+  const jour = formatUtcDayFr(at);
   if (phase === null) {
-    return `Le compte ${handle} n'est pas encore validé : aucune publication possible.`;
+    return `Le compte ${handle} n'était pas encore validé le ${jour} : aucune publication possible à cette date.`;
   }
   if (postsPerDay === 0) {
-    return `Le compte ${handle} est en phase de ${PHASE_LABELS[phase].toLowerCase()} : aucune publication avant la fin de cette phase.`;
+    return `Le compte ${handle} est en phase de ${PHASE_LABELS[
+      phase
+    ].toLowerCase()} le ${jour} : aucune publication possible à cette date.`;
   }
-  return `Le compte ${handle} a atteint son quota du jour (${postsPerDay} post${
+  return `Quota atteint pour le ${jour} sur ${handle} : ${postsPerDay} publication${
     postsPerDay > 1 ? "s" : ""
-  } en phase de ${PHASE_LABELS[phase].toLowerCase()}).`;
+  } sur ${postsPerDay} en phase de ${PHASE_LABELS[phase].toLowerCase()}.`;
 }

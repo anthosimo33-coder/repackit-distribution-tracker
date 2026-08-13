@@ -2331,7 +2331,7 @@ async function assertClipperDailyQuota(
     const quota = postsPerDayAt(compte.validatedAt, at);
     if (quota === 0) {
       // Non validé, ou phase de chauffe : rien ne sort, inutile de compter.
-      throw new ConvexError(quotaRefusalMessage(compte.handle, phase, quota));
+      throw new ConvexError(quotaRefusalMessage(compte.handle, phase, quota, at));
     }
 
     // Publications du projet sur CETTE journée UTC — plage d'index, pas un scan
@@ -2350,7 +2350,7 @@ async function assertClipperDailyQuota(
       .collect();
     const dejaSorties = sameDay.filter((p) => p.compte === compte.handle).length;
     if (dejaSorties >= quota) {
-      throw new ConvexError(quotaRefusalMessage(compte.handle, phase, quota));
+      throw new ConvexError(quotaRefusalMessage(compte.handle, phase, quota, at));
     }
   }
 }
