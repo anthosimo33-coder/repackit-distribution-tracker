@@ -11,7 +11,12 @@ import {
   requireProjectAdmin,
 } from "./functions";
 import { getProjectBySlug, REPACKIT_SLUG } from "./projects";
-import { isPortalRole, resolveCreatorKind, type PortalRole } from "./roles";
+import {
+  isPortalRole,
+  resolveCreatorKind,
+  roleForKind,
+  type PortalRole,
+} from "./roles";
 import { internal } from "./_generated/api";
 import { syncBonusUnlocks } from "./pricing";
 import { DELETABLE_STATUSES, purgeAndDeleteAssignment } from "./assignments";
@@ -293,6 +298,14 @@ export const updateCreator = adminMutation({
     // population.
     clipRate: v.optional(v.union(v.number(), v.null())),
     cycleRetainer: v.optional(v.union(v.number(), v.null())),
+    // ─── CHANGEMENT DE POPULATION ────────────────────────────────────────────
+    // Corrige une invitation faite avec la mauvaise population. Autorisé
+    // UNIQUEMENT sur une fiche VIERGE (cf garde dans le handler) : basculer
+    // quelqu'un qui a déjà des comptes changerait leur modèle de chauffe (D3) et
+    // donc leur publiabilité, du jour au lendemain et sans geste humain.
+    kind: v.optional(
+      v.union(v.literal("partner"), v.literal("talent"), v.literal("clipper")),
+    ),
   },
   handler: async (ctx, args) => {
     const creator = await ctx.db.get(args.id);
@@ -351,6 +364,63 @@ export const updateCreator = adminMutation({
     if (args.handlesToCreate !== undefined) {
       patch.handlesToCreate = normalizeHandlesToCreate(args.handlesToCreate);
     }
+    // ─── BASCULE DE POPULATION — trois effets, pas un menu déroulant ─────────
+    if (
+      args.kind !== undefined &&
+      args.kind !== resolveCreatorKind(creator.kind)
+    ) {
+      const cible = args.kind;
+      // 1. GARDE — fiche vierge seulement. Le refus NOMME ce qui bloque : sans
+      //    ça l'admin ne sait ni pourquoi ni quoi défaire.
+      const impact = await creatorDeletionImpact(ctx, creator);
+      const bloquants: string[] = [];
+      if (impact.comptes > 0) bloquants.push(`${impact.comptes} compte(s)`);
+      if (impact.publications > 0) {
+        bloquants.push(`${impact.publications} publication(s)`);
+      }
+      if (impact.payments > 0) {
+        bloquants.push(`${impact.payments} ligne(s) de paiement`);
+      }
+      if (bloquants.length > 0) {
+        throw new ConvexError(
+          `Impossible de changer la population de ${creator.name} : ${bloquants.join(", ")} y sont rattaché(e)s. ` +
+            "Un créateur qui a déjà travaillé garde sa population — crée une nouvelle fiche si besoin.",
+        );
+      }
+      patch.kind = cible === "partner" ? undefined : cible;
+
+      // 2. LE PORTAIL — le littéral de membership DÉRIVE de la fiche au signup ;
+      //    sans cette mise à jour, la personne resterait renvoyée vers l'ancien
+      //    portail et serait rejetée du nouveau (les gardes exigent l'accord
+      //    entre membership et `kind`). La bascule serait cosmétique et enfermante.
+      if (creator.userId) {
+        const membership = await ctx.db
+          .query("memberships")
+          .withIndex("by_user_project", (q) =>
+            q.eq("userId", creator.userId!).eq("projectId", ctx.projectId),
+          )
+          .first();
+        if (membership) {
+          await ctx.db.patch(membership._id, { role: roleForKind(cible) });
+        }
+      }
+
+      // 3. L'ANCRE DE PAIE. `payAnchorAt` se pose à l'activation d'un TALENT ;
+      //    quelqu'un déjà actif basculé en talent ne l'aurait jamais eue — il
+      //    n'apparaîtrait dans aucun cycle et `markCyclePaid` jetterait.
+      const statutCible = args.status ?? creator.status;
+      if (
+        cible === "talent" &&
+        statutCible === "active" &&
+        creator.payAnchorAt === undefined
+      ) {
+        patch.payAnchorAt = Date.now();
+      }
+      // Quitter la population talent retire l'ancre : la fiche est vierge par
+      // construction (garde ci-dessus), donc aucun cycle ne s'y appuie.
+      if (cible !== "talent") patch.payAnchorAt = undefined;
+    }
+
     if (args.clipperId !== undefined) {
       if (args.clipperId === null) {
         patch.clipperId = undefined;
