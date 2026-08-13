@@ -34,21 +34,65 @@ import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { creatorStatusBadge } from "@/lib/creator-status";
 import { cn } from "@/lib/utils";
+import {
+  CREATOR_KINDS,
+  resolveCreatorKind,
+  type CreatorKind,
+} from "@/convex/roles";
 import { InviteCreatorDialog } from "@/components/creators/InviteCreatorDialog";
 import { DeleteCreatorDialog } from "@/components/creators/DeleteCreatorDialog";
 import { joinUrl } from "@/components/creators/CopyableLink";
 import { CreatorLeaderboard } from "@/components/admin/leaderboard/CreatorLeaderboard";
 import { AppariementSection } from "@/components/creators/AppariementSection";
 
+/**
+ * Pastilles de POPULATION — teintes délibérément DISJOINTES de celles du statut
+ * (ambre, ciel, émeraude, ardoise, rose) : deux colonnes voisines de pastilles
+ * dont les couleurs se recoupent se lisent comme une seule information.
+ * Violet et sarcelle reprennent celles des lignes de paie `clip` et `retainer`,
+ * pour qu'une population garde la même couleur d'un écran à l'autre.
+ */
+const KIND_BADGE: Record<CreatorKind, { label: string; className: string }> = {
+  partner: {
+    label: "Partenaire",
+    className: "border-indigo-200 bg-indigo-50 text-indigo-700",
+  },
+  talent: {
+    label: "Talent",
+    className: "border-teal-200 bg-teal-50 text-teal-700",
+  },
+  clipper: {
+    label: "Clippeur",
+    className: "border-violet-200 bg-violet-50 text-violet-700",
+  },
+};
+
 export default function CreateursPage() {
   const creators = useProjectQuery(api.creators.listCreators, {});
   const regenerate = useProjectMutation(api.creators.regenerateInvitation);
   const projectPath = useProjectPath();
   const [inviteOpen, setInviteOpen] = useState(false);
+  // Filtre de population. `null` = toutes — le compte par population est autant
+  // l'information que le filtre lui-même.
+  const [filtre, setFiltre] = useState<CreatorKind | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{
     id: Id<"creators">;
     name: string;
   } | null>(null);
+
+  // Comptes par population, calculés sur la liste COMPLÈTE : ils ne bougent pas
+  // quand on filtre — sinon le filtre effacerait l'information qu'il donne.
+  const parPopulation = (creators ?? []).reduce<Record<string, number>>(
+    (acc, c) => {
+      const k = resolveCreatorKind(c.kind);
+      acc[k] = (acc[k] ?? 0) + 1;
+      return acc;
+    },
+    {},
+  );
+  const visibles = (creators ?? []).filter(
+    (c) => filtre === null || resolveCreatorKind(c.kind) === filtre,
+  );
 
   async function copyLink(token: string) {
     try {
@@ -99,6 +143,31 @@ export default function CreateursPage() {
       ) : creators.length === 0 ? (
         <EmptyState onInvite={() => setInviteOpen(true)} />
       ) : (
+        <>
+        <div className="flex flex-wrap items-center gap-2">
+          {[null, ...CREATOR_KINDS].map((k) => {
+            const actif = filtre === k;
+            const n =
+              k === null ? creators.length : (parPopulation[k] ?? 0);
+            return (
+              <button
+                key={k ?? "tous"}
+                type="button"
+                onClick={() => setFiltre(k)}
+                aria-pressed={actif}
+                className={cn(
+                  "rounded-full border px-3 py-1 text-sm transition-colors",
+                  actif
+                    ? "border-primary bg-primary/10 font-medium text-primary"
+                    : "border-slate-200 text-slate-600 hover:bg-slate-50",
+                )}
+              >
+                {k === null ? "Tous" : KIND_BADGE[k].label}
+                <span className="ml-1.5 tabular-nums text-slate-400">{n}</span>
+              </button>
+            );
+          })}
+        </div>
         <Card>
           <CardContent className="overflow-x-auto p-0">
             <Table>
@@ -106,14 +175,16 @@ export default function CreateursPage() {
                 <TableRow>
                   <TableHead>Nom</TableHead>
                   <TableHead>Email</TableHead>
+                  <TableHead>Population</TableHead>
                   <TableHead>Statut</TableHead>
                   <TableHead>Ajouté le</TableHead>
                   <TableHead className="w-12" />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {creators.map((c) => {
+                {visibles.map((c) => {
                   const badge = creatorStatusBadge(c.status);
+                  const pop = KIND_BADGE[resolveCreatorKind(c.kind)];
                   return (
                     <TableRow key={c._id}>
                       <TableCell className="font-medium text-slate-900">
@@ -126,6 +197,16 @@ export default function CreateursPage() {
                       </TableCell>
                       <TableCell className="text-sm text-slate-500">
                         {c.email}
+                      </TableCell>
+                      <TableCell>
+                        <span
+                          className={cn(
+                            "inline-flex items-center rounded-full border px-3 py-0.5 text-xs font-semibold",
+                            pop.className,
+                          )}
+                        >
+                          {pop.label}
+                        </span>
                       </TableCell>
                       <TableCell>
                         <span
@@ -189,6 +270,7 @@ export default function CreateursPage() {
             </Table>
           </CardContent>
         </Card>
+        </>
       )}
 
       <InviteCreatorDialog open={inviteOpen} onOpenChange={setInviteOpen} />
