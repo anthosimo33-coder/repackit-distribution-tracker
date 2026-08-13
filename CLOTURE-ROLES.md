@@ -147,3 +147,34 @@ la **signature de chaque ligne**, pas seulement le total — un total identique 
 masquer deux lignes qui se compensent ; et **lister** les cas écartés au lieu de
 les écarter en silence — un diff vert obtenu par exclusion muette est un diff qui
 ment.
+
+---
+
+## Correctif de mesure — 2026-08-13
+
+Le chiffre « 7 hooks non étiquetés », repris du diagnostic et propagé dans les
+commentaires de la garde D7, est **faux d'un ordre de grandeur**. Relevé sur un
+export de production :
+
+| Kind / mode | Actives | Refusées par D7 |
+|---|---|---|
+| `hook` / `afficher` | 228 | — |
+| `hook` sans mode | 34 | ✖ |
+| `hook` / `dire` | 14 | ✖ |
+| `hook` / `les_deux` | 8 | ✖ |
+| `flux` / `afficher` | 28 | — |
+| `flux` sans mode | 18 | ✖ |
+| `flux` / `les_deux` | 3 | ✖ |
+| `cta` (tous modes) | 61 | hors garde |
+
+**77 briques sont refusées, pas 7** — et le cadrage d'origine ne parlait que des
+hooks alors que **21 flux** sont concernés.
+
+**Ce n'est pas bloquant** : 228 hooks et 28 flux sont déjà `afficher`, le stock
+assignable existe dès aujourd'hui. Étiqueter le reste est un gain de stock, pas
+une condition de mise en service — et **le gain est côté FLUX** (28 utilisables
+contre 21 refusés) alors qu'il est marginal côté hooks (228 contre 56).
+
+La leçon est la même que celle de la section précédente, appliquée à une mesure
+plutôt qu'à un test : un chiffre repris sans être remesuré est un chiffre qu'on
+finit par croire.

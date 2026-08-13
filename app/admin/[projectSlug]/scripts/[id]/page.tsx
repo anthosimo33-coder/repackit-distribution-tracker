@@ -504,7 +504,12 @@ function BrickDialog({
                 onValueChange={(v) => v && setMode(v as BrickMode)}
               >
                 <SelectTrigger id="brick-mode" className="w-48">
-                  <SelectValue />
+                  {/* Sans enfants, le déclencheur rend la valeur brute
+                      (« les_deux ») au lieu du libellé (« Les deux »). */}
+                  <SelectValue>
+                    {BRICK_MODE_OPTIONS.find((o) => o.value === mode)?.label ??
+                      mode}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {BRICK_MODE_OPTIONS.map((o) => (
