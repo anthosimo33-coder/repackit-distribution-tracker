@@ -1,6 +1,6 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { clipperQuery } from "./functions";
+import { adminViewAsClipperQuery, clipperQuery } from "./functions";
 import { utcDayKey, utcDayRange } from "./accountPhase";
 import { resolveCreatorKind } from "./roles";
 
@@ -111,36 +111,56 @@ export function quotaWindowRange(at: number): { start: number; end: number } {
  * jamais « 0 publié » : un compteur faux est pire que pas de compteur. Les bornes
  * sortent donc avec les données.
  */
+async function quotaWindowFor(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  clipperId: Id<"creators">,
+) {
+  const now = Date.now();
+  const { start, end } = quotaWindowRange(now);
+  const comptes = await ctx.db
+    .query("comptes")
+    .withIndex("by_project_creator", (q) =>
+      q.eq("projectId", projectId).eq("creatorId", clipperId),
+    )
+    .collect();
+  const handles = comptes.map((c) => c.handle);
+  // Aucun compte : inutile d'ouvrir la plage d'index.
+  const pubs =
+    handles.length === 0
+      ? []
+      : await publicationsInRange(ctx, projectId, start, end);
+  const parCompte = tallyByHandleAndDay(pubs, handles);
+  return {
+    windowStart: start,
+    windowEnd: end,
+    comptes: comptes.map((c) => ({
+      compteId: c._id,
+      handle: c.handle,
+      plateforme: c.plateforme,
+      validatedAt: c.validatedAt ?? null,
+      parJour: parCompte[c.handle] ?? {},
+    })),
+  };
+}
+
+/** Le compteur du clippeur authentifié (filtre serveur par ctx.creatorId). */
 export const myQuotaWindow = clipperQuery({
   args: {},
-  handler: async (ctx) => {
-    const now = Date.now();
-    const { start, end } = quotaWindowRange(now);
-    const comptes = await ctx.db
-      .query("comptes")
-      .withIndex("by_project_creator", (q) =>
-        q.eq("projectId", ctx.projectId).eq("creatorId", ctx.creatorId),
-      )
-      .collect();
-    const handles = comptes.map((c) => c.handle);
-    // Aucun compte : inutile d'ouvrir la plage d'index.
-    const pubs =
-      handles.length === 0
-        ? []
-        : await publicationsInRange(ctx, ctx.projectId, start, end);
-    const parCompte = tallyByHandleAndDay(pubs, handles);
-    return {
-      windowStart: start,
-      windowEnd: end,
-      comptes: comptes.map((c) => ({
-        compteId: c._id,
-        handle: c.handle,
-        plateforme: c.plateforme,
-        validatedAt: c.validatedAt ?? null,
-        parJour: parCompte[c.handle] ?? {},
-      })),
-    };
-  },
+  handler: async (ctx) => quotaWindowFor(ctx, ctx.projectId, ctx.creatorId),
+});
+
+/**
+ * ADMIN observation — le MÊME compteur, pour le clippeur ciblé.
+ *
+ * Le cœur est partagé pour la raison qui a fait naître ce module : deux
+ * comptages finissent par ne plus dire la même chose. Un admin qui diagnostique
+ * « pourquoi ma publication est refusée » doit lire le chiffre du clippeur, pas
+ * un second chiffre qui lui ressemble.
+ */
+export const getQuotaWindowAsAdmin = adminViewAsClipperQuery({
+  args: {},
+  handler: async (ctx) => quotaWindowFor(ctx, ctx.projectId, ctx.creatorId),
 });
 
 /**

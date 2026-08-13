@@ -4,6 +4,7 @@ import {
   e2eMutation,
   adminMutation,
   adminQuery,
+  adminViewAsClipperQuery,
   adminViewAsQuery,
   creatorMutation,
   creatorQuery,
@@ -1159,29 +1160,38 @@ export const declareClipperCompte = clipperMutation({
  * `refusedAt`/`refusedReason` sortent aussi (PR 5) : un compte refusé est
  * archivé, et sans le motif le clippeur ne saurait pas quoi corriger.
  */
+async function clipperComptesFor(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  clipperId: Id<"creators">,
+) {
+  const strict = await isSnytchProject(ctx, projectId);
+  const comptes = await comptesForCreator(ctx, projectId, clipperId);
+  return comptes.map((c) => ({
+    _id: c._id,
+    handle: c.handle,
+    plateforme: c.plateforme,
+    url: c.url ?? null,
+    statut: effectiveStatus(c),
+    /** L'ancre de phase — absente tant que l'admin n'a pas validé. */
+    validatedAt: c.validatedAt ?? null,
+    /** Publiable au sens du gate strict #98 (statut, pas quota du jour). */
+    publiable: isAccountAvailable(c, { strict }),
+    refusedAt: c.refusedAt ?? null,
+    refusedReason: c.refusedReason ?? null,
+  }));
+}
+
+/** SES comptes (filtre serveur par ctx.creatorId, jamais par un argument). */
 export const listMyClipperComptes = clipperQuery({
   args: {},
-  handler: async (ctx) => {
-    const strict = await isSnytchProject(ctx, ctx.projectId);
-    const comptes = await comptesForCreator(
-      ctx,
-      ctx.projectId,
-      ctx.creatorId,
-    );
-    return comptes.map((c) => ({
-      _id: c._id,
-      handle: c.handle,
-      plateforme: c.plateforme,
-      url: c.url ?? null,
-      statut: effectiveStatus(c),
-      /** L'ancre de phase — absente tant que l'admin n'a pas validé. */
-      validatedAt: c.validatedAt ?? null,
-      /** Publiable au sens du gate strict #98 (statut, pas quota du jour). */
-      publiable: isAccountAvailable(c, { strict }),
-      refusedAt: c.refusedAt ?? null,
-      refusedReason: c.refusedReason ?? null,
-    }));
-  },
+  handler: async (ctx) => clipperComptesFor(ctx, ctx.projectId, ctx.creatorId),
+});
+
+/** ADMIN observation — comptes du clippeur ciblé (lecture seule, scopé projet). */
+export const listClipperComptesAsAdmin = adminViewAsClipperQuery({
+  args: {},
+  handler: async (ctx) => clipperComptesFor(ctx, ctx.projectId, ctx.creatorId),
 });
 
 /**

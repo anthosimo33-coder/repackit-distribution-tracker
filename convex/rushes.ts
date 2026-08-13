@@ -1,6 +1,7 @@
 import {
   adminMutation,
   adminQuery,
+  adminViewAsTalentQuery,
   authedAction,
   e2eMutation,
   talentMutation,
@@ -19,7 +20,7 @@ import { pickTalentRush, TALENT_RUSH_FIELDS } from "./talentRushFields";
 import { canTransition, isRushExpired, RUSH_STATUSES } from "./rushStatus";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import type { MutationCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 /**
  * RUSHES — le dépôt du TALENT.
@@ -150,25 +151,44 @@ export const confirmDeposit = talentMutation({
 });
 
 /**
- * « Mes dépôts » — les rushes du talent authentifié, récent → ancien.
+ * « Mes dépôts » — les rushes d'UN talent, récent → ancien. Helper PUR de lecture
+ * (ctx.db + projectId + talentId explicites), appelé par la query TALENT (sur sa
+ * propre fiche) ET par la query d'OBSERVATION admin. MÊME code → l'admin lit
+ * exactement ce que le talent lit, projection d'allowlist comprise ; une seconde
+ * implémentation finirait par en montrer plus ou moins.
  *
  * Double filtrage assumé : l'index porte sur `talentId` (la fiche est déjà
- * résolue par `talentMutation`/`talentQuery` pour CE projet), et on re-filtre sur
- * `projectId` — une fiche est scopée projet, mais la lecture ne doit pas dépendre
- * de cette propriété pour rester correcte.
+ * résolue par le wrapper pour CE projet), et on re-filtre sur `projectId` — une
+ * fiche est scopée projet, mais la lecture ne doit pas dépendre de cette
+ * propriété pour rester correcte.
  */
+async function rushesForTalent(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  talentId: Id<"creators">,
+): Promise<TalentRushRow[]> {
+  const rushes = await ctx.db
+    .query("rushes")
+    .withIndex("by_talent", (q) => q.eq("talentId", talentId))
+    .collect();
+  return rushes
+    .filter((r) => r.projectId === projectId)
+    .sort((a, b) => b.depositedAt - a.depositedAt)
+    .map((r) => pickTalentRush(r) as TalentRushRow);
+}
+
+/** Mes dépôts (filtre serveur par ctx.creatorId, jamais par un argument). */
 export const listMyRushes = talentQuery({
   args: {},
-  handler: async (ctx): Promise<TalentRushRow[]> => {
-    const rushes = await ctx.db
-      .query("rushes")
-      .withIndex("by_talent", (q) => q.eq("talentId", ctx.creatorId))
-      .collect();
-    return rushes
-      .filter((r) => r.projectId === ctx.projectId)
-      .sort((a, b) => b.depositedAt - a.depositedAt)
-      .map((r) => pickTalentRush(r) as TalentRushRow);
-  },
+  handler: async (ctx): Promise<TalentRushRow[]> =>
+    rushesForTalent(ctx, ctx.projectId, ctx.creatorId),
+});
+
+/** ADMIN observation — dépôts du talent ciblé (lecture seule, scopé projet). */
+export const listRushesAsAdmin = adminViewAsTalentQuery({
+  args: {},
+  handler: async (ctx): Promise<TalentRushRow[]> =>
+    rushesForTalent(ctx, ctx.projectId, ctx.creatorId),
 });
 
 // ─── Cycle de vie du binaire : rejet, expiration, purge ──────────────────────
