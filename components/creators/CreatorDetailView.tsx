@@ -50,6 +50,7 @@ import {
   Loader2Icon,
   Trash2Icon,
 } from "lucide-react";
+import { resolveCreatorKind } from "@/convex/roles";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
@@ -70,6 +71,8 @@ type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 const NONE = "__none__";
 
 export function CreatorDetailView({ creator }: { creator: Creator }) {
+  // Population de la fiche — décide du tarif affiché (et de rien d'autre ici).
+  const kind = resolveCreatorKind(creator.kind);
   const router = useRouter();
   const projectPath = useProjectPath();
   const projectSlug = useProjectSlug();
@@ -92,6 +95,14 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
     creator.paymentDetails ?? "",
   );
   const [adminNotes, setAdminNotes] = useState(creator.adminNotes ?? "");
+  // Tarif de la personne — un seul des deux selon sa population (cf bloc JSX).
+  const [tarif, setTarif] = useState(
+    kind === "clipper"
+      ? (creator.clipRate?.toString() ?? "")
+      : kind === "talent"
+        ? (creator.cycleRetainer?.toString() ?? "")
+        : "",
+  );
   const [handleTiktok, setHandleTiktok] = useState(
     creator.handlesToCreate?.tiktok ?? "",
   );
@@ -153,6 +164,15 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
           youtube: handleYoutube.trim() || undefined,
           instagram: handleInstagram.trim() || undefined,
         },
+        // Vide = retirer le tarif (null), pas « 0 » : un tarif absent et un tarif
+        // nul ne veulent pas dire la même chose — sans tarif, aucune ligne de
+        // paie n'est créée du tout.
+        ...(kind === "clipper"
+          ? { clipRate: tarif.trim() === "" ? null : Number(tarif) }
+          : {}),
+        ...(kind === "talent"
+          ? { cycleRetainer: tarif.trim() === "" ? null : Number(tarif) }
+          : {}),
       });
       toast.success("Créateur mis à jour");
     } catch (e) {
@@ -440,6 +460,37 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
               />
             </div>
           </div>
+          {/*
+            TARIF — par personne, donc ici, à côté de la façon dont ON LA PAIE.
+            Un seul champ, celui de sa population : un partenaire n'en a aucun
+            (il est au fixe/CPM/paliers, réglés par une grille de pricing).
+          */}
+          {(kind === "clipper" || kind === "talent") && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="tarif">
+                  {kind === "clipper"
+                    ? "Tarif par clip"
+                    : "Forfait par cycle (30 j)"}
+                </Label>
+                <Input
+                  id="tarif"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  inputMode="decimal"
+                  placeholder="Non défini"
+                  value={tarif}
+                  onChange={(e) => setTarif(e.target.value)}
+                />
+                <p className="text-xs text-slate-500">
+                  {kind === "clipper"
+                    ? "Figé sur chaque clip au moment où il est assigné — le modifier ne change aucun clip déjà commandé."
+                    : "Dû pour chaque cycle écoulé, quel que soit le nombre de rushes déposés. Le compte de rushes s'affiche à côté du montant, dans Paiements."}
+                </p>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
