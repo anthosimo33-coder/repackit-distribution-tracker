@@ -408,6 +408,28 @@ export async function requireCreatorViewableByAdmin(
   return creator;
 }
 
+/**
+ * ⚠️ RÈGLE QUI TRANCHE, à lire avant d'ajouter un argument à un wrapper gaté.
+ *
+ * UNE FONCTION, UNE GARDE, UNE POPULATION. Pour rendre l'espace d'une personne
+ * observable par un admin, on ajoute un SECOND POINT D'ENTRÉE (celui-ci) sur un
+ * cœur partagé — jamais un `creatorId` optionnel sur la fonction gatée existante.
+ *
+ * La tentation est réelle : `talentQuery`/`clipperQuery` filtrent déjà par
+ * `ctx.creatorId`, il « suffirait » d'accepter un id en argument quand
+ * l'appelant est admin. Mais une fonction qui embarque deux gardes n'est plus
+ * séparable : le jour où l'une bouge, plus rien ne dit laquelle protégeait quoi,
+ * et un talent qui passerait l'id d'un autre talent ne serait arrêté que par un
+ * `if` interne — pas par le wrapper.
+ *
+ * DEUX POINTS D'ENTRÉE AVEC CHACUN SA GARDE RESTENT SÉPARABLES ;
+ * UN POINT D'ENTRÉE À DEUX GARDES NE L'EST PLUS.
+ *
+ * Corollaire : il n'existe PAS de `adminViewAsMutation`, et il ne doit pas en
+ * exister. L'observation est en lecture seule PAR CONSTRUCTION — aucune mutation
+ * n'est atteignable par ce chemin, quoi que rende l'écran. Un bouton désactivé
+ * est du confort ; l'absence de wrapper est la garantie.
+ */
 export const adminViewAsQuery = customQuery(query, {
   args: { projectId: v.id("projects"), creatorId: v.id("creators") },
   input: async (ctx, { projectId, creatorId }) => {
