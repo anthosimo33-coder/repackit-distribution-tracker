@@ -143,3 +143,34 @@ Ce fichier liste les anti-patterns repérés dans la zone touchée par chaque fe
 - **Pourquoi c'est une dette et pas un bug** : entre planification et exécution il s'écoule des millisecondes, et les bornes d'ordre de `confirmPublicationCore` (cf `lib/notification-wiring.test.ts`) garantissent que tout ce que le message lit est déjà persisté. Le mode d'échec est un mode d'échec de DÉVELOPPEMENT — un chantier qui déplacerait une écriture — et il est désormais attrapé par test.
 - **Ce qui tranchera le jour du correctif** : le dépôt a déjà répondu à cette question partout ailleurs. `rateSnapshot`, `pricingSnapshot`, `scriptCombo.assembledScript`, `creatorNameSnapshot` : la convention est de FIGER ce qu'on communique au moment où on le communique. Une notification est par nature une affirmation sur un instant.
 - **Condition** : basculer les DEUX mécanismes ensemble (soumission ET publication/revue). Deux notifications voisines avec deux mécanismes différents seraient pires que le risque latent.
+
+---
+
+## Détecté pendant le chantier talent/clippeur (août 2026)
+
+### TD-023 — Unicité du combo par (créateur, plateforme) : bloquera au 2ᵉ compte d'une même plateforme
+- **Fichiers** : `lib/script-combo-uniqueness.ts` + sa réplique
+  `convex/scripts.usedComboKeysForPlatforms`, consommées par
+  `assignScriptCampaign` (partenaires) ET `assignScriptToRush` (clips, PR 4).
+- **Constat** : la clé d'anti-coordination est `(créateur, plateforme)`.
+  L'arbitrage **B1** ([ARBITRAGES-ROLES.md](./ARBITRAGES-ROLES.md)) prévoyait de
+  la passer à `(accountId)` **pour les seuls clippeurs**, discriminée par le
+  `kind` du propriétaire. Ce n'est PAS fait : la PR 4 a délibérément conservé la
+  règle partenaire, qui est plus stricte donc incapable de produire un doublon.
+- **DÉCLENCHEUR — la date à laquelle ça cesse d'être inoffensif** : aujourd'hui un
+  clippeur a UN compte TikTok et UN compte Instagram, donc `(créateur,
+  plateforme)` désigne déjà un compte par plateforme et les deux règles
+  coïncident. **Le jour où un clippeur exploite DEUX comptes de la même
+  plateforme** — c'est la trajectoire de montée en charge — un script consommé
+  sur son premier TikTok deviendra INASSIGNABLE sur le second. L'admin lira
+  « Tous les scripts affichables de cette campagne ont déjà été utilisés sur ces
+  comptes » sans comprendre pourquoi, alors que le stock est intact.
+- **Ce que le correctif ne doit PAS faire** : remplacer la règle globalement.
+  Relevé du 2026-08-11 : **2 couples (créateur, plateforme) portent déjà 2 comptes
+  chez les PARTENAIRES**. Un remplacement global rendrait un combo déjà consommé
+  sur leur compte A repiochable sur leur compte B — soit le même script publié
+  deux fois par la même personne sur la même plateforme, précisément ce que
+  l'anti-coordination existe pour empêcher.
+- **Forme du correctif** : discriminer par `resolveCreatorKind(propriétaire)`
+  dans les deux fonctions pures, et une spec par population (le partenaire reste
+  bloqué cross-comptes, le clippeur ne l'est plus).
