@@ -251,7 +251,14 @@ export default function PricingsPage() {
                   className="w-full sm:w-96"
                   aria-label="Grille de bonus par défaut du projet"
                 >
-                  <SelectValue />
+                  {/* Sans enfants, le déclencheur rend la valeur brute — ici
+                      « none » ou un id Convex — au lieu du nom de la grille. */}
+                  <SelectValue>
+                    {defaultBonusId === "none"
+                      ? "Aucune (grille par créatrice)"
+                      : (pricings.find((p) => p._id === defaultBonusId)
+                          ?.name ?? "Grille introuvable")}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">

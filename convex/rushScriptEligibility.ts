@@ -26,8 +26,12 @@
  *    absents au 2026-08-11). L'inclure refuserait 100 % des scripts — la garde
  *    serait silencieusement mortelle.
  * 2. `mode` ABSENT = REFUSÉ, aligné sur le défaut `les_deux` de
- *    `resolveBrickMode`. Relevé prod : 7 hooks non étiquetés, à corriger À LA
- *    MAIN dans l'admin. Aucun traitement de faveur pour de la donnée incomplète :
+ *    `resolveBrickMode`. Relevé prod (2026-08-13) : 77 briques gardées sont refusées — 34 hooks et
+ *    18 flux sans mode, 14 hooks « dire », 8 hooks et 3 flux « les_deux ». Ce
+ *    n'est PAS bloquant : 228 hooks et 28 flux sont déjà « afficher », donc le
+ *    stock assignable existe. Étiqueter le reste se fait à la main, et commence
+ *    par les FLUX (28 utilisables contre 21 refusés : le gain y est décisif,
+ *    alors qu'il est marginal côté hooks). Aucun traitement de faveur pour de la donnée incomplète :
  *    une brique dont personne n'a dit si elle se dit ou s'affiche n'est pas une
  *    brique à afficher.
  */

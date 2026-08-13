@@ -18,7 +18,7 @@ import { resolveBrickMode as resolveFromLib } from "./script-mode";
  * ÉVITÉE : celui qui vérifie que le `cta` échappe à la garde (l'inclure
  * refuserait 100 % des scripts en production, aucun cta n'ayant de mode), et
  * celui qui vérifie qu'un mode absent est REFUSÉ (le tolérer laisserait passer
- * les 7 hooks non étiquetés de la prod comme s'ils étaient à afficher).
+ * les 34 hooks et 18 flux sans mode de la prod comme s’ils étaient à afficher).
  */
 
 const brique = (
@@ -55,7 +55,7 @@ describe("isBrickRushEligible", () => {
   it("MODE ABSENT → REFUSÉ, jamais toléré", () => {
     // Aligné sur le défaut `les_deux` de resolveBrickMode. Une brique dont
     // personne n'a dit si elle se dit ou s'affiche n'est pas une brique à
-    // afficher — les 7 hooks non étiquetés de la prod se corrigent à la main.
+    // afficher — les 34 hooks et 18 flux sans mode se corrigent à la main.
     expect(isBrickRushEligible(brique("hook", undefined))).toBe(false);
     expect(isBrickRushEligible(brique("hook", ""))).toBe(false);
     expect(isBrickRushEligible(brique("hook", "Afficher"))).toBe(false); // casse
