@@ -204,9 +204,7 @@ test.describe("Populations — membership et mode d'observation", () => {
 
     // ── Son écran à ELLE : le dépôt y est ────────────────────────────────────
     const sien = await ouvrirSonPortail(browser, t.email, t.password, "/talent");
-    await expect(sien.page.getByText(briefTexte)).toBeVisible({
-      timeout: 15_000,
-    });
+    await expect(sien.page.getByText(fichier)).toBeVisible({ timeout: 15_000 });
     await expect(
       sien.page.getByRole("button", { name: /choisir mes vidéos/i }),
     ).toBeVisible();
@@ -217,8 +215,14 @@ test.describe("Populations — membership et mode d'observation", () => {
     await expect(page.getByTestId("view-as-banner")).toBeVisible({
       timeout: 15_000,
     });
-    await expect(page.getByText(briefTexte)).toBeVisible();
     await expect(page.getByText(fichier)).toBeVisible();
+    // L'observation reflète le MÊME agencement que son écran : le brief y est
+    // replié aussi (elle a un dépôt), et s'ouvre du même geste. Un mode
+    // d'observation qui déplierait ce qu'elle voit fermé ne montrerait pas son
+    // écran.
+    await expect(page.getByText(briefTexte)).toHaveCount(0);
+    await page.getByRole("button", { name: /comment filmer/i }).click();
+    await expect(page.getByText(briefTexte)).toBeVisible();
     // Le contrôle vu présent trois lignes plus haut n'est PAS rendu ici.
     await expect(
       page.getByRole("button", { name: /choisir mes vidéos/i }),
