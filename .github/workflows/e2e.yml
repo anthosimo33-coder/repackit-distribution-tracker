@@ -28,6 +28,12 @@ jobs:
           node-version: 20
           cache: "pnpm"
 
+      # AVANT tout le reste, parce que ça coûte une seconde et que ça garde une
+      # route publique de rendre des écrans sans identifiant. Un contrôle qui
+      # dépend de la mémoire de quelqu'un n'est pas un contrôle.
+      - name: Aucun harnais d'aperçu sans authentification
+        run: ./scripts/verif-harnais.sh
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 

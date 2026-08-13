@@ -237,8 +237,16 @@ URL.
 Conséquence assumée : si Instagram échoue ou est décalé, le clip reste en attente
 et non payé jusqu'à ce que la seconde URL soit collée. Le clip n'est pas fini tant
 qu'il n'est pas sorti partout ; le tarif unitaire couvre les deux comptes.
-L'espace clippeur doit rendre cet état **lisible** : 1 URL sur 2 s'affiche « en
-attente », avec la cible manquante nommée — jamais « publié ».
+
+> **Correction (PR 6).** La formulation d'origine — « 1 URL sur 2 s'affiche *en
+> attente* » — laissait croire à un état PERSISTÉ. Il n'existe pas :
+> `confirmPublicationCore` **refuse la soumission entière** tant qu'une cible n'a
+> pas d'URL, donc aucune assignation ne se retrouve jamais à moitié publiée. Ce
+> qu'il fallait, et ce que l'écran fait : **nommer la cible manquante dans le
+> message bloquant** (« Il manque le lien pour Instagram »), plutôt que fabriquer
+> un état intermédiaire que le serveur ne connaît pas. La liste des cibles est
+> par ailleurs visible en permanence sur la fiche du clip, avec « pas encore
+> publié » en regard de chacune.
 
 ### Le piège du double paiement — invariant, pas point d'attention
 
