@@ -7,6 +7,12 @@
 > ont appris.
 >
 > Clos le 2026-08-13. Huit PRs, #25 à #39.
+>
+> **Une exception au « clos »** : la section « Ce que les tests ont appris » reste
+> ouverte, parce qu'elle ne parle pas de ce chantier mais de la manière de tester.
+> Une sixième forme y a été ajoutée après coup (PR #47, TD-025) — elle a été
+> trouvée DANS une spec de ce chantier, ce qui est précisément l'argument pour
+> ne pas figer cette section.
 
 ## Ce qui a été livré
 
@@ -110,7 +116,7 @@ extraction de handle tentée sur une URL qui n'en porte pas. Correctif : les deu
 C'est la partie la plus réutilisable du chantier, et elle ne dépend ni de ce
 produit ni de ce dépôt.
 
-**Un test peut être vert sans rien prouver.** Cinq formes du même défaut ont été
+**Un test peut être vert sans rien prouver.** Six formes du même défaut ont été
 rencontrées, chacune sur du code réel :
 
 | # | Forme | Ce qu'on croyait tester | Ce qui se passait |
@@ -120,14 +126,40 @@ rencontrées, chacune sur du code réel :
 | 3 | **Jeu de données idéalisé** | un audit de pseudo | prénoms nus au lieu de noms complets — le vrai cas n'était jamais formé |
 | 4 | **Borne qui mesure la mise en page** | une règle métier | l'assertion tombait sur du code correct, à cause d'un rendu |
 | 5 | **Rouge pour la mauvaise raison** | un invariant d'argent | l'`insert` échouait avant l'assertion, jamais atteinte |
+| 6 | **Absence sans présence** | qu'une vue fausse n'est pas rendue | le motif cherché n'existait nulle part dans l'app — l'assertion était vraie quoi qu'il arrive |
 
 **La question qui les couvre toutes, à se poser avant de considérer un test
 écrit :** *par quel chemin exact ce résultat s'est-il produit ?*
 
-Elle attrape les cinq. Un test vert dont on ne sait pas retracer le chemin ne
-garde rien ; un test rouge dont on n'a pas lu la cause n'en garde pas davantage.
+Elle attrape les cinq premières. Un test vert dont on ne sait pas retracer le
+chemin ne garde rien ; un test rouge dont on n'a pas lu la cause n'en garde pas
+davantage.
 
-**Trois pratiques qui en découlent, appliquées ici :**
+**Elle n'attrape PAS la sixième, et c'est ce qui la rend particulière :** un
+résultat a un chemin, une absence n'en a pas. Il n'y a rien à retracer quand on
+assert que quelque chose *n'apparaît pas* — la question n'a pas de prise. D'où
+une seconde question, de même rang :
+
+> *Sur quel cas cette chose devrait-elle apparaître, et l'ai-je vérifié là-bas ?*
+
+**Toute assertion d'absence appelle une assertion de présence** sur le cas où la
+chose devrait être là. Sans elle, une absence peut devenir vraie pour la mauvaise
+raison : le libellé a changé, l'élément a été retiré de l'app, le sélecteur ne
+matche plus rien. Le test reste vert et ne garde plus rien.
+
+Découverte en août 2026 (PR #47, TD-025), et **plus grave que les cinq autres par
+son emplacement** : elle vivait dans une spec écrite pour prouver le correctif
+#45. Le correctif était bon ; sa garde ne gardait rien. `/paliers de bonus/i`
+n'existe nulle part dans le portail — l'assertion aurait été verte même en
+rendant la vue partenaire à une clippeuse, c'est-à-dire dans le cas exact qu'elle
+existait pour interdire. Personne ne l'aurait su.
+
+Corollaire de précision, même PR : « Mes vidéos » est le TITRE de l'espace talent
+et une ENTRÉE DE NAV du portail partenaire. Une assertion d'absence portée sur le
+texte confondait les deux ; portée sur le rôle `link`, elle distingue. Quand un
+libellé est partagé par deux écrans, l'absence doit viser le rôle, pas la chaîne.
+
+**Quatre pratiques qui en découlent, appliquées ici :**
 
 1. **Voir rouge avant de croire.** Toute spec qui garde une règle d'argent a été
    mise en échec en cassant volontairement le code qu'elle protège, puis remise au
@@ -141,6 +173,12 @@ garde rien ; un test rouge dont on n'a pas lu la cause n'en garde pas davantage.
    faisait passer un rush à `published` — était **entre** deux segments couverts.
    Il a fallu écrire `e2e/chantier-chaine-complete.spec.ts` pour le voir. C'est le
    mode d'échec propre à un chantier découpé, et il ne se voit qu'en traversant.
+4. **Apparier chaque absence à une présence.** Dans `view-as-populations.spec.ts`,
+   la signature du portail partenaire est vérifiée ABSENTE en observant un talent
+   ou un clippeur, et PRÉSENTE en observant un partenaire — même helper, deux
+   sens. Côté contrôles, chaque bouton vérifié absent en observation est d'abord
+   vu présent sur l'écran de la personne, connectée par `/login` : sinon « le
+   bouton n'est pas rendu » et « le bouton n'existe plus » sont indiscernables.
 
 **Et une forme de relevé, pour toute vérification de non-régression :** comparer
 la **signature de chaque ligne**, pas seulement le total — un total identique peut
