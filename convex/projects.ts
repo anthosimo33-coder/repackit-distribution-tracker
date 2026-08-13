@@ -1,5 +1,6 @@
 import {
   adminMutation,
+  adminQuery,
   authedQuery,
   e2eMutation,
   publicQuery,
@@ -265,6 +266,30 @@ export const setProjectCurrencyBySlug = internalMutation({
  * ⚠️ `fileDropEnabled` ne commande QUE le dépôt Drive. Le régime strict de
  * disponibilité des comptes reste sur le slug (cf convex/fileDrop.ts).
  */
+/**
+ * Réglages de l'espace talent — LECTURE ADMIN.
+ *
+ * Query dédiée plutôt qu'un élargissement de `projectForClient` : cette
+ * projection est servie à TOUT membre, y compris un talent ou un clippeur. Deux
+ * champs de configuration de plus y seraient sans danger réel, mais la liste
+ * blanche n'a de valeur que si on ne l'élargit pas par commodité.
+ */
+export const getTalentSettings = adminQuery({
+  args: {},
+  handler: async (
+    ctx,
+  ): Promise<{
+    fileDropEnabled: boolean;
+    talentBriefFormatId: Id<"formats"> | null;
+  }> => {
+    const project = await ctx.db.get(ctx.projectId);
+    return {
+      fileDropEnabled: project?.fileDropEnabled ?? false,
+      talentBriefFormatId: project?.talentBriefFormatId ?? null,
+    };
+  },
+});
+
 export const setTalentSettings = adminMutation({
   args: {
     talentBriefFormatId: v.optional(v.union(v.id("formats"), v.null())),

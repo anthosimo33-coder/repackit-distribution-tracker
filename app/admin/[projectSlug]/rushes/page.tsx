@@ -25,6 +25,7 @@ import { formatBytes } from "@/lib/snytch-drive";
 import { formatDate } from "@/lib/format";
 import type { RushStatus } from "@/convex/rushStatus";
 import { AssignScriptToRushDialog } from "@/components/rushes/AssignScriptToRushDialog";
+import { TalentSettingsCard } from "@/components/rushes/TalentSettingsCard";
 
 /**
  * REVUE DES RUSHES (admin) — décider de chaque prise déposée par un talent :
@@ -278,6 +279,8 @@ export default function RushesPage() {
             : `${waiting.length} prise${waiting.length > 1 ? "s" : ""} en attente de décision`}
         </p>
       </header>
+
+      <TalentSettingsCard />
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
