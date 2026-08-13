@@ -30,6 +30,7 @@ import type * as creatorVideos from "../creatorVideos.js";
 import type * as creators from "../creators.js";
 import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
+import type * as dateFr from "../dateFr.js";
 import type * as demoMultiProject from "../demoMultiProject.js";
 import type * as demoSeed from "../demoSeed.js";
 import type * as emailApi from "../emailApi.js";
@@ -134,6 +135,7 @@ declare const fullApi: ApiFromModules<{
   creators: typeof creators;
   crons: typeof crons;
   dashboard: typeof dashboard;
+  dateFr: typeof dateFr;
   demoMultiProject: typeof demoMultiProject;
   demoSeed: typeof demoSeed;
   emailApi: typeof emailApi;

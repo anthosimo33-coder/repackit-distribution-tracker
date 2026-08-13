@@ -11,6 +11,7 @@ import { v, ConvexError } from "convex/values";
 import { internal } from "./_generated/api";
 import { coerceSnapshotAge } from "./snapshotMatching";
 import { resolveDisplayMetrics } from "./metricsDisplay";
+import { formatDateFr } from "./dateFr";
 import { isTikTokShortlink } from "./modelVideoEmbeds";
 import { cycleIndexOf, cycleWindow, cyclePeriodKey } from "./payCycle";
 import { assignmentPublishedAt, syncBonusForPublication } from "./pricing";
@@ -147,15 +148,10 @@ function normalizeSourceId(raw: string): string {
   return lower;
 }
 
-// Format date FR "JJ/MM/AA" inline (cross-tsconfig : pas d'import lib/format).
-// Aligné avec lib/format.formatDate pour des messages d'erreur cohérents.
-function formatDateFr(ts: number): string {
-  return new Date(ts).toLocaleDateString("fr-FR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "2-digit",
-  });
-}
+// `formatDateFr` vit désormais dans convex/dateFr.ts (module pur, testé depuis
+// lib/date-fr.test.ts) : il était défini ici SANS fuseau, donc rendu en UTC par le
+// runtime Convex alors que ses 7 appels formatent `datePubli` — posée à minuit
+// PARIS. Cf. l'en-tête du module pour le détail et le piège inverse (emails.ts).
 
 // Statut d'une publication (aligné lib/publication-status isPublished/isLate,
 // dupliqué cross-tsconfig). published = postUrl non vide ; late = échéance
