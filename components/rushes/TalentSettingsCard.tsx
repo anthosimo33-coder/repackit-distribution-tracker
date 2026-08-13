@@ -153,7 +153,18 @@ export function TalentSettingsCard() {
               }
             >
               <SelectTrigger id="brief" aria-label="Brief permanent">
-                <SelectValue placeholder="Aucun brief" />
+                {/*
+                  ENFANTS OBLIGATOIRES. `SelectPrimitive.Value` sans enfants rend
+                  la VALEUR BRUTE — ici un id Convex. C'est la convention du
+                  dépôt (tous les autres sélecteurs passent leur libellé) et le
+                  seul endroit où l'oubli ne se voit pas en écrivant le code.
+                */}
+                <SelectValue placeholder="Aucun brief">
+                  {briefActuel === null
+                    ? "Aucun brief"
+                    : (actifs.find((f) => f._id === briefActuel)?.name ??
+                      "Brief introuvable (supprimé ?)")}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">Aucun brief</SelectItem>

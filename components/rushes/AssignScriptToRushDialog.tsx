@@ -182,7 +182,11 @@ export function AssignScriptToRushDialog({
                 onValueChange={(v) => v !== null && setCampaignChoice(v)}
               >
                 <SelectTrigger id="rush-campaign">
-                  <SelectValue placeholder="Choisir une campagne" />
+                  {/* Enfants obligatoires — sans eux, l'id Convex s'affiche. */}
+                  <SelectValue placeholder="Choisir une campagne">
+                    {actives.find((c) => c._id === campaignId)?.name ??
+                      "Choisir une campagne"}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {actives.map((c) => (

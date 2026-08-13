@@ -50,7 +50,12 @@ import {
   Loader2Icon,
   Trash2Icon,
 } from "lucide-react";
-import { resolveCreatorKind } from "@/convex/roles";
+import {
+  CREATOR_KINDS,
+  KIND_LABELS,
+  resolveCreatorKind,
+  type CreatorKind,
+} from "@/convex/roles";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
@@ -96,6 +101,7 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
   );
   const [adminNotes, setAdminNotes] = useState(creator.adminNotes ?? "");
   // Tarif de la personne — un seul des deux selon sa population (cf bloc JSX).
+  const [population, setPopulation] = useState<string>(kind);
   const [tarif, setTarif] = useState(
     kind === "clipper"
       ? (creator.clipRate?.toString() ?? "")
@@ -167,6 +173,13 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
         // Vide = retirer le tarif (null), pas « 0 » : un tarif absent et un tarif
         // nul ne veulent pas dire la même chose — sans tarif, aucune ligne de
         // paie n'est créée du tout.
+        // Population — n'est envoyée QUE si elle change : le serveur refuse la
+        // bascule sur une fiche qui a déjà des comptes, des publications ou des
+        // lignes de paie, et l'envoyer inutilement ferait échouer une simple
+        // édition de nom sur une fiche non vierge.
+        ...(population !== kind
+          ? { kind: population as "partner" | "talent" | "clipper" }
+          : {}),
         ...(kind === "clipper"
           ? { clipRate: tarif.trim() === "" ? null : Number(tarif) }
           : {}),
@@ -423,6 +436,43 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
 
       <Card>
         <CardHeader>
+          <CardTitle>Population</CardTitle>
+          <CardDescription>
+            Corrige une invitation faite avec la mauvaise population. Possible
+            tant que la fiche est vierge — dès qu&apos;un compte, une publication
+            ou une ligne de paie y est rattaché, la population est figée.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="max-w-xs space-y-1.5">
+            <Label htmlFor="population">Population</Label>
+            <Select
+              value={population}
+              onValueChange={(v) => v && setPopulation(v)}
+            >
+              <SelectTrigger id="population" aria-label="Population">
+                <SelectValue>{KIND_LABELS[population as CreatorKind]?.singular ?? "—"}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {CREATOR_KINDS.map((k) => (
+                  <SelectItem key={k} value={k}>
+                    {KIND_LABELS[k].singular}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {population !== kind && (
+              <p className="text-xs text-amber-700">
+                Changera aussi l&apos;espace auquel cette personne accède au
+                prochain login. Enregistre pour appliquer.
+              </p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Moyen de paiement</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -494,6 +544,13 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
         </CardContent>
       </Card>
 
+      {/*
+        BLOCS PARTENAIRE. Les @ à créer et la grille de paliers relèvent du flux
+        partenaire : un talent ne crée aucun compte, un clippeur est payé au clip.
+        Les afficher chez eux donnait des champs qui ne servent à rien et qui
+        laissent croire qu'ils comptent.
+      */}
+      {kind === "partner" && (
       <Card>
         <CardHeader>
           <CardTitle>@ à créer par réseau</CardTitle>
@@ -536,6 +593,7 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
           </div>
         </CardContent>
       </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -560,11 +618,13 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
 
       {/* P5 — Comptes du créateur (alimenté). Assignments / Paiements restent
           des emplacements réservés (chantiers suivants). */}
-      <BonusGridSection
-        creatorId={creator._id}
-        current={creator.bonusPricingId ?? null}
-        currency={payCurrency}
-      />
+      {kind === "partner" && (
+        <BonusGridSection
+          creatorId={creator._id}
+          current={creator.bonusPricingId ?? null}
+          currency={payCurrency}
+        />
+      )}
 
       <CreatorComptesSection creatorId={creator._id} />
       <div className="grid gap-4 sm:grid-cols-2">
