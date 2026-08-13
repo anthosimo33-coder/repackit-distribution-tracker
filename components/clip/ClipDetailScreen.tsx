@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import { toast } from "sonner";
 import { ArrowLeftIcon, ClipboardListIcon, TypeIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useClipperProject } from "@/components/clip/ClipperProjectProvider";
+import { useClipperBase, useMyClip } from "@/components/clip/clipper-data";
+import { useReadOnly } from "@/components/portal/ViewAsContext";
 import { ScriptDestinationZones } from "@/components/scripts/ScriptDestinationZones";
 import { ModelVideoEmbed } from "@/components/portal/ModelVideoEmbed";
 import { ClipPublishForm } from "@/components/clip/ClipPublishForm";
@@ -33,7 +35,9 @@ import { formatDate } from "@/lib/format";
  */
 export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
   const { projectId } = useClipperProject();
-  const clip = useQuery(api.assignments.getMyClip, { projectId, id: clipId });
+  const readOnly = useReadOnly();
+  const base = useClipperBase();
+  const clip = useMyClip(projectId, clipId);
   const start = useMutation(api.assignments.startClip);
   const submit = useMutation(api.assignments.submitClipVideo);
 
@@ -44,7 +48,7 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
         <CardContent className="space-y-3 py-8 text-center">
           <p className="text-sm text-slate-500">Ce clip est introuvable.</p>
           <Link
-            href="/clip"
+            href={base}
             className="inline-flex h-8 items-center rounded-md border border-slate-200 px-3 text-sm text-slate-700 hover:bg-slate-50"
           >
             Retour à mes clips
@@ -56,8 +60,14 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
 
   const statut = clip.status as AssignmentStatus;
   const badge = ASSIGNMENT_STATUS[statut];
+  // En OBSERVATION, aucun des trois gestes du clippeur n'est rendu (démarrer,
+  // envoyer le montage, publier). Le serveur les refuse déjà à une session
+  // admin ; ne pas les rendre évite d'annoncer une action qui échouerait.
   const peutDeposer =
-    statut === "todo" || statut === "in_progress" || statut === "video_rejected";
+    !readOnly &&
+    (statut === "todo" ||
+      statut === "in_progress" ||
+      statut === "video_rejected");
 
   async function handleStart() {
     try {
@@ -85,7 +95,7 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
     <div className="space-y-5">
       <div className="flex items-center gap-2">
         <Link
-          href="/clip"
+          href={base}
           className="-ml-2 inline-flex items-center rounded-md px-2 py-1 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900"
         >
           <ArrowLeftIcon className="mr-1 size-4" />
@@ -103,6 +113,14 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
           </span>
         )}
       </div>
+
+      {/* Dit UNE fois ce qui manque, plutôt que trois emplacements vides. */}
+      {readOnly && (
+        <p className="text-xs text-slate-500">
+          Observation — les gestes du clippeur (démarrer, envoyer le montage,
+          publier) ne sont pas rendus ici.
+        </p>
+      )}
 
       {/* Cibles. Le clip ne sort PUBLIÉ que quand TOUTES ont un lien (B5) :
           l'écran les nomme donc dès maintenant, pas seulement au moment de
@@ -231,7 +249,7 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
         </Card>
       )}
 
-      {statut === "todo" && (
+      {statut === "todo" && !readOnly && (
         <Button onClick={handleStart} className="w-full">
           Je commence
         </Button>
@@ -259,7 +277,7 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
         </Card>
       )}
 
-      {statut === "to_publish" && (
+      {statut === "to_publish" && !readOnly && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Publier</CardTitle>

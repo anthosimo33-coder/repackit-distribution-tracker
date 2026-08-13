@@ -1,8 +1,10 @@
 "use client";
 
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useTalentProject } from "@/components/talent/TalentProjectProvider";
+import { useMyRushes, useTalentBrief } from "@/components/talent/talent-data";
+import { useReadOnly } from "@/components/portal/ViewAsContext";
 import {
   DriveUploader,
   type DriveUploadCopy,
@@ -73,8 +75,9 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 export function TalentSpaceScreen() {
   const { projectId } = useTalentProject();
-  const brief = useQuery(api.formats.getMyTalentBrief, { projectId });
-  const rushes = useQuery(api.rushes.listMyRushes, { projectId });
+  const readOnly = useReadOnly();
+  const brief = useTalentBrief(projectId);
+  const rushes = useMyRushes(projectId);
   const getDepositSession = useAction(api.rushes.getDepositSession);
   const confirmDeposit = useMutation(api.rushes.confirmDeposit);
 
@@ -124,16 +127,33 @@ export function TalentSpaceScreen() {
       )}
 
       {/* ─── Dépôt ──────────────────────────────────────────────────────── */}
+      {/*
+        En OBSERVATION, l'uploader n'est pas rendu du tout — pas grisé. Un
+        sélecteur de fichiers désactivé se lit comme une panne ; la phrase dit ce
+        que le talent, lui, aurait à cet endroit. La garantie n'est de toute
+        façon pas ici : aucune mutation n'est atteignable par le chemin
+        d'observation, et `confirmDeposit` refuse une session admin.
+      */}
       <section className="space-y-2">
         <SectionTitle>Déposer</SectionTitle>
-        <DriveUploader
-          backend={{
-            requestSession: (args) => getDepositSession({ projectId, ...args }),
-            confirm: (args) => confirmDeposit({ projectId, ...args }),
-          }}
-          limits={RUSH_LIMITS}
-          copy={RUSH_COPY}
-        />
+        {readOnly ? (
+          <Card>
+            <CardContent className="py-6 text-center text-sm text-slate-500">
+              Le dépôt de prises est à sa main — il n&apos;est pas actionnable
+              depuis l&apos;observation.
+            </CardContent>
+          </Card>
+        ) : (
+          <DriveUploader
+            backend={{
+              requestSession: (args) =>
+                getDepositSession({ projectId, ...args }),
+              confirm: (args) => confirmDeposit({ projectId, ...args }),
+            }}
+            limits={RUSH_LIMITS}
+            copy={RUSH_COPY}
+          />
+        )}
       </section>
 
       {/* ─── Mes dépôts ─────────────────────────────────────────────────── */}

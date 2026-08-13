@@ -2,11 +2,19 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import { toast } from "sonner";
 import { ChevronRightIcon, Loader2Icon, PlusIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { useClipperProject } from "@/components/clip/ClipperProjectProvider";
+import {
+  useClipperBase,
+  useClipperComptes,
+  useMyClips,
+  useQuotaWindow,
+} from "@/components/clip/clipper-data";
+import { useReadOnly } from "@/components/portal/ViewAsContext";
+import { portalHref } from "@/lib/view-as";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -225,8 +233,9 @@ function DeclarerCompte() {
 
 function MesComptes() {
   const { projectId } = useClipperProject();
-  const comptes = useQuery(api.comptes.listMyClipperComptes, { projectId });
-  const quota = useQuery(api.clipQuota.myQuotaWindow, { projectId });
+  const readOnly = useReadOnly();
+  const comptes = useClipperComptes(projectId);
+  const quota = useQuotaWindow(projectId);
 
   // On attend AUSSI le quota : il porte l'instant de référence du serveur, et
   // afficher les comptes sans lui reviendrait à annoncer « 0 publié » avant de
@@ -247,7 +256,9 @@ function MesComptes() {
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <SectionTitle>Mes comptes</SectionTitle>
-        <DeclarerCompte />
+        {/* Déclarer un compte est un geste du clippeur : absent en observation,
+            pas grisé (le serveur refuse déjà `declareClipperCompte` à un admin). */}
+        {readOnly ? null : <DeclarerCompte />}
       </div>
       {comptes.length === 0 ? (
         <Card>
@@ -287,7 +298,8 @@ function MesComptes() {
 
 function MesClips() {
   const { projectId } = useClipperProject();
-  const clips = useQuery(api.assignments.listMyClips, { projectId });
+  const clips = useMyClips(projectId);
+  const base = useClipperBase();
 
   if (clips === undefined) return <Skeleton className="h-32 w-full" />;
 
@@ -306,7 +318,11 @@ function MesClips() {
           {clips.map((c) => {
             const badge = ASSIGNMENT_STATUS[c.status as AssignmentStatus];
             return (
-              <Link key={c._id} href={`/clip/clips/${c._id}`} className="block">
+              <Link
+                key={c._id}
+                href={portalHref(base, `/clips/${c._id}`)}
+                className="block"
+              >
                 <Card className="transition-colors hover:border-slate-300">
                   <CardContent className="flex items-center gap-3 py-3">
                     <div className="min-w-0 flex-1 space-y-1">
