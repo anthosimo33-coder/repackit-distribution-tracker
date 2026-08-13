@@ -99,7 +99,10 @@ export function TalentSettingsCard() {
               : url.includes("instagram")
                 ? ("instagram" as const)
                 : ("tiktok" as const),
-            title: "Exemple",
+            // Aucun titre : il s'affichait sous chaque lecteur côté talent, où
+            // « Exemple » n'apprend rien que la vignette ne dise déjà. Cf
+            // lib/talent-brief.ts pour les briefs qui le portent déjà en base.
+            title: "",
           })),
       });
       await setSettings({ talentBriefFormatId: formatId });

@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { useAction, useMutation } from "convex/react";
+import { Collapsible } from "@base-ui/react/collapsible";
 import { api } from "@/convex/_generated/api";
 import { useTalentProject } from "@/components/talent/TalentProjectProvider";
 import { useMyRushes, useTalentBrief } from "@/components/talent/talent-data";
@@ -15,10 +17,12 @@ import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { FilmIcon, InboxIcon } from "lucide-react";
+import { ChevronDownIcon, FilmIcon, InboxIcon } from "lucide-react";
 import { TALENT_STATUS_LABELS, type RushStatus } from "@/convex/rushStatus";
 import { formatBytes } from "@/lib/snytch-drive";
 import { formatDate } from "@/lib/format";
+import { isPlaceholderExampleTitle } from "@/lib/talent-brief";
+import { cn } from "@/lib/utils";
 
 /**
  * ESPACE TALENT — un seul écran, et c'est tout ce qu'il y a.
@@ -81,7 +85,31 @@ export function TalentSpaceScreen() {
   const getDepositSession = useAction(api.rushes.getDepositSession);
   const confirmDeposit = useMutation(api.rushes.confirmDeposit);
 
-  const examples = (brief?.exampleVideos ?? []) as FormatExample[];
+  /**
+   * Le brief est REPLIÉ par défaut, sauf au tout premier passage — aucun dépôt.
+   * On le lit une fois en arrivant, puis on ne le rouvre que pour vérifier un
+   * point : le défaut doit servir le second cas, pas le premier.
+   *
+   * `null` = personne n'a encore touché au bloc, le défaut s'applique et se
+   * recalcule à l'arrivée des dépôts (ils sont chargés en asynchrone). Dès le
+   * premier clic, le choix de la personne l'emporte et ne bouge plus sous ses
+   * doigts. Pas d'effet : la valeur dérive du rendu.
+   */
+  const [briefOuvertParElle, setBriefOuvertParElle] = useState<boolean | null>(
+    null,
+  );
+  const premierPassage = rushes !== undefined && rushes.length === 0;
+  const briefOuvert = briefOuvertParElle ?? premierPassage;
+
+  /**
+   * « Exemple » était estampillé sur chaque exemple à la création du brief (cf
+   * lib/talent-brief.ts) : un placeholder, pas une saisie. Sous une rangée de
+   * petits lecteurs, il ajoute une ligne qui n'apprend rien. Un vrai titre, lui,
+   * reste affiché.
+   */
+  const examples = ((brief?.exampleVideos ?? []) as FormatExample[]).map((ex) =>
+    isPlaceholderExampleTitle(ex.title) ? { ...ex, title: "" } : ex,
+  );
 
   return (
     <div className="mx-auto max-w-2xl space-y-8">
@@ -94,40 +122,12 @@ export function TalentSpaceScreen() {
         </p>
       </header>
 
-      {/* ─── Brief permanent ────────────────────────────────────────────── */}
-      <section className="space-y-2">
-        <SectionTitle>Comment filmer</SectionTitle>
-        {brief === undefined ? (
-          <Skeleton className="h-32 w-full" />
-        ) : brief === null ? (
-          <Card>
-            <CardContent className="py-8 text-center text-sm text-slate-500">
-              Ton brief n&apos;est pas encore prêt. Ton contact te préviendra.
-            </CardContent>
-          </Card>
-        ) : (
-          <Card>
-            <CardContent className="py-5">
-              <SimpleMarkdown content={brief.brief} />
-            </CardContent>
-          </Card>
-        )}
-      </section>
-
-      {/* ─── Vidéos d'exemple ───────────────────────────────────────────── */}
-      {examples.length > 0 && (
-        <section className="space-y-2">
-          <SectionTitle>Des exemples</SectionTitle>
-          <div className="space-y-4">
-            {examples.map((example, i) => (
-              <VideoExample key={i} example={example} />
-            ))}
-          </div>
-        </section>
-      )}
-
       {/* ─── Dépôt ──────────────────────────────────────────────────────── */}
       {/*
+        EN TÊTE DE PAGE, avant le brief : c'est le geste qu'elle vient faire.
+        Un brief déplié le repoussait sous la ligne de flottaison, et il fallait
+        faire défiler plusieurs écrans pour trouver l'uploader.
+
         En OBSERVATION, l'uploader n'est pas rendu du tout — pas grisé. Un
         sélecteur de fichiers désactivé se lit comme une panne ; la phrase dit ce
         que le talent, lui, aurait à cet endroit. La garantie n'est de toute
@@ -211,6 +211,66 @@ export function TalentSpaceScreen() {
           </ul>
         )}
       </section>
+
+      {/* ─── Brief permanent, REPLIÉ ────────────────────────────────────── */}
+      <Collapsible.Root
+        open={briefOuvert}
+        onOpenChange={setBriefOuvertParElle}
+        render={<section className="space-y-2" />}
+      >
+        <Collapsible.Trigger className="flex w-full items-center justify-between gap-2 rounded-md py-1 text-left hover:opacity-80">
+          {/* Un <h2> ne peut pas vivre dans un <button> (contenu de flux dans
+              du phrasé) : le titre est ici un <span> de même style. */}
+          <span className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+            Comment filmer
+          </span>
+          <ChevronDownIcon
+            className={cn(
+              "size-4 shrink-0 text-slate-400 transition-transform",
+              briefOuvert && "rotate-180",
+            )}
+          />
+        </Collapsible.Trigger>
+        <Collapsible.Panel>
+          {brief === undefined ? (
+            <Skeleton className="h-32 w-full" />
+          ) : brief === null ? (
+            <Card>
+              <CardContent className="py-8 text-center text-sm text-slate-500">
+                Ton brief n&apos;est pas encore prêt. Ton contact te préviendra.
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="py-5">
+                <SimpleMarkdown content={brief.brief} />
+              </CardContent>
+            </Card>
+          )}
+        </Collapsible.Panel>
+      </Collapsible.Root>
+
+      {/* ─── Vidéos d'exemple ───────────────────────────────────────────── */}
+      {/*
+        UNE RANGÉE, pas une pile : ces vidéos sont verticales et petites, trois
+        tiennent de front sur un écran d'ordinateur. Empilées, elles ajoutaient
+        trois écrans de défilement.
+        Sur mobile, le débordement défile HORIZONTALEMENT dans son propre
+        conteneur — la page, elle, ne défile jamais de côté. La largeur fixe des
+        éléments laisse voir le bord du suivant : c'est ce qui dit qu'il y en a.
+      */}
+      {examples.length > 0 && (
+        <section className="space-y-2">
+          <SectionTitle>Des exemples</SectionTitle>
+          <div className="flex snap-x gap-3 overflow-x-auto pb-2">
+            {examples.map((example, i) => (
+              <div key={i} className="w-[200px] shrink-0 snap-start">
+                <VideoExample example={example} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

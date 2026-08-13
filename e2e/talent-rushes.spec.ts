@@ -407,16 +407,85 @@ test.describe("Espace talent — dépôt de rushes", () => {
     await deposit(talentClient, projectId, `drive-ui-${ts}`, "ma-prise.mov");
     await page.reload();
 
-    await expect(page.getByText(`Repère ${ts}`)).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByRole("button", { name: /choisir mes vidéos/i })).toBeVisible();
+    // ── L'ACTION D'ABORD ─────────────────────────────────────────────────────
+    // L'uploader doit être atteignable SANS défiler : c'est le geste qu'elle
+    // vient faire. On mesure sa position réelle dans le viewport de 390 × 844
+    // plutôt qu'un proxy (ordre du DOM), parce que c'est la propriété demandée.
+    const uploader = page.getByRole("button", { name: /choisir mes vidéos/i });
+    await expect(uploader).toBeVisible({ timeout: 15_000 });
+    const box = await uploader.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.y + box!.height).toBeLessThan(844);
+
     await expect(page.getByText("ma-prise.mov")).toBeVisible();
     await expect(page.getByText("Déposé", { exact: true })).toBeVisible();
 
+    // ── Le brief est REPLIÉ ──────────────────────────────────────────────────
+    // Elle a déjà déposé : elle ne revient pas pour relire le brief en entier.
+    // Panneau fermé, il n'est pas seulement masqué — il n'est pas monté.
+    await expect(page.getByText(`Repère ${ts}`)).toHaveCount(0);
+    await page.getByRole("button", { name: /comment filmer/i }).click();
+    await expect(page.getByText(`Repère ${ts}`)).toBeVisible();
+
     // Ce que l'écran ne montre PAS : le texte de script du format, le montant de
     // la grille partenaire, et le vocabulaire système.
+    //
+    // ⚠️ Vérifié PANNEAU OUVERT, et c'est le point : replié, le bloc entier est
+    // démonté et ces trois absences seraient vraies sans rien prouver. Une
+    // assertion d'absence ne vaut que sur l'état où la chose pourrait paraître.
     await expect(page.getByText(hookSecret)).toHaveCount(0);
     await expect(page.getByText("4242")).toHaveCount(0);
     await expect(page.getByText(/retenu|assigné/i)).toHaveCount(0);
+
+    await ctx.close();
+  });
+
+  test("premier passage — aucun dépôt : le brief est OUVERT d'entrée", async ({
+    browser,
+  }) => {
+    test.setTimeout(90_000);
+    const ts = Date.now();
+    await enableFileDrop();
+
+    const repere = `Premier passage ${ts}`;
+    const formatId = await convex.mutation(api.formats.createFormat, {
+      name: `[E2E_TEST] Brief premier passage ${ts}`,
+      type: "short",
+      brief: `Filme dehors, plan serré. ${repere}.`,
+      rateModel: { basePerPost: 0 },
+    });
+    await convex.mutation(api.projects.setTalentSettings, {
+      talentBriefFormatId: formatId,
+    });
+
+    const email = `e2e-creator-talent-neuve-${ts}@repackit.test`;
+    const password = `rush-neuve-${ts}`;
+    const { token } = await convex.mutation(api.creators.inviteCreator, {
+      name: `[E2E_TEST] Louise Vantard ${ts}`,
+      email,
+      kind: "talent",
+    });
+
+    const ctx = await browser.newContext({
+      storageState: { cookies: [], origins: [] },
+      viewport: { width: 390, height: 844 },
+    });
+    const page = await ctx.newPage();
+    await page.goto(`/join/${token}`);
+    await page.getByLabel("Mot de passe").fill(password);
+    await page.getByRole("button", { name: /activer mon compte/i }).click();
+    await page.waitForURL("**/talent", { timeout: 20_000 });
+
+    // Elle n'a encore rien déposé, donc rien lu : le brief est déplié. C'est le
+    // SEUL moment où le déplier a du sens, et c'est l'inverse du cas précédent —
+    // les deux tests ensemble prouvent que la condition est bien la sienne, et
+    // pas un défaut constant dans un sens ou dans l'autre.
+    await expect(page.getByText(repere)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/tu n'as encore rien déposé/i)).toBeVisible();
+
+    // Et il se referme au clic : le choix de la personne l'emporte sur le défaut.
+    await page.getByRole("button", { name: /comment filmer/i }).click();
+    await expect(page.getByText(repere)).toHaveCount(0);
 
     await ctx.close();
   });
