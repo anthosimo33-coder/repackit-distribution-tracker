@@ -186,7 +186,21 @@ Ce fichier liste les anti-patterns repérés dans la zone touchée par chaque fe
   observer, et où il faudra diagnostiquer à distance sans lui demander une
   capture d'écran. Aujourd'hui il n'a ni l'un ni l'autre — l'abstention ne coûte
   rien.
-- **⚠️ LE COÛT RÉEL N'EST PAS LE ROUTAGE.** Faire rendre ces espaces demande un
+- **CHIFFRÉ le 2026-08-13** : **six queries** à rendre observables — talent
+  (`getMyTalentBrief`, `listMyRushes`), clippeur (`myQuotaWindow`,
+  `listMyClips`, `getMyClip`, `listMyClipperComptes`). C'est une PR, pas un
+  chantier. La note ci-dessous parlait d'un « ordre de grandeur » : le principe
+  était juste (le travail est serveur), le volume était surestimé. Un chiffre
+  non remesuré finit par être cru — cf le correctif des 7 briques devenues 77.
+- **FORME DU CORRECTIF** : extraire les six cœurs en fonctions partagées et les
+  exposer une seconde fois via `adminViewAsQuery`, comme le fait déjà
+  `comptes.listComptesAsAdmin`. JAMAIS un `creatorId` optionnel sur les fonctions
+  gatées — cf la règle écrite en tête de `adminViewAsQuery` dans
+  `convex/functions.ts`.
+- **LECTURE SEULE** : pas de `adminViewAsMutation`. La spec doit APPELER les
+  mutations talent/clippeur avec une session admin et vérifier qu'elles
+  refusent — un bouton grisé est du confort, le refus serveur est la garantie.
+- **⚠️ LE COÛT N'EST PAS LE ROUTAGE.** Faire rendre ces espaces demande un
   `adminViewAs*` PAR POPULATION côté SERVEUR : les `talentQuery`/`clipperQuery`
   filtrent par `ctx.creatorId` de la personne CONNECTÉE, donc un admin n'en
   obtient rien. Il faut le pendant de `adminViewAsQuery` pour chaque famille de
