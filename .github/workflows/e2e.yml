@@ -1,4 +1,4 @@
-name: E2E Tests
+name: Tests
 
 on:
   push:
@@ -12,6 +12,17 @@ on:
 # en SQLite, jeté à la fin : deux PR peuvent tester en parallèle sans se voir.
 
 jobs:
+  # ⚠️ NE PAS RENOMMER cette clé, et ne PAS lui ajouter de `name:`. Le ruleset de
+  # `main` exige le check `test` — c'est la clé du job qui le nomme, pas le `name:`
+  # du workflow (renommé « E2E Tests » → « Tests » sans rien casser, précisément
+  # pour cette raison). Un job rebaptisé = un check requis qui n'arrive jamais =
+  # toutes les PR bloquées en attente d'un contrôle qui n'existe plus.
+  #
+  # C'est aussi pourquoi les tests unitaires sont une ÉTAPE ici et non un job
+  # séparé : un second job ne serait pas dans les checks requis, donc ne
+  # bloquerait rien. Et le rendre bloquant via `needs:` serait pire — un job
+  # requis « skipped » est traité comme satisfait par GitHub, donc un unitaire
+  # rouge laisserait passer le merge.
   test:
     timeout-minutes: 30
     runs-on: ubuntu-latest
@@ -36,6 +47,24 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # AVANT le backend Convex, le navigateur Playwright et le build Next : deux
+      # secondes ici évitent de dérouler ~10 minutes de pipeline pour un défaut
+      # que l'unitaire nomme tout de suite. Le même raisonnement que le contrôle
+      # de harnais ci-dessus, appliqué à la logique métier.
+      #
+      # Ces 1690 tests sont les garde-fous du produit : parité du moteur de paie
+      # lib↔convex, uniq vs count sur les compteurs de personnes, devise sans
+      # défaut, allowlist des champs exposés aux créatrices, fuseau des dates
+      # rendues côté serveur. Jusqu'ici ils ne tournaient qu'en local et ne
+      # bloquaient aucune PR — un garde-fou qui ne s'exécute pas au moment du
+      # merge est décoratif.
+      #
+      # Le runner est en UTC : c'est la MÊME horloge que le runtime Convex, donc
+      # les specs de fuseau y sont vraiment mises à l'épreuve (sur un poste réglé
+      # à Paris, certaines passeraient au vert avec le bug).
+      - name: Tests unitaires (vitest)
+        run: pnpm test:unit
 
       # Le tag du backend est lu DANS le script (source unique). Un tag bumpé
       # là-bas sans toucher ce workflow provoque au pire un cache miss — donc un
