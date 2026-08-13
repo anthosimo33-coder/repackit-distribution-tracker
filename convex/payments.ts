@@ -778,6 +778,16 @@ async function computeProjectLeaderboard(
     cycleEnd: number;
   }> = [];
   for (const c of creators) {
+    // CLASSEMENT RÉSERVÉ AUX PARTENAIRES. Un talent en est exclu de fait (il ne
+    // publie jamais, donc pas de firstPostAt) mais un CLIPPEUR publie, et il y
+    // apparaîtrait au milieu des partenaires. Or un classement compare des
+    // performances : le clippeur monte les rushes d'un talent, il n'a pas produit
+    // ce qu'il publie, et son modèle de paie (montant fixe par clip) n'a rien à
+    // voir avec des gains de cycle au CPM. Comparer les deux ne mesure rien.
+    // Un classement SÉPARÉ par population aurait peut-être du sens un jour ; il
+    // n'est pas construit ici, et l'écrire coûterait moins que de laisser croire
+    // que celui-ci le remplace.
+    if (resolveCreatorKind(c.kind) !== "partner") continue;
     if (c.firstPostAt === undefined) continue; // aucun post → pas de cycle
     const currentIndex = calcCycle(c.firstPostAt, now).cycleIndex;
     const cycles = await cyclePaymentsForCreator(ctx, projectId, c._id, now);
