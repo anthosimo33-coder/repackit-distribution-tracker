@@ -49,6 +49,9 @@ export const CREATOR_ASSIGNMENT_FIELDS = [
  *  remplacé). Présents ICI = décision explicite ; le test garantit qu'aucun champ
  *  du schéma n'échappe aux deux listes. */
 export const NON_CREATOR_ASSIGNMENT_FIELDS = [
+  // Sans objet chez une partenaire : elle est payée au fixe/CPM/paliers, jamais
+  // au clip. Le champ ne sera jamais posé sur une de ses assignations.
+  "clipRateSnapshot",
   // Décomposition script / rejeu / traçabilité admin — JAMAIS côté créatrice.
   "scriptCombo",
   "comboKey",

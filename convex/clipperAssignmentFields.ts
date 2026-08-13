@@ -77,6 +77,12 @@ export const NON_CLIPPER_ASSIGNMENT_FIELDS = [
   "managedByAdmin",
   "rateSnapshot",
   "pricingSnapshot",
+  // Le tarif de CE clip — la rémunération du clippeur lui-même. Il n'est pas ici
+  // parce qu'il serait sensible, mais parce que RIEN NE L'AFFICHE : cette liste
+  // dit ce qui SORT, pas ce qui pourrait sortir un jour. L'ouvrir sera une ligne
+  // le jour où l'espace clippeur aura un écran de paie — et ce jour-là ce sera
+  // une décision, pas un héritage.
+  "clipRateSnapshot",
   // Legacy mono-cible : l'info vit sur les cibles ENRICHIES.
   "accountId",
   "publishedUrl",
