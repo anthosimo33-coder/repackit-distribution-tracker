@@ -19,10 +19,24 @@ const admin = createE2eClient(convexUrl);
  * la sortie de l'un devient l'entrée du suivant et où personne ne regarde parce
  * que les deux côtés sont couverts.
  *
- * Elle a d'ailleurs déjà servi : c'est en l'écrivant qu'on a vu que RIEN ne
- * faisait passer un rush à `published`. L'état existait dans la machine et dans
- * les libellés du talent, aucun code ne l'écrivait — un talent dont le clip était
- * sorti aurait lu « Validé » à vie.
+ * ⚠️ NE PAS SUPPRIMER CETTE SPEC COMME REDONDANTE. Chacune de ses étapes est
+ * couverte ailleurs — c'est exactement pour ça qu'elle a l'air redondante, et
+ * exactement pourquoi elle ne l'est pas. Elle est le SEUL test du dépôt qui
+ * regarde le chantier au lieu de ses parties.
+ *
+ * CE QU'ELLE A TROUVÉ LE JOUR OÙ ELLE A ÉTÉ ÉCRITE : rien ne faisait jamais
+ * passer un rush à `published`. L'état existait dans `convex/rushStatus.ts`, il
+ * existait dans les libellés servis au talent (« Publié »), et aucun code ne
+ * l'écrivait — un talent dont le clip était sorti aurait lu « Validé » à vie.
+ *
+ * AUCUNE SPEC DE SEGMENT NE POUVAIT LE VOIR. Le dépôt était vert, la revue était
+ * verte, l'assignation était verte, la publication était verte, la paie était
+ * verte. Le trou était ENTRE la publication et le dépôt : les deux côtés de la
+ * jointure passaient, et personne ne regardait le passage. C'est le mode d'échec
+ * propre à un chantier découpé en N morceaux, et il ne se voit qu'en traversant.
+ *
+ * Si un jour elle casse, la réponse n'est jamais « la supprimer parce que les
+ * segments sont verts » : c'est précisément ce qu'ils seront.
  *
  * PARCOURS, avec les vraies mutations de chaque population :
  *   invitation talent + clippeur → appariement → déclaration de compte par le
