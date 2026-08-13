@@ -93,6 +93,49 @@ export function ViewAsShell({ children }: { children: React.ReactNode }) {
     return item.exact ? pathname === href : pathname.startsWith(href);
   }
 
+
+  // ─── L'OUTIL DIT CE QU'IL NE SAIT PAS RENDRE ─────────────────────────────
+  // Le mode « voir l'espace » ré-exporte les écrans du portail PARTENAIRE. Rendus
+  // pour un talent ou un clippeur, ils affichent « Mes vidéos », des paliers de
+  // bonus et un warmup partenaire qui n'existent pas chez eux — une vue FAUSSE,
+  // qui se lit comme un bug de production et coûte un aller-retour de diagnostic.
+  //
+  // Un outil d'observation qui affiche autre chose est pire qu'un outil qui
+  // s'abstient : il ment sans le signaler. On s'abstient donc explicitement, en
+  // disant quoi faire à la place.
+  //
+  // Rendre RÉELLEMENT ces deux espaces demanderait un `adminViewAs*` PAR
+  // POPULATION côté serveur (les talentQuery/clipperQuery filtrent par la
+  // personne connectée, un admin n'en obtient rien) — cf TD-025. Ce n'est pas un
+  // problème de routage.
+  if (viewAs && viewAs.creatorKind !== "partner") {
+    const metier =
+      viewAs.creatorKind === "talent" ? "talent" : "clippeur/clippeuse";
+    return (
+      <div
+        className="flex min-h-screen items-center justify-center bg-slate-50 px-6"
+        style={accentVars}
+      >
+        <div className="max-w-md space-y-3 text-center">
+          <p className="text-sm font-medium text-slate-900">
+            L&apos;observation n&apos;est disponible que pour les créateurs
+            partenaires.
+          </p>
+          <p className="text-sm text-slate-500">
+            {viewAs.creatorName} est {metier} — son espace se vérifie en la
+            contactant directement.
+          </p>
+          <Link
+            href={exitHref}
+            className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+          >
+            Revenir à sa fiche
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50" style={accentVars}>
       <AccentStyle accent={accent} />

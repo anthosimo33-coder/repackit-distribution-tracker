@@ -7,6 +7,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useProject, useProjectPath } from "@/components/project/ProjectProvider";
 import { useProjectQuery } from "@/components/project/use-project-convex";
+import { resolveCreatorKind } from "@/convex/roles";
 import {
   CreatorProjectContext,
   type CreatorProject,
@@ -90,6 +91,7 @@ export function ViewAsProvider({
         value={{
           creatorId,
           creatorName: creator.name,
+          creatorKind: resolveCreatorKind(creator.kind),
           basePath: viewAsBase(project.slug, creatorId),
         }}
       >
