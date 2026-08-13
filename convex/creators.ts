@@ -1070,6 +1070,23 @@ export const e2eAssertViewAsAccess = e2eMutation({
 });
 
 /** Force l'expiration d'une invitation par token (spec « token expiré »). */
+/**
+ * e2e ONLY — ANTIDATE l'ancre de cycle d'un talent.
+ *
+ * `payAnchorAt` est posée par le moteur à l'activation (`Date.now()`) et jamais
+ * réécrite : sans antidatage, tester un talent qui a plusieurs cycles derrière
+ * lui demanderait d'attendre 30 jours par cycle. Même rôle que le `now` injecté
+ * de l'expiration des rushes et que le `validatedAt` du seed de compte — le test
+ * exerce le VRAI moteur de cycle, il ne le simule pas.
+ */
+export const e2eSetPayAnchor = e2eMutation({
+  args: { creatorId: v.id("creators"), payAnchorAt: v.number() },
+  handler: async (ctx, { creatorId, payAnchorAt }) => {
+    await ctx.db.patch(creatorId, { payAnchorAt });
+    return { ok: true };
+  },
+});
+
 export const e2eExpireInvitation = e2eMutation({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
