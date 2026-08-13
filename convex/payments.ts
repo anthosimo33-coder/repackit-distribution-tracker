@@ -451,6 +451,16 @@ export type CyclePayment = {
   lineItems: LineItem[];
   totalDue: number;
   pricingBreakdown: PricingBreakdown;
+  /**
+   * Nombre de rushes DÉPOSÉS sur la fenêtre de ce cycle — talents uniquement,
+   * `null` pour toute autre population.
+   *
+   * ⚠️ N'ENTRE DANS AUCUN CALCUL. Le forfait est dû parce que le cycle a couru ;
+   * ce compte est là pour que l'admin voie « 12 rushes » — ou « 0 rush » — avant
+   * de poser un geste qui reste le sien. Le lier au montant transformerait
+   * `markCyclePaid` en règle automatique, ce que personne n'a demandé.
+   */
+  rushCount: number | null;
 };
 
 /** LineItems GELÉES (fixed/cpm + bonus_tier cash) construites depuis un breakdown. */
@@ -538,6 +548,20 @@ export async function cyclePaymentsForCreator(
       cycleIndexOf(firstPostAt, assignmentPublishedAt(a)),
     ]),
   );
+  // Rushes du talent, chargés UNE fois pour tous ses cycles (index by_talent).
+  // Population non-talent → aucune lecture supplémentaire.
+  const estTalent = resolveCreatorKind(creator.kind) === "talent";
+  const rushDates = estTalent
+    ? (
+        await ctx.db
+          .query("rushes")
+          .withIndex("by_talent", (q) => q.eq("talentId", creatorId))
+          .collect()
+      )
+        .filter((r) => r.projectId === projectId)
+        .map((r) => r.depositedAt)
+    : [];
+
   const legacyByCycle = new Map<number, LineItem[]>();
   for (const p of rows) {
     if (p.status === "paid") continue;
@@ -569,6 +593,9 @@ export async function cyclePaymentsForCreator(
         lineItems: paid.lineItems,
         totalDue: paid.totalDue,
         pricingBreakdown: frozenBreakdownOf(paid),
+        rushCount: estTalent
+          ? rushDates.filter((d) => d >= w.cycleStart && d < w.cycleEnd).length
+          : null,
       });
       continue;
     }
@@ -603,6 +630,9 @@ export async function cyclePaymentsForCreator(
       lineItems: items,
       totalDue: round2(legacyTotal + breakdown.total),
       pricingBreakdown: breakdown,
+      rushCount: estTalent
+        ? rushDates.filter((d) => d >= w.cycleStart && d < w.cycleEnd).length
+        : null,
     });
   }
   return out.filter(
@@ -672,6 +702,9 @@ export const listPayments = adminQuery({
         lineItems: p.lineItems,
         totalDue: p.totalDue,
         pricingBreakdown: frozenBreakdownOf(p),
+        // Row ORPHELINE (fiche supprimée) : on ne sait plus si c'était un talent,
+        // et ses rushes ont disparu avec la fiche. `null` = rien à afficher.
+        rushCount: null as number | null,
         creatorId: p.creatorId,
         creatorName: p.creatorNameSnapshot ?? "—",
         creatorEmail: "",

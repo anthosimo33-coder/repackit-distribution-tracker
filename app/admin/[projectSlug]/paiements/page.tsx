@@ -536,6 +536,18 @@ function PaymentRow({
         </TableCell>
         <TableCell className="text-right font-medium tabular-nums text-slate-900">
           {formatMoney(p.totalDue, currency)}
+          {/*
+            TALENTS — ce que le cycle a effectivement produit, à côté de ce
+            qu'il coûte. Le forfait est dû parce que le cycle a couru, PAS parce
+            qu'un nombre de rushes a été atteint : ce compte n'entre dans aucun
+            calcul, il donne à l'admin de quoi décider avant de marquer payé.
+            « 0 rush » est le cas qui compte — c'est celui où il ne paiera pas.
+          */}
+          {p.rushCount !== null && (
+            <span className="ml-2 text-xs font-normal text-slate-400">
+              {p.rushCount} rush{p.rushCount > 1 ? "es" : ""}
+            </span>
+          )}
         </TableCell>
         <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
           {p.status === "paid" ? (
