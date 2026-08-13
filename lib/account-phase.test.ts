@@ -3,6 +3,7 @@ import {
   ACCOUNT_PHASES,
   PHASE_LABELS,
   accountPhaseAt,
+  dayKeyToUtcInstant,
   dayOfPhase,
   formatUtcDayFr,
   postsPerDayAt,
@@ -172,6 +173,26 @@ describe("formatUtcDayFr — le libellé et le seau du quota parlent du même jo
     expect(formatUtcDayFr(Date.UTC(2026, 11, 25, 23, 59))).toBe(
       "vendredi 25 décembre",
     );
+  });
+
+  it("aller-retour clé ↔ instant : le champ date et le seau ne peuvent pas diverger", () => {
+    // Propriété, pas exemples : pour chaque jour d'une année entière, la clé
+    // convertie en instant puis re-convertie doit redonner la MÊME clé. C'est ce
+    // qui garantit que le jour choisi dans le champ est le jour compté.
+    for (let i = 0; i < 365; i++) {
+      const at = Date.UTC(2026, 0, 1, 12) + i * JOUR;
+      const cle = utcDayKey(at);
+      const retour = dayKeyToUtcInstant(cle);
+      expect(retour).not.toBeNull();
+      expect(utcDayKey(retour!)).toBe(cle);
+    }
+  });
+
+  it("une clé mal formée ou impossible ne se convertit PAS silencieusement", () => {
+    expect(dayKeyToUtcInstant("")).toBeNull();
+    expect(dayKeyToUtcInstant("12/08/2026")).toBeNull();
+    // Date.UTC reporterait le 31 février en mars — on refuse plutôt que décaler.
+    expect(dayKeyToUtcInstant("2026-02-31")).toBeNull();
   });
 
   it("LE PIÈGE : minuit trente à Paris est nommé comme il est COMPTÉ", () => {

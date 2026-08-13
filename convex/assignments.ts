@@ -2721,6 +2721,76 @@ async function confirmPublicationCore(
 }
 
 /**
+ * BORNES d'une date de publication déclarée. PARTAGÉE par le secours admin et
+ * par le clippeur : dans les deux cas c'est une date SAISIE, et une date saisie
+ * hors bornes déplacerait l'ancre de paie J+30 n'importe où.
+ *
+ * Deux bornes, pas une : le futur (une date à venir n'a pas pu être publiée) et
+ * la création de l'assignment (le post ne peut pas précéder la mission).
+ */
+function assertPublishedAtInRange(
+  publishedAt: number | undefined,
+  a: Doc<"assignments">,
+): void {
+  if (publishedAt === undefined) return;
+  if (publishedAt > Date.now()) {
+    throw new ConvexError(
+      "La date de publication ne peut pas être dans le futur.",
+    );
+  }
+  if (publishedAt < a.createdAt) {
+    throw new ConvexError(
+      "La date de publication ne peut pas précéder la création de l'assignment.",
+    );
+  }
+}
+
+/**
+ * PUBLICATION (CLIPPEUR) — il colle le lien de SON post et déclare la date à
+ * laquelle il est SORTI.
+ *
+ * ⚠️ `publishedAt` n'est pas un confort : le quota se compte sur la date RÉELLE
+ * (TD-020). Un clippeur qui publie à 22 h et déclare le lendemain matin
+ * saturerait sinon le quota du mauvais jour, en silence. Bornée exactement comme
+ * le secours admin.
+ *
+ * `confirmedBy: "creator"` : le clippeur EST le `creatorId` de son clip
+ * (arbitrage D1) — ce n'est pas un rattrapage d'admin. PAS de `fromAnyStatus` :
+ * il suit le workflow normal, la publication n'est ouverte qu'après validation
+ * de sa vidéo.
+ */
+export const confirmClipPublication = clipperMutation({
+  args: {
+    id: v.id("assignments"),
+    urls: v.array(v.object({ platform: plateformeValidator, url: v.string() })),
+    /** Date de sortie RÉELLE. Absente = maintenant. */
+    publishedAt: v.optional(v.number()),
+  },
+  handler: async (
+    ctx,
+    { id, urls, publishedAt },
+  ): Promise<{
+    ok: true;
+    alreadyPublished: boolean;
+    publicationIds: Id<"publications">[];
+  }> => {
+    const a = await requireOwnAssignment(ctx, ctx.creatorId, id);
+    // Défense en profondeur : un compte de clippeur n'est jamais tenu par
+    // l'équipe, mais si ça arrivait c'est l'admin qui publierait.
+    if (a.managedByAdmin) {
+      throw new ConvexError(
+        "Compte géré par l'équipe : la publication est gérée par l'admin.",
+      );
+    }
+    assertPublishedAtInRange(publishedAt, a);
+    return confirmPublicationCore(ctx, a, urls, {
+      confirmedBy: "creator",
+      publishedAt,
+    });
+  },
+});
+
+/**
  * PUBLICATION (CRÉATRICE) — elle fournit l'URL du post publié (étape to_publish).
  * Un compte GÉRÉ par l'équipe est REFUSÉ ici (défense en profondeur, l'UI masque
  * déjà le bouton) : c'est l'admin qui publie (confirmPublicationAsAdmin). Type
@@ -2793,19 +2863,9 @@ export const confirmPublicationAsAdmin = adminMutation({
       }
     }
     // Date réelle bornée : ni dans le futur, ni avant la création de l'assignment
-    // (sinon l'ancre de paie J+30 se calerait n'importe où).
-    if (publishedAt !== undefined) {
-      if (publishedAt > Date.now()) {
-        throw new ConvexError(
-          "La date de publication ne peut pas être dans le futur.",
-        );
-      }
-      if (publishedAt < a.createdAt) {
-        throw new ConvexError(
-          "La date de publication ne peut pas précéder la création de l'assignment.",
-        );
-      }
-    }
+    // (sinon l'ancre de paie J+30 se calerait n'importe où). MÊME contrôle que le
+    // chemin clippeur — une seule fonction, pas deux listes de bornes.
+    assertPublishedAtInRange(publishedAt, a);
     return confirmPublicationCore(ctx, a, urls, {
       confirmedBy: "admin",
       publishedAt,

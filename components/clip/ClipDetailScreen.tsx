@@ -9,6 +9,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { useClipperProject } from "@/components/clip/ClipperProjectProvider";
 import { ScriptDestinationZones } from "@/components/scripts/ScriptDestinationZones";
 import { ModelVideoEmbed } from "@/components/portal/ModelVideoEmbed";
+import { ClipPublishForm } from "@/components/clip/ClipPublishForm";
 import { VideoUploader, type UploadedVideo } from "@/components/VideoUploader";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { Badge } from "@/components/ui/badge";
@@ -254,6 +255,23 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
               Ta vidéo NON publiée. Un admin la relit ; une fois validée, tu
               pourras coller le lien du post.
             </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {statut === "to_publish" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Publier</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ClipPublishForm
+              clipId={clipId}
+              targets={clip.targets.map((t) => ({
+                platform: t.platform,
+                accountHandle: t.accountHandle,
+              }))}
+            />
           </CardContent>
         </Card>
       )}

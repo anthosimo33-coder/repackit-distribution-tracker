@@ -118,6 +118,25 @@ export function utcDayKey(at: number): string {
   return new Date(at).toISOString().slice(0, 10);
 }
 
+/**
+ * Réciproque de `utcDayKey` : « YYYY-MM-DD » → un instant DANS cette journée UTC
+ * (midi, franchement au milieu du seau). `null` si la clé n'a pas la forme.
+ *
+ * Existe pour que le champ date de l'écran clippeur et le seau du quota soient
+ * convertibles l'un dans l'autre SANS repasser par le fuseau local : un
+ * `new Date("2026-08-12")` puis `getMonth()` ferait basculer d'un jour à l'ouest
+ * de Greenwich, et l'écran annoncerait alors un autre jour que celui compté.
+ * Le test vérifie l'aller-retour, pas des exemples.
+ */
+export function dayKeyToUtcInstant(key: string): number | null {
+  const m = key.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const at = Date.UTC(y, mo - 1, d, 12);
+  // Rejette les dates impossibles (« 2026-02-31 » que Date.UTC reporterait en mars).
+  return utcDayKey(at) === key ? at : null;
+}
+
 /** Bornes [début, fin) de la journée UTC contenant `at` — plage d'index. */
 export function utcDayRange(at: number): { start: number; end: number } {
   const start = Date.UTC(
