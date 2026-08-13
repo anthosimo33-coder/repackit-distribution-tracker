@@ -33,6 +33,7 @@ import {
   buildPricingSnapshot,
   syncBonusUnlocks,
 } from "./pricing";
+import { markRushPublishedForAssignment } from "./rushes";
 import { isAccountAvailable } from "./warmup";
 import { isSnytchProject } from "./projects";
 import { countOnHandle, ownerIsClipper, publicationsInRange } from "./clipQuota";
@@ -2728,6 +2729,12 @@ async function confirmPublicationCore(
       now,
     });
   }
+
+  // Le rush source suit son clip : `assigned` → `published`. No-op complet pour
+  // une assignation sans rush, donc pour tout le flux partenaire. Ici plutôt que
+  // plus haut pour la même raison que l'accrual : avant la notification, et sans
+  // rien planifier.
+  await markRushPublishedForAssignment(ctx, a._id, effectiveDate);
 
   // Notification hors-app. Posée dans le CŒUR PARTAGÉ, donc déclenchée aussi
   // bien par la créatrice (confirmPublication) que par l'admin en secours

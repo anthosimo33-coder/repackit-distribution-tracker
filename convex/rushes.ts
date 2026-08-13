@@ -351,6 +351,54 @@ export const purgeRushBinary = internalAction({
   },
 });
 
+/**
+ * Le clip issu de ce rush est SORTI → le rush passe `published`.
+ *
+ * DERNIÈRE TRANSITION DE LA MACHINE À ÉTATS, et elle manquait : l'état existait
+ * dans `convex/rushStatus.ts` et dans les libellés du talent (« Publié »), mais
+ * rien ne l'écrivait — un talent dont le clip était sorti lisait « Validé » à
+ * vie. C'est le genre de trou qu'aucune spec de segment ne voit, parce qu'il est
+ * exactement À LA JOINTURE entre le dépôt et la publication.
+ *
+ * Sens de lecture INVERSE du lien (index `by_assignment`) : c'est pour lui que
+ * cet index a été posé plutôt qu'un champ `rushId` sur `assignments`.
+ *
+ * NO-OP COMPLET pour une assignation sans rush — donc pour 100 % du flux
+ * partenaire : aucune ligne ne remonte, on sort. Et no-op si la transition est
+ * illégale (rush déjà refusé ou expiré entre-temps) : la machine à états tranche,
+ * pas cet appelant.
+ */
+export async function markRushPublishedForAssignment(
+  ctx: MutationCtx,
+  assignmentId: Id<"assignments">,
+  at: number,
+): Promise<void> {
+  const rush = await ctx.db
+    .query("rushes")
+    .withIndex("by_assignment", (q) => q.eq("assignmentId", assignmentId))
+    .first();
+  if (!rush) return;
+  if (!canTransition(rush.status, "published")) return;
+  await ctx.db.patch(rush._id, { status: "published", publishedAt: at });
+}
+
+/**
+ * e2e ONLY — ANTIDATE la validation d'un compte.
+ *
+ * `comptes.validatedAt` est posée par le moteur à la validation (`Date.now()`) :
+ * un compte tout juste validé est en phase de CHAUFFE, quota 0. Sans antidatage,
+ * une spec qui traverse déclaration → validation → publication devrait attendre
+ * 14 jours réels. Même rôle que le `now` injecté de l'expiration et que
+ * `e2eSetPayAnchor` — le test exerce le vrai moteur de phase, il ne le simule pas.
+ */
+export const e2eBackdateCompteValidation = e2eMutation({
+  args: { compteId: v.id("comptes"), validatedAt: v.number() },
+  handler: async (ctx, { compteId, validatedAt }) => {
+    await ctx.db.patch(compteId, { validatedAt });
+    return { ok: true };
+  },
+});
+
 // ─── Revue admin ─────────────────────────────────────────────────────────────
 
 /** Ligne de la file de revue : le rush + de quoi décider sans rien rouvrir. */
