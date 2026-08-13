@@ -1150,9 +1150,18 @@ export const e2eAssertViewAsAccess = e2eMutation({
  * exerce le VRAI moteur de cycle, il ne le simule pas.
  */
 export const e2eSetPayAnchor = e2eMutation({
-  args: { creatorId: v.id("creators"), payAnchorAt: v.number() },
-  handler: async (ctx, { creatorId, payAnchorAt }) => {
-    await ctx.db.patch(creatorId, { payAnchorAt });
+  args: {
+    creatorId: v.id("creators"),
+    payAnchorAt: v.optional(v.number()),
+    // `firstPostAt` sert aux specs qui ont besoin d'un créateur « qui a publié »
+    // sans dérouler une publication complète (classement du cycle).
+    firstPostAt: v.optional(v.number()),
+  },
+  handler: async (ctx, { creatorId, payAnchorAt, firstPostAt }) => {
+    await ctx.db.patch(creatorId, {
+      ...(payAnchorAt !== undefined ? { payAnchorAt } : {}),
+      ...(firstPostAt !== undefined ? { firstPostAt } : {}),
+    });
     return { ok: true };
   },
 });
