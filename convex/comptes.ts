@@ -7,6 +7,8 @@ import {
   adminViewAsQuery,
   creatorMutation,
   creatorQuery,
+  clipperMutation,
+  clipperQuery,
 } from "./functions";
 import {
   defaultTargetDays,
@@ -44,6 +46,7 @@ const plateformeValidator = v.union(
 );
 
 type CompteStatus = "warmup" | "actif" | "shadowban" | "archived";
+type Plateforme = "TikTok" | "Instagram" | "YouTube";
 
 // Coercion legacy → statut effectif. ⚠️ Dupliqué côté UI (lib/compte-status
 // getEffectiveStatus) : un module Convex ne peut pas importer lib/ (cross-
@@ -1045,6 +1048,72 @@ export const listComptesAsAdmin = adminViewAsQuery({
 });
 
 /**
+ * Cœur de la DÉCLARATION d'un compte — PARTAGÉ par les trois points d'entrée :
+ * la créatrice partenaire (`declareCompte`), l'admin sur un compte tenu par
+ * l'équipe (`declareManagedCompte`) et le clippeur (`declareClipperCompte`).
+ *
+ * POURQUOI UN CŒUR. Les deux premiers étaient déjà des quasi-copies ; en écrire
+ * une troisième garantissait la divergence. Le document produit doit rester
+ * IDENTIQUE pour les trois — statut "warmup", `actif: false`, protocole
+ * initialisé au défaut de la plateforme — parce que le gate strict #98
+ * (`isAccountAvailable`) et `effectiveStatus` le lisent de la même façon quel
+ * que soit le propriétaire.
+ *
+ * ⚠️ Le compte de CLIPPEUR reçoit le MÊME `warmupProtocol` que les autres, alors
+ * que sa phase se dérive d'une date (arbitrage D3) et qu'il ne cochera jamais de
+ * check. C'est volontaire : diverger sur la FORME du document ferait ressurgir
+ * ailleurs le faux positif que la PR 5 vient de corriger sur
+ * `digest_warmup_late`. Ce sont les LECTEURS qui excluent les comptes de
+ * clippeur des compteurs de checks, pas le document qui change de forme.
+ *
+ * Le seul écart entre les trois est l'appartenance et le MODE opératoire, portés
+ * par `owner`. `managedByAdmin` est ajouté par spread CONDITIONNEL : poser la clé
+ * à `undefined` n'est pas la même chose que ne pas la poser.
+ */
+async function declareCompteCore(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  args: { plateforme: Plateforme; handle: string; url?: string },
+  owner: { creatorId: Id<"creators">; managedByAdmin?: boolean },
+): Promise<Id<"comptes">> {
+  const handle = normalizeHandle(args.handle);
+  if (!handle || handle === "@") {
+    throw new ConvexError("Handle requis.");
+  }
+  const samePlatform = await ctx.db
+    .query("comptes")
+    .withIndex("by_project_plateforme", (q) =>
+      q.eq("projectId", projectId).eq("plateforme", args.plateforme),
+    )
+    .collect();
+  if (samePlatform.some((c) => c.handle === handle)) {
+    throw new ConvexError(
+      `Le compte ${handle} existe déjà sur ${args.plateforme}.`,
+    );
+  }
+  const now = Date.now();
+  return await ctx.db.insert("comptes", {
+    projectId,
+    handle,
+    plateforme: args.plateforme,
+    notes: "",
+    url: args.url?.trim() || undefined,
+    creatorId: owner.creatorId,
+    ...(owner.managedByAdmin ? { managedByAdmin: true as const } : {}),
+    status: "warmup",
+    warmupStartedAt: now,
+    actif: false,
+    warmupProtocol: {
+      keywords: [],
+      instructions: "",
+      targetDays: defaultTargetDays(args.plateforme),
+      dailyChecks: [],
+      updatedAt: now,
+    },
+  });
+}
+
+/**
  * Déclaration d'un compte par le créateur (plateforme, handle, URL). Créé en
  * "warmup", warmupStartedAt = now, lié à SA fiche, protocole initialisé avec
  * targetDays au défaut plateforme. Dedup (handle, plateforme) dans le projet.
@@ -1055,41 +1124,63 @@ export const declareCompte = creatorMutation({
     handle: v.string(),
     url: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
-    const handle = normalizeHandle(args.handle);
-    if (!handle || handle === "@") {
-      throw new ConvexError("Handle requis.");
-    }
-    const samePlatform = await ctx.db
-      .query("comptes")
-      .withIndex("by_project_plateforme", (q) =>
-        q.eq("projectId", ctx.projectId).eq("plateforme", args.plateforme),
-      )
-      .collect();
-    if (samePlatform.some((c) => c.handle === handle)) {
-      throw new ConvexError(
-        `Le compte ${handle} existe déjà sur ${args.plateforme}.`,
-      );
-    }
-    const now = Date.now();
-    return await ctx.db.insert("comptes", {
-      projectId: ctx.projectId,
-      handle,
-      plateforme: args.plateforme,
-      notes: "",
-      url: args.url?.trim() || undefined,
-      creatorId: ctx.creatorId,
-      status: "warmup",
-      warmupStartedAt: now,
-      actif: false,
-      warmupProtocol: {
-        keywords: [],
-        instructions: "",
-        targetDays: defaultTargetDays(args.plateforme),
-        dailyChecks: [],
-        updatedAt: now,
-      },
-    });
+  handler: async (ctx, args) =>
+    declareCompteCore(ctx, ctx.projectId, args, { creatorId: ctx.creatorId }),
+});
+
+/**
+ * Déclaration d'un compte par le CLIPPEUR. Même document qu'une déclaration de
+ * créatrice : il arrive en "warmup", donc invisible des cibles publiables tant
+ * que l'admin ne l'a pas validé (régime strict #98) — et c'est cette validation
+ * qui pose `validatedAt`, l'ancre de sa phase (PR 3).
+ *
+ * ⚠️ Un wrapper distinct, PAS un élargissement de `creatorMutation` :
+ * `requireCreator` repousse les nouveaux rôles PAR CONCEPTION (PR 1), et le
+ * relâcher toucherait le chemin partenaire pour un besoin clippeur.
+ */
+export const declareClipperCompte = clipperMutation({
+  args: {
+    plateforme: plateformeValidator,
+    handle: v.string(),
+    url: v.optional(v.string()),
+  },
+  handler: async (ctx, args) =>
+    declareCompteCore(ctx, ctx.projectId, args, { creatorId: ctx.creatorId }),
+});
+
+/**
+ * SES comptes, tels que le clippeur doit les lire : où il en est, et ce qu'il
+ * peut publier aujourd'hui.
+ *
+ * On renvoie l'ANCRE (`validatedAt`) plutôt que la phase calculée : l'écran la
+ * dérive avec `convex/accountPhase.ts`, le même module que la garde serveur. Un
+ * calcul ici en ferait un second, qui dériverait de l'autre.
+ *
+ * `refusedAt`/`refusedReason` sortent aussi (PR 5) : un compte refusé est
+ * archivé, et sans le motif le clippeur ne saurait pas quoi corriger.
+ */
+export const listMyClipperComptes = clipperQuery({
+  args: {},
+  handler: async (ctx) => {
+    const strict = await isSnytchProject(ctx, ctx.projectId);
+    const comptes = await comptesForCreator(
+      ctx,
+      ctx.projectId,
+      ctx.creatorId,
+    );
+    return comptes.map((c) => ({
+      _id: c._id,
+      handle: c.handle,
+      plateforme: c.plateforme,
+      url: c.url ?? null,
+      statut: effectiveStatus(c),
+      /** L'ancre de phase — absente tant que l'admin n'a pas validé. */
+      validatedAt: c.validatedAt ?? null,
+      /** Publiable au sens du gate strict #98 (statut, pas quota du jour). */
+      publiable: isAccountAvailable(c, { strict }),
+      refusedAt: c.refusedAt ?? null,
+      refusedReason: c.refusedReason ?? null,
+    }));
   },
 });
 
@@ -1114,42 +1205,11 @@ export const declareManagedCompte = adminMutation({
     if (!creator || creator.projectId !== ctx.projectId) {
       throw new ConvexError("Créateur introuvable dans le projet.");
     }
-    const handle = normalizeHandle(args.handle);
-    if (!handle || handle === "@") {
-      throw new ConvexError("Handle requis.");
-    }
-    const samePlatform = await ctx.db
-      .query("comptes")
-      .withIndex("by_project_plateforme", (q) =>
-        q.eq("projectId", ctx.projectId).eq("plateforme", args.plateforme),
-      )
-      .collect();
-    if (samePlatform.some((c) => c.handle === handle)) {
-      throw new ConvexError(
-        `Le compte ${handle} existe déjà sur ${args.plateforme}.`,
-      );
-    }
-    const now = Date.now();
-    return await ctx.db.insert("comptes", {
-      projectId: ctx.projectId,
-      handle,
-      plateforme: args.plateforme,
-      notes: "",
-      url: args.url?.trim() || undefined,
+    return declareCompteCore(ctx, ctx.projectId, args, {
       // Appartenance : la créatrice ciblée (comme declareCompte pose ctx.creatorId).
       creatorId: args.creatorId,
       // MODE opératoire : l'équipe tient physiquement le compte.
       managedByAdmin: true,
-      status: "warmup",
-      warmupStartedAt: now,
-      actif: false,
-      warmupProtocol: {
-        keywords: [],
-        instructions: "",
-        targetDays: defaultTargetDays(args.plateforme),
-        dailyChecks: [],
-        updatedAt: now,
-      },
     });
   },
 });
