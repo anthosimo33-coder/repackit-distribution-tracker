@@ -2783,12 +2783,40 @@ async function confirmPublicationCore(
  * par le clippeur : dans les deux cas c'est une date SAISIE, et une date saisie
  * hors bornes déplacerait l'ancre de paie J+30 n'importe où.
  *
- * Deux bornes, pas une : le futur (une date à venir n'a pas pu être publiée) et
- * la création de l'assignment (le post ne peut pas précéder la mission).
+ * Deux bornes, pas une, et elles ne sont PAS de même nature :
+ *  - le FUTUR est impossible (une date à venir n'a pas pu être publiée) → dur,
+ *    pour tout le monde, jamais franchissable ;
+ *  - la CRÉATION de l'assignment protège l'ancre de paie, mais SEULEMENT quand
+ *    elle n'est pas encore posée : `firstPostAt` est écrit une fois puis jamais
+ *    réécrit (cf. confirmPublicationCore). Chez un créateur qui a déjà publié,
+ *    antidater ne déplace plus rien. D'où `allowBeforeCreation` : le secours
+ *    admin peut la franchir EXPLICITEMENT (régulariser un post fait hors de
+ *    l'app), le clippeur non — sa date pilote le comptage du quota (TD-020).
+ *
+ * ⚠️ Le message porte l'HEURE, pas seulement le jour : l'écart typique est
+ * INFRA-JOURNALIER (assignation créée à 15 h 48 pour un post planifié à minuit
+ * le même jour). Un message au jour près donnerait « 13/08 avant 13/08 ».
+ *
+ * ⚠️ Fuseau ÉPINGLÉ sur Europe/Paris (même convention que convex/analyticsHub) :
+ * le runtime Convex tourne en UTC, l'admin lit une heure de Paris. Sans l'épingle
+ * le message annoncerait 13:48 pour une assignation créée à 15:48 à l'écran —
+ * soit exactement la confusion que cet horodatage doit lever.
  */
+function formatDateTimeFr(ts: number): string {
+  return new Date(ts).toLocaleString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Paris",
+  });
+}
+
 function assertPublishedAtInRange(
   publishedAt: number | undefined,
   a: Doc<"assignments">,
+  opts: { allowBeforeCreation?: boolean } = {},
 ): void {
   if (publishedAt === undefined) return;
   if (publishedAt > Date.now()) {
@@ -2796,9 +2824,10 @@ function assertPublishedAtInRange(
       "La date de publication ne peut pas être dans le futur.",
     );
   }
-  if (publishedAt < a.createdAt) {
+  if (publishedAt < a.createdAt && !opts.allowBeforeCreation) {
     throw new ConvexError(
-      "La date de publication ne peut pas précéder la création de l'assignment.",
+      `La date de publication (${formatDateTimeFr(publishedAt)}) précède la ` +
+        `création de l'assignation (${formatDateTimeFr(a.createdAt)}).`,
     );
   }
 }
@@ -2889,6 +2918,12 @@ export const confirmPublication = creatorMutation({
  * dans ce projet → la seule différence créatrice↔admin est QUI clique, pas ce qui
  * est vérifié. `publishedAt` optionnel = date RÉELLE corrigeable (l'ancre de paie
  * ne se cale pas sur la saisie). Type de retour ANNOTÉ (TS7022).
+ *
+ * `allowBackdate` : le cas légitime que la borne de création interdisait sans le
+ * dire — RÉGULARISER un post publié hors de l'app, ou créer l'assignation APRÈS
+ * coup pour du contenu déjà en ligne. Le défaut reste le refus (l'admin voit la
+ * date de création dans le message, puis confirme) : la borne devient un
+ * AVERTISSEMENT franchissable, pas une porte ouverte.
  */
 export const confirmPublicationAsAdmin = adminMutation({
   args: {
@@ -2897,10 +2932,13 @@ export const confirmPublicationAsAdmin = adminMutation({
     // Date de publication RÉELLE (secours : lien collé après-coup). Absente = now.
     // Bornée dans le handler (ni futur, ni avant la création de l'assignment).
     publishedAt: v.optional(v.number()),
+    // Confirmation EXPLICITE d'une date antérieure à la création (régularisation).
+    // Ne relâche QUE cette borne — le futur reste refusé.
+    allowBackdate: v.optional(v.boolean()),
   },
   handler: async (
     ctx,
-    { id, urls, publishedAt },
+    { id, urls, publishedAt, allowBackdate },
   ): Promise<{
     ok: true;
     alreadyPublished: boolean;
@@ -2922,8 +2960,12 @@ export const confirmPublicationAsAdmin = adminMutation({
     }
     // Date réelle bornée : ni dans le futur, ni avant la création de l'assignment
     // (sinon l'ancre de paie J+30 se calerait n'importe où). MÊME contrôle que le
-    // chemin clippeur — une seule fonction, pas deux listes de bornes.
-    assertPublishedAtInRange(publishedAt, a);
+    // chemin clippeur — une seule fonction, pas deux listes de bornes. Seule
+    // différence : l'admin peut FRANCHIR la borne de création en le disant
+    // (régularisation d'un post fait hors de l'app) ; le clippeur, jamais.
+    assertPublishedAtInRange(publishedAt, a, {
+      allowBeforeCreation: allowBackdate === true,
+    });
     return confirmPublicationCore(ctx, a, urls, {
       confirmedBy: "admin",
       publishedAt,

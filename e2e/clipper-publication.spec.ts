@@ -284,8 +284,11 @@ test.describe("Publication d'un clip — le serveur", () => {
 
     await expect(publier(ts + JOUR)).rejects.toThrow(/futur/i);
     // createdAt est antidaté de 25 jours par le seeder : 40 le précède.
+    // ⚠️ Le clippeur n'a AUCUN moyen de franchir cette borne : `allowBackdate`
+    // n'existe que sur le chemin admin (régularisation). Ici la date déclarée
+    // pilote le comptage du quota (TD-020) — la relâcher fausserait le quota.
     await expect(publier(ts - 40 * JOUR)).rejects.toThrow(
-      /précéder la création/i,
+      /précède la création/i,
     );
   });
 

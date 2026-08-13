@@ -103,8 +103,10 @@ export function AdminPublishForm({
   const today = todayLocal();
   const [dateStr, setDateStr] = useState<string>(today);
   const [busy, setBusy] = useState(false);
+  /** Message du serveur quand la date précède la création (porte les 2 horodatages). */
+  const [backdate, setBackdate] = useState<string | null>(null);
 
-  async function onPublish() {
+  async function onPublish(allowBackdate = false) {
     const payload = targets.map((t) => ({
       platform: t.platform,
       url: (urls[t.platform] ?? "").trim(),
@@ -125,12 +127,19 @@ export function AdminPublishForm({
         id: assignmentId,
         urls: payload,
         ...(publishedAt !== undefined ? { publishedAt } : {}),
+        ...(allowBackdate ? { allowBackdate: true } : {}),
       });
       toast.success("Publié — la créatrice voit le post et ses performances.");
       setUrls({});
+      setBackdate(null);
       onPublished?.();
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Échec de la publication"));
+      const msg = convexErrorMessage(e, "Échec de la publication");
+      // Date antérieure à la création : ce n'est pas une saisie fautive, c'est une
+      // RÉGULARISATION (post publié hors de l'app). On montre les deux horodatages
+      // rendus par le serveur et on laisse l'admin trancher — jamais un mur.
+      if (/précède la\s+création/i.test(msg)) setBackdate(msg);
+      else toast.error(msg);
     } finally {
       setBusy(false);
     }
@@ -195,15 +204,40 @@ export function AdminPublishForm({
           type="date"
           value={dateStr}
           max={today}
-          onChange={(e) => setDateStr(e.target.value)}
+          onChange={(e) => {
+            setDateStr(e.target.value);
+            setBackdate(null);
+          }}
         />
         <p className="text-xs text-slate-500">
           Par défaut aujourd&apos;hui. Corrige-la si le post a été publié avant
           (l&apos;ancre de paie suit la date réelle, pas la saisie).
         </p>
       </div>
+      {backdate && (
+        <div
+          className="space-y-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800"
+          data-testid="admin-publish-backdate-warning"
+        >
+          <p className="font-medium">⚠️ {backdate}</p>
+          <p>
+            Normal si tu régularises un post publié hors de l&apos;app. La date
+            réelle sera conservée telle quelle.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() => void onPublish(true)}
+            data-testid="admin-publish-backdate-confirm"
+          >
+            Publier quand même à cette date
+          </Button>
+        </div>
+      )}
       <Button
-        onClick={onPublish}
+        onClick={() => void onPublish()}
         disabled={busy}
         className="w-full"
         data-testid={buttonTestId}
