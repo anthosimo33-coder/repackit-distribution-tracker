@@ -849,6 +849,35 @@ export default defineSchema({
     // aucun post publié → pas de cycle (« prochaine paie » non applicable). Optional
     // → 0 migration. N'affecte AUCUN montant (regroupement seulement).
     firstPostAt: v.optional(v.number()),
+    // ─── ANCRE DE CYCLE DES TALENTS ───────────────────────────────────────────
+    // Un talent ne publie JAMAIS : `firstPostAt` reste vide chez lui à vie, donc
+    // sans autre ancre il n'a aucun cycle et devient invisible de la paie. Cette
+    // date est posée à sa PREMIÈRE activation (passage en `active`), figée, jamais
+    // réécrite — même convention que `firstPostAt`.
+    //
+    // ⚠️ POSÉE UNIQUEMENT SUR UN TALENT (`resolveCreatorKind === "talent"`). Sur
+    // un partenaire, elle serait antérieure à son premier post et `cycleIndexOf`
+    // recalerait TOUS ses cycles, y compris ceux déjà payés — des euros qui
+    // changent de cycle sans qu'aucun humain n'ait rien fait. Le moteur lit
+    // `payAnchorOf(creator) = payAnchorAt ?? firstPostAt` : pour un partenaire,
+    // l'expression dégénère EXACTEMENT en celle d'avant.
+    payAnchorAt: v.optional(v.number()),
+    // ─── TARIFS des deux nouvelles populations (chantier pricing) ─────────────
+    // Scalaires et non entités `pricings` : ni palier, ni CPM, ni bonus. Surtout,
+    // le chemin clip ne doit JAMAIS toucher le moteur v2 — une ligne `pricings`
+    // pour les clips ouvrirait la porte à ce qu'on y câble un `pricingId` et
+    // réintroduise le double paiement que `clipRateSnapshot` existe pour éviter.
+    //
+    // clipRate : montant fixe PAR CLIP d'un clippeur, figé sur l'assignation
+    // (`assignments.clipRateSnapshot`) au moment où le travail est commandé.
+    // Le plafond MAX_PAY_PER_VIDEO_EUR NE S'Y APPLIQUE PAS : il protège d'une
+    // dérive du CPM, il n'y a aucun calcul de vues derrière un tarif unitaire.
+    clipRate: v.optional(v.number()),
+    // cycleRetainer : forfait d'un talent PAR CYCLE J+30 (ancré sur payAnchorAt).
+    // Lu LIVE et gelé en `kind: "retainer"` au paiement du cycle. AUCUNE condition
+    // de livraison dans le calcul — le cycle est dû, l'admin décide en voyant le
+    // nombre de rushes déposés à côté du montant.
+    cycleRetainer: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_project", ["projectId"])
@@ -1317,6 +1346,19 @@ export default defineSchema({
         montantBonus: v.number(),
       }),
     ),
+    // ─── TARIF DU CLIP, figé à l'assignation ─────────────────────────────────
+    // Montant fixe dû au clippeur pour CE clip, copié de `creators.clipRate` au
+    // moment où le travail est commandé (convention du dépôt : rateSnapshot,
+    // pricingSnapshot, assembledScript). Modifier le tarif d'un clippeur ne
+    // réécrit aucun clip déjà commandé.
+    //
+    // ⚠️ STRICTEMENT DISJOINT de `pricingSnapshot` — une assignation porte l'un
+    // OU l'autre, jamais les deux : c'est ce qui rend le double paiement
+    // clip + CPM impossible par construction. `accrueBaseLineItem` no-ope quand
+    // ce champ est présent (Guard D, symétrique de Guard C) et
+    // `computeLivePricingBreakdown` ne ramasse que les porteurs de
+    // `pricingSnapshot` — les trois modèles sont mutuellement exclusifs.
+    clipRateSnapshot: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_project", ["projectId"])
@@ -1459,12 +1501,22 @@ export default defineSchema({
         // fixed/cpm = pricing par vidéo, GELÉS au paiement. bonus_tier = palier
         // de bonus CASH sur cumul (v2), GELÉ au paiement — DISJOINT de `bonus`
         // (aucune période ne peut double-compter les deux).
+        // clip = montant fixe par clip d'un CLIPPEUR (accru à la publication,
+        // 1 ligne par clip et non par cible). retainer = forfait de cycle d'un
+        // TALENT (gelé au paiement du cycle). Les deux sont ADDITIFS : quatre
+        // modèles de rémunération, quatre kinds lisibles dans le grand livre.
+        // Réutiliser `clip` pour un talent ferait mentir l'écran et tout export ;
+        // réutiliser `base` mettrait un forfait dans le seau de l'accrual legacy
+        // par post, et « base = une vidéo publiée » deviendrait faux pour une
+        // population qui ne publie rien.
         kind: v.union(
           v.literal("base"),
           v.literal("bonus"),
           v.literal("fixed"),
           v.literal("cpm"),
           v.literal("bonus_tier"),
+          v.literal("clip"),
+          v.literal("retainer"),
         ),
         // Chantier C — plateforme du post (paiement PAR POST : N lineItems base
         // par assignment, 1 par cible). Optional : le bonus (1/assignment) et

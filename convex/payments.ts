@@ -20,6 +20,7 @@ import {
   cyclePeriodKey,
   cycleIndexOf,
   CYCLE_LENGTH_MS,
+  payAnchorOf,
 } from "./payCycle";
 import { ConvexError, v } from "convex/values";
 import { internalMutation } from "./_generated/server";
@@ -43,8 +44,10 @@ type LineItem = {
   assignmentId?: Id<"assignments">;
   label: string;
   amount: number;
-  // base/bonus = LEGACY ; fixed/cpm + bonus_tier = pricing GELÉ au paiement.
-  kind: "base" | "bonus" | "fixed" | "cpm" | "bonus_tier";
+  // base/bonus = LEGACY ; fixed/cpm + bonus_tier = pricing GELÉ au paiement ;
+  // clip = montant fixe par clip (clippeur) ; retainer = forfait de cycle
+  // (talent). Quatre modèles de rémunération, quatre kinds — cf schema.
+  kind: "base" | "bonus" | "fixed" | "cpm" | "bonus_tier" | "clip" | "retainer";
   // Chantier C — plateforme du post pour les lineItems "base" (paiement PAR
   // POST : N bases/assignment, 1 par cible). Absent sur les bonus (1/assignment)
   // et les bases legacy (mono-compte).
@@ -412,7 +415,9 @@ export async function cyclePaymentsForCreator(
   now: number,
 ): Promise<CyclePayment[]> {
   const creator = await ctx.db.get(creatorId);
-  const firstPostAt = creator?.firstPostAt;
+  // Ancre = payAnchorAt (talent) ?? firstPostAt (partenaire/clippeur). Pour un
+  // partenaire, l'expression vaut exactement firstPostAt — cf payAnchorOf.
+  const firstPostAt = creator ? payAnchorOf(creator) : undefined;
   if (!creator || firstPostAt === undefined) return [];
   const currentCycle = calcCycle(firstPostAt, now).cycleIndex;
 
@@ -702,13 +707,19 @@ export const markCyclePaid = adminMutation({
     if (!creator || creator.projectId !== ctx.projectId) {
       throw new ConvexError("Créateur introuvable.");
     }
-    if (creator.firstPostAt === undefined) {
-      throw new ConvexError("Aucun cycle : le créateur n'a pas encore publié.");
+    // MÊME ancre que l'écran. Sans cette bascule, un talent s'affichait payable
+    // et `markCyclePaid` jetait « n'a pas encore publié » — payable à l'écran,
+    // impayable en pratique.
+    const anchor = payAnchorOf(creator);
+    if (anchor === undefined) {
+      throw new ConvexError(
+        "Aucun cycle : ce créateur n'a ni publication ni date d'activation.",
+      );
     }
     if (!Number.isInteger(cycleIndex) || cycleIndex < 0) {
       throw new ConvexError("Cycle invalide.");
     }
-    const w = cycleWindow(creator.firstPostAt, cycleIndex);
+    const w = cycleWindow(anchor, cycleIndex);
     const period = cyclePeriodKey(w.cycleStart);
     const rows = (
       await ctx.db
@@ -726,7 +737,7 @@ export const markCyclePaid = adminMutation({
       ctx,
       ctx.projectId,
       creatorId,
-      creator.firstPostAt,
+      anchor,
       cycleIndex,
       new Set(),
     );
@@ -742,7 +753,7 @@ export const markCyclePaid = adminMutation({
     const cycleOfAssignment = new Map(
       assignments.map((a) => [
         a._id,
-        cycleIndexOf(creator.firstPostAt!, assignmentPublishedAt(a)),
+        cycleIndexOf(anchor, assignmentPublishedAt(a)),
       ]),
     );
     const legacyOfCycle: LineItem[] = [];
