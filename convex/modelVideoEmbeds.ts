@@ -1,3 +1,4 @@
+import { isTikTokShortlink } from "./postUrlDate";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { authedAction } from "./functions";
 import { internal } from "./_generated/api";
@@ -22,9 +23,11 @@ import type { Doc } from "./_generated/dataModel";
  * qu'un host tiktok.com (garde anti-SSRF — pas d'open redirect-follower). URL
  * publique, aucune donnée sensible, aucune écriture sur modelVideos.
  *
- * ⚠️ Règle A6 — convex/ ne peut pas importer lib/. isTikTokShortlink / isTikTokHost
- * répliquent lib/model-video-embed.ts ; parseOEmbedThumbnail / buildTikTokOEmbedUrl
+ * ⚠️ Règle A6 — convex/ ne peut pas importer lib/. isTikTokHost réplique
+ * lib/model-video-embed.ts ; parseOEmbedThumbnail / buildTikTokOEmbedUrl
  * répliquent lib/thumbnail.ts (tests Vitest là-bas). Évolution des DEUX côtés.
+ * isTikTokShortlink N'EST PLUS une réplique : définition unique dans le module pur
+ * convex/postUrlDate.ts, simplement ré-exportée ici.
  * ⚠️ TS7022 — les handlers appelés via runQuery/runMutation et l'action ont leur
  * type de retour ANNOTÉ (cycle d'inférence).
  */
@@ -39,16 +42,13 @@ type EmbedResult = {
 
 // ─── Répliques pures (lib/model-video-embed.ts + lib/thumbnail.ts) ───────────
 
-/** Réplique de lib/model-video-embed.isTikTokShortlink. Exportée : réutilisée
- *  par la résolution de postUrl du tracking (convex/postUrlResolution.ts). */
-export function isTikTokShortlink(url: string): boolean {
-  // DEUX formats de partage TikTok : sous-domaine (vm./vt.tiktok.com/CODE) ET
-  // chemin /t/ ((www.)tiktok.com/t/CODE). Le /t/ était non couvert → jamais
-  // résolu en canonique → tiktokPostId=null → post écarté de la sync → 0 vue.
-  return /^https?:\/\/(?:(?:vm|vt)\.tiktok\.com\/|(?:www\.)?tiktok\.com\/t\/)[A-Za-z0-9]+/i.test(
-    url.trim(),
-  );
-}
+/** Plus une réplique : la définition vit dans le module PUR convex/postUrlDate.ts
+ *  (importable serveur + client + lib/), ré-exportée ici pour ne rien casser chez
+ *  ses appelants (convex/publications.ts, convex/postUrlResolution.ts).
+ *  DEUX formats de partage TikTok : sous-domaine (vm./vt.tiktok.com/CODE) ET
+ *  chemin /t/ ((www.)tiktok.com/t/CODE). Le /t/ était non couvert → jamais résolu
+ *  en canonique → tiktokPostId=null → post écarté de la sync → 0 vue. */
+export { isTikTokShortlink };
 
 /** Réplique de lib/model-video-embed.isTikTokHost (garde anti-SSRF). */
 function isTikTokHost(url: string): boolean {

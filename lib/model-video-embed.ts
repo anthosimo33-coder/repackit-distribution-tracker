@@ -5,9 +5,11 @@
  * détection des shortlinks TikTok (qui doivent être résolus en URL canonique
  * avant l'oEmbed).
  *
- * ⚠️ Règle A6 — convex/ ne peut pas importer lib/. isTikTokShortlink / isTikTokHost
- * sont RÉPLIQUÉS côté serveur dans convex/modelVideoEmbeds.ts (où vit l'I/O réseau
- * de l'action). Toute évolution doit être faite des DEUX côtés ; les tests vivent ici.
+ * ⚠️ Règle A6 — convex/ ne peut pas importer lib/. `isTikTokHost` reste RÉPLIQUÉ
+ * côté serveur dans convex/modelVideoEmbeds.ts (où vit l'I/O réseau de l'action) :
+ * toute évolution doit être faite des DEUX côtés. `isTikTokShortlink`, lui, n'est
+ * plus une réplique — il vit dans le module pur convex/postUrlDate.ts et n'est que
+ * ré-exporté ici. Les tests vivent dans ce fichier dans les deux cas.
  */
 
 import type { Plateforme } from "./inspiration-url";
@@ -31,12 +33,12 @@ export function videoExamplePlatform(plateforme: Plateforme): EmbedPlatform {
  *   - sous-domaine : vm.tiktok.com/CODE, vt.tiktok.com/CODE
  *   - chemin /t/   : (www.)tiktok.com/t/CODE  ← ajouté (sinon jamais résolu ni
  *     tracké : tiktokPostId renvoie null sur /t/, le post reste à 0 vue).
+ *
+ * Plus une réplique : la DÉFINITION vit dans `convex/postUrlDate.ts` (module pur,
+ * A6 autorise lib/ → convex/), ré-exportée ici pour ses appelants existants. Les
+ * tests de ce fichier valent donc pour l'unique implémentation.
  */
-export function isTikTokShortlink(url: string): boolean {
-  return /^https?:\/\/(?:(?:vm|vt)\.tiktok\.com\/|(?:www\.)?tiktok\.com\/t\/)[A-Za-z0-9]+/i.test(
-    url.trim(),
-  );
-}
+export { isTikTokShortlink } from "../convex/postUrlDate";
 
 /**
  * Host TikTok légitime — garde ANTI-SSRF : la résolution d'un shortlink ne doit
