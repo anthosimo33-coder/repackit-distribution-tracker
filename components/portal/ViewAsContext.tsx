@@ -15,6 +15,9 @@ import type { Id } from "@/convex/_generated/dataModel";
 export type ViewAsValue = {
   creatorId: Id<"creators">;
   creatorName: string;
+  /** Population de la personne observée — le mode view-as ne sait rendre que
+   *  le portail PARTENAIRE, et doit le dire au lieu de rendre autre chose. */
+  creatorKind: "partner" | "talent" | "clipper";
   /** Base path des liens internes du portail en mode view-as (viewAsBase). */
   basePath: string;
 };

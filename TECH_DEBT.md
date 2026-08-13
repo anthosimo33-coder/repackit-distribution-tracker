@@ -174,3 +174,22 @@ Ce fichier liste les anti-patterns repérés dans la zone touchée par chaque fe
 - **Forme du correctif** : discriminer par `resolveCreatorKind(propriétaire)`
   dans les deux fonctions pures, et une spec par population (le partenaire reste
   bloqué cross-comptes, le clippeur ne l'est plus).
+
+### TD-025 — Le mode « voir l'espace » ne sait rendre que le portail PARTENAIRE
+- **Fichiers** : `app/admin/voir/[projectSlug]/[id]/**` (ré-exporte les écrans de
+  `components/portal/screens/`), garde dans `components/portal/ViewAsShell.tsx`.
+- **Constat** : la route ré-exporte STATIQUEMENT les écrans partenaire et ne lit
+  ni `kind` ni `portalRole`. Rendue pour un talent ou un clippeur, elle affichait
+  « Mes vidéos », des paliers de bonus et un warmup partenaire — une vue FAUSSE.
+  Depuis le correctif, elle s'abstient explicitement et dit quoi faire à la place.
+- **DÉCLENCHEUR** : le jour où un clippeur aura des comptes et des clips à
+  observer, et où il faudra diagnostiquer à distance sans lui demander une
+  capture d'écran. Aujourd'hui il n'a ni l'un ni l'autre — l'abstention ne coûte
+  rien.
+- **⚠️ LE COÛT RÉEL N'EST PAS LE ROUTAGE.** Faire rendre ces espaces demande un
+  `adminViewAs*` PAR POPULATION côté SERVEUR : les `talentQuery`/`clipperQuery`
+  filtrent par `ctx.creatorId` de la personne CONNECTÉE, donc un admin n'en
+  obtient rien. Il faut le pendant de `adminViewAsQuery` pour chaque famille de
+  fonctions exposée aux deux nouveaux portails, plus l'extraction des écrans
+  correspondants. Ce n'est pas une PR d'une journée, et quiconque lit « il suffit
+  de router sur le kind » se trompe d'un ordre de grandeur.
