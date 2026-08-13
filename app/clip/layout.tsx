@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { LogOutIcon } from "lucide-react";
 import { AccentStyle } from "@/components/project/AccentStyle";
+import { ClipperProjectProvider } from "@/components/clip/ClipperProjectProvider";
 import {
   PortalEmpty,
   PortalPending,
@@ -16,10 +17,12 @@ import { Button } from "@/components/ui/button";
  * chauffe, monte les rushes de SES talents, soumet et publie. Garde de rôle
  * déléguée à `usePortalGate("clipper")` (matrice de redirection unique).
  *
- * Shell nu pour l'instant : la navigation (ses comptes / sa file de rushes / ses
- * gains) est posée par le chantier « espace clippeur », avec la même mécanique
- * mobile que le portail partenaire (bottom nav < md, sidebar ≥ md). On ne
- * pré-construit pas cette navigation ici pour ne pas figer des onglets vides.
+ * PAS de navigation, délibérément : le clippeur a deux objets — ses comptes et
+ * ses clips — et ils tiennent sur une page qui défile. Une bottom-nav pour deux
+ * sections figerait des onglets qu'on ne sait pas encore remplir (ses gains
+ * viennent au chantier pricing). La fiche d'un clip est une route à part
+ * (`/clip/clips/[id]`) parce qu'un montage se fait écran plein, pas dans une
+ * carte de liste.
  *
  * ⚠️ Un clippeur ne voit que SES comptes et les rushes des talents qui lui sont
  * assignés. Garantie serveur (`clipperQuery`/`clipperMutation`, filtrage par
@@ -35,7 +38,10 @@ export default function ClipPortalLayout({
   const gate = usePortalGate("clipper");
 
   if (gate.state === "pending") return <PortalPending />;
-  if (gate.state === "empty") return <PortalEmpty />;
+  // `projectId` null est traité comme « pas d'espace » : les écrans clippeur
+  // n'existent qu'au sein d'un projet, et les rendre sans lui produirait une
+  // première requête en échec plutôt qu'un message (même choix que le talent).
+  if (gate.state === "empty" || gate.projectId === null) return <PortalEmpty />;
 
   async function handleSignOut() {
     await signOut();
@@ -66,7 +72,9 @@ export default function ClipPortalLayout({
       </header>
       <main className="overflow-x-hidden">
         <div className="container mx-auto px-4 py-6 sm:px-6 sm:py-8">
-          {children}
+          <ClipperProjectProvider projectId={gate.projectId}>
+            {children}
+          </ClipperProjectProvider>
         </div>
       </main>
     </div>

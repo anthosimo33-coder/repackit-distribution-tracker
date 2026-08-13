@@ -12,13 +12,28 @@ import { join } from "path";
  */
 const SRC = readFileSync(join(process.cwd(), "convex", "assignments.ts"), "utf8");
 
-/** Corps de `confirmPublicationCore` : de sa signature au premier wrapper qui suit. */
+/**
+ * Corps de `confirmPublicationCore`, borné à SA propre accolade fermante.
+ *
+ * La borne était « jusqu'au premier wrapper qui suit » — ce qui marchait tant
+ * que rien ne s'intercalait. La PR 6 a inséré une fonction de bornes ET la
+ * mutation clippeur entre les deux, et le `throw` de la première s'est retrouvé
+ * compté comme appartenant au cœur : le test a rougi sur du code parfaitement
+ * correct. Une borne de source doit délimiter la FONCTION, pas la distance
+ * jusqu'au voisin — sinon elle mesure la mise en page du fichier.
+ */
 function coeurPublication(): string {
   const debut = SRC.indexOf("async function confirmPublicationCore(");
-  const fin = SRC.indexOf("export const confirmPublication = creatorMutation");
   expect(debut).toBeGreaterThan(-1);
+  // Accolade fermante en COLONNE 0 : à l'intérieur de la fonction, toutes les
+  // accolades sont indentées.
+  const fin = SRC.indexOf("\n}\n", debut);
   expect(fin).toBeGreaterThan(debut);
-  return SRC.slice(debut, fin);
+  const coeur = SRC.slice(debut, fin);
+  // Garde-fou de la borne elle-même : si elle se refermait trop tôt, les
+  // assertions d'ordre ci-dessous deviendraient vertes pour rien.
+  expect(coeur).toContain("return { ok: true, alreadyPublished: false");
+  return coeur;
 }
 
 describe("publication — l'accroche vit dans le cœur PARTAGÉ", () => {

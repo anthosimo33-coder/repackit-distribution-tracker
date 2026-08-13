@@ -125,6 +125,19 @@ export interface SubmissionContext {
   formatName: string | null;
   /** Cibles de publication : « 1 vidéo → N posts ». */
   targets: { platform: string; accountHandle: string | null }[];
+  /**
+   * true = la vidéo est un CLIP monté par un clippeur, pas une vidéo de
+   * créatrice partenaire. Ces messages ont été écrits quand une seule population
+   * existait ; laissés tels quels, ils annonceraient « la créatrice » là où il y
+   * a un clippeur. Les deux flux n'ont ni le même auteur ni le même rythme, et
+   * Kevin lit ce canal.
+   */
+  isClip?: boolean;
+}
+
+/** Suffixe qui distingue un clip d'un post de partenaire dans une ligne compacte. */
+function clipTag(ctx: { isClip?: boolean }): string {
+  return ctx.isClip ? " (clip)" : "";
 }
 
 /**
@@ -154,7 +167,7 @@ function describeTargets(ctx: SubmissionContext): string {
 
 /** Ligne compacte d'une soumission, pour le message groupé. */
 export function submissionLine(ctx: SubmissionContext): string {
-  return `${ctx.creatorName} — ${describeMission(ctx)} → ${describeTargets(ctx)}`;
+  return `${ctx.creatorName}${clipTag(ctx)} — ${describeMission(ctx)} → ${describeTargets(ctx)}`;
 }
 
 /**
@@ -169,13 +182,16 @@ export function buildSubmissionMessage(params: {
   assignmentId: string;
 }): string {
   const { ctx, isResubmission, appBaseUrl, projectSlug, assignmentId } = params;
+  const objet = ctx.isClip ? "Clip" : "Vidéo";
   const title = isResubmission
-    ? "🔁 <b>Vidéo re-soumise après correction</b>"
-    : "🎬 <b>Nouvelle vidéo à valider</b>";
+    ? `🔁 <b>${objet} re-soumis${ctx.isClip ? "" : "e"} après correction</b>`
+    : ctx.isClip
+      ? "✂️ <b>Nouveau clip à valider</b>"
+      : "🎬 <b>Nouvelle vidéo à valider</b>";
   return [
     title,
     "",
-    `<b>${escapeTelegram(ctx.creatorName)}</b> — ${escapeTelegram(describeMission(ctx))}`,
+    `<b>${escapeTelegram(ctx.creatorName)}</b>${clipTag(ctx)} — ${escapeTelegram(describeMission(ctx))}`,
     `→ ${escapeTelegram(describeTargets(ctx))}`,
     "",
     link(
@@ -228,6 +244,13 @@ export interface PublicationContext {
    * façon de distinguer « elle a publié » de « on a rattrapé ».
    */
   byAdmin: boolean;
+  /**
+   * true = clip publié par son clippeur. Voir `SubmissionContext.isClip` : sans
+   * ce drapeau, `publishedBy: "creator"` — qui est CORRECT au sens de D1, le
+   * clippeur EST le creatorId — ferait tomber le message dans la branche
+   * « la créatrice a publié ».
+   */
+  isClip?: boolean;
 }
 
 /** « TikTok · @handle » par cible publiée (le lien est rendu à part, cliquable). */
@@ -241,7 +264,7 @@ function describePublicationTargets(ctx: PublicationContext): string {
 /** Ligne compacte d'une publication, pour le message groupé. */
 export function publicationLine(ctx: PublicationContext): string {
   const suffix = ctx.byAdmin ? " (saisi par l'admin)" : "";
-  return `${ctx.creatorName} — ${describeMission(ctx)} → ${describePublicationTargets(ctx)}${suffix}`;
+  return `${ctx.creatorName}${clipTag(ctx)} — ${describeMission(ctx)} → ${describePublicationTargets(ctx)}${suffix}`;
 }
 
 /**
@@ -256,13 +279,17 @@ export function buildPublicationMessage(params: {
 }): string {
   const { ctx, appBaseUrl, projectSlug } = params;
   const lignes = [
-    "🚀 <b>Publication confirmée</b>",
+    ctx.isClip ? "🚀 <b>Clip publié</b>" : "🚀 <b>Publication confirmée</b>",
     "",
-    `<b>${escapeTelegram(ctx.creatorName)}</b> — ${escapeTelegram(describeMission(ctx))}`,
+    `<b>${escapeTelegram(ctx.creatorName)}</b>${clipTag(ctx)} — ${escapeTelegram(describeMission(ctx))}`,
     `→ ${escapeTelegram(describePublicationTargets(ctx))}`,
   ];
   if (ctx.byAdmin) {
-    lignes.push("⚠️ Lien saisi par l'admin en secours, pas par la créatrice.");
+    lignes.push(
+      `⚠️ Lien saisi par l'admin en secours, pas par ${
+        ctx.isClip ? "le clippeur" : "la créatrice"
+      }.`,
+    );
   }
   const liens = ctx.targets
     .filter((t): t is typeof t & { url: string } => Boolean(t.url))
@@ -311,6 +338,8 @@ export interface ReviewContext {
   formatName: string | null;
   /** Nom de l'admin. JAMAIS son email — repli explicite si le nom manque. */
   actorName: string | null;
+  /** true = décision portant sur un CLIP (cf `SubmissionContext.isClip`). */
+  isClip?: boolean;
 }
 
 const actorLabel = (a: string | null) => a ?? "un administrateur";
@@ -322,10 +351,10 @@ export function buildVideoApprovedMessage(params: {
 }): string {
   const { ctx, appBaseUrl, projectSlug } = params;
   return [
-    "✅ <b>Vidéo validée</b>",
+    ctx.isClip ? "✅ <b>Clip validé</b>" : "✅ <b>Vidéo validée</b>",
     "",
-    `<b>${escapeTelegram(ctx.creatorName)}</b> — ${escapeTelegram(describeMission(ctx))}`,
-    `Validée par ${escapeTelegram(actorLabel(ctx.actorName))}`,
+    `<b>${escapeTelegram(ctx.creatorName)}</b>${clipTag(ctx)} — ${escapeTelegram(describeMission(ctx))}`,
+    `${ctx.isClip ? "Validé" : "Validée"} par ${escapeTelegram(actorLabel(ctx.actorName))}`,
     "",
     link("Ouvrir les missions", assignmentsUrl(appBaseUrl, projectSlug)),
   ].join("\n");
@@ -345,10 +374,10 @@ export function buildVideoRejectedMessage(params: {
 }): string {
   const { ctx, reason, appBaseUrl, projectSlug } = params;
   return [
-    "❌ <b>Vidéo refusée</b>",
+    ctx.isClip ? "❌ <b>Clip refusé</b>" : "❌ <b>Vidéo refusée</b>",
     "",
-    `<b>${escapeTelegram(ctx.creatorName)}</b> — ${escapeTelegram(describeMission(ctx))}`,
-    `Refusée par ${escapeTelegram(actorLabel(ctx.actorName))}`,
+    `<b>${escapeTelegram(ctx.creatorName)}</b>${clipTag(ctx)} — ${escapeTelegram(describeMission(ctx))}`,
+    `${ctx.isClip ? "Refusé" : "Refusée"} par ${escapeTelegram(actorLabel(ctx.actorName))}`,
     "",
     "<b>Motif :</b>",
     escapeTelegram(reason),

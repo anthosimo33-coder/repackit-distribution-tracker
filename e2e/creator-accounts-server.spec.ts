@@ -43,6 +43,54 @@ test.describe("Comptes créateurs — serveur", () => {
     expect(ig?.warmupProtocol?.targetDays).toBe(14);
   });
 
+  test("NON-RÉGRESSION : le document produit par declareCompte, champ par champ", async () => {
+    // `declareCompte`, `declareManagedCompte` et `declareClipperCompte` partagent
+    // désormais un cœur (declareCompteCore). Ce test fixe ce que la CRÉATRICE
+    // PARTENAIRE obtient : si l'extraction dérive, c'est ici que ça casse, et pas
+    // six mois plus tard sur un compte qui ne s'active pas.
+    const ts = Date.now();
+    const A = await createCreatorSession(convexUrl, {
+      name: `[E2E_TEST] Doc ${ts}`,
+      email: `e2e-creator-doc-${ts}@repackit.test`,
+      password: "creator-doc-12345",
+    });
+    const handle = `@e2edeclare${ts}`;
+    const id = await A.client.mutation(api.comptes.declareCompte, {
+      projectId: A.projectId,
+      plateforme: "TikTok",
+      handle,
+      url: "  https://www.tiktok.com/@e2edeclare  ",
+    });
+    const compte = (
+      await A.client.query(api.comptes.listMyComptes, {
+        projectId: A.projectId,
+      })
+    ).find((c) => c._id === id);
+
+    expect(compte).toBeTruthy();
+    expect(compte!.handle).toBe(handle);
+    expect(compte!.plateforme).toBe("TikTok");
+    expect(compte!.status).toBe("warmup");
+    expect(compte!.actif).toBe(false);
+    expect(compte!.notes).toBe("");
+    expect(compte!.creatorId).toBe(A.creatorId);
+    // L'URL est trimée à l'écriture.
+    expect(compte!.url).toBe("https://www.tiktok.com/@e2edeclare");
+    // Protocole initialisé au défaut de la plateforme, aucun check posé.
+    expect(compte!.warmupProtocol).toMatchObject({
+      keywords: [],
+      instructions: "",
+      targetDays: 7,
+      dailyChecks: [],
+    });
+    // Le compte n'est PAS géré par l'équipe : la clé doit être ABSENTE, pas posée
+    // à undefined — c'est ce que le spread conditionnel du cœur garantit, et ce
+    // que `warmupDueCount` et l'écran admin lisent.
+    expect(compte!.managedByAdmin).toBeUndefined();
+    // Aucune ancre de phase : c'est la validation admin qui la posera (PR 3).
+    expect(compte!.validatedAt).toBeUndefined();
+  });
+
   test("double-check quotidien refusé (même appelé directement)", async () => {
     const ts = Date.now();
     const A = await createCreatorSession(convexUrl, {

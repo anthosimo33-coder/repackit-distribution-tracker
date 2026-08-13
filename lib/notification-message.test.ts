@@ -711,6 +711,121 @@ describe("aucune donnée confidentielle ne sort dans un message", () => {
   });
 });
 
+// ─── Clip vs vidéo de partenaire ─────────────────────────────────────────────
+
+/**
+ * Les messages du chantier notifications ont été écrits quand une SEULE
+ * population existait. Partager `submitVideoCore` et `confirmPublicationCore`
+ * avec le clippeur fait entrer les clips dans ces mêmes messages — sans marquage
+ * ils annonceraient « la créatrice » là où il y a un clippeur, et rien ne
+ * distinguerait un clip d'un post de partenaire dans le canal.
+ */
+describe("un clip n'est pas annoncé comme une vidéo de créatrice", () => {
+  const CLIP: SubmissionContext = {
+    ...CTX,
+    creatorName: "Marine",
+    isClip: true,
+    targets: [{ platform: "TikTok", accountHandle: "@marine.bn07" }],
+  };
+  const CLIP_PUB: PublicationContext = {
+    ...PUB_CTX,
+    creatorName: "Marine",
+    isClip: true,
+    targets: [
+      {
+        platform: "TikTok",
+        accountHandle: "@marine.bn07",
+        url: "https://www.tiktok.com/@marine.bn07/video/7672850383298956577",
+      },
+    ],
+  };
+
+  it("la soumission d'un clip le dit dans son titre", () => {
+    const msg = buildSubmissionMessage({
+      ctx: CLIP,
+      isResubmission: false,
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+      assignmentId: "a1",
+    });
+    expect(msg).toContain("clip");
+    expect(msg).not.toContain("Nouvelle vidéo à valider");
+  });
+
+  it("la re-soumission d'un clip s'accorde au masculin", () => {
+    const msg = buildSubmissionMessage({
+      ctx: CLIP,
+      isResubmission: true,
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+      assignmentId: "a1",
+    });
+    expect(msg).toContain("Clip re-soumis");
+    expect(msg).not.toContain("re-soumise");
+  });
+
+  it("LE PIÈGE : le secours admin sur un clip ne nomme PAS une créatrice", () => {
+    // `publishedBy: "creator"` est CORRECT pour un clip — le clippeur EST le
+    // creatorId (arbitrage D1). C'est précisément pour ça qu'il ne suffit pas à
+    // distinguer les deux populations, et que ce drapeau existe.
+    const msg = buildPublicationMessage({
+      ctx: { ...CLIP_PUB, byAdmin: true },
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+    });
+    expect(msg).toContain("pas par le clippeur");
+    expect(msg).not.toContain("créatrice");
+  });
+
+  it("le partenaire, lui, garde EXACTEMENT ses libellés", () => {
+    // Non-régression : drapeau absent ⇒ messages inchangés, au mot près.
+    expect(
+      buildSubmissionMessage({
+        ctx: CTX,
+        isResubmission: false,
+        appBaseUrl: BASE,
+        projectSlug: SLUG,
+        assignmentId: "a1",
+      }),
+    ).toContain("Nouvelle vidéo à valider");
+    expect(
+      buildPublicationMessage({
+        ctx: { ...PUB_CTX, byAdmin: true },
+        appBaseUrl: BASE,
+        projectSlug: SLUG,
+      }),
+    ).toContain("pas par la créatrice");
+    expect(
+      buildVideoRejectedMessage({
+        ctx: REVIEW_CTX,
+        reason: "Cadrage à refaire.",
+        appBaseUrl: BASE,
+        projectSlug: SLUG,
+      }),
+    ).toContain("Vidéo refusée");
+  });
+
+  it("les lignes groupées portent le marqueur (un lot peut mélanger les deux)", () => {
+    expect(submissionLine(CLIP)).toContain("(clip)");
+    expect(submissionLine(CTX)).not.toContain("(clip)");
+    expect(publicationLine(CLIP_PUB)).toContain("(clip)");
+    expect(publicationLine(PUB_CTX)).not.toContain("(clip)");
+  });
+
+  it("la décision de revue d'un clip s'accorde", () => {
+    const refus = buildVideoRejectedMessage({
+      ctx: { ...REVIEW_CTX, creatorName: "Marine", isClip: true },
+      reason: "Le hook coupe trop tôt.",
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+    });
+    expect(refus).toContain("Clip refusé");
+    expect(refus).toContain("Refusé par Anthony");
+    // Le motif reste rendu EN ENTIER (exigence du chantier notifications).
+    expect(refus).toContain("Le hook coupe trop tôt.");
+  });
+});
+
 describe("le SOURCE des constructeurs ne touche ni la paie ni les emails", () => {
   // Barrière structurelle : les types d'entrée n'exposent aucun champ email ni
   // montant. On le verrouille en scannant le code — une fuite demanderait alors

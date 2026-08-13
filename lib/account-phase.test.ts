@@ -3,7 +3,9 @@ import {
   ACCOUNT_PHASES,
   PHASE_LABELS,
   accountPhaseAt,
+  dayKeyToUtcInstant,
   dayOfPhase,
+  formatUtcDayFr,
   postsPerDayAt,
   quotaRefusalMessage,
   utcDayKey,
@@ -22,6 +24,9 @@ const VALIDATION = Date.UTC(2026, 7, 12, 9, 30); // 12/08/2026 09:30 UTC
 
 /** Instant situé `n` jours pleins après la validation (J(n+1)). */
 const jour = (n: number) => VALIDATION + n * JOUR;
+
+/** Le lundi de l'exemple du refus — 10/08/2026, en pleine journée UTC. */
+const LUNDI = Date.UTC(2026, 7, 10, 14, 0);
 
 describe("dayOfPhase — le jour de validation est J1", () => {
   it("l'instant exact de la validation est J1, pas J0", () => {
@@ -130,19 +135,72 @@ describe("messages et libellés", () => {
   });
 
   it("le refus distingue non validé / chauffe / quota atteint", () => {
-    expect(quotaRefusalMessage("@x", null, 0)).toMatch(/pas encore validé/i);
-    expect(quotaRefusalMessage("@x", "chauffe", 0)).toMatch(/chauffe/i);
-    const plein = quotaRefusalMessage("@x", "croisiere", 2);
-    expect(plein).toMatch(/quota du jour/i);
-    expect(plein).toContain("2 posts");
+    expect(quotaRefusalMessage("@x", null, 0, LUNDI)).toMatch(
+      /pas encore validé/i,
+    );
+    expect(quotaRefusalMessage("@x", "chauffe", 0, LUNDI)).toMatch(/chauffe/i);
+    const plein = quotaRefusalMessage("@x", "croisiere", 2, LUNDI);
+    expect(plein).toMatch(/quota atteint/i);
+    expect(plein).toContain("2 publications sur 2");
   });
 
   it("le message nomme TOUJOURS le compte fautif", () => {
     // Sans le handle, un clippeur à deux comptes ne sait pas lequel bloque.
     for (const phase of [null, "chauffe", "croisiere"] as const) {
-      expect(quotaRefusalMessage("@monhandle", phase, 2)).toContain(
+      expect(quotaRefusalMessage("@monhandle", phase, 2, LUNDI)).toContain(
         "@monhandle",
       );
     }
+  });
+
+  it("le message nomme TOUJOURS la date concernée", () => {
+    // Le scénario : deux posts déclarés lundi soir, un troisième publié lundi
+    // tard et déclaré mardi matin daté de lundi. Le refus tombe un MARDI où le
+    // clippeur croit avoir deux créneaux libres — sans la date, il conclut que
+    // l'outil est cassé.
+    for (const phase of [null, "chauffe", "croisiere"] as const) {
+      expect(quotaRefusalMessage("@x", phase, 2, LUNDI)).toContain(
+        "lundi 10 août",
+      );
+    }
+  });
+});
+
+describe("formatUtcDayFr — le libellé et le seau du quota parlent du même jour", () => {
+  it("rend le jour en français, sans dépendre de l'ICU du runtime", () => {
+    expect(formatUtcDayFr(LUNDI)).toBe("lundi 10 août");
+    expect(formatUtcDayFr(Date.UTC(2026, 0, 1, 9, 0))).toBe("jeudi 1er janvier");
+    expect(formatUtcDayFr(Date.UTC(2026, 11, 25, 23, 59))).toBe(
+      "vendredi 25 décembre",
+    );
+  });
+
+  it("aller-retour clé ↔ instant : le champ date et le seau ne peuvent pas diverger", () => {
+    // Propriété, pas exemples : pour chaque jour d'une année entière, la clé
+    // convertie en instant puis re-convertie doit redonner la MÊME clé. C'est ce
+    // qui garantit que le jour choisi dans le champ est le jour compté.
+    for (let i = 0; i < 365; i++) {
+      const at = Date.UTC(2026, 0, 1, 12) + i * JOUR;
+      const cle = utcDayKey(at);
+      const retour = dayKeyToUtcInstant(cle);
+      expect(retour).not.toBeNull();
+      expect(utcDayKey(retour!)).toBe(cle);
+    }
+  });
+
+  it("une clé mal formée ou impossible ne se convertit PAS silencieusement", () => {
+    expect(dayKeyToUtcInstant("")).toBeNull();
+    expect(dayKeyToUtcInstant("12/08/2026")).toBeNull();
+    // Date.UTC reporterait le 31 février en mars — on refuse plutôt que décaler.
+    expect(dayKeyToUtcInstant("2026-02-31")).toBeNull();
+  });
+
+  it("LE PIÈGE : minuit trente à Paris est nommé comme il est COMPTÉ", () => {
+    // 22h30 UTC le 12 = 00h30 à Paris le 13. `utcDayKey` bucketise le 12 : le
+    // libellé doit dire le 12 lui aussi, sinon l'écran refuse « pour le 13 »
+    // avec un compteur qui compte le 12.
+    const minuitTrenteParisEnEte = Date.UTC(2026, 7, 12, 22, 30);
+    expect(utcDayKey(minuitTrenteParisEnEte)).toBe("2026-08-12");
+    expect(formatUtcDayFr(minuitTrenteParisEnEte)).toBe("mercredi 12 août");
   });
 });

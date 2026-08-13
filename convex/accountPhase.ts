@@ -118,6 +118,25 @@ export function utcDayKey(at: number): string {
   return new Date(at).toISOString().slice(0, 10);
 }
 
+/**
+ * Réciproque de `utcDayKey` : « YYYY-MM-DD » → un instant DANS cette journée UTC
+ * (midi, franchement au milieu du seau). `null` si la clé n'a pas la forme.
+ *
+ * Existe pour que le champ date de l'écran clippeur et le seau du quota soient
+ * convertibles l'un dans l'autre SANS repasser par le fuseau local : un
+ * `new Date("2026-08-12")` puis `getMonth()` ferait basculer d'un jour à l'ouest
+ * de Greenwich, et l'écran annoncerait alors un autre jour que celui compté.
+ * Le test vérifie l'aller-retour, pas des exemples.
+ */
+export function dayKeyToUtcInstant(key: string): number | null {
+  const m = key.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const at = Date.UTC(y, mo - 1, d, 12);
+  // Rejette les dates impossibles (« 2026-02-31 » que Date.UTC reporterait en mars).
+  return utcDayKey(at) === key ? at : null;
+}
+
 /** Bornes [début, fin) de la journée UTC contenant `at` — plage d'index. */
 export function utcDayRange(at: number): { start: number; end: number } {
   const start = Date.UTC(
@@ -128,19 +147,82 @@ export function utcDayRange(at: number): { start: number; end: number } {
   return { start, end: start + DAY_MS };
 }
 
-/** Motif de refus quand le quota est atteint — lu par le clippeur (PR 6). */
+const JOURS_FR = [
+  "dimanche",
+  "lundi",
+  "mardi",
+  "mercredi",
+  "jeudi",
+  "vendredi",
+  "samedi",
+] as const;
+
+const MOIS_FR = [
+  "janvier",
+  "février",
+  "mars",
+  "avril",
+  "mai",
+  "juin",
+  "juillet",
+  "août",
+  "septembre",
+  "octobre",
+  "novembre",
+  "décembre",
+] as const;
+
+/**
+ * Journée UTC en toutes lettres — « lundi 10 août ».
+ *
+ * ⚠️ UN SEUL REPÈRE. Le seau du quota est la journée UTC (`utcDayRange`) : le
+ * libellé DOIT l'être aussi. En heure locale, un post parisien de 00h30 se
+ * verrait refuser « pour le 11 » par un compteur qui compte le 10 — l'écran et
+ * le serveur se contrediraient dans la même vue, et c'est le seul endroit où un
+ * clippeur peut perdre confiance dans l'outil d'un coup.
+ *
+ * ⚠️ Table en dur plutôt que `toLocaleDateString("fr-FR", { month: "long" })` :
+ * l'ICU du runtime Convex n'est pas garanti complet, et un repli silencieux
+ * rendrait « August » dans un message français. Les seuls formats de date déjà
+ * utilisés côté serveur sont numériques, précisément pour cette raison. Ici on
+ * veut des lettres — donc on les fournit.
+ *
+ * Exporté : l'écran clippeur affiche la MÊME chaîne que celle du refus.
+ */
+export function formatUtcDayFr(at: number): string {
+  const d = new Date(at);
+  const quantieme = d.getUTCDate();
+  return `${JOURS_FR[d.getUTCDay()]} ${quantieme === 1 ? "1er" : quantieme} ${
+    MOIS_FR[d.getUTCMonth()]
+  }`;
+}
+
+/**
+ * Motif de refus — lu par le clippeur.
+ *
+ * ⚠️ NOMME LA DATE, toujours. Un clippeur qui publie deux posts lundi, les
+ * déclare lundi soir, en publie un troisième lundi tard et le déclare mardi
+ * matin daté de lundi se voit refuser un mardi où il croit avoir deux créneaux
+ * libres. Sans la date dans le message, le refus est incompréhensible et il
+ * conclura que l'outil est cassé. La phase elle-même est fonction de `at` : les
+ * trois branches la nomment.
+ */
 export function quotaRefusalMessage(
   handle: string,
   phase: AccountPhase | null,
   postsPerDay: number,
+  at: number,
 ): string {
+  const jour = formatUtcDayFr(at);
   if (phase === null) {
-    return `Le compte ${handle} n'est pas encore validé : aucune publication possible.`;
+    return `Le compte ${handle} n'était pas encore validé le ${jour} : aucune publication possible à cette date.`;
   }
   if (postsPerDay === 0) {
-    return `Le compte ${handle} est en phase de ${PHASE_LABELS[phase].toLowerCase()} : aucune publication avant la fin de cette phase.`;
+    return `Le compte ${handle} est en phase de ${PHASE_LABELS[
+      phase
+    ].toLowerCase()} le ${jour} : aucune publication possible à cette date.`;
   }
-  return `Le compte ${handle} a atteint son quota du jour (${postsPerDay} post${
+  return `Quota atteint pour le ${jour} sur ${handle} : ${postsPerDay} publication${
     postsPerDay > 1 ? "s" : ""
-  } en phase de ${PHASE_LABELS[phase].toLowerCase()}).`;
+  } sur ${postsPerDay} en phase de ${PHASE_LABELS[phase].toLowerCase()}.`;
 }
