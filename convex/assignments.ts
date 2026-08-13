@@ -1,6 +1,7 @@
 import {
   adminMutation,
   adminQuery,
+  adminViewAsClipperQuery,
   adminViewAsQuery,
   clipperMutation,
   clipperQuery,
@@ -2157,48 +2158,76 @@ async function enrichForClipper(ctx: QueryCtx, a: Doc<"assignments">) {
   };
 }
 
-/** MES clips (filtre serveur par creatorId), les plus urgents d'abord. */
-export const listMyClips = clipperQuery({
-  args: {},
-  handler: async (ctx) => {
-    const mine = await ctx.db
-      .query("assignments")
-      .withIndex("by_creator", (q) => q.eq("creatorId", ctx.creatorId))
-      .collect();
-    const ordered = [...mine].sort(
-      (x, y) => (x.dueDate ?? x.createdAt) - (y.dueDate ?? y.createdAt),
-    );
-    return Promise.all(ordered.map((a) => enrichForClipper(ctx, a)));
-  },
-});
+/**
+ * Les clips d'UN clippeur, les plus urgents d'abord. Helper PARTAGÉ par la query
+ * clippeur et la query d'observation admin → l'admin lit la même file, dans le
+ * même ordre, réduite par la même allowlist.
+ */
+async function clipsForClipper(ctx: QueryCtx, clipperId: Id<"creators">) {
+  const mine = await ctx.db
+    .query("assignments")
+    .withIndex("by_creator", (q) => q.eq("creatorId", clipperId))
+    .collect();
+  const ordered = [...mine].sort(
+    (x, y) => (x.dueDate ?? x.createdAt) - (y.dueDate ?? y.createdAt),
+  );
+  return Promise.all(ordered.map((a) => enrichForClipper(ctx, a)));
+}
 
 /**
- * Fiche d'UN clip. `null` si ce n'est pas le mien — jamais une erreur : un
- * assignment d'un autre clippeur doit être INTROUVABLE, pas « refusé ».
+ * Fiche d'UN clip d'un clippeur DONNÉ. `null` si le clip ne lui appartient pas —
+ * jamais une erreur : un assignment d'un autre clippeur doit être INTROUVABLE,
+ * pas « refusé ». La garde vaut quel que soit l'appelant (clippeur authentifié
+ * OU admin observant), puisqu'elle porte sur le couple (clip, clippeur ciblé).
  */
+async function clipDetailFor(
+  ctx: QueryCtx,
+  clipperId: Id<"creators">,
+  id: Id<"assignments">,
+) {
+  const a = await ctx.db.get(id);
+  if (!a || a.creatorId !== clipperId) return null;
+  const base = await enrichForClipper(ctx, a);
+  // SA vidéo soumise, URL signée résolue serveur (le blob n'est lisible que
+  // par lui et par l'admin qui la relit).
+  const submittedVideoUrl = a.submittedVideoStorageId
+    ? await ctx.storage.getUrl(a.submittedVideoStorageId)
+    : null;
+  const assets = await resolveAssignmentAssets(ctx, a);
+  const scriptZones = a.scriptCombo
+    ? await splitScriptZones(ctx, a, a.scriptCombo)
+    : null;
+  return {
+    ...base,
+    submittedVideoUrl,
+    submittedVideoMimeType: a.submittedVideoMimeType ?? "video/mp4",
+    assets,
+    scriptZones,
+  };
+}
+
+/** MES clips (filtre serveur par ctx.creatorId, jamais par un argument). */
+export const listMyClips = clipperQuery({
+  args: {},
+  handler: async (ctx) => clipsForClipper(ctx, ctx.creatorId),
+});
+
+/** ADMIN observation — file de clips du clippeur ciblé (lecture seule). */
+export const listClipsAsAdmin = adminViewAsClipperQuery({
+  args: {},
+  handler: async (ctx) => clipsForClipper(ctx, ctx.creatorId),
+});
+
+/** Fiche d'un clip. `null` si ce n'est pas le mien. */
 export const getMyClip = clipperQuery({
   args: { id: v.id("assignments") },
-  handler: async (ctx, { id }) => {
-    const a = await ctx.db.get(id);
-    if (!a || a.creatorId !== ctx.creatorId) return null;
-    const base = await enrichForClipper(ctx, a);
-    // SA vidéo soumise, URL signée résolue serveur (le blob n'est lisible que
-    // par lui et par l'admin qui la relit).
-    const submittedVideoUrl = a.submittedVideoStorageId
-      ? await ctx.storage.getUrl(a.submittedVideoStorageId)
-      : null;
-    const assets = await resolveAssignmentAssets(ctx, a);
-    const scriptZones = a.scriptCombo
-      ? await splitScriptZones(ctx, a, a.scriptCombo)
-      : null;
-    return {
-      ...base,
-      submittedVideoUrl,
-      submittedVideoMimeType: a.submittedVideoMimeType ?? "video/mp4",
-      assets,
-      scriptZones,
-    };
-  },
+  handler: async (ctx, { id }) => clipDetailFor(ctx, ctx.creatorId, id),
+});
+
+/** ADMIN observation — fiche d'un clip du clippeur ciblé (lecture seule). */
+export const getClipDetailAsAdmin = adminViewAsClipperQuery({
+  args: { id: v.id("assignments") },
+  handler: async (ctx, { id }) => clipDetailFor(ctx, ctx.creatorId, id),
 });
 
 /**

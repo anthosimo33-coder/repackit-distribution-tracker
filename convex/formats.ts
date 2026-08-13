@@ -1,6 +1,7 @@
 import {
   adminMutation,
   adminQuery,
+  adminViewAsTalentQuery,
   e2eMutation,
   talentQuery,
 } from "./functions";
@@ -22,6 +23,8 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
  * chantier talent : `getMyTalentBrief`, dont la sortie est réduite par une
  * allowlist (cf convex/talentBriefFields.ts) — un format porte des textes de
  * script et une grille de paie, il ne sort jamais entier hors de l'admin.
+ * `getTalentBriefAsAdmin` (observation) passe par le MÊME cœur et donc la MÊME
+ * allowlist : l'admin lit ce que le talent lit, pas davantage.
  */
 
 const typeValidator = v.union(
@@ -179,7 +182,9 @@ export const getFormat = adminQuery({
 });
 
 /**
- * BRIEF PERMANENT DU TALENT — la seule lecture non-admin de ce module.
+ * BRIEF PERMANENT DU TALENT — cœur de lecture, partagé par la query TALENT
+ * (`getMyTalentBrief`, la seule lecture non-admin de ce module) et par la query
+ * d'OBSERVATION admin (`getTalentBriefAsAdmin`).
  *
  * Le talent n'a pas d'assignation : là où le partenaire découvre un brief à
  * travers une mission, lui a une consigne PERMANENTE, la même à chaque dépôt.
@@ -195,19 +200,43 @@ export const getFormat = adminQuery({
  * Renvoie `null` si aucun format n'est désigné, ou s'il a été supprimé : l'écran
  * affiche un état honnête plutôt qu'un cadre vide inexpliqué.
  */
+async function talentBriefFor(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+): Promise<TalentBriefView | null> {
+  const project = await ctx.db.get(projectId);
+  const formatId = project?.talentBriefFormatId;
+  if (!formatId) return null;
+  const format = await ctx.db.get(formatId);
+  // Défense en profondeur : un format d'un AUTRE projet ne sort jamais, même
+  // si le champ le désignait (édition manuelle, projet dupliqué).
+  if (!format || format.projectId !== projectId) return null;
+  const resolved = await withResolvedExamples(ctx, format);
+  return pickTalentBrief(resolved) as TalentBriefView;
+}
+
 export const getMyTalentBrief = talentQuery({
   args: {},
-  handler: async (ctx): Promise<TalentBriefView | null> => {
-    const project = await ctx.db.get(ctx.projectId);
-    const formatId = project?.talentBriefFormatId;
-    if (!formatId) return null;
-    const format = await ctx.db.get(formatId);
-    // Défense en profondeur : un format d'un AUTRE projet ne sort jamais, même
-    // si le champ le désignait (édition manuelle, projet dupliqué).
-    if (!format || format.projectId !== ctx.projectId) return null;
-    const resolved = await withResolvedExamples(ctx, format);
-    return pickTalentBrief(resolved) as TalentBriefView;
-  },
+  handler: async (ctx): Promise<TalentBriefView | null> =>
+    talentBriefFor(ctx, ctx.projectId),
+});
+
+/**
+ * ADMIN observation — le brief tel que le talent ciblé le lit.
+ *
+ * ⚠️ `creatorId` (exigé par le wrapper) NE FILTRE RIEN ICI, et c'est normal : le
+ * brief est attaché au PROJET, pas à la personne — deux talents du même projet
+ * lisent le même. L'argument sert à VÉRIFIER LA POPULATION observée : sans lui,
+ * cette query rendrait le brief talent en observant un partenaire ou un clippeur,
+ * c'est-à-dire un écran qui n'existe pas dans leur espace.
+ *
+ * NE PAS le retirer au motif qu'il est inutilisé dans le corps. C'est le wrapper
+ * qui le consomme, pas le handler.
+ */
+export const getTalentBriefAsAdmin = adminViewAsTalentQuery({
+  args: {},
+  handler: async (ctx): Promise<TalentBriefView | null> =>
+    talentBriefFor(ctx, ctx.projectId),
 });
 
 // ─── Mutations ─────────────────────────────────────────────────────────────

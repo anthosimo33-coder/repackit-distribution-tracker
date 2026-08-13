@@ -445,6 +445,58 @@ export const adminViewAsQuery = customQuery(query, {
 });
 
 /**
+ * OBSERVATION D'UNE POPULATION — même gate que `adminViewAsQuery` (identité,
+ * rôle admin du projet, fiche ciblée ∈ projet) PLUS une assertion : la fiche
+ * observée doit être de la population attendue.
+ *
+ * POURQUOI CETTE ASSERTION EXISTE. Sans elle, `listClipsAsAdmin` visé sur un
+ * créateur partenaire servirait ses assignations à travers l'allowlist CLIPPEUR,
+ * et `listRushesAsAdmin` visé sur un clippeur rendrait une liste vide qui se lit
+ * « ce clippeur n'a rien déposé » alors qu'un clippeur ne dépose jamais. C'est
+ * exactement le défaut de #45 — un outil d'observation qui rend autre chose que
+ * ce qu'il annonce — déplacé d'un cran, du routage vers le serveur. Une garde de
+ * population qui n'existe qu'à l'écran ne tient pas : on vient d'en faire la
+ * démonstration.
+ *
+ * UN WRAPPER PAR POPULATION, pas un générique paramétré à l'appel : la règle
+ * ci-dessus, appliquée à l'autre bout de la chaîne — la population fait partie
+ * de la garde, elle ne se choisit pas au moment de l'appel. Pendant exact de la
+ * vérification de cohérence de `requirePortalMember`, côté admin.
+ *
+ * ⚠️ ASYMÉTRIE ASSUMÉE : `adminViewAsQuery` (partenaire) reste kind-aveugle. Lui
+ * ajouter l'assertion changerait le comportement du chemin partenaire, qui est
+ * hors périmètre de TD-025. Le jour où on la lui pose, ce sera une décision à
+ * elle seule, avec sa spec — pas un effet de bord de ce commentaire.
+ */
+function adminViewAsPopulationQuery(role: PortalRole) {
+  return customQuery(query, {
+    args: { projectId: v.id("projects"), creatorId: v.id("creators") },
+    input: async (ctx, { projectId, creatorId }) => {
+      const userId = await requireUserId(ctx);
+      const creator = await requireCreatorViewableByAdmin(
+        ctx,
+        userId,
+        projectId,
+        creatorId,
+      );
+      if (roleForKind(creator.kind) !== role) {
+        // Message de la population VISÉE, pas de celle qu'on a trouvée : dire
+        // « c'est un talent » à qui demandait un clippeur renseignerait sur la
+        // fiche observée depuis une fonction qui vient de la refuser.
+        throw new ConvexError(PORTAL_REJECTION[role]);
+      }
+      return { ctx: { userId, projectId, creatorId: creator._id }, args: {} };
+    },
+  });
+}
+
+/** Observation d'un TALENT (lecture seule) — son brief, ses dépôts. */
+export const adminViewAsTalentQuery = adminViewAsPopulationQuery("talent");
+
+/** Observation d'un CLIPPEUR (lecture seule) — ses comptes, sa file, son quota. */
+export const adminViewAsClipperQuery = adminViewAsPopulationQuery("clipper");
+
+/**
  * P1 Créateurs — endpoint GENUINEMENT PUBLIC (pré-session). Réservé au flow
  * d'invitation : la page /join doit lire l'invitation par token AVANT que le
  * compte n'existe (aucune identité possible). Comme /login, pas d'auth. Seul

@@ -1,4 +1,6 @@
-// Accueil — vue admin (lecture seule) de l'espace d'un créateur. Même écran que
-// le portail créateur (DashboardScreen), alimenté par les données du créateur
-// ciblé via les hooks d'indirection + le contexte view-as du layout.
-export { default } from "@/components/portal/screens/DashboardScreen";
+// Accueil — vue admin (lecture seule) de l'espace d'un créateur. L'écran rendu
+// dépend de la POPULATION observée (cf ViewAsHomeScreen) : tableau de bord pour
+// un partenaire, espace de dépôt pour un talent, comptes et clips pour un
+// clippeur. Les données viennent des hooks d'indirection + du contexte view-as
+// posé par le layout.
+export { default } from "@/components/portal/ViewAsHomeScreen";
