@@ -74,6 +74,29 @@ export function comboKeysInCooldown(
 }
 
 /**
+ * Décale un planning de `days` JOURS CALENDAIRES.
+ *
+ * En masse, chaque créateur reçoit le planning saisi décalé de son rang : le 1er
+ * garde les dates telles quelles, le 2e +1 jour, etc. Sans ce décalage, tous les
+ * créateurs d'un lot visent la même date et se disputent la même fenêtre de
+ * cooldown — le pool se vide pour rien alors que les scripts pourraient
+ * simplement s'étaler.
+ *
+ * ⚠️ Arithmétique CALENDAIRE (`setDate`), pas `+ n × 86 400 000`. Les dates de
+ * post sont posées à minuit heure locale ; ajouter 24 h fixes à travers un
+ * changement d'heure les ferait atterrir à 23 h ou 01 h, donc potentiellement le
+ * mauvais JOUR. `setDate` suit le calendrier du fuseau du runtime.
+ */
+export function shiftPostDatesByDays(dates: number[], days: number): number[] {
+  if (days === 0) return [...dates];
+  return dates.map((ts) => {
+    const d = new Date(ts);
+    d.setDate(d.getDate() + days);
+    return d.getTime();
+  });
+}
+
+/**
  * Première date ≥ `targetAt` à laquelle AU MOINS UN combo se libère, ou `null`
  * si aucun usage ne bloque (donc rien à attendre). Sert au message d'erreur du
  * pool épuisé : sortir une date concrète plutôt qu'un « réessayez plus tard ».

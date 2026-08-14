@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { formatDate } from "@/lib/format";
+import { shiftPostDatesByDays } from "@/lib/scriptCombos";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { Loader2Icon, VideoIcon } from "lucide-react";
 import { SCRIPT_TIERS, tierLabel } from "@/lib/script-tier";
@@ -496,7 +497,7 @@ export function AssignScriptCampaignDialog({
     let created = 0;
     const failed: { id: string; name: string }[] = [];
     const shortNames: string[] = [];
-    for (const b of batch) {
+    for (const [idx, b] of batch.entries()) {
       try {
         const res = await assign({
           campaignId,
@@ -513,8 +514,12 @@ export function AssignScriptCampaignDialog({
               : undefined,
           modelVideos:
             selectedModelVideos.length > 0 ? selectedModelVideos : undefined,
-          // Même répartition de dates pour chaque créateur (décision groupé).
-          postDates: postDatesPayload,
+          // Planning DÉCALÉ d'un jour par créateur (1er = dates saisies, 2e +1j…).
+          // Envoyer le même tableau à tous les faisait viser la même date, donc se
+          // disputer la même fenêtre de cooldown : le pool se vidait alors que les
+          // scripts pouvaient simplement s'étaler.
+          postDates:
+            postDatesPayload && shiftPostDatesByDays(postDatesPayload, idx),
           // Même combinaison imposée pour chaque créateur (cas « rejouer chez 3 »).
           ...(imposedCombo
             ? {
@@ -1187,6 +1192,38 @@ export function AssignScriptCampaignDialog({
               <p className="max-h-24 overflow-y-auto">
                 {selectedRows.map((r) => r.creator.name).join(", ")}
               </p>
+              {postDatesPayload && selectedRows.length > 1 && (
+                <div
+                  className="rounded-md border border-slate-200 bg-slate-50 p-2 text-xs"
+                  data-testid="bulk-date-shift"
+                >
+                  <p className="font-medium text-slate-700">
+                    Planning décalé d&apos;un jour par créateur
+                  </p>
+                  <ul className="mt-1 space-y-0.5 text-slate-600">
+                    {selectedRows.slice(0, 4).map((r, i) => (
+                      <li key={r.creator._id}>
+                        {r.creator.name} —{" "}
+                        {shiftPostDatesByDays(postDatesPayload, i)
+                          .map((d) =>
+                            new Date(d).toLocaleDateString("fr-FR", {
+                              day: "2-digit",
+                              month: "2-digit",
+                            }),
+                          )
+                          .join(", ")}
+                        {i > 0 ? ` (+${i} j)` : ""}
+                      </li>
+                    ))}
+                    {selectedRows.length > 4 && (
+                      <li className="text-slate-400">
+                        … et {selectedRows.length - 4} autre
+                        {selectedRows.length - 4 > 1 ? "s" : ""}, +1 jour chacun
+                      </li>
+                    )}
+                  </ul>
+                </div>
+              )}
               <p className="text-xs text-slate-500">
                 Une assignation par créateur, échéance au {due}. Si un créateur
                 manque de combos uniques, il en reçoit moins (signalé après
