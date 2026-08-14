@@ -11,6 +11,7 @@ import {
   buildModelVideoItemsServer,
   representativePostedAt,
 } from "./assignments";
+import { formatDateFr } from "./dateFr";
 import { buildPricingSnapshot } from "./pricing";
 import { canTransition } from "./rushStatus";
 import { resolveCreatorKind } from "./roles";
@@ -345,6 +346,14 @@ async function assertComboFreeForCreatorPlatforms(
     creatorId: Id<"creators">;
     platforms: string[];
     excludeAssignmentId?: Id<"assignments">;
+    /**
+     * Date de publication visée — active le contrôle de COOLDOWN PROJET.
+     * Absente/nulle ⇒ seule l'unicité à vie est vérifiée (sans date visée il n'y
+     * a pas de fenêtre à calculer).
+     */
+    targetAt?: number | null;
+    /** Projet du cooldown. Passé explicitement : MutationCtx ne le porte pas. */
+    projectId: Id<"projects">;
   },
 ): Promise<void> {
   const target = new Set(input.platforms);
@@ -365,6 +374,36 @@ async function assertComboFreeForCreatorPlatforms(
         `Ce combo est déjà utilisé pour ${creator?.name ?? "ce créateur"} sur ${conflict}.`,
       );
     }
+  }
+
+  // ─── Cooldown PROJET ────────────────────────────────────────────────────────
+  // Même règle que le tirage auto (commit 1), appliquée ici au chemin d'ÉDITION :
+  // changer une brique fabrique un comboKey NEUF, qui peut très bien retomber sur
+  // un script programmé ailleurs dans la fenêtre. Sans ce contrôle, l'édition
+  // serait la porte de sortie de la règle.
+  if (input.targetAt === undefined || input.targetAt === null) return;
+  const projectRows = await projectAssignmentsForCooldown(ctx, input.projectId);
+  for (const a of projectRows) {
+    if (a._id === input.excludeAssignmentId) continue;
+    if (a.comboKey !== input.comboKey) continue;
+    if (COOLDOWN_IGNORED_STATUSES.has(a.status)) continue;
+    const anchor = cooldownAnchorOf(a);
+    if (anchor === null) continue;
+    if (Math.abs(anchor - input.targetAt) >= COOLDOWN_DAYS * DAY_MS) continue;
+    // Message OPÉRATIONNEL : sans le compte ni les dates, l'admin ne peut ni
+    // vérifier ni choisir une autre date — il ne peut que subir le refus.
+    const handles: string[] = [];
+    for (const t of a.targets ?? []) {
+      if (!t.accountId) continue;
+      const compte = await ctx.db.get(t.accountId);
+      if (compte) handles.push(compte.handle);
+    }
+    const oue = handles.length > 0 ? handles.join(", ") : "un autre compte";
+    throw new ConvexError(
+      `Ce script est déjà programmé sur ${oue} le ${formatDateFr(anchor)} ` +
+        `(cooldown de ${COOLDOWN_DAYS} jours). Il redevient disponible le ` +
+        `${formatDateFr(anchor + COOLDOWN_DAYS * DAY_MS)}.`,
+    );
   }
 }
 
@@ -1011,6 +1050,28 @@ export const assignScriptCampaign = adminMutation({
       }
     }
 
+    // ─── Imposé : on ne bloque pas, mais on ne se tait pas ──────────────────────
+    // Un combo imposé (rejeu / choix manuel) reste hors règles : la réutilisation
+    // est volontaire. Elle devient invisible si personne ne la signale — or c'est
+    // exactement la forme du problème qu'on corrige. On TRACE donc le doublon
+    // qu'on vient de laisser passer, sans l'empêcher.
+    if ((verbatimCombo || args.imposedCombo) && picked.length > 0) {
+      const imposedKey = verbatimCombo
+        ? verbatimCombo.comboKey
+        : comboKeyOf(picked[0]);
+      const rows = await projectAssignmentsForCooldown(ctx, ctx.projectId);
+      for (let i = 0; i < picked.length; i++) {
+        const targetAt = args.postDates?.[i];
+        if (!comboKeysInCooldownServer(rows, targetAt).has(imposedKey)) continue;
+        console.warn(
+          `[combo-cooldown] Combo imposé ${imposedKey} assigné à ${creator.name} ` +
+            `le ${formatDateFr(targetAt as number)} alors qu'il est déjà programmé ` +
+            `dans les ${COOLDOWN_DAYS} jours sur ce projet. Laissé passer ` +
+            `(imposé = volontaire), mais c'est un doublon inter-comptes.`,
+        );
+      }
+    }
+
     let created = 0;
     let firstAssignmentId: Id<"assignments"> | null = null;
     // Positionnel : la i-ème vidéo créée reçoit postDates[i] (undefined sinon).
@@ -1168,12 +1229,15 @@ export const editScriptCombo = adminMutation({
 
     // Garde unicité (comboKey, créateur, plateforme) : le nouveau combo ne doit
     // pas déjà être pris par un AUTRE assignment du même créateur sur l'une des
-    // plateformes ciblées par CET assignment.
+    // plateformes ciblées par CET assignment. + cooldown PROJET à la date de
+    // publication de CETTE assignation (son ancre : prévue, sinon réelle).
     await assertComboFreeForCreatorPlatforms(ctx, {
       comboKey,
       creatorId: a.creatorId,
       platforms: (a.targets ?? []).map((t) => t.platform),
       excludeAssignmentId: a._id,
+      targetAt: cooldownAnchorOf(a),
+      projectId: ctx.projectId,
     });
 
     await ctx.db.patch(args.id, {
