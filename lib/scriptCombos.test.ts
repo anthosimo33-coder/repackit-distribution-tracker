@@ -4,7 +4,11 @@ import {
   pickCombosForCreator,
   comboKeyOf,
   parseComboKey,
+  comboKeysInCooldown,
+  firstFreeSlotAfter,
+  shiftPostDatesByDays,
   type ComboBrick,
+  type ScheduledComboUsage,
 } from "./scriptCombos";
 
 /** Construit n bricks d'un kind donné (actives par défaut). */
@@ -227,5 +231,150 @@ describe("parseComboKey (rejeu depuis analytics)", () => {
   it("forme inattendue → null (non rejouable)", () => {
     expect(parseComboKey("h1:f1")).toBeNull();
     expect(parseComboKey("")).toBeNull();
+  });
+});
+
+// ─── Cooldown PROJET ────────────────────────────────────────────────────────
+//
+// Simule le chemin serveur : l'exclusion passée au picker est l'UNION de
+// l'unicité à vie (créateur × plateforme) et du cooldown projet à la date visée.
+// C'est exactement ce que fait convex/scripts.assignScriptCampaign, vidéo par
+// vidéo. Les dates sont des instants RÉELS (minuit Paris, comme en prod), pas
+// des entiers arbitraires.
+
+const J0 = Date.UTC(2026, 7, 10, 22, 0, 0); // 11/08 00:00 Paris
+const JOUR = 86_400_000;
+
+/** Le catalogue d'une petite campagne : 3 hooks × 2 flux × 2 cta = 12 combos. */
+function catalogue() {
+  return generateCombos([
+    ...bricks("hook", 3),
+    ...bricks("flux", 2),
+    ...bricks("cta", 2),
+  ]);
+}
+
+/** Reproduit la sélection serveur pour UNE vidéo à une date donnée. */
+function pickOne(
+  combos: ReturnType<typeof generateCombos>,
+  opts: {
+    lifetime?: Set<string>;
+    projectUsages?: ScheduledComboUsage[];
+    targetAt: number | null;
+  },
+) {
+  const excluded = new Set<string>([
+    ...(opts.lifetime ?? []),
+    ...comboKeysInCooldown(opts.projectUsages ?? [], opts.targetAt),
+  ]);
+  return pickCombosForCreator(combos, excluded, 1)[0] ?? null;
+}
+
+describe("cooldown projet — le même script ne repart pas ailleurs dans la fenêtre", () => {
+  it("deux créatrices sans historique, même campagne, même jour → combos DIFFÉRENTS", () => {
+    const combos = catalogue();
+    // Kelly passe en premier : rien ne bloque.
+    const kelly = pickOne(combos, { targetAt: J0 });
+    expect(kelly).not.toBeNull();
+    // Orlane vise le MÊME jour ; le combo de Kelly occupe désormais la fenêtre.
+    const orlane = pickOne(combos, {
+      targetAt: J0,
+      projectUsages: [{ comboKey: comboKeyOf(kelly!), anchorAt: J0 }],
+    });
+    expect(orlane).not.toBeNull();
+    expect(comboKeyOf(orlane!)).not.toBe(comboKeyOf(kelly!));
+  });
+
+  it("borne EXACTE : refusé à J+3, accepté à J+4", () => {
+    const combos = catalogue();
+    const kelly = pickOne(combos, { targetAt: J0 });
+    const usages: ScheduledComboUsage[] = [
+      { comboKey: comboKeyOf(kelly!), anchorAt: J0 },
+    ];
+    // J+3 : encore dans la fenêtre → le combo de Kelly est exclu.
+    expect(comboKeysInCooldown(usages, J0 + 3 * JOUR)).toContain(
+      comboKeyOf(kelly!),
+    );
+    // J+4 : la fenêtre est passée → il redevient piochable.
+    expect(comboKeysInCooldown(usages, J0 + 4 * JOUR).size).toBe(0);
+    // Et symétrique : programmer 3 jours AVANT est bloqué aussi, sinon on
+    // contournerait la règle en planifiant à rebours.
+    expect(comboKeysInCooldown(usages, J0 - 3 * JOUR)).toContain(
+      comboKeyOf(kelly!),
+    );
+    expect(comboKeysInCooldown(usages, J0 - 4 * JOUR).size).toBe(0);
+  });
+
+  it("l'exclusion à vie par créatrice survit à l'expiration du cooldown", () => {
+    const combos = catalogue();
+    const dejaVu = comboKeyOf(combos[0]);
+    // Le cooldown projet a expiré (J+10) : plus rien ne bloque de ce côté.
+    expect(comboKeysInCooldown([{ comboKey: dejaVu, anchorAt: J0 }], J0 + 10 * JOUR).size).toBe(0);
+    // Mais Kelly l'a DÉJÀ reçu : l'unicité à vie le lui interdit pour toujours.
+    const repioche = pickOne(combos, {
+      targetAt: J0 + 10 * JOUR,
+      lifetime: new Set([dejaVu]),
+      projectUsages: [{ comboKey: dejaVu, anchorAt: J0 }],
+    });
+    expect(repioche).not.toBeNull();
+    expect(comboKeyOf(repioche!)).not.toBe(dejaVu);
+  });
+
+  it("une ligne sans date d'ancrage n'occupe aucune fenêtre", () => {
+    const combos = catalogue();
+    const k = comboKeyOf(combos[0]);
+    expect(comboKeysInCooldown([{ comboKey: k, anchorAt: null }], J0).size).toBe(0);
+    // Et sans date VISÉE non plus : pas de fenêtre calculable.
+    expect(comboKeysInCooldown([{ comboKey: k, anchorAt: J0 }], null).size).toBe(0);
+  });
+
+  it("pool épuisé : rien n'est rendu, et la 1re libération est datée", () => {
+    // Catalogue minimal : 1 seul combo possible.
+    const combos = generateCombos([
+      ...bricks("hook", 1),
+      ...bricks("flux", 1),
+      ...bricks("cta", 1),
+    ]);
+    expect(combos.length).toBe(1);
+    const usages: ScheduledComboUsage[] = [
+      { comboKey: comboKeyOf(combos[0]), anchorAt: J0 },
+    ];
+    // Aucun combo disponible à J+1 → le picker ne rend RIEN (jamais un doublon).
+    expect(pickOne(combos, { targetAt: J0 + JOUR, projectUsages: usages })).toBeNull();
+    // Et on sait quoi répondre : le combo se libère à J0 + 4 jours.
+    expect(firstFreeSlotAfter(usages, J0 + JOUR)).toBe(J0 + 4 * JOUR);
+    // Rien ne bloque hors fenêtre → aucun créneau à attendre.
+    expect(firstFreeSlotAfter(usages, J0 + 10 * JOUR)).toBeNull();
+  });
+});
+
+describe("lot de 2 créatrices — ce qui garantit vraiment des combos distincts", () => {
+  it("le décalage +1 j ne MASQUE pas un doublon : à dates IDENTIQUES, l'exclusion projet suffit", () => {
+    const combos = catalogue();
+    // Dates volontairement IDENTIQUES (décalage neutralisé) : si les combos sont
+    // quand même distincts, c'est bien l'exclusion projet qui travaille — pas
+    // l'étalement des dates. C'est le point que le décalage pourrait camoufler.
+    const kelly = pickOne(combos, { targetAt: J0 });
+    const orlane = pickOne(combos, {
+      targetAt: J0,
+      projectUsages: [{ comboKey: comboKeyOf(kelly!), anchorAt: J0 }],
+    });
+    expect(comboKeyOf(orlane!)).not.toBe(comboKeyOf(kelly!));
+
+    // CONTRE-ÉPREUVE : sans l'exclusion projet, les deux tirages rendent le MÊME
+    // combo (le picker est déterministe). C'est l'état d'AVANT le correctif —
+    // il prouve que le test ci-dessus ne passe pas par hasard.
+    const sansRegle = pickCombosForCreator(combos, new Set(), 1)[0];
+    expect(comboKeyOf(sansRegle)).toBe(comboKeyOf(kelly!));
+  });
+
+  it("le planning est bien décalé d'un jour par rang de créatrice", () => {
+    const plan = [J0, J0 + JOUR];
+    expect(shiftPostDatesByDays(plan, 0)).toEqual(plan);
+    const decale = shiftPostDatesByDays(plan, 1);
+    expect(decale[0]).toBe(J0 + JOUR);
+    expect(decale[1]).toBe(J0 + 2 * JOUR);
+    // Le décalage ne modifie pas le tableau source.
+    expect(plan[0]).toBe(J0);
   });
 });
