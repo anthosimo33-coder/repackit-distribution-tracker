@@ -312,6 +312,28 @@ function comboKeysInCooldownServer(
 }
 
 /**
+ * Premier instant où un combo bloqué à `targetAt` se libère — RÉPLIQUE de
+ * lib/scriptCombos.firstFreeSlotAfter (A6). `null` = rien ne bloque à cette date
+ * (la pénurie vient alors du catalogue, pas du cooldown).
+ */
+function firstFreeSlotServer(
+  projectAssignments: Doc<"assignments">[],
+  targetAt: number,
+): number | null {
+  let best: number | null = null;
+  for (const a of projectAssignments) {
+    if (!a.comboKey) continue;
+    if (COOLDOWN_IGNORED_STATUSES.has(a.status)) continue;
+    const anchor = cooldownAnchorOf(a);
+    if (anchor === null) continue;
+    if (Math.abs(anchor - targetAt) >= COOLDOWN_DAYS * DAY_MS) continue;
+    const freeAt = anchor + COOLDOWN_DAYS * DAY_MS;
+    if (best === null || freeAt < best) best = freeAt;
+  }
+  return best;
+}
+
+/**
  * Assignments du projet servant au cooldown.
  *
  * ⚠️ LECTURE INTÉGRALE du projet puis filtre en mémoire, DÉLIBÉRÉ : l'ancre est
@@ -1037,7 +1059,28 @@ export const assignScriptCampaign = adminMutation({
           ...takenThisCall,
         ]);
         const one = pickCombosServer(combos, excluded, 1);
-        if (one.length === 0) break; // pool épuisé pour CETTE date
+        if (one.length === 0) {
+          // POOL ÉPUISÉ pour cette date. On ne dégrade pas en silence : assigner
+          // un combo en conflit reproduirait le bug qu'on corrige, et boucler sur
+          // les dates suivantes déciderait du planning à la place de l'admin.
+          // On refuse en disant QUAND ça repasse.
+          if (targetAt !== undefined) {
+            const freeAt = firstFreeSlotServer(projectRows, targetAt);
+            if (freeAt !== null) {
+              throw new ConvexError(
+                `Plus aucun script disponible pour le ${formatDateFr(targetAt)} : ` +
+                  `tous ceux de cette campagne sont déjà programmés dans les ` +
+                  `${COOLDOWN_DAYS} jours. Le premier se libère le ` +
+                  `${formatDateFr(freeAt)} — replanifie à partir de cette date, ` +
+                  `ou ajoute des briques à la campagne.`,
+              );
+            }
+          }
+          // Aucune date visée, ou pénurie qui ne vient pas du cooldown : le
+          // catalogue lui-même est trop petit (ou déjà entièrement vu par cette
+          // créatrice). Comportement historique conservé : pénurie signalée.
+          break;
+        }
         picked.push(one[0]);
         takenThisCall.add(comboKeyOf(one[0]));
       }
