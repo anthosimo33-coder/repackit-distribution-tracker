@@ -256,6 +256,83 @@ function usedComboKeysForPlatforms(
   return used;
 }
 
+/** Fenêtre de cooldown projet — RÉPLIQUE de lib/scriptCombos.COOLDOWN_DAYS (A6). */
+const COOLDOWN_DAYS = 4;
+const DAY_MS = 86_400_000;
+
+/**
+ * Statuts qui ne réservent AUCUNE fenêtre : la vidéo a été refusée, le script
+ * n'est jamais sorti. Il n'existe pas de statut « annulé » dans ce modèle — une
+ * assignation supprimée disparaît de la table, il n'y a donc rien d'autre à
+ * écarter (cf lib/assignment-status).
+ */
+const COOLDOWN_IGNORED_STATUSES = new Set(["video_rejected"]);
+
+/**
+ * Ancre de cooldown d'un assignment : date de publication PRÉVUE, à défaut la
+ * date RÉELLE de sortie. `null` si ni l'une ni l'autre (l'assignation n'occupe
+ * alors aucune fenêtre — elle reste couverte par l'unicité à vie).
+ *
+ * Le repli sur `dueDate` a été ÉCARTÉ délibérément : c'est une échéance de
+ * production, pas une date de sortie ; s'en servir créerait des cooldowns
+ * fantômes sur des posts jamais publiés.
+ */
+function cooldownAnchorOf(a: Doc<"assignments">): number | null {
+  if (typeof a.postDate === "number") return a.postDate;
+  const stamps = (a.targets ?? [])
+    .map((t) => t.publishedAt)
+    .filter((x): x is number => typeof x === "number");
+  return stamps.length > 0 ? Math.min(...stamps) : null;
+}
+
+/**
+ * comboKeys indisponibles à `targetAt` sur TOUT le projet — RÉPLIQUE EXACTE de
+ * lib/scriptCombos.comboKeysInCooldown (règle A6). Borne stricte : un écart
+ * d'exactement COOLDOWN_DAYS est autorisé (J+3 refusé, J+4 accepté).
+ *
+ * Les combos IMPOSÉS occupent la fenêtre (une publication imposée sort pour de
+ * vrai) alors qu'ils sont ignorés de l'unicité à vie : « hors règles » veut dire
+ * jamais REFUSÉ, pas invisible aux autres.
+ */
+function comboKeysInCooldownServer(
+  projectAssignments: Doc<"assignments">[],
+  targetAt: number | null | undefined,
+): Set<string> {
+  const out = new Set<string>();
+  if (targetAt === null || targetAt === undefined) return out;
+  for (const a of projectAssignments) {
+    if (!a.comboKey) continue;
+    if (COOLDOWN_IGNORED_STATUSES.has(a.status)) continue;
+    const anchor = cooldownAnchorOf(a);
+    if (anchor === null) continue;
+    if (Math.abs(anchor - targetAt) < COOLDOWN_DAYS * DAY_MS) out.add(a.comboKey);
+  }
+  return out;
+}
+
+/**
+ * Assignments du projet servant au cooldown.
+ *
+ * ⚠️ LECTURE INTÉGRALE du projet puis filtre en mémoire, DÉLIBÉRÉ : l'ancre est
+ * calculée (`postDate ?? targets[].publishedAt`), donc aucun index ne peut la
+ * couvrir en entier — un index ["projectId","postDate"] laisserait passer les
+ * lignes publiées sans postDate (27 % du parc au 2026-08-14 : 51 sur 191, dont
+ * 45 publiées). À ~200 lignes c'est exact et négligeable. SEUIL DE BASCULE :
+ * au-delà de ~2 000–3 000 assignments par projet, dénormaliser une colonne
+ * `cooldownAnchorAt` (écrite à l'assignation ET à la publication) et l'indexer
+ * ["projectId","cooldownAnchorAt"] — pas avant, un index partiel donnerait un
+ * faux sentiment d'exhaustivité.
+ */
+async function projectAssignmentsForCooldown(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+): Promise<Doc<"assignments">[]> {
+  return await ctx.db
+    .query("assignments")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+}
+
 /**
  * Garde serveur d'unicité : rejette (ConvexError lisible) si `comboKey` est déjà
  * utilisé par un AUTRE assignment du même créateur sur l'une des `platforms`.
@@ -893,12 +970,38 @@ export const assignScriptCampaign = adminMutation({
         .withIndex("by_creator", (q) => q.eq("creatorId", args.creatorId))
         .collect();
       const targetPlatforms = args.targets.map((t) => t.platform);
-      const usedKeys = usedComboKeysForPlatforms(
+      const lifetimeKeys = usedComboKeysForPlatforms(
         existing,
         args.creatorId,
         targetPlatforms,
       );
-      picked = pickCombosServer(combos, usedKeys, args.videosPerCreator);
+      // COOLDOWN PROJET : un combo programmé (ou sorti) à moins de COOLDOWN_DAYS
+      // de la date visée est indisponible, quel que soit le compte ou la
+      // créatrice. Deux exclusions qui se CUMULENT, elles ne se remplacent pas :
+      // l'unicité à vie reste appliquée par-dessus.
+      const projectRows = await projectAssignmentsForCooldown(
+        ctx,
+        ctx.projectId,
+      );
+      // Le tirage se fait VIDÉO PAR VIDÉO : chaque vidéo vise SA date, donc sa
+      // propre fenêtre de cooldown. Un tirage global sur l'union des dates
+      // sur-bloquerait (un combo occupé au jour 1 interdirait le jour 8).
+      // `takenThisCall` empêche le doublon intra-appel, que le picker garantit
+      // déjà quand on lui demande n d'un coup mais plus quand on l'appelle n fois.
+      picked = [];
+      const takenThisCall = new Set<string>();
+      for (let i = 0; i < args.videosPerCreator; i++) {
+        const targetAt = args.postDates?.[i];
+        const excluded = new Set<string>([
+          ...lifetimeKeys,
+          ...comboKeysInCooldownServer(projectRows, targetAt),
+          ...takenThisCall,
+        ]);
+        const one = pickCombosServer(combos, excluded, 1);
+        if (one.length === 0) break; // pool épuisé pour CETTE date
+        picked.push(one[0]);
+        takenThisCall.add(comboKeyOf(one[0]));
+      }
       if (picked.length < args.videosPerCreator) {
         shortages.push({
           name: creator.name,
