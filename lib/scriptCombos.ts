@@ -16,6 +16,112 @@
  */
 import { assembleScript, type ScriptKind, type ScriptTier } from "./scriptAssembly";
 
+/**
+ * Fenêtre de COOLDOWN d'un combo à l'échelle du PROJET, en jours. Un comboKey
+ * programmé (ou publié) à moins de `COOLDOWN_DAYS` d'une date visée n'est pas
+ * réattribuable à cette date — même sur un autre compte, même chez une autre
+ * créatrice. Passé ce délai il redevient piochable : ce n'est PAS une exclusion
+ * à vie (celle-là existe par créateur×plateforme, cf lib/script-combo-uniqueness).
+ *
+ * Seule et unique définition de la durée — ne pas réécrire « 4 » ailleurs.
+ */
+export const COOLDOWN_DAYS = 4;
+
+const DAY_MS = 86_400_000;
+
+/** Usage d'un combo déjà en base, réduit à ce dont le cooldown a besoin. */
+export interface ScheduledComboUsage {
+  comboKey: string | null | undefined;
+  /**
+   * Date d'ancrage = date de publication PRÉVUE (`postDate`), à défaut la date
+   * RÉELLE de sortie (`targets[].publishedAt`). `null` = aucune des deux → la
+   * ligne n'occupe aucune fenêtre (elle reste couverte par l'exclusion à vie).
+   */
+  anchorAt: number | null | undefined;
+}
+
+/**
+ * comboKeys INDISPONIBLES pour une date visée, à l'échelle du projet.
+ *
+ * Borne STRICTE : un écart de EXACTEMENT `cooldownDays` jours est AUTORISÉ.
+ * Avec 4 jours — J+3 refusé, J+4 accepté. Symétrique (valeur absolue) : on
+ * protège aussi bien vers le passé que vers le futur, sinon programmer à
+ * rebours contournerait la règle.
+ *
+ * ⚠️ Les combos IMPOSÉS occupent la fenêtre comme les autres, alors qu'ils sont
+ * ignorés de l'unicité à vie. Ce n'est pas une incohérence : un combo imposé est
+ * une publication RÉELLE, elle sort le même jour que les autres. « Hors règles »
+ * signifie qu'un imposé n'est jamais REFUSÉ, pas qu'il devient invisible aux
+ * autres.
+ *
+ * `targetAt` nul (assignation sans date planifiée) → aucun cooldown : sans date
+ * visée, il n'y a pas de fenêtre à calculer.
+ */
+export function comboKeysInCooldown(
+  usages: ScheduledComboUsage[],
+  targetAt: number | null | undefined,
+  cooldownDays: number = COOLDOWN_DAYS,
+): Set<string> {
+  const out = new Set<string>();
+  if (targetAt === null || targetAt === undefined) return out;
+  const window = cooldownDays * DAY_MS;
+  for (const u of usages) {
+    if (!u.comboKey) continue;
+    if (u.anchorAt === null || u.anchorAt === undefined) continue;
+    if (Math.abs(u.anchorAt - targetAt) < window) out.add(u.comboKey);
+  }
+  return out;
+}
+
+/**
+ * Décale un planning de `days` JOURS CALENDAIRES.
+ *
+ * En masse, chaque créateur reçoit le planning saisi décalé de son rang : le 1er
+ * garde les dates telles quelles, le 2e +1 jour, etc. Sans ce décalage, tous les
+ * créateurs d'un lot visent la même date et se disputent la même fenêtre de
+ * cooldown — le pool se vide pour rien alors que les scripts pourraient
+ * simplement s'étaler.
+ *
+ * ⚠️ Arithmétique CALENDAIRE (`setDate`), pas `+ n × 86 400 000`. Les dates de
+ * post sont posées à minuit heure locale ; ajouter 24 h fixes à travers un
+ * changement d'heure les ferait atterrir à 23 h ou 01 h, donc potentiellement le
+ * mauvais JOUR. `setDate` suit le calendrier du fuseau du runtime.
+ */
+export function shiftPostDatesByDays(dates: number[], days: number): number[] {
+  if (days === 0) return [...dates];
+  return dates.map((ts) => {
+    const d = new Date(ts);
+    d.setDate(d.getDate() + days);
+    return d.getTime();
+  });
+}
+
+/**
+ * Première date ≥ `targetAt` à laquelle AU MOINS UN combo se libère, ou `null`
+ * si aucun usage ne bloque (donc rien à attendre). Sert au message d'erreur du
+ * pool épuisé : sortir une date concrète plutôt qu'un « réessayez plus tard ».
+ *
+ * Un combo bloqué par un usage ancré à `A` redevient libre à `A + fenêtre`. La
+ * première libération utile est donc le plus PETIT de ces instants parmi les
+ * seuls combos qui bloquent réellement à `targetAt`.
+ */
+export function firstFreeSlotAfter(
+  usages: ScheduledComboUsage[],
+  targetAt: number,
+  cooldownDays: number = COOLDOWN_DAYS,
+): number | null {
+  const window = cooldownDays * DAY_MS;
+  let best: number | null = null;
+  for (const u of usages) {
+    if (!u.comboKey) continue;
+    if (u.anchorAt === null || u.anchorAt === undefined) continue;
+    if (Math.abs(u.anchorAt - targetAt) >= window) continue;
+    const freeAt = u.anchorAt + window;
+    if (best === null || freeAt < best) best = freeAt;
+  }
+  return best;
+}
+
 export interface ComboBrick {
   _id: string;
   kind: ScriptKind;

@@ -11,6 +11,7 @@ import {
   buildModelVideoItemsServer,
   representativePostedAt,
 } from "./assignments";
+import { formatDateFr } from "./dateFr";
 import { buildPricingSnapshot } from "./pricing";
 import { canTransition } from "./rushStatus";
 import { resolveCreatorKind } from "./roles";
@@ -256,6 +257,105 @@ function usedComboKeysForPlatforms(
   return used;
 }
 
+/** Fenêtre de cooldown projet — RÉPLIQUE de lib/scriptCombos.COOLDOWN_DAYS (A6). */
+const COOLDOWN_DAYS = 4;
+const DAY_MS = 86_400_000;
+
+/**
+ * Statuts qui ne réservent AUCUNE fenêtre : la vidéo a été refusée, le script
+ * n'est jamais sorti. Il n'existe pas de statut « annulé » dans ce modèle — une
+ * assignation supprimée disparaît de la table, il n'y a donc rien d'autre à
+ * écarter (cf lib/assignment-status).
+ */
+const COOLDOWN_IGNORED_STATUSES = new Set(["video_rejected"]);
+
+/**
+ * Ancre de cooldown d'un assignment : date de publication PRÉVUE, à défaut la
+ * date RÉELLE de sortie. `null` si ni l'une ni l'autre (l'assignation n'occupe
+ * alors aucune fenêtre — elle reste couverte par l'unicité à vie).
+ *
+ * Le repli sur `dueDate` a été ÉCARTÉ délibérément : c'est une échéance de
+ * production, pas une date de sortie ; s'en servir créerait des cooldowns
+ * fantômes sur des posts jamais publiés.
+ */
+function cooldownAnchorOf(a: Doc<"assignments">): number | null {
+  if (typeof a.postDate === "number") return a.postDate;
+  const stamps = (a.targets ?? [])
+    .map((t) => t.publishedAt)
+    .filter((x): x is number => typeof x === "number");
+  return stamps.length > 0 ? Math.min(...stamps) : null;
+}
+
+/**
+ * comboKeys indisponibles à `targetAt` sur TOUT le projet — RÉPLIQUE EXACTE de
+ * lib/scriptCombos.comboKeysInCooldown (règle A6). Borne stricte : un écart
+ * d'exactement COOLDOWN_DAYS est autorisé (J+3 refusé, J+4 accepté).
+ *
+ * Les combos IMPOSÉS occupent la fenêtre (une publication imposée sort pour de
+ * vrai) alors qu'ils sont ignorés de l'unicité à vie : « hors règles » veut dire
+ * jamais REFUSÉ, pas invisible aux autres.
+ */
+function comboKeysInCooldownServer(
+  projectAssignments: Doc<"assignments">[],
+  targetAt: number | null | undefined,
+): Set<string> {
+  const out = new Set<string>();
+  if (targetAt === null || targetAt === undefined) return out;
+  for (const a of projectAssignments) {
+    if (!a.comboKey) continue;
+    if (COOLDOWN_IGNORED_STATUSES.has(a.status)) continue;
+    const anchor = cooldownAnchorOf(a);
+    if (anchor === null) continue;
+    if (Math.abs(anchor - targetAt) < COOLDOWN_DAYS * DAY_MS) out.add(a.comboKey);
+  }
+  return out;
+}
+
+/**
+ * Premier instant où un combo bloqué à `targetAt` se libère — RÉPLIQUE de
+ * lib/scriptCombos.firstFreeSlotAfter (A6). `null` = rien ne bloque à cette date
+ * (la pénurie vient alors du catalogue, pas du cooldown).
+ */
+function firstFreeSlotServer(
+  projectAssignments: Doc<"assignments">[],
+  targetAt: number,
+): number | null {
+  let best: number | null = null;
+  for (const a of projectAssignments) {
+    if (!a.comboKey) continue;
+    if (COOLDOWN_IGNORED_STATUSES.has(a.status)) continue;
+    const anchor = cooldownAnchorOf(a);
+    if (anchor === null) continue;
+    if (Math.abs(anchor - targetAt) >= COOLDOWN_DAYS * DAY_MS) continue;
+    const freeAt = anchor + COOLDOWN_DAYS * DAY_MS;
+    if (best === null || freeAt < best) best = freeAt;
+  }
+  return best;
+}
+
+/**
+ * Assignments du projet servant au cooldown.
+ *
+ * ⚠️ LECTURE INTÉGRALE du projet puis filtre en mémoire, DÉLIBÉRÉ : l'ancre est
+ * calculée (`postDate ?? targets[].publishedAt`), donc aucun index ne peut la
+ * couvrir en entier — un index ["projectId","postDate"] laisserait passer les
+ * lignes publiées sans postDate (27 % du parc au 2026-08-14 : 51 sur 191, dont
+ * 45 publiées). À ~200 lignes c'est exact et négligeable. SEUIL DE BASCULE :
+ * au-delà de ~2 000–3 000 assignments par projet, dénormaliser une colonne
+ * `cooldownAnchorAt` (écrite à l'assignation ET à la publication) et l'indexer
+ * ["projectId","cooldownAnchorAt"] — pas avant, un index partiel donnerait un
+ * faux sentiment d'exhaustivité.
+ */
+async function projectAssignmentsForCooldown(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+): Promise<Doc<"assignments">[]> {
+  return await ctx.db
+    .query("assignments")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+}
+
 /**
  * Garde serveur d'unicité : rejette (ConvexError lisible) si `comboKey` est déjà
  * utilisé par un AUTRE assignment du même créateur sur l'une des `platforms`.
@@ -268,6 +368,14 @@ async function assertComboFreeForCreatorPlatforms(
     creatorId: Id<"creators">;
     platforms: string[];
     excludeAssignmentId?: Id<"assignments">;
+    /**
+     * Date de publication visée — active le contrôle de COOLDOWN PROJET.
+     * Absente/nulle ⇒ seule l'unicité à vie est vérifiée (sans date visée il n'y
+     * a pas de fenêtre à calculer).
+     */
+    targetAt?: number | null;
+    /** Projet du cooldown. Passé explicitement : MutationCtx ne le porte pas. */
+    projectId: Id<"projects">;
   },
 ): Promise<void> {
   const target = new Set(input.platforms);
@@ -288,6 +396,36 @@ async function assertComboFreeForCreatorPlatforms(
         `Ce combo est déjà utilisé pour ${creator?.name ?? "ce créateur"} sur ${conflict}.`,
       );
     }
+  }
+
+  // ─── Cooldown PROJET ────────────────────────────────────────────────────────
+  // Même règle que le tirage auto (commit 1), appliquée ici au chemin d'ÉDITION :
+  // changer une brique fabrique un comboKey NEUF, qui peut très bien retomber sur
+  // un script programmé ailleurs dans la fenêtre. Sans ce contrôle, l'édition
+  // serait la porte de sortie de la règle.
+  if (input.targetAt === undefined || input.targetAt === null) return;
+  const projectRows = await projectAssignmentsForCooldown(ctx, input.projectId);
+  for (const a of projectRows) {
+    if (a._id === input.excludeAssignmentId) continue;
+    if (a.comboKey !== input.comboKey) continue;
+    if (COOLDOWN_IGNORED_STATUSES.has(a.status)) continue;
+    const anchor = cooldownAnchorOf(a);
+    if (anchor === null) continue;
+    if (Math.abs(anchor - input.targetAt) >= COOLDOWN_DAYS * DAY_MS) continue;
+    // Message OPÉRATIONNEL : sans le compte ni les dates, l'admin ne peut ni
+    // vérifier ni choisir une autre date — il ne peut que subir le refus.
+    const handles: string[] = [];
+    for (const t of a.targets ?? []) {
+      if (!t.accountId) continue;
+      const compte = await ctx.db.get(t.accountId);
+      if (compte) handles.push(compte.handle);
+    }
+    const oue = handles.length > 0 ? handles.join(", ") : "un autre compte";
+    throw new ConvexError(
+      `Ce script est déjà programmé sur ${oue} le ${formatDateFr(anchor)} ` +
+        `(cooldown de ${COOLDOWN_DAYS} jours). Il redevient disponible le ` +
+        `${formatDateFr(anchor + COOLDOWN_DAYS * DAY_MS)}.`,
+    );
   }
 }
 
@@ -893,18 +1031,87 @@ export const assignScriptCampaign = adminMutation({
         .withIndex("by_creator", (q) => q.eq("creatorId", args.creatorId))
         .collect();
       const targetPlatforms = args.targets.map((t) => t.platform);
-      const usedKeys = usedComboKeysForPlatforms(
+      const lifetimeKeys = usedComboKeysForPlatforms(
         existing,
         args.creatorId,
         targetPlatforms,
       );
-      picked = pickCombosServer(combos, usedKeys, args.videosPerCreator);
+      // COOLDOWN PROJET : un combo programmé (ou sorti) à moins de COOLDOWN_DAYS
+      // de la date visée est indisponible, quel que soit le compte ou la
+      // créatrice. Deux exclusions qui se CUMULENT, elles ne se remplacent pas :
+      // l'unicité à vie reste appliquée par-dessus.
+      const projectRows = await projectAssignmentsForCooldown(
+        ctx,
+        ctx.projectId,
+      );
+      // Le tirage se fait VIDÉO PAR VIDÉO : chaque vidéo vise SA date, donc sa
+      // propre fenêtre de cooldown. Un tirage global sur l'union des dates
+      // sur-bloquerait (un combo occupé au jour 1 interdirait le jour 8).
+      // `takenThisCall` empêche le doublon intra-appel, que le picker garantit
+      // déjà quand on lui demande n d'un coup mais plus quand on l'appelle n fois.
+      picked = [];
+      const takenThisCall = new Set<string>();
+      for (let i = 0; i < args.videosPerCreator; i++) {
+        const targetAt = args.postDates?.[i];
+        const excluded = new Set<string>([
+          ...lifetimeKeys,
+          ...comboKeysInCooldownServer(projectRows, targetAt),
+          ...takenThisCall,
+        ]);
+        const one = pickCombosServer(combos, excluded, 1);
+        if (one.length === 0) {
+          // POOL ÉPUISÉ pour cette date. On ne dégrade pas en silence : assigner
+          // un combo en conflit reproduirait le bug qu'on corrige, et boucler sur
+          // les dates suivantes déciderait du planning à la place de l'admin.
+          // On refuse en disant QUAND ça repasse.
+          if (targetAt !== undefined) {
+            const freeAt = firstFreeSlotServer(projectRows, targetAt);
+            if (freeAt !== null) {
+              throw new ConvexError(
+                `Plus aucun script disponible pour le ${formatDateFr(targetAt)} : ` +
+                  `tous ceux de cette campagne sont déjà programmés dans les ` +
+                  `${COOLDOWN_DAYS} jours. Le premier se libère le ` +
+                  `${formatDateFr(freeAt)} — replanifie à partir de cette date, ` +
+                  `ou ajoute des briques à la campagne.`,
+              );
+            }
+          }
+          // Aucune date visée, ou pénurie qui ne vient pas du cooldown : le
+          // catalogue lui-même est trop petit (ou déjà entièrement vu par cette
+          // créatrice). Comportement historique conservé : pénurie signalée.
+          break;
+        }
+        picked.push(one[0]);
+        takenThisCall.add(comboKeyOf(one[0]));
+      }
       if (picked.length < args.videosPerCreator) {
         shortages.push({
           name: creator.name,
           requested: args.videosPerCreator,
           assigned: picked.length,
         });
+      }
+    }
+
+    // ─── Imposé : on ne bloque pas, mais on ne se tait pas ──────────────────────
+    // Un combo imposé (rejeu / choix manuel) reste hors règles : la réutilisation
+    // est volontaire. Elle devient invisible si personne ne la signale — or c'est
+    // exactement la forme du problème qu'on corrige. On TRACE donc le doublon
+    // qu'on vient de laisser passer, sans l'empêcher.
+    if ((verbatimCombo || args.imposedCombo) && picked.length > 0) {
+      const imposedKey = verbatimCombo
+        ? verbatimCombo.comboKey
+        : comboKeyOf(picked[0]);
+      const rows = await projectAssignmentsForCooldown(ctx, ctx.projectId);
+      for (let i = 0; i < picked.length; i++) {
+        const targetAt = args.postDates?.[i];
+        if (!comboKeysInCooldownServer(rows, targetAt).has(imposedKey)) continue;
+        console.warn(
+          `[combo-cooldown] Combo imposé ${imposedKey} assigné à ${creator.name} ` +
+            `le ${formatDateFr(targetAt as number)} alors qu'il est déjà programmé ` +
+            `dans les ${COOLDOWN_DAYS} jours sur ce projet. Laissé passer ` +
+            `(imposé = volontaire), mais c'est un doublon inter-comptes.`,
+        );
       }
     }
 
@@ -1065,12 +1272,15 @@ export const editScriptCombo = adminMutation({
 
     // Garde unicité (comboKey, créateur, plateforme) : le nouveau combo ne doit
     // pas déjà être pris par un AUTRE assignment du même créateur sur l'une des
-    // plateformes ciblées par CET assignment.
+    // plateformes ciblées par CET assignment. + cooldown PROJET à la date de
+    // publication de CETTE assignation (son ancre : prévue, sinon réelle).
     await assertComboFreeForCreatorPlatforms(ctx, {
       comboKey,
       creatorId: a.creatorId,
       platforms: (a.targets ?? []).map((t) => t.platform),
       excludeAssignmentId: a._id,
+      targetAt: cooldownAnchorOf(a),
+      projectId: ctx.projectId,
     });
 
     await ctx.db.patch(args.id, {
