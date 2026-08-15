@@ -26,6 +26,9 @@ import {
   buildVideoApprovedMessage,
   buildVideoRejectedMessage,
   publicationLine,
+  latePublicationLine,
+  buildLatePublicationMessage,
+  buildGroupedLatePublicationsMessage,
   buildRenewalFailedMessage,
   buildSubmissionMessage,
   buildTestMessage,
@@ -39,6 +42,7 @@ import {
 } from "./opsDigest";
 import { effectiveStatus } from "./comptes";
 import { resolveCreatorKind } from "./roles";
+import { lateDays, representativePostedAt } from "./calendarStatus";
 import {
   isChauffeSansTalent,
   joursAvantSortieDeChauffe,
@@ -385,28 +389,60 @@ export const flushWindow = internalAction({
     // fenêtre. Pour les soumissions, LES DEUX clés sont testées — la fenêtre
     // mélange soumission et re-soumission (cf SUBMISSION_KIND), n'en tester
     // qu'une jetterait tout le tampon d'un projet qui n'a activé que l'autre.
-    const publication = claimResult.kind === PUBLICATION_KIND;
+    //
+    // Table plutôt que ternaires imbriqués : à deux types de fenêtre un booléen
+    // suffisait, à trois il devient une source d'erreur silencieuse (un `else`
+    // qui ramasse le mauvais cas enverrait le mauvais message).
+    const GROUPES: Record<
+      string,
+      {
+        events: NotificationEventKey[];
+        label: string;
+        build: (p: {
+          lines: string[];
+          total: number;
+          appBaseUrl: string;
+          projectSlug: string;
+        }) => string;
+      }
+    > = {
+      [PUBLICATION_KIND]: {
+        events: ["publication_confirmed"],
+        label: "publications groupées",
+        build: buildGroupedPublicationsMessage,
+      },
+      [LATE_PUBLICATION_KIND]: {
+        events: ["publication_late"],
+        label: "publications en retard groupées",
+        build: buildGroupedLatePublicationsMessage,
+      },
+      [SUBMISSION_KIND]: {
+        events: ["video_submitted", "video_resubmitted"],
+        label: "soumissions groupées",
+        build: buildGroupedSubmissionsMessage,
+      },
+    };
+    const groupe = GROUPES[claimResult.kind];
+    // Type de fenêtre inconnu (déploiement en cours d'une nouvelle clé, tampon
+    // écrit par la version d'avant) : on ne devine pas, on n'envoie pas.
+    if (groupe === undefined) return { ok: false, reason: "not-found" };
+
     const nctx = await resolveNotifyContext(
       ctx,
       claimResult.projectId,
-      publication
-        ? ["publication_confirmed"]
-        : ["video_submitted", "video_resubmitted"],
+      groupe.events,
     );
     if (nctx === null) return DISABLED;
 
-    const commun = {
-      lines: claimResult.lines,
-      total: claimResult.total,
-      appBaseUrl: nctx.cfg.appBaseUrl,
-      projectSlug: nctx.projectSlug,
-    };
     return deliver(
       nctx.cfg,
-      publication ? "publications groupées" : "soumissions groupées",
-      publication
-        ? buildGroupedPublicationsMessage(commun)
-        : buildGroupedSubmissionsMessage(commun),
+      groupe.label,
+      groupe.build({
+        lines: claimResult.lines,
+        total: claimResult.total,
+        appBaseUrl: nctx.cfg.appBaseUrl,
+        projectSlug: nctx.projectSlug,
+      }),
     );
   },
 });
@@ -629,6 +665,117 @@ export const notifyPublication = internalAction({
         projectSlug: nctx.projectSlug,
       }),
     );
+  },
+});
+
+/**
+ * Fenêtre des publications EN RETARD — DISTINCTE de PUBLICATION_KIND.
+ *
+ * Une rafale peut contenir des posts à l'heure et des posts en retard ; les
+ * mélanger dans un même tampon produirait un message groupé qui annonce « 5
+ * publications en retard » dont trois ne le sont pas.
+ */
+const LATE_PUBLICATION_KIND = "publication_late";
+
+/**
+ * Événement « une publication est sortie APRÈS sa date prévue ».
+ *
+ * Planifié depuis `confirmPublicationCore`, comme `notifyPublication` : le cœur
+ * PARTAGÉ par la créatrice et par l'admin en secours. Un lien collé en retard
+ * par l'admin alerte donc exactement comme celui de la créatrice.
+ *
+ * ⚠️ Le SIGNE, pas le statut. `lateDays` rend `null` pour un post à l'heure OU
+ * EN AVANCE ; l'action sort alors sans rien émettre. `calendarStatus` range
+ * pourtant l'avance dans « en retard » — c'est juste pour une pastille « hors
+ * date », et faux pour un message qui compte des jours.
+ */
+export const notifyLatePublication = internalAction({
+  args: { assignmentId: v.id("assignments") },
+  handler: async (ctx, { assignmentId }): Promise<Outcome> => {
+    const data = await ctx.runQuery(
+      internal.notifications.getLatePublicationContext,
+      { assignmentId },
+    );
+    if (data === null) return { ok: false, reason: "not-found" };
+    // Pas en retard (à l'heure, en avance, ou pas de date prévue) : rien à dire.
+    if (data.lateDays === null) return { ok: true };
+    const nctx = await resolveNotifyContext(
+      ctx,
+      data.projectId,
+      "publication_late",
+    );
+    if (nctx === null) return { ok: false, reason: "event-off" };
+
+    const context = {
+      creatorName: data.creatorName,
+      campaignName: data.campaignName,
+      formatName: data.formatName,
+      lateDays: data.lateDays,
+      postDate: data.postDate!,
+      accountHandles: data.accountHandles,
+      isClip: data.isClip,
+    };
+    const { lead } = await ctx.runMutation(
+      internal.notifications.openOrAppendWindow,
+      {
+        projectId: data.projectId,
+        kind: LATE_PUBLICATION_KIND,
+        line: latePublicationLine(context),
+      },
+    );
+    if (!lead) return { ok: true };
+
+    return deliver(
+      nctx.cfg,
+      "publication_late",
+      buildLatePublicationMessage({
+        ctx: context,
+        appBaseUrl: nctx.cfg.appBaseUrl,
+        projectSlug: nctx.projectSlug,
+        creatorId: data.creatorId,
+      }),
+    );
+  },
+});
+
+/**
+ * Contexte d'un retard : le décalage en jours, la date prévue, les comptes.
+ *
+ * Requête distincte de `getAssignmentEventContext` parce qu'elle répond à une
+ * question différente — « de combien ce post est-il en retard ? » — et que la
+ * réponse `null` (pas en retard) est le cas le plus fréquent : la calculer ici
+ * évite de composer un message pour rien.
+ */
+export const getLatePublicationContext = internalQuery({
+  args: { assignmentId: v.id("assignments") },
+  handler: async (ctx, { assignmentId }) => {
+    const a = await ctx.db.get(assignmentId);
+    if (a === null) return null;
+    const creator = await ctx.db.get(a.creatorId);
+    const format = a.formatId ? await ctx.db.get(a.formatId) : null;
+    const campaign = a.scriptCombo
+      ? await ctx.db.get(a.scriptCombo.campaignId)
+      : null;
+    const handles: string[] = [];
+    for (const t of a.targets ?? []) {
+      if (!t.accountId) continue;
+      const compte = await ctx.db.get(t.accountId);
+      if (compte && !handles.includes(compte.handle)) handles.push(compte.handle);
+    }
+    return {
+      projectId: a.projectId,
+      creatorId: a.creatorId,
+      creatorName: creator?.name ?? a.creatorNameSnapshot ?? "—",
+      campaignName: campaign?.name ?? null,
+      formatName: format?.name ?? null,
+      postDate: a.postDate ?? null,
+      accountHandles: handles,
+      isClip: resolveCreatorKind(creator?.kind) === "clipper",
+      lateDays: lateDays({
+        postDate: a.postDate ?? null,
+        postedAt: representativePostedAt(a),
+      }),
+    };
   },
 });
 

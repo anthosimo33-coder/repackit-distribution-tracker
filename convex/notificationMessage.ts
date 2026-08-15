@@ -23,6 +23,9 @@
  */
 
 import { escapeTelegram } from "./notifyApi";
+// Fuseau ÉPINGLÉ sur Paris (cf convex/dateFr.ts) : une date de post rendue en
+// UTC afficherait la veille pour 28 % des publications — défaut #52.
+import { formatDayMonthFr } from "./dateFr";
 
 /** Longueur max d'une liste à puces avant repli « et N autres ». */
 const LIST_CAP = 8;
@@ -329,6 +332,81 @@ export function buildGroupedPublicationsMessage(params: {
   const n = params.total ?? lines.length;
   return [
     `🚀 <b>${n} autre${n > 1 ? "s" : ""} ${plural(n, "publication")}</b>`,
+    "",
+    bulletList(lines, n),
+    "",
+    link("Ouvrir les missions", assignmentsUrl(appBaseUrl, projectSlug)),
+  ].join("\n");
+}
+
+// ─── Publication EN RETARD ───────────────────────────────────────────────────
+
+/**
+ * Contexte d'une publication sortie APRÈS sa date prévue.
+ *
+ * ⚠️ `lateDays` est TOUJOURS strictement positif ici : le calcul en amont
+ * (`convex/calendarStatus.lateDays`) rend `null` pour un post à l'heure OU EN
+ * AVANCE, et l'action n'émet rien dans ce cas. Le statut calendrier, lui, range
+ * l'avance dans « en retard » — correct pour une pastille « hors date », faux
+ * pour un message qui annonce des jours de retard.
+ */
+export interface LatePublicationContext {
+  creatorName: string;
+  campaignName: string | null;
+  formatName: string | null;
+  /** Jours pleins de retard, > 0. */
+  lateDays: number;
+  /** Jour prévu (ms) — rendu en JJ/MM, fuseau Paris. */
+  postDate: number;
+  /** Comptes sur lesquels le post est sorti. */
+  accountHandles: string[];
+  isClip?: boolean;
+}
+
+/** « sur @a et @b », ou rien si aucun compte n'est identifiable. */
+function surLesComptes(handles: string[]): string {
+  if (handles.length === 0) return "";
+  if (handles.length === 1) return ` sur ${handles[0]}`;
+  return ` sur ${handles.slice(0, -1).join(", ")} et ${handles[handles.length - 1]}`;
+}
+
+/** Ligne compacte d'une publication en retard, pour le message groupé. */
+export function latePublicationLine(ctx: LatePublicationContext): string {
+  return `${ctx.creatorName}${clipTag(ctx)} a publié avec ${ctx.lateDays} jour${
+    ctx.lateDays > 1 ? "s" : ""
+  } de retard${surLesComptes(ctx.accountHandles)}, prévu le ${formatDayMonthFr(ctx.postDate)}`;
+}
+
+export function buildLatePublicationMessage(params: {
+  ctx: LatePublicationContext;
+  appBaseUrl: string;
+  projectSlug: string;
+  creatorId: string;
+}): string {
+  const { ctx, appBaseUrl, projectSlug, creatorId } = params;
+  return [
+    "🐌 <b>Publication en retard</b>",
+    "",
+    escapeTelegram(latePublicationLine(ctx)),
+    `Mission : ${escapeTelegram(describeMission(ctx))}`,
+    "",
+    link(
+      "Voir ses assignations",
+      assignmentsUrl(appBaseUrl, projectSlug, creatorId),
+    ),
+  ].join("\n");
+}
+
+export function buildGroupedLatePublicationsMessage(params: {
+  lines: string[];
+  total?: number;
+  appBaseUrl: string;
+  projectSlug: string;
+}): string {
+  const { lines, appBaseUrl, projectSlug } = params;
+  const n = params.total ?? lines.length;
+  return [
+    `🐌 <b>${n} autre${n > 1 ? "s" : ""} ${plural(n, "publication")} en retard</b>`,
     "",
     bulletList(lines, n),
     "",

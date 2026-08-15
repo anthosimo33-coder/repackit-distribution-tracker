@@ -20,6 +20,7 @@ export type NotificationEventKey =
   | "video_approved"
   | "video_rejected"
   | "publication_confirmed"
+  | "publication_late"
   | "whop_dispute"
   | "whop_renewal_failed"
   | "digest_overdue_missions"
@@ -72,6 +73,12 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
     kind: "immediate",
     label: "Publication confirmée",
     hint: "Un lien de publication est saisi — par la créatrice ou par l'admin en secours. Les publications rapprochées sont regroupées.",
+  },
+  {
+    key: "publication_late",
+    kind: "immediate",
+    label: "Publication en retard",
+    hint: "Un post sort APRÈS sa date prévue — avec le nombre de jours. Publier en avance ne déclenche rien.",
   },
   {
     key: "whop_dispute",

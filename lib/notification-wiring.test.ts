@@ -136,16 +136,39 @@ describe("publication — la notification est la DERNIÈRE chose du cœur", () =
     expect(apres).not.toContain("throw ");
   });
 
-  it("elle est la DERNIÈRE planification du cœur", () => {
-    // Comparer les index bruts serait tautologique : la ligne de notification
-    // contient elle-même « scheduler.runAfter( ». On regarde donc CE QUE plante
-    // la dernière planification.
+  it("PLUS RIEN n'est planifié après les notifications", () => {
+    // La propriété visée n'est pas « notifyPublication est la dernière ligne » —
+    // c'était vrai quand il n'y avait qu'une notification, et la version qui
+    // l'écrivait comme ça a rougi le jour où une SECONDE est arrivée (« retard »),
+    // sur du code parfaitement correct. Ce qui compte : après la première
+    // notification, il ne reste QUE des notifications. Une purge, un accrual ou
+    // un patch planifié là serait, lui, un vrai défaut — la notification
+    // affirmerait un état que la suite peut encore modifier.
+    //
+    // Comparer des index bruts serait tautologique (la ligne de notification
+    // contient elle-même « scheduler.runAfter( ») : on regarde CE QUE plante
+    // chaque appel.
     const appels = [...coeur.matchAll(/scheduler\.runAfter\(/g)].map(
       (m) => m.index ?? 0,
     );
     expect(appels.length).toBeGreaterThan(1); // le cœur en a d'autres (purge Stream)
-    const derniere = coeur.slice(Math.max(...appels), Math.max(...appels) + 160);
-    expect(derniere).toContain("internal.notifications.notifyPublication");
+    const premiereNotif = coeur.indexOf("internal.notifications.notify");
+    expect(premiereNotif).toBeGreaterThan(-1);
+    const apres = appels.filter((i) => i > premiereNotif);
+    expect(apres.length).toBeGreaterThan(0); // il y en a bien une seconde
+    for (const i of apres) {
+      expect(coeur.slice(i, i + 200)).toMatch(
+        /internal\.notifications\.notify/,
+      );
+    }
+  });
+
+  it("les DEUX notifications de publication partent du cœur partagé", () => {
+    // « publiée » et « publiée en retard » sont deux événements distincts, avec
+    // deux bascules. Les deux doivent être planifiées ICI et pas dans un wrapper,
+    // sinon le lien collé par l'admin en secours n'en déclencherait qu'une.
+    expect(coeur).toContain("internal.notifications.notifyPublication");
+    expect(coeur).toContain("internal.notifications.notifyLatePublication");
   });
 });
 

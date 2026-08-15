@@ -2771,6 +2771,19 @@ async function confirmPublicationCore(
     assignmentId: a._id,
   });
 
+  // RETARD — événement DISTINCT, avec sa propre bascule : l'un dit « c'est
+  // sorti », l'autre « c'est sorti trop tard ». Même position que ci-dessus (le
+  // cœur partagé, donc le secours admin l'émet aussi) et mêmes garanties. Une
+  // publication à l'heure ou EN AVANCE ne produit rien : l'action lit
+  // `lateDays`, qui rend `null` dans ces deux cas, et sort sans composer de
+  // message. Le tri se fait donc côté action, pas ici, pour que la lecture de
+  // `postDate` et des cibles reste hors de la transaction.
+  await ctx.scheduler.runAfter(
+    0,
+    internal.notifications.notifyLatePublication,
+    { assignmentId: a._id },
+  );
+
   return { ok: true, alreadyPublished: false, publicationIds };
 }
 

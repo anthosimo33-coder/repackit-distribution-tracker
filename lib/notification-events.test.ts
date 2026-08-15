@@ -12,13 +12,14 @@ import {
 import * as convexEvents from "../convex/notificationEvents";
 
 describe("catalogue — forme et contenu", () => {
-  it("expose les 11 événements du chantier", () => {
+  it("expose les 12 événements du catalogue", () => {
     expect(NOTIFICATION_EVENT_KEYS).toEqual([
       "video_submitted",
       "video_resubmitted",
       "video_approved",
       "video_rejected",
       "publication_confirmed",
+      "publication_late",
       "whop_dispute",
       "whop_renewal_failed",
       "digest_overdue_missions",
@@ -28,7 +29,7 @@ describe("catalogue — forme et contenu", () => {
     ]);
   });
 
-  it("7 immédiats, 4 digest — le classement arbitré du chantier", () => {
+  it("8 immédiats, 4 digest — le classement arbitré du chantier", () => {
     const immediate = NOTIFICATION_EVENTS.filter((e) => e.kind === "immediate");
     const digest = NOTIFICATION_EVENTS.filter((e) => e.kind === "digest");
     expect(immediate.map((e) => e.key)).toEqual([
@@ -37,6 +38,7 @@ describe("catalogue — forme et contenu", () => {
       "video_approved",
       "video_rejected",
       "publication_confirmed",
+      "publication_late",
       "whop_dispute",
       "whop_renewal_failed",
     ]);
