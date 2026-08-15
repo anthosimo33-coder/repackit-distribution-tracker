@@ -84,8 +84,21 @@ export function dashboardUrl(appBaseUrl: string, projectSlug: string): string {
   return `${appBaseUrl}/admin/${projectSlug}/dashboard`;
 }
 
-export function assignmentsUrl(appBaseUrl: string, projectSlug: string): string {
-  return `${appBaseUrl}/admin/${projectSlug}/assignments`;
+/**
+ * Écran Assignments, éventuellement PRÉ-FILTRÉ sur une créatrice.
+ *
+ * `?createur=` est lu à l'initialisation du filtre côté écran. Sans lui, le
+ * lien d'un bilan de fin de journée tomberait sur la liste complète du projet,
+ * et il faudrait re-filtrer à la main pour retrouver les deux posts dont le
+ * message vient de parler.
+ */
+export function assignmentsUrl(
+  appBaseUrl: string,
+  projectSlug: string,
+  creatorId?: string,
+): string {
+  const base = `${appBaseUrl}/admin/${projectSlug}/assignments`;
+  return creatorId ? `${base}?createur=${creatorId}` : base;
 }
 
 // ─── Délais ──────────────────────────────────────────────────────────────────
