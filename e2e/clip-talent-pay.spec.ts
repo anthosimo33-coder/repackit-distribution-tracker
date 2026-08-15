@@ -307,7 +307,7 @@ test.describe("Paie — clips et forfaits de talent", () => {
     const talent = await fiche("talent", ts, "cyc");
     await admin.mutation(api.creators.updateCreator, {
       id: talent.creatorId,
-      cycleRetainer: FORFAIT,
+      monthlyRetainer: FORFAIT,
       status: "active",
     });
     // Ancre antidatée d'un cycle + 18 jours → deux cycles, dont un révolu.
@@ -315,7 +315,7 @@ test.describe("Paie — clips et forfaits de talent", () => {
     await admin.mutation(api.creators.e2eSetPayAnchor, {
       secret: E2E_SECRET,
       creatorId: talent.creatorId,
-      payAnchorAt: ancre,
+      payStartAt: ancre,
     });
     // Un rush déposé — il compte pour l'AFFICHAGE, jamais pour le montant.
     const talentClient = await sessionFor(talent.email, talent.password);
@@ -357,7 +357,7 @@ test.describe("Paie — clips et forfaits de talent", () => {
     expect(apres[0].totalDue).toBe(FORFAIT);
   });
 
-  test("le talent n'a JAMAIS de firstPostAt, le partenaire JAMAIS de payAnchorAt", async () => {
+  test("le talent n'a JAMAIS de firstPostAt, le partenaire JAMAIS de payStartAt", async () => {
     const ts = Date.now();
     const talent = await fiche("talent", ts, "anc");
     const partner = await fiche("partner", ts + 1, "anc");
@@ -372,13 +372,13 @@ test.describe("Paie — clips et forfaits de talent", () => {
 
     // Le talent est ancré et ne publie jamais (la spec du chantier rushes reste
     // vraie : firstPostAt est un champ DISTINCT).
-    expect(t!.payAnchorAt).toBeTruthy();
+    expect(t!.payStartAt).toBeTruthy();
     expect(t!.firstPostAt).toBeUndefined();
 
     // ⚠️ LA LIGNE LA PLUS DANGEREUSE DE CETTE PR. Une ancre posée sur un
     // partenaire serait antérieure à son premier post et recalerait TOUS ses
     // cycles, y compris ceux déjà payés.
-    expect(p!.payAnchorAt).toBeUndefined();
+    expect(p!.payStartAt).toBeUndefined();
   });
 
   test("l'ancre d'un talent est FIGÉE : une seconde activation ne la déplace pas", async () => {
@@ -390,7 +390,7 @@ test.describe("Paie — clips et forfaits de talent", () => {
     });
     const premiere = (await admin.query(api.creators.getCreator, {
       id: talent.creatorId,
-    }))!.payAnchorAt;
+    }))!.payStartAt;
     expect(premiere).toBeTruthy();
 
     await admin.mutation(api.creators.updateCreator, {
@@ -403,7 +403,7 @@ test.describe("Paie — clips et forfaits de talent", () => {
     });
     const seconde = (await admin.query(api.creators.getCreator, {
       id: talent.creatorId,
-    }))!.payAnchorAt;
+    }))!.payStartAt;
     // Réécrire l'ancre décalerait tous ses cycles — y compris ceux déjà payés.
     expect(seconde).toBe(premiere);
   });

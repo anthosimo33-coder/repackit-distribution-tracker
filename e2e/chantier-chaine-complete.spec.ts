@@ -94,7 +94,7 @@ test.describe("Chantier talent/clippeur — la chaîne entière", () => {
     await admin.mutation(api.creators.updateCreator, {
       id: talent.creatorId,
       clipperId: clipper.creatorId,
-      cycleRetainer: FORFAIT,
+      monthlyRetainer: FORFAIT,
       status: "active",
     });
     await admin.mutation(api.creators.updateCreator, {

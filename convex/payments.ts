@@ -278,7 +278,7 @@ export function retainerLineFor(
   cycleIndex: number,
 ): LineItem | null {
   if (resolveCreatorKind(creator.kind) !== "talent") return null;
-  const montant = creator.cycleRetainer;
+  const montant = creator.monthlyRetainer;
   if (typeof montant !== "number" || montant <= 0) return null;
   return {
     label: `Forfait — cycle ${cycleIndex + 1}`,
@@ -517,7 +517,7 @@ export async function cyclePaymentsForCreator(
   now: number,
 ): Promise<CyclePayment[]> {
   const creator = await ctx.db.get(creatorId);
-  // Ancre = payAnchorAt (talent) ?? firstPostAt (partenaire/clippeur). Pour un
+  // Ancre = payStartAt (talent) ?? firstPostAt (partenaire/clippeur). Pour un
   // partenaire, l'expression vaut exactement firstPostAt — cf payAnchorOf.
   const firstPostAt = creator ? payAnchorOf(creator) : undefined;
   if (!creator || firstPostAt === undefined) return [];

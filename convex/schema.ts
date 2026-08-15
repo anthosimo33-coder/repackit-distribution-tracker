@@ -856,19 +856,26 @@ export default defineSchema({
     // aucun post publié → pas de cycle (« prochaine paie » non applicable). Optional
     // → 0 migration. N'affecte AUCUN montant (regroupement seulement).
     firstPostAt: v.optional(v.number()),
-    // ─── ANCRE DE CYCLE DES TALENTS ───────────────────────────────────────────
+    // ─── DÉBUT DE PAIE D'UN TALENT ────────────────────────────────────────────
     // Un talent ne publie JAMAIS : `firstPostAt` reste vide chez lui à vie, donc
-    // sans autre ancre il n'a aucun cycle et devient invisible de la paie. Cette
-    // date est posée à sa PREMIÈRE activation (passage en `active`), figée, jamais
-    // réécrite — même convention que `firstPostAt`.
+    // sans autre repère il serait invisible de la paie. Cette date est posée à sa
+    // PREMIÈRE activation (passage en `active`), figée, jamais réécrite — même
+    // convention que `firstPostAt`.
     //
-    // ⚠️ POSÉE UNIQUEMENT SUR UN TALENT (`resolveCreatorKind === "talent"`). Sur
-    // un partenaire, elle serait antérieure à son premier post et `cycleIndexOf`
-    // recalerait TOUS ses cycles, y compris ceux déjà payés — des euros qui
-    // changent de cycle sans qu'aucun humain n'ait rien fait. Le moteur lit
-    // `payAnchorOf(creator) = payAnchorAt ?? firstPostAt` : pour un partenaire,
-    // l'expression dégénère EXACTEMENT en celle d'avant.
-    payAnchorAt: v.optional(v.number()),
+    // C'est le début du PREMIER MOIS DÛ : le mois d'entrée est payé en entier
+    // quel que soit le jour (cf convex/talentRetainer.ts).
+    //
+    // ⚠️ POSÉE UNIQUEMENT SUR UN TALENT (`resolveCreatorKind === "talent"`). Un
+    // partenaire n'en a jamais : ses cycles restent ancrés sur `firstPostAt`, et
+    // rien du chemin partenaire ne lit ce champ.
+    payStartAt: v.optional(v.number()),
+    // Fin de paie d'un talent — posée quand il quitte `active` (paused/churned),
+    // EFFACÉE s'il redevient actif. Le mois de SORTIE est dû en entier lui aussi.
+    // Absente = toujours actif ⇒ les mois courent jusqu'au mois en cours.
+    //
+    // Sans ce champ, un talent arrêté continuerait d'accumuler un forfait
+    // indéfiniment : rien ne planterait, le total grossirait tout seul.
+    payEndAt: v.optional(v.number()),
     // ─── TARIFS des deux nouvelles populations (chantier pricing) ─────────────
     // Scalaires et non entités `pricings` : ni palier, ni CPM, ni bonus. Surtout,
     // le chemin clip ne doit JAMAIS toucher le moteur v2 — une ligne `pricings`
@@ -880,11 +887,19 @@ export default defineSchema({
     // Le plafond MAX_PAY_PER_VIDEO_EUR NE S'Y APPLIQUE PAS : il protège d'une
     // dérive du CPM, il n'y a aucun calcul de vues derrière un tarif unitaire.
     clipRate: v.optional(v.number()),
-    // cycleRetainer : forfait d'un talent PAR CYCLE J+30 (ancré sur payAnchorAt).
-    // Lu LIVE et gelé en `kind: "retainer"` au paiement du cycle. AUCUNE condition
-    // de livraison dans le calcul — le cycle est dû, l'admin décide en voyant le
-    // nombre de rushes déposés à côté du montant.
-    cycleRetainer: v.optional(v.number()),
+    // monthlyRetainer : forfait d'un talent PAR MOIS CALENDAIRE (arbitrage B3 —
+    // et NON par cycle J+30, qui produirait 12,17 échéances par an, soit un mois
+    // offert chaque année). Les mois dus se calculent entre `payStartAt` et
+    // `payEndAt` dans `convex/talentRetainer.ts`, en mois de PARIS.
+    //
+    // Lu LIVE tant que le mois n'est pas payé, GELÉ en `kind: "retainer"` au
+    // paiement (ligne écrite dans `payments.lineItems`, relue verbatim ensuite) :
+    // augmenter le forfait s'applique au mois courant encore dû et aux suivants,
+    // jamais à un mois déjà payé. Même principe que `pricingSnapshot`.
+    //
+    // AUCUNE condition de livraison dans le calcul — le mois est dû, l'admin
+    // décide en voyant le nombre de rushes déposés à côté du montant.
+    monthlyRetainer: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_project", ["projectId"])

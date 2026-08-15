@@ -109,7 +109,7 @@ test.describe("Configuration de l'espace talent — chemin admin réel", () => {
     await admin.mutation(api.creators.updateCreator, {
       id: talent.creatorId,
       clipperId: clipper.creatorId,
-      cycleRetainer: FORFAIT,
+      monthlyRetainer: FORFAIT,
       status: "active",
     });
 

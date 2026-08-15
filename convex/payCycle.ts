@@ -41,13 +41,13 @@ export function cyclePeriodKey(cycleStart: number): string {
 /**
  * ANCRE DE CYCLE d'un créateur — la date depuis laquelle ses cycles se comptent.
  *
- * `payAnchorAt` (talents, posée à l'activation) l'emporte sur `firstPostAt`
+ * `payStartAt` (talents, posée à l'activation) l'emporte sur `firstPostAt`
  * (partenaires et clippeurs, posée au premier post publié). Un talent ne publie
  * jamais : sans cette bascule il n'aurait aucun cycle et serait invisible de la
  * paie.
  *
  * ⚠️ POUR UN PARTENAIRE, L'EXPRESSION DÉGÉNÈRE EXACTEMENT EN CELLE D'AVANT.
- * `payAnchorAt` n'est posée QUE sur une fiche de talent (cf schema + updateCreator)
+ * `payStartAt` n'est posée QUE sur une fiche de talent (cf schema + updateCreator)
  * : chez un partenaire elle est absente, donc `?? firstPostAt` rend la valeur
  * historique, au bit près. Le chemin partenaire est inchangé PAR CONSTRUCTION, pas
  * par relecture — c'est ce qui protège des cycles déjà payés qu'une ancre
@@ -57,8 +57,8 @@ export function cyclePeriodKey(cycleStart: number): string {
  * qui n'a jamais publié).
  */
 export function payAnchorOf(creator: {
-  payAnchorAt?: number;
+  payStartAt?: number;
   firstPostAt?: number;
 }): number | undefined {
-  return creator.payAnchorAt ?? creator.firstPostAt;
+  return creator.payStartAt ?? creator.firstPostAt;
 }

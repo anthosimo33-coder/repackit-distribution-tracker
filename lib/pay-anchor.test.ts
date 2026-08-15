@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { payAnchorOf, cycleWindow, cycleIndexOf } from "../convex/payCycle";
 
 /**
- * ANCRE DE CYCLE — `payAnchorAt` (talent) ?? `firstPostAt` (partenaire/clippeur).
+ * ANCRE DE CYCLE — `payStartAt` (talent) ?? `firstPostAt` (partenaire/clippeur).
  *
  * Le test qui compte n'est pas celui du talent, c'est celui du PARTENAIRE : il
  * vérifie que l'expression dégénère EXACTEMENT en la valeur d'avant. Si elle
@@ -24,32 +24,32 @@ describe("payAnchorOf", () => {
   });
 
   it("TALENT (ancre, aucun post) → l'ancre", () => {
-    expect(payAnchorOf({ payAnchorAt: ACTIVATION })).toBe(ACTIVATION);
+    expect(payAnchorOf({ payStartAt: ACTIVATION })).toBe(ACTIVATION);
   });
 
   it("les DEUX présents → l'ancre l'emporte", () => {
     // Ne devrait pas arriver (l'ancre n'est posée que sur un talent, qui ne
     // publie jamais), mais la priorité doit être déterministe si ça arrivait.
     expect(
-      payAnchorOf({ payAnchorAt: ACTIVATION, firstPostAt: PREMIER_POST }),
+      payAnchorOf({ payStartAt: ACTIVATION, firstPostAt: PREMIER_POST }),
     ).toBe(ACTIVATION);
   });
 
   it("ni l'un ni l'autre → undefined (aucun cycle)", () => {
     expect(payAnchorOf({})).toBeUndefined();
-    expect(payAnchorOf({ payAnchorAt: undefined, firstPostAt: undefined })).toBeUndefined();
+    expect(payAnchorOf({ payStartAt: undefined, firstPostAt: undefined })).toBeUndefined();
   });
 
   it("une ancre à 0 n'est pas confondue avec « absente »", () => {
     // `??` et non `||` : 0 est un instant valide (epoch), et le confondre avec
     // l'absence ferait basculer sur firstPostAt en silence.
-    expect(payAnchorOf({ payAnchorAt: 0, firstPostAt: PREMIER_POST })).toBe(0);
+    expect(payAnchorOf({ payStartAt: 0, firstPostAt: PREMIER_POST })).toBe(0);
   });
 });
 
 describe("cycles ancrés sur l'activation (talent)", () => {
   it("le 1er rush déposé 18 jours après l'activation tombe dans le cycle 0", () => {
-    const ancre = payAnchorOf({ payAnchorAt: ACTIVATION })!;
+    const ancre = payAnchorOf({ payStartAt: ACTIVATION })!;
     expect(cycleIndexOf(ancre, PREMIER_POST)).toBe(0);
     const w = cycleWindow(ancre, 0);
     expect(w.cycleStart).toBe(ACTIVATION);

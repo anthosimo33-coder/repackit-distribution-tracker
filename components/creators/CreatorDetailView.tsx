@@ -106,7 +106,7 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
     kind === "clipper"
       ? (creator.clipRate?.toString() ?? "")
       : kind === "talent"
-        ? (creator.cycleRetainer?.toString() ?? "")
+        ? (creator.monthlyRetainer?.toString() ?? "")
         : "",
   );
   const [handleTiktok, setHandleTiktok] = useState(
@@ -184,7 +184,7 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
           ? { clipRate: tarif.trim() === "" ? null : Number(tarif) }
           : {}),
         ...(kind === "talent"
-          ? { cycleRetainer: tarif.trim() === "" ? null : Number(tarif) }
+          ? { monthlyRetainer: tarif.trim() === "" ? null : Number(tarif) }
           : {}),
       });
       toast.success("Créateur mis à jour");
