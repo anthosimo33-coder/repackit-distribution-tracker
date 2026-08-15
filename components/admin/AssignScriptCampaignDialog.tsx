@@ -154,7 +154,9 @@ export function AssignScriptCampaignDialog({
   const [replayVerbatim, setReplayVerbatim] = useState(false);
   const campaign = useProjectQuery(
     api.scripts.getCampaign,
-    open && comboMode === "chosen" ? { id: campaignId } : "skip",
+    // Chargée dans les DEUX modes : « chosen » a besoin des briques, « auto » des
+    // défauts de qualification (defaultContentType / defaultRemunerated).
+    open ? { id: campaignId } : "skip",
   );
 
   const [picks, setPicks] = useState<Record<Platform, string>>({
@@ -172,6 +174,12 @@ export function AssignScriptCampaignDialog({
   // vidéo serait plus fin, mais le process raisonne par créneau (« ce batch part
   // le soir ») : un seul choix couvre le besoin réel sans multiplier les champs.
   const [plage, setPlage] = useState<PostWindow | null>(null);
+  // QUALIFICATION — pré-remplie par les défauts de campagne, surchargeable ici.
+  // `null` = non renseigné : on n'envoie alors RIEN et l'assignation reste
+  // exactement comme avant ce champ.
+  const [contentType, setContentType] = useState<"warmup" | "promo" | null>(null);
+  const [remunerated, setRemunerated] = useState<boolean | null>(null);
+  const [qualifTouched, setQualifTouched] = useState(false);
   const [due, setDue] = useState(defaultDue());
   const [tier, setTier] = useState<string>(TIER_ALL);
   const [pricingId, setPricingId] = useState<string>(NONE);
@@ -362,6 +370,8 @@ export function AssignScriptCampaignDialog({
         // pour que la création produise EXACTEMENT la liste relue.
         ...(rejetes.length > 0 ? { excludedComboKeys: rejetes } : {}),
         ...(postWindowsPayload ? { postWindows: postWindowsPayload } : {}),
+        ...(effContentType ? { contentType: effContentType } : {}),
+        ...(effRemunerated !== undefined ? { remunerated: effRemunerated } : {}),
         // Combinaison imposée (rejeu / choix manuel) + lignage vers la source.
         ...(imposedCombo
           ? {
@@ -536,6 +546,8 @@ export function AssignScriptCampaignDialog({
           // Le décalage porte sur le JOUR ; la plage horaire, elle, est la même
           // pour tous (un créneau « soir » reste le soir quel que soit le jour).
           ...(postWindowsPayload ? { postWindows: postWindowsPayload } : {}),
+          ...(effContentType ? { contentType: effContentType } : {}),
+          ...(effRemunerated !== undefined ? { remunerated: effRemunerated } : {}),
           // Même combinaison imposée pour chaque créateur (cas « rejouer chez 3 »).
           ...(imposedCombo
             ? {
@@ -593,6 +605,16 @@ export function AssignScriptCampaignDialog({
     videoCount >= 1 &&
     slotDates.length === videoCount &&
     slotDates.every((d) => d != null);
+  // Valeurs EFFECTIVES de qualification : les défauts de campagne tant que
+  // l'admin n'a rien touché, son choix ensuite. Sans défaut ET sans choix →
+  // `undefined`, donc rien n'est envoyé et l'assignation reste non qualifiée.
+  const effContentType =
+    (qualifTouched ? contentType : (campaign?.defaultContentType ?? null)) ??
+    undefined;
+  const effRemunerated =
+    (qualifTouched ? remunerated : (campaign?.defaultRemunerated ?? null)) ??
+    undefined;
+
   // Une plage par vidéo, toutes identiques : la mutation les lit positionnellement
   // (postWindows[i] accompagne postDates[i]).
   const postWindowsPayload =
@@ -978,6 +1000,46 @@ export function AssignScriptCampaignDialog({
                   : `${combosInfo.available} combo${combosInfo.available > 1 ? "s" : ""} unique${combosInfo.available > 1 ? "s" : ""} disponible${combosInfo.available > 1 ? "s" : ""} pour ce créateur sur ${platformsLabel}.`}
               </p>
             )}
+
+          {/* QUALIFICATION — ADMIN UNIQUEMENT. Ni la créatrice ni le clippeur ne
+              voient ces deux champs (allowlists + tests d'exclusion). */}
+          <div className="space-y-1.5" data-testid="qualification">
+            <Label>Qualification (interne, jamais visible côté créatrice)</Label>
+            <div className="flex flex-wrap items-center gap-2">
+              {(["warmup", "promo"] as const).map((v) => (
+                <Button
+                  key={v}
+                  type="button"
+                  variant={effContentType === v ? "default" : "outline"}
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => {
+                    setQualifTouched(true);
+                    setContentType(effContentType === v ? null : v);
+                  }}
+                >
+                  {v === "warmup" ? "Warmup" : "Promo"}
+                </Button>
+              ))}
+              <label className="ml-2 flex items-center gap-1.5 text-xs text-slate-600">
+                <Checkbox
+                  checked={effRemunerated === true}
+                  onCheckedChange={(c) => {
+                    setQualifTouched(true);
+                    setRemunerated(c === true);
+                  }}
+                />
+                Rémunérée
+              </label>
+            </div>
+            <p className="text-xs text-slate-500">
+              {effContentType === undefined
+                ? "Non qualifiée — l'assignation reste neutre, comme aujourd'hui."
+                : `${effContentType === "warmup" ? "Warmup" : "Promo"}${
+                    effRemunerated === true ? " · rémunérée" : " · non rémunérée"
+                  } — repris sur la publication à sa création.`}
+            </p>
+          </div>
 
           {/* PLAGE HORAIRE — créneau de publication, commun au lot assigné.
               Presets du process + saisie libre. Optionnelle : sans plage, la

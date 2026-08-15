@@ -1183,6 +1183,26 @@ export default defineSchema({
     postWindow: v.optional(
       v.object({ startMin: v.number(), endMin: v.number() }),
     ),
+    // ─── QUALIFICATION STRATÉGIQUE — ADMIN UNIQUEMENT ─────────────────────────
+    // INTENTION posée à l'assignation, qui PRÉ-REMPLIT la publication à sa
+    // matérialisation. La SOURCE DE VÉRITÉ de la paie reste
+    // `publications.isWarmup` / `publications.remunere` — ces deux champs-ci ne
+    // sont pas un second prédicat, ils sont l'amont du même :
+    //   contentType "warmup" → publications.isWarmup = true  (fait ÉDITORIAL)
+    //   contentType "promo"  → publications.isWarmup = false
+    //   remunerated          → publications.remunere (fait FINANCIER),
+    //                          via normalizeRemunere (cf convex/remunerate).
+    // Deux champs SÉPARÉS, jamais un enum combiné : un promo peut être non
+    // rémunéré et un warmup rémunéré (cas Kelly, cf schema publications).
+    //
+    // ⚠️ JAMAIS exposés à la créatrice ni au clippeur — c'est de la taxonomie
+    // interne. Classés EXCLUS dans les deux allowlists, et les tests
+    // d'exhaustivité échouent si quelqu'un les y remonte.
+    // Optionnels → 0 migration, comportement inchangé quand absents.
+    contentType: v.optional(
+      v.union(v.literal("warmup"), v.literal("promo")),
+    ),
+    remunerated: v.optional(v.boolean()),
     // ─── Compte GÉRÉ PAR L'ADMIN — flag DÉNORMALISÉ (copié du compte cible) ────
     // Posé à la CRÉATION de l'assignment (assignFormat) en copiant
     // comptes.managedByAdmin de la/les cible(s). FIGÉ ensuite (snapshot, comme
@@ -1208,6 +1228,10 @@ export default defineSchema({
       v.literal("to_publish"),
       v.literal("published"),
       v.literal("paid"),
+      // ABANDON — terminal, l'assignation ne sera jamais publiée. Distinct de
+      // video_rejected (vidéo refusée, mission toujours en cours). C'est le SEUL
+      // statut qui libère le comboKey : contenu jamais vu, rien à protéger.
+      v.literal("cancelled"),
       // LEGACY (migrés) :
       v.literal("submitted"),
       v.literal("validated"),
@@ -1731,6 +1755,18 @@ export default defineSchema({
   scriptCampaigns: defineTable({
     projectId: v.id("projects"),
     name: v.string(),
+    // Nom d'affichage EXPOSÉ aux créatrices et aux clippeurs. `name` est le nom
+    // INTERNE (« Format Warmup LAB ») : il fuitait tel quel dans l'espace
+    // créatrice via missionLabelFor et révélait la taxonomie de production.
+    // Absent → repli sur `name` : comportement actuel, 0 migration. Côté ADMIN
+    // c'est toujours `name` qui s'affiche.
+    displayName: v.optional(v.string()),
+    // Défauts de qualification pré-remplis dans la modale d'assignation, et
+    // surchargeables au cas par cas. Absents → aucune pré-sélection.
+    defaultContentType: v.optional(
+      v.union(v.literal("warmup"), v.literal("promo")),
+    ),
+    defaultRemunerated: v.optional(v.boolean()),
     // LEGACY (refonte 3 briques) — socle démo, plus monté ni édité côté UI.
     // Conservé (required, défaut "") pour 0 migration sur scriptCampaigns ;
     // suppression = resserrage ultérieur.

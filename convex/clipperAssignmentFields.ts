@@ -64,6 +64,14 @@ export const CLIPPER_ASSIGNMENT_FIELDS = [
 /** Champs DÉLIBÉRÉMENT retirés de la sortie clippeur (admin-only / interne /
  *  sans objet dans le flux clip / remplacé par une forme enrichie). */
 export const NON_CLIPPER_ASSIGNMENT_FIELDS = [
+  // ─── QUALIFICATION STRATÉGIQUE — TAXONOMIE INTERNE, JAMAIS EXPOSÉE ────────
+  // Savoir qu'une vidéo est du « warmup » ou qu'elle n'est pas rémunérée est une
+  // décision de pilotage. L'exposer dirait à la créatrice quelles vidéos comptent
+  // moins — et le clippeur n'a pas davantage à le lire. Classés ici EXPLICITEMENT
+  // pour que le test d'exhaustivité les voie classés, et le test d'exclusion
+  // vérifie leur ABSENCE des payloads.
+  "contentType",
+  "remunerated",
   // Décomposition script / rejeu / traçabilité admin — jamais côté portail.
   "scriptCombo",
   "comboKey",

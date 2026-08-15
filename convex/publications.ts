@@ -428,6 +428,12 @@ export const createFromAssignment = internalMutation({
         comboKey: v.string(),
       }),
     ),
+    // QUALIFICATION héritée de l'assignation (cf assignments.contentType /
+    // remunerated). `isWarmup` est le fait ÉDITORIAL, `remunere` le fait
+    // FINANCIER — c'est ICI que vit la source de vérité de la paie ; l'assignation
+    // ne fait que la pré-remplir. Absents → publication normale, inchangée.
+    isWarmup: v.optional(v.boolean()),
+    remunere: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     // Defense-in-depth : carousel interdit YouTube (la garde primaire est à la
@@ -458,6 +464,8 @@ export const createFromAssignment = internalMutation({
       langue: "FR",
       plateforme: args.plateforme,
       compte: args.compte,
+      ...(args.isWarmup !== undefined ? { isWarmup: args.isWarmup } : {}),
+      ...(args.remunere !== undefined ? { remunere: args.remunere } : {}),
       datePubli: args.datePubli,
       // Métriques vides (alimentées ensuite par les snapshots J+X).
       saves: null,

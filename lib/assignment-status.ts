@@ -15,6 +15,10 @@ export type AssignmentStatus =
   | "to_publish"
   | "published"
   | "paid"
+  // ABANDON — l'assignation ne sera jamais publiée. Terminal, distinct de
+  // video_rejected (là, la vidéo est refusée mais la mission continue).
+  // Un abandon LIBÈRE le comboKey : contenu jamais vu = rien à protéger.
+  | "cancelled"
   // LEGACY (migrés) :
   | "submitted"
   | "validated"
@@ -35,6 +39,7 @@ export const ASSIGNMENT_STATUS: Record<
   to_publish: { label: "À publier", className: "border-primary/30 bg-primary/10 text-primary" },
   published: { label: "Publié", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
   paid: { label: "Payé", className: "border-violet-200 bg-violet-50 text-violet-700" },
+  cancelled: { label: "Abandonné", className: "border-slate-200 bg-slate-100 text-slate-500" },
   // LEGACY :
   submitted: { label: "Soumis", className: "border-amber-200 bg-amber-50 text-amber-700" },
   validated: { label: "Validé", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },

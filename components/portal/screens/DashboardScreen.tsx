@@ -7,6 +7,7 @@ import { api } from "@/convex/_generated/api";
 import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
 import { PaymentInfoNudge } from "@/components/portal/PaymentInfoNudge";
 import { PortalLeaderboard } from "@/components/portal/PortalLeaderboard";
+import { CatchUpBanner } from "@/components/portal/CatchUpBanner";
 import { TodayPostBanner } from "@/components/portal/TodayPostBanner";
 import { CreatorPublicationCalendar } from "@/components/portal/CreatorPublicationCalendar";
 import {
@@ -190,6 +191,11 @@ export default function DashboardScreen() {
         </div>
       ) : (
         <>
+          {/* « À rattraper » AVANT « aujourd'hui » : un retard découvert sous la
+              tâche du jour reste un retard. Ordre strict, plus ancien en tête.
+              Null si rien à rattraper. */}
+          <CatchUpBanner list={list} now={nowMs} base={base} />
+
           {/* Bandeau « aujourd'hui tu postes X » (brique D) — LA réponse à « je
               poste quoi ? ». Null si aucune publication planifiée. */}
           <TodayPostBanner list={list} now={nowMs} base={base} />

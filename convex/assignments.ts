@@ -15,6 +15,7 @@ import {
 } from "./clipperAssignmentFields";
 import { withResolvedExamples } from "./formats";
 import { formatDayMonthFr } from "./dateFr";
+import { normalizeRemunere } from "./remunerate";
 import { isFormatAllowedOnPlatform } from "./publications";
 import { tierLabel } from "./scriptTier";
 import { SNYTCH_SLUG } from "./projects";
@@ -697,6 +698,36 @@ export const DELETABLE_STATUSES = new Set<string>([
 ]);
 
 /**
+ * ABANDON d'une assignation — le geste courant quand un post ne sortira pas.
+ *
+ * Ce que ça change vs « Supprimer » : la ligne RESTE en base, donc l'historique
+ * reste auditable et le rattrapage reste traçable. Ce que ça change vs ne rien
+ * faire : le comboKey est LIBÉRÉ (cf COMBO_FREEING_STATUSES) — l'assignation
+ * n'ayant jamais été publiée, il n'y a aucun contenu vu à protéger, ni pour
+ * cette créatrice ni pour les autres.
+ *
+ * Idempotent : ré-abandonner ne fait rien. Bornée aux mêmes statuts que le
+ * hard-delete — on n'abandonne jamais un post publié ou payé.
+ */
+export const cancelAssignment = adminMutation({
+  args: { id: v.id("assignments") },
+  handler: async (ctx, { id }) => {
+    const a = await ctx.db.get(id);
+    if (!a || a.projectId !== ctx.projectId) {
+      throw new ConvexError("Assignment introuvable.");
+    }
+    if (a.status === "cancelled") return { ok: true, alreadyCancelled: true };
+    if (!DELETABLE_STATUSES.has(a.status)) {
+      throw new ConvexError(
+        "Cette assignation est publiée ou payée : elle ne peut plus être abandonnée.",
+      );
+    }
+    await ctx.db.patch(id, { status: "cancelled" });
+    return { ok: true, alreadyCancelled: false };
+  },
+});
+
+/**
  * Purge best-effort la vidéo soumise orpheline d'un assignment (blob Convex +
  * copie Cloudflare Stream, no-op si env absent) PUIS hard-delete la row — ce qui
  * LIBÈRE son comboKey (l'unicité créateur+plateforme est purement basée sur
@@ -985,6 +1016,21 @@ async function materializeTargetPublication(
     const creator = await ctx.db.get(a.creatorId);
     compte = creator?.name ?? "—";
   }
+  // Qualification héritée de l'assignation. `contentType` absent ⇒ on ne pose
+  // RIEN (publication normale, comportement d'avant ce champ). `remunerated`
+  // passe par normalizeRemunere : on ne stocke `remunere` que s'il DIVERGE de
+  // « payé ssi pas warmup » — invariant du LOT 2, sinon on créerait 200 lignes
+  // explicites qui rendraient invisible la poignée de vraies exceptions.
+  const isWarmup =
+    a.contentType === undefined ? undefined : a.contentType === "warmup";
+  const remunere =
+    a.remunerated === undefined || isWarmup === undefined
+      ? undefined
+      : normalizeRemunere(isWarmup, a.remunerated);
+  const qualification = {
+    ...(isWarmup !== undefined ? { isWarmup } : {}),
+    ...(remunere !== undefined ? { remunere } : {}),
+  };
   const isScript = a.scriptCombo !== undefined && a.formatId === undefined;
   if (isScript) {
     if (!a.scriptCombo || a.comboKey === undefined) {
@@ -1007,6 +1053,7 @@ async function materializeTargetPublication(
         ctaBrickId: a.scriptCombo.ctaBrickId,
         comboKey: a.comboKey,
       },
+      ...qualification,
     });
   }
   const format = a.formatId ? await ctx.db.get(a.formatId) : null;
@@ -1019,6 +1066,7 @@ async function materializeTargetPublication(
     compte,
     datePubli,
     postUrl: url,
+    ...qualification,
   });
 }
 
@@ -1859,7 +1907,17 @@ export async function missionLabelFor(
   if (a.scriptCombo) {
     const campaign = await ctx.db.get(a.scriptCombo.campaignId);
     return {
-      formatName: campaign?.name ?? "Vidéo à tourner",
+      // `displayName` d'abord : `name` est le nom INTERNE de production
+      // (« Format Warmup LAB »), et il fuitait tel quel dans l'espace créatrice
+      // ET clippeur — révélant la taxonomie de pilotage. Repli sur `name` quand
+      // aucun nom d'affichage n'est défini : comportement actuel, 0 migration.
+      // Côté ADMIN, c'est toujours `name` qui s'affiche (autre chemin de lecture).
+      formatName:
+        // `|| ` et non `?? ` : un displayName VIDÉ (chaîne vide) doit retomber
+        // sur le nom interne, pas afficher une étiquette vide à la créatrice.
+        campaign?.displayName?.trim() ||
+        campaign?.name ||
+        "Vidéo à tourner",
       formatType: null,
       origin: "script",
     };
@@ -2093,10 +2151,15 @@ async function assignmentsForCreator(
   ctx: QueryCtx,
   creatorId: Id<"creators">,
 ) {
-  const assignments = await ctx.db
+  const all = await ctx.db
     .query("assignments")
     .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
     .collect();
+  // ABANDONNÉES : invisibles côté créatrice. Une mission qu'on a annulée n'est
+  // pas une mission « à ne pas faire » qu'elle devrait voir traîner — elle
+  // disparaît de son espace, de ses compteurs et de son calendrier. Filtré ICI,
+  // en amont de l'enrichissement, donc valable pour TOUTES ses surfaces d'un coup.
+  const assignments = all.filter((a) => a.status !== "cancelled");
   // Ordre stable par créatrice : entrelacement des FORMATS par rang d'urgence
   // (en retard → < 48 h → dans les temps → non actionnable). Le mélange des
   // formats PRIME sur l'échéance — deux formats d'échéances différentes mais de
@@ -2159,10 +2222,12 @@ async function enrichForClipper(ctx: QueryCtx, a: Doc<"assignments">) {
  * même ordre, réduite par la même allowlist.
  */
 async function clipsForClipper(ctx: QueryCtx, clipperId: Id<"creators">) {
-  const mine = await ctx.db
+  const all = await ctx.db
     .query("assignments")
     .withIndex("by_creator", (q) => q.eq("creatorId", clipperId))
     .collect();
+  // Abandonnées invisibles, même règle que côté créatrice (assignmentsForCreator).
+  const mine = all.filter((a) => a.status !== "cancelled");
   const ordered = [...mine].sort(
     (x, y) => (x.dueDate ?? x.createdAt) - (y.dueDate ?? y.createdAt),
   );
