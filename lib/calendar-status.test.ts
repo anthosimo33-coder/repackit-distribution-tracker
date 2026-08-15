@@ -3,15 +3,57 @@ import {
   calendarStatus,
   isPastPost,
   isSameLocalDay,
+  lateDays,
+  parisDayIndex,
+  parisHour,
   representativePostedAt,
   CALENDAR_STATUS_LABEL,
   type CalendarStatus,
 } from "./calendar-status";
 
-/** ms LOCAL d'un instant (mois 1-12) — postDate/postedAt/now dans le même
- *  référentiel local, donc le test est indépendant de la TZ du runner. */
+/**
+ * Décalage Paris↔UTC à un instant donné, en ms. Dérivé d'`Intl` plutôt que codé
+ * en dur : les règles de changement d'heure ne sont pas à réimplémenter ici.
+ */
+function parisOffsetMs(at: number): number {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Paris",
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(new Date(at));
+  const g = (t: string) => Number(parts.find((p) => p.type === t)!.value);
+  // `hour12: false` rend « 24 » pour minuit sur certains moteurs → % 24.
+  const commeSiUtc = Date.UTC(
+    g("year"),
+    g("month") - 1,
+    g("day"),
+    g("hour") % 24,
+    g("minute"),
+    g("second"),
+  );
+  return commeSiUtc - at;
+}
+
+/**
+ * ms d'une heure murale PARIS (mois 1-12).
+ *
+ * ⚠️ Anciennement `new Date(y, mon-1, day, h)` — de l'heure murale LOCALE. Ça
+ * marchait tant que le module comparait lui aussi des jours locaux ; il est
+ * maintenant épinglé sur Paris (les notifications de retard tournent côté
+ * serveur, en UTC). Une fixture en heure locale ferait alors passer ou échouer
+ * les tests SELON LE FUSEAU DU RUNNER — c'est-à-dire ne prouverait rien.
+ *
+ * Avec cette version, tout ce fichier est vert sous `TZ=UTC` comme sous
+ * `TZ=Europe/Paris`. C'est la propriété qu'on veut, et elle est vérifiable.
+ */
 function at(y: number, mon: number, day: number, h = 12): number {
-  return new Date(y, mon - 1, day, h, 0, 0, 0).getTime();
+  const approx = Date.UTC(y, mon - 1, day, h, 0, 0, 0);
+  return approx - parisOffsetMs(approx);
 }
 
 describe("calendarStatus — 4 cas + bords (aucune tolérance)", () => {
@@ -160,5 +202,119 @@ describe("representativePostedAt", () => {
     expect(
       representativePostedAt({ targets: [{ publishedAt: null }] }),
     ).toBeNull();
+  });
+});
+
+// ─── Épingle Europe/Paris ────────────────────────────────────────────────────
+
+/**
+ * Le jour de référence est désormais épinglé sur Paris et non plus sur le fuseau
+ * du processus. Ces assertions sont écrites en TIMESTAMPS ABSOLUS : elles doivent
+ * tenir quel que soit le `TZ` du runner — c'est précisément la propriété qui
+ * permet aux notifications de retard de tourner côté serveur (runtime Convex en
+ * UTC) sans décaler les statuts d'un jour.
+ */
+describe("parisDayIndex — le jour est celui de Paris, pas celui du processus", () => {
+  it("LE PIÈGE : minuit Paris en été, c'est 22:00 UTC LA VEILLE", () => {
+    // postDate est stocké à minuit PARIS. Le 12/08/2026 à 00:00 Paris = le
+    // 11/08 à 22:00 UTC. Un index calculé en UTC dirait « 11 août » et ferait
+    // basculer le statut d'un jour — le défaut corrigé par #51/#52/#54.
+    const minuitParis12Aout = Date.UTC(2026, 7, 11, 22, 0);
+    expect(parisDayIndex(minuitParis12Aout)).toBe(2026 * 10000 + 7 * 100 + 12);
+  });
+
+  it("minuit Paris en HIVER, c'est 23:00 UTC la veille", () => {
+    const minuitParis12Janvier = Date.UTC(2026, 0, 11, 23, 0);
+    expect(parisDayIndex(minuitParis12Janvier)).toBe(2026 * 10000 + 0 * 100 + 12);
+  });
+
+  it("un post planifié à minuit Paris et publié le même jour est À L'HEURE", () => {
+    // Le cas complet, en absolu : planifié minuit Paris le 12, publié à 19h Paris
+    // le 12 (= 17:00 UTC). Sous un index UTC, le planifié serait le 11 et le
+    // publié le 12 → « en retard » pour un post parfaitement à l'heure.
+    expect(
+      calendarStatus({
+        postDate: Date.UTC(2026, 7, 11, 22, 0),
+        postedAt: Date.UTC(2026, 7, 12, 17, 0),
+        now: Date.UTC(2026, 7, 13, 10, 0),
+      }),
+    ).toBe("on_time");
+  });
+
+  it("le changement d'heure d'octobre ne décale pas le jour", () => {
+    // 2026 : bascule le dimanche 25 octobre. Minuit Paris le 26 = 23:00 UTC le 25.
+    expect(parisDayIndex(Date.UTC(2026, 9, 25, 23, 0))).toBe(
+      2026 * 10000 + 9 * 100 + 26,
+    );
+    // La veille, encore en heure d'été : minuit Paris le 25 = 22:00 UTC le 24.
+    expect(parisDayIndex(Date.UTC(2026, 9, 24, 22, 0))).toBe(
+      2026 * 10000 + 9 * 100 + 25,
+    );
+  });
+});
+
+describe("lateDays — le SIGNE du décalage, jamais le statut", () => {
+  /** Minuit PARIS d'un jour d'été (= 22:00 UTC la veille), comme postDate. */
+  const minuitParis = (m: number, d: number) => Date.UTC(2026, m - 1, d - 1, 22, 0);
+  /** Midi Paris (= 10:00 UTC en été), comme une confirmation de publication. */
+  const midiParis = (m: number, d: number) => Date.UTC(2026, m - 1, d, 10, 0);
+
+  it("compte les jours pleins de retard", () => {
+    expect(
+      lateDays({ postDate: minuitParis(8, 12), postedAt: midiParis(8, 15) }),
+    ).toBe(3);
+    expect(
+      lateDays({ postDate: minuitParis(8, 12), postedAt: midiParis(8, 13) }),
+    ).toBe(1);
+  });
+
+  it("traverse une fin de mois sans se tromper", () => {
+    // L'index année*10000+mois*100+jour n'est PAS soustrayable : du 31/01 au
+    // 01/02 il vaut 71. La différence doit passer par de vraies dates.
+    expect(
+      lateDays({
+        postDate: Date.UTC(2026, 0, 30, 23, 0), // minuit Paris le 31/01 (hiver)
+        postedAt: Date.UTC(2026, 1, 1, 11, 0), // midi Paris le 01/02
+      }),
+    ).toBe(1);
+  });
+
+  it("publié le jour prévu → null, pas 0", () => {
+    // 0 se lirait comme « en retard de zéro jour » et déclencherait un message.
+    expect(
+      lateDays({ postDate: minuitParis(8, 12), postedAt: midiParis(8, 12) }),
+    ).toBeNull();
+  });
+
+  it("publié EN AVANCE → null (calendarStatus dirait « en retard »)", () => {
+    const enAvance = {
+      postDate: minuitParis(8, 12),
+      postedAt: midiParis(8, 10),
+    };
+    // Le statut range l'avance dans `late` — correct pour une pastille « hors
+    // date », faux pour un message qui annonce des jours de retard.
+    expect(calendarStatus({ ...enAvance, now: midiParis(8, 20) })).toBe("late");
+    expect(lateDays(enAvance)).toBeNull();
+  });
+
+  it("pas publié, ou pas planifié → null", () => {
+    expect(lateDays({ postDate: minuitParis(8, 12), postedAt: null })).toBeNull();
+    expect(lateDays({ postDate: null, postedAt: midiParis(8, 12) })).toBeNull();
+  });
+});
+
+describe("parisHour — l'heure du bilan du soir", () => {
+  it("rend l'heure de Paris, pas celle d'UTC", () => {
+    // 19:00 UTC en été = 21:00 à Paris.
+    expect(parisHour(Date.UTC(2026, 7, 12, 19, 0))).toBe(21);
+    // 20:00 UTC en hiver = 21:00 à Paris.
+    expect(parisHour(Date.UTC(2026, 0, 12, 20, 0))).toBe(21);
+  });
+
+  it("l'heure d'hiver et l'heure d'été ne tombent PAS au même instant UTC", () => {
+    // C'est toute la raison du cron horaire : une heure UTC fixe glisserait.
+    expect(parisHour(Date.UTC(2026, 7, 12, 20, 0))).not.toBe(
+      parisHour(Date.UTC(2026, 0, 12, 20, 0)),
+    );
   });
 });

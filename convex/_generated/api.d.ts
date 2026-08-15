@@ -18,6 +18,7 @@ import type * as assets from "../assets.js";
 import type * as assetsMigration from "../assetsMigration.js";
 import type * as assignments from "../assignments.js";
 import type * as auth from "../auth.js";
+import type * as calendarStatus from "../calendarStatus.js";
 import type * as clipQuota from "../clipQuota.js";
 import type * as clipperAssignmentFields from "../clipperAssignmentFields.js";
 import type * as clipperReadiness from "../clipperReadiness.js";
@@ -124,6 +125,7 @@ declare const fullApi: ApiFromModules<{
   assetsMigration: typeof assetsMigration;
   assignments: typeof assignments;
   auth: typeof auth;
+  calendarStatus: typeof calendarStatus;
   clipQuota: typeof clipQuota;
   clipperAssignmentFields: typeof clipperAssignmentFields;
   clipperReadiness: typeof clipperReadiness;

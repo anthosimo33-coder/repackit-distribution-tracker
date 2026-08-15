@@ -27,6 +27,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
 import {
   calendarStatus,
+  isPastPost,
   isSameLocalDay,
   type CalendarStatus,
 } from "@/lib/calendar-status";
@@ -142,18 +143,22 @@ export function AssignmentsCalendar({
     [planned, statusFilter],
   );
 
+  // Le dénominateur vient d'`isPastPost` (convex/calendarStatus) et non d'une
+  // somme écrite ici : les notifications de retard affichent le MÊME taux, et
+  // deux définitions du « passé » finiraient par ne plus compter la même chose.
   const stats = useMemo(() => {
     let onTime = 0;
     let late = 0;
     let missed = 0;
     let scheduled = 0;
+    let past = 0;
     for (const { status } of planned) {
+      if (isPastPost(status)) past++;
       if (status === "on_time") onTime++;
       else if (status === "late") late++;
       else if (status === "missed") missed++;
       else scheduled++;
     }
-    const past = onTime + late + missed;
     return {
       onTime,
       late,
@@ -289,6 +294,15 @@ export function AssignmentsCalendar({
           </CardContent>
         </Card>
       </div>
+
+      {/* Le jour de référence est épinglé sur Paris, pas sur le fuseau du
+          navigateur : les dates de post sont posées à minuit Paris et les
+          notifications de retard tournent côté serveur. Dit en clair parce qu'un
+          poste réglé sur un autre fuseau voyait AVANT des statuts différents —
+          sans cette ligne, le décalage se découvre par un ticket. */}
+      <p className="text-xs text-slate-400">
+        Statuts calculés en heure de Paris.
+      </p>
 
       {/* Grille mensuelle */}
       <Card>
