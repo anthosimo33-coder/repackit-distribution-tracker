@@ -175,6 +175,38 @@ Ce fichier liste les anti-patterns repérés dans la zone touchée par chaque fe
   dans les deux fonctions pures, et une spec par population (le partenaire reste
   bloqué cross-comptes, le clippeur ne l'est plus).
 
+### TD-026 — `lib/post-url-account` ignore la forme `tiktok.com/t/` d'un shortlink
+- **Fichiers** : `lib/post-url-account.ts:23` (`isTikTokShortlink`), consommé par
+  `accountUrlCheck` — lui-même lu par `components/admin/AdminPublishForm.tsx` et
+  `components/clip/ClipPublishForm.tsx`.
+- **Constat** : le dépôt a DEUX définitions de « ce lien est-il un shortlink
+  TikTok ». La bonne vit dans le module pur `convex/postUrlDate.ts` et couvre les
+  DEUX formes de partage — sous-domaine (`vm.`/`vt.tiktok.com/CODE`) et chemin
+  (`(www.)tiktok.com/t/CODE`). Celle de `lib/post-url-account.ts` ne connaît que
+  la première. Les trois autres copies ont été fusionnées en PR 6
+  (`convex/modelVideoEmbeds.ts` et `lib/model-video-embed.ts` ré-exportent
+  désormais, test par identité de référence) ; celle-ci a été laissée sciemment.
+- **Conséquence OBSERVABLE, aujourd'hui** : quand l'admin ou un clippeur colle un
+  lien `tiktok.com/t/…` dans le formulaire de publication, la ligne de contrôle
+  sous le champ affiche **« Compte non présent dans l'URL — non vérifiable »** au
+  lieu de **« Lien raccourci — compte non vérifiable ici »**. Les deux disent
+  « non vérifiable », donc **rien n'est mal publié et aucune vue n'est mal
+  attribuée** : c'est le MOTIF affiché qui est faux, pas la décision. C'est
+  pourquoi c'est une dette et pas un bug.
+- **Pourquoi ce n'est pas corrigé** : unifier CHANGE ce que l'admin voit sur ce
+  lien. La règle du chantier talent/clippeur — « toute évolution qui altérerait le
+  comportement actuel d'un créateur partenaire est hors périmètre et doit être
+  signalée plutôt qu'appliquée » — s'y applique : le formulaire de secours admin
+  est un chemin partenaire.
+- **Forme du correctif** : supprimer la fonction de `lib/post-url-account.ts` et
+  ré-exporter celle de `convex/postUrlDate.ts` (une ligne, patron déjà en place
+  dans `lib/model-video-embed.ts`), + un test d'identité de référence, + une
+  assertion sur le nouveau motif rendu pour un `tiktok.com/t/`.
+- **Ce qui rendrait ça urgent** : que le motif serve à autre chose qu'à informer —
+  un branchement de code sur `reason === "shortlink"`, ou une résolution
+  automatique déclenchée par ce motif. Tant qu'il n'est que rendu à l'écran, le
+  coût reste un libellé inexact.
+
 ### TD-025 — Le mode « voir l'espace » ne sait rendre que le portail PARTENAIRE ✅ RÉSOLU (août 2026)
 - **Constat d'origine** : la route ré-exportait STATIQUEMENT les écrans
   partenaire et ne lisait ni `kind` ni `portalRole`. Rendue pour un talent ou un
