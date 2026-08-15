@@ -15,6 +15,7 @@ import {
 } from "./clipperAssignmentFields";
 import { withResolvedExamples } from "./formats";
 import { formatDayMonthFr } from "./dateFr";
+import { normalizeRemunere } from "./remunerate";
 import { isFormatAllowedOnPlatform } from "./publications";
 import { tierLabel } from "./scriptTier";
 import { SNYTCH_SLUG } from "./projects";
@@ -991,6 +992,21 @@ async function materializeTargetPublication(
     const creator = await ctx.db.get(a.creatorId);
     compte = creator?.name ?? "—";
   }
+  // Qualification héritée de l'assignation. `contentType` absent ⇒ on ne pose
+  // RIEN (publication normale, comportement d'avant ce champ). `remunerated`
+  // passe par normalizeRemunere : on ne stocke `remunere` que s'il DIVERGE de
+  // « payé ssi pas warmup » — invariant du LOT 2, sinon on créerait 200 lignes
+  // explicites qui rendraient invisible la poignée de vraies exceptions.
+  const isWarmup =
+    a.contentType === undefined ? undefined : a.contentType === "warmup";
+  const remunere =
+    a.remunerated === undefined || isWarmup === undefined
+      ? undefined
+      : normalizeRemunere(isWarmup, a.remunerated);
+  const qualification = {
+    ...(isWarmup !== undefined ? { isWarmup } : {}),
+    ...(remunere !== undefined ? { remunere } : {}),
+  };
   const isScript = a.scriptCombo !== undefined && a.formatId === undefined;
   if (isScript) {
     if (!a.scriptCombo || a.comboKey === undefined) {
@@ -1013,6 +1029,7 @@ async function materializeTargetPublication(
         ctaBrickId: a.scriptCombo.ctaBrickId,
         comboKey: a.comboKey,
       },
+      ...qualification,
     });
   }
   const format = a.formatId ? await ctx.db.get(a.formatId) : null;
@@ -1025,6 +1042,7 @@ async function materializeTargetPublication(
     compte,
     datePubli,
     postUrl: url,
+    ...qualification,
   });
 }
 

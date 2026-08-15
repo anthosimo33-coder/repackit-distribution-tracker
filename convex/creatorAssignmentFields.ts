@@ -56,6 +56,14 @@ export const NON_CREATOR_ASSIGNMENT_FIELDS = [
   // Sans objet chez une partenaire : elle est payée au fixe/CPM/paliers, jamais
   // au clip. Le champ ne sera jamais posé sur une de ses assignations.
   "clipRateSnapshot",
+  // ─── QUALIFICATION STRATÉGIQUE — TAXONOMIE INTERNE, JAMAIS EXPOSÉE ────────
+  // Savoir qu'une vidéo est du « warmup » ou qu'elle n'est pas rémunérée est une
+  // décision de pilotage. L'exposer dirait à la créatrice quelles vidéos comptent
+  // moins — et le clippeur n'a pas davantage à le lire. Classés ici EXPLICITEMENT
+  // pour que le test d'exhaustivité les voie classés, et le test d'exclusion
+  // vérifie leur ABSENCE des payloads.
+  "contentType",
+  "remunerated",
   // Décomposition script / rejeu / traçabilité admin — JAMAIS côté créatrice.
   "scriptCombo",
   "comboKey",
