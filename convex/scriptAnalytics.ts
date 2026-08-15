@@ -5,7 +5,7 @@ import type { QueryCtx } from "./_generated/server";
 import { findMatchingSnapshot, type SnapshotAge } from "./snapshotMatching";
 import { normalizeTier } from "./scriptTier";
 import { buildPublicationAssignmentMap, postLabel } from "./trackerData";
-import { passesWarmupMode } from "./warmupMode";
+import { passesWarmupMode, type WarmupMode } from "./warmupMode";
 
 /**
  * S3 — Analytics par VARIABLE de script (lecture du bulk testing). Pour une
@@ -133,11 +133,27 @@ export interface CampaignViews {
  * pour chaque publication de la campagne, sa vue à la fenêtre choisie, et
  * renvoie les échantillons + les briques. Appelé UNE fois par query.
  */
+/**
+ * Segmentation WARMUP / PROMO des analytics de script.
+ *
+ * Le mode existe déjà côté produit (convex/warmupMode) mais était FIGÉ à
+ * « exclude » ici : impossible de regarder les performances des warmup, ni de
+ * comparer les deux populations. `contentType` posé à l'assignation se propage
+ * en `publications.isWarmup`, donc ce filtre segmente désormais exactement la
+ * qualification saisie par l'admin.
+ *
+ * DÉFAUT INCHANGÉ (« exclude ») : toutes les surfaces existantes appellent sans
+ * argument et lisent la même chose qu'avant. TD-019 tient — le warmup reste
+ * retiré à la SOURCE unique des échantillons, pour que médianes par variable et
+ * médiane de référence soient filtrées d'un seul coup.
+ */
 export async function gatherCampaignViews(
   ctx: QueryCtx,
   projectId: Id<"projects">,
   campaignId: Id<"scriptCampaigns">,
   window: SnapshotAge,
+  /** Segment lu. Défaut « exclude » = comportement historique, appelants inchangés. */
+  warmupMode: WarmupMode = "exclude",
 ): Promise<CampaignViews> {
   const campaign = await ctx.db.get(campaignId);
   if (!campaign || campaign.projectId !== projectId) {
@@ -169,7 +185,7 @@ export async function gatherCampaignViews(
   const scriptPubs = pubs.filter(
     (p) =>
       p.scriptCombo?.campaignId === campaignId &&
-      passesWarmupMode(p.isWarmup === true, "exclude"),
+      passesWarmupMode(p.isWarmup === true, warmupMode),
   );
   const pubIds = new Set(scriptPubs.map((p) => p._id as string));
 
