@@ -1051,6 +1051,11 @@ export const assignScriptCampaign = adminMutation({
     postWindows: v.optional(
       v.array(v.object({ startMin: v.number(), endMin: v.number() })),
     ),
+    // QUALIFICATION stratégique (admin) — pré-remplie par les défauts de campagne
+    // côté modale, surchargeable au cas par cas. Absente ⇒ rien n'est posé sur
+    // l'assignation, et rien ne sera propagé à la publication.
+    contentType: v.optional(v.union(v.literal("warmup"), v.literal("promo"))),
+    remunerated: v.optional(v.boolean()),
     // Combinaison IMPOSÉE (« Rejouer ce script » / mode « Combinaison choisie ») :
     // les 3 briques sont fournies par l'admin au lieu du tirage auto. Présent →
     // court-circuite generateCombos/pickCombos et l'unicité anti-coordination ;
@@ -1365,6 +1370,8 @@ export const assignScriptCampaign = adminMutation({
         // Date de post planifiée (undefined si non planifiée → row inchangée).
         ...(postDate !== undefined ? { postDate } : {}),
         ...(postWindow !== undefined ? { postWindow } : {}),
+        ...(args.contentType !== undefined ? { contentType: args.contentType } : {}),
+        ...(args.remunerated !== undefined ? { remunerated: args.remunerated } : {}),
         createdAt: now,
       });
       if (firstAssignmentId === null) firstAssignmentId = insertedId;
