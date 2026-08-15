@@ -12,6 +12,7 @@ import {
   representativePostedAt,
 } from "./assignments";
 import { formatDateFr } from "./dateFr";
+import { isValidPostWindow } from "./postWindow";
 import { buildPricingSnapshot } from "./pricing";
 import { canTransition } from "./rushStatus";
 import { resolveCreatorKind } from "./roles";
@@ -1026,6 +1027,12 @@ export const assignScriptCampaign = adminMutation({
     // ils n'en relâchent aucune : rejeter un script est une contrainte de plus.
     // Absent → tirage inchangé, exactement comme avant l'aperçu.
     excludedComboKeys: v.optional(v.array(v.string())),
+    // PLAGE HORAIRE par vidéo, positionnelle comme postDates : postWindows[i]
+    // accompagne postDates[i]. Minutes depuis minuit LOCAL (cf convex/postWindow).
+    // Absente ⇒ aucune consigne d'heure, l'assignation reste valide.
+    postWindows: v.optional(
+      v.array(v.object({ startMin: v.number(), endMin: v.number() })),
+    ),
     // Combinaison IMPOSÉE (« Rejouer ce script » / mode « Combinaison choisie ») :
     // les 3 briques sont fournies par l'admin au lieu du tirage auto. Présent →
     // court-circuite generateCombos/pickCombos et l'unicité anti-coordination ;
@@ -1280,6 +1287,16 @@ export const assignScriptCampaign = adminMutation({
     for (let i = 0; i < picked.length; i++) {
       const combo = picked[i];
       const postDate = args.postDates?.[i];
+      // Plage horaire de CETTE vidéo. Validée ici plutôt que par le validator :
+      // une plage inversée ou de durée nulle passe le typage mais n'est pas une
+      // consigne. Invalide ⇒ REFUS explicite, jamais un enregistrement silencieux
+      // qui afficherait « entre 23h et 21h » à la créatrice.
+      const postWindow = args.postWindows?.[i];
+      if (postWindow !== undefined && !isValidPostWindow(postWindow)) {
+        throw new ConvexError(
+          "Plage horaire invalide : l'heure de début doit précéder l'heure de fin, dans la même journée.",
+        );
+      }
       const insertedId = await ctx.db.insert("assignments", {
         projectId: ctx.projectId,
         creatorId: args.creatorId,
@@ -1329,6 +1346,7 @@ export const assignScriptCampaign = adminMutation({
           : {}),
         // Date de post planifiée (undefined si non planifiée → row inchangée).
         ...(postDate !== undefined ? { postDate } : {}),
+        ...(postWindow !== undefined ? { postWindow } : {}),
         createdAt: now,
       });
       if (firstAssignmentId === null) firstAssignmentId = insertedId;

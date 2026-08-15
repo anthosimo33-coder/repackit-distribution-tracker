@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { formatPostWindow } from "@/convex/postWindow";
 import { ArrowRightIcon, CalendarCheckIcon, SendIcon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -15,6 +16,7 @@ type BannerRow = {
   _id: Id<"assignments">;
   formatName: string;
   postDate?: number;
+  postWindow?: { startMin: number; endMin: number };
   managedByAdmin?: boolean;
   targets: { platform: string; publishedAt?: number | null }[];
   publishedAt?: number | null;
@@ -79,6 +81,14 @@ export function TodayPostBanner({
                 >
                   <span className="min-w-0 flex-1 truncate font-medium text-slate-900">
                     {a.formatName}
+                    {/* Plage horaire : rendue SEULEMENT si elle existe. Sans elle
+                        (cas des assignations d'avant le champ), la ligne reste
+                        strictement identique à avant — pas de tiret orphelin. */}
+                    {formatPostWindow(a.postWindow) !== null && (
+                      <span className="ml-2 font-normal text-primary">
+                        entre {formatPostWindow(a.postWindow)!.replace("-", " et ")}
+                      </span>
+                    )}
                   </span>
                   {a.targets.length > 0 && (
                     <span className="shrink-0 font-mono text-xs text-slate-400">
@@ -111,6 +121,9 @@ export function TodayPostBanner({
               <span className="font-medium capitalize">
                 {longDate(next.postDate!)}
               </span>{" "}
+              {formatPostWindow(next.postWindow) !== null
+                ? ` entre ${formatPostWindow(next.postWindow)!.replace("-", " et ")}`
+                : ""}{" "}
               : {next.formatName}.
             </p>
           ) : (

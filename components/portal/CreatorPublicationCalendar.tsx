@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { formatPostWindow } from "@/convex/postWindow";
 import Link from "next/link";
 import {
   addMonths,
@@ -36,6 +37,7 @@ type CalRow = {
   _id: Id<"assignments">;
   formatName: string;
   postDate?: number;
+  postWindow?: { startMin: number; endMin: number };
   managedByAdmin?: boolean;
   targets: { publishedAt?: number | null }[];
   publishedAt?: number | null;
@@ -164,7 +166,11 @@ export function CreatorPublicationCalendar({
                       <Link
                         key={row._id}
                         href={portalHref(base, `/assignments/${row._id}`)}
-                        title={`${row.formatName} · ${meta.label}`}
+                        title={
+                          formatPostWindow(row.postWindow) !== null
+                            ? `${row.formatName} · ${meta.label} · entre ${formatPostWindow(row.postWindow)!.replace("-", " et ")}`
+                            : `${row.formatName} · ${meta.label}`
+                        }
                         className={cn(
                           "flex w-full items-center gap-1 rounded border px-1 py-0.5 text-left text-[10px] font-medium leading-tight transition-colors",
                           meta.chip,
