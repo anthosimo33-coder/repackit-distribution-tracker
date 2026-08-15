@@ -1883,7 +1883,17 @@ export async function missionLabelFor(
   if (a.scriptCombo) {
     const campaign = await ctx.db.get(a.scriptCombo.campaignId);
     return {
-      formatName: campaign?.name ?? "Vidéo à tourner",
+      // `displayName` d'abord : `name` est le nom INTERNE de production
+      // (« Format Warmup LAB »), et il fuitait tel quel dans l'espace créatrice
+      // ET clippeur — révélant la taxonomie de pilotage. Repli sur `name` quand
+      // aucun nom d'affichage n'est défini : comportement actuel, 0 migration.
+      // Côté ADMIN, c'est toujours `name` qui s'affiche (autre chemin de lecture).
+      formatName:
+        // `|| ` et non `?? ` : un displayName VIDÉ (chaîne vide) doit retomber
+        // sur le nom interne, pas afficher une étiquette vide à la créatrice.
+        campaign?.displayName?.trim() ||
+        campaign?.name ||
+        "Vidéo à tourner",
       formatType: null,
       origin: "script",
     };
