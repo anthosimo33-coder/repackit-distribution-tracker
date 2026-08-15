@@ -126,6 +126,13 @@ export async function eveningUnpublishedReports(
   // Prévus AUJOURD'HUI et pas encore publiés. `calendarStatus` renvoie
   // "scheduled" pour le jour même non publié — la journée n'est pas finie, et
   // c'est bien ce que le message dira : « pas encore publié », pas « manqué ».
+  //
+  // ⚠️ Les deux conditions sont REDONDANTES sur les cas d'aujourd'hui, et c'est
+  // mesuré : retirer le test de statut ne fait rougir aucune spec (mutant
+  // vérifié). C'est le filtre de JOUR qui porte la règle — lui, sa suppression
+  // rougit. Le test de statut reste en défense : il documente que le bilan parle
+  // de « pas encore publié » et non de « manqué », et il tiendrait si un futur
+  // passage élargissait la fenêtre de jours.
   const duJour = assignments.filter((a) => {
     if (a.postDate == null) return false;
     if (parisDayIndex(a.postDate) !== aujourdhui) return false;
@@ -225,4 +232,18 @@ export const getCreatorPublicationStats = adminQuery({
   args: {},
   handler: async (ctx) =>
     creatorPublicationStats(ctx, ctx.projectId, Date.now()),
+});
+
+/**
+ * Écran / diagnostic — CE QUE le bilan du soir dirait s'il partait maintenant.
+ *
+ * Même fonction que celle du cron (`eveningUnpublishedReports`), pas une
+ * seconde lecture : un aperçu qui ne montrerait pas exactement l'envoi réel
+ * serait pire qu'aucun aperçu. C'est aussi ce qui rend le VERROU testable — les
+ * manqués des jours précédents ne doivent jamais y apparaître.
+ */
+export const previewEveningReport = adminQuery({
+  args: {},
+  handler: async (ctx) =>
+    eveningUnpublishedReports(ctx, ctx.projectId, Date.now()),
 });

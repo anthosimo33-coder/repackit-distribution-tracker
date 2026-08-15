@@ -106,6 +106,25 @@ crons.daily(
   {},
 );
 
+// BILAN DE FIN DE JOURNÉE — un message par créatrice ayant encore des posts
+// prévus AUJOURD'HUI non publiés. HORAIRE, et c'est le point : chaque projet ne
+// tire que lorsque l'heure de PARIS vaut son heure configurée (21 h par défaut).
+//
+// C'est exactement le remède annoncé dans l'en-tête de ce fichier : un cron
+// quotidien à heure UTC fixe glisserait au changement d'heure d'octobre, et « le
+// bilan de 21 h » arriverait à 20 h tout l'hiver. Pour un point de tracking de
+// vues, une heure de décalage est sans conséquence ; pour un bilan de fin de
+// journée annoncé à une heure précise, c'en est une.
+//
+// minuteUTC:15 — clair des crons horaires déjà posés (:30 Whop, :45 PostHog).
+// L'action est un no-op complet pour tout projet dont ce n'est pas l'heure.
+crons.hourly(
+  "evening-unpublished-reports",
+  { minuteUTC: 15 },
+  internal.notifications.runEveningReports,
+  {},
+);
+
 // Balayage des blobs orphelins du File Storage — QUOTIDIEN. Filet de sécurité
 // pour les uploads ABANDONNÉS (blob POSTé, mutation d'attache jamais passée) :
 // aucune suppression de row ne peut les rattraper, ils ne sont référencés nulle

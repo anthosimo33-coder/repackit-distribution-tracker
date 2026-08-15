@@ -29,6 +29,7 @@ import {
   latePublicationLine,
   buildLatePublicationMessage,
   buildGroupedLatePublicationsMessage,
+  buildEveningReportMessage,
   buildRenewalFailedMessage,
   buildSubmissionMessage,
   buildTestMessage,
@@ -42,7 +43,8 @@ import {
 } from "./opsDigest";
 import { effectiveStatus } from "./comptes";
 import { resolveCreatorKind } from "./roles";
-import { lateDays, representativePostedAt } from "./calendarStatus";
+import { lateDays, parisHour, representativePostedAt } from "./calendarStatus";
+import { eveningUnpublishedReports } from "./publicationLateness";
 import {
   isChauffeSansTalent,
   joursAvantSortieDeChauffe,
@@ -206,6 +208,8 @@ export const getNotifySettings = adminQuery({
       chatId: notify?.chatId ?? "",
       tokenEnvVar,
       enabledEvents: notify?.enabledEvents ?? [],
+      /** Heure du bilan de fin de journée, en heure de PARIS. Absent ⇒ 21 h. */
+      eveningHourParis: notify?.eveningHourParis ?? DEFAULT_EVENING_HOUR_PARIS,
       /** La variable d'env existe-t-elle sur CE déploiement ? (jamais sa valeur) */
       tokenPresent: (process.env[tokenEnvVar] ?? "").length > 0,
       appBaseUrlPresent: (process.env.APP_BASE_URL ?? "").length > 0,
@@ -227,12 +231,30 @@ export const setNotifySettings = adminMutation({
     chatId: v.string(),
     enabledEvents: v.array(v.string()),
     tokenEnvVar: v.optional(v.string()),
+    /** Heure du bilan du soir, en heure de PARIS (0-23). Absent ⇒ défaut. */
+    eveningHourParis: v.optional(v.number()),
   },
-  handler: async (ctx, { chatId, enabledEvents, tokenEnvVar }) => {
+  handler: async (
+    ctx,
+    { chatId, enabledEvents, tokenEnvVar, eveningHourParis },
+  ) => {
     const trimmedChat = chatId.trim();
     const trimmedEnv = (tokenEnvVar ?? DEFAULT_TOKEN_ENV_VAR).trim();
     if (trimmedEnv.length === 0) {
       throw new ConvexError("Le nom de la variable d'environnement est requis.");
+    }
+    // Heure BORNÉE serveur : une valeur hors 0-23 ne correspondrait à aucune
+    // heure de Paris, donc le cron ne tirerait JAMAIS — une panne silencieuse
+    // qu'on ne découvrirait qu'en constatant l'absence de bilans.
+    if (
+      eveningHourParis !== undefined &&
+      (!Number.isInteger(eveningHourParis) ||
+        eveningHourParis < 0 ||
+        eveningHourParis > 23)
+    ) {
+      throw new ConvexError(
+        "L'heure du bilan doit être un entier entre 0 et 23.",
+      );
     }
     // Destinataire vidé = on RETIRE le bloc : « pas de config » et « config avec
     // un destinataire vide » doivent se lire pareil (canal éteint), pas laisser
@@ -247,6 +269,7 @@ export const setNotifySettings = adminMutation({
         chatId: trimmedChat,
         tokenEnvVar: trimmedEnv,
         enabledEvents: sanitizeEnabledEvents(enabledEvents),
+        ...(eveningHourParis !== undefined ? { eveningHourParis } : {}),
       },
     });
     return { ok: true, cleared: false };
@@ -1092,6 +1115,127 @@ export const collectDigest = internalQuery({
 });
 
 /** Projets ayant une config de notification — seuls candidats au digest. */
+/** Heure de bilan par défaut, en heure de Paris. */
+export const DEFAULT_EVENING_HOUR_PARIS = 21;
+
+/**
+ * Données du bilan du soir d'un projet : une entrée par créatrice ayant au
+ * moins un post prévu AUJOURD'HUI et pas encore publié.
+ *
+ * Rend `[]` quand tout est publié — et c'est le cas nominal : l'action n'envoie
+ * alors rien du tout.
+ */
+export const collectEveningReports = internalQuery({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }) => {
+    const project = await ctx.db.get(projectId);
+    if (project === null) return null;
+    const reports = await eveningUnpublishedReports(ctx, projectId, Date.now());
+    return {
+      projectSlug: project.slug,
+      reports: reports.map((r) => ({
+        creatorId: r.creatorId,
+        creatorName: r.creatorName,
+        onTimeRate: r.tally.rate,
+        posts: r.posts.map((p) => ({
+          missionLabel: p.missionLabel,
+          accountHandles: p.accountHandles,
+        })),
+      })),
+    };
+  },
+});
+
+export type EveningSummary = {
+  /** Projets dont l'heure de bilan correspond à MAINTENANT (Paris). */
+  projects: number;
+  /** Messages envoyés (un par créatrice concernée). */
+  sent: number;
+  /** Projets à l'heure du bilan mais sans rien à signaler. */
+  silent: number;
+};
+
+/**
+ * Cron HORAIRE du bilan de fin de journée.
+ *
+ * ⚠️ HORAIRE et non quotidien : chaque projet ne tire que lorsque l'heure de
+ * PARIS vaut son heure configurée. Un cron quotidien à heure UTC fixe glisserait
+ * d'une heure au changement d'heure d'octobre — « le bilan de 21 h » arriverait
+ * à 20 h tout l'hiver. C'est le remède que l'en-tête de convex/crons.ts prévoit
+ * nommément pour ce cas.
+ *
+ * ⚠️ Si l'heure de Paris n'est PAS calculable (`parisHour` rend null), on
+ * n'envoie RIEN. Un repli sur UTC ferait partir le bilan à la mauvaise heure
+ * toute l'année ; une comparaison qui échoue « vers vrai » en enverrait 24 par
+ * jour. En cas de doute, on se tait.
+ *
+ * UN MESSAGE PAR CRÉATRICE, comme demandé : chacun est actionnable et
+ * transférable seul. Aucune créatrice sans post en attente n'en produit.
+ */
+export const runEveningReports = internalAction({
+  args: {},
+  handler: async (ctx): Promise<EveningSummary> => {
+    const maintenant = Date.now();
+    const heureParis = parisHour(maintenant);
+    if (heureParis === null) {
+      console.error(
+        "[notifications] heure de Paris incalculable — bilan du soir NON envoyé " +
+          "(un repli sur UTC enverrait à la mauvaise heure).",
+      );
+      return { projects: 0, sent: 0, silent: 0 };
+    }
+
+    const projectIds = await ctx.runQuery(
+      internal.notifications.listNotifyProjects,
+      {},
+    );
+    let projects = 0;
+    let sent = 0;
+    let silent = 0;
+    for (const projectId of projectIds) {
+      const p = await ctx.runQuery(internal.notifications.getProjectNotify, {
+        projectId,
+      });
+      const heureVoulue =
+        p?.notify?.eveningHourParis ?? DEFAULT_EVENING_HOUR_PARIS;
+      if (heureVoulue !== heureParis) continue;
+      projects += 1;
+
+      const nctx = await resolveNotifyContext(
+        ctx,
+        projectId,
+        "evening_unpublished",
+      );
+      if (nctx === null) continue;
+
+      const data = await ctx.runQuery(
+        internal.notifications.collectEveningReports,
+        { projectId },
+      );
+      if (data === null || data.reports.length === 0) {
+        silent += 1;
+        continue;
+      }
+      for (const r of data.reports) {
+        const text = buildEveningReportMessage({
+          ctx: {
+            creatorName: r.creatorName,
+            posts: r.posts,
+            onTimeRate: r.onTimeRate,
+          },
+          appBaseUrl: nctx.cfg.appBaseUrl,
+          projectSlug: nctx.projectSlug,
+          creatorId: r.creatorId,
+        });
+        if (text === null) continue;
+        const res = await deliver(nctx.cfg, "bilan de fin de journée", text);
+        if (res.ok) sent += 1;
+      }
+    }
+    return { projects, sent, silent };
+  },
+});
+
 export const listNotifyProjects = internalQuery({
   args: {},
   handler: async (ctx) => {

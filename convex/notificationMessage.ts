@@ -414,6 +414,73 @@ export function buildGroupedLatePublicationsMessage(params: {
   ].join("\n");
 }
 
+// ─── Bilan de fin de journée ─────────────────────────────────────────────────
+
+/**
+ * Contexte du bilan du soir d'UNE créatrice.
+ *
+ * ⚠️ `posts` ne contient QUE des posts prévus AUJOURD'HUI et pas encore
+ * publiés. Jamais les manqués des jours précédents : quelqu'un qui a loupé 30
+ * posts il y a dix jours et en a 2 aujourd'hui reçoit un message qui parle de 2
+ * posts. Les anciens comptent dans le TAUX, qui est leur seul endroit.
+ *
+ * ⚠️ « pas encore publié », jamais « manqué ». À l'heure d'envoi la journée
+ * n'est pas finie — le statut calendrier ne bascule qu'à minuit, et il reste des
+ * heures pour sortir. Le message est une ALERTE actionnable, pas un constat.
+ */
+export interface EveningReportContext {
+  creatorName: string;
+  /** Un post prévu aujourd'hui, non publié : sa mission et ses comptes. */
+  posts: { missionLabel: string; accountHandles: string[] }[];
+  /** Taux à l'heure sur TOUT l'historique. `null` = aucun post passé. */
+  onTimeRate: number | null;
+}
+
+/** Comptes distincts de tous les posts du bilan, dans l'ordre d'apparition. */
+function comptesDuBilan(ctx: EveningReportContext): string[] {
+  const out: string[] = [];
+  for (const p of ctx.posts) {
+    for (const h of p.accountHandles) if (!out.includes(h)) out.push(h);
+  }
+  return out;
+}
+
+export function buildEveningReportMessage(params: {
+  ctx: EveningReportContext;
+  appBaseUrl: string;
+  projectSlug: string;
+  creatorId: string;
+}): string | null {
+  const { ctx, appBaseUrl, projectSlug, creatorId } = params;
+  // Aucune créatrice sans post en attente ne doit produire de message. Garde
+  // ici EN PLUS du filtre amont : une liste vide qui produirait « n'a pas publié
+  // 0 post » est le genre d'envoi qui apprend à ignorer le canal.
+  if (ctx.posts.length === 0) return null;
+  const n = ctx.posts.length;
+  const comptes = comptesDuBilan(ctx);
+  const lignes = [
+    "🌙 <b>Fin de journée</b>",
+    "",
+    `<b>${escapeTelegram(ctx.creatorName)}</b> n'a pas encore publié ${n} post${
+      n > 1 ? "s" : ""
+    } prévu${n > 1 ? "s" : ""} aujourd'hui${escapeTelegram(surLesComptes(comptes))}.`,
+  ];
+  if (ctx.onTimeRate !== null) {
+    lignes.push(
+      `Son taux de publication à l'heure est de ${Math.round(ctx.onTimeRate * 100)} %.`,
+    );
+  }
+  lignes.push("", bulletList(ctx.posts.map((p) => p.missionLabel)));
+  lignes.push(
+    "",
+    link(
+      "Voir ses assignations",
+      assignmentsUrl(appBaseUrl, projectSlug, creatorId),
+    ),
+  );
+  return lignes.join("\n");
+}
+
 // ─── Revue vidéo : validée / refusée ─────────────────────────────────────────
 
 /**
