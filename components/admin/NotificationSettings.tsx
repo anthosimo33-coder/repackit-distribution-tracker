@@ -54,6 +54,12 @@ const SECTIONS: { kind: NotificationEventKind; title: string; blurb: string }[] 
       blurb:
         "Un seul message par jour, le matin — et aucun message s'il n'y a rien à signaler.",
     },
+    {
+      kind: "scheduled",
+      title: "Bilan de fin de journée",
+      blurb:
+        "Envoyé à l'heure choisie ci-dessous, en heure de Paris. Un message par créatrice concernée, et rien du tout si tout est publié.",
+    },
   ];
 
 type Settings = NonNullable<
@@ -86,6 +92,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
   const [enabled, setEnabled] = useState<Set<NotificationEventKey>>(
     () => new Set(settings.enabledEvents as NotificationEventKey[]),
   );
+  const [eveningHour, setEveningHour] = useState(settings.eveningHourParis);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
 
@@ -93,11 +100,12 @@ function SettingsForm({ settings }: { settings: Settings }) {
   // bouton retombe inactif tout seul, sans recopier l'état à la main.
   const dirty = useMemo(() => {
     if (chatId.trim() !== settings.chatId) return true;
+    if (eveningHour !== settings.eveningHourParis) return true;
     const saved = new Set(settings.enabledEvents);
     if (saved.size !== enabled.size) return true;
     for (const k of enabled) if (!saved.has(k)) return true;
     return false;
-  }, [settings, chatId, enabled]);
+  }, [settings, chatId, enabled, eveningHour]);
 
   const channelReady =
     settings.tokenPresent &&
@@ -119,6 +127,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
       const res = await save({
         chatId,
         enabledEvents: [...enabled],
+        eveningHourParis: eveningHour,
       });
       toast.success(
         res.cleared
@@ -248,6 +257,34 @@ function SettingsForm({ settings }: { settings: Settings }) {
                   />
                 </div>
               ),
+            )}
+            {/* Heure d'envoi — n'a de sens que pour la section planifiée. En
+                heure de PARIS, pas UTC : le cron est horaire et ne tire que
+                lorsque l'heure de Paris correspond, pour que « 21 h » reste
+                21 h au changement d'heure d'octobre. */}
+            {section.kind === "scheduled" && (
+              <div className="flex items-center justify-between gap-4 border-t border-slate-100 py-3">
+                <div className="min-w-0 space-y-0.5">
+                  <Label htmlFor="notify-evening-hour" className="text-sm font-medium">
+                    Heure d&apos;envoi
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    Heure de Paris, été comme hiver.
+                  </p>
+                </div>
+                <select
+                  id="notify-evening-hour"
+                  value={eveningHour}
+                  onChange={(e) => setEveningHour(Number(e.target.value))}
+                  className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm tabular-nums"
+                >
+                  {Array.from({ length: 24 }, (_, h) => (
+                    <option key={h} value={h}>
+                      {String(h).padStart(2, "0")}:00
+                    </option>
+                  ))}
+                </select>
+              </div>
             )}
           </CardContent>
         </Card>

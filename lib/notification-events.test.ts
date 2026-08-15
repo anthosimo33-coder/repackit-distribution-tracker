@@ -12,23 +12,25 @@ import {
 import * as convexEvents from "../convex/notificationEvents";
 
 describe("catalogue — forme et contenu", () => {
-  it("expose les 11 événements du chantier", () => {
+  it("expose les 13 événements du catalogue", () => {
     expect(NOTIFICATION_EVENT_KEYS).toEqual([
       "video_submitted",
       "video_resubmitted",
       "video_approved",
       "video_rejected",
       "publication_confirmed",
+      "publication_late",
       "whop_dispute",
       "whop_renewal_failed",
       "digest_overdue_missions",
       "digest_pay_cycles",
       "digest_warmup_late",
       "digest_clipper_sans_talent",
+      "evening_unpublished",
     ]);
   });
 
-  it("7 immédiats, 4 digest — le classement arbitré du chantier", () => {
+  it("8 immédiats, 4 digest, 1 planifié — le classement arbitré", () => {
     const immediate = NOTIFICATION_EVENTS.filter((e) => e.kind === "immediate");
     const digest = NOTIFICATION_EVENTS.filter((e) => e.kind === "digest");
     expect(immediate.map((e) => e.key)).toEqual([
@@ -37,6 +39,7 @@ describe("catalogue — forme et contenu", () => {
       "video_approved",
       "video_rejected",
       "publication_confirmed",
+      "publication_late",
       "whop_dispute",
       "whop_renewal_failed",
     ]);
@@ -46,6 +49,11 @@ describe("catalogue — forme et contenu", () => {
       "digest_warmup_late",
       "digest_clipper_sans_talent",
     ]);
+    // `scheduled` : ni réaction à un geste, ni section du digest — un envoi à
+    // une heure choisie, avec son propre message.
+    expect(
+      NOTIFICATION_EVENTS.filter((e) => e.kind === "scheduled").map((e) => e.key),
+    ).toEqual(["evening_unpublished"]);
   });
 
   it("aucune clé dupliquée, tout est libellé", () => {

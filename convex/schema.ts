@@ -172,6 +172,13 @@ export default defineSchema({
         // Un tableau plutôt qu'un objet de 7 booléens : ajouter un 8e événement
         // plus tard ne demande alors aucune migration, et il arrive éteint.
         enabledEvents: v.array(v.string()),
+        // ─── Heure du BILAN DE FIN DE JOURNÉE, en heure de PARIS (0-23) ───────
+        // Absent ⇒ 21 h. Le cron est HORAIRE et chaque projet ne tire que lorsque
+        // l'heure de Paris vaut cette valeur : une heure UTC fixe glisserait d'une
+        // heure au changement d'heure d'octobre, et « le bilan de 21 h » arriverait
+        // à 20 h tout l'hiver. Un entier, pas un timestamp — c'est une intention
+        // d'horloge murale (même raisonnement que assignments.postWindow).
+        eveningHourParis: v.optional(v.number()),
       }),
     ),
   }).index("by_slug", ["slug"]),

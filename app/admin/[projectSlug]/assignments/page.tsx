@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   useProjectQuery,
   useProjectMutation,
@@ -127,7 +128,20 @@ const VIEW_MODE_KEY = "repackit.assignments.viewMode";
 const campaignFilterKey = (slug: string) =>
   `repackit.assignments.campaignFilter.${slug}`;
 
+/**
+ * Wrapper Suspense pour `useSearchParams` (Next 16 le suspend) — même découpage
+ * que app/admin/[projectSlug]/validation/page.tsx et inspirations/page.tsx.
+ * Sans lui, le build échoue sur le rendu statique de la page.
+ */
 export default function AssignmentsPage() {
+  return (
+    <Suspense fallback={<Skeleton className="h-96 w-full" />}>
+      <AssignmentsPageInner />
+    </Suspense>
+  );
+}
+
+function AssignmentsPageInner() {
   const assignments = useProjectQuery(api.assignments.listAssignments, {});
   const projectSlug = useProject().project.slug;
   // Ancre temporelle stable au montage (rang d'urgence de l'ordre + filtre
@@ -136,7 +150,15 @@ export default function AssignmentsPage() {
   const [nowMs] = useState(() => Date.now());
   // Filtre créateur MULTI (Set vide = tous) — partagé par la liste ET le
   // calendrier. Étendu depuis un mono-select : le calendrier a besoin du multi.
-  const [creatorIds, setCreatorIds] = useState<Set<string>>(new Set());
+  //
+  // Lien profond `?createur=<creatorId>` : c'est la cible des notifications de
+  // retard (« un lien vers ses assignations filtrées »). Lu UNE FOIS, à
+  // l'initialisation — pas dans un effet qui réécrirait le filtre à chaque
+  // rendu, ce qui empêcherait l'admin de le modifier après avoir suivi le lien.
+  const deepLinkCreator = useSearchParams().get("createur");
+  const [creatorIds, setCreatorIds] = useState<Set<string>>(() =>
+    deepLinkCreator ? new Set([deepLinkCreator]) : new Set(),
+  );
   // Vue Liste (table) / Calendrier (pilotage) — mêmes filtres partagés. Le
   // CALENDRIER est la vue par DÉFAUT ; le dernier choix est mémorisé.
   const [viewMode, setViewMode] = useState<"list" | "calendar">("calendar");

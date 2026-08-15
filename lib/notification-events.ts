@@ -23,6 +23,8 @@ export type NotificationEventKey =
   | "video_approved"
   | "video_rejected"
   | "publication_confirmed"
+  | "publication_late"
+  | "evening_unpublished"
   | "whop_dispute"
   | "whop_renewal_failed"
   | "digest_overdue_missions"
@@ -33,8 +35,10 @@ export type NotificationEventKey =
 /**
  * `immediate` = part dès la détection (garde-fou anti-flood en amont pour les
  * soumissions). `digest` = agrégé dans le message quotidien unique.
+ * `scheduled` = envoi à une heure choisie, avec son propre message — ni réaction
+ * à un geste, ni section du digest.
  */
-export type NotificationEventKind = "immediate" | "digest";
+export type NotificationEventKind = "immediate" | "digest" | "scheduled";
 
 export interface NotificationEventDef {
   key: NotificationEventKey;
@@ -77,6 +81,12 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
     hint: "Un lien de publication est saisi — par la créatrice ou par l'admin en secours. Les publications rapprochées sont regroupées.",
   },
   {
+    key: "publication_late",
+    kind: "immediate",
+    label: "Publication en retard",
+    hint: "Un post sort APRÈS sa date prévue — avec le nombre de jours. Publier en avance ne déclenche rien.",
+  },
+  {
     key: "whop_dispute",
     kind: "immediate",
     label: "Litige bancaire Whop",
@@ -111,6 +121,12 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
     kind: "digest",
     label: "Comptes en chauffe sans talent apparié",
     hint: "Section du digest quotidien. Alerte PENDANT la chauffe : après, les trois jours sont perdus.",
+  },
+  {
+    key: "evening_unpublished",
+    kind: "scheduled",
+    label: "Bilan de fin de journée",
+    hint: "Le soir, un message par créatrice ayant encore des posts prévus AUJOURD'HUI non publiés. Rien si tout est sorti. Les manqués des jours précédents n'y figurent pas.",
   },
 ] as const;
 

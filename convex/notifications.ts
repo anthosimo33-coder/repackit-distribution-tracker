@@ -26,6 +26,10 @@ import {
   buildVideoApprovedMessage,
   buildVideoRejectedMessage,
   publicationLine,
+  latePublicationLine,
+  buildLatePublicationMessage,
+  buildGroupedLatePublicationsMessage,
+  buildEveningReportMessage,
   buildRenewalFailedMessage,
   buildSubmissionMessage,
   buildTestMessage,
@@ -39,6 +43,8 @@ import {
 } from "./opsDigest";
 import { effectiveStatus } from "./comptes";
 import { resolveCreatorKind } from "./roles";
+import { lateDays, parisHour, representativePostedAt } from "./calendarStatus";
+import { eveningUnpublishedReports } from "./publicationLateness";
 import {
   isChauffeSansTalent,
   joursAvantSortieDeChauffe,
@@ -202,6 +208,8 @@ export const getNotifySettings = adminQuery({
       chatId: notify?.chatId ?? "",
       tokenEnvVar,
       enabledEvents: notify?.enabledEvents ?? [],
+      /** Heure du bilan de fin de journée, en heure de PARIS. Absent ⇒ 21 h. */
+      eveningHourParis: notify?.eveningHourParis ?? DEFAULT_EVENING_HOUR_PARIS,
       /** La variable d'env existe-t-elle sur CE déploiement ? (jamais sa valeur) */
       tokenPresent: (process.env[tokenEnvVar] ?? "").length > 0,
       appBaseUrlPresent: (process.env.APP_BASE_URL ?? "").length > 0,
@@ -223,12 +231,30 @@ export const setNotifySettings = adminMutation({
     chatId: v.string(),
     enabledEvents: v.array(v.string()),
     tokenEnvVar: v.optional(v.string()),
+    /** Heure du bilan du soir, en heure de PARIS (0-23). Absent ⇒ défaut. */
+    eveningHourParis: v.optional(v.number()),
   },
-  handler: async (ctx, { chatId, enabledEvents, tokenEnvVar }) => {
+  handler: async (
+    ctx,
+    { chatId, enabledEvents, tokenEnvVar, eveningHourParis },
+  ) => {
     const trimmedChat = chatId.trim();
     const trimmedEnv = (tokenEnvVar ?? DEFAULT_TOKEN_ENV_VAR).trim();
     if (trimmedEnv.length === 0) {
       throw new ConvexError("Le nom de la variable d'environnement est requis.");
+    }
+    // Heure BORNÉE serveur : une valeur hors 0-23 ne correspondrait à aucune
+    // heure de Paris, donc le cron ne tirerait JAMAIS — une panne silencieuse
+    // qu'on ne découvrirait qu'en constatant l'absence de bilans.
+    if (
+      eveningHourParis !== undefined &&
+      (!Number.isInteger(eveningHourParis) ||
+        eveningHourParis < 0 ||
+        eveningHourParis > 23)
+    ) {
+      throw new ConvexError(
+        "L'heure du bilan doit être un entier entre 0 et 23.",
+      );
     }
     // Destinataire vidé = on RETIRE le bloc : « pas de config » et « config avec
     // un destinataire vide » doivent se lire pareil (canal éteint), pas laisser
@@ -243,6 +269,7 @@ export const setNotifySettings = adminMutation({
         chatId: trimmedChat,
         tokenEnvVar: trimmedEnv,
         enabledEvents: sanitizeEnabledEvents(enabledEvents),
+        ...(eveningHourParis !== undefined ? { eveningHourParis } : {}),
       },
     });
     return { ok: true, cleared: false };
@@ -385,28 +412,60 @@ export const flushWindow = internalAction({
     // fenêtre. Pour les soumissions, LES DEUX clés sont testées — la fenêtre
     // mélange soumission et re-soumission (cf SUBMISSION_KIND), n'en tester
     // qu'une jetterait tout le tampon d'un projet qui n'a activé que l'autre.
-    const publication = claimResult.kind === PUBLICATION_KIND;
+    //
+    // Table plutôt que ternaires imbriqués : à deux types de fenêtre un booléen
+    // suffisait, à trois il devient une source d'erreur silencieuse (un `else`
+    // qui ramasse le mauvais cas enverrait le mauvais message).
+    const GROUPES: Record<
+      string,
+      {
+        events: NotificationEventKey[];
+        label: string;
+        build: (p: {
+          lines: string[];
+          total: number;
+          appBaseUrl: string;
+          projectSlug: string;
+        }) => string;
+      }
+    > = {
+      [PUBLICATION_KIND]: {
+        events: ["publication_confirmed"],
+        label: "publications groupées",
+        build: buildGroupedPublicationsMessage,
+      },
+      [LATE_PUBLICATION_KIND]: {
+        events: ["publication_late"],
+        label: "publications en retard groupées",
+        build: buildGroupedLatePublicationsMessage,
+      },
+      [SUBMISSION_KIND]: {
+        events: ["video_submitted", "video_resubmitted"],
+        label: "soumissions groupées",
+        build: buildGroupedSubmissionsMessage,
+      },
+    };
+    const groupe = GROUPES[claimResult.kind];
+    // Type de fenêtre inconnu (déploiement en cours d'une nouvelle clé, tampon
+    // écrit par la version d'avant) : on ne devine pas, on n'envoie pas.
+    if (groupe === undefined) return { ok: false, reason: "not-found" };
+
     const nctx = await resolveNotifyContext(
       ctx,
       claimResult.projectId,
-      publication
-        ? ["publication_confirmed"]
-        : ["video_submitted", "video_resubmitted"],
+      groupe.events,
     );
     if (nctx === null) return DISABLED;
 
-    const commun = {
-      lines: claimResult.lines,
-      total: claimResult.total,
-      appBaseUrl: nctx.cfg.appBaseUrl,
-      projectSlug: nctx.projectSlug,
-    };
     return deliver(
       nctx.cfg,
-      publication ? "publications groupées" : "soumissions groupées",
-      publication
-        ? buildGroupedPublicationsMessage(commun)
-        : buildGroupedSubmissionsMessage(commun),
+      groupe.label,
+      groupe.build({
+        lines: claimResult.lines,
+        total: claimResult.total,
+        appBaseUrl: nctx.cfg.appBaseUrl,
+        projectSlug: nctx.projectSlug,
+      }),
     );
   },
 });
@@ -629,6 +688,117 @@ export const notifyPublication = internalAction({
         projectSlug: nctx.projectSlug,
       }),
     );
+  },
+});
+
+/**
+ * Fenêtre des publications EN RETARD — DISTINCTE de PUBLICATION_KIND.
+ *
+ * Une rafale peut contenir des posts à l'heure et des posts en retard ; les
+ * mélanger dans un même tampon produirait un message groupé qui annonce « 5
+ * publications en retard » dont trois ne le sont pas.
+ */
+const LATE_PUBLICATION_KIND = "publication_late";
+
+/**
+ * Événement « une publication est sortie APRÈS sa date prévue ».
+ *
+ * Planifié depuis `confirmPublicationCore`, comme `notifyPublication` : le cœur
+ * PARTAGÉ par la créatrice et par l'admin en secours. Un lien collé en retard
+ * par l'admin alerte donc exactement comme celui de la créatrice.
+ *
+ * ⚠️ Le SIGNE, pas le statut. `lateDays` rend `null` pour un post à l'heure OU
+ * EN AVANCE ; l'action sort alors sans rien émettre. `calendarStatus` range
+ * pourtant l'avance dans « en retard » — c'est juste pour une pastille « hors
+ * date », et faux pour un message qui compte des jours.
+ */
+export const notifyLatePublication = internalAction({
+  args: { assignmentId: v.id("assignments") },
+  handler: async (ctx, { assignmentId }): Promise<Outcome> => {
+    const data = await ctx.runQuery(
+      internal.notifications.getLatePublicationContext,
+      { assignmentId },
+    );
+    if (data === null) return { ok: false, reason: "not-found" };
+    // Pas en retard (à l'heure, en avance, ou pas de date prévue) : rien à dire.
+    if (data.lateDays === null) return { ok: true };
+    const nctx = await resolveNotifyContext(
+      ctx,
+      data.projectId,
+      "publication_late",
+    );
+    if (nctx === null) return { ok: false, reason: "event-off" };
+
+    const context = {
+      creatorName: data.creatorName,
+      campaignName: data.campaignName,
+      formatName: data.formatName,
+      lateDays: data.lateDays,
+      postDate: data.postDate!,
+      accountHandles: data.accountHandles,
+      isClip: data.isClip,
+    };
+    const { lead } = await ctx.runMutation(
+      internal.notifications.openOrAppendWindow,
+      {
+        projectId: data.projectId,
+        kind: LATE_PUBLICATION_KIND,
+        line: latePublicationLine(context),
+      },
+    );
+    if (!lead) return { ok: true };
+
+    return deliver(
+      nctx.cfg,
+      "publication_late",
+      buildLatePublicationMessage({
+        ctx: context,
+        appBaseUrl: nctx.cfg.appBaseUrl,
+        projectSlug: nctx.projectSlug,
+        creatorId: data.creatorId,
+      }),
+    );
+  },
+});
+
+/**
+ * Contexte d'un retard : le décalage en jours, la date prévue, les comptes.
+ *
+ * Requête distincte de `getAssignmentEventContext` parce qu'elle répond à une
+ * question différente — « de combien ce post est-il en retard ? » — et que la
+ * réponse `null` (pas en retard) est le cas le plus fréquent : la calculer ici
+ * évite de composer un message pour rien.
+ */
+export const getLatePublicationContext = internalQuery({
+  args: { assignmentId: v.id("assignments") },
+  handler: async (ctx, { assignmentId }) => {
+    const a = await ctx.db.get(assignmentId);
+    if (a === null) return null;
+    const creator = await ctx.db.get(a.creatorId);
+    const format = a.formatId ? await ctx.db.get(a.formatId) : null;
+    const campaign = a.scriptCombo
+      ? await ctx.db.get(a.scriptCombo.campaignId)
+      : null;
+    const handles: string[] = [];
+    for (const t of a.targets ?? []) {
+      if (!t.accountId) continue;
+      const compte = await ctx.db.get(t.accountId);
+      if (compte && !handles.includes(compte.handle)) handles.push(compte.handle);
+    }
+    return {
+      projectId: a.projectId,
+      creatorId: a.creatorId,
+      creatorName: creator?.name ?? a.creatorNameSnapshot ?? "—",
+      campaignName: campaign?.name ?? null,
+      formatName: format?.name ?? null,
+      postDate: a.postDate ?? null,
+      accountHandles: handles,
+      isClip: resolveCreatorKind(creator?.kind) === "clipper",
+      lateDays: lateDays({
+        postDate: a.postDate ?? null,
+        postedAt: representativePostedAt(a),
+      }),
+    };
   },
 });
 
@@ -945,6 +1115,127 @@ export const collectDigest = internalQuery({
 });
 
 /** Projets ayant une config de notification — seuls candidats au digest. */
+/** Heure de bilan par défaut, en heure de Paris. */
+export const DEFAULT_EVENING_HOUR_PARIS = 21;
+
+/**
+ * Données du bilan du soir d'un projet : une entrée par créatrice ayant au
+ * moins un post prévu AUJOURD'HUI et pas encore publié.
+ *
+ * Rend `[]` quand tout est publié — et c'est le cas nominal : l'action n'envoie
+ * alors rien du tout.
+ */
+export const collectEveningReports = internalQuery({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }) => {
+    const project = await ctx.db.get(projectId);
+    if (project === null) return null;
+    const reports = await eveningUnpublishedReports(ctx, projectId, Date.now());
+    return {
+      projectSlug: project.slug,
+      reports: reports.map((r) => ({
+        creatorId: r.creatorId,
+        creatorName: r.creatorName,
+        onTimeRate: r.tally.rate,
+        posts: r.posts.map((p) => ({
+          missionLabel: p.missionLabel,
+          accountHandles: p.accountHandles,
+        })),
+      })),
+    };
+  },
+});
+
+export type EveningSummary = {
+  /** Projets dont l'heure de bilan correspond à MAINTENANT (Paris). */
+  projects: number;
+  /** Messages envoyés (un par créatrice concernée). */
+  sent: number;
+  /** Projets à l'heure du bilan mais sans rien à signaler. */
+  silent: number;
+};
+
+/**
+ * Cron HORAIRE du bilan de fin de journée.
+ *
+ * ⚠️ HORAIRE et non quotidien : chaque projet ne tire que lorsque l'heure de
+ * PARIS vaut son heure configurée. Un cron quotidien à heure UTC fixe glisserait
+ * d'une heure au changement d'heure d'octobre — « le bilan de 21 h » arriverait
+ * à 20 h tout l'hiver. C'est le remède que l'en-tête de convex/crons.ts prévoit
+ * nommément pour ce cas.
+ *
+ * ⚠️ Si l'heure de Paris n'est PAS calculable (`parisHour` rend null), on
+ * n'envoie RIEN. Un repli sur UTC ferait partir le bilan à la mauvaise heure
+ * toute l'année ; une comparaison qui échoue « vers vrai » en enverrait 24 par
+ * jour. En cas de doute, on se tait.
+ *
+ * UN MESSAGE PAR CRÉATRICE, comme demandé : chacun est actionnable et
+ * transférable seul. Aucune créatrice sans post en attente n'en produit.
+ */
+export const runEveningReports = internalAction({
+  args: {},
+  handler: async (ctx): Promise<EveningSummary> => {
+    const maintenant = Date.now();
+    const heureParis = parisHour(maintenant);
+    if (heureParis === null) {
+      console.error(
+        "[notifications] heure de Paris incalculable — bilan du soir NON envoyé " +
+          "(un repli sur UTC enverrait à la mauvaise heure).",
+      );
+      return { projects: 0, sent: 0, silent: 0 };
+    }
+
+    const projectIds = await ctx.runQuery(
+      internal.notifications.listNotifyProjects,
+      {},
+    );
+    let projects = 0;
+    let sent = 0;
+    let silent = 0;
+    for (const projectId of projectIds) {
+      const p = await ctx.runQuery(internal.notifications.getProjectNotify, {
+        projectId,
+      });
+      const heureVoulue =
+        p?.notify?.eveningHourParis ?? DEFAULT_EVENING_HOUR_PARIS;
+      if (heureVoulue !== heureParis) continue;
+      projects += 1;
+
+      const nctx = await resolveNotifyContext(
+        ctx,
+        projectId,
+        "evening_unpublished",
+      );
+      if (nctx === null) continue;
+
+      const data = await ctx.runQuery(
+        internal.notifications.collectEveningReports,
+        { projectId },
+      );
+      if (data === null || data.reports.length === 0) {
+        silent += 1;
+        continue;
+      }
+      for (const r of data.reports) {
+        const text = buildEveningReportMessage({
+          ctx: {
+            creatorName: r.creatorName,
+            posts: r.posts,
+            onTimeRate: r.onTimeRate,
+          },
+          appBaseUrl: nctx.cfg.appBaseUrl,
+          projectSlug: nctx.projectSlug,
+          creatorId: r.creatorId,
+        });
+        if (text === null) continue;
+        const res = await deliver(nctx.cfg, "bilan de fin de journée", text);
+        if (res.ok) sent += 1;
+      }
+    }
+    return { projects, sent, silent };
+  },
+});
+
 export const listNotifyProjects = internalQuery({
   args: {},
   handler: async (ctx) => {

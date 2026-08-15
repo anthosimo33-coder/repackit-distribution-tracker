@@ -39,6 +39,7 @@ import { markRushPublishedForAssignment } from "./rushes";
 import { isAccountAvailable } from "./warmup";
 import { isSnytchProject } from "./projects";
 import { countOnHandle, ownerIsClipper, publicationsInRange } from "./clipQuota";
+import { representativePostedAt } from "./calendarStatus";
 import {
   accountPhaseAt,
   postsPerDayAt,
@@ -765,19 +766,12 @@ export const deleteAssignment = adminMutation({
  * confirmPublication horodate TOUTES les cibles au même instant → min = max en
  * pratique ; le min ne diffère que si des cibles sont confirmées séparément.
  *
- * ⚠️ Règle A6 — RÉPLIQUE de lib/calendar-status.representativePostedAt (convex/ ne
- * peut pas importer lib/). Toute évolution ici DOIT l'être là-bas (tests Vitest).
- *
- * Exporté : sert AUSSI de source de vérité « publié » au garde d'édition du
- * script (convex/scripts.ts — mirroir de lib/script-combo-edit.canEditScriptCombo).
+ * PLUS UNE RÉPLIQUE : la définition vit dans le module pur
+ * `convex/calendarStatus.ts`, que `lib/calendar-status.ts` ré-exporte. Ré-exportée
+ * ici pour ses appelants (convex/scripts.ts s'en sert comme source de vérité
+ * « publié » du garde d'édition de script).
  */
-export function representativePostedAt(a: Doc<"assignments">): number | null {
-  const stamps = (a.targets ?? [])
-    .map((t) => t.publishedAt)
-    .filter((x): x is number => typeof x === "number");
-  if (stamps.length > 0) return Math.min(...stamps);
-  return typeof a.publishedAt === "number" ? a.publishedAt : null;
-}
+export { representativePostedAt };
 
 export const listAssignments = adminQuery({
   args: {},
@@ -2776,6 +2770,19 @@ async function confirmPublicationCore(
   await ctx.scheduler.runAfter(0, internal.notifications.notifyPublication, {
     assignmentId: a._id,
   });
+
+  // RETARD — événement DISTINCT, avec sa propre bascule : l'un dit « c'est
+  // sorti », l'autre « c'est sorti trop tard ». Même position que ci-dessus (le
+  // cœur partagé, donc le secours admin l'émet aussi) et mêmes garanties. Une
+  // publication à l'heure ou EN AVANCE ne produit rien : l'action lit
+  // `lateDays`, qui rend `null` dans ces deux cas, et sort sans composer de
+  // message. Le tri se fait donc côté action, pas ici, pour que la lecture de
+  // `postDate` et des cibles reste hors de la transaction.
+  await ctx.scheduler.runAfter(
+    0,
+    internal.notifications.notifyLatePublication,
+    { assignmentId: a._id },
+  );
 
   return { ok: true, alreadyPublished: false, publicationIds };
 }

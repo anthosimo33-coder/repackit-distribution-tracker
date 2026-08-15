@@ -1489,6 +1489,19 @@ export interface ReliabilityResult {
   /** Memberships internes exclus côté Whop (le compte de test de l'admin). */
   whopInternalExcluded: number;
   /**
+   * COUVERTURE DU CALENDRIER — assignations avec / sans date de post.
+   *
+   * Une assignation sans `postDate` est hors calendrier : elle ne compte NI au
+   * numérateur NI au dénominateur du taux à l'heure. Sans ce contrôle, un quart
+   * des livrables peut être hors mesure sans que rien ne le dise.
+   * Ne dépend PAS de PostHog.
+   */
+  publicationCoverage: {
+    total: number;
+    planned: number;
+    unplanned: number;
+  };
+  /**
    * Contrôle « N abonnements pour M personnes » — memberships payants groupés par
    * utilisateur Whop. Une personne peut en avoir plusieurs (détail des concernés).
    */
@@ -1867,12 +1880,32 @@ export const getReliability = adminQuery({
       }
     }
 
+    // COUVERTURE DU CALENDRIER — combien d'assignations n'ont PAS de date de
+    // post. Elles sortent du taux à l'heure DES DEUX CÔTÉS de la fraction : ni
+    // numérateur, ni dénominateur. Au relevé du 2026-08-14, 51 sur 202 — un quart
+    // des livrables hors mesure, ce qui ne se lisait nulle part.
+    //
+    // ⚠️ INDÉPENDANT de PostHog : ce contrôle porte sur des données du projet, il
+    // doit s'afficher même sur un projet sans PostHog configuré.
+    const tousAssignments = await ctx.db
+      .query("assignments")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const planifies = tousAssignments.filter(
+      (a) => a.postDate !== undefined,
+    ).length;
+
     return {
       configured,
       computedAt: posthogSyncMs,
       instrumentation,
       internalExcluded,
       whopInternalExcluded,
+      publicationCoverage: {
+        total: tousAssignments.length,
+        planned: planifies,
+        unplanned: tousAssignments.length - planifies,
+      },
       membershipDuplicates,
       coherence: {
         sequentialSteps,

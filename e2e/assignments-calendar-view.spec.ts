@@ -112,5 +112,29 @@ test.describe("Admin — vue calendrier de publication", () => {
     await expect(
       page.getByRole("columnheader", { name: "Post" }),
     ).toBeVisible();
+
+    // ── Lien profond ?createur= — la cible des notifications de retard ───────
+    // Les messages promettent « un lien vers ses assignations filtrées ». Sans
+    // ce paramètre, le lien tombe sur la liste complète du projet.
+    //
+    // PRÉSENCE d'abord : sans le paramètre, le filtre est vide (« Tous
+    // créateurs ») — sinon l'assertion suivante pourrait passer pour une raison
+    // sans rapport avec le lien.
+    await page.goto(adminPath("/assignments"));
+    await expect(page.getByText(/\d+ \/ \d+ livrable/)).toBeVisible();
+    await expect(
+      page.locator("button").filter({ hasText: "Tous créateurs" }),
+    ).toBeVisible();
+
+    await page.goto(adminPath(`/assignments?createur=${C.creatorId}`));
+    await expect(page.getByText(/\d+ \/ \d+ livrable/)).toBeVisible();
+    // Le filtre est PRÉ-RENSEIGNÉ : son libellé porte le nom de la créatrice,
+    // et « Tous créateurs » a disparu.
+    await expect(
+      page.locator("button").filter({ hasText: creatorName }),
+    ).toBeVisible();
+    await expect(
+      page.locator("button").filter({ hasText: "Tous créateurs" }),
+    ).toHaveCount(0);
   });
 });

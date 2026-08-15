@@ -1,91 +1,27 @@
 /**
- * Statut CALENDRIER d'un post planifié — à l'heure / en retard / manqué / prévu
- * (brique B du chantier « calendrier de publication »). DISTINCT du statut de
- * PRODUCTION (`status` : à publier, etc.) : c'est une information CALCULÉE en plus,
- * pour la vue calendrier, jamais stockée.
+ * Statut CALENDRIER d'un post planifié — point d'accès CLIENT.
  *
- * AUCUNE TOLÉRANCE (décision cadrée) :
- *  - à l'heure : une publication existe ET le jour de publication = le jour prévu ;
- *  - en retard : une publication existe mais un AUTRE jour (après OU avant) ;
- *  - manqué   : le jour prévu est entièrement passé et AUCUNE publication ;
- *  - prévu    : le jour prévu est aujourd'hui ou futur, pas encore de publication.
+ * La DÉFINITION vit dans `convex/calendarStatus.ts` (module pur : A6 interdit
+ * `convex/ → lib/`, pas l'inverse). Ce fichier ne fait que ré-exporter, pour que
+ * les imports existants (`@/lib/calendar-status`) continuent de marcher et qu'il
+ * n'existe qu'UNE implémentation — les notifications de retard tournent côté
+ * serveur et doivent compter exactement comme l'écran.
  *
- * Logique PURE (primitives + `now` injecté → testable à horloge fixe, comme
- * lib/assignment-status.assignmentUrgency, PAS comme publication-status.isLate qui
- * fige Date.now()). Comparaison au JOUR CALENDAIRE LOCAL : postDate est stocké à
- * minuit local et le calcul tourne côté client (TZ de l'équipe), donc postDate,
- * postedAt et now sont dans le même référentiel.
- *
- * La date « réelle » (postedAt) est la date de CONFIRMATION de publication
- * (target.publishedAt), pas un vrai timestamp scrapé (aucun n'existe aujourd'hui) —
- * décision cadrée du chantier.
+ * ⚠️ Le jour de référence est désormais épinglé sur EUROPE/PARIS et non plus sur
+ * le fuseau du navigateur. Voir l'en-tête du module propriétaire : `postDate` est
+ * stocké à minuit Paris, et le comparer depuis un autre fuseau le fait basculer
+ * d'un jour. Les tests vivent dans `lib/calendar-status.test.ts`.
  */
-
-export type CalendarStatus =
-  | "on_time"
-  | "late"
-  | "missed"
-  | "scheduled"
-  | "none"; // pas de date de post planifiée → hors calendrier
-
-/** Index de jour LOCAL comparable (année*10000 + mois*100 + jour). Monotone. */
-function localDayIndex(ms: number): number {
-  const d = new Date(ms);
-  return d.getFullYear() * 10000 + d.getMonth() * 100 + d.getDate();
-}
-
-/** true si deux instants tombent le MÊME jour calendaire local. */
-export function isSameLocalDay(a: number, b: number): boolean {
-  return localDayIndex(a) === localDayIndex(b);
-}
-
-/**
- * Date de publication RÉELLE représentative d'un assignment (= CONFIRMATION,
- * décision cadrée) : la PLUS ANCIENNE date parmi ses cibles (target.publishedAt),
- * sinon le legacy top-level publishedAt, sinon null (pas publié). Logique PURE,
- * partagée admin (via la réplique convex representativePostedAt, règle A6) et
- * créatrice → statut calendrier IDENTIQUE des deux côtés.
- */
-export function representativePostedAt(a: {
-  targets?: { publishedAt?: number | null }[] | null;
-  publishedAt?: number | null;
-}): number | null {
-  const stamps = (a.targets ?? [])
-    .map((t) => t.publishedAt)
-    .filter((x): x is number => typeof x === "number");
-  if (stamps.length > 0) return Math.min(...stamps);
-  return typeof a.publishedAt === "number" ? a.publishedAt : null;
-}
-
-export function calendarStatus(input: {
-  /** Jour de publication PLANIFIÉ (ms), ou absent → hors calendrier. */
-  postDate: number | null | undefined;
-  /** Date de publication RÉELLE (ms, = confirmation), ou null si pas publié. */
-  postedAt: number | null | undefined;
-  /** Horloge injectée (ms). */
-  now: number;
-}): CalendarStatus {
-  const { postDate, postedAt, now } = input;
-  if (postDate == null) return "none";
-  const plannedDay = localDayIndex(postDate);
-  if (postedAt != null) {
-    // Publié : à l'heure SEULEMENT si le même jour calendaire (0 tolérance).
-    return localDayIndex(postedAt) === plannedDay ? "on_time" : "late";
-  }
-  // Pas encore publié : manqué si le jour prévu est ENTIÈREMENT passé, sinon prévu
-  // (le jour même compte comme « prévu » : la journée n'est pas terminée).
-  return localDayIndex(now) > plannedDay ? "missed" : "scheduled";
-}
-
-export const CALENDAR_STATUS_LABEL: Record<CalendarStatus, string> = {
-  on_time: "À l'heure",
-  late: "En retard",
-  missed: "Manqué",
-  scheduled: "Prévu",
-  none: "—",
-};
-
-/** true si le statut concerne un post PASSÉ (dénominateur du taux « à l'heure »). */
-export function isPastPost(s: CalendarStatus): boolean {
-  return s === "on_time" || s === "late" || s === "missed";
-}
+export {
+  CALENDAR_STATUS_LABEL,
+  calendarStatus,
+  isPastPost,
+  isSameLocalDay,
+  lateDays,
+  onTimeTally,
+  parisDayIndex,
+  parisHour,
+  representativePostedAt,
+  type CalendarStatus,
+  type OnTimeTally,
+} from "../convex/calendarStatus";

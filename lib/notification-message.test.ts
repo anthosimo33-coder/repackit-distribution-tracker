@@ -9,7 +9,11 @@ import {
   buildPublicationMessage,
   buildVideoApprovedMessage,
   buildVideoRejectedMessage,
+  buildLatePublicationMessage,
+  buildGroupedLatePublicationsMessage,
+  latePublicationLine,
   publicationLine,
+  type LatePublicationContext,
   type PublicationContext,
   type ReviewContext,
   buildDisputeMessage,
@@ -57,6 +61,20 @@ const PUB_CTX: PublicationContext = {
     },
   ],
   byAdmin: false,
+};
+
+/**
+ * Publication sortie 3 jours après sa date. `postDate` est un MINUIT PARIS
+ * (22:00 UTC la veille en été) — la forme réelle du champ, pas un midi rond :
+ * c'est précisément là que le rendu de date se trompait avant #52.
+ */
+const LATE_CTX: LatePublicationContext = {
+  creatorName: "Marine",
+  campaignName: "Campagne Été",
+  formatName: null,
+  lateDays: 3,
+  postDate: Date.UTC(2026, 7, 11, 22, 0),
+  accountHandles: ["@marine.bn07"],
 };
 
 const REVIEW_CTX: ReviewContext = {
@@ -665,8 +683,78 @@ function everyMessage(): string[] {
       appBaseUrl: BASE,
       projectSlug: SLUG,
     }),
+    buildLatePublicationMessage({
+      ctx: LATE_CTX,
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+      creatorId: "k5701",
+    }),
+    buildGroupedLatePublicationsMessage({
+      lines: [latePublicationLine(LATE_CTX)],
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+    }),
   ];
 }
+
+describe("buildLatePublicationMessage — le retard, en jours et en date", () => {
+  const msg = buildLatePublicationMessage({
+    ctx: LATE_CTX,
+    appBaseUrl: BASE,
+    projectSlug: SLUG,
+    creatorId: "k5701",
+  });
+
+  it("dit qui, combien de jours, sur quel compte, et pour quelle date", () => {
+    expect(msg).toContain("Marine");
+    expect(msg).toContain("3 jours de retard");
+    expect(msg).toContain("@marine.bn07");
+    // LE PIÈGE : postDate est un minuit PARIS. Rendu en UTC il afficherait le
+    // 11/08 — la veille — pour un post prévu le 12.
+    expect(msg).toContain("prévu le 12/08");
+  });
+
+  it("le lien est PRÉ-FILTRÉ sur la créatrice concernée", () => {
+    // Sinon il tombe sur la liste complète du projet, à re-filtrer à la main.
+    expect(msg).toContain("createur=k5701");
+  });
+
+  it("un seul jour s'accorde au singulier", () => {
+    expect(
+      buildLatePublicationMessage({
+        ctx: { ...LATE_CTX, lateDays: 1 },
+        appBaseUrl: BASE,
+        projectSlug: SLUG,
+        creatorId: "k5701",
+      }),
+    ).toContain("1 jour de retard");
+  });
+
+  it("deux comptes sont énumérés lisiblement", () => {
+    expect(
+      latePublicationLine({
+        ...LATE_CTX,
+        accountHandles: ["@marine.bn07", "@marine.clips"],
+      }),
+    ).toContain("sur @marine.bn07 et @marine.clips");
+  });
+
+  it("aucun compte identifiable → la phrase reste correcte", () => {
+    const sansCompte = latePublicationLine({
+      ...LATE_CTX,
+      accountHandles: [],
+    });
+    expect(sansCompte).toContain("3 jours de retard, prévu le 12/08");
+    expect(sansCompte).not.toContain(" sur ,");
+  });
+
+  it("un clip est marqué comme tel", () => {
+    expect(latePublicationLine({ ...LATE_CTX, isClip: true })).toContain(
+      "(clip)",
+    );
+    expect(latePublicationLine(LATE_CTX)).not.toContain("(clip)");
+  });
+});
 
 describe("aucune donnée confidentielle ne sort dans un message", () => {
   it("aucun message ne contient d'adresse email", () => {

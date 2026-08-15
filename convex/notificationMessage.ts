@@ -23,6 +23,9 @@
  */
 
 import { escapeTelegram } from "./notifyApi";
+// Fuseau ÉPINGLÉ sur Paris (cf convex/dateFr.ts) : une date de post rendue en
+// UTC afficherait la veille pour 28 % des publications — défaut #52.
+import { formatDayMonthFr } from "./dateFr";
 
 /** Longueur max d'une liste à puces avant repli « et N autres ». */
 const LIST_CAP = 8;
@@ -84,8 +87,21 @@ export function dashboardUrl(appBaseUrl: string, projectSlug: string): string {
   return `${appBaseUrl}/admin/${projectSlug}/dashboard`;
 }
 
-export function assignmentsUrl(appBaseUrl: string, projectSlug: string): string {
-  return `${appBaseUrl}/admin/${projectSlug}/assignments`;
+/**
+ * Écran Assignments, éventuellement PRÉ-FILTRÉ sur une créatrice.
+ *
+ * `?createur=` est lu à l'initialisation du filtre côté écran. Sans lui, le
+ * lien d'un bilan de fin de journée tomberait sur la liste complète du projet,
+ * et il faudrait re-filtrer à la main pour retrouver les deux posts dont le
+ * message vient de parler.
+ */
+export function assignmentsUrl(
+  appBaseUrl: string,
+  projectSlug: string,
+  creatorId?: string,
+): string {
+  const base = `${appBaseUrl}/admin/${projectSlug}/assignments`;
+  return creatorId ? `${base}?createur=${creatorId}` : base;
 }
 
 // ─── Délais ──────────────────────────────────────────────────────────────────
@@ -321,6 +337,148 @@ export function buildGroupedPublicationsMessage(params: {
     "",
     link("Ouvrir les missions", assignmentsUrl(appBaseUrl, projectSlug)),
   ].join("\n");
+}
+
+// ─── Publication EN RETARD ───────────────────────────────────────────────────
+
+/**
+ * Contexte d'une publication sortie APRÈS sa date prévue.
+ *
+ * ⚠️ `lateDays` est TOUJOURS strictement positif ici : le calcul en amont
+ * (`convex/calendarStatus.lateDays`) rend `null` pour un post à l'heure OU EN
+ * AVANCE, et l'action n'émet rien dans ce cas. Le statut calendrier, lui, range
+ * l'avance dans « en retard » — correct pour une pastille « hors date », faux
+ * pour un message qui annonce des jours de retard.
+ */
+export interface LatePublicationContext {
+  creatorName: string;
+  campaignName: string | null;
+  formatName: string | null;
+  /** Jours pleins de retard, > 0. */
+  lateDays: number;
+  /** Jour prévu (ms) — rendu en JJ/MM, fuseau Paris. */
+  postDate: number;
+  /** Comptes sur lesquels le post est sorti. */
+  accountHandles: string[];
+  isClip?: boolean;
+}
+
+/** « sur @a et @b », ou rien si aucun compte n'est identifiable. */
+function surLesComptes(handles: string[]): string {
+  if (handles.length === 0) return "";
+  if (handles.length === 1) return ` sur ${handles[0]}`;
+  return ` sur ${handles.slice(0, -1).join(", ")} et ${handles[handles.length - 1]}`;
+}
+
+/** Ligne compacte d'une publication en retard, pour le message groupé. */
+export function latePublicationLine(ctx: LatePublicationContext): string {
+  return `${ctx.creatorName}${clipTag(ctx)} a publié avec ${ctx.lateDays} jour${
+    ctx.lateDays > 1 ? "s" : ""
+  } de retard${surLesComptes(ctx.accountHandles)}, prévu le ${formatDayMonthFr(ctx.postDate)}`;
+}
+
+export function buildLatePublicationMessage(params: {
+  ctx: LatePublicationContext;
+  appBaseUrl: string;
+  projectSlug: string;
+  creatorId: string;
+}): string {
+  const { ctx, appBaseUrl, projectSlug, creatorId } = params;
+  return [
+    "🐌 <b>Publication en retard</b>",
+    "",
+    escapeTelegram(latePublicationLine(ctx)),
+    `Mission : ${escapeTelegram(describeMission(ctx))}`,
+    "",
+    link(
+      "Voir ses assignations",
+      assignmentsUrl(appBaseUrl, projectSlug, creatorId),
+    ),
+  ].join("\n");
+}
+
+export function buildGroupedLatePublicationsMessage(params: {
+  lines: string[];
+  total?: number;
+  appBaseUrl: string;
+  projectSlug: string;
+}): string {
+  const { lines, appBaseUrl, projectSlug } = params;
+  const n = params.total ?? lines.length;
+  return [
+    `🐌 <b>${n} autre${n > 1 ? "s" : ""} ${plural(n, "publication")} en retard</b>`,
+    "",
+    bulletList(lines, n),
+    "",
+    link("Ouvrir les missions", assignmentsUrl(appBaseUrl, projectSlug)),
+  ].join("\n");
+}
+
+// ─── Bilan de fin de journée ─────────────────────────────────────────────────
+
+/**
+ * Contexte du bilan du soir d'UNE créatrice.
+ *
+ * ⚠️ `posts` ne contient QUE des posts prévus AUJOURD'HUI et pas encore
+ * publiés. Jamais les manqués des jours précédents : quelqu'un qui a loupé 30
+ * posts il y a dix jours et en a 2 aujourd'hui reçoit un message qui parle de 2
+ * posts. Les anciens comptent dans le TAUX, qui est leur seul endroit.
+ *
+ * ⚠️ « pas encore publié », jamais « manqué ». À l'heure d'envoi la journée
+ * n'est pas finie — le statut calendrier ne bascule qu'à minuit, et il reste des
+ * heures pour sortir. Le message est une ALERTE actionnable, pas un constat.
+ */
+export interface EveningReportContext {
+  creatorName: string;
+  /** Un post prévu aujourd'hui, non publié : sa mission et ses comptes. */
+  posts: { missionLabel: string; accountHandles: string[] }[];
+  /** Taux à l'heure sur TOUT l'historique. `null` = aucun post passé. */
+  onTimeRate: number | null;
+}
+
+/** Comptes distincts de tous les posts du bilan, dans l'ordre d'apparition. */
+function comptesDuBilan(ctx: EveningReportContext): string[] {
+  const out: string[] = [];
+  for (const p of ctx.posts) {
+    for (const h of p.accountHandles) if (!out.includes(h)) out.push(h);
+  }
+  return out;
+}
+
+export function buildEveningReportMessage(params: {
+  ctx: EveningReportContext;
+  appBaseUrl: string;
+  projectSlug: string;
+  creatorId: string;
+}): string | null {
+  const { ctx, appBaseUrl, projectSlug, creatorId } = params;
+  // Aucune créatrice sans post en attente ne doit produire de message. Garde
+  // ici EN PLUS du filtre amont : une liste vide qui produirait « n'a pas publié
+  // 0 post » est le genre d'envoi qui apprend à ignorer le canal.
+  if (ctx.posts.length === 0) return null;
+  const n = ctx.posts.length;
+  const comptes = comptesDuBilan(ctx);
+  const lignes = [
+    "🌙 <b>Fin de journée</b>",
+    "",
+    `<b>${escapeTelegram(ctx.creatorName)}</b> n'a pas encore publié ${n} post${
+      n > 1 ? "s" : ""
+    } prévu${n > 1 ? "s" : ""} aujourd'hui${escapeTelegram(surLesComptes(comptes))}.`,
+  ];
+  if (ctx.onTimeRate !== null) {
+    lignes.push(
+      `Son taux de publication à l'heure est de ${Math.round(ctx.onTimeRate * 100)} %.`,
+    );
+  }
+  lignes.push("", bulletList(ctx.posts.map((p) => p.missionLabel)));
+  lignes.push(
+    "",
+    link(
+      "Voir ses assignations",
+      assignmentsUrl(appBaseUrl, projectSlug, creatorId),
+    ),
+  );
+  return lignes.join("\n");
 }
 
 // ─── Revue vidéo : validée / refusée ─────────────────────────────────────────
