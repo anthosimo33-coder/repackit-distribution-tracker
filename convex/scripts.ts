@@ -234,6 +234,21 @@ function pickCombosServer(
 }
 
 /**
+ * Statuts qui NE CONSOMMENT PAS un comboKey — ni pour l'unicité à vie, ni pour
+ * la fenêtre de cooldown.
+ *
+ * Le principe des deux protections est le même : ne pas re-servir un contenu
+ * DÉJÀ VU. Une assignation abandonnée ou dont la vidéo a été refusée n'a jamais
+ * été publiée — il n'y a rien à protéger, et garder le combo réservé
+ * appauvrirait le pool pour rien.
+ *
+ * ⚠️ Le simple RETARD ne libère pas : une assignation en retard mais vivante
+ * (todo, in_progress, video_submitted, to_publish) continue de réserver son
+ * combo. C'est l'ABANDON qui libère, jamais l'attente.
+ */
+const COMBO_FREEING_STATUSES = new Set(["video_rejected", "cancelled"]);
+
+/**
  * Unicité (comboKey, créateur, plateforme) — RÉPLIQUE de
  * lib/script-combo-uniqueness (règle A6). comboKeys déjà pris par `creatorId`
  * sur AU MOINS UNE des `platforms` (union) parmi `existing`. Sert à exclure de
@@ -248,6 +263,9 @@ function usedComboKeysForPlatforms(
   const used = new Set<string>();
   for (const a of existing) {
     if (a.creatorId !== creatorId || !a.comboKey) continue;
+    // Abandonnée / vidéo refusée ⇒ jamais publiée ⇒ le combo redevient tirable,
+    // pour cette créatrice comme pour les autres (cf COMBO_FREEING_STATUSES).
+    if (COMBO_FREEING_STATUSES.has(a.status)) continue;
     // Combo IMPOSÉ (rejeu / choix manuel) : ne consomme PAS la rotation auto →
     // le triplet reste piochable (« un choix manuel ne retire rien de la
     // rotation »). Réplique A6 : lib/script-combo-uniqueness fait de même.
@@ -268,7 +286,7 @@ const DAY_MS = 86_400_000;
  * assignation supprimée disparaît de la table, il n'y a donc rien d'autre à
  * écarter (cf lib/assignment-status).
  */
-const COOLDOWN_IGNORED_STATUSES = new Set(["video_rejected"]);
+
 
 /**
  * Ancre de cooldown d'un assignment : date de publication PRÉVUE, à défaut la
@@ -304,7 +322,7 @@ function comboKeysInCooldownServer(
   if (targetAt === null || targetAt === undefined) return out;
   for (const a of projectAssignments) {
     if (!a.comboKey) continue;
-    if (COOLDOWN_IGNORED_STATUSES.has(a.status)) continue;
+    if (COMBO_FREEING_STATUSES.has(a.status)) continue;
     const anchor = cooldownAnchorOf(a);
     if (anchor === null) continue;
     if (Math.abs(anchor - targetAt) < COOLDOWN_DAYS * DAY_MS) out.add(a.comboKey);
@@ -324,7 +342,7 @@ function firstFreeSlotServer(
   let best: number | null = null;
   for (const a of projectAssignments) {
     if (!a.comboKey) continue;
-    if (COOLDOWN_IGNORED_STATUSES.has(a.status)) continue;
+    if (COMBO_FREEING_STATUSES.has(a.status)) continue;
     const anchor = cooldownAnchorOf(a);
     if (anchor === null) continue;
     if (Math.abs(anchor - targetAt) >= COOLDOWN_DAYS * DAY_MS) continue;
@@ -465,7 +483,7 @@ async function assertComboFreeForCreatorPlatforms(
   for (const a of projectRows) {
     if (a._id === input.excludeAssignmentId) continue;
     if (a.comboKey !== input.comboKey) continue;
-    if (COOLDOWN_IGNORED_STATUSES.has(a.status)) continue;
+    if (COMBO_FREEING_STATUSES.has(a.status)) continue;
     const anchor = cooldownAnchorOf(a);
     if (anchor === null) continue;
     if (Math.abs(anchor - input.targetAt) >= COOLDOWN_DAYS * DAY_MS) continue;
@@ -613,7 +631,7 @@ export const previewCombosForAssignment = adminQuery({
       } | null = null;
       for (const a of projectRows) {
         if (a.comboKey !== key) continue;
-        if (COOLDOWN_IGNORED_STATUSES.has(a.status)) continue;
+        if (COMBO_FREEING_STATUSES.has(a.status)) continue;
         const anchor = cooldownAnchorOf(a);
         if (anchor === null) continue;
         if (dernierUsage !== null && anchor <= dernierUsage.le) continue;

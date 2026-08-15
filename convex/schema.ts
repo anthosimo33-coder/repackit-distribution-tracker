@@ -1221,6 +1221,10 @@ export default defineSchema({
       v.literal("to_publish"),
       v.literal("published"),
       v.literal("paid"),
+      // ABANDON — terminal, l'assignation ne sera jamais publiée. Distinct de
+      // video_rejected (vidéo refusée, mission toujours en cours). C'est le SEUL
+      // statut qui libère le comboKey : contenu jamais vu, rien à protéger.
+      v.literal("cancelled"),
       // LEGACY (migrés) :
       v.literal("submitted"),
       v.literal("validated"),

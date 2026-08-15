@@ -697,6 +697,36 @@ export const DELETABLE_STATUSES = new Set<string>([
 ]);
 
 /**
+ * ABANDON d'une assignation — le geste courant quand un post ne sortira pas.
+ *
+ * Ce que ça change vs « Supprimer » : la ligne RESTE en base, donc l'historique
+ * reste auditable et le rattrapage reste traçable. Ce que ça change vs ne rien
+ * faire : le comboKey est LIBÉRÉ (cf COMBO_FREEING_STATUSES) — l'assignation
+ * n'ayant jamais été publiée, il n'y a aucun contenu vu à protéger, ni pour
+ * cette créatrice ni pour les autres.
+ *
+ * Idempotent : ré-abandonner ne fait rien. Bornée aux mêmes statuts que le
+ * hard-delete — on n'abandonne jamais un post publié ou payé.
+ */
+export const cancelAssignment = adminMutation({
+  args: { id: v.id("assignments") },
+  handler: async (ctx, { id }) => {
+    const a = await ctx.db.get(id);
+    if (!a || a.projectId !== ctx.projectId) {
+      throw new ConvexError("Assignment introuvable.");
+    }
+    if (a.status === "cancelled") return { ok: true, alreadyCancelled: true };
+    if (!DELETABLE_STATUSES.has(a.status)) {
+      throw new ConvexError(
+        "Cette assignation est publiée ou payée : elle ne peut plus être abandonnée.",
+      );
+    }
+    await ctx.db.patch(id, { status: "cancelled" });
+    return { ok: true, alreadyCancelled: false };
+  },
+});
+
+/**
  * Purge best-effort la vidéo soumise orpheline d'un assignment (blob Convex +
  * copie Cloudflare Stream, no-op si env absent) PUIS hard-delete la row — ce qui
  * LIBÈRE son comboKey (l'unicité créateur+plateforme est purement basée sur
@@ -2127,10 +2157,15 @@ async function assignmentsForCreator(
   ctx: QueryCtx,
   creatorId: Id<"creators">,
 ) {
-  const assignments = await ctx.db
+  const all = await ctx.db
     .query("assignments")
     .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
     .collect();
+  // ABANDONNÉES : invisibles côté créatrice. Une mission qu'on a annulée n'est
+  // pas une mission « à ne pas faire » qu'elle devrait voir traîner — elle
+  // disparaît de son espace, de ses compteurs et de son calendrier. Filtré ICI,
+  // en amont de l'enrichissement, donc valable pour TOUTES ses surfaces d'un coup.
+  const assignments = all.filter((a) => a.status !== "cancelled");
   // Ordre stable par créatrice : entrelacement des FORMATS par rang d'urgence
   // (en retard → < 48 h → dans les temps → non actionnable). Le mélange des
   // formats PRIME sur l'échéance — deux formats d'échéances différentes mais de
@@ -2193,10 +2228,12 @@ async function enrichForClipper(ctx: QueryCtx, a: Doc<"assignments">) {
  * même ordre, réduite par la même allowlist.
  */
 async function clipsForClipper(ctx: QueryCtx, clipperId: Id<"creators">) {
-  const mine = await ctx.db
+  const all = await ctx.db
     .query("assignments")
     .withIndex("by_creator", (q) => q.eq("creatorId", clipperId))
     .collect();
+  // Abandonnées invisibles, même règle que côté créatrice (assignmentsForCreator).
+  const mine = all.filter((a) => a.status !== "cancelled");
   const ordered = [...mine].sort(
     (x, y) => (x.dueDate ?? x.createdAt) - (y.dueDate ?? y.createdAt),
   );

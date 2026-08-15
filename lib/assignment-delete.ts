@@ -36,3 +36,19 @@ const DELETABLE_SET = new Set<string>(DELETABLE_ASSIGNMENT_STATUSES);
 export function canDeleteAssignment(status: AssignmentStatus): boolean {
   return DELETABLE_SET.has(status);
 }
+
+/**
+ * Statuts depuis lesquels l'admin peut ABANDONNER une assignation.
+ *
+ * Même frontière que le hard-delete : tout ce qui n'a ni publication
+ * matérialisée ni paie accrue. La différence est la TRACE — « Abandonner »
+ * garde la ligne en base (auditable, filtrable, et le combo est libéré par le
+ * statut), « Supprimer » l'efface. L'abandon est le geste courant ; la
+ * suppression reste réservée aux erreurs de manipulation.
+ *
+ * `cancelled` n'y figure pas : abandonner deux fois n'a pas de sens (la
+ * mutation est idempotente, elle ne re-patche pas).
+ */
+export function canCancelAssignment(status: AssignmentStatus): boolean {
+  return DELETABLE_SET.has(status);
+}
