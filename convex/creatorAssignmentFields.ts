@@ -26,6 +26,10 @@ export const CREATOR_ASSIGNMENT_FIELDS = [
   "managedByAdmin",
   "dueDate",
   "postDate",
+  // Plage horaire : la consigne « entre 21 h et 23 h » n'a de valeur que si la
+  // créatrice la voit. Sans cette ligne le champ existe en base et n'atteint
+  // jamais son espace — l'allowlist est ce qui expose, pas le schéma.
+  "postWindow",
   "createdAt",
   "projectId",
   "creatorId",

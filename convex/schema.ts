@@ -1158,6 +1158,24 @@ export default defineSchema({
     // se calcule en la comparant à la date de publication réelle. NE remplace PAS
     // le statut de production (deux notions séparées).
     postDate: v.optional(v.number()),
+    // ─── PLAGE HORAIRE de publication — INTENTION D'HORLOGE MURALE ────────────
+    // « Publie entre 21 h et 23 h » : le process repose sur des créneaux (promo le
+    // soir, warmup le midi). Accompagne `postDate` (le JOUR) sans le modifier.
+    //
+    // ⚠️ Stockée en MINUTES DEPUIS MINUIT LOCAL, pas en timestamps, et c'est le
+    // cœur du choix : une plage est une intention d'horloge murale, pas un
+    // instant. `postDate` vaut minuit PARIS = 22:00 UTC la veille en été ; deux
+    // timestamps rejoueraient le défaut de fuseau corrigé par #51/#52/#54 —
+    // « 21 h-23 h » s'afficherait 19 h-21 h, et glisserait d'une heure au
+    // changement d'heure d'octobre. Deux entiers ne peuvent pas dériver.
+    //
+    // 0 ≤ startMin < endMin ≤ 1440 (validé à l'écriture, cf lib/postWindow).
+    // ABSENTE = aucune consigne d'heure : les 191 assignments d'avant ce champ
+    // restent valides et s'affichent « À publier le JJ/MM », sans plage vide.
+    // Le COOLDOWN (#55) ignore ce champ : il raisonne au JOUR, sur postDate.
+    postWindow: v.optional(
+      v.object({ startMin: v.number(), endMin: v.number() }),
+    ),
     // ─── Compte GÉRÉ PAR L'ADMIN — flag DÉNORMALISÉ (copié du compte cible) ────
     // Posé à la CRÉATION de l'assignment (assignFormat) en copiant
     // comptes.managedByAdmin de la/les cible(s). FIGÉ ensuite (snapshot, comme
