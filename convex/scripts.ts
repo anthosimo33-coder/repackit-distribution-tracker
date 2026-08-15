@@ -334,6 +334,60 @@ function firstFreeSlotServer(
 }
 
 /**
+ * TIRAGE VIDÉO PAR VIDÉO — le cœur partagé par la CRÉATION (assignScriptCampaign)
+ * et par l'APERÇU (previewCombosForAssignment).
+ *
+ * Extrait tel quel de la mutation, sans changement de logique : c'est ce qui
+ * garantit que l'aperçu montre EXACTEMENT ce qui sera créé. Une réimplémentation
+ * côté lecture diverge au premier correctif — mieux vaut pas d'aperçu du tout.
+ *
+ * Chaque vidéo vise SA date, donc sa propre fenêtre de cooldown : un tirage
+ * global sur l'union des dates sur-bloquerait (un combo occupé au jour 1
+ * interdirait le jour 8). `takenThisCall` empêche le doublon intra-appel, que le
+ * picker garantit quand on lui demande n d'un coup mais plus quand on l'appelle
+ * n fois.
+ *
+ * `manualExclusions` = combos retirés à la main dans l'aperçu. Ils s'AJOUTENT
+ * aux exclusions automatiques (unicité à vie + cooldown), ils n'en remplacent
+ * aucune : le rejet éditorial est une contrainte de plus, jamais un passe-droit.
+ *
+ * `onExhausted` laisse l'appelant décider : la mutation lève une erreur datée,
+ * l'aperçu s'arrête et rend une liste plus courte (montrer la pénurie vaut mieux
+ * que la faire découvrir au clic).
+ */
+function pickForDates(input: {
+  combos: ServerCombo[];
+  lifetimeKeys: Set<string>;
+  projectRows: Doc<"assignments">[];
+  postDates: number[] | undefined;
+  count: number;
+  manualExclusions?: string[];
+  onExhausted?: (targetAt: number | undefined) => void;
+}): ServerCombo[] {
+  const picked: ServerCombo[] = [];
+  const takenThisCall = new Set<string>(input.manualExclusions ?? []);
+  for (let i = 0; i < input.count; i++) {
+    const targetAt = input.postDates?.[i];
+    const excluded = new Set<string>([
+      ...input.lifetimeKeys,
+      ...comboKeysInCooldownServer(input.projectRows, targetAt),
+      ...takenThisCall,
+    ]);
+    const one = pickCombosServer(input.combos, excluded, 1);
+    if (one.length === 0) {
+      input.onExhausted?.(targetAt);
+      // Aucune date visée, ou pénurie qui ne vient pas du cooldown : le
+      // catalogue lui-même est trop petit (ou déjà entièrement vu par cette
+      // créatrice). Comportement historique conservé : pénurie signalée.
+      break;
+    }
+    picked.push(one[0]);
+    takenThisCall.add(comboKeyOf(one[0]));
+  }
+  return picked;
+}
+
+/**
  * Assignments du projet servant au cooldown.
  *
  * ⚠️ LECTURE INTÉGRALE du projet puis filtre en mémoire, DÉLIBÉRÉ : l'ancre est
@@ -1044,46 +1098,29 @@ export const assignScriptCampaign = adminMutation({
         ctx,
         ctx.projectId,
       );
-      // Le tirage se fait VIDÉO PAR VIDÉO : chaque vidéo vise SA date, donc sa
-      // propre fenêtre de cooldown. Un tirage global sur l'union des dates
-      // sur-bloquerait (un combo occupé au jour 1 interdirait le jour 8).
-      // `takenThisCall` empêche le doublon intra-appel, que le picker garantit
-      // déjà quand on lui demande n d'un coup mais plus quand on l'appelle n fois.
-      picked = [];
-      const takenThisCall = new Set<string>();
-      for (let i = 0; i < args.videosPerCreator; i++) {
-        const targetAt = args.postDates?.[i];
-        const excluded = new Set<string>([
-          ...lifetimeKeys,
-          ...comboKeysInCooldownServer(projectRows, targetAt),
-          ...takenThisCall,
-        ]);
-        const one = pickCombosServer(combos, excluded, 1);
-        if (one.length === 0) {
+      picked = pickForDates({
+        combos,
+        lifetimeKeys,
+        projectRows,
+        postDates: args.postDates,
+        count: args.videosPerCreator,
+        onExhausted: (targetAt) => {
           // POOL ÉPUISÉ pour cette date. On ne dégrade pas en silence : assigner
           // un combo en conflit reproduirait le bug qu'on corrige, et boucler sur
           // les dates suivantes déciderait du planning à la place de l'admin.
           // On refuse en disant QUAND ça repasse.
-          if (targetAt !== undefined) {
-            const freeAt = firstFreeSlotServer(projectRows, targetAt);
-            if (freeAt !== null) {
-              throw new ConvexError(
-                `Plus aucun script disponible pour le ${formatDateFr(targetAt)} : ` +
-                  `tous ceux de cette campagne sont déjà programmés dans les ` +
-                  `${COOLDOWN_DAYS} jours. Le premier se libère le ` +
-                  `${formatDateFr(freeAt)} — replanifie à partir de cette date, ` +
-                  `ou ajoute des briques à la campagne.`,
-              );
-            }
-          }
-          // Aucune date visée, ou pénurie qui ne vient pas du cooldown : le
-          // catalogue lui-même est trop petit (ou déjà entièrement vu par cette
-          // créatrice). Comportement historique conservé : pénurie signalée.
-          break;
-        }
-        picked.push(one[0]);
-        takenThisCall.add(comboKeyOf(one[0]));
-      }
+          if (targetAt === undefined) return;
+          const freeAt = firstFreeSlotServer(projectRows, targetAt);
+          if (freeAt === null) return;
+          throw new ConvexError(
+            `Plus aucun script disponible pour le ${formatDateFr(targetAt)} : ` +
+              `tous ceux de cette campagne sont déjà programmés dans les ` +
+              `${COOLDOWN_DAYS} jours. Le premier se libère le ` +
+              `${formatDateFr(freeAt)} — replanifie à partir de cette date, ` +
+              `ou ajoute des briques à la campagne.`,
+          );
+        },
+      });
       if (picked.length < args.videosPerCreator) {
         shortages.push({
           name: creator.name,
