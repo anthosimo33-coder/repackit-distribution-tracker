@@ -38,6 +38,10 @@ export const CLIPPER_ASSIGNMENT_FIELDS = [
   "status",
   "dueDate",
   "postDate",
+  // Même statut que postDate : une consigne de publication. Le clippeur publie
+  // lui-même son clip, la plage le concerne donc autant que la créatrice. Le
+  // quota par jour reste calculé sur le JOUR, la plage ne le touche pas.
+  "postWindow",
   "createdAt",
   "projectId",
   "creatorId",
