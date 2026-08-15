@@ -93,4 +93,26 @@ test.describe("Analytics — hub produit", () => {
       page.getByText(/trois compteurs|aucune vidéo/i).first(),
     ).toBeVisible({ timeout: 10000 });
   });
+
+  test("Fiabilité chiffre les assignations SANS date de post (sans PostHog)", async ({
+    page,
+  }) => {
+    // Ce contrôle porte sur de la donnée PROJET, pas sur PostHog : il doit
+    // s'afficher même ici, où PostHog n'est pas configuré. Une assignation sans
+    // date de post sort du taux à l'heure des DEUX côtés de la fraction — en
+    // prod c'est un quart des livrables, et rien ne l'affichait.
+    await page.goto(adminPath("/analytics"));
+    await expect(
+      page.getByRole("heading", { name: /^analytics$/i }),
+    ).toBeVisible({ timeout: 10000 });
+
+    await page.getByRole("tab", { name: /fiabilité/i }).click();
+
+    const ligne = page
+      .getByRole("row")
+      .filter({ hasText: /assignations sans date de post/i });
+    await expect(ligne).toBeVisible({ timeout: 10000 });
+    // Un chiffre, pas un tiret : la mesure existe même à zéro.
+    await expect(ligne).toHaveText(/\d+ sur \d+|aucune assignation/i);
+  });
 });
