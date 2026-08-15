@@ -349,6 +349,9 @@ export function AssignScriptCampaignDialog({
         modelVideos:
           selectedModelVideos.length > 0 ? selectedModelVideos : undefined,
         postDates: postDatesPayload,
+        // Rejets éditoriaux de l'aperçu : mêmes exclusions que celles affichées,
+        // pour que la création produise EXACTEMENT la liste relue.
+        ...(rejetes.length > 0 ? { excludedComboKeys: rejetes } : {}),
         // Combinaison imposée (rejeu / choix manuel) + lignage vers la source.
         ...(imposedCombo
           ? {
@@ -580,6 +583,27 @@ export function AssignScriptCampaignDialog({
   const postDatesPayload = slotsComplete
     ? (slotDates as number[])
     : undefined;
+
+  // APERÇU : les combos que le tirage va RÉELLEMENT produire, avant création.
+  // Même code serveur que la mutation (pickForDates) → ce qui s'affiche est ce
+  // qui sera créé. Les rejets manuels sont renvoyés à chaque requête : l'algo
+  // repropose le suivant selon la même logique least-used.
+  const [rejetes, setRejetes] = useState<string[]>([]);
+  const apercu = useProjectQuery(
+    api.scripts.previewCombosForAssignment,
+    open && comboMode === "auto" && mode === "single" && creatorId !== NONE &&
+      targets.length > 0 && videosNum >= 1
+      ? {
+          campaignId,
+          creatorId: creatorId as Id<"creators">,
+          targets,
+          videosPerCreator: videosNum,
+          postDates: postDatesPayload,
+          tier: tier === TIER_ALL ? undefined : (tier as "S" | "A"),
+          excludedComboKeys: rejetes.length > 0 ? rejetes : undefined,
+        }
+      : "skip",
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -935,6 +959,92 @@ export function AssignScriptCampaignDialog({
                   : `${combosInfo.available} combo${combosInfo.available > 1 ? "s" : ""} unique${combosInfo.available > 1 ? "s" : ""} disponible${combosInfo.available > 1 ? "s" : ""} pour ce créateur sur ${platformsLabel}.`}
               </p>
             )}
+
+          {/* APERÇU DES COMBOS — contrôle qualité éditorial avant création.
+              Mode 1 créateur uniquement : en lot, les tirages sont séquentiels et
+              interdépendants (le créateur 1 occupe la fenêtre du créateur 2, et les
+              dates sont décalées d'un jour par rang). Un aperçu qui simulerait mal
+              cette chaîne mentirait — on préfère l'annoncer indisponible. */}
+          {comboMode === "auto" && mode === "bulk" && (
+            <p className="rounded-md border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600">
+              Aperçu des combos indisponible en mode groupé : les tirages
+              s&apos;enchaînent d&apos;un créateur à l&apos;autre (exclusion projet
+              + dates décalées). Passe en mode 1 créateur pour les relire avant
+              création.
+            </p>
+          )}
+          {comboMode === "auto" && mode === "single" && apercu !== undefined && (
+            <div className="space-y-2" data-testid="apercu-combos">
+              <div className="flex items-center justify-between">
+                <Label>
+                  Aperçu — {apercu.combos.length} script
+                  {apercu.combos.length > 1 ? "s" : ""} qui {apercu.combos.length > 1 ? "seront tirés" : "sera tiré"}
+                </Label>
+                {rejetes.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => setRejetes([])}
+                  >
+                    Réinitialiser les {rejetes.length} rejet
+                    {rejetes.length > 1 ? "s" : ""}
+                  </Button>
+                )}
+              </div>
+              {apercu.shortage && (
+                <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs font-medium text-amber-800">
+                  ⚠️ Le stock ne couvre pas les {videosNum} vidéos demandées :
+                  cooldown, unicité ou rejets manuels. La création refusera avec
+                  la date de libération.
+                </p>
+              )}
+              <ul className="max-h-64 space-y-2 overflow-y-auto">
+                {apercu.combos.map((c) => (
+                  <li
+                    key={c.comboKey}
+                    className="rounded-md border border-slate-200 p-2 text-xs"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 space-y-1">
+                        {c.postDate !== null && (
+                          <p className="font-medium text-slate-700">
+                            {formatDate(c.postDate)}
+                          </p>
+                        )}
+                        <p className="whitespace-pre-wrap text-slate-600">
+                          {c.assembledScript}
+                        </p>
+                        <p
+                          className={
+                            c.dernierUsage === null
+                              ? "text-emerald-600"
+                              : "text-slate-500"
+                          }
+                        >
+                          {c.dernierUsage === null
+                            ? "Libre — jamais programmé sur ce projet"
+                            : `Utilisé sur ${c.dernierUsage.compte} le ${formatDate(c.dernierUsage.le)} — disponible le ${formatDate(c.dernierUsage.disponibleLe)}`}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 shrink-0 text-xs"
+                        onClick={() =>
+                          setRejetes((prev) => [...prev, c.comboKey])
+                        }
+                      >
+                        Retirer
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* Filtre tier de hook (AUTO uniquement — sans objet quand le hook est
               explicitement choisi) + barème de paie (pricing OBLIGATOIRE). */}

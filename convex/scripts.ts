@@ -401,7 +401,9 @@ function pickForDates(input: {
  * faux sentiment d'exhaustivité.
  */
 async function projectAssignmentsForCooldown(
-  ctx: MutationCtx,
+  // QueryCtx et non MutationCtx : cette lecture sert aussi à l'APERÇU, qui est
+  // une query. Un MutationCtx reste accepté (son db lit aussi).
+  ctx: QueryCtx,
   projectId: Id<"projects">,
 ): Promise<Doc<"assignments">[]> {
   return await ctx.db
@@ -527,6 +529,120 @@ export const availableCombosForAssignment = adminQuery({
     );
     const available = combos.filter((c) => !usedKeys.has(comboKeyOf(c))).length;
     return { total: combos.length, available };
+  },
+});
+
+/**
+ * APERÇU des combos que le tirage va réellement produire, AVANT création.
+ *
+ * Même code que la mutation (`pickForDates`) : l'aperçu ne peut pas diverger de
+ * ce qui sera créé. Lecture pure — rien n'est écrit, rien n'est réservé. Deux
+ * appels successifs sans changement en base rendent la même liste, le tirage
+ * étant déterministe.
+ *
+ * `excludedComboKeys` = les combos retirés à la main par l'admin. Ils s'ajoutent
+ * aux exclusions automatiques ; l'algo propose alors le suivant selon la MÊME
+ * logique least-used, sans rien relâcher.
+ *
+ * Pour chaque combo rendu, `cooldown` dit s'il est libre ou pourquoi il ne
+ * l'était pas ailleurs — c'est de l'affichage : la donnée existe depuis #55.
+ *
+ * ⚠️ UN SEUL créateur. En lot, les tirages sont séquentiels et interdépendants
+ * (les combos du créateur 1 occupent la fenêtre du créateur 2, et les dates sont
+ * décalées d'un jour par rang) : un aperçu multi-créateurs devrait simuler toute
+ * la chaîne. Tant que ce n'est pas fait, la modale annonce l'aperçu indisponible
+ * en lot plutôt que d'en montrer un approximatif.
+ */
+export const previewCombosForAssignment = adminQuery({
+  args: {
+    campaignId: v.id("scriptCampaigns"),
+    creatorId: v.id("creators"),
+    targets: v.array(targetInputValidator),
+    videosPerCreator: v.number(),
+    postDates: v.optional(v.array(v.number())),
+    tier: v.optional(TIER),
+    excludedComboKeys: v.optional(v.array(v.string())),
+  },
+  handler: async (ctx, args) => {
+    await requireCampaign(ctx, args.campaignId, ctx.projectId);
+    const allBricks = await ctx.db
+      .query("scriptBricks")
+      .withIndex("by_campaign", (q) => q.eq("campaignId", args.campaignId))
+      .collect();
+    const bricks =
+      args.tier === undefined
+        ? allBricks
+        : allBricks.filter((b) => b.kind !== "hook" || b.tier === args.tier);
+    const combos = generateCombosServer(bricks);
+    if (combos.length === 0) {
+      return { combos: [], total: 0, shortage: args.videosPerCreator > 0 };
+    }
+    const existing = await ctx.db
+      .query("assignments")
+      .withIndex("by_creator", (q) => q.eq("creatorId", args.creatorId))
+      .collect();
+    const lifetimeKeys = usedComboKeysForPlatforms(
+      existing,
+      args.creatorId,
+      args.targets.map((t) => t.platform),
+    );
+    const projectRows = await projectAssignmentsForCooldown(ctx, ctx.projectId);
+    const picked = pickForDates({
+      combos,
+      lifetimeKeys,
+      projectRows,
+      postDates: args.postDates,
+      count: args.videosPerCreator,
+      manualExclusions: args.excludedComboKeys,
+    });
+
+    // Statut cooldown AFFICHÉ : le combo retenu est forcément libre à SA date
+    // (sinon le tirage ne l'aurait pas pris) ; on montre l'usage le plus proche
+    // pour que l'admin sache d'où vient la rotation — « libre » n'est pas « jamais
+    // servi ». On résout le handle du compte : un id ne se relit pas.
+    const out = [];
+    for (let i = 0; i < picked.length; i++) {
+      const c = picked[i];
+      const key = comboKeyOf(c);
+      const targetAt = args.postDates?.[i];
+      let dernierUsage: {
+        compte: string;
+        le: number;
+        disponibleLe: number;
+      } | null = null;
+      for (const a of projectRows) {
+        if (a.comboKey !== key) continue;
+        if (COOLDOWN_IGNORED_STATUSES.has(a.status)) continue;
+        const anchor = cooldownAnchorOf(a);
+        if (anchor === null) continue;
+        if (dernierUsage !== null && anchor <= dernierUsage.le) continue;
+        const handles: string[] = [];
+        for (const t of a.targets ?? []) {
+          if (!t.accountId) continue;
+          const compte = await ctx.db.get(t.accountId);
+          if (compte) handles.push(compte.handle);
+        }
+        dernierUsage = {
+          compte: handles.join(", ") || "un autre compte",
+          le: anchor,
+          disponibleLe: anchor + COOLDOWN_DAYS * DAY_MS,
+        };
+      }
+      out.push({
+        comboKey: key,
+        hookBrickId: c.hookBrickId,
+        fluxBrickId: c.fluxBrickId,
+        ctaBrickId: c.ctaBrickId,
+        assembledScript: c.assembledScript,
+        postDate: targetAt ?? null,
+        dernierUsage,
+      });
+    }
+    return {
+      combos: out,
+      total: combos.length,
+      shortage: picked.length < args.videosPerCreator,
+    };
   },
 });
 
@@ -905,6 +1021,11 @@ export const assignScriptCampaign = adminMutation({
     // demandé (pénurie), les dates en trop sont ignorées. En masse, le client
     // passe le MÊME tableau pour chaque créateur (même répartition pour toutes).
     postDates: v.optional(v.array(v.number())),
+    // Combos RETIRÉS À LA MAIN dans l'aperçu (contrôle qualité éditorial). Ils
+    // s'AJOUTENT aux exclusions automatiques (unicité à vie + cooldown projet),
+    // ils n'en relâchent aucune : rejeter un script est une contrainte de plus.
+    // Absent → tirage inchangé, exactement comme avant l'aperçu.
+    excludedComboKeys: v.optional(v.array(v.string())),
     // Combinaison IMPOSÉE (« Rejouer ce script » / mode « Combinaison choisie ») :
     // les 3 briques sont fournies par l'admin au lieu du tirage auto. Présent →
     // court-circuite generateCombos/pickCombos et l'unicité anti-coordination ;
@@ -1104,6 +1225,7 @@ export const assignScriptCampaign = adminMutation({
         projectRows,
         postDates: args.postDates,
         count: args.videosPerCreator,
+        manualExclusions: args.excludedComboKeys,
         onExhausted: (targetAt) => {
           // POOL ÉPUISÉ pour cette date. On ne dégrade pas en silence : assigner
           // un combo en conflit reproduirait le bug qu'on corrige, et boucler sur
