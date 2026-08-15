@@ -378,3 +378,52 @@ describe("lot de 2 créatrices — ce qui garantit vraiment des combos distincts
     expect(plan[0]).toBe(J0);
   });
 });
+
+describe("aperçu — exclusions manuelles", () => {
+  /**
+   * L'aperçu rejette un combo → il part en `excludedComboKeys`, que le serveur
+   * ajoute aux exclusions automatiques. Ces tests verrouillent la propriété qui
+   * compte : un rejet RETIRE le combo et fait remonter le suivant selon la MÊME
+   * logique least-used, sans rien relâcher d'autre.
+   */
+  it("un combo rejeté cède la place au suivant, pas à n'importe lequel", () => {
+    const combos = catalogue();
+    const sansRejet = pickCombosForCreator(combos, new Set(), 3);
+    const premier = comboKeyOf(sansRejet[0]);
+
+    // On rejette le premier : l'ordre attendu est simplement décalé d'un cran,
+    // puisque le tirage est déterministe et que rien d'autre ne change.
+    const avecRejet = pickCombosForCreator(combos, new Set([premier]), 3);
+    expect(avecRejet.map(comboKeyOf)).not.toContain(premier);
+    expect(comboKeyOf(avecRejet[0])).toBe(comboKeyOf(sansRejet[1]));
+  });
+
+  it("les rejets s'AJOUTENT au cooldown, ils ne le relâchent pas", () => {
+    const combos = catalogue();
+    const occupe = comboKeyOf(combos[0]);
+    const usages: ScheduledComboUsage[] = [{ comboKey: occupe, anchorAt: J0 }];
+    // Exclusion combinée, exactement comme pickForDates côté serveur.
+    const exclu = new Set<string>([
+      ...comboKeysInCooldown(usages, J0),
+      comboKeyOf(combos[1]), // rejet manuel
+    ]);
+    const pris = pickCombosForCreator(combos, exclu, 2).map(comboKeyOf);
+    expect(pris).not.toContain(occupe); // cooldown toujours actif
+    expect(pris).not.toContain(comboKeyOf(combos[1])); // rejet respecté
+    expect(pris).toHaveLength(2);
+  });
+
+  it("rejeter jusqu'à épuiser rend une liste plus courte, jamais un doublon", () => {
+    const combos = generateCombos([
+      ...bricks("hook", 2),
+      ...bricks("flux", 1),
+      ...bricks("cta", 1),
+    ]);
+    expect(combos.length).toBe(2);
+    const tous = combos.map(comboKeyOf);
+    // Les deux combos rejetés : le tirage ne peut RIEN rendre plutôt que de
+    // resservir un combo écarté.
+    expect(pickCombosForCreator(combos, new Set(tous), 2)).toHaveLength(0);
+    expect(pickCombosForCreator(combos, new Set([tous[0]]), 2)).toHaveLength(1);
+  });
+});

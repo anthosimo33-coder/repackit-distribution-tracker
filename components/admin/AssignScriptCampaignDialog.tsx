@@ -31,6 +31,11 @@ import {
 import { toast } from "sonner";
 import { formatDate } from "@/lib/format";
 import { shiftPostDatesByDays } from "@/lib/scriptCombos";
+import {
+  POST_WINDOW_PRESETS,
+  formatPostWindow,
+  type PostWindow,
+} from "@/convex/postWindow";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { Loader2Icon, VideoIcon } from "lucide-react";
 import { SCRIPT_TIERS, tierLabel } from "@/lib/script-tier";
@@ -163,6 +168,10 @@ export function AssignScriptCampaignDialog({
   const [slotDates, setSlotDates] = useState<(number | null)[]>(() =>
     Array(DEFAULT_VIDEOS).fill(null),
   );
+  // Plage horaire commune à toutes les vidéos du lot d'assignation. Une plage par
+  // vidéo serait plus fin, mais le process raisonne par créneau (« ce batch part
+  // le soir ») : un seul choix couvre le besoin réel sans multiplier les champs.
+  const [plage, setPlage] = useState<PostWindow | null>(null);
   const [due, setDue] = useState(defaultDue());
   const [tier, setTier] = useState<string>(TIER_ALL);
   const [pricingId, setPricingId] = useState<string>(NONE);
@@ -349,6 +358,10 @@ export function AssignScriptCampaignDialog({
         modelVideos:
           selectedModelVideos.length > 0 ? selectedModelVideos : undefined,
         postDates: postDatesPayload,
+        // Rejets éditoriaux de l'aperçu : mêmes exclusions que celles affichées,
+        // pour que la création produise EXACTEMENT la liste relue.
+        ...(rejetes.length > 0 ? { excludedComboKeys: rejetes } : {}),
+        ...(postWindowsPayload ? { postWindows: postWindowsPayload } : {}),
         // Combinaison imposée (rejeu / choix manuel) + lignage vers la source.
         ...(imposedCombo
           ? {
@@ -520,6 +533,9 @@ export function AssignScriptCampaignDialog({
           // scripts pouvaient simplement s'étaler.
           postDates:
             postDatesPayload && shiftPostDatesByDays(postDatesPayload, idx),
+          // Le décalage porte sur le JOUR ; la plage horaire, elle, est la même
+          // pour tous (un créneau « soir » reste le soir quel que soit le jour).
+          ...(postWindowsPayload ? { postWindows: postWindowsPayload } : {}),
           // Même combinaison imposée pour chaque créateur (cas « rejouer chez 3 »).
           ...(imposedCombo
             ? {
@@ -577,9 +593,36 @@ export function AssignScriptCampaignDialog({
     videoCount >= 1 &&
     slotDates.length === videoCount &&
     slotDates.every((d) => d != null);
+  // Une plage par vidéo, toutes identiques : la mutation les lit positionnellement
+  // (postWindows[i] accompagne postDates[i]).
+  const postWindowsPayload =
+    plage !== null && slotsComplete
+      ? Array(Number(videos) || 0).fill(plage)
+      : undefined;
   const postDatesPayload = slotsComplete
     ? (slotDates as number[])
     : undefined;
+
+  // APERÇU : les combos que le tirage va RÉELLEMENT produire, avant création.
+  // Même code serveur que la mutation (pickForDates) → ce qui s'affiche est ce
+  // qui sera créé. Les rejets manuels sont renvoyés à chaque requête : l'algo
+  // repropose le suivant selon la même logique least-used.
+  const [rejetes, setRejetes] = useState<string[]>([]);
+  const apercu = useProjectQuery(
+    api.scripts.previewCombosForAssignment,
+    open && comboMode === "auto" && mode === "single" && creatorId !== NONE &&
+      targets.length > 0 && videosNum >= 1
+      ? {
+          campaignId,
+          creatorId: creatorId as Id<"creators">,
+          targets,
+          videosPerCreator: videosNum,
+          postDates: postDatesPayload,
+          tier: tier === TIER_ALL ? undefined : (tier as "S" | "A"),
+          excludedComboKeys: rejetes.length > 0 ? rejetes : undefined,
+        }
+      : "skip",
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -935,6 +978,170 @@ export function AssignScriptCampaignDialog({
                   : `${combosInfo.available} combo${combosInfo.available > 1 ? "s" : ""} unique${combosInfo.available > 1 ? "s" : ""} disponible${combosInfo.available > 1 ? "s" : ""} pour ce créateur sur ${platformsLabel}.`}
               </p>
             )}
+
+          {/* PLAGE HORAIRE — créneau de publication, commun au lot assigné.
+              Presets du process + saisie libre. Optionnelle : sans plage, la
+              créatrice lit « À publier le JJ/MM », sans mention d'heure. */}
+          <div className="space-y-1.5" data-testid="plage-horaire">
+            <Label>Créneau de publication (optionnel)</Label>
+            <div className="flex flex-wrap items-center gap-2">
+              {POST_WINDOW_PRESETS.map((p) => {
+                const actif =
+                  plage !== null &&
+                  plage.startMin === p.window.startMin &&
+                  plage.endMin === p.window.endMin;
+                return (
+                  <Button
+                    key={p.id}
+                    type="button"
+                    variant={actif ? "default" : "outline"}
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => setPlage(actif ? null : p.window)}
+                  >
+                    {p.label}
+                  </Button>
+                );
+              })}
+              <Input
+                type="time"
+                className="h-7 w-28 text-xs"
+                aria-label="Heure de début"
+                value={
+                  plage === null
+                    ? ""
+                    : `${String(Math.floor(plage.startMin / 60)).padStart(2, "0")}:${String(plage.startMin % 60).padStart(2, "0")}`
+                }
+                onChange={(e) => {
+                  const [h, m] = e.target.value.split(":").map(Number);
+                  if (Number.isNaN(h)) return;
+                  const startMin = h * 60 + (m || 0);
+                  setPlage((prev) => ({
+                    startMin,
+                    endMin: prev && prev.endMin > startMin ? prev.endMin : Math.min(startMin + 120, 1440),
+                  }));
+                }}
+              />
+              <span className="text-xs text-slate-400">→</span>
+              <Input
+                type="time"
+                className="h-7 w-28 text-xs"
+                aria-label="Heure de fin"
+                value={
+                  plage === null
+                    ? ""
+                    : `${String(Math.floor(plage.endMin / 60)).padStart(2, "0")}:${String(plage.endMin % 60).padStart(2, "0")}`
+                }
+                onChange={(e) => {
+                  const [h, m] = e.target.value.split(":").map(Number);
+                  if (Number.isNaN(h) || plage === null) return;
+                  setPlage({ ...plage, endMin: h * 60 + (m || 0) });
+                }}
+              />
+              {plage !== null && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setPlage(null)}
+                >
+                  Retirer
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-slate-500">
+              {formatPostWindow(plage) === null
+                ? "Aucun créneau : la créatrice verra seulement la date."
+                : `La créatrice lira « À publier le JJ/MM entre ${formatPostWindow(plage)!.replace("-", " et ")} ».`}
+            </p>
+          </div>
+
+          {/* APERÇU DES COMBOS — contrôle qualité éditorial avant création.
+              Mode 1 créateur uniquement : en lot, les tirages sont séquentiels et
+              interdépendants (le créateur 1 occupe la fenêtre du créateur 2, et les
+              dates sont décalées d'un jour par rang). Un aperçu qui simulerait mal
+              cette chaîne mentirait — on préfère l'annoncer indisponible. */}
+          {comboMode === "auto" && mode === "bulk" && (
+            <p className="rounded-md border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600">
+              Aperçu des combos indisponible en mode groupé : les tirages
+              s&apos;enchaînent d&apos;un créateur à l&apos;autre (exclusion projet
+              + dates décalées). Passe en mode 1 créateur pour les relire avant
+              création.
+            </p>
+          )}
+          {comboMode === "auto" && mode === "single" && apercu !== undefined && (
+            <div className="space-y-2" data-testid="apercu-combos">
+              <div className="flex items-center justify-between">
+                <Label>
+                  Aperçu — {apercu.combos.length} script
+                  {apercu.combos.length > 1 ? "s" : ""} qui {apercu.combos.length > 1 ? "seront tirés" : "sera tiré"}
+                </Label>
+                {rejetes.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => setRejetes([])}
+                  >
+                    Réinitialiser les {rejetes.length} rejet
+                    {rejetes.length > 1 ? "s" : ""}
+                  </Button>
+                )}
+              </div>
+              {apercu.shortage && (
+                <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs font-medium text-amber-800">
+                  ⚠️ Le stock ne couvre pas les {videosNum} vidéos demandées :
+                  cooldown, unicité ou rejets manuels. La création refusera avec
+                  la date de libération.
+                </p>
+              )}
+              <ul className="max-h-64 space-y-2 overflow-y-auto">
+                {apercu.combos.map((c) => (
+                  <li
+                    key={c.comboKey}
+                    className="rounded-md border border-slate-200 p-2 text-xs"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 space-y-1">
+                        {c.postDate !== null && (
+                          <p className="font-medium text-slate-700">
+                            {formatDate(c.postDate)}
+                          </p>
+                        )}
+                        <p className="whitespace-pre-wrap text-slate-600">
+                          {c.assembledScript}
+                        </p>
+                        <p
+                          className={
+                            c.dernierUsage === null
+                              ? "text-emerald-600"
+                              : "text-slate-500"
+                          }
+                        >
+                          {c.dernierUsage === null
+                            ? "Libre — jamais programmé sur ce projet"
+                            : `Utilisé sur ${c.dernierUsage.compte} le ${formatDate(c.dernierUsage.le)} — disponible le ${formatDate(c.dernierUsage.disponibleLe)}`}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 shrink-0 text-xs"
+                        onClick={() =>
+                          setRejetes((prev) => [...prev, c.comboKey])
+                        }
+                      >
+                        Retirer
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* Filtre tier de hook (AUTO uniquement — sans objet quand le hook est
               explicitement choisi) + barème de paie (pricing OBLIGATOIRE). */}
