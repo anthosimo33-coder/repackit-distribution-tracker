@@ -77,6 +77,7 @@ import type * as profitability from "../profitability.js";
 import type * as progression from "../progression.js";
 import type * as projects from "../projects.js";
 import type * as provisionAdmin from "../provisionAdmin.js";
+import type * as publicationLateness from "../publicationLateness.js";
 import type * as publications from "../publications.js";
 import type * as radar from "../radar.js";
 import type * as radarApi from "../radarApi.js";
@@ -184,6 +185,7 @@ declare const fullApi: ApiFromModules<{
   progression: typeof progression;
   projects: typeof projects;
   provisionAdmin: typeof provisionAdmin;
+  publicationLateness: typeof publicationLateness;
   publications: typeof publications;
   radar: typeof radar;
   radarApi: typeof radarApi;

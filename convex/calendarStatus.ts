@@ -125,6 +125,50 @@ export function isPastPost(s: CalendarStatus): boolean {
   return s === "on_time" || s === "late" || s === "missed";
 }
 
+/** Décompte des statuts d'un lot de posts planifiés, + le taux à l'heure. */
+export interface OnTimeTally {
+  onTime: number;
+  late: number;
+  missed: number;
+  scheduled: number;
+  /** Dénominateur : les posts PASSÉS (cf `isPastPost`). */
+  past: number;
+  /** `null` si aucun post passé — JAMAIS 0, qui se lirait « taux nul ». */
+  rate: number | null;
+}
+
+/**
+ * Taux à l'heure d'un lot de posts planifiés.
+ *
+ * Définition UNIQUE, consommée par l'écran calendrier ET par les notifications
+ * de retard : le message ne doit pas annoncer un chiffre que l'écran contredit.
+ *
+ * ⚠️ Les posts SANS `postDate` n'entrent nulle part — ni au numérateur, ni au
+ * dénominateur. Le taux mesure donc la ponctualité du PLANIFIÉ, pas de tout le
+ * travail ; c'est pour ça que le libellé dit « taux de publication à l'heure ».
+ * Le nombre d'assignations hors calendrier est un contrôle de Fiabilité à part.
+ */
+export function onTimeTally(
+  posts: { postDate: number | null | undefined; postedAt: number | null | undefined }[],
+  now: number,
+): OnTimeTally {
+  let onTime = 0;
+  let late = 0;
+  let missed = 0;
+  let scheduled = 0;
+  let past = 0;
+  for (const p of posts) {
+    const s = calendarStatus({ postDate: p.postDate, postedAt: p.postedAt, now });
+    if (s === "none") continue;
+    if (isPastPost(s)) past++;
+    if (s === "on_time") onTime++;
+    else if (s === "late") late++;
+    else if (s === "missed") missed++;
+    else scheduled++;
+  }
+  return { onTime, late, missed, scheduled, past, rate: past > 0 ? onTime / past : null };
+}
+
 /**
  * Jours de RETARD d'une publication, ou `null` si elle n'est pas en retard.
  *

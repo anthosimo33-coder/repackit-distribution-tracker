@@ -18,8 +18,10 @@ export {
   isPastPost,
   isSameLocalDay,
   lateDays,
+  onTimeTally,
   parisDayIndex,
   parisHour,
   representativePostedAt,
   type CalendarStatus,
+  type OnTimeTally,
 } from "../convex/calendarStatus";

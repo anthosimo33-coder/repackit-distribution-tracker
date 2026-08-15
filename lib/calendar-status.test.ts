@@ -4,6 +4,7 @@ import {
   isPastPost,
   isSameLocalDay,
   lateDays,
+  onTimeTally,
   parisDayIndex,
   parisHour,
   representativePostedAt,
@@ -300,6 +301,81 @@ describe("lateDays — le SIGNE du décalage, jamais le statut", () => {
   it("pas publié, ou pas planifié → null", () => {
     expect(lateDays({ postDate: minuitParis(8, 12), postedAt: null })).toBeNull();
     expect(lateDays({ postDate: null, postedAt: midiParis(8, 12) })).toBeNull();
+  });
+});
+
+describe("onTimeTally — le dénominateur du taux, une seule fois", () => {
+  const HIER = at(2026, 8, 12);
+  const AVANT_HIER = at(2026, 8, 11);
+  const DEMAIN = at(2026, 8, 14);
+  const NOW = at(2026, 8, 13);
+
+  it("reproduit le taux du projet relevé en prod : 74/118 = 63 %", () => {
+    // Distribution RÉELLE (export prod du 2026-08-14) plutôt que des nombres
+    // ronds : 74 à l'heure, 15 en retard, 29 manqués, 33 prévus, et 51
+    // assignations sans date de post qui ne comptent nulle part.
+    const posts = [
+      ...Array.from({ length: 74 }, () => ({ postDate: AVANT_HIER, postedAt: AVANT_HIER })),
+      ...Array.from({ length: 15 }, () => ({ postDate: AVANT_HIER, postedAt: HIER })),
+      ...Array.from({ length: 29 }, () => ({ postDate: AVANT_HIER, postedAt: null })),
+      ...Array.from({ length: 33 }, () => ({ postDate: DEMAIN, postedAt: null })),
+      ...Array.from({ length: 51 }, () => ({ postDate: null, postedAt: null })),
+    ];
+    const t = onTimeTally(posts, NOW);
+    expect(t.onTime).toBe(74);
+    expect(t.late).toBe(15);
+    expect(t.missed).toBe(29);
+    expect(t.scheduled).toBe(33);
+    expect(t.past).toBe(118);
+    expect(Math.round(t.rate! * 100)).toBe(63);
+  });
+
+  it("reproduit le taux d'une créatrice : Kelly, 32/35 = 91 %", () => {
+    // Le chiffre du projet (63 %) ne décrit personne — c'est le taux par
+    // créatrice qui porte l'information, et c'est lui que le message annonce.
+    const posts = [
+      ...Array.from({ length: 32 }, () => ({ postDate: AVANT_HIER, postedAt: AVANT_HIER })),
+      { postDate: AVANT_HIER, postedAt: HIER },
+      { postDate: AVANT_HIER, postedAt: HIER },
+      { postDate: AVANT_HIER, postedAt: null },
+    ];
+    const t = onTimeTally(posts, NOW);
+    expect(t.past).toBe(35);
+    expect(Math.round(t.rate! * 100)).toBe(91);
+  });
+
+  it("les posts SANS date de post ne comptent d'AUCUN côté", () => {
+    // Ni au numérateur ni au dénominateur : c'est pourquoi le libellé dit
+    // « taux de publication à l'heure », et pourquoi l'onglet Fiabilité chiffre
+    // à part combien d'assignations sont dans ce cas.
+    const t = onTimeTally(
+      [
+        { postDate: AVANT_HIER, postedAt: AVANT_HIER },
+        { postDate: null, postedAt: null },
+        { postDate: undefined, postedAt: HIER },
+      ],
+      NOW,
+    );
+    expect(t.past).toBe(1);
+    expect(t.rate).toBe(1);
+  });
+
+  it("aucun post passé → rate null, JAMAIS 0", () => {
+    // 0 se lirait « cette créatrice ne publie jamais à l'heure ». `null` se rend
+    // en tiret.
+    const t = onTimeTally([{ postDate: DEMAIN, postedAt: null }], NOW);
+    expect(t.past).toBe(0);
+    expect(t.rate).toBeNull();
+    expect(t.scheduled).toBe(1);
+  });
+
+  it("un post prévu AUJOURD'HUI et pas publié est « prévu », pas « manqué »", () => {
+    // La journée n'est pas finie — c'est ce qui permet au bilan de 21 h de dire
+    // « pas encore publié » sans mentir.
+    const t = onTimeTally([{ postDate: NOW, postedAt: null }], NOW);
+    expect(t.scheduled).toBe(1);
+    expect(t.missed).toBe(0);
+    expect(t.past).toBe(0);
   });
 });
 

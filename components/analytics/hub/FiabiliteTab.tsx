@@ -241,6 +241,35 @@ export function FiabiliteTab({
             />
             <Table>
               <TableBody>
+                {/* MESURÉ, celui-là — les autres lignes disent pourquoi une chose
+                    est hors de portée ; celle-ci CHIFFRE le trou. Une assignation
+                    sans date de post sort du taux à l'heure des DEUX côtés de la
+                    fraction : elle n'est ni ponctuelle ni en retard, elle est
+                    invisible. Au relevé du 2026-08-14 : 51 sur 202. */}
+                <TableRow>
+                  <TableCell className="text-xs font-medium text-slate-700">
+                    Assignations sans date de post
+                  </TableCell>
+                  <TableCell className="text-xs text-slate-400">
+                    {reliability.publicationCoverage.total === 0 ? (
+                      "aucune assignation"
+                    ) : (
+                      <>
+                        <strong
+                          className={
+                            reliability.publicationCoverage.unplanned > 0
+                              ? "tabular-nums text-amber-700"
+                              : "tabular-nums text-emerald-700"
+                          }
+                        >
+                          {formatNumber(reliability.publicationCoverage.unplanned)}
+                        </strong>{" "}
+                        sur {formatNumber(reliability.publicationCoverage.total)} —
+                        hors du taux à l&apos;heure, des deux côtés de la fraction
+                      </>
+                    )}
+                  </TableCell>
+                </TableRow>
                 {NOT_MEASURABLE.map((x) => (
                   <TableRow key={x.what}>
                     <TableCell className="text-xs font-medium text-slate-700">
