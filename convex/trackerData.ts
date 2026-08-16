@@ -267,6 +267,17 @@ export const listTrackerPosts = adminQuery({
   args: filterArgs,
   handler: async (ctx, args) => {
     const refs = await buildPublicationAssignmentMap(ctx);
+    // Noms INTERNES des campagnes du projet — une seule lecture, comme les
+    // formats plus haut. Le graphe « Vues par campagne » et le multi-select de
+    // la barre de filtres lisent ainsi la même source.
+    const campaignNameById = new Map(
+      (
+        await ctx.db
+          .query("scriptCampaigns")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect()
+      ).map((c) => [c._id as string, c.name]),
+    );
 
     // datePubli desc → ordre stable par défaut (le client re-trie selon la
     // colonne choisie, défaut vues desc). Lecture latest = champs dénormalisés.
@@ -297,6 +308,16 @@ export const listTrackerPosts = adminQuery({
         // Format NOMMÉ rattaché (via assignment), null si aucun.
         formatId: ref?.formatId ?? null,
         formatName: ref?.formatName ?? null,
+        // CAMPAGNE d'origine — lue sur la publication (scriptCombo recopié à la
+        // matérialisation), pas sur l'assignment : c'est déjà la source du filtre
+        // multi-select campagne de cette page, donc graphe et filtre lisent la
+        // MÊME chose. Nom INTERNE : écran admin (displayName est le nom exposé
+        // aux créatrices, cf #59). null = publication sans campagne rattachée.
+        campaignId: (p.scriptCombo?.campaignId as string | undefined) ?? null,
+        campaignName: p.scriptCombo?.campaignId
+          ? (campaignNameById.get(p.scriptCombo.campaignId as string) ??
+            "Campagne supprimée")
+          : null,
         datePubli: p.datePubli,
         postUrl: p.postUrl ?? null,
         // Flag warmup (PR #119) — pastille "hors paie" dans la liste tracker.

@@ -316,3 +316,56 @@ export function computeDailyViewDeltas(snaps: SnapshotPoint[]): DailyPoint[] {
     .map(([date, value]) => ({ date, value }))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
+
+/** Libellé du bucket des publications sans campagne rattachée. */
+export const CAMPAIGN_NONE_LABEL = "Hors campagne";
+/** Libellé du bucket d'agrégation au-delà du top N. */
+export const CAMPAIGN_OTHERS_LABEL = "Autres";
+/** Au-delà de ce nombre de campagnes AVEC des vues, le reste est agrégé. */
+export const CAMPAIGN_TOP_N = 10;
+
+/**
+ * Mise en forme du graphe « Vues par campagne ».
+ *
+ * `aggregateByCategory` a déjà trié par vues décroissantes ; cette fonction ne
+ * fait que RANGER : au-delà de `topN` campagnes ayant des vues, le reste est
+ * agrégé en « Autres », et « Hors campagne » est toujours renvoyé EN DERNIER.
+ *
+ * Pourquoi « Hors campagne » à part et jamais dans « Autres » : ce n'est pas une
+ * petite campagne, c'est une absence de rattachement. La fondre dans « Autres »
+ * masquerait un défaut de données derrière un libellé de commodité.
+ *
+ * Les campagnes à 0 vue sont écartées : une barre de longueur nulle n'apprend
+ * rien et pousse les autres hors de l'écran (le graphe dimensionne sa hauteur au
+ * nombre de lignes).
+ */
+export function shapeCampaignRows(
+  rows: CategoryAggregate[],
+  topN: number = CAMPAIGN_TOP_N,
+): CategoryAggregate[] {
+  const horsCampagne = rows.filter((r) => r.label === CAMPAIGN_NONE_LABEL);
+  const nommees = rows.filter(
+    (r) => r.label !== CAMPAIGN_NONE_LABEL && r.vues > 0,
+  );
+  if (nommees.length <= topN) return [...nommees, ...horsCampagne];
+
+  const top = nommees.slice(0, topN);
+  const reste = nommees.slice(topN);
+  const autres: CategoryAggregate = {
+    key: "__autres__",
+    label: `${CAMPAIGN_OTHERS_LABEL} (${reste.length})`,
+    vues: reste.reduce((s, r) => s + r.vues, 0),
+    likes: reste.reduce((s, r) => s + r.likes, 0),
+    comments: reste.reduce((s, r) => s + r.comments, 0),
+    // Engagement d'un agrégat : recalculé sur les totaux, jamais moyenné — une
+    // moyenne de taux donnerait un poids égal à une campagne de 10 vues et à une
+    // de 100 000.
+    engagement: engagementRate(
+      reste.reduce((s, r) => s + r.likes, 0),
+      reste.reduce((s, r) => s + r.comments, 0),
+      reste.reduce((s, r) => s + r.engagementVues, 0),
+    ),
+    engagementVues: reste.reduce((s, r) => s + r.engagementVues, 0),
+  };
+  return [...top, autres, ...horsCampagne];
+}

@@ -35,6 +35,8 @@ import {
   DEFAULT_WARMUP_FILTER,
   type CategoryItem,
   type WarmupFilter,
+  shapeCampaignRows,
+  CAMPAIGN_NONE_LABEL,
 } from "@/lib/tracker-data";
 import {
   PostsList,
@@ -55,6 +57,7 @@ import { BarChart3Icon, ListIcon } from "lucide-react";
 const PLATFORMS = ["TikTok", "Instagram", "YouTube"] as const;
 const CREATOR_NONE = "__none__";
 const FORMAT_NONE = "__none__";
+const CAMPAIGN_NONE = "__none__";
 
 type ViewMode = "list" | "charts";
 
@@ -251,6 +254,30 @@ export function TrackerDataView() {
     [posts, warmup],
   );
 
+  // "Vues par campagne" — même agrégation cliente que les autres graphes, sur les
+  // posts DÉJÀ chargés : aucune query supplémentaire, et le graphe hérite donc
+  // automatiquement de TOUS les filtres actifs de la page (dates, créateur,
+  // compte, plateforme, format, warmup, et le multi-select campagne lui-même).
+  const byCampaign = useMemo(
+    () =>
+      shapeCampaignRows(
+        aggregateByCategory(
+          (posts ?? []).map(
+            (p): CategoryItem => ({
+              key: p.campaignId ?? CAMPAIGN_NONE,
+              label: p.campaignName ?? CAMPAIGN_NONE_LABEL,
+              vues: p.vues,
+              likes: p.likes,
+              comments: p.comments,
+              isWarmup: p.isWarmup,
+            }),
+          ),
+          warmup,
+        ),
+      ),
+    [posts, warmup],
+  );
+
   const sortedPosts = useMemo(
     () => sortTrackerPosts(posts ?? [], sortKey, sortDir),
     [posts, sortKey, sortDir],
@@ -423,6 +450,7 @@ export function TrackerDataView() {
           byPlatform={byPlatform}
           byCreator={byCreator}
           byFormat={byFormat}
+          byCampaign={byCampaign}
         />
       )}
 
@@ -544,11 +572,13 @@ function ChartsPanel({
   byPlatform,
   byCreator,
   byFormat,
+  byCampaign,
 }: {
   daily: { date: string; value: number }[] | undefined;
   byPlatform: CategoryAggregate[];
   byCreator: CategoryAggregate[];
   byFormat: CategoryAggregate[];
+  byCampaign: CategoryAggregate[];
 }) {
   return (
     <div className="space-y-4">
@@ -638,6 +668,11 @@ function ChartsPanel({
           metric="vues"
         />
         <ComparisonChart title="Vues par format" rows={byFormat} metric="vues" />
+        <ComparisonChart
+          title="Vues par campagne"
+          rows={byCampaign}
+          metric="vues"
+        />
       </div>
     </div>
   );
