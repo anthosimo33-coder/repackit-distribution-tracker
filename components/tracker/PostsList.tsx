@@ -39,6 +39,11 @@ export type TrackerPost = {
   creatorName: string | null;
   formatId: Id<"formats"> | null;
   formatName: string | null;
+  /** Campagne d'origine (nom INTERNE — écran admin). Optionnels : seul
+   *  listTrackerPosts les renseigne ; les autres producteurs de TrackerPost
+   *  (drill-down scripts) ne les fournissent pas. */
+  campaignId?: string | null;
+  campaignName?: string | null;
   datePubli: number;
   postUrl: string | null;
   vues: number;
