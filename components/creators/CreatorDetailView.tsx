@@ -106,7 +106,7 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
     kind === "clipper"
       ? (creator.clipRate?.toString() ?? "")
       : kind === "talent"
-        ? (creator.cycleRetainer?.toString() ?? "")
+        ? (creator.monthlyRetainer?.toString() ?? "")
         : "",
   );
   const [handleTiktok, setHandleTiktok] = useState(
@@ -184,7 +184,7 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
           ? { clipRate: tarif.trim() === "" ? null : Number(tarif) }
           : {}),
         ...(kind === "talent"
-          ? { cycleRetainer: tarif.trim() === "" ? null : Number(tarif) }
+          ? { monthlyRetainer: tarif.trim() === "" ? null : Number(tarif) }
           : {}),
       });
       toast.success("Créateur mis à jour");
@@ -519,9 +519,7 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="tarif">
-                  {kind === "clipper"
-                    ? "Tarif par clip"
-                    : "Forfait par cycle (30 j)"}
+                  {kind === "clipper" ? "Tarif par clip" : "Forfait mensuel"}
                 </Label>
                 <Input
                   id="tarif"
@@ -533,10 +531,14 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
                   value={tarif}
                   onChange={(e) => setTarif(e.target.value)}
                 />
+                {/* La RÈGLE, écrite là où on règle le montant — pour pouvoir la
+                    montrer à quelqu'un qui la conteste, sans avoir à retrouver
+                    une conversation. Elle est vraie contre le moteur : les mois
+                    dus se calculent dans convex/talentRetainer.monthsDue. */}
                 <p className="text-xs text-slate-500">
                   {kind === "clipper"
                     ? "Figé sur chaque clip au moment où il est assigné — le modifier ne change aucun clip déjà commandé."
-                    : "Dû pour chaque cycle écoulé, quel que soit le nombre de rushes déposés. Le compte de rushes s'affiche à côté du montant, dans Paiements."}
+                    : "Forfait mensuel — mois d'entrée et de sortie payés en entier, aucun prorata. Dû pour chaque mois écoulé quel que soit le nombre de rushes déposés ; le compte de rushes s'affiche à côté du montant, dans Paiements. Le modifier n'affecte aucun mois déjà payé."}
                 </p>
               </div>
             </div>

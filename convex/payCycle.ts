@@ -41,24 +41,24 @@ export function cyclePeriodKey(cycleStart: number): string {
 /**
  * ANCRE DE CYCLE d'un créateur — la date depuis laquelle ses cycles se comptent.
  *
- * `payAnchorAt` (talents, posée à l'activation) l'emporte sur `firstPostAt`
- * (partenaires et clippeurs, posée au premier post publié). Un talent ne publie
- * jamais : sans cette bascule il n'aurait aucun cycle et serait invisible de la
- * paie.
+ * `firstPostAt`, et RIEN D'AUTRE : les cycles J+30 regroupent des publications,
+ * ils démarrent donc au premier post publié. C'est l'expression historique,
+ * exactement celle d'avant le chantier talent/clippeur.
  *
- * ⚠️ POUR UN PARTENAIRE, L'EXPRESSION DÉGÉNÈRE EXACTEMENT EN CELLE D'AVANT.
- * `payAnchorAt` n'est posée QUE sur une fiche de talent (cf schema + updateCreator)
- * : chez un partenaire elle est absente, donc `?? firstPostAt` rend la valeur
- * historique, au bit près. Le chemin partenaire est inchangé PAR CONSTRUCTION, pas
- * par relecture — c'est ce qui protège des cycles déjà payés qu'une ancre
- * antérieure au premier post recalerait tous.
+ * ⚠️ `payStartAt` ne participe PLUS. Elle l'a fait le temps où le forfait talent
+ * était en cycles de 30 jours ; il est désormais au MOIS CALENDAIRE (arbitrage
+ * B3 — 30 jours fixes produisaient 12,17 échéances par an) et vit dans
+ * `convex/talentPay.ts`, un chemin de lecture séparé. Un talent n'a donc plus
+ * aucun cycle : il ne publie jamais, `firstPostAt` reste vide chez lui, et
+ * `cyclePaymentsForCreator` rend `[]`.
  *
- * `undefined` = aucune ancre → aucun cycle (talent pas encore activé, partenaire
- * qui n'a jamais publié).
+ * La fonction est CONSERVÉE plutôt qu'inlinée : elle nomme la notion et garde un
+ * seul endroit à relire le jour où l'ancre changerait encore.
+ *
+ * `undefined` = aucun post publié → aucun cycle.
  */
 export function payAnchorOf(creator: {
-  payAnchorAt?: number;
   firstPostAt?: number;
 }): number | undefined {
-  return creator.payAnchorAt ?? creator.firstPostAt;
+  return creator.firstPostAt;
 }

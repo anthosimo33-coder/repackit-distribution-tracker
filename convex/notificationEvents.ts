@@ -27,7 +27,8 @@ export type NotificationEventKey =
   | "digest_overdue_missions"
   | "digest_pay_cycles"
   | "digest_warmup_late"
-  | "digest_clipper_sans_talent";
+  | "digest_clipper_sans_talent"
+  | "digest_talent_solde_du";
 
 /**
  * `immediate` = part dès la détection (garde-fou anti-flood en amont pour les
@@ -118,6 +119,12 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
     kind: "digest",
     label: "Comptes en chauffe sans talent apparié",
     hint: "Section du digest quotidien. Alerte PENDANT la chauffe : après, les trois jours sont perdus.",
+  },
+  {
+    key: "digest_talent_solde_du",
+    kind: "digest",
+    label: "Talents arrêtés avec un forfait non payé",
+    hint: "Section du digest quotidien. Un solde dû à quelqu'un qui part est ce qu'on oublie, puisqu'il cesse d'apparaître.",
   },
   {
     key: "evening_unpublished",

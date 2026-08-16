@@ -56,7 +56,7 @@ test.describe("Créateurs — changement de population", () => {
     expect(fiche.kind).toBe("talent");
     // L'ancre est posée AU BASCULEMENT : sans elle, ce talent déjà actif
     // n'apparaîtrait dans aucun cycle et markCyclePaid jetterait.
-    expect(fiche.payAnchorAt).toBeTruthy();
+    expect(fiche.payStartAt).toBeTruthy();
 
     // Et le portail a suivi — sans ça la bascule enfermerait la personne.
     expect((await p.client.query(api.creators.getMyPortal, {})).role).toBe("talent");
@@ -67,13 +67,13 @@ test.describe("Créateurs — changement de population", () => {
     const t = await inscrire("talent", ts, "retour");
     await admin.mutation(api.creators.updateCreator, { id: t.creatorId, status: "active" });
     expect(
-      (await admin.query(api.creators.getCreator, { id: t.creatorId }))!.payAnchorAt,
+      (await admin.query(api.creators.getCreator, { id: t.creatorId }))!.payStartAt,
     ).toBeTruthy();
 
     await admin.mutation(api.creators.updateCreator, { id: t.creatorId, kind: "clipper" });
     const apres = (await admin.query(api.creators.getCreator, { id: t.creatorId }))!;
     expect(apres.kind).toBe("clipper");
-    expect(apres.payAnchorAt).toBeUndefined();
+    expect(apres.payStartAt).toBeUndefined();
     expect((await t.client.query(api.creators.getMyPortal, {})).role).toBe("clipper");
   });
 

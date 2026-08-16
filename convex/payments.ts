@@ -23,6 +23,11 @@ import {
   payAnchorOf,
 } from "./payCycle";
 import { resolveCreatorKind } from "./roles";
+import {
+  monthLabelFr,
+  monthsDue,
+  retainerAmountFor,
+} from "./talentRetainer";
 import { ConvexError, v } from "convex/values";
 import { internalMutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -260,29 +265,31 @@ export async function accrueClipLineItem(
 }
 
 /**
- * FORFAIT DE CYCLE d'un talent — la ligne due pour UN cycle, ou `null`.
+ * FORFAIT MENSUEL d'un talent — la ligne due pour UN mois, ou `null`.
  *
- * SOURCE UNIQUE lue par l'écran (cycles « en cours ») ET par le gel
- * (`markCyclePaid`). Si les deux la calculaient séparément, l'admin finirait par
- * payer un montant différent de celui qu'il a lu — c'est exactement la
- * divergence que `convex/clipQuota.ts` a été créé pour empêcher côté quota.
+ * SOURCE UNIQUE lue par l'écran (mois « dus ») ET par le gel
+ * (`markTalentMonthPaid`). Si les deux la calculaient séparément, l'admin
+ * finirait par payer un montant différent de celui qu'il a lu — la divergence
+ * que `convex/clipQuota.ts` a été créé pour empêcher côté quota.
  *
- * AUCUNE CONDITION DE LIVRAISON. Le cycle est dû parce qu'il a couru, pas parce
+ * AUCUNE CONDITION DE LIVRAISON. Le mois est dû parce qu'il a couru, pas parce
  * qu'un nombre de rushes a été atteint : l'écran affiche le compte de rushes à
- * côté du montant, et c'est l'admin qui décide de payer ou non. Un cycle sans
+ * côté du montant, et c'est l'admin qui décide de payer ou non. Un mois sans
  * aucun rush porte donc quand même sa ligne — c'est précisément le cas où
  * l'admin doit voir « 0 rush » avant de poser son geste.
+ *
+ * ⚠️ Le libellé porte le MOIS, pas un numéro de cycle : c'est ce que la personne
+ * payée lit sur son récap, et « cycle 3 » ne veut rien dire pour elle.
  */
 export function retainerLineFor(
   creator: Doc<"creators">,
-  cycleIndex: number,
+  period: string,
 ): LineItem | null {
-  if (resolveCreatorKind(creator.kind) !== "talent") return null;
-  const montant = creator.cycleRetainer;
-  if (typeof montant !== "number" || montant <= 0) return null;
+  const montant = retainerAmountFor(creator);
+  if (montant === null) return null;
   return {
-    label: `Forfait — cycle ${cycleIndex + 1}`,
-    amount: round2(montant),
+    label: `Forfait — ${monthLabelFr(period)}`,
+    amount: montant,
     kind: "retainer",
   };
 }
@@ -517,7 +524,7 @@ export async function cyclePaymentsForCreator(
   now: number,
 ): Promise<CyclePayment[]> {
   const creator = await ctx.db.get(creatorId);
-  // Ancre = payAnchorAt (talent) ?? firstPostAt (partenaire/clippeur). Pour un
+  // Ancre = payStartAt (talent) ?? firstPostAt (partenaire/clippeur). Pour un
   // partenaire, l'expression vaut exactement firstPostAt — cf payAnchorOf.
   const firstPostAt = creator ? payAnchorOf(creator) : undefined;
   if (!creator || firstPostAt === undefined) return [];
@@ -613,11 +620,11 @@ export async function cyclePaymentsForCreator(
       k,
       legacyIds,
     );
-    // Forfait du talent — MÊME source que le gel (retainerLineFor) : l'admin ne
-    // peut pas lire un montant et en payer un autre. `null` pour toute autre
-    // population, donc chemin partenaire strictement inchangé.
-    const retainer = retainerLineFor(creator, k);
-    const items = retainer ? [...legacyItems, retainer] : legacyItems;
+    // ⚠️ AUCUN forfait de talent ici. Le forfait est au MOIS CALENDAIRE
+    // (arbitrage B3) et vit dans `convex/talentPay.ts` — le second chemin de
+    // lecture. Un talent n'a aucun cycle J+30 : il ne publie jamais, donc pas de
+    // `firstPostAt`, donc `cyclePaymentsForCreator` rend `[]` pour lui.
+    const items = legacyItems;
     const legacyTotal = recomputeTotal(items);
     out.push({
       key: `${creatorId}:${k}`,
@@ -920,11 +927,11 @@ export const markCyclePaid = adminMutation({
         });
       }
     }
-    const retainer = retainerLineFor(creator, cycleIndex);
+    // Pas de forfait talent ici non plus : son gel passe par
+    // `markTalentMonthPaid`, qui travaille au mois et non au cycle.
     const frozen = [
       ...legacyOfCycle,
       ...frozenLineItemsFromBreakdown(breakdown),
-      ...(retainer ? [retainer] : []),
     ];
     const now = Date.now();
     const target = existingRows[0];
@@ -995,6 +1002,93 @@ export const markPaymentPaid = adminMutation({
  * Marque TOUTE une période comme payée (masse). Idempotent : saute les
  * paiements déjà payés (leur paidAt est préservé). Retourne le nb basculé.
  */
+/**
+ * PAYER UN MOIS DE FORFAIT à UN talent.
+ *
+ * ⚠️ SCOPÉE À UN CRÉATEUR, contrairement à `markPeriodPaid` qui marque payée
+ * TOUTE ligne non payée de la période — partenaires compris. L'écran ne
+ * l'utilise pas et le dit en commentaire ; la réutiliser pour un talent aurait
+ * versé la paie de tout le projet d'un clic.
+ *
+ * ⚠️ C'EST ICI QUE LE MONTANT SE FIGE. La ligne `retainer` est ÉCRITE dans la
+ * row, avec le forfait tel qu'il est à cet instant ; la lecture d'une row payée
+ * la relit verbatim et ne consulte plus la fiche. Conséquence voulue : passer un
+ * forfait de 300 à 400 € applique 400 € au mois courant s'il est encore dû et
+ * aux suivants, et ne touche JAMAIS un mois déjà payé. Même principe que
+ * `pricingSnapshot` sur les publications.
+ *
+ * IDEMPOTENTE : un mois déjà payé est un no-op, jamais un second versement.
+ *
+ * AUCUN CRON N'APPELLE CECI. Le seul geste qui verse est un clic d'admin, après
+ * lecture du récap — c'est la condition posée pour le premier talent réel.
+ */
+export const markTalentMonthPaid = adminMutation({
+  args: { creatorId: v.id("creators"), period: v.string() },
+  handler: async (ctx, { creatorId, period }) => {
+    const creator = await ctx.db.get(creatorId);
+    if (!creator || creator.projectId !== ctx.projectId) {
+      throw new ConvexError("Créateur introuvable.");
+    }
+    if (resolveCreatorKind(creator.kind) !== "talent") {
+      throw new ConvexError("Le forfait mensuel ne concerne que les talents.");
+    }
+    if (!/^\d{4}-\d{2}$/.test(period)) {
+      throw new ConvexError("Mois invalide (attendu « YYYY-MM »).");
+    }
+    // Le mois doit être DÛ : ni antérieur à l'activation, ni postérieur à
+    // l'arrêt. Sans ce contrôle, un mois forgé créerait une row payée que
+    // l'écran n'afficherait jamais — de l'argent versé hors de toute lecture.
+    const dus = monthsDue({
+      startAt: creator.payStartAt ?? null,
+      endAt: creator.payEndAt ?? null,
+      now: Date.now(),
+    });
+    if (!dus.includes(period)) {
+      throw new ConvexError(
+        `Le mois ${monthLabelFr(period)} n'est pas dû à ce talent.`,
+      );
+    }
+    const montant = retainerAmountFor(creator);
+    if (montant === null) {
+      throw new ConvexError("Aucun forfait mensuel réglé sur cette fiche.");
+    }
+
+    const existante = (
+      await ctx.db
+        .query("payments")
+        .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+        .collect()
+    ).find((p) => p.projectId === ctx.projectId && p.period === period);
+    if (existante?.status === "paid") {
+      return { ok: true, alreadyPaid: true, amount: existante.totalDue };
+    }
+
+    const ligne = retainerLineFor(creator, period)!;
+    const now = Date.now();
+    if (existante) {
+      const lineItems = [...existante.lineItems, ligne];
+      await ctx.db.patch(existante._id, {
+        status: "paid",
+        paidAt: now,
+        lineItems,
+        totalDue: recomputeTotal(lineItems),
+      });
+    } else {
+      await ctx.db.insert("payments", {
+        projectId: ctx.projectId,
+        creatorId,
+        period,
+        lineItems: [ligne],
+        totalDue: ligne.amount,
+        status: "paid",
+        paidAt: now,
+        createdAt: now,
+      });
+    }
+    return { ok: true, alreadyPaid: false, amount: ligne.amount };
+  },
+});
+
 export const markPeriodPaid = adminMutation({
   args: { period: v.string() },
   handler: async (ctx, { period }) => {

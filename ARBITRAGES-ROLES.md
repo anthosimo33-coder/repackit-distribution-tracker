@@ -215,8 +215,49 @@ modifier un tarif ne réécrit jamais une ligne déjà attribuée.
 
 ### B3 — Le forfait talent est en MOIS CALENDAIRE, pas en cycles J+30
 
-`periodOf` + `markPeriodPaid` (qui existent déjà) + cron mensuel idempotent +
-section talents dans l'écran Paiements.
+> **Tranché DEUX FOIS — ne pas y revenir sans lire ceci.** Cet arbitrage disait
+> le mois calendaire depuis l'origine ; le code a néanmoins été livré en **cycles
+> J+30** (`cycleRetainer`, `retainerLineFor(creator, cycleIndex)`, ancré sur
+> `payAnchorAt`), et le document n'a pas été amendé. L'écart a été relevé le
+> **2026-08-15**, et le code ramené au mois calendaire.
+>
+> Ce qui a permis de revenir sans rien migrer : **l'audit prod du même jour** —
+> 1 talent (`onboarding`, jamais activé), 0 ancre, 0 forfait réglé, 0 ligne
+> `retainer` payée ou en cours, 0 euro versé. Une seconde de plus et la
+> conversion aurait touché de l'argent déjà parti.
+>
+> État actuel : `creators.monthlyRetainer`, bornes `payStartAt` / `payEndAt`,
+> mois calculés en **heure de Paris** par `convex/talentRetainer.monthsDue`,
+> lecture par `convex/talentPay.ts`, paiement par
+> `payments.markTalentMonthPaid` (scopée à un créateur ET un mois).
+
+`periodOf` + section talents dans l'écran Paiements.
+
+**⚠️ `markPeriodPaid` ne convient PAS**, contrairement à ce que cet arbitrage
+supposait : elle est **projet-large** et marque payée toute ligne non payée de la
+période, partenaires compris. L'écran Paiements ne l'utilise pas et le dit en
+commentaire. D'où `markTalentMonthPaid`, scopée.
+
+**⚠️ `periodOf` est en UTC** et le reste (elle clé les lignes d'accrual des
+partenaires). Le mois du forfait, lui, est calculé en **Paris** : une activation
+le 1er à 00h30 Paris tomberait sinon dans le mois précédent — et par la règle
+« mois d'entrée payé en entier », ce serait un mois entier offert pour trente
+minutes. Deux clés « YYYY-MM » coexistent, et ne se croisent jamais.
+
+**Pas de cron de paiement.** Le seul geste qui verse est un clic d'admin, après
+lecture du récap. Un forfait qui part tout seul est un forfait qu'on découvre au
+virement.
+
+**Les deux bords, arbitrés le 2026-08-15** : mois d'entrée ET mois de sortie
+payés **en entier**, aucun prorata. Conséquence assumée et non corrigée — un
+talent activé le 28 et arrêté le 3 doit **deux mois pleins pour sept jours
+couverts**. L'écran l'affiche en toutes lettres, avec le montant à côté des
+jours, pour que la décision se prenne avant le virement.
+
+**Le montant est FIGÉ au paiement** (ligne `retainer` écrite dans
+`payments.lineItems`, relue verbatim) : augmenter un forfait s'applique au mois
+courant encore dû et aux suivants, jamais à un mois déjà versé. Même principe que
+`pricingSnapshot`.
 
 **Pourquoi.** Les cycles créateurs font **30 jours fixes**
 (`CYCLE_LENGTH_MS`) : un forfait « mensuel » sur cette base produirait **12,17

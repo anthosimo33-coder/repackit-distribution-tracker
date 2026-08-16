@@ -45,6 +45,7 @@ import { effectiveStatus } from "./comptes";
 import { resolveCreatorKind } from "./roles";
 import { lateDays, parisHour, representativePostedAt } from "./calendarStatus";
 import { eveningUnpublishedReports } from "./publicationLateness";
+import { talentPayRecap } from "./talentPay";
 import {
   isChauffeSansTalent,
   joursAvantSortieDeChauffe,
@@ -1007,6 +1008,26 @@ export const collectDigest = internalQuery({
     // Les deux sections lisent la MÊME collection, chargée une fois — et se
     // partagent la population : un compte appartient à un partenaire OU à un
     // clippeur, jamais aux deux signaux.
+    // TALENTS ARRÊTÉS AVEC UN SOLDE. Un talent `paused`/`churned` cesse
+    // d'accumuler des mois (`payEndAt` borne `monthsDue`), mais ceux déjà courus
+    // restent dus — et il disparaît des écrans du quotidien. C'est exactement le
+    // solde qu'on oublie.
+    const talentSoldeDu: { creatorName: string; moisDus: number }[] = [];
+    if (isEventEnabled(enabled, "digest_talent_solde_du")) {
+      const fiches = await ctx.db
+        .query("creators")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect();
+      for (const c of fiches) {
+        if (resolveCreatorKind(c.kind) !== "talent") continue;
+        if (c.status === "active") continue;
+        const recap = await talentPayRecap(ctx, projectId, c, now);
+        if (recap === null) continue;
+        const dus = recap.months.filter((m) => m.status === "due").length;
+        if (dus > 0) talentSoldeDu.push({ creatorName: c.name, moisDus: dus });
+      }
+    }
+
     const warmupLate: { handle: string; missedDays: number }[] = [];
     const chauffeSansTalent: {
       handle: string;
@@ -1103,6 +1124,7 @@ export const collectDigest = internalQuery({
       sections: {
         overdueMissions,
         payCycles,
+        talentSoldeDu: talentSoldeDu.slice(0, DIGEST_SECTION_LIMIT),
         warmupLate: warmupLate.slice(0, DIGEST_SECTION_LIMIT),
         chauffeSansTalent: chauffeSansTalent.slice(0, DIGEST_SECTION_LIMIT),
         retryableRenewalFailures: retryableRenewalFailures.slice(
