@@ -2,6 +2,11 @@
 
 import { useMemo, useState } from "react";
 import {
+  formatPostWindow,
+  formatWindowStart,
+  compareByWindowStart,
+} from "@/convex/postWindow";
+import {
   addMonths,
   eachDayOfInterval,
   endOfMonth,
@@ -48,6 +53,8 @@ export type CalendarAssignmentRow = {
   formatName: string | null;
   scriptCampaignName?: string | null;
   postDate?: number;
+  /** Créneau horaire (#56) — heure de début sur la vignette, créneau complet au survol. */
+  postWindow?: { startMin: number; endMin: number };
   postedAt: number | null;
   // Compte GÉRÉ par l'équipe (dénormalisé) → marqueur géré/créatrice sur la pastille.
   managedByAdmin?: boolean;
@@ -195,6 +202,13 @@ export function AssignmentsCalendar({
       const arr = map.get(key);
       if (arr) arr.push(item);
       else map.set(key, [item]);
+    }
+    // ORDRE INTRA-JOUR : une case se lit comme une journée — midi en haut, soir
+    // en bas. Sans ce tri l'ordre suivait l'ordre d'arrivée de la liste, qui n'a
+    // aucun rapport avec l'heure de publication. Les sans-créneau finissent
+    // derniers (pas d'heure ⇒ pas de place dans la chronologie).
+    for (const arr of map.values()) {
+      arr.sort((x, y) => compareByWindowStart(x.row, y.row));
     }
     return map;
   }, [visible]);
@@ -418,9 +432,10 @@ function CalendarPost({
     flag: countryFlag(t.country),
     label: atHandle(t.accountHandle) ?? t.platform,
   }));
-  const title = `${row.creatorName} · ${rowLabel(row)} · ${meta.label} · ${
-    managed ? "compte géré (tu publies)" : "compte créatrice (elle publie)"
-  }`;
+  const creneau = formatPostWindow(row.postWindow);
+  const title = `${row.creatorName} · ${rowLabel(row)} · ${meta.label}${
+    creneau !== null ? ` · créneau ${creneau}` : ""
+  } · ${managed ? "compte géré (tu publies)" : "compte créatrice (elle publie)"}`;
 
   return (
     <div className="relative">
@@ -443,6 +458,14 @@ function CalendarPost({
             aria-hidden
           />
           <meta.Icon className="size-3 shrink-0" />
+          {/* Heure de DÉBUT seule : la vignette est étroite. Le créneau complet
+              vit dans le survol (title) et dans le panneau de détail. Rien
+              d'affiché sans créneau — pas de tiret, pas d'espace réservé. */}
+          {formatWindowStart(row.postWindow) !== null && (
+            <span className="shrink-0 font-semibold tabular-nums opacity-90">
+              {formatWindowStart(row.postWindow)}
+            </span>
+          )}
           <span className="min-w-0 flex-1 truncate">{row.creatorName}</span>
           {/* Marqueur GÉRÉ (équipe) vs CRÉATRICE — d'un coup d'œil, à qui incombe
               la publication (détail dans le title). */}

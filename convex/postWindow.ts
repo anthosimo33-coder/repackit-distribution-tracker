@@ -76,3 +76,38 @@ export function postWindowSentence(
     ? `À publier le ${jourFormate}`
     : `À publier le ${jourFormate} entre ${hhmm(w!.startMin)} et ${hhmm(w!.endMin)}`;
 }
+
+/**
+ * Heure de DÉBUT seule, compacte : "21h". Pour les vignettes du calendrier
+ * admin, où la place ne permet pas le créneau complet — celui-ci reste dans le
+ * survol et dans le panneau de détail.
+ *
+ * `null` si la plage est absente ou invalide : l'appelant n'affiche alors RIEN,
+ * pas un tiret ni un espace réservé (comportement d'avant le champ).
+ */
+export function formatWindowStart(
+  w: PostWindow | null | undefined,
+): string | null {
+  if (!isValidPostWindow(w)) return null;
+  return hhmm(w.startMin);
+}
+
+/**
+ * Comparateur d'ORDRE INTRA-JOUR : une case du calendrier se lit comme une
+ * journée — midi en haut, soir en bas.
+ *
+ * Les assignations SANS créneau passent en dernier : elles n'ont pas d'heure, les
+ * ranger au milieu donnerait un ordre faux plutôt qu'un ordre absent. Entre deux
+ * sans créneau, l'ordre d'entrée est préservé (retour 0, tri stable en JS).
+ */
+export function compareByWindowStart(
+  a: { postWindow?: PostWindow | null },
+  b: { postWindow?: PostWindow | null },
+): number {
+  const sa = isValidPostWindow(a.postWindow) ? a.postWindow.startMin : null;
+  const sb = isValidPostWindow(b.postWindow) ? b.postWindow.startMin : null;
+  if (sa === null && sb === null) return 0;
+  if (sa === null) return 1;
+  if (sb === null) return -1;
+  return sa - sb;
+}
