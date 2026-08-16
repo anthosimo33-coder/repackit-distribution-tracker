@@ -16,6 +16,7 @@ import {
 import { withResolvedExamples } from "./formats";
 import { formatDayMonthFr } from "./dateFr";
 import { normalizeRemunere } from "./remunerate";
+import { isValidPostWindow } from "./postWindow";
 import { isFormatAllowedOnPlatform } from "./publications";
 import { tierLabel } from "./scriptTier";
 import { SNYTCH_SLUG } from "./projects";
@@ -458,6 +459,42 @@ export const setAssignmentPostDate = adminMutation({
       throw new ConvexError("Assignment introuvable.");
     }
     await ctx.db.patch(args.id, { postDate: args.postDate });
+    return { ok: true };
+  },
+});
+
+/**
+ * Édite le CRÉNEAU horaire (postWindow) d'un assignment EXISTANT — admin only.
+ *
+ * Jumelle de setAssignmentPostDate : celle-ci pose le JOUR, celle-là l'HEURE. Une
+ * assignation planifiée avant #56 n'a pas de créneau ; l'admin doit pouvoir en
+ * poser un après coup sans replanifier la date.
+ *
+ * `postWindow` absent → efface le créneau (retour au comportement sans heure).
+ * Valeur invalide → refus explicite : une plage inversée passerait le typage mais
+ * afficherait « entre 23h et 21h » à la créatrice.
+ *
+ * N'affecte NI le statut calendrier NI le cooldown : les deux raisonnent au JOUR,
+ * sur postDate, qui n'est pas touchée ici.
+ */
+export const setAssignmentPostWindow = adminMutation({
+  args: {
+    id: v.id("assignments"),
+    postWindow: v.optional(
+      v.object({ startMin: v.number(), endMin: v.number() }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const a = await ctx.db.get(args.id);
+    if (!a || a.projectId !== ctx.projectId) {
+      throw new ConvexError("Assignment introuvable.");
+    }
+    if (args.postWindow !== undefined && !isValidPostWindow(args.postWindow)) {
+      throw new ConvexError(
+        "Créneau invalide : l'heure de début doit précéder l'heure de fin, dans la même journée.",
+      );
+    }
+    await ctx.db.patch(args.id, { postWindow: args.postWindow });
     return { ok: true };
   },
 });

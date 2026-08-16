@@ -1,6 +1,11 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { Input } from "@/components/ui/input";
+import {
+  POST_WINDOW_PRESETS,
+  formatPostWindow,
+} from "@/convex/postWindow";
 import type { FunctionReturnType } from "convex/server";
 import { fr } from "date-fns/locale";
 import {
@@ -97,11 +102,15 @@ export function AssignmentDetailSheet({
   now: number;
 }) {
   const setPostDate = useProjectMutation(api.assignments.setAssignmentPostDate);
+  const setPostWindow = useProjectMutation(
+    api.assignments.setAssignmentPostWindow,
+  );
   const deleteAssignment = useProjectMutation(
     api.assignments.deleteAssignment,
   );
   const [dateOpen, setDateOpen] = useState(false);
   const [savingDate, setSavingDate] = useState(false);
+  const [savingWindow, setSavingWindow] = useState(false);
   // « Rejouer ce script » : ouvre la modale d'assignation pré-remplie depuis CETTE
   // assignation (lignage replayedFrom = row._id). Réservé aux assignations script.
   const [replayOpen, setReplayOpen] = useState(false);
@@ -153,6 +162,18 @@ export function AssignmentDetailSheet({
       toast.error(convexErrorMessage(e));
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function saveWindow(next: { startMin: number; endMin: number } | undefined) {
+    setSavingWindow(true);
+    try {
+      await setPostWindow({ id: row._id, postWindow: next });
+      toast.success(next ? "Créneau mis à jour." : "Créneau retiré.");
+    } catch (e) {
+      toast.error(convexErrorMessage(e, "Échec de la mise à jour du créneau"));
+    } finally {
+      setSavingWindow(false);
     }
   }
 
@@ -323,6 +344,73 @@ export function AssignmentDetailSheet({
                 onSelect={(d) => void saveDate(dayStartMs(d))}
                 onClear={() => void saveDate(undefined)}
               />
+            </DetailRow>
+
+            {/* CRÉNEAU — sous la date de post, éditable ici : une assignation
+                planifiée avant #56 n'a pas de créneau, l'admin doit pouvoir en
+                poser un après coup sans replanifier la date. Sans créneau, la
+                ligne n'affiche aucun placeholder — juste les presets. */}
+            <DetailRow label="Créneau">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {formatPostWindow(row.postWindow) !== null && (
+                  <span className="font-medium text-slate-700">
+                    {formatPostWindow(row.postWindow)!.replace("-", "–")}
+                  </span>
+                )}
+                {POST_WINDOW_PRESETS.map((p) => {
+                  const actif =
+                    row.postWindow?.startMin === p.window.startMin &&
+                    row.postWindow?.endMin === p.window.endMin;
+                  return (
+                    <Button
+                      key={p.id}
+                      type="button"
+                      size="sm"
+                      variant={actif ? "default" : "outline"}
+                      disabled={savingWindow}
+                      className="h-6 px-2 text-[11px]"
+                      onClick={() =>
+                        void saveWindow(actif ? undefined : p.window)
+                      }
+                    >
+                      {p.label.replace(/ \(.*\)/, "")}
+                    </Button>
+                  );
+                })}
+                <Input
+                  type="time"
+                  aria-label="Heure de début du créneau"
+                  disabled={savingWindow}
+                  className="h-6 w-24 text-[11px]"
+                  value={
+                    row.postWindow
+                      ? `${String(Math.floor(row.postWindow.startMin / 60)).padStart(2, "0")}:${String(row.postWindow.startMin % 60).padStart(2, "0")}`
+                      : ""
+                  }
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                    const [h, m] = e.target.value.split(":").map(Number);
+                    if (Number.isNaN(h)) return;
+                    const startMin = h * 60 + (m || 0);
+                    const endMin =
+                      row.postWindow && row.postWindow.endMin > startMin
+                        ? row.postWindow.endMin
+                        : Math.min(startMin + 120, 1440);
+                    void saveWindow({ startMin, endMin });
+                  }}
+                />
+                {row.postWindow && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={savingWindow}
+                    className="h-6 px-2 text-[11px]"
+                    onClick={() => void saveWindow(undefined)}
+                  >
+                    Retirer
+                  </Button>
+                )}
+              </div>
             </DetailRow>
 
             <DetailRow label="Échéance prod.">
