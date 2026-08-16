@@ -629,6 +629,14 @@ export interface DigestSections {
    * trois jours sont perdus et l'alerte n'appelle plus aucune action.
    */
   chauffeSansTalent: { handle: string; clipperName: string; joursRestants: number }[];
+  /**
+   * Talents ARRÊTÉS (paused/churned) dont au moins un mois de forfait reste dû.
+   *
+   * Un solde dû à quelqu'un qui part est exactement ce qu'on oublie : il cesse
+   * d'apparaître dans les écrans du quotidien. Le nombre de mois y est, JAMAIS
+   * le montant — contrainte de confidentialité du canal.
+   */
+  talentSoldeDu: { creatorName: string; moisDus: number }[];
 }
 
 export function buildDigestMessage(params: {
@@ -644,13 +652,15 @@ export function buildDigestMessage(params: {
     warmupLate,
     retryableRenewalFailures,
     chauffeSansTalent,
+    talentSoldeDu,
   } = sections;
   if (
     overdueMissions.length === 0 &&
     payCycles.length === 0 &&
     warmupLate.length === 0 &&
     retryableRenewalFailures.length === 0 &&
-    chauffeSansTalent.length === 0
+    chauffeSansTalent.length === 0 &&
+    talentSoldeDu.length === 0
   ) {
     return null;
   }
@@ -712,6 +722,21 @@ export function buildDigestMessage(params: {
           chauffeSansTalent.map(
             (c) =>
               `${c.handle} (${c.clipperName}) — sort de chauffe dans ${c.joursRestants} ${plural(c.joursRestants, "jour")}`,
+          ),
+        ),
+    );
+  }
+
+  if (talentSoldeDu.length > 0) {
+    const n = talentSoldeDu.length;
+    // Le NOMBRE de mois, jamais le montant : contrainte de confidentialité du
+    // canal, la même qui interdit les montants de paie partout ailleurs.
+    blocks.push(
+      `🧾 <b>${n} ${plural(n, "talent")} ${plural(n, "arrêté")} avec un forfait non payé</b>\n` +
+        bulletList(
+          talentSoldeDu.map(
+            (t) =>
+              `${t.creatorName} — ${t.moisDus} ${plural(t.moisDus, "mois", "")} ${n > 1 || t.moisDus > 1 ? "dus" : "dû"}`,
           ),
         ),
     );
