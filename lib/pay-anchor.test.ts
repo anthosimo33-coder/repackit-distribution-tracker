@@ -2,74 +2,70 @@ import { describe, it, expect } from "vitest";
 import { payAnchorOf, cycleWindow, cycleIndexOf } from "../convex/payCycle";
 
 /**
- * ANCRE DE CYCLE — `payStartAt` (talent) ?? `firstPostAt` (partenaire/clippeur).
+ * ANCRE DE CYCLE — `firstPostAt`, et rien d'autre.
  *
- * Le test qui compte n'est pas celui du talent, c'est celui du PARTENAIRE : il
- * vérifie que l'expression dégénère EXACTEMENT en la valeur d'avant. Si elle
- * cessait de le faire, `cycleIndexOf` recalerait tous les cycles d'un partenaire,
- * y compris ceux déjà payés — des euros qui changent de cycle sans qu'aucun
- * humain n'ait rien fait.
+ * ⚠️ Ce fichier testait une expression `payStartAt ?? firstPostAt`, du temps où
+ * le forfait talent était en cycles J+30. Il est passé au MOIS CALENDAIRE
+ * (arbitrage B3 — 30 jours fixes produisaient 12,17 échéances par an) et vit
+ * dans un chemin de lecture séparé : l'ancre de cycle est redevenue celle
+ * d'avant tout le chantier.
+ *
+ * Ce qui compte ici est donc la NON-RÉGRESSION du chemin partenaire : ses cycles
+ * doivent partir de son premier post, exactement comme avant. Si l'ancre
+ * changeait, `cycleIndexOf` recalerait TOUS ses cycles, y compris ceux déjà
+ * payés — des euros qui changent de cycle sans qu'aucun humain n'ait rien fait.
  */
 
 const JOUR = 86_400_000;
 const CYCLE = 30 * JOUR;
 
-// Volontairement pas un nombre rond : un instant réel, pas minuit pile.
-const ACTIVATION = Date.UTC(2026, 6, 3, 14, 27, 13);
-const PREMIER_POST = Date.UTC(2026, 6, 21, 9, 2, 44); // 18 jours plus tard
+// Volontairement pas des nombres ronds : des instants réels, pas minuit pile.
+const PREMIER_POST = Date.UTC(2026, 6, 21, 9, 2, 44);
+const ACTIVATION_TALENT = Date.UTC(2026, 6, 3, 14, 27, 13);
 
-describe("payAnchorOf", () => {
-  it("PARTENAIRE (aucune ancre) → firstPostAt, au bit près", () => {
+describe("payAnchorOf — le premier post, et rien d'autre", () => {
+  it("PARTENAIRE → firstPostAt, au bit près", () => {
     expect(payAnchorOf({ firstPostAt: PREMIER_POST })).toBe(PREMIER_POST);
   });
 
-  it("TALENT (ancre, aucun post) → l'ancre", () => {
-    expect(payAnchorOf({ payStartAt: ACTIVATION })).toBe(ACTIVATION);
-  });
-
-  it("les DEUX présents → l'ancre l'emporte", () => {
-    // Ne devrait pas arriver (l'ancre n'est posée que sur un talent, qui ne
-    // publie jamais), mais la priorité doit être déterministe si ça arrivait.
-    expect(
-      payAnchorOf({ payStartAt: ACTIVATION, firstPostAt: PREMIER_POST }),
-    ).toBe(ACTIVATION);
-  });
-
-  it("ni l'un ni l'autre → undefined (aucun cycle)", () => {
+  it("aucun post publié → undefined (aucun cycle)", () => {
     expect(payAnchorOf({})).toBeUndefined();
-    expect(payAnchorOf({ payStartAt: undefined, firstPostAt: undefined })).toBeUndefined();
+    expect(payAnchorOf({ firstPostAt: undefined })).toBeUndefined();
   });
 
-  it("une ancre à 0 n'est pas confondue avec « absente »", () => {
-    // `??` et non `||` : 0 est un instant valide (epoch), et le confondre avec
-    // l'absence ferait basculer sur firstPostAt en silence.
-    expect(payAnchorOf({ payStartAt: 0, firstPostAt: PREMIER_POST })).toBe(0);
+  it("un premier post à 0 n'est pas confondu avec « absent »", () => {
+    // 0 est un instant valide (epoch) : le confondre avec l'absence ferait
+    // disparaître les cycles d'un créateur en silence.
+    expect(payAnchorOf({ firstPostAt: 0 })).toBe(0);
+  });
+
+  it("LE TALENT N'A PLUS D'ANCRE DE CYCLE — son `payStartAt` est ignoré ici", () => {
+    // Un talent ne publie jamais : `firstPostAt` reste vide chez lui, donc pas
+    // d'ancre, donc aucun cycle. Son forfait vit dans convex/talentPay.ts, au
+    // mois. Passer `payStartAt` ne doit RIEN produire — sinon il réapparaîtrait
+    // dans le tableau des cycles avec des lignes vides à 0 €.
+    expect(
+      payAnchorOf({ payStartAt: ACTIVATION_TALENT } as { firstPostAt?: number }),
+    ).toBeUndefined();
   });
 });
 
-describe("cycles ancrés sur l'activation (talent)", () => {
-  it("le 1er rush déposé 18 jours après l'activation tombe dans le cycle 0", () => {
-    const ancre = payAnchorOf({ payStartAt: ACTIVATION })!;
+describe("cycles d'un partenaire — inchangés", () => {
+  it("le cycle 0 démarre au premier post", () => {
+    const ancre = payAnchorOf({ firstPostAt: PREMIER_POST })!;
     expect(cycleIndexOf(ancre, PREMIER_POST)).toBe(0);
-    const w = cycleWindow(ancre, 0);
-    expect(w.cycleStart).toBe(ACTIVATION);
-    expect(PREMIER_POST).toBeGreaterThanOrEqual(w.cycleStart);
-    expect(PREMIER_POST).toBeLessThan(w.cycleEnd);
+    expect(cycleWindow(ancre, 0).cycleStart).toBe(PREMIER_POST);
   });
 
-  it("le cycle bascule à J+30 de l'ACTIVATION, pas du 1er rush", () => {
-    const ancre = ACTIVATION;
-    expect(cycleIndexOf(ancre, ACTIVATION + CYCLE - 1)).toBe(0);
-    expect(cycleIndexOf(ancre, ACTIVATION + CYCLE)).toBe(1);
-    // 30 jours après le PREMIER RUSH, on est déjà dans le cycle 1 depuis 18 j —
-    // c'est toute la différence entre les deux ancres.
-    expect(cycleIndexOf(ancre, PREMIER_POST + CYCLE)).toBe(1);
+  it("le cycle bascule à J+30 du premier post", () => {
+    expect(cycleIndexOf(PREMIER_POST, PREMIER_POST + CYCLE - 1)).toBe(0);
+    expect(cycleIndexOf(PREMIER_POST, PREMIER_POST + CYCLE)).toBe(1);
   });
 
   it("aucun trou ni recouvrement entre cycles consécutifs", () => {
     for (let k = 0; k < 5; k++) {
-      expect(cycleWindow(ACTIVATION, k).cycleEnd).toBe(
-        cycleWindow(ACTIVATION, k + 1).cycleStart,
+      expect(cycleWindow(PREMIER_POST, k).cycleEnd).toBe(
+        cycleWindow(PREMIER_POST, k + 1).cycleStart,
       );
     }
   });

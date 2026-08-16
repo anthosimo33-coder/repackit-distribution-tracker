@@ -97,6 +97,7 @@ import type * as soloDays from "../soloDays.js";
 import type * as storage from "../storage.js";
 import type * as storageCleanup from "../storageCleanup.js";
 import type * as talentBriefFields from "../talentBriefFields.js";
+import type * as talentPay from "../talentPay.js";
 import type * as talentRetainer from "../talentRetainer.js";
 import type * as talentRushFields from "../talentRushFields.js";
 import type * as trackerData from "../trackerData.js";
@@ -206,6 +207,7 @@ declare const fullApi: ApiFromModules<{
   storage: typeof storage;
   storageCleanup: typeof storageCleanup;
   talentBriefFields: typeof talentBriefFields;
+  talentPay: typeof talentPay;
   talentRetainer: typeof talentRetainer;
   talentRushFields: typeof talentRushFields;
   trackerData: typeof trackerData;

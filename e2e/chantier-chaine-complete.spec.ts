@@ -240,11 +240,17 @@ test.describe("Chantier talent/clippeur — la chaîne entière", () => {
       duClippeur.filter((li) => li.kind === "fixed" || li.kind === "cpm"),
     ).toHaveLength(0);
 
-    const cyclesTalent = paie.filter((r) => r.creatorId === talent.creatorId);
-    expect(cyclesTalent.length).toBeGreaterThanOrEqual(1);
-    expect(cyclesTalent[0].totalDue).toBe(FORFAIT);
+    // Le talent est payé au MOIS CALENDAIRE (B3), pas au cycle J+30 : il est
+    // absent du tableau des cycles, et présent dans le chemin de paie talent.
+    expect(paie.filter((r) => r.creatorId === talent.creatorId)).toHaveLength(0);
+    const recapTalent = (
+      await admin.query(api.talentPay.listTalentPay, {})
+    ).find((r) => r.creatorId === talent.creatorId)!;
+    expect(recapTalent).toBeTruthy();
+    expect(recapTalent.months.length).toBeGreaterThanOrEqual(1);
+    expect(recapTalent.months[0].amount).toBe(FORFAIT);
     // Le rush déposé compte pour l'AFFICHAGE, jamais pour le montant.
-    expect(cyclesTalent[0].rushCount).toBe(1);
+    expect(recapTalent.months.reduce((s, m) => s + m.rushCount, 0)).toBe(1);
 
     // ── 12. Le gel clôt la chaîne ────────────────────────────────────────────
     await admin.mutation(api.payments.markCyclePaid, {

@@ -170,13 +170,22 @@ test.describe("Configuration de l'espace talent — chemin admin réel", () => {
     expect(a.clipRateSnapshot).toBe(TARIF_CLIP);
     expect(a.pricingSnapshot).toBeUndefined();
 
-    // ── Et le forfait du talent est dû dès son premier cycle ─────────────────
-    const cycles = (await admin.query(api.payments.listPayments, {})).filter(
+    // ── Et le forfait du talent est dû dès son premier MOIS ──────────────────
+    // Au MOIS CALENDAIRE, pas au cycle J+30 (arbitrage B3) : le talent est donc
+    // absent du tableau des cycles et présent dans le chemin de paie talent.
+    expect(
+      (await admin.query(api.payments.listPayments, {})).filter(
+        (r) => r.creatorId === talent.creatorId,
+      ),
+    ).toHaveLength(0);
+    const recap = (await admin.query(api.talentPay.listTalentPay, {})).find(
       (r) => r.creatorId === talent.creatorId,
-    );
-    expect(cycles.length).toBeGreaterThanOrEqual(1);
-    expect(cycles[0].totalDue).toBe(FORFAIT);
-    expect(cycles[0].rushCount).toBe(1);
+    )!;
+    expect(recap).toBeTruthy();
+    expect(recap.months.length).toBeGreaterThanOrEqual(1);
+    expect(recap.months[0].amount).toBe(FORFAIT);
+    // Le rush déposé compte pour l'AFFICHAGE, jamais pour le montant.
+    expect(recap.months.reduce((s, m) => s + m.rushCount, 0)).toBe(1);
   });
 
   test("réécrire un brief en CRÉE un nouveau — l'ancien reste intact", async () => {
