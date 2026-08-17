@@ -5,32 +5,36 @@ import { internal } from "./_generated/api";
  * Crons Convex. Auto-découvert (convex/crons.ts) — pas de config supplémentaire.
  *
  * ⚠️ FUSEAU — Convex planifie en UTC ; il ne gère pas les fuseaux nativement.
- * Choix (simplicité, cf brief) : heure UTC FIXE à 07:00.
- *   - 07:00 UTC = 08:00 Europe/Paris en HIVER (CET, UTC+1).
- *   - 07:00 UTC = 09:00 Europe/Paris en ÉTÉ (CEST, UTC+2).
- * Décalage réel : +1h l'été. Pour un point/jour à heure ~fixe de tracking de
- * vues, c'est sans impact (les fenêtres analytics J+X prennent le snapshot le
- * plus proche, cf findMatchingSnapshot). Si un 8h Paris EXACT toute l'année
- * devient nécessaire, basculer sur un cron HORAIRE qui ne s'exécute que lorsque
- * l'heure de Paris vaut 8h (calcul du décalage DST).
+ * Deux traitements coexistent dans ce fichier, et le choix dépend de l'enjeu :
+ *   - heure UTC FIXE quand une heure « à peu près » suffit (les crons de
+ *     nettoyage, les syncs d'API) : le décalage d'une heure au changement
+ *     d'heure est sans conséquence ;
+ *   - cron HORAIRE + garde sur l'heure de Paris quand l'heure est PROMISE à un
+ *     humain ou porte du sens métier (bilan du soir, relevé de fin de journée).
+ * Le second est le remède annoncé de longue date pour le premier ; ne pas le
+ * généraliser par principe, il coûte 23 exécutions à vide par jour.
  */
 const crons = cronJobs();
 
-crons.daily(
-  "daily-youtube-views",
-  { hourUTC: 7, minuteUTC: 0 },
-  internal.youtubeSync.runDailySync,
-  {},
-);
-
-// Tracking auto TikTok/Instagram via Apify (calqué sur YouTube). DÉCALÉ à 08:00
-// UTC (1h après YouTube) pour ne pas lancer tous les relevés en même temps —
-// Apify est payant/limité, on étale la charge. Même robustesse de bord de jour
-// (bucketisation UTC dans upsertApifySnapshot). Cf convex/apifySync.ts.
-crons.daily(
-  "daily-tiktok-insta-views",
-  { hourUTC: 8, minuteUTC: 0 },
-  internal.apifySync.runDailySync,
+// RELEVÉ DE VUES NOCTURNE — 23h30 EUROPE/PARIS, YouTube ET TikTok/Instagram.
+//
+// HORAIRE et non quotidien, avec garde sur l'heure de Paris (cf
+// convex/nightlyViewsSync.ts) : à heure UTC fixe, « le relevé de 23h30 »
+// tomberait à 22h30 tout l'hiver, et le snapshot cesserait de fermer la journée
+// qu'il mesure — c'est précisément ce qu'on vient corriger.
+//
+// REMPLACE les anciens `daily-youtube-views` (07:00 UTC) et
+// `daily-tiktok-insta-views` (08:00 UTC). Les garder EN PLUS aurait été payer
+// deux fois : la bucketisation par jour UTC (upsertApifySnapshot) fait que le
+// relevé du soir ÉCRASE celui du matin dans la même journée UTC.
+//
+// minuteUTC:30 est imposé par l'heure voulue (23h30 Paris) et coïncide donc avec
+// `whop-revenue-sync` — collision assumée : l'un est un appel d'API léger,
+// l'autre ne fait que planifier une chaîne de lots.
+crons.hourly(
+  "nightly-views-sync",
+  { minuteUTC: 30 },
+  internal.nightlyViewsSync.runNightlySync,
   {},
 );
 

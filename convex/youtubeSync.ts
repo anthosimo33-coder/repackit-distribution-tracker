@@ -11,6 +11,7 @@ import type { Id } from "./_generated/dataModel";
 import { extractYouTubeId, fetchYouTubeViews } from "./youtubeApi";
 import { recomputeLatestMetrics } from "./metricSnapshots";
 import { syncBonusForPublication } from "./pricing";
+import { TRACKING_WINDOW_DAYS } from "./syncScope";
 
 /**
  * S — Tracking AUTO des vues YouTube. Un cron quotidien (convex/crons.ts) relève
@@ -32,9 +33,14 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * « Publication active » = publiée (postUrl) ET datePubli < N jours. Au-delà de
  * N, on arrête de tracker pour ne pas gonfler le quota inutilement (les vues
  * d'une vidéo de plus de 3 mois ne bougent quasiment plus, et les fenêtres
- * analytics vont jusqu'à J+90). N = 90 jours.
+ * analytics vont jusqu'à J+90). N = 90 jours, défini une seule fois dans
+ * `convex/syncScope.ts` et partagé avec le relevé Apify.
+ *
+ * ⚠️ Distinct du périmètre du relevé NOCTURNE, qui restreint en plus aux
+ * COMPTES actifs (30 j) : ici c'est la vidéo qui sort du tracking, là c'est le
+ * compte qui ne mérite plus un run.
  */
-const ACTIVE_WINDOW_DAYS = 90;
+const ACTIVE_WINDOW_DAYS = TRACKING_WINDOW_DAYS;
 
 export interface YouTubeSyncSummary {
   ok: boolean;
@@ -140,14 +146,28 @@ async function upsertYouTubeSnapshot(
  * Publications YouTube actives (publiées + < ACTIVE_WINDOW_DAYS). `cutoff` est
  * passé par l'appelant (une query ne peut pas appeler Date.now()). `projectId`
  * optionnel : absent (cron) = tous les projets ; présent (sync manuelle) =
- * scopé à ce projet. Renvoie le minimum nécessaire (id + postUrl).
+ * scopé à ce projet.
+ *
+ * Rend aussi `compte`, `projectId` et `lastSyncAt` (= `latestSnapshotAt`,
+ * dernier snapshot toutes sources) : de quoi appliquer la politique du relevé
+ * NOCTURNE sans deuxième scan, cf `convex/syncScope.ts`. Le chemin MANUEL
+ * ignore ces champs.
  */
 export const listActiveYouTubePublications = internalQuery({
   args: { cutoff: v.number(), projectId: v.optional(v.id("projects")) },
   handler: async (
     ctx,
     { cutoff, projectId },
-  ): Promise<{ _id: Id<"publications">; postUrl: string }[]> => {
+  ): Promise<
+    {
+      _id: Id<"publications">;
+      postUrl: string;
+      compte: string;
+      projectId: Id<"projects">;
+      datePubli: number;
+      lastSyncAt?: number;
+    }[]
+  > => {
     const pubs = projectId
       ? await ctx.db
           .query("publications")
@@ -166,7 +186,14 @@ export const listActiveYouTubePublications = internalQuery({
           p.postUrl.length > 0 &&
           p.datePubli >= cutoff,
       )
-      .map((p) => ({ _id: p._id, postUrl: p.postUrl as string }));
+      .map((p) => ({
+        _id: p._id,
+        postUrl: p.postUrl as string,
+        compte: p.compte,
+        projectId: p.projectId,
+        datePubli: p.datePubli,
+        lastSyncAt: p.latestSnapshotAt,
+      }));
   },
 });
 

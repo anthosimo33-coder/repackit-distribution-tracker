@@ -15,6 +15,7 @@ import {
   type ApifyPlatform,
 } from "./apifyApi";
 import { recomputeLatestMetrics } from "./metricSnapshots";
+import { TRACKING_WINDOW_DAYS } from "./syncScope";
 import { syncBonusForPublication } from "./pricing";
 
 /**
@@ -37,8 +38,9 @@ import { syncBonusForPublication } from "./pricing";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Idem YouTube : on ne tracke que les posts publiés de moins de 90 jours. */
-const ACTIVE_WINDOW_DAYS = 90;
+/** Fenêtre de tracking partagée avec YouTube — définition unique dans
+ *  convex/syncScope.ts (plus deux constantes « à garder synchrones »). */
+const ACTIVE_WINDOW_DAYS = TRACKING_WINDOW_DAYS;
 
 /** Plateformes Apify + la `source` du snapshot correspondant. */
 const APIFY_PLATFORMS: { plateforme: ApifyPlatform; source: ApifySource }[] = [
@@ -168,7 +170,17 @@ async function upsertApifySnapshot(
  * Publications actives (publiées + < ACTIVE_WINDOW_DAYS) d'UNE plateforme
  * (TikTok ou Instagram). `cutoff` passé par l'appelant (une query ne peut pas
  * appeler Date.now()). `projectId` optionnel : absent (cron) = tous les projets ;
- * présent (sync manuelle) = scopé. Renvoie le minimum (id + postUrl).
+ * présent (sync manuelle) = scopé.
+ *
+ * Rend aussi `compte`, `projectId` et `lastSyncAt` — de quoi appliquer la
+ * politique du relevé NOCTURNE (comptes actifs, garde des 2 h, imputation des
+ * échecs par projet, cf `convex/syncScope.ts`) sans deuxième scan. Le chemin
+ * MANUEL ignore simplement ces champs : son périmètre reste inchangé.
+ *
+ * `lastSyncAt` = `latestSnapshotAt` (dernier snapshot TOUTES sources) et non
+ * `lastApifySyncAt` : c'est le signal « il existe déjà un point de mesure
+ * frais », qui est ce que la garde des 2 h veut vraiment savoir, et il vaut pour
+ * YouTube comme pour Apify.
  */
 export const listActiveApifyPublications = internalQuery({
   args: {
@@ -179,7 +191,16 @@ export const listActiveApifyPublications = internalQuery({
   handler: async (
     ctx,
     { cutoff, plateforme, projectId },
-  ): Promise<{ _id: Id<"publications">; postUrl: string }[]> => {
+  ): Promise<
+    {
+      _id: Id<"publications">;
+      postUrl: string;
+      compte: string;
+      projectId: Id<"projects">;
+      datePubli: number;
+      lastSyncAt?: number;
+    }[]
+  > => {
     const pubs = projectId
       ? await ctx.db
           .query("publications")
@@ -198,7 +219,14 @@ export const listActiveApifyPublications = internalQuery({
           p.postUrl.length > 0 &&
           p.datePubli >= cutoff,
       )
-      .map((p) => ({ _id: p._id, postUrl: p.postUrl as string }));
+      .map((p) => ({
+        _id: p._id,
+        postUrl: p.postUrl as string,
+        compte: p.compte,
+        projectId: p.projectId,
+        datePubli: p.datePubli,
+        lastSyncAt: p.latestSnapshotAt,
+      }));
   },
 });
 

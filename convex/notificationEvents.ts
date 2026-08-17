@@ -22,6 +22,7 @@ export type NotificationEventKey =
   | "publication_confirmed"
   | "publication_late"
   | "evening_unpublished"
+  | "sync_failures"
   | "whop_dispute"
   | "whop_renewal_failed"
   | "digest_overdue_missions"
@@ -124,6 +125,12 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
     kind: "scheduled",
     label: "Bilan de fin de journée",
     hint: "Le soir, un message par créatrice ayant encore des posts prévus AUJOURD'HUI non publiés. Rien si tout est sorti. Les manqués des jours précédents n'y figurent pas.",
+  },
+  {
+    key: "sync_failures",
+    kind: "immediate",
+    label: "Relevé de vues en panne",
+    hint: "Envoyé quand PLUS DE LA MOITIÉ des comptes du projet échouent sur le relevé nocturne — token expiré, plateforme qui bloque. Un run normal, même avec quelques vidéos indisponibles, reste silencieux.",
   },
 ] as const;
 
