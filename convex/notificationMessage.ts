@@ -721,6 +721,44 @@ export function buildDigestMessage(params: {
   return blocks.join("\n\n");
 }
 
+// ─── Relevé de vues en panne ─────────────────────────────────────────────────
+
+/**
+ * Alerte du relevé nocturne. N'est construite QUE lorsque plus de la moitié des
+ * comptes du projet ont échoué : à ce niveau ce n'est plus un aléa (vidéo
+ * supprimée, compte passé privé) mais une panne — jeton expiré, plateforme qui
+ * bloque, quota Apify épuisé.
+ *
+ * Les comptes sont NOMMÉS (plafonnés) plutôt que comptés : « 9 comptes sur 11 »
+ * ne dit pas s'il faut regarder le token d'un projet ou une plateforme entière,
+ * la liste si.
+ */
+export function buildSyncFailureMessage(params: {
+  failed: readonly string[];
+  attempted: number;
+  appBaseUrl: string;
+  projectSlug: string;
+  maxListed?: number;
+}): string {
+  const { failed, attempted, appBaseUrl, projectSlug } = params;
+  const max = params.maxListed ?? 10;
+  const listed = failed.slice(0, max);
+  const reste = failed.length - listed.length;
+  return [
+    "🚨 <b>Relevé de vues en panne</b>",
+    "",
+    `<b>${failed.length}</b> ${plural(failed.length, "compte")} sur ${attempted} ` +
+      `${plural(attempted, "relevé")} cette nuit ${failed.length > 1 ? "n'ont" : "n'a"} rien remonté.`,
+    "",
+    bulletList(listed.map((c) => escapeTelegram(c))),
+    ...(reste > 0 ? [`…et ${reste} ${plural(reste, "autre")}.`] : []),
+    "",
+    "Pistes : jeton Apify expiré ou quota épuisé, plateforme qui bloque, comptes passés privés.",
+    "",
+    link("Ouvrir le dashboard", dashboardUrl(appBaseUrl, projectSlug)),
+  ].join("\n");
+}
+
 // ─── Test manuel depuis l'écran admin ────────────────────────────────────────
 
 /**

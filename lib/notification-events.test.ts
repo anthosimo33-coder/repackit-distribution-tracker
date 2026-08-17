@@ -12,7 +12,7 @@ import {
 import * as convexEvents from "../convex/notificationEvents";
 
 describe("catalogue — forme et contenu", () => {
-  it("expose les 13 événements du catalogue", () => {
+  it("expose les 14 événements du catalogue", () => {
     expect(NOTIFICATION_EVENT_KEYS).toEqual([
       "video_submitted",
       "video_resubmitted",
@@ -27,10 +27,11 @@ describe("catalogue — forme et contenu", () => {
       "digest_warmup_late",
       "digest_clipper_sans_talent",
       "evening_unpublished",
+      "sync_failures",
     ]);
   });
 
-  it("8 immédiats, 4 digest, 1 planifié — le classement arbitré", () => {
+  it("9 immédiats, 4 digest, 1 planifié — le classement arbitré", () => {
     const immediate = NOTIFICATION_EVENTS.filter((e) => e.kind === "immediate");
     const digest = NOTIFICATION_EVENTS.filter((e) => e.kind === "digest");
     expect(immediate.map((e) => e.key)).toEqual([
@@ -42,6 +43,9 @@ describe("catalogue — forme et contenu", () => {
       "publication_late",
       "whop_dispute",
       "whop_renewal_failed",
+      // Panne du relevé nocturne : réaction à un incident, pas une section de
+      // digest — une alerte de sync qui arrive le lendemain matin ne sert à rien.
+      "sync_failures",
     ]);
     expect(digest.map((e) => e.key)).toEqual([
       "digest_overdue_missions",
