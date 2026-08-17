@@ -24,6 +24,14 @@ import {
   isGuardedKind,
 } from "./rushScriptEligibility";
 import { ConvexError, v } from "convex/values";
+import {
+  PROVEN_CAMPAIGN_NAME,
+  campaignNameMatches,
+  hookIdentityKey,
+  bestRun,
+  qualifiesForGraduation,
+  type GraduationOutcome,
+} from "./graduation";
 import { normalizeAngleFamily } from "./angleFamily";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -1986,5 +1994,203 @@ export const assignScriptToRush = adminMutation({
     });
 
     return { assignmentId };
+  },
+});
+
+// ─── GRADUATION d'un hook (LAB → ouvertures prouvées) ────────────────────────
+
+/**
+ * Runs d'un hook = les publications dont le combo porte cette brique en hook.
+ * Lecture par index projet puis filtrage en mémoire : Convex n'indexe pas les
+ * champs imbriqués, `scriptCombo.hookBrickId` n'est donc pas requêtable — même
+ * idiome que scriptAnalytics et trackerData.
+ *
+ * Métriques LATEST dénormalisées (pas de lecture de snapshots) : c'est ce que
+ * l'admin voit au moment où il gradue, donc ce qu'il faut figer dans le journal.
+ */
+async function hookRunsOf(
+  ctx: Parameters<typeof requireCampaign>[0],
+  projectId: Id<"projects">,
+  brickId: Id<"scriptBricks">,
+): Promise<{ vues: number; likes: number; saves: number | null }[]> {
+  const pubs = await ctx.db
+    .query("publications")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+  return pubs
+    .filter((p) => p.scriptCombo?.hookBrickId === brickId)
+    .map((p) => ({
+      vues: p.vuesLatest ?? 0,
+      likes: p.likesLatest ?? 0,
+      // `undefined` (jamais collecté) ≠ 0 (mesuré à zéro) — la règle de
+      // graduation refuse un taux non mesuré, elle ne le suppose pas satisfait.
+      saves: p.savesLatest ?? null,
+    }));
+}
+
+/**
+ * GRADUER un hook : le copier dans « Format Warmup - Ouvertures prouvées » ET
+ * désactiver l'original dans « Format Warmup LAB ». Les DEUX, dans la MÊME
+ * mutation — donc dans la même transaction Convex.
+ *
+ * Séparer les deux écritures laisserait le même TEXTE actif dans deux
+ * campagnes, et le cooldown ne le verrait pas : il travaille sur `comboKey`,
+ * c'est-à-dire sur des identifiants de briques. Deux briques portant le même
+ * hook sont deux clés distinctes — rien ne les empêcherait de sortir le même
+ * jour sur deux comptes. Cf convex/graduation.ts.
+ *
+ * IDEMPOTENTE : si le texte existe déjà dans la campagne cible, on ne duplique
+ * pas — on désactive quand même l'original (c'est ce qui rétablit l'invariant)
+ * et on le SIGNALE via `outcome: "already-graduated"`.
+ *
+ * Les scores sont recalculés ICI, côté serveur : un journal d'audit alimenté par
+ * des chiffres venus du client n'auditerait rien.
+ */
+export const graduateHook = adminMutation({
+  args: { brickId: v.id("scriptBricks") },
+  handler: async (
+    ctx,
+    { brickId },
+  ): Promise<{
+    outcome: GraduationOutcome;
+    targetBrickId: Id<"scriptBricks">;
+    targetCampaignName: string;
+  }> => {
+    const brick = await ctx.db.get(brickId);
+    if (!brick || brick.projectId !== ctx.projectId) {
+      throw new ConvexError("Hook introuvable.");
+    }
+    if (brick.kind !== "hook") {
+      throw new ConvexError("Seul un hook peut être gradué.");
+    }
+
+    const campaigns = await ctx.db
+      .query("scriptCampaigns")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const target = campaigns.find((c) =>
+      campaignNameMatches(c.name, PROVEN_CAMPAIGN_NAME),
+    );
+    if (!target) {
+      // Message ACTIONNABLE : la campagne cible est identifiée par son nom, son
+      // absence est une situation normale sur un projet neuf.
+      throw new ConvexError(
+        `Aucune campagne « ${PROVEN_CAMPAIGN_NAME} » sur ce projet — crée-la d'abord.`,
+      );
+    }
+    if (target._id === brick.campaignId) {
+      throw new ConvexError("Ce hook est déjà dans les ouvertures prouvées.");
+    }
+
+    // Idempotence par le TEXTE (la copie a forcément un autre id). Les briques
+    // INACTIVES comptent : une graduation annulée à la main ne doit pas
+    // permettre d'en recréer une seconde copie.
+    const existing = (
+      await ctx.db
+        .query("scriptBricks")
+        .withIndex("by_campaign_kind", (q) =>
+          q.eq("campaignId", target._id).eq("kind", "hook"),
+        )
+        .collect()
+    ).find(
+      (b) => hookIdentityKey(b.content) === hookIdentityKey(brick.content),
+    );
+
+    // Désactivation de l'original — faite dans les DEUX branches : c'est elle
+    // qui garantit qu'un seul exemplaire reste actif.
+    await ctx.db.patch(brickId, { active: false });
+
+    if (existing) {
+      return {
+        outcome: "already-graduated",
+        targetBrickId: existing._id,
+        targetCampaignName: target.name,
+      };
+    }
+
+    const targetBrickId = await ctx.db.insert("scriptBricks", {
+      projectId: ctx.projectId,
+      campaignId: target._id,
+      kind: "hook",
+      label: brick.label,
+      content: brick.content,
+      tier: brick.tier,
+      mode: brick.mode,
+      // La famille d'angle SUIT le hook : c'est une propriété du texte, pas de
+      // la campagne qui l'héberge.
+      angleFamily: brick.angleFamily,
+      active: true,
+      createdAt: Date.now(),
+    });
+
+    const runs = await hookRunsOf(ctx, ctx.projectId, brickId);
+    const meilleur = bestRun(runs);
+    await ctx.db.insert("hookGraduations", {
+      projectId: ctx.projectId,
+      sourceBrickId: brickId,
+      sourceCampaignId: brick.campaignId,
+      targetBrickId,
+      targetCampaignId: target._id,
+      content: brick.content,
+      graduatedAt: Date.now(),
+      scores: {
+        vues: meilleur?.vues ?? 0,
+        likes: meilleur?.likes ?? 0,
+        saves: meilleur?.saves ?? undefined,
+        runs: runs.length,
+      },
+    });
+
+    return {
+      outcome: "graduated",
+      targetBrickId,
+      targetCampaignName: target.name,
+    };
+  },
+});
+
+/**
+ * Ce qu'il faut MONTRER avant de graduer : le texte du hook, ses scores, et vers
+ * quelle campagne il part. Query séparée pour que l'écran de confirmation
+ * affiche des chiffres relus en base, jamais des chiffres portés par le clic.
+ */
+export const getGraduationPreview = adminQuery({
+  args: { brickId: v.id("scriptBricks") },
+  handler: async (ctx, { brickId }) => {
+    const brick = await ctx.db.get(brickId);
+    if (!brick || brick.projectId !== ctx.projectId) return null;
+
+    const campaigns = await ctx.db
+      .query("scriptCampaigns")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const target = campaigns.find((c) =>
+      campaignNameMatches(c.name, PROVEN_CAMPAIGN_NAME),
+    );
+
+    const runs = await hookRunsOf(ctx, ctx.projectId, brickId);
+    const meilleur = bestRun(runs);
+    const dejaPresent =
+      target !== undefined &&
+      (
+        await ctx.db
+          .query("scriptBricks")
+          .withIndex("by_campaign_kind", (q) =>
+            q.eq("campaignId", target._id).eq("kind", "hook"),
+          )
+          .collect()
+      ).some(
+        (b) => hookIdentityKey(b.content) === hookIdentityKey(brick.content),
+      );
+
+    return {
+      content: brick.content,
+      angleFamily: brick.angleFamily ?? null,
+      targetCampaignName: target?.name ?? null,
+      runs: runs.length,
+      best: meilleur,
+      qualifies: meilleur !== null && qualifiesForGraduation(meilleur),
+      alreadyPresent: dejaPresent,
+    };
   },
 });
