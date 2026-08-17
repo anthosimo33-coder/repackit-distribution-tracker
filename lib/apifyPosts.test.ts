@@ -121,12 +121,17 @@ describe("parseTikTokViews", () => {
       likes: 320,
       comments: 88,
       title: "Ma légende #fyp",
+      // TikTok sans collectCount dans la fixture → non collecté, pas zéro.
+      saves: null,
+      author: null,
     });
     expect(stats["42"]).toEqual({
       views: 120,
       likes: null,
       comments: null,
       title: null,
+      saves: null,
+      author: null,
     });
     expect(unavailable).toEqual([]);
   });
@@ -207,12 +212,17 @@ describe("parseInstagramViews", () => {
       likes: 88,
       comments: 47,
       title: "Légende IG",
+      // Instagram : pas de saves sur la plateforme, `null` est DÉFINITIF.
+      saves: null,
+      author: null,
     });
     expect(stats["Creel002"]).toEqual({
       views: 3_300,
       likes: null,
       comments: null,
       title: null,
+      saves: null,
+      author: null,
     });
     expect(unavailable).toEqual([]);
   });
@@ -234,5 +244,80 @@ describe("parseInstagramViews", () => {
 
   it("ne crash pas sur une réponse non-array", () => {
     expect(parseInstagramViews("nope", ["Cx"]).unavailable).toEqual(["Cx"]);
+  });
+});
+
+// ─── Saves + compteurs de compte, servis par le MÊME run ─────────────────────
+
+describe("parseTikTokViews — les champs que le relevé jetait", () => {
+  /** Item calqué sur une sortie réelle de clockworks/tiktok-scraper. */
+  const item = {
+    id: "7674970651362381088",
+    webVideoUrl:
+      "https://www.tiktok.com/@thekellychapters_/video/7674970651362381088",
+    text: "elle a vérifié son téléphone",
+    playCount: 41_206,
+    diggCount: 3_712,
+    commentCount: 214,
+    collectCount: 619,
+    authorMeta: {
+      name: "thekellychapters_",
+      nickName: "Kelly",
+      fans: 18_430,
+      following: 312,
+      heart: 1_204_900,
+    },
+  };
+
+  it("remonte les saves du post ET les compteurs du compte en un seul run", () => {
+    const { stats } = parseTikTokViews([item], ["7674970651362381088"]);
+    // Les saves : le champ qui manquait pour la règle de graduation.
+    expect(stats["7674970651362381088"].saves).toBe(619);
+    // Les abonnés : servis gratuitement, sans run supplémentaire, et rattachés
+    // AU POST (donc au compte via la publication, jamais par le handle).
+    expect(stats["7674970651362381088"].author).toEqual({
+      handle: "thekellychapters_",
+      followers: 18_430,
+      following: 312,
+      totalLikes: 1_204_900,
+    });
+  });
+
+  it("sans authorMeta, le relevé des VUES continue et le profil est vide", () => {
+    // L'hypothèse non prouvée du chantier (authorMeta sur l'input postURLs) :
+    // si elle est fausse, les vues doivent quand même rentrer.
+    const { authorMeta, ...sansAuteur } = item;
+    expect(authorMeta.fans).toBe(18_430);
+    const { stats } = parseTikTokViews([sansAuteur], ["7674970651362381088"]);
+    expect(stats["7674970651362381088"].views).toBe(41_206);
+    expect(stats["7674970651362381088"].saves).toBe(619);
+    expect(stats["7674970651362381088"].author).toBeNull();
+  });
+
+  it("un compte dont tous les compteurs manquent n'est pas historisé", () => {
+    const { stats } = parseTikTokViews(
+      [{ ...item, authorMeta: { name: "thekellychapters_" } }],
+      ["7674970651362381088"],
+    );
+    expect(stats["7674970651362381088"].views).toBe(41_206);
+    // Sans garde-fou, on écrirait un relevé de profil vide chaque nuit et le
+    // delta d'abonnés se calculerait sur du vide.
+    expect(stats["7674970651362381088"].author).toBeNull();
+  });
+
+  it("Instagram ne rapporte NI saves NI profil (limite de plateforme)", () => {
+    const { stats } = parseInstagramViews(
+      [
+        {
+          shortCode: "Creel001",
+          videoPlayCount: 5_000,
+          likesCount: 88,
+          commentsCount: 47,
+        },
+      ],
+      ["Creel001"],
+    );
+    expect(stats["Creel001"].saves).toBeNull();
+    expect(stats["Creel001"].author).toBeNull();
   });
 });

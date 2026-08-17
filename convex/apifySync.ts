@@ -97,6 +97,7 @@ async function upsertApifySnapshot(
     vues: number;
     likes?: number | null;
     comments?: number | null;
+    saves?: number | null;
     title?: string | null;
     capturedAt: number;
     source: ApifySource;
@@ -127,6 +128,12 @@ async function upsertApifySnapshot(
   const likes = args.likes ?? pub.likesLatest ?? 0;
   // Commentaires : MÊME règle que likes (préserve le dernier connu si non fourni).
   const comments = args.comments ?? pub.commentsLatest ?? 0;
+  // SAVES : règle DIFFÉRENTE des likes — on ne replie PAS sur 0. `undefined`
+  // signifie « non collecté » (Instagram/YouTube n'exposent pas la métrique, et
+  // les relevés d'avant ce chantier ne la portaient pas) ; l'écrire à 0 ferait
+  // passer une absence pour une mesure et satisferait des seuils à tort.
+  // On préserve le dernier connu plutôt que d'effacer une mesure valable.
+  const saves = args.saves ?? pub.savesLatest ?? undefined;
   // Patch publication : indicateur de sync + titre (légende) si capturé.
   const pubPatch: { lastApifySyncAt: number; postTitle?: string } = {
     lastApifySyncAt: args.capturedAt,
@@ -140,6 +147,7 @@ async function upsertApifySnapshot(
       vues: args.vues,
       likes,
       comments,
+      saves,
       capturedAt: args.capturedAt,
       daysSincePublication,
     });
@@ -157,6 +165,7 @@ async function upsertApifySnapshot(
     vues: args.vues,
     likes,
     comments,
+    saves,
     createdAt: Date.now(),
     source: args.source,
   });
@@ -237,6 +246,7 @@ export const recordApifySnapshot = internalMutation({
     vues: v.number(),
     likes: v.union(v.number(), v.null()),
     comments: v.union(v.number(), v.null()),
+    saves: v.optional(v.union(v.number(), v.null())),
     title: v.optional(v.string()),
     capturedAt: v.number(),
     source: apifySourceValidator,
@@ -246,6 +256,175 @@ export const recordApifySnapshot = internalMutation({
     args,
   ): Promise<{ action: "inserted" | "updated" | "skipped" }> =>
     upsertApifySnapshot(ctx, args),
+});
+
+/**
+ * Écrit un relevé de PROFIL de compte, déduit d'une publication.
+ *
+ * L'appelant fournit `publicationId` plutôt qu'un handle : le handle rendu par
+ * l'acteur (« kellyleydie ») ne coïncide pas avec celui saisi en base
+ * (« @kelly.leydie »), un appariement par chaîne serait faux. La publication,
+ * elle, porte son `compte` sans ambiguïté.
+ *
+ * UN relevé par compte et par jour UTC — même bucketisation que les snapshots de
+ * post : rejouer la nuit ne crée pas de doublon, il met à jour.
+ *
+ * Ignore silencieusement un profil SANS aucun compteur : historiser des lignes
+ * vides ferait calculer le delta d'abonnés sur du vide.
+ */
+export const recordAccountProfile = internalMutation({
+  args: {
+    publicationId: v.id("publications"),
+    capturedAt: v.number(),
+    followers: v.optional(v.union(v.number(), v.null())),
+    following: v.optional(v.union(v.number(), v.null())),
+    totalLikes: v.optional(v.union(v.number(), v.null())),
+    source: apifySourceValidator,
+  },
+  handler: async (ctx, args): Promise<{ action: "written" | "skipped" }> => {
+    const followers = args.followers ?? undefined;
+    const following = args.following ?? undefined;
+    const totalLikes = args.totalLikes ?? undefined;
+    if (
+      followers === undefined &&
+      following === undefined &&
+      totalLikes === undefined
+    ) {
+      return { action: "skipped" };
+    }
+
+    const pub = await ctx.db.get(args.publicationId);
+    if (!pub) return { action: "skipped" };
+    const compte = (
+      await ctx.db
+        .query("comptes")
+        .withIndex("by_project", (q) => q.eq("projectId", pub.projectId))
+        .collect()
+    ).find((c) => c.handle === pub.compte);
+    // Compte non déclaré en base (publication saisie à la main) : rien à
+    // historiser, mais ce n'est pas une erreur de relevé.
+    if (!compte) return { action: "skipped" };
+
+    const dayStart = Math.floor(args.capturedAt / DAY_MS) * DAY_MS;
+    const existing = await ctx.db
+      .query("accountProfileSnapshots")
+      .withIndex("by_compte_capturedAt", (q) =>
+        q
+          .eq("compteId", compte._id)
+          .gte("capturedAt", dayStart)
+          .lt("capturedAt", dayStart + DAY_MS),
+      )
+      .first();
+
+    const row = {
+      projectId: pub.projectId,
+      compteId: compte._id,
+      handle: compte.handle,
+      plateforme: compte.plateforme,
+      capturedAt: args.capturedAt,
+      followers,
+      following,
+      totalLikes,
+      source: args.source,
+    };
+    if (existing) await ctx.db.patch(existing._id, row);
+    else await ctx.db.insert("accountProfileSnapshots", row);
+    return { action: "written" };
+  },
+});
+
+/**
+ * Comptes du projet correspondant aux handles donnés — pour les plateformes dont
+ * les compteurs de profil demandent un appel DÉDIÉ (Instagram, YouTube).
+ *
+ * Rend `url` : c'est elle qui sert d'entrée au run de profil Instagram. Un
+ * compte sans URL publique ne peut pas être relevé — l'appelant le saute.
+ */
+export const listComptesForProfiles = internalQuery({
+  args: { handles: v.array(v.string()) },
+  handler: async (ctx, { handles }) => {
+    const wanted = new Set(handles);
+    const out: {
+      _id: Id<"comptes">;
+      projectId: Id<"projects">;
+      handle: string;
+      plateforme: "TikTok" | "Instagram" | "YouTube";
+      url: string | null;
+    }[] = [];
+    for (const c of await ctx.db.query("comptes").collect()) {
+      if (!wanted.has(c.handle)) continue;
+      out.push({
+        _id: c._id,
+        projectId: c.projectId,
+        handle: c.handle,
+        plateforme: c.plateforme,
+        url: c.url ?? null,
+      });
+    }
+    return out;
+  },
+});
+
+/**
+ * Écrit un relevé de profil pour un compte DÉSIGNÉ (Instagram/YouTube, dont les
+ * compteurs viennent d'un appel dédié) — variante de `recordAccountProfile`, qui
+ * part d'une publication parce que TikTok sert ses compteurs avec les vidéos.
+ *
+ * Même bucketisation par jour UTC, même refus d'historiser un relevé vide.
+ */
+export const recordAccountProfileByCompte = internalMutation({
+  args: {
+    compteId: v.id("comptes"),
+    capturedAt: v.number(),
+    followers: v.optional(v.union(v.number(), v.null())),
+    following: v.optional(v.union(v.number(), v.null())),
+    totalLikes: v.optional(v.union(v.number(), v.null())),
+    source: v.union(
+      v.literal("tiktok"),
+      v.literal("instagram"),
+      v.literal("youtube"),
+    ),
+  },
+  handler: async (ctx, args): Promise<{ action: "written" | "skipped" }> => {
+    const followers = args.followers ?? undefined;
+    const following = args.following ?? undefined;
+    const totalLikes = args.totalLikes ?? undefined;
+    if (
+      followers === undefined &&
+      following === undefined &&
+      totalLikes === undefined
+    ) {
+      return { action: "skipped" };
+    }
+    const compte = await ctx.db.get(args.compteId);
+    if (!compte) return { action: "skipped" };
+
+    const dayStart = Math.floor(args.capturedAt / DAY_MS) * DAY_MS;
+    const existing = await ctx.db
+      .query("accountProfileSnapshots")
+      .withIndex("by_compte_capturedAt", (q) =>
+        q
+          .eq("compteId", compte._id)
+          .gte("capturedAt", dayStart)
+          .lt("capturedAt", dayStart + DAY_MS),
+      )
+      .first();
+
+    const row = {
+      projectId: compte.projectId,
+      compteId: compte._id,
+      handle: compte.handle,
+      plateforme: compte.plateforme,
+      capturedAt: args.capturedAt,
+      followers,
+      following,
+      totalLikes,
+      source: args.source,
+    };
+    if (existing) await ctx.db.patch(existing._id, row);
+    else await ctx.db.insert("accountProfileSnapshots", row);
+    return { action: "written" };
+  },
 });
 
 /**
@@ -323,6 +502,7 @@ export const runDailySync = internalAction({
           vues: stat.views,
           likes: stat.likes,
           comments: stat.comments,
+          saves: stat.saves,
           title: stat.title ?? undefined,
           capturedAt: now,
           source,
@@ -382,6 +562,7 @@ export const e2eRecordApifySnapshot = e2eMutation({
     vues: v.number(),
     likes: v.optional(v.union(v.number(), v.null())),
     comments: v.optional(v.union(v.number(), v.null())),
+    saves: v.optional(v.union(v.number(), v.null())),
     title: v.optional(v.string()),
     capturedAt: v.number(),
     source: apifySourceValidator,

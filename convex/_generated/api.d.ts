@@ -14,6 +14,7 @@ import type * as analyticsContract from "../analyticsContract.js";
 import type * as analyticsHub from "../analyticsHub.js";
 import type * as angleFamily from "../angleFamily.js";
 import type * as apifyApi from "../apifyApi.js";
+import type * as apifyItem from "../apifyItem.js";
 import type * as apifySync from "../apifySync.js";
 import type * as assets from "../assets.js";
 import type * as assetsMigration from "../assetsMigration.js";
@@ -112,6 +113,7 @@ import type * as whopNotifyTriggers from "../whopNotifyTriggers.js";
 import type * as whopRevenue from "../whopRevenue.js";
 import type * as whopSync from "../whopSync.js";
 import type * as youtubeApi from "../youtubeApi.js";
+import type * as youtubeChannel from "../youtubeChannel.js";
 import type * as youtubeSync from "../youtubeSync.js";
 
 import type {
@@ -127,6 +129,7 @@ declare const fullApi: ApiFromModules<{
   analyticsHub: typeof analyticsHub;
   angleFamily: typeof angleFamily;
   apifyApi: typeof apifyApi;
+  apifyItem: typeof apifyItem;
   apifySync: typeof apifySync;
   assets: typeof assets;
   assetsMigration: typeof assetsMigration;
@@ -225,6 +228,7 @@ declare const fullApi: ApiFromModules<{
   whopRevenue: typeof whopRevenue;
   whopSync: typeof whopSync;
   youtubeApi: typeof youtubeApi;
+  youtubeChannel: typeof youtubeChannel;
   youtubeSync: typeof youtubeSync;
 }>;
 
