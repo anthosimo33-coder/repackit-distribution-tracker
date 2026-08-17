@@ -107,6 +107,7 @@ export function AssignScriptCampaignDialog({
   open,
   onOpenChange,
   replaySource,
+  strike,
 }: {
   campaignId: Id<"scriptCampaigns">;
   campaignName: string;
@@ -118,6 +119,17 @@ export function AssignScriptCampaignDialog({
    * normale (auto par défaut, « choisie » from scratch possible).
    */
   replaySource?: ReplaySource;
+  /**
+   * Pré-remplissage « Programmer la frappe » (dashboard, porte ouverte) :
+   * créatrice sélectionnée, créneau et date de post posés d'avance. Le reste de
+   * la modale (choix du compte, combo auto) garde son comportement normal —
+   * on pré-remplit une intention, on ne la verrouille pas.
+   */
+  strike?: {
+    creatorId: Id<"creators">;
+    plage: PostWindow;
+    postDate: number;
+  };
 }) {
   const creators = useProjectQuery(
     api.assignments.listAssignableCreators,
@@ -236,6 +248,12 @@ export function AssignScriptCampaignDialog({
       // Combo : pré-rempli en « Combinaison choisie » si on rejoue une source,
       // sinon « auto » (comportement historique). Le pré-remplissage porte les
       // brickIds figés de la source (le picker signale supprimée/désactivée).
+      if (strike) {
+        setCreatorId(strike.creatorId as string);
+        setPlage(strike.plage);
+        setVideos("1");
+        setSlotDates([strike.postDate]);
+      }
       setComboMode(replaySource ? "chosen" : "auto");
       setChosenBricks(
         replaySource

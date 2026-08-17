@@ -15,6 +15,8 @@ import {
   saveRateTone,
   accountStateOf,
   rateOf,
+  computeDelta24h,
+  computeFollowersDelta,
   type PostSignal,
 } from "../convex/decisions";
 import {
@@ -329,5 +331,100 @@ describe("rateOf", () => {
     expect(rateOf(null, 1_000)).toBeNull();
     expect(rateOf(50, 0)).toBeNull();
     expect(rateOf(312, 18_432)).toBeCloseTo(0.01693, 5);
+  });
+});
+
+describe("computeDelta24h — la colonne importante du tableau 48 h", () => {
+  const snaps = [
+    { capturedAt: NOW - 44 * HOUR, vues: 3_100 },
+    { capturedAt: NOW - 25 * HOUR, vues: 12_400 },
+    { capturedAt: NOW - 2 * HOUR, vues: 18_432 },
+  ];
+
+  it("post > 24 h : vues actuelles − dernier relevé antérieur à now−24 h", () => {
+    // La référence est le relevé de −25 h (12 400), PAS celui de −44 h.
+    expect(computeDelta24h(NOW - 40 * HOUR, 18_432, snaps, NOW)).toBe(
+      18_432 - 12_400,
+    );
+  });
+
+  it("post < 24 h : toutes ses vues sont récentes", () => {
+    expect(computeDelta24h(NOW - 9 * HOUR, 5_215, [], NOW)).toBe(5_215);
+  });
+
+  it("post > 24 h sans relevé assez ancien → null, jamais une approximation", () => {
+    // Le trou de collecte typique : la sync nocturne vient d'être branchée.
+    expect(
+      computeDelta24h(
+        NOW - 40 * HOUR,
+        18_432,
+        [{ capturedAt: NOW - 2 * HOUR, vues: 18_432 }],
+        NOW,
+      ),
+    ).toBeNull();
+  });
+
+  it("recomptage plateforme à la baisse → clampé à zéro", () => {
+    expect(
+      computeDelta24h(
+        NOW - 40 * HOUR,
+        11_900,
+        [{ capturedAt: NOW - 25 * HOUR, vues: 12_400 }],
+        NOW,
+      ),
+    ).toBe(0);
+  });
+});
+
+describe("computeFollowersDelta — le delta qui demande deux nuits", () => {
+  const releve = (hAgo: number, followers: number | null) => ({
+    capturedAt: NOW - hAgo * HOUR,
+    followers,
+  });
+
+  it("deux relevés espacés d'une nuit → delta", () => {
+    expect(
+      computeFollowersDelta([releve(26, 18_430), releve(2, 18_573)]),
+    ).toBe(143);
+  });
+
+  it("UN seul relevé → null (première nuit de collecte)", () => {
+    // Le cas des premiers jours : afficher 0 ferait lire « le compte stagne »
+    // là où la collecte n'a simplement pas encore deux points.
+    expect(computeFollowersDelta([releve(2, 18_430)])).toBeNull();
+  });
+
+  it("deux relevés de la MÊME nuit → null (pas d'écart exploitable)", () => {
+    expect(
+      computeFollowersDelta([releve(3, 18_430), releve(2, 18_431)]),
+    ).toBeNull();
+  });
+
+  it("les relevés sans compteur (profil masqué) sont ignorés", () => {
+    expect(
+      computeFollowersDelta([
+        releve(26, 18_430),
+        releve(14, null),
+        releve(2, 18_573),
+      ]),
+    ).toBe(143);
+  });
+
+  it("le delta couvre TOUTE la fenêtre, pas juste la dernière nuit", () => {
+    // Trois nuits chargées : la référence est la plus ancienne espacée, pas
+    // l'avant-dernière — sinon un compte qui monte lentement afficherait +2.
+    expect(
+      computeFollowersDelta([
+        releve(50, 18_200),
+        releve(26, 18_430),
+        releve(2, 18_573),
+      ]),
+    ).toBe(373);
+  });
+
+  it("une PERTE d'abonnés est rendue telle quelle (pas clampée)", () => {
+    expect(
+      computeFollowersDelta([releve(26, 18_430), releve(2, 18_390)]),
+    ).toBe(-40);
   });
 });

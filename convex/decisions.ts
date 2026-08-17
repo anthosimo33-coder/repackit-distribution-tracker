@@ -263,3 +263,62 @@ export function accountStateOf(
   }
   return alarmed ? "alarm" : "cruise";
 }
+
+/* ── Assemblage des signaux (deltas) ──────────────────────────────────────── */
+
+/**
+ * Vues gagnées sur les dernières 24 h par une publication.
+ *
+ *  - Post de MOINS de 24 h : toutes ses vues sont récentes → `vuesLatest`
+ *    (la référence implicite est zéro à la publication).
+ *  - Post plus vieux : `vuesLatest` − vues du dernier snapshot antérieur à
+ *    (now − 24 h). Sans un tel snapshot, le delta n'est PAS calculable → null,
+ *    jamais une approximation silencieuse — c'est le « en attente » de l'écran.
+ *
+ * Clampé à zéro : un recomptage plateforme à la baisse n'est pas une perte de
+ * vues « gagnées ».
+ */
+export function computeDelta24h(
+  datePubli: number,
+  vuesLatest: number,
+  snapshots: readonly { capturedAt: number; vues: number }[],
+  now: number,
+): number | null {
+  const DAY = 86_400_000;
+  if (now - datePubli <= DAY) return vuesLatest;
+  let ref: { capturedAt: number; vues: number } | null = null;
+  for (const s of snapshots) {
+    if (s.capturedAt > now - DAY) continue;
+    if (ref === null || s.capturedAt > ref.capturedAt) ref = s;
+  }
+  if (ref === null) return null;
+  return Math.max(0, vuesLatest - ref.vues);
+}
+
+/**
+ * Abonnés gagnés par un compte sur la fenêtre récente, d'après ses relevés de
+ * profil (`accountProfileSnapshots`).
+ *
+ * Exige DEUX relevés portant un compteur, espacés d'au moins `minGapMs` : un
+ * seul point ne fait pas un delta (le cas des premières nuits de collecte), et
+ * deux relevés de la même nuit non plus. `null` = « collecte en cours », que
+ * l'écran affiche tel quel au lieu d'un zéro mensonger.
+ */
+export function computeFollowersDelta(
+  snapshots: readonly { capturedAt: number; followers?: number | null }[],
+  minGapMs: number = 20 * 3_600_000,
+): number | null {
+  const dotes = snapshots
+    .filter(
+      (s): s is { capturedAt: number; followers: number } =>
+        s.followers !== null && s.followers !== undefined,
+    )
+    .sort((a, b) => a.capturedAt - b.capturedAt);
+  if (dotes.length < 2) return null;
+  const dernier = dotes[dotes.length - 1];
+  // Référence = le relevé LE PLUS ANCIEN suffisamment espacé du dernier — le
+  // delta couvre ainsi toute la fenêtre chargée, pas juste la dernière nuit.
+  const ref = dotes.find((s) => dernier.capturedAt - s.capturedAt >= minGapMs);
+  if (ref === undefined) return null;
+  return dernier.followers - ref.followers;
+}
