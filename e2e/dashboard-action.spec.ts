@@ -18,8 +18,8 @@ const DAY = 86_400_000;
  * 1 assignment soumis + 1 todo deadline 5 j), vérifie que :
  *  - le titre « Bonjour » s'affiche (vue action = arrivée par défaut) ;
  *  - les 4 cartes-action sont présentes ;
- *  - la worklist « À traiter maintenant » surface au moins une soumission
- *    (bouton Valider) ;
+ *  - les deux sections DÉCISIONNELLES (« À décider », « Posts des dernières
+ *    48 h ») rendent, et les ANCIENNES sections d'exécution ont bien disparu ;
  *  - les cartes sont cliquables et mènent aux bonnes pages ;
  *  - le toggle bascule vers la vue « tracker » historique.
  * Assertions volontairement robustes (présence + navigation, pas de comptage
@@ -80,13 +80,25 @@ test.describe("Dashboard — vue action", () => {
     await expect(page.getByText("Dû", { exact: true })).toBeVisible();
     await expect(page.getByText("Deadlines 7 j", { exact: true })).toBeVisible();
 
-    // Worklist : la soumission seedée surface (au moins un bouton Valider).
+    // Refonte décisionnelle : les DEUX nouvelles sections rendent. Pas
+    // d'assertion sur leur CONTENU (DB partagée : d'autres specs sèment des
+    // posts <48 h, l'état vide n'est pas déterministe ici — le contenu est
+    // couvert par dashboard-decisions.spec.ts côté serveur).
+    await expect(
+      page.getByRole("heading", { name: "À décider" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Posts des dernières 48 h" }),
+    ).toBeVisible();
+    // Assertion d'ABSENCE appariée aux présences ci-dessus (même écran, même
+    // instant — le rendu est prouvé monté) : les sections d'EXÉCUTION ont
+    // disparu, les tâches vivent dans leurs pages via les cartes.
     await expect(
       page.getByRole("heading", { name: "À traiter maintenant" }),
-    ).toBeVisible();
+    ).not.toBeVisible();
     await expect(
-      page.getByRole("link", { name: "Valider", exact: true }).first(),
-    ).toBeVisible();
+      page.getByRole("heading", { name: "Activité créateurs" }),
+    ).not.toBeVisible();
 
     // Carte « Deadlines 7 j » cliquable → /assignments.
     await page.getByRole("link", { name: /Deadlines 7 j/ }).click();
