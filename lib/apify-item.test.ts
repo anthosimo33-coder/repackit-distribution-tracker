@@ -12,6 +12,7 @@ import {
   parseSaves,
   parseAuthorProfile,
   hasAnyCount,
+  parseInstagramProfile,
 } from "../convex/apifyItem";
 
 /** Item calqué sur la fixture RADAR (sortie réelle de l'acteur). */
@@ -161,5 +162,37 @@ describe("hasAnyCount — faut-il enregistrer ce profil ?", () => {
         totalLikes: null,
       }),
     ).toBe(true);
+  });
+});
+
+describe("parseInstagramProfile — le run dédié (+1 run/nuit)", () => {
+  /** Item calqué sur apify/instagram-scraper, resultsType "details". */
+  const profil = {
+    username: "kelly.dgtl",
+    fullName: "Kelly",
+    followersCount: 12_408,
+    followsCount: 431,
+    postsCount: 96,
+  };
+
+  it("lit abonnés et abonnements", () => {
+    expect(parseInstagramProfile(profil)).toEqual({
+      handle: "kelly.dgtl",
+      followers: 12_408,
+      following: 431,
+      // Instagram n'expose pas de total de likes du compte.
+      totalLikes: null,
+    });
+  });
+
+  it("compteurs absents → null, et le profil n'est pas historisé", () => {
+    const vide = parseInstagramProfile({ username: "kelly.dgtl" });
+    expect(vide.followers).toBeNull();
+    expect(hasAnyCount(vide)).toBe(false);
+  });
+
+  it("ne casse pas sur une réponse inattendue", () => {
+    expect(parseInstagramProfile(null).handle).toBeNull();
+    expect(hasAnyCount(parseInstagramProfile("nope"))).toBe(false);
   });
 });

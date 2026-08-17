@@ -334,6 +334,100 @@ export const recordAccountProfile = internalMutation({
 });
 
 /**
+ * Comptes du projet correspondant aux handles donnés — pour les plateformes dont
+ * les compteurs de profil demandent un appel DÉDIÉ (Instagram, YouTube).
+ *
+ * Rend `url` : c'est elle qui sert d'entrée au run de profil Instagram. Un
+ * compte sans URL publique ne peut pas être relevé — l'appelant le saute.
+ */
+export const listComptesForProfiles = internalQuery({
+  args: { handles: v.array(v.string()) },
+  handler: async (ctx, { handles }) => {
+    const wanted = new Set(handles);
+    const out: {
+      _id: Id<"comptes">;
+      projectId: Id<"projects">;
+      handle: string;
+      plateforme: "TikTok" | "Instagram" | "YouTube";
+      url: string | null;
+    }[] = [];
+    for (const c of await ctx.db.query("comptes").collect()) {
+      if (!wanted.has(c.handle)) continue;
+      out.push({
+        _id: c._id,
+        projectId: c.projectId,
+        handle: c.handle,
+        plateforme: c.plateforme,
+        url: c.url ?? null,
+      });
+    }
+    return out;
+  },
+});
+
+/**
+ * Écrit un relevé de profil pour un compte DÉSIGNÉ (Instagram/YouTube, dont les
+ * compteurs viennent d'un appel dédié) — variante de `recordAccountProfile`, qui
+ * part d'une publication parce que TikTok sert ses compteurs avec les vidéos.
+ *
+ * Même bucketisation par jour UTC, même refus d'historiser un relevé vide.
+ */
+export const recordAccountProfileByCompte = internalMutation({
+  args: {
+    compteId: v.id("comptes"),
+    capturedAt: v.number(),
+    followers: v.optional(v.union(v.number(), v.null())),
+    following: v.optional(v.union(v.number(), v.null())),
+    totalLikes: v.optional(v.union(v.number(), v.null())),
+    source: v.union(
+      v.literal("tiktok"),
+      v.literal("instagram"),
+      v.literal("youtube"),
+    ),
+  },
+  handler: async (ctx, args): Promise<{ action: "written" | "skipped" }> => {
+    const followers = args.followers ?? undefined;
+    const following = args.following ?? undefined;
+    const totalLikes = args.totalLikes ?? undefined;
+    if (
+      followers === undefined &&
+      following === undefined &&
+      totalLikes === undefined
+    ) {
+      return { action: "skipped" };
+    }
+    const compte = await ctx.db.get(args.compteId);
+    if (!compte) return { action: "skipped" };
+
+    const dayStart = Math.floor(args.capturedAt / DAY_MS) * DAY_MS;
+    const existing = await ctx.db
+      .query("accountProfileSnapshots")
+      .withIndex("by_compte_capturedAt", (q) =>
+        q
+          .eq("compteId", compte._id)
+          .gte("capturedAt", dayStart)
+          .lt("capturedAt", dayStart + DAY_MS),
+      )
+      .first();
+
+    const row = {
+      projectId: compte.projectId,
+      compteId: compte._id,
+      handle: compte.handle,
+      plateforme: compte.plateforme,
+      capturedAt: args.capturedAt,
+      followers,
+      following,
+      totalLikes,
+      source: args.source,
+    };
+    if (existing) await ctx.db.patch(existing._id, row);
+    else await ctx.db.insert("accountProfileSnapshots", row);
+    return { action: "written" };
+  },
+});
+
+/**
  * Cœur du relevé Apify. `projectId` absent = tous les projets (cron) ; présent =
  * scopé (sync manuelle d'un admin). Si APIFY_API_TOKEN est absent du deployment,
  * log clair + rejet PROPRE (pas d'exception). Un lot Apify en erreur n'empêche

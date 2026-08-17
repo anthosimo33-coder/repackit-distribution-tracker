@@ -4,10 +4,15 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import {
   fetchApifyViewsForPlatform,
+  fetchInstagramProfiles,
   tiktokPostId,
   instagramShortcode,
 } from "./apifyApi";
-import { extractYouTubeId, fetchYouTubeViews } from "./youtubeApi";
+import {
+  extractYouTubeId,
+  fetchYouTubeViews,
+  fetchYouTubeChannelStats,
+} from "./youtubeApi";
 import { parisHour } from "./calendarStatus";
 import { deliver, resolveNotifyContext } from "./notifications";
 import { buildSyncFailureMessage } from "./notificationMessage";
@@ -223,6 +228,12 @@ export const runNightlySync = internalAction({
         lots.push({ plateforme, source, targets: lot });
       }
     }
+
+    // ── 3. Profils des plateformes à appel DÉDIÉ ─────────────────────────────
+    // TikTok est déjà servi par les items vidéo (aucun appel de plus) ; ces
+    // deux-là ne le sont pas. Fait ici, hors de la chaîne de lots : c'est un
+    // relevé par COMPTE, pas par post, et il ne doit pas être répété à chaque lot.
+    await syncDedicatedProfiles(ctx, comptesParPlateforme(lots), now);
 
     console.info(
       `[nightly-views] ${NIGHTLY_HOUR_PARIS}h${NIGHTLY_MINUTE_PARIS} Paris — ` +
@@ -506,3 +517,121 @@ export const finishNightlyRun = internalAction({
     return null;
   },
 });
+
+/** Handles concernés par le run, par plateforme, déduits du plan de lots. */
+function comptesParPlateforme(
+  lots: readonly { plateforme: "TikTok" | "Instagram"; targets: readonly LotTarget[] }[],
+): Map<"Instagram", Set<string>> {
+  const out = new Map<"Instagram", Set<string>>();
+  for (const lot of lots) {
+    // TikTok est exclu VOLONTAIREMENT : ses compteurs arrivent avec les vidéos,
+    // un appel dédié serait payé pour rien.
+    if (lot.plateforme !== "Instagram") continue;
+    const set = out.get("Instagram") ?? new Set<string>();
+    for (const t of lot.targets) set.add(t.compte);
+    out.set("Instagram", set);
+  }
+  return out;
+}
+
+/**
+ * Relève les compteurs des comptes dont la plateforme ne les sert pas avec les
+ * posts : Instagram (+1 run Apify) et YouTube (channels.list, gratuit).
+ *
+ * Tout échec est LOGUÉ et avalé : ces compteurs sont un supplément, le cœur du
+ * cron reste le relevé des vues. Une panne d'abonnés ne doit pas priver la nuit
+ * de ses snapshots de posts.
+ */
+async function syncDedicatedProfiles(
+  ctx: ActionCtx,
+  parPlateforme: Map<"Instagram", Set<string>>,
+  now: number,
+): Promise<void> {
+  const handlesInsta = [...(parPlateforme.get("Instagram") ?? [])];
+
+  // YouTube : les comptes ne passent pas par les lots Apify, on les relit.
+  const cutoff = now - TRACKING_WINDOW_DAYS * DAY_MS;
+  const pubsYt = await ctx.runQuery(
+    internal.youtubeSync.listActiveYouTubePublications,
+    { cutoff },
+  );
+  const handlesYt = [
+    ...new Set(
+      selectNightlyPublications(pubsYt, now).map((p) => p.compte),
+    ),
+  ];
+
+  if (handlesInsta.length === 0 && handlesYt.length === 0) return;
+  const comptes = await ctx.runQuery(
+    internal.apifySync.listComptesForProfiles,
+    { handles: [...handlesInsta, ...handlesYt] },
+  );
+
+  // ── Instagram : un run dédié pour tous les profils ────────────────────────
+  const apifyToken = process.env.APIFY_API_TOKEN;
+  const ciblesInsta = comptes.filter(
+    (c) => c.plateforme === "Instagram" && c.url !== null,
+  );
+  if (apifyToken && ciblesInsta.length > 0) {
+    try {
+      const { profiles, runs, errors } = await fetchInstagramProfiles(
+        ciblesInsta.map((c) => c.url as string),
+        apifyToken,
+      );
+      for (const c of ciblesInsta) {
+        // Rattachement par handle NORMALISÉ : côté Instagram le handle de l'app
+        // et celui de l'API coïncident au « @ » et à la casse près (≠ TikTok,
+        // où ils divergent — d'où le rattachement par publication là-bas).
+        const p = profiles[c.handle.replace(/^@/, "").toLowerCase()];
+        if (!p) continue;
+        await ctx.runMutation(internal.apifySync.recordAccountProfileByCompte, {
+          compteId: c._id,
+          capturedAt: now,
+          followers: p.followers,
+          following: p.following,
+          source: "instagram",
+        });
+      }
+      console.info(
+        `[nightly-views] profils Instagram — ${ciblesInsta.length} compte(s), ` +
+          `${Object.keys(profiles).length} relevé(s), ${runs} run(s), ${errors.length} erreur(s).`,
+      );
+    } catch (e) {
+      console.error("[nightly-views] profils Instagram en échec :", e);
+    }
+  }
+
+  // ── YouTube : channels.list, 1 unité de quota par chaîne ──────────────────
+  const apiKey = process.env.YOUTUBE_API_KEY;
+  const ciblesYt = comptes.filter((c) => c.plateforme === "YouTube");
+  if (apiKey && ciblesYt.length > 0) {
+    try {
+      const { stats, errors } = await fetchYouTubeChannelStats(
+        ciblesYt.map((c) => c.url ?? c.handle),
+        apiKey,
+      );
+      const parHandle = new Map(
+        Object.values(stats).map((s) => [s.handle.toLowerCase(), s]),
+      );
+      for (const c of ciblesYt) {
+        const cle = (c.url ?? c.handle).toLowerCase();
+        const s =
+          parHandle.get(`@${c.handle.replace(/^@/, "").toLowerCase()}`) ??
+          [...parHandle.values()].find((v) => cle.includes(v.handle.slice(1).toLowerCase()));
+        if (!s) continue;
+        await ctx.runMutation(internal.apifySync.recordAccountProfileByCompte, {
+          compteId: c._id,
+          capturedAt: now,
+          followers: s.subscribers,
+          source: "youtube",
+        });
+      }
+      console.info(
+        `[nightly-views] profils YouTube — ${ciblesYt.length} chaîne(s), ` +
+          `${Object.keys(stats).length} relevée(s), ${errors.length} erreur(s).`,
+      );
+    } catch (e) {
+      console.error("[nightly-views] profils YouTube en échec :", e);
+    }
+  }
+}

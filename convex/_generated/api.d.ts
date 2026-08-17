@@ -113,6 +113,7 @@ import type * as whopNotifyTriggers from "../whopNotifyTriggers.js";
 import type * as whopRevenue from "../whopRevenue.js";
 import type * as whopSync from "../whopSync.js";
 import type * as youtubeApi from "../youtubeApi.js";
+import type * as youtubeChannel from "../youtubeChannel.js";
 import type * as youtubeSync from "../youtubeSync.js";
 
 import type {
@@ -227,6 +228,7 @@ declare const fullApi: ApiFromModules<{
   whopRevenue: typeof whopRevenue;
   whopSync: typeof whopSync;
   youtubeApi: typeof youtubeApi;
+  youtubeChannel: typeof youtubeChannel;
   youtubeSync: typeof youtubeSync;
 }>;
 

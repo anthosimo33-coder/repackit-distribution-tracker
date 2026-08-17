@@ -24,6 +24,7 @@
 import {
   parseSaves,
   parseAuthorProfile,
+  parseInstagramProfile,
   hasAnyCount,
   type AuthorProfile,
 } from "./apifyItem";
@@ -383,4 +384,75 @@ async function readApiError(res: Response): Promise<string> {
     // corps non-JSON
   }
   return res.statusText || `HTTP ${res.status}`;
+}
+
+/**
+ * Relevé de PROFILS Instagram — UN run pour tous les comptes.
+ *
+ * Contrairement à TikTok, dont les compteurs de compte voyagent avec chaque item
+ * vidéo (donc gratuitement), Instagram exige un run dédié : l'item de post ne
+ * porte pas les compteurs du propriétaire. C'est le +1 run par nuit chiffré et
+ * validé avant implémentation.
+ *
+ * `resultsType: "details"` → un item de PROFIL par URL fournie. Un run en erreur
+ * est signalé sans faire échouer le relevé de vues, qui est le cœur du cron.
+ */
+export async function fetchInstagramProfiles(
+  profileUrls: readonly string[],
+  apiToken: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{
+  /** handle minuscule → compteurs. */
+  profiles: Record<string, AuthorProfile>;
+  runs: number;
+  errors: { status: number | "network"; message: string }[];
+}> {
+  const urls = [...new Set(profileUrls.filter((u) => u.trim() !== ""))];
+  const out: {
+    profiles: Record<string, AuthorProfile>;
+    runs: number;
+    errors: { status: number | "network"; message: string }[];
+  } = { profiles: {}, runs: 0, errors: [] };
+  if (urls.length === 0) return out;
+
+  const actor = process.env.APIFY_INSTAGRAM_ACTOR ?? DEFAULT_INSTAGRAM_ACTOR;
+  const endpoint = `${APIFY_ACTS_BASE}/${actor}/run-sync-get-dataset-items?timeout=${RUN_TIMEOUT_SECS}`;
+
+  // Un SEUL run pour tous les profils : ils tiennent largement sous la borne de
+  // lot, et scinder multiplierait la facture sans rien gagner.
+  for (const batch of chunk(urls, MAX_URLS_PER_RUN)) {
+    out.runs += 1;
+    try {
+      const res = await fetchImpl(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiToken}`,
+        },
+        body: JSON.stringify({
+          directUrls: batch,
+          resultsType: "details",
+          resultsLimit: batch.length,
+        }),
+      });
+      if (!res.ok) {
+        out.errors.push({ status: res.status, message: await readApiError(res) });
+        continue;
+      }
+      const json: unknown = await res.json();
+      const items = Array.isArray(json) ? json : [];
+      for (const item of items) {
+        const p = parseInstagramProfile(item);
+        if (p.handle !== null && hasAnyCount(p)) {
+          out.profiles[p.handle.toLowerCase()] = p;
+        }
+      }
+    } catch (e) {
+      out.errors.push({
+        status: "network",
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+  return out;
 }

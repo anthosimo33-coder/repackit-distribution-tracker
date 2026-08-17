@@ -94,3 +94,25 @@ export function hasAnyCount(p: AuthorProfile): boolean {
     p.followers !== null || p.following !== null || p.totalLikes !== null
   );
 }
+
+/**
+ * Compteurs d'un PROFIL Instagram (`apify/instagram-scraper`, resultsType
+ * "details"). Contrairement à TikTok, l'item de POST ne porte pas les compteurs
+ * du compte : il faut un run dédié, d'où le coût (+1 run par nuit).
+ *
+ * `heart` n'a pas d'équivalent — Instagram n'expose pas de total de likes du
+ * compte. `null`, comme toujours, veut dire « pas de donnée », pas « zéro ».
+ */
+export function parseInstagramProfile(item: unknown): AuthorProfile {
+  const rec = asRecord(item);
+  const rawHandle = rec.username;
+  return {
+    handle:
+      typeof rawHandle === "string" && rawHandle.trim() !== ""
+        ? rawHandle.trim().replace(/^@/, "")
+        : null,
+    followers: toCount(rec.followersCount),
+    following: toCount(rec.followsCount),
+    totalLikes: null,
+  };
+}
