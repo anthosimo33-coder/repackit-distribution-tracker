@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { passesWarmupMode, type WarmupMode } from "./warmupMode";
+import { computeDailyViewDeltas } from "./viewsDaily";
 
 /**
  * Vue TRACKER (refonte) — data des posts publiés. Deux queries scopées projet :
@@ -15,7 +16,8 @@ import { passesWarmupMode, type WarmupMode } from "./warmupMode";
  *     lib/tracker-data). C'est la SEULE source en mode Liste.
  *
  *  2. trackerViewsDaily — la série temporelle "vues GAGNÉES par jour" (deltas de
- *     snapshots), pour la courbe du mode Charts UNIQUEMENT. Seul endroit qui lit
+ *     snapshots répartis AU PRORATA du temps couvert, cf convex/viewsDaily.ts),
+ *     pour la courbe du mode Charts UNIQUEMENT. Seul endroit qui lit
  *     metricSnapshots : range-scan BORNÉ sur l'index by_project_capturedAt à la
  *     plage de dates filtrée (jamais un collect global de tout l'historique).
  *
@@ -337,46 +339,10 @@ export const listTrackerPosts = adminQuery({
 });
 
 // ─── Vues gagnées par jour (deltas de snapshots) ─────────────────────────────
-// DUPLIQUÉ de lib/tracker-data (computeDailyViewDeltas + dayKeyUTC) car convex/
-// ne peut pas importer lib/ (A6). La version lib/ est testée en vitest ; garder
-// les deux EXACTEMENT synchrones.
-
-function dayKeyUTC(timestamp: number): string {
-  const d = new Date(timestamp);
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(d.getUTCDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function computeDailyViewDeltas(
-  snaps: { publicationId: string; capturedAt: number; vues: number }[],
-): { date: string; value: number }[] {
-  const byPub = new Map<
-    string,
-    { publicationId: string; capturedAt: number; vues: number }[]
-  >();
-  for (const s of snaps) {
-    const arr = byPub.get(s.publicationId);
-    if (arr) arr.push(s);
-    else byPub.set(s.publicationId, [s]);
-  }
-
-  const dayTotals = new Map<string, number>();
-  for (const arr of byPub.values()) {
-    arr.sort((a, b) => a.capturedAt - b.capturedAt);
-    for (let i = 1; i < arr.length; i++) {
-      const delta = Math.max(0, arr[i].vues - arr[i - 1].vues);
-      if (delta === 0) continue;
-      const key = dayKeyUTC(arr[i].capturedAt);
-      dayTotals.set(key, (dayTotals.get(key) ?? 0) + delta);
-    }
-  }
-
-  return [...dayTotals.entries()]
-    .map(([date, value]) => ({ date, value }))
-    .sort((a, b) => a.date.localeCompare(b.date));
-}
+// L'algorithme (répartition AU PRORATA du temps, jours calendaires Europe/Paris)
+// vit dans le module PUR convex/viewsDaily.ts — importé tel quel ici ET par
+// lib/tracker-data pour le client. Plus de réplique à tenir synchrone : c'est le
+// même code des deux côtés, testé en vitest (lib/views-daily.test.ts).
 
 export const trackerViewsDaily = adminQuery({
   args: filterArgs,

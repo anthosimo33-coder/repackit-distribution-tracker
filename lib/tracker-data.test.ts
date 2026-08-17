@@ -3,13 +3,10 @@ import {
   engagementRate,
   computeGlobalStats,
   aggregateByCategory,
-  computeDailyViewDeltas,
-  dayKeyUTC,
   matchesDimensionFilters,
   matchesWarmupFilter,
   DEFAULT_WARMUP_FILTER,
   type CategoryItem,
-  type SnapshotPoint,
   type PostDimensions,
 } from "./tracker-data";
 
@@ -232,88 +229,5 @@ describe("aggregateByCategory", () => {
 
   it("empty input → empty output", () => {
     expect(aggregateByCategory([])).toEqual([]);
-  });
-});
-
-describe("dayKeyUTC", () => {
-  it("formats a UTC calendar day", () => {
-    expect(dayKeyUTC(Date.UTC(2026, 2, 5, 13, 0, 0))).toBe("2026-03-05");
-    expect(dayKeyUTC(Date.UTC(2026, 11, 1, 0, 0, 0))).toBe("2026-12-01");
-  });
-});
-
-describe("computeDailyViewDeltas", () => {
-  const D = (y: number, m: number, d: number) => Date.UTC(y, m - 1, d, 12, 0, 0);
-
-  it("single publication: per-day gained = consecutive deltas, first snapshot is baseline", () => {
-    const snaps: SnapshotPoint[] = [
-      { publicationId: "p1", capturedAt: D(2026, 3, 1), vues: 100 }, // baseline
-      { publicationId: "p1", capturedAt: D(2026, 3, 2), vues: 180 }, // +80
-      { publicationId: "p1", capturedAt: D(2026, 3, 3), vues: 200 }, // +20
-    ];
-    expect(computeDailyViewDeltas(snaps)).toEqual([
-      { date: "2026-03-02", value: 80 },
-      { date: "2026-03-03", value: 20 },
-    ]);
-  });
-
-  it("sums deltas across multiple publications per day", () => {
-    const snaps: SnapshotPoint[] = [
-      { publicationId: "p1", capturedAt: D(2026, 3, 1), vues: 0 },
-      { publicationId: "p1", capturedAt: D(2026, 3, 2), vues: 100 }, // +100
-      { publicationId: "p2", capturedAt: D(2026, 3, 1), vues: 10 },
-      { publicationId: "p2", capturedAt: D(2026, 3, 2), vues: 60 }, // +50
-    ];
-    expect(computeDailyViewDeltas(snaps)).toEqual([
-      { date: "2026-03-02", value: 150 },
-    ]);
-  });
-
-  it("is NOT cumulative (curve can go down)", () => {
-    const snaps: SnapshotPoint[] = [
-      { publicationId: "p1", capturedAt: D(2026, 3, 1), vues: 0 },
-      { publicationId: "p1", capturedAt: D(2026, 3, 2), vues: 1000 }, // +1000
-      { publicationId: "p1", capturedAt: D(2026, 3, 3), vues: 1050 }, // +50
-    ];
-    const out = computeDailyViewDeltas(snaps);
-    expect(out[0].value).toBe(1000);
-    expect(out[1].value).toBe(50);
-    expect(out[1].value).toBeLessThan(out[0].value);
-  });
-
-  it("clamps negative deltas (platform recount) to 0", () => {
-    const snaps: SnapshotPoint[] = [
-      { publicationId: "p1", capturedAt: D(2026, 3, 1), vues: 500 },
-      { publicationId: "p1", capturedAt: D(2026, 3, 2), vues: 480 }, // -20 → 0 (skipped)
-      { publicationId: "p1", capturedAt: D(2026, 3, 3), vues: 530 }, // +50
-    ];
-    expect(computeDailyViewDeltas(snaps)).toEqual([
-      { date: "2026-03-03", value: 50 },
-    ]);
-  });
-
-  it("multiple snapshots same day sum to the day's net gain", () => {
-    const snaps: SnapshotPoint[] = [
-      { publicationId: "p1", capturedAt: Date.UTC(2026, 2, 2, 8), vues: 0 }, // baseline
-      { publicationId: "p1", capturedAt: Date.UTC(2026, 2, 2, 12), vues: 30 }, // +30
-      { publicationId: "p1", capturedAt: Date.UTC(2026, 2, 2, 20), vues: 50 }, // +20
-    ];
-    expect(computeDailyViewDeltas(snaps)).toEqual([
-      { date: "2026-03-02", value: 50 },
-    ]);
-  });
-
-  it("handles unsorted input and gaps (gain attributed to the observed day)", () => {
-    const snaps: SnapshotPoint[] = [
-      { publicationId: "p1", capturedAt: D(2026, 3, 5), vues: 200 }, // +120 on day 5
-      { publicationId: "p1", capturedAt: D(2026, 3, 1), vues: 80 }, // baseline
-    ];
-    expect(computeDailyViewDeltas(snaps)).toEqual([
-      { date: "2026-03-05", value: 120 },
-    ]);
-  });
-
-  it("empty input → empty series", () => {
-    expect(computeDailyViewDeltas([])).toEqual([]);
   });
 });
