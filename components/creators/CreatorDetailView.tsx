@@ -100,6 +100,7 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
     creator.paymentDetails ?? "",
   );
   const [adminNotes, setAdminNotes] = useState(creator.adminNotes ?? "");
+  const [refSlug, setRefSlug] = useState(creator.refSlug ?? "");
   // Tarif de la personne — un seul des deux selon sa population (cf bloc JSX).
   const [population, setPopulation] = useState<string>(kind);
   const [tarif, setTarif] = useState(
@@ -165,6 +166,9 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
             : (paymentMethod as PaymentMethod),
         paymentDetails,
         adminNotes,
+        // Vide = retirer la ref → la créatrice repasse « pas de ref
+        // configurée » dans la section conversion, jamais à zéro.
+        refSlug: refSlug.trim() === "" ? null : refSlug,
         handlesToCreate: {
           tiktok: handleTiktok.trim() || undefined,
           youtube: handleYoutube.trim() || undefined,
@@ -594,6 +598,28 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
         </CardContent>
       </Card>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Attribution snytch.co</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-1.5">
+          <Label htmlFor="ref-slug">Ref du chemin court</Label>
+          <Input
+            id="ref-slug"
+            maxLength={64}
+            placeholder="kelly (pour snytch.co/kelly)"
+            value={refSlug}
+            onChange={(e) => setRefSlug(e.target.value)}
+          />
+          <p className="text-xs text-slate-400">
+            La clé d&apos;attribution des visiteurs et des ventes. Sans elle, la
+            créatrice apparaît « pas de ref configurée » dans la section
+            conversion — le trafic in-app TikTok ne transmet pas de referrer,
+            tout repose sur ce chemin.
+          </p>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

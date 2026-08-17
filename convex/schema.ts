@@ -537,6 +537,31 @@ export default defineSchema({
     .index("by_compte_capturedAt", ["compteId", "capturedAt"])
     .index("by_project_capturedAt", ["projectId", "capturedAt"]),
 
+  // ─── Conversion par créatrice (ref du site snytch.co) ────────────────────
+  // AGRÉGATS quotidiens par ref de chemin court (snytch.co/kelly → ref posée
+  // sur la personne PostHog et propagée au checkout Whop). Une ligne par
+  // (projet, jour PARIS, ref) ; `ref` ABSENT = ligne « sans source » (trafic et
+  // ventes non attribués). AUCUNE donnée personnelle : uniquement des compteurs.
+  //
+  // Champ ABSENT = source jamais collectée ce jour (différent d'un 0 mesuré) :
+  // la fusion par source vit dans convex/conversionAttribution.ts
+  // (mergeDayRows), le re-run d'un jour écrase proprement sans doubler.
+  //
+  // Le creatorId n'est PAS stocké : la créatrice est résolue AU READ via
+  // creators.refSlug — configurer une ref après coup rattache tout l'historique.
+  creatorConversions: defineTable({
+    projectId: v.id("projects"),
+    /** Jour calendaire EUROPE/PARIS, "YYYY-MM-DD" (cf convex/viewsDaily). */
+    date: v.string(),
+    ref: v.optional(v.string()),
+    visitors: v.optional(v.number()),
+    signups: v.optional(v.number()),
+    sales: v.optional(v.number()),
+    revenue: v.optional(v.number()),
+    currency: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_project_date", ["projectId", "date"]),
+
   comptes: defineTable({
     // P2 — scope projet.
     projectId: v.id("projects"),
@@ -923,6 +948,14 @@ export default defineSchema({
     // de livraison dans le calcul — le cycle est dû, l'admin décide en voyant le
     // nombre de rushes déposés à côté du montant.
     cycleRetainer: v.optional(v.number()),
+    /**
+     * REF du chemin court snytch.co (« kelly » pour snytch.co/kelly) — la clé
+     * d'attribution de conversion. Optionnelle : sans elle, la créatrice
+     * apparaît « pas de ref configurée » dans la section conversion (jamais un
+     * zéro — l'attribution repose entièrement sur ce chemin, le trafic in-app
+     * TikTok ne transmettant pas de referrer). Normalisée par normalizeRef.
+     */
+    refSlug: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_project", ["projectId"])
@@ -1750,6 +1783,11 @@ export default defineSchema({
     abForced: v.optional(v.boolean()),
     // Personne PostHog — voie de REPLI si abVariant manque sur un abonnement.
     distinctId: v.optional(v.string()),
+    // REF d'attribution créatrice (metadata.ref, posée par le site au checkout
+    // — même canal que abVariant). Absente sur les memberships nés avant la
+    // pose de la ref ; le sync horaire PATCHE tous les champs, donc elle se
+    // backfille seule au run suivant.
+    ref: v.optional(v.string()),
     importedAt: v.number(),
     updatedAt: v.number(),
   })

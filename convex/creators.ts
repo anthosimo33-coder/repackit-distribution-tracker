@@ -21,6 +21,7 @@ import { internal } from "./_generated/api";
 import { syncBonusUnlocks } from "./pricing";
 import { DELETABLE_STATUSES, purgeAndDeleteAssignment } from "./assignments";
 import { ConvexError, v } from "convex/values";
+import { normalizeRef } from "./conversionAttribution";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 
@@ -277,6 +278,8 @@ export const updateCreator = adminMutation({
     paymentMethod: v.optional(PAYMENT_METHODS),
     paymentDetails: v.optional(v.string()),
     adminNotes: v.optional(v.string()),
+    // Ref du chemin court snytch.co (attribution de conversion). null = retirer.
+    refSlug: v.optional(v.union(v.string(), v.null())),
     // Grille de paliers de bonus du créateur (cumul). null = détacher.
     bonusPricingId: v.optional(v.union(v.id("pricings"), v.null())),
     // @ à créer par réseau (saisie libre admin). Absent = ne pas toucher ;
@@ -360,6 +363,15 @@ export const updateCreator = adminMutation({
     }
     if (args.adminNotes !== undefined) {
       patch.adminNotes = args.adminNotes.trim() || undefined;
+    }
+    if (args.refSlug !== undefined) {
+      // Normalisée à l'écriture (minuscules, sans « / » ni « @ ») ; null ET
+      // saisie blanche retirent la ref — la créatrice repasse « pas de ref
+      // configurée » dans la section conversion, jamais à zéro.
+      patch.refSlug =
+        args.refSlug === null
+          ? undefined
+          : (normalizeRef(args.refSlug) ?? undefined);
     }
     if (args.handlesToCreate !== undefined) {
       patch.handlesToCreate = normalizeHandlesToCreate(args.handlesToCreate);

@@ -158,4 +158,16 @@ crons.daily(
   {},
 );
 
+// ATTRIBUTION DE CONVERSION par créatrice — QUOTIDIEN, juste après le relevé de
+// vues de 23h30. HORAIRE gardé sur l'heure de PARIS (même remède que
+// nightly-views-sync) ; l'action collecte LA VEILLE (jour Paris complet) et
+// backfille 30 jours au premier run d'un projet. minuteUTC:50 — clair des
+// crons horaires posés (:15 bilans, :30 Whop+vues, :45 PostHog).
+crons.hourly(
+  "creator-conversions-sync",
+  { minuteUTC: 50 },
+  internal.conversionSync.runConversionSync,
+  {},
+);
+
 export default crons;

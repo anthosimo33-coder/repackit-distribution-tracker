@@ -332,6 +332,8 @@ export interface NormalizedWhopMembership {
   abForced?: boolean;
   /** Personne PostHog (`metadata.distinctId`, sinon `userToken`) — repli de jointure. */
   distinctId?: string;
+  /** REF d'attribution créatrice (`metadata.ref`) — cf creatorConversions. */
+  ref?: string;
 }
 
 export interface FetchWhopMembershipsResult {
@@ -385,6 +387,7 @@ export function normalizeWhopMembership(raw: unknown): NormalizedWhopMembership 
   const abExperiment = getStr(md?.abExperiment);
   const abForced = typeof md?.abForced === "boolean" ? md.abForced : undefined;
   const distinctId = getStr(md?.distinctId) ?? getStr(md?.userToken);
+  const ref = getStr(md?.ref);
   return {
     whopMembershipId: id,
     whopUserId,
@@ -398,6 +401,7 @@ export function normalizeWhopMembership(raw: unknown): NormalizedWhopMembership 
     abExperiment,
     abForced,
     distinctId,
+    ref,
   };
 }
 
