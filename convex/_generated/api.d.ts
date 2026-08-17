@@ -100,6 +100,7 @@ import type * as talentBriefFields from "../talentBriefFields.js";
 import type * as talentRushFields from "../talentRushFields.js";
 import type * as trackerData from "../trackerData.js";
 import type * as viewCounters from "../viewCounters.js";
+import type * as viewsDaily from "../viewsDaily.js";
 import type * as warmup from "../warmup.js";
 import type * as warmupMode from "../warmupMode.js";
 import type * as whopApi from "../whopApi.js";
@@ -208,6 +209,7 @@ declare const fullApi: ApiFromModules<{
   talentRushFields: typeof talentRushFields;
   trackerData: typeof trackerData;
   viewCounters: typeof viewCounters;
+  viewsDaily: typeof viewsDaily;
   warmup: typeof warmup;
   warmupMode: typeof warmupMode;
   whopApi: typeof whopApi;

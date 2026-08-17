@@ -1,10 +1,16 @@
 /**
  * Logique PURE de la vue Tracker (data des posts publiés). Testée en vitest
  * (lib/tracker-data.test.ts). Consommée côté client (stats globales + agrégats
- * par catégorie pour les charts) ET — pour `computeDailyViewDeltas` et
- * `matchesDimensionFilters` — DUPLIQUÉE côté serveur (convex/trackerData.ts) car
- * convex/ ne peut pas importer lib/ (règle A6, cross-tsconfig). Toute évolution
- * doit être répliquée dans les deux.
+ * par catégorie pour les charts) ET — pour `matchesDimensionFilters` —
+ * DUPLIQUÉE côté serveur (convex/trackerData.ts) car convex/ ne peut pas
+ * importer lib/ (règle A6, cross-tsconfig). Toute évolution doit être répliquée
+ * dans les deux.
+ *
+ * EXCEPTION : `computeDailyViewDeltas` n'est PLUS une réplique. Son algorithme
+ * a grossi (répartition au prorata, calendrier Europe/Paris) et vit maintenant
+ * dans le module pur `convex/viewsDaily.ts`, importé à l'identique par les deux
+ * côtés — un module pur sous convex/ étant importable du client, alors que
+ * l'inverse ne l'est pas.
  */
 
 import {
@@ -253,69 +259,19 @@ export function aggregateByCategory(
     .sort((a, b) => b.vues - a.vues);
 }
 
-export type SnapshotPoint = {
-  publicationId: string;
-  capturedAt: number;
-  vues: number;
-};
-
-export type DailyPoint = {
-  /** Jour calendaire UTC, "YYYY-MM-DD" (lexicographique = chronologique). */
-  date: string;
-  value: number;
-};
-
-/** Clé de jour calendaire UTC, "YYYY-MM-DD". Identique à bucketKey(day) côté
- *  metricSnapshots (cohérence des axes temporels). */
-export function dayKeyUTC(timestamp: number): string {
-  const d = new Date(timestamp);
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(d.getUTCDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
 /**
- * Vues GAGNÉES par jour (PAS cumulées) : pour chaque publication, on calcule le
- * delta de vues entre snapshots CONSÉCUTIFS, et on l'attribue au jour du
- * snapshot le plus récent du couple ; on somme ces deltas sur tous les posts,
- * par jour. La courbe montre donc le rythme réel de génération de vues (pics et
- * creux), pas une somme monotone croissante.
- *
- * Détails :
- *  - Le 1er snapshot in-window de chaque post sert de RÉFÉRENCE (aucun delta
- *    émis) : on ne compte que les vues gagnées À L'INTÉRIEUR de la fenêtre.
- *  - Deltas négatifs (recomptage plateforme, suppression de vues) ramenés à 0
- *    pour une lecture "vues gagnées" propre.
- *  - Plusieurs snapshots le même jour pour un même post : leurs deltas
- *    consécutifs s'additionnent (gain net du jour).
- *
- * `snaps` peut arriver dans n'importe quel ordre ; le tri par capturedAt est
- * fait ici, par publication.
+ * Série « vues gagnées par jour ». Plus une réplique : la DÉFINITION vit dans
+ * `convex/viewsDaily.ts` (module pur, importable des deux côtés) et n'est que
+ * ré-exportée ici pour les appelants historiques du tracker. Cf le précédent
+ * `lib/model-video-embed.ts` ↔ `convex/postUrlDate.ts`.
  */
-export function computeDailyViewDeltas(snaps: SnapshotPoint[]): DailyPoint[] {
-  const byPub = new Map<string, SnapshotPoint[]>();
-  for (const s of snaps) {
-    const arr = byPub.get(s.publicationId);
-    if (arr) arr.push(s);
-    else byPub.set(s.publicationId, [s]);
-  }
-
-  const dayTotals = new Map<string, number>();
-  for (const arr of byPub.values()) {
-    arr.sort((a, b) => a.capturedAt - b.capturedAt);
-    for (let i = 1; i < arr.length; i++) {
-      const delta = Math.max(0, arr[i].vues - arr[i - 1].vues);
-      if (delta === 0) continue;
-      const key = dayKeyUTC(arr[i].capturedAt);
-      dayTotals.set(key, (dayTotals.get(key) ?? 0) + delta);
-    }
-  }
-
-  return [...dayTotals.entries()]
-    .map(([date, value]) => ({ date, value }))
-    .sort((a, b) => a.date.localeCompare(b.date));
-}
+export {
+  computeDailyViewDeltas,
+  parisDayKey,
+  ESTIMATED_SPAN_MS,
+  type SnapshotPoint,
+  type DailyPoint,
+} from "../convex/viewsDaily";
 
 /** Libellé du bucket des publications sans campagne rattachée. */
 export const CAMPAIGN_NONE_LABEL = "Hors campagne";
