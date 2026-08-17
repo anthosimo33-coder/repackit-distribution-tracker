@@ -2194,3 +2194,77 @@ export const getGraduationPreview = adminQuery({
     };
   },
 });
+
+// ─── Disponibilité des hooks (affichage) ─────────────────────────────────────
+
+/**
+ * USAGES PASSÉS de chaque hook de la campagne — matière première de
+ * l'indicateur de disponibilité (convex/hookAvailability.ts).
+ *
+ * Ne DÉCIDE rien : rend les faits (qui a eu ce hook, sur quelles plateformes, à
+ * quelle date d'ancrage, était-ce un combo imposé), la lecture se fait côté
+ * client avec le même module pur que les tests. Le tirage et le cooldown
+ * restent intacts — ceci n'est qu'une vue.
+ *
+ * Un comboKey vaut « hook:flux:cta » (ou « hook:corps:flux:cta » en legacy) :
+ * le hook est TOUJOURS le premier segment, dans les deux espaces de clés.
+ */
+export const hookUsagesForCampaign = adminQuery({
+  args: { campaignId: v.id("scriptCampaigns") },
+  handler: async (ctx, { campaignId }) => {
+    await requireCampaign(ctx, campaignId, ctx.projectId);
+
+    const [assignments, creators] = await Promise.all([
+      ctx.db
+        .query("assignments")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+      ctx.db
+        .query("creators")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+    ]);
+    const nameById = new Map(creators.map((c) => [c._id as string, c.name]));
+
+    const parHook = new Map<
+      string,
+      {
+        creatorId: string;
+        creatorName: string;
+        platforms: string[];
+        anchorAt: number | null;
+        comboImposed: boolean;
+      }[]
+    >();
+    for (const a of assignments) {
+      if (!a.comboKey) continue;
+      const hookBrickId = a.comboKey.split(":")[0];
+      if (!hookBrickId) continue;
+      // Ancrage = date de publication PRÉVUE, à défaut la date RÉELLE de sortie.
+      // Même convention que le cooldown (lib/scriptCombos.ScheduledComboUsage) :
+      // deux lectures divergentes donneraient deux vérités à l'écran.
+      const anchorAt =
+        a.postDate ??
+        (a.targets ?? []).reduce<number | null>(
+          (acc, t) =>
+            t.publishedAt !== undefined && (acc === null || t.publishedAt < acc)
+              ? t.publishedAt
+              : acc,
+          null,
+        );
+      const arr = parHook.get(hookBrickId) ?? [];
+      arr.push({
+        creatorId: a.creatorId as string,
+        creatorName:
+          nameById.get(a.creatorId as string) ??
+          a.creatorNameSnapshot ??
+          "Créateur supprimé",
+        platforms: [...new Set((a.targets ?? []).map((t) => t.platform))],
+        anchorAt,
+        comboImposed: a.comboImposed === true,
+      });
+      parHook.set(hookBrickId, arr);
+    }
+    return Object.fromEntries(parHook);
+  },
+});
