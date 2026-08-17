@@ -13,6 +13,13 @@
  * amont via `publications.plateforme` (on ne devine rien depuis l'URL ici).
  */
 
+import {
+  parseSaves,
+  parseAuthorProfile,
+  hasAnyCount,
+  type AuthorProfile,
+} from "../convex/apifyItem";
+
 /** "123" → 123 ; nombre fini → lui-même ; tout le reste → null. */
 export function toCount(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
@@ -83,6 +90,25 @@ export interface ApifyPostStat {
   comments: number | null;
   /** Légende = titre du post (text TikTok ; caption Instagram) ; null si vide. */
   title: string | null;
+  /**
+   * SAVES (`collectCount`, TikTok uniquement) ; `null` = NON COLLECTÉ.
+   *
+   * Instagram et YouTube n'exposent aucune métrique de saves : sur ces
+   * plateformes `null` est la réponse DÉFINITIVE, pas un défaut de collecte.
+   * Ne jamais replier sur 0 — les règles du playbook distinguent « non mesuré »
+   * de « mesuré à zéro » (cf convex/graduation.ts).
+   */
+  saves: number | null;
+  /**
+   * Compteurs du COMPTE auteur (`authorMeta`), servis GRATUITEMENT avec chaque
+   * item vidéo TikTok — donc sans run supplémentaire. `null` si absents.
+   *
+   * Portés PAR POST plutôt qu'indexés par handle : le rattachement au compte
+   * applicatif se fait via la publication. Le handle de l'URL TikTok
+   * (« kellyleydie ») ne coïncide pas avec celui saisi en base
+   * (« @kelly.leydie ») — un appariement par chaîne serait faux.
+   */
+  author: AuthorProfile | null;
 }
 
 export interface ParsedApifyViews {
@@ -131,7 +157,19 @@ export function parseTikTokViews(
     const likes = toCount((item as { diggCount?: unknown }).diggCount);
     const comments = toCount((item as { commentCount?: unknown }).commentCount);
     const title = cleanCaption((item as { text?: unknown }).text);
-    stats[key] = { views, likes, comments, title };
+    // `collectCount` était reçu et jeté : la lecture vit maintenant dans le
+    // helper partagé avec RADAR (convex/apifyItem.ts).
+    const profil = parseAuthorProfile(item);
+    stats[key] = {
+      views,
+      likes,
+      comments,
+      title,
+      // `collectCount` et `authorMeta` étaient reçus et jetés : la lecture vit
+      // maintenant dans le helper partagé avec RADAR (convex/apifyItem.ts).
+      saves: parseSaves(item),
+      author: hasAnyCount(profil) ? profil : null,
+    };
   }
   const present = new Set(Object.keys(stats));
   return { stats, unavailable: requestedKeys.filter((k) => !present.has(k)) };
@@ -168,7 +206,9 @@ export function parseInstagramViews(
     const likes = toCount((item as { likesCount?: unknown }).likesCount);
     const comments = toCount((item as { commentsCount?: unknown }).commentsCount);
     const title = cleanCaption((item as { caption?: unknown }).caption);
-    stats[key] = { views, likes, comments, title };
+    // Instagram n'expose AUCUNE métrique de saves — `null` est définitif ici,
+    // pas un défaut de collecte à rattraper plus tard.
+    stats[key] = { views, likes, comments, title, saves: null, author: null };
   }
   const present = new Set(Object.keys(stats));
   return { stats, unavailable: requestedKeys.filter((k) => !present.has(k)) };

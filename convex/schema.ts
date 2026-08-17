@@ -499,6 +499,44 @@ export default defineSchema({
     .index("by_project", ["projectId"])
     .index("by_project_capturedAt", ["projectId", "capturedAt"]),
 
+  // ─── Relevés de PROFIL d'un compte (abonnés & co.) ────────────────────────
+  // Historisé — c'est tout l'objet : un compteur d'abonnés seul ne dit rien, le
+  // DELTA dit si le compte monte. Une ligne par compte et par relevé nocturne.
+  //
+  // Provenance selon la plateforme, et c'est asymétrique :
+  //  - TikTok    : `authorMeta` arrive AVEC chaque vidéo du relevé de posts →
+  //                aucun appel supplémentaire, donc aucun coût Apify en plus.
+  //  - Instagram : demande un run de PROFIL dédié (l'item de post ne porte pas
+  //                les compteurs du compte) → +1 run par nuit.
+  //  - YouTube   : channels.list de l'API Data v3, gratuit dans le quota.
+  //
+  // Tous les compteurs sont OPTIONNELS : selon la plateforme et la forme réelle
+  // du payload, l'un peut manquer. Absent ≠ zéro — un écran qui lit ces valeurs
+  // doit distinguer « pas encore collecté » de « mesuré à zéro ».
+  accountProfileSnapshots: defineTable({
+    projectId: v.id("projects"),
+    compteId: v.id("comptes"),
+    /** Handle au moment du relevé (le compte peut être renommé ensuite). */
+    handle: v.string(),
+    plateforme: v.union(
+      v.literal("TikTok"),
+      v.literal("Instagram"),
+      v.literal("YouTube"),
+    ),
+    capturedAt: v.number(),
+    followers: v.optional(v.number()),
+    following: v.optional(v.number()),
+    /** Likes CUMULÉS du compte (TikTok `heart`). */
+    totalLikes: v.optional(v.number()),
+    source: v.union(
+      v.literal("tiktok"),
+      v.literal("instagram"),
+      v.literal("youtube"),
+    ),
+  })
+    .index("by_compte_capturedAt", ["compteId", "capturedAt"])
+    .index("by_project_capturedAt", ["projectId", "capturedAt"]),
+
   comptes: defineTable({
     // P2 — scope projet.
     projectId: v.id("projects"),
