@@ -384,24 +384,46 @@ export const syncApifyLot = internalAction({
         apiToken,
       );
       const releves = new Set<string>();
+      // Un seul relevé de profil par COMPTE et par lot : `authorMeta` est
+      // identique sur toutes les vidéos d'un même compte, l'écrire une fois par
+      // post ferait N écritures pour une seule information.
+      const comptesReleves = new Set<string>();
       for (const t of lot.targets) {
         const stat = stats[t.key];
         if (stat === undefined) continue; // indisponible ou lot en erreur
+        const capturedAt = Date.now();
         const r = await ctx.runMutation(internal.apifySync.recordApifySnapshot, {
           publicationId: t.publicationId,
           vues: stat.views,
           likes: stat.likes,
           comments: stat.comments,
+          saves: stat.saves,
           title: stat.title ?? undefined,
-          capturedAt: Date.now(),
+          capturedAt,
           source: lot.source,
         });
         if (r.action !== "skipped") releves.add(t.publicationId as string);
+
+        // Compteurs du COMPTE, servis avec l'item vidéo : zéro appel Apify de
+        // plus. Rattachés via la PUBLICATION (le handle de l'URL ne coïncide
+        // pas avec celui saisi en base).
+        if (stat.author !== null && !comptesReleves.has(t.compte)) {
+          comptesReleves.add(t.compte);
+          await ctx.runMutation(internal.apifySync.recordAccountProfile, {
+            publicationId: t.publicationId,
+            capturedAt,
+            followers: stat.author.followers,
+            following: stat.author.following,
+            totalLikes: stat.author.totalLikes,
+            source: lot.source,
+          });
+        }
       }
       tallyLot = tallyFor(lot.targets, releves);
       console.info(
         `[nightly-views] lot ${args.lotIndex + 1}/${args.lotTotal} ${lot.plateforme} — ` +
           `${comptes.length} compte(s), ${releves.size}/${lot.targets.length} relevée(s), ` +
+          `${comptesReleves.size} profil(s), ` +
           `${Date.now() - debut} ms.`,
       );
     } catch (e) {

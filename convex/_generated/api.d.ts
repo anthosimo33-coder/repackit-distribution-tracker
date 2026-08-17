@@ -14,6 +14,7 @@ import type * as analyticsContract from "../analyticsContract.js";
 import type * as analyticsHub from "../analyticsHub.js";
 import type * as angleFamily from "../angleFamily.js";
 import type * as apifyApi from "../apifyApi.js";
+import type * as apifyItem from "../apifyItem.js";
 import type * as apifySync from "../apifySync.js";
 import type * as assets from "../assets.js";
 import type * as assetsMigration from "../assetsMigration.js";
@@ -127,6 +128,7 @@ declare const fullApi: ApiFromModules<{
   analyticsHub: typeof analyticsHub;
   angleFamily: typeof angleFamily;
   apifyApi: typeof apifyApi;
+  apifyItem: typeof apifyItem;
   apifySync: typeof apifySync;
   assets: typeof assets;
   assetsMigration: typeof assetsMigration;
