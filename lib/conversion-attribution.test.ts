@@ -1,0 +1,244 @@
+/**
+ * Attribution de conversion par créatrice (`convex/conversionAttribution.ts`).
+ *
+ * Les quatre cas exigés par le chantier : idempotence du re-run, une source en
+ * échec, créatrice sans ref, jour sans données — plus les bords de la fusion.
+ */
+import { describe, it, expect } from "vitest";
+import {
+  normalizeRef,
+  mergeDayRows,
+  shapeConversionDay,
+  type DayRefRow,
+  type PosthogDayResult,
+  type WhopDayResult,
+} from "../convex/conversionAttribution";
+
+const ph = (
+  byRef: PosthogDayResult["byRef"],
+  unattributed = { visitors: 0, signups: 0 },
+): PosthogDayResult => ({ ok: true, byRef, unattributed });
+const phKo: PosthogDayResult = {
+  ok: false,
+  byRef: {},
+  unattributed: { visitors: 0, signups: 0 },
+};
+const wh = (
+  byRef: WhopDayResult["byRef"],
+  unattributed: WhopDayResult["unattributed"] = { sales: 0, revenue: 0 },
+): WhopDayResult => ({ ok: true, byRef, unattributed });
+const whKo: WhopDayResult = {
+  ok: false,
+  byRef: {},
+  unattributed: { sales: 0, revenue: 0 },
+};
+
+describe("normalizeRef", () => {
+  it("plie casse et bords, vide → null (jamais la chaîne vide)", () => {
+    expect(normalizeRef("/Kelly/")).toBe("kelly");
+    expect(normalizeRef("@sarah")).toBe("sarah");
+    expect(normalizeRef("  ")).toBeNull();
+    expect(normalizeRef("")).toBeNull();
+    expect(normalizeRef(null)).toBeNull();
+  });
+});
+
+describe("mergeDayRows — fusion champ par champ", () => {
+  const jourNominal = () =>
+    mergeDayRows(
+      [],
+      ph(
+        { kelly: { visitors: 214, signups: 9 }, sarah: { visitors: 58, signups: 2 } },
+        { visitors: 131, signups: 3 },
+      ),
+      wh(
+        { kelly: { sales: 3, revenue: 87, currency: "EUR" } },
+        { sales: 1, revenue: 29, currency: "EUR" },
+      ),
+    );
+
+  it("jour nominal : refs mesurées + ligne « sans ref »", () => {
+    const rows = jourNominal();
+    const kelly = rows.find((r) => r.ref === "kelly")!;
+    expect(kelly).toEqual({
+      ref: "kelly",
+      visitors: 214,
+      signups: 9,
+      sales: 3,
+      revenue: 87,
+      currency: "EUR",
+    });
+    // Sarah : mesurée par PostHog, zéro vente MESURÉ (Whop a répondu).
+    const sarah = rows.find((r) => r.ref === "sarah")!;
+    expect(sarah.sales).toBe(0);
+    const sans = rows.find((r) => r.ref === undefined)!;
+    expect(sans.visitors).toBe(131);
+    expect(sans.sales).toBe(1);
+  });
+
+  it("IDEMPOTENT : rejouer la même fusion sur son résultat ne change rien", () => {
+    // Le re-run du cron sur la même date doit écraser proprement, jamais
+    // doubler — c'est l'exigence n°1 du chantier.
+    const une = jourNominal();
+    const deux = mergeDayRows(
+      une,
+      ph(
+        { kelly: { visitors: 214, signups: 9 }, sarah: { visitors: 58, signups: 2 } },
+        { visitors: 131, signups: 3 },
+      ),
+      wh(
+        { kelly: { sales: 3, revenue: 87, currency: "EUR" } },
+        { sales: 1, revenue: 29, currency: "EUR" },
+      ),
+    );
+    const tri = (a: DayRefRow, b: DayRefRow) =>
+      (a.ref ?? "").localeCompare(b.ref ?? "");
+    expect([...deux].sort(tri)).toEqual([...une].sort(tri));
+  });
+
+  it("UNE SOURCE EN ÉCHEC : Whop répond, PostHog non → on stocke ce qu'on a", () => {
+    const rows = mergeDayRows(
+      [],
+      phKo,
+      wh({ kelly: { sales: 2, revenue: 58, currency: "EUR" } }),
+    );
+    const kelly = rows.find((r) => r.ref === "kelly")!;
+    expect(kelly.sales).toBe(2);
+    // Visiteurs JAMAIS collectés → undefined, pas 0.
+    expect(kelly.visitors).toBeUndefined();
+  });
+
+  it("le re-run comble une source manquante SANS toucher l'autre", () => {
+    // Jour J : PostHog en panne → ventes seules. Re-run : PostHog répond.
+    const j1 = mergeDayRows(
+      [],
+      phKo,
+      wh({ kelly: { sales: 2, revenue: 58, currency: "EUR" } }),
+    );
+    const j2 = mergeDayRows(j1, ph({ kelly: { visitors: 214, signups: 9 } }), whKo);
+    const kelly = j2.find((r) => r.ref === "kelly")!;
+    expect(kelly).toMatchObject({
+      visitors: 214,
+      signups: 9,
+      sales: 2,
+      revenue: 58,
+    });
+  });
+
+  it("une source qui répond fait autorité : la ref disparue passe à un zéro MESURÉ", () => {
+    const j1 = jourNominal();
+    // Re-collecte : Kelly n'a plus de visiteurs dans la réponse PostHog.
+    const j2 = mergeDayRows(j1, ph({}, { visitors: 12, signups: 0 }), whKo);
+    const kelly = j2.find((r) => r.ref === "kelly")!;
+    expect(kelly.visitors).toBe(0); // mesuré, pas absent
+    expect(kelly.sales).toBe(3); // Whop intact
+  });
+
+  it("les DEUX sources en échec ne touchent à rien", () => {
+    const j1 = jourNominal();
+    expect(mergeDayRows(j1, phKo, whKo)).toEqual(j1);
+  });
+
+  it("jour sans données : deux sources OK et vides → seule la ligne « sans ref » à zéro", () => {
+    const rows = mergeDayRows([], ph({}), wh({}));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual({
+      ref: undefined,
+      visitors: 0,
+      signups: 0,
+      sales: 0,
+      revenue: 0,
+    });
+  });
+
+  it("les refs des sources sont pliées (casse/bords) avant fusion", () => {
+    const rows = mergeDayRows(
+      [],
+      ph({ "/Kelly": { visitors: 10, signups: 0 } }),
+      wh({ kelly: { sales: 1, revenue: 29, currency: "EUR" } }),
+    );
+    // UNE seule ligne portant LES DEUX moitiés : « /Kelly » (PostHog) et
+    // « kelly » (Whop) sont la même ref. Sans le pliage, les visiteurs et les
+    // ventes atterriraient sur deux lignes distinctes — chacune plausible
+    // isolément, la jointure perdue.
+    expect(rows).toHaveLength(2); // kelly + la ligne « sans ref »
+    const kelly = rows.find((r) => r.ref === "kelly")!;
+    expect(kelly.visitors).toBe(10);
+    expect(kelly.sales).toBe(1);
+    expect(rows.some((r) => r.ref === "/Kelly")).toBe(false);
+  });
+});
+
+describe("shapeConversionDay — l'écran", () => {
+  const creators = [
+    { creatorId: "cr_kelly", name: "Kelly", refSlug: "kelly" },
+    { creatorId: "cr_sarah", name: "Sarah", refSlug: "Sarah" }, // casse ≠
+    { creatorId: "cr_lea", name: "Léa" }, // PAS de ref configurée
+  ];
+  const rows: DayRefRow[] = [
+    { ref: "kelly", visitors: 214, signups: 9, sales: 3, revenue: 87, currency: "EUR" },
+    { ref: "sarah", visitors: 58, signups: 2, sales: 0, revenue: 0 },
+    { ref: "mystere", visitors: 33, signups: 1, sales: 0, revenue: 0 },
+    { ref: undefined, visitors: 131, signups: 3, sales: 1, revenue: 29, currency: "EUR" },
+  ];
+
+  it("créatrice SANS ref → état « no-ref », jamais une ligne à zéro", () => {
+    // LA réserve du chantier : sans ref dans la bio, l'attribution est aveugle —
+    // afficher 0 ferait lire « elle ne convertit pas » là où on ne VOIT rien.
+    const d = shapeConversionDay(rows, creators);
+    const lea = d.rows.find(
+      (r) => r.kind === "no-ref" && r.creatorName === "Léa",
+    );
+    expect(lea).toBeDefined();
+    expect(
+      d.rows.some((r) => r.kind === "creator" && r.creatorName === "Léa"),
+    ).toBe(false);
+    // …et elle est rangée EN DERNIER (état, pas performance).
+    expect(d.rows[d.rows.length - 1].kind).toBe("no-ref");
+  });
+
+  it("le refSlug est plié : « Sarah » rattache la ref « sarah »", () => {
+    const d = shapeConversionDay(rows, creators);
+    const sarah = d.rows.find(
+      (r) => r.kind === "creator" && r.creatorName === "Sarah",
+    )!;
+    expect(sarah).toMatchObject({ visitors: 58, sales: 0 });
+  });
+
+  it("une ref orpheline reste visible (le trafic existe, le rattachement manque)", () => {
+    const d = shapeConversionDay(rows, creators);
+    expect(
+      d.rows.find((r) => r.kind === "ref-only" && r.ref === "mystere"),
+    ).toMatchObject({ visitors: 33 });
+  });
+
+  it("ligne « sans source » + total (unattributed compris)", () => {
+    const d = shapeConversionDay(rows, creators);
+    expect(d.unattributed).toMatchObject({ visitors: 131, sales: 1, revenue: 29 });
+    expect(d.total).toMatchObject({
+      visitors: 214 + 58 + 33 + 131,
+      sales: 4,
+      revenue: 116,
+      currency: "EUR",
+    });
+  });
+
+  it("JOUR SANS DONNÉES : totaux null, jamais un 0 inventé", () => {
+    const d = shapeConversionDay([], creators);
+    expect(d.total.visitors).toBeNull();
+    expect(d.total.revenue).toBeNull();
+    expect(d.unattributed).toBeNull();
+    // Les créatrices avec ref apparaissent quand même, à valeurs null (« — »).
+    const kelly = d.rows.find(
+      (r) => r.kind === "creator" && r.creatorName === "Kelly",
+    )!;
+    expect(kelly).toMatchObject({ visitors: null, revenue: null });
+  });
+
+  it("source partielle : visiteurs mesurés, ventes null → le total distingue", () => {
+    const partiel: DayRefRow[] = [{ ref: "kelly", visitors: 214, signups: 9 }];
+    const d = shapeConversionDay(partiel, creators);
+    expect(d.total.visitors).toBe(214);
+    expect(d.total.sales).toBeNull();
+  });
+});

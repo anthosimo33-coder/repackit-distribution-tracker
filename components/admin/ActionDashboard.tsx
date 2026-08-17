@@ -30,7 +30,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatNumber, formatPercent } from "@/lib/format";
-import { formatMoney } from "@/lib/format-rate";
 import { isWarmupLate } from "@/lib/ops-digest";
 import { resolveCreatorKind } from "@/convex/roles";
 import {
@@ -49,6 +48,11 @@ import {
   type AccountState,
 } from "@/convex/decisions";
 import { savesAvailability } from "@/convex/decisionThresholds";
+import {
+  shapeConversionDay,
+  type ConversionDisplayRow,
+} from "@/convex/conversionAttribution";
+import { formatMoney } from "@/lib/format-rate";
 import { POST_WINDOW_PRESETS } from "@/convex/postWindow";
 import { GraduateHookDialog } from "@/components/admin/GraduateHookDialog";
 import { AssignScriptCampaignDialog } from "@/components/admin/AssignScriptCampaignDialog";
@@ -119,6 +123,8 @@ export function ActionDashboard() {
   // Les deux sections décisionnelles lisent UNE query d'assemblage ; toute la
   // logique (seuils, détections) vit dans les modules purs testés.
   const decisions = useProjectQuery(api.dashboardDecisions.decisionDashboard, {});
+  // Conversion par créatrice (ref snytch.co) — la veille, collectée à 23h50.
+  const conversion = useProjectQuery(api.conversionSync.readConversionDay, {});
 
   // Dialogues des trois actions : graduer (modale existante), désactiver un
   // hook mort (confirmation), programmer une frappe (modale d'assignation
@@ -292,6 +298,14 @@ export function ActionDashboard() {
         action={{ label: "Voir tout", href: projectPath("/createurs") }}
       >
         <Recent48h posts={decisions!.posts48h} alarms={decisions!.alarms} now={now} />
+      </Section>
+
+      {/* « Ce que ça a rapporté » — visiteurs et ventes attribués par la ref
+          snytch.co/<créatrice>, la veille. L'attribution repose ENTIÈREMENT sur
+          le chemin court (pas de referrer in-app TikTok) : une créatrice sans
+          ref est un état à part, jamais un zéro. */}
+      <Section title="Ce que ça a rapporté">
+        <ConversionSection data={conversion} />
       </Section>
 
       <GraduateHookDialog
@@ -1012,5 +1026,171 @@ function ActionSkeleton() {
         <Skeleton className="h-64" />
       </div>
     </div>
+  );
+}
+
+// ─── Section « Ce que ça a rapporté » (conversion par créatrice) ─────────────
+
+type ConversionData = FunctionReturnType<
+  typeof api.conversionSync.readConversionDay
+>;
+
+function ConversionSection({ data }: { data: ConversionData | undefined }) {
+  const projectPath = useProjectPath();
+  if (data === undefined) return <Skeleton className="h-24" />;
+  if (data === null) {
+    return (
+      <EmptyRow
+        icon={CalendarClockIcon}
+        label="Pas encore de données — première collecte après le sync de 23h30."
+      />
+    );
+  }
+
+  const d = shapeConversionDay(data.rows, data.creators);
+  const [y, m, day] = data.date.split("-");
+
+  return (
+    <div className="space-y-1">
+      <div className="text-xs text-slate-400">
+        Journée du {day}/{m}/{y} — attribution par ref snytch.co
+      </div>
+      <div className="divide-y divide-slate-100">
+        {d.rows.map((row) => (
+          <ConversionRow
+            key={
+              row.kind === "ref-only"
+                ? `ref:${row.ref}`
+                : `cr:${row.creatorId}`
+            }
+            row={row}
+            href={
+              row.kind === "no-ref"
+                ? projectPath(`/createurs/${row.creatorId}`)
+                : undefined
+            }
+          />
+        ))}
+        {d.unattributed !== null && (
+          <div className="flex items-center gap-3 py-2">
+            <div className="min-w-0 flex-1 text-sm text-slate-500">
+              Sans source
+              <div className="text-xs text-slate-400">
+                trafic et ventes non attribués à une ref
+              </div>
+            </div>
+            <ConversionCells
+              visitors={d.unattributed.visitors}
+              signups={d.unattributed.signups}
+              sales={d.unattributed.sales}
+              revenue={d.unattributed.revenue}
+              currency={d.unattributed.currency}
+            />
+          </div>
+        )}
+        <div className="flex items-center gap-3 py-2">
+          <div className="min-w-0 flex-1 text-sm font-semibold text-slate-900">
+            Total
+          </div>
+          <ConversionCells
+            visitors={d.total.visitors}
+            signups={d.total.signups}
+            sales={d.total.sales}
+            revenue={d.total.revenue}
+            currency={d.total.currency}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConversionRow({
+  row,
+  href,
+}: {
+  row: ConversionDisplayRow;
+  href?: string;
+}) {
+  if (row.kind === "no-ref") {
+    // PAS un zéro : sans ref dans la bio, l'attribution est aveugle sur elle.
+    // Le lien mène à sa fiche, où la ref se configure.
+    return (
+      <div className="flex items-center gap-3 py-2">
+        <div className="min-w-0 flex-1">
+          <span className="text-sm text-slate-500">{row.creatorName}</span>
+        </div>
+        {href !== undefined ? (
+          <Link
+            href={href}
+            className="text-xs italic text-amber-700 hover:underline"
+            title="L'attribution repose entièrement sur le chemin court snytch.co/<ref> — configurer la ref sur sa fiche."
+          >
+            pas de ref configurée
+          </Link>
+        ) : (
+          <span className="text-xs italic text-amber-700">
+            pas de ref configurée
+          </span>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-3 py-2">
+      <div className="min-w-0 flex-1">
+        <span className="truncate text-sm font-medium text-slate-900">
+          {row.kind === "creator" ? row.creatorName : row.ref}
+        </span>
+        <span className="ml-1.5 text-xs text-slate-400">/{row.ref}</span>
+        {row.kind === "ref-only" && (
+          <div className="text-xs text-slate-400">
+            ref sans créatrice rattachée
+          </div>
+        )}
+      </div>
+      <ConversionCells
+        visitors={row.visitors}
+        signups={row.signups}
+        sales={row.sales}
+        revenue={row.revenue}
+        currency={row.currency}
+      />
+    </div>
+  );
+}
+
+/** Cellules chiffrées — « — » = source jamais collectée ce jour, pas un zéro. */
+function ConversionCells({
+  visitors,
+  signups,
+  sales,
+  revenue,
+  currency,
+}: {
+  visitors: number | null;
+  signups: number | null;
+  sales: number | null;
+  revenue: number | null;
+  currency: string | null;
+}) {
+  return (
+    <>
+      <Metric
+        value={visitors === null ? "—" : formatNumber(visitors)}
+        label="visiteurs"
+      />
+      <Metric
+        value={signups === null ? "—" : formatNumber(signups)}
+        label="signups"
+      />
+      <Metric value={sales === null ? "—" : formatNumber(sales)} label="ventes" />
+      <div className="w-20 shrink-0 text-right">
+        <div className="text-sm font-semibold tabular-nums text-slate-900">
+          {revenue === null ? "—" : formatMoney(revenue, currency ?? undefined)}
+        </div>
+        <div className="text-[10px] text-slate-400">revenu</div>
+      </div>
+    </>
   );
 }
