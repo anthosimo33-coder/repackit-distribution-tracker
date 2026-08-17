@@ -275,6 +275,8 @@ export {
 
 /** Libellé du bucket des publications sans campagne rattachée. */
 export const CAMPAIGN_NONE_LABEL = "Hors campagne";
+/** Libellé du bucket des posts dont le hook n'a pas de famille d'angle. */
+export { ANGLE_FAMILY_NONE_LABEL } from "../convex/angleFamily";
 /** Libellé du bucket d'agrégation au-delà du top N. */
 export const CAMPAIGN_OTHERS_LABEL = "Autres";
 /** Au-delà de ce nombre de campagnes AVEC des vues, le reste est agrégé. */
@@ -298,11 +300,16 @@ export const CAMPAIGN_TOP_N = 10;
 export function shapeCampaignRows(
   rows: CategoryAggregate[],
   topN: number = CAMPAIGN_TOP_N,
+  /**
+   * Libellé du bucket « pas de rattachement », toujours rendu EN DERNIER et
+   * jamais fondu dans « Autres ». Paramétré (défaut : les campagnes) pour que le
+   * graphe des FAMILLES D'ANGLE réutilise exactement la même mise en forme —
+   * même arbitrage, une seule implémentation.
+   */
+  noneLabel: string = CAMPAIGN_NONE_LABEL,
 ): CategoryAggregate[] {
-  const horsCampagne = rows.filter((r) => r.label === CAMPAIGN_NONE_LABEL);
-  const nommees = rows.filter(
-    (r) => r.label !== CAMPAIGN_NONE_LABEL && r.vues > 0,
-  );
+  const horsCampagne = rows.filter((r) => r.label === noneLabel);
+  const nommees = rows.filter((r) => r.label !== noneLabel && r.vues > 0);
   if (nommees.length <= topN) return [...nommees, ...horsCampagne];
 
   const top = nommees.slice(0, topN);

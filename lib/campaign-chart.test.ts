@@ -3,8 +3,10 @@ import {
   aggregateByCategory,
   shapeCampaignRows,
   CAMPAIGN_NONE_LABEL,
+  ANGLE_FAMILY_NONE_LABEL,
   type CategoryItem,
 } from "./tracker-data";
+import { angleFamilyKey } from "../convex/angleFamily";
 
 /**
  * Graphe « Vues par campagne » — mise en forme.
@@ -96,5 +98,91 @@ describe("agrégation par campagne", () => {
     );
     expect(rows[0].vues).toBe(1500);
     expect(rows[0].engagementVues).toBe(500);
+  });
+});
+
+/**
+ * Graphe « Vues par famille d'angle » — MÊME mise en forme, autre bucket de
+ * repli. Ces tests verrouillent la généralisation de `shapeCampaignRows` : si
+ * quelqu'un recodait un rangement séparé pour les familles, les deux graphes
+ * divergeraient sur le top N ou sur la place du bucket « sans ».
+ */
+describe("graphe des familles d'angle — réutilise le rangement des campagnes", () => {
+  const parFamille = (famille: string | null, vues: number): CategoryItem => ({
+    key: famille ? angleFamilyKey(famille) : "__none__",
+    label: famille ?? ANGLE_FAMILY_NONE_LABEL,
+    vues,
+    likes: Math.round(vues * 0.08),
+    comments: Math.round(vues * 0.01),
+  });
+
+  it("« Sans famille » finit DERNIER même s'il pèse le plus lourd", () => {
+    const rows = shapeCampaignRows(
+      aggregateByCategory(
+        [parFamille(null, 480_000), parFamille("trahison", 12_400)],
+        "all",
+      ),
+      undefined,
+      ANGLE_FAMILY_NONE_LABEL,
+    );
+    expect(rows.map((r) => r.label)).toEqual([
+      "trahison",
+      ANGLE_FAMILY_NONE_LABEL,
+    ]);
+  });
+
+  it("deux orthographes d'une même famille font UNE barre", () => {
+    // Le piège du champ libre : sans pliage de casse/accents, « Nostalgie » et
+    // « nostalgie » donneraient deux barres anémiques au lieu d'un angle qui
+    // ressort.
+    const rows = shapeCampaignRows(
+      aggregateByCategory(
+        [
+          parFamille("Nostalgie", 30_000),
+          parFamille("nostalgie", 22_000),
+          parFamille("NOSTALGIE", 8_000),
+        ],
+        "all",
+      ),
+      undefined,
+      ANGLE_FAMILY_NONE_LABEL,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].vues).toBe(60_000);
+    // Le libellé affiché est la 1re orthographe rencontrée, pas la clé pliée.
+    expect(rows[0].label).toBe("Nostalgie");
+  });
+
+  it("ne fusionne PAS deux familles réellement distinctes", () => {
+    const rows = shapeCampaignRows(
+      aggregateByCategory(
+        [parFamille("rechute", 40_000), parFamille("renoncement/fierté", 25_000)],
+        "all",
+      ),
+      undefined,
+      ANGLE_FAMILY_NONE_LABEL,
+    );
+    expect(rows.map((r) => r.label)).toEqual([
+      "rechute",
+      "renoncement/fierté",
+    ]);
+  });
+
+  it("agrège au-delà du top N, « Sans famille » restant hors du bucket « Autres »", () => {
+    const nombreuses = Array.from({ length: 13 }, (_, i) =>
+      parFamille(`famille ${i}`, 13_000 - i * 100),
+    );
+    const rows = shapeCampaignRows(
+      aggregateByCategory([...nombreuses, parFamille(null, 5_000)], "all"),
+      3,
+      ANGLE_FAMILY_NONE_LABEL,
+    );
+    expect(rows.map((r) => r.label)).toEqual([
+      "famille 0",
+      "famille 1",
+      "famille 2",
+      "Autres (10)",
+      ANGLE_FAMILY_NONE_LABEL,
+    ]);
   });
 });
