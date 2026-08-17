@@ -48,6 +48,7 @@ import type * as graduation from "../graduation.js";
 import type * as guide from "../guide.js";
 import type * as guideModules from "../guideModules.js";
 import type * as handleHygiene from "../handleHygiene.js";
+import type * as hookAvailability from "../hookAvailability.js";
 import type * as hooks from "../hooks.js";
 import type * as http from "../http.js";
 import type * as icps from "../icps.js";
@@ -163,6 +164,7 @@ declare const fullApi: ApiFromModules<{
   guide: typeof guide;
   guideModules: typeof guideModules;
   handleHygiene: typeof handleHygiene;
+  hookAvailability: typeof hookAvailability;
   hooks: typeof hooks;
   http: typeof http;
   icps: typeof icps;

@@ -69,6 +69,13 @@ import { ScriptDestinationZones } from "@/components/scripts/ScriptDestinationZo
 import { TierBadge } from "@/components/admin/TierBadge";
 import { AngleFamilyInput } from "@/components/admin/AngleFamilyInput";
 import { GraduateHookDialog } from "@/components/admin/GraduateHookDialog";
+import { HookAvailabilityBadge } from "@/components/admin/HookAvailabilityBadge";
+import {
+  hookAvailabilityFor,
+  isHookAvailable,
+  type HookAvailability,
+} from "@/convex/hookAvailability";
+import { COOLDOWN_DAYS } from "@/lib/scriptCombos";
 import { campaignNameMatches, LAB_CAMPAIGN_NAME } from "@/convex/graduation";
 import { AssignScriptCampaignDialog } from "@/components/admin/AssignScriptCampaignDialog";
 import type { FunctionReturnType } from "convex/server";
@@ -77,6 +84,9 @@ type CampaignDetail = NonNullable<
   FunctionReturnType<typeof api.scripts.getCampaign>
 >;
 type Brick = CampaignDetail["bricks"][number];
+
+/** Valeur du select « aucune créatrice » (Select n'accepte pas ""). */
+const NO_CREATOR = "__none__";
 
 export default function ScriptCampaignDetailPage() {
   const params = useParams<{ id: string }>();
@@ -87,6 +97,18 @@ export default function ScriptCampaignDetailPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
+  // « Disponible pour » — objectif d'usage du chantier : savoir en un regard
+  // quels hooks sont assignables à une créatrice AUJOURD'HUI.
+  const [availableFor, setAvailableFor] = useState<string>(NO_CREATOR);
+  const [onlyAvailable, setOnlyAvailable] = useState(false);
+  const creators = useProjectQuery(api.creators.listCreators, {});
+  const comptes = useProjectQuery(api.comptes.listComptes, {});
+  const hookUsages = useProjectQuery(
+    api.scripts.hookUsagesForCampaign,
+    availableFor === NO_CREATOR ? "skip" : { campaignId: id },
+  );
+  // Date visée = MAINTENANT : la question posée est « assignable aujourd'hui ».
+  const [now] = useState(() => Date.now());
 
   if (campaign === undefined) {
     return <Skeleton className="h-96 w-full" />;
@@ -111,6 +133,26 @@ export default function ScriptCampaignDetailPage() {
   }
 
   const combos = countCombinations(campaign.bricks);
+
+  // Plateformes réellement servies par cette créatrice : l'unicité à vie est
+  // PAR PLATEFORME, l'évaluer sur les trois en dur inventerait des collisions.
+  const creatorPlatforms = [
+    ...new Set(
+      (comptes ?? [])
+        .filter((c) => c.creatorId === availableFor)
+        .map((c) => c.plateforme as string),
+    ),
+  ];
+  const availabilityOf = (brickId: string): HookAvailability | undefined => {
+    if (availableFor === NO_CREATOR || hookUsages === undefined) return undefined;
+    return hookAvailabilityFor({
+      usages: hookUsages[brickId] ?? [],
+      creatorId: availableFor,
+      platforms: creatorPlatforms,
+      targetAt: now,
+      cooldownMs: COOLDOWN_DAYS * 86_400_000,
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -168,6 +210,51 @@ export default function ScriptCampaignDetailPage() {
         </div>
       </header>
 
+      <Card>
+        <CardContent className="flex flex-wrap items-center gap-3 p-3">
+          <Label htmlFor="dispo-pour" className="text-xs text-slate-500">
+            Disponible pour
+          </Label>
+          <Select
+            value={availableFor}
+            onValueChange={(v) => v && setAvailableFor(v)}
+          >
+            <SelectTrigger id="dispo-pour" className="h-8 w-56">
+              <SelectValue>
+                {availableFor === NO_CREATOR
+                  ? "— aucune créatrice —"
+                  : ((creators ?? []).find((c) => c._id === availableFor)?.name ??
+                    "Créatrice")}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_CREATOR}>— aucune créatrice —</SelectItem>
+              {(creators ?? []).map((c) => (
+                <SelectItem key={c._id} value={c._id}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {availableFor !== NO_CREATOR && (
+            <label className="flex items-center gap-2 text-xs text-slate-600">
+              <Switch
+                checked={onlyAvailable}
+                onCheckedChange={setOnlyAvailable}
+                aria-label="Masquer les hooks indisponibles"
+              />
+              Masquer les indisponibles
+            </label>
+          )}
+          {availableFor !== NO_CREATOR && creatorPlatforms.length === 0 && (
+            <span className="text-xs text-amber-700">
+              Cette créatrice n&apos;a aucun compte déclaré — aucune collision
+              d&apos;unicité n&apos;est calculable.
+            </span>
+          )}
+        </CardContent>
+      </Card>
+
       {SCRIPT_KINDS.map((kind) => (
         <BrickSection
           key={kind}
@@ -175,6 +262,8 @@ export default function ScriptCampaignDetailPage() {
           campaignId={campaign._id}
           bricks={campaign.bricks.filter((b) => b.kind === kind)}
           isLab={campaignNameMatches(campaign.name, LAB_CAMPAIGN_NAME)}
+          availabilityOf={availabilityOf}
+          onlyAvailable={onlyAvailable && availableFor !== NO_CREATOR}
         />
       ))}
 
@@ -203,17 +292,30 @@ function BrickSection({
   campaignId,
   bricks,
   isLab,
+  availabilityOf,
+  onlyAvailable,
 }: {
   kind: ScriptKind;
   campaignId: Id<"scriptCampaigns">;
   bricks: Brick[];
   /** Campagne LABORATOIRE : ses hooks peuvent être gradués. */
   isLab: boolean;
+  availabilityOf: (brickId: string) => HookAvailability | undefined;
+  onlyAvailable: boolean;
 }) {
   const [dialogBrick, setDialogBrick] = useState<Brick | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [graduating, setGraduating] = useState<Id<"scriptBricks"> | null>(null);
   const activeCount = bricks.filter((b) => b.active).length;
+  // Le filtre ne s'applique qu'aux HOOKS : flux et cta n'ont pas de
+  // disponibilité (l'unicité porte sur le combo, pas sur eux isolément).
+  const shown =
+    onlyAvailable && kind === "hook"
+      ? bricks.filter((b) => {
+          const a = availabilityOf(b._id as string);
+          return a === undefined || isHookAvailable(a);
+        })
+      : bricks;
 
   return (
     <section className="space-y-2">
@@ -233,15 +335,17 @@ function BrickSection({
           Ajouter
         </Button>
       </div>
-      {bricks.length === 0 ? (
+      {shown.length === 0 ? (
         <Card>
           <CardContent className="py-6 text-center text-sm text-slate-400">
-            Aucune brique « {KIND_LABELS[kind].toLowerCase()} ».
+            {bricks.length === 0
+              ? `Aucune brique « ${KIND_LABELS[kind].toLowerCase()} ».`
+              : "Aucun hook disponible pour cette créatrice aujourd'hui."}
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-2">
-          {bricks.map((b) => (
+          {shown.map((b) => (
             <BrickRow
               key={b._id}
               brick={b}
@@ -252,6 +356,9 @@ function BrickSection({
                 isLab && b.kind === "hook" && b.active
                   ? () => setGraduating(b._id)
                   : undefined
+              }
+              availability={
+                b.kind === "hook" ? availabilityOf(b._id as string) : undefined
               }
             />
           ))}
@@ -285,11 +392,14 @@ function BrickRow({
   brick,
   onEdit,
   onGraduate,
+  availability,
 }: {
   brick: Brick;
   onEdit: () => void;
   /** Fourni UNIQUEMENT sur la campagne LAB — ailleurs, graduer n'a pas de sens. */
   onGraduate?: () => void;
+  /** Disponibilité pour la créatrice sélectionnée ; absent = aucune sélection. */
+  availability?: HookAvailability;
 }) {
   const update = useProjectMutation(api.scripts.updateBrick);
   const remove = useProjectMutation(api.scripts.deleteBrick);
@@ -354,6 +464,7 @@ function BrickRow({
             </p>
           )}
         </div>
+        {availability && <HookAvailabilityBadge availability={availability} />}
         {brick.kind === "hook" && (
           <AngleFamilyInput
             value={brick.angleFamily}
