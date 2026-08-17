@@ -47,6 +47,7 @@ import {
   Loader2Icon,
   SendIcon,
   BarChart3Icon,
+  GraduationCapIcon,
 } from "lucide-react";
 import {
   assembleScript,
@@ -67,6 +68,8 @@ import {
 import { ScriptDestinationZones } from "@/components/scripts/ScriptDestinationZones";
 import { TierBadge } from "@/components/admin/TierBadge";
 import { AngleFamilyInput } from "@/components/admin/AngleFamilyInput";
+import { GraduateHookDialog } from "@/components/admin/GraduateHookDialog";
+import { campaignNameMatches, LAB_CAMPAIGN_NAME } from "@/convex/graduation";
 import { AssignScriptCampaignDialog } from "@/components/admin/AssignScriptCampaignDialog";
 import type { FunctionReturnType } from "convex/server";
 
@@ -171,6 +174,7 @@ export default function ScriptCampaignDetailPage() {
           kind={kind}
           campaignId={campaign._id}
           bricks={campaign.bricks.filter((b) => b.kind === kind)}
+          isLab={campaignNameMatches(campaign.name, LAB_CAMPAIGN_NAME)}
         />
       ))}
 
@@ -198,13 +202,17 @@ function BrickSection({
   kind,
   campaignId,
   bricks,
+  isLab,
 }: {
   kind: ScriptKind;
   campaignId: Id<"scriptCampaigns">;
   bricks: Brick[];
+  /** Campagne LABORATOIRE : ses hooks peuvent être gradués. */
+  isLab: boolean;
 }) {
   const [dialogBrick, setDialogBrick] = useState<Brick | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [graduating, setGraduating] = useState<Id<"scriptBricks"> | null>(null);
   const activeCount = bricks.filter((b) => b.active).length;
 
   return (
@@ -234,7 +242,18 @@ function BrickSection({
       ) : (
         <div className="space-y-2">
           {bricks.map((b) => (
-            <BrickRow key={b._id} brick={b} onEdit={() => setDialogBrick(b)} />
+            <BrickRow
+              key={b._id}
+              brick={b}
+              onEdit={() => setDialogBrick(b)}
+              // Graduer n'a de sens que pour un hook ENCORE actif du LAB : un
+              // hook déjà désactivé a, en principe, déjà été gradué.
+              onGraduate={
+                isLab && b.kind === "hook" && b.active
+                  ? () => setGraduating(b._id)
+                  : undefined
+              }
+            />
           ))}
         </div>
       )}
@@ -253,11 +272,25 @@ function BrickSection({
         kind={kind}
         brick={dialogBrick}
       />
+      <GraduateHookDialog
+        brickId={graduating}
+        open={graduating !== null}
+        onOpenChange={(o) => !o && setGraduating(null)}
+      />
     </section>
   );
 }
 
-function BrickRow({ brick, onEdit }: { brick: Brick; onEdit: () => void }) {
+function BrickRow({
+  brick,
+  onEdit,
+  onGraduate,
+}: {
+  brick: Brick;
+  onEdit: () => void;
+  /** Fourni UNIQUEMENT sur la campagne LAB — ailleurs, graduer n'a pas de sens. */
+  onGraduate?: () => void;
+}) {
   const update = useProjectMutation(api.scripts.updateBrick);
   const remove = useProjectMutation(api.scripts.deleteBrick);
   // Mode (zone vidéo) : Snytch + hook/flux uniquement. Indicateur en un coup
@@ -357,6 +390,17 @@ function BrickRow({ brick, onEdit }: { brick: Brick; onEdit: () => void }) {
           >
             {modeDisplay.icon}
           </span>
+        )}
+        {onGraduate && (
+          <Button
+            variant="outline"
+            size="xs"
+            className="h-7 shrink-0 gap-1 px-2"
+            onClick={onGraduate}
+          >
+            <GraduationCapIcon className="size-3" />
+            Graduer
+          </Button>
         )}
         <Button
           variant="ghost"

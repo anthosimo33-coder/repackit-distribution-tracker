@@ -43,6 +43,7 @@ import type * as folders from "../folders.js";
 import type * as formats from "../formats.js";
 import type * as functions from "../functions.js";
 import type * as googleDriveApi from "../googleDriveApi.js";
+import type * as graduation from "../graduation.js";
 import type * as guide from "../guide.js";
 import type * as guideModules from "../guideModules.js";
 import type * as handleHygiene from "../handleHygiene.js";
@@ -155,6 +156,7 @@ declare const fullApi: ApiFromModules<{
   formats: typeof formats;
   functions: typeof functions;
   googleDriveApi: typeof googleDriveApi;
+  graduation: typeof graduation;
   guide: typeof guide;
   guideModules: typeof guideModules;
   handleHygiene: typeof handleHygiene;

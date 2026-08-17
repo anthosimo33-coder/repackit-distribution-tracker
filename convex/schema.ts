@@ -1827,6 +1827,39 @@ export default defineSchema({
     // S2 — résumé combo côté admin (charge les bricks du projet pour les labels).
     .index("by_project", ["projectId"]),
 
+  // ─── Journal des GRADUATIONS de hooks ────────────────────────────────────
+  // Une ligne par graduation réussie : quel hook du LAB est parti dans les
+  // ouvertures prouvées, quand, et avec QUELS SCORES. Les scores sont FIGÉS au
+  // moment du geste — c'est tout l'intérêt d'un journal d'audit : six mois plus
+  // tard, les vues du post auront bougé et les seuils auront changé, mais on
+  // doit pouvoir répondre « sur quoi s'est-on appuyé pour graduer celui-là ? ».
+  //
+  // Ne sert PAS à l'idempotence (celle-ci compare les TEXTES présents dans la
+  // campagne cible, cf hookIdentityKey) : un journal peut être purgé sans
+  // rouvrir la porte au doublon.
+  hookGraduations: defineTable({
+    projectId: v.id("projects"),
+    /** Brique d'origine, dans le LAB (désactivée par la graduation). */
+    sourceBrickId: v.id("scriptBricks"),
+    sourceCampaignId: v.id("scriptCampaigns"),
+    /** Copie créée dans les ouvertures prouvées. */
+    targetBrickId: v.id("scriptBricks"),
+    targetCampaignId: v.id("scriptCampaigns"),
+    /** Texte AU MOMENT de la graduation (les briques peuvent être éditées après). */
+    content: v.string(),
+    graduatedAt: v.number(),
+    /** Scores du run qui a justifié la graduation. `saves` absent = non collecté. */
+    scores: v.object({
+      vues: v.number(),
+      likes: v.number(),
+      saves: v.optional(v.number()),
+      /** Nombre de runs observés pour ce hook au moment du geste. */
+      runs: v.number(),
+    }),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_source", ["sourceBrickId"]),
+
   // ─── Assets — bibliothèque de FICHIERS en dossiers (matériel à télécharger) ──
   // IMAGES (jpg/png/webp) + VIDÉOS courtes (mp4/mov/webm), hébergées en Convex
   // file storage. Un dossier (assetFolders) regroupe des fichiers (assets) ; on
