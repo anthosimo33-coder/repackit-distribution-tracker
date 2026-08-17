@@ -21,6 +21,13 @@
  *    (quota, actor down, timeout) est LOGUÉ et IGNORÉ — les autres continuent.
  */
 
+import {
+  parseSaves,
+  parseAuthorProfile,
+  hasAnyCount,
+  type AuthorProfile,
+} from "./apifyItem";
+
 const APIFY_ACTS_BASE = "https://api.apify.com/v2/acts";
 
 /** Actors par défaut (slug `owner~name` pour le path REST). Overridables par env. */
@@ -95,6 +102,15 @@ export interface ApifyPostStat {
   likes: number | null;
   comments: number | null;
   title: string | null;
+  /** SAVES (collectCount, TikTok) ; null = non collecté (Instagram/YouTube). */
+  saves: number | null;
+  /**
+   * Compteurs du COMPTE auteur, servis avec l'item vidéo (TikTok). `null` si
+   * absents. Portés PAR POST et non indexés par handle : le rattachement au
+   * compte applicatif se fait via la publication, car le handle de l'URL
+   * (« kellyleydie ») ne coïncide pas avec celui saisi en base (« @kelly.leydie »).
+   */
+  author: AuthorProfile | null;
 }
 
 interface ParsedApifyViews {
@@ -132,7 +148,19 @@ function parseTikTokViews(
     const likes = toCount((item as { diggCount?: unknown }).diggCount);
     const comments = toCount((item as { commentCount?: unknown }).commentCount);
     const title = cleanCaption((item as { text?: unknown }).text);
-    stats[key] = { views, likes, comments, title };
+    // `collectCount` était reçu et jeté : la lecture vit maintenant dans le
+    // helper partagé avec RADAR (convex/apifyItem.ts).
+    const profil = parseAuthorProfile(item);
+    stats[key] = {
+      views,
+      likes,
+      comments,
+      title,
+      // `collectCount` et `authorMeta` étaient reçus et jetés : la lecture vit
+      // maintenant dans le helper partagé avec RADAR (convex/apifyItem.ts).
+      saves: parseSaves(item),
+      author: hasAnyCount(profil) ? profil : null,
+    };
   }
   const present = new Set(Object.keys(stats));
   return { stats, unavailable: requestedKeys.filter((k) => !present.has(k)) };
@@ -160,7 +188,9 @@ function parseInstagramViews(
     const likes = toCount((item as { likesCount?: unknown }).likesCount);
     const comments = toCount((item as { commentsCount?: unknown }).commentsCount);
     const title = cleanCaption((item as { caption?: unknown }).caption);
-    stats[key] = { views, likes, comments, title };
+    // Instagram n'expose AUCUNE métrique de saves — `null` est définitif ici,
+    // pas un défaut de collecte à rattraper plus tard.
+    stats[key] = { views, likes, comments, title, saves: null, author: null };
   }
   const present = new Set(Object.keys(stats));
   return { stats, unavailable: requestedKeys.filter((k) => !present.has(k)) };
