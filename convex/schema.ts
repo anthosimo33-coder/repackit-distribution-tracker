@@ -1811,6 +1811,13 @@ export default defineSchema({
     mode: v.optional(
       v.union(v.literal("dire"), v.literal("afficher"), v.literal("les_deux")),
     ),
+    // FAMILLE D'ANGLE du hook (« vérification », « trahison », …). CHAÎNE LIBRE
+    // et non un enum : la taxonomie éditoriale se découvre à l'usage, la figer
+    // imposerait un déploiement pour nommer un angle qui marche. Suggestions +
+    // normalisation dans convex/angleFamily.ts. Renseignée pour les HOOKS
+    // uniquement (comme `tier`) ; absente = « Sans famille ». Optional →
+    // 0 migration.
+    angleFamily: v.optional(v.string()),
     active: v.boolean(),
     order: v.optional(v.number()),
     createdAt: v.number(),

@@ -24,6 +24,7 @@ import {
   isGuardedKind,
 } from "./rushScriptEligibility";
 import { ConvexError, v } from "convex/values";
+import { normalizeAngleFamily } from "./angleFamily";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 
@@ -878,6 +879,8 @@ export const createBrick = adminMutation({
     content: v.string(),
     tier: v.optional(TIER),
     mode: v.optional(MODE),
+    // Famille d'angle — chaîne LIBRE (cf convex/angleFamily.ts), hooks seulement.
+    angleFamily: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await requireCampaign(ctx, args.campaignId, ctx.projectId);
@@ -897,6 +900,12 @@ export const createBrick = adminMutation({
       // au read (Snytch). Ignoré pour cta.
       mode:
         args.kind === "hook" || args.kind === "flux" ? args.mode : undefined,
+      // Famille d'angle UNIQUEMENT pour les hooks (même règle que `tier`).
+      // Normalisée à l'écriture : une saisie blanche vaut ABSENCE, jamais "".
+      angleFamily:
+        args.kind === "hook"
+          ? (normalizeAngleFamily(args.angleFamily) ?? undefined)
+          : undefined,
       active: true,
       createdAt: Date.now(),
     });
@@ -914,6 +923,8 @@ export const updateBrick = adminMutation({
     active: v.optional(v.boolean()),
     order: v.optional(v.number()),
     mode: v.optional(MODE),
+    // null = retirer la famille ; chaîne = définir (ignoré si non-hook).
+    angleFamily: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
     const brick = await ctx.db.get(args.id);
@@ -938,6 +949,12 @@ export const updateBrick = adminMutation({
       (brick.kind === "hook" || brick.kind === "flux")
     ) {
       patch.mode = args.mode;
+    }
+    // Famille d'angle : hooks uniquement. `null` ET saisie blanche retirent la
+    // famille — la normalisation ramène les deux à `undefined`, donc effacer en
+    // vidant le champ marche comme choisir « — ».
+    if (args.angleFamily !== undefined && brick.kind === "hook") {
+      patch.angleFamily = normalizeAngleFamily(args.angleFamily) ?? undefined;
     }
     await ctx.db.patch(args.id, patch);
     return { ok: true };

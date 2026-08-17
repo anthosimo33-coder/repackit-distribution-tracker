@@ -44,6 +44,10 @@ export type TrackerPost = {
    *  (drill-down scripts) ne les fournissent pas. */
   campaignId?: string | null;
   campaignName?: string | null;
+  /** Famille d'angle du HOOK du combo (chaîne libre, cf convex/angleFamily).
+   *  Même optionalité que la campagne : seul listTrackerPosts la renseigne.
+   *  null = pas de combo, hook supprimé, ou famille non renseignée. */
+  angleFamily?: string | null;
   datePubli: number;
   postUrl: string | null;
   vues: number;

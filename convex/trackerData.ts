@@ -281,6 +281,22 @@ export const listTrackerPosts = adminQuery({
       ).map((c) => [c._id as string, c.name]),
     );
 
+    // FAMILLE D'ANGLE — portée par la brique HOOK du combo, pas par la
+    // publication. Une seule lecture des briques du projet (index by_project,
+    // celui-là même qui sert au résumé combo côté admin) puis résolution en
+    // mémoire : Convex n'indexe pas les champs imbriqués, donc le join passe
+    // forcément par scriptCombo.hookBrickId côté client de la query.
+    const angleFamilyByBrick = new Map(
+      (
+        await ctx.db
+          .query("scriptBricks")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect()
+      )
+        .filter((b) => b.kind === "hook" && b.angleFamily !== undefined)
+        .map((b) => [b._id as string, b.angleFamily as string]),
+    );
+
     // datePubli desc → ordre stable par défaut (le client re-trie selon la
     // colonne choisie, défaut vues desc). Lecture latest = champs dénormalisés.
     const pubs = await ctx.db
@@ -319,6 +335,13 @@ export const listTrackerPosts = adminQuery({
         campaignName: p.scriptCombo?.campaignId
           ? (campaignNameById.get(p.scriptCombo.campaignId as string) ??
             "Campagne supprimée")
+          : null,
+        // Famille d'angle du HOOK du combo. null = pas de combo, hook supprimé,
+        // ou famille non renseignée — les trois retombent sur « Sans famille »
+        // côté agrégat, ce qui est la bonne lecture : dans les trois cas on ne
+        // sait pas de quelle famille relève ce post.
+        angleFamily: p.scriptCombo?.hookBrickId
+          ? (angleFamilyByBrick.get(p.scriptCombo.hookBrickId as string) ?? null)
           : null,
         datePubli: p.datePubli,
         postUrl: p.postUrl ?? null,

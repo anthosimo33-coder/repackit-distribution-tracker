@@ -12,6 +12,7 @@ import type * as accountPhase from "../accountPhase.js";
 import type * as adminRecovery from "../adminRecovery.js";
 import type * as analyticsContract from "../analyticsContract.js";
 import type * as analyticsHub from "../analyticsHub.js";
+import type * as angleFamily from "../angleFamily.js";
 import type * as apifyApi from "../apifyApi.js";
 import type * as apifySync from "../apifySync.js";
 import type * as assets from "../assets.js";
@@ -123,6 +124,7 @@ declare const fullApi: ApiFromModules<{
   adminRecovery: typeof adminRecovery;
   analyticsContract: typeof analyticsContract;
   analyticsHub: typeof analyticsHub;
+  angleFamily: typeof angleFamily;
   apifyApi: typeof apifyApi;
   apifySync: typeof apifySync;
   assets: typeof assets;

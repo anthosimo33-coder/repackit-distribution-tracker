@@ -66,6 +66,7 @@ import {
 } from "@/lib/script-mode";
 import { ScriptDestinationZones } from "@/components/scripts/ScriptDestinationZones";
 import { TierBadge } from "@/components/admin/TierBadge";
+import { AngleFamilyInput } from "@/components/admin/AngleFamilyInput";
 import { AssignScriptCampaignDialog } from "@/components/admin/AssignScriptCampaignDialog";
 import type { FunctionReturnType } from "convex/server";
 
@@ -280,6 +281,13 @@ function BrickRow({ brick, onEdit }: { brick: Brick; onEdit: () => void }) {
       toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     }
   }
+  async function setAngleFamily(angleFamily: string | null) {
+    try {
+      await update({ id: brick._id, angleFamily });
+    } catch (e) {
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+    }
+  }
   async function onDelete() {
     try {
       await remove({ id: brick._id });
@@ -313,6 +321,13 @@ function BrickRow({ brick, onEdit }: { brick: Brick; onEdit: () => void }) {
             </p>
           )}
         </div>
+        {brick.kind === "hook" && (
+          <AngleFamilyInput
+            value={brick.angleFamily}
+            onCommit={setAngleFamily}
+            className="w-32 shrink-0"
+          />
+        )}
         {brick.kind === "hook" && (
           <Select
             value={brick.tier ?? "none"}
@@ -385,6 +400,7 @@ function BrickDialog({
   const [label, setLabel] = useState("");
   const [content, setContent] = useState("");
   const [tier, setTier] = useState<ScriptTier | "none">("none");
+  const [angleFamily, setAngleFamily] = useState<string | null>(null);
   const [mode, setMode] = useState<BrickMode>("les_deux");
   const [busy, setBusy] = useState(false);
   // Mode (zone vidéo) : Snytch + hook/flux uniquement.
@@ -398,6 +414,7 @@ function BrickDialog({
       setLabel(brick?.label ?? "");
       setContent(brick?.content ?? "");
       setTier(brick?.tier ?? "none");
+      setAngleFamily(brick?.angleFamily ?? null);
       setMode(resolveBrickMode(brick?.mode));
     }
   }
@@ -415,7 +432,7 @@ function BrickDialog({
           label,
           content,
           ...(kind === "hook"
-            ? { tier: tier === "none" ? null : tier }
+            ? { tier: tier === "none" ? null : tier, angleFamily }
             : {}),
           ...(showMode ? { mode } : {}),
         });
@@ -427,6 +444,7 @@ function BrickDialog({
           label,
           content,
           ...(kind === "hook" && tier !== "none" ? { tier } : {}),
+          ...(kind === "hook" && angleFamily ? { angleFamily } : {}),
           ...(showMode ? { mode } : {}),
         });
         toast.success("Brique ajoutée");
@@ -492,6 +510,20 @@ function BrickDialog({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          )}
+          {kind === "hook" && (
+            <div className="space-y-1.5">
+              <Label>Famille d&apos;angle</Label>
+              <AngleFamilyInput
+                value={angleFamily}
+                onCommit={setAngleFamily}
+                className="w-56"
+              />
+              <p className="text-xs text-slate-400">
+                Champ libre — les suggestions ne sont qu&apos;un point de
+                départ.
+              </p>
             </div>
           )}
           {/* SNYTCH — mode d'usage dans la vidéo (hook/flux) : dire / afficher /
