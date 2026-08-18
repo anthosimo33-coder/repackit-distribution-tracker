@@ -137,6 +137,34 @@ describe("hookIdentityKey — l'idempotence tient là-dessus", () => {
   });
 });
 
+describe("hookIdentityKey — emojis pliés (leçon de prod du 18/08)", () => {
+  it("les DEUX campagnes de prod matchent leurs constantes malgré les drapeaux", () => {
+    // Noms EXACTS de prod (double espace + drapeau FR). Avant le pliage,
+    // campaignNameMatches rendait false et la graduation était inerte.
+    expect(campaignNameMatches("Format Warmup LAB  \u{1F1EB}\u{1F1F7}", LAB_CAMPAIGN_NAME)).toBe(true);
+    expect(
+      campaignNameMatches("Format Warmup - Ouvertures prouvées \u{1F1EB}\u{1F1F7}", PROVEN_CAMPAIGN_NAME),
+    ).toBe(true);
+  });
+
+  it("un pictogramme quelconque, un sélecteur de variante ou une séquence ZWJ ne changent pas l'identité", () => {
+    const base = hookIdentityKey("Elle a vérifié son téléphone à 3 h du matin.");
+    expect(hookIdentityKey("Elle a vérifié son téléphone à 3 h du matin. \u{1F525}")).toBe(base);
+    expect(hookIdentityKey("\u{2764}\uFE0F Elle a vérifié son téléphone à 3 h du matin.")).toBe(base);
+    // Séquence ZWJ (famille) : plusieurs pictogrammes liés.
+    expect(
+      hookIdentityKey("Elle a vérifié son téléphone à 3 h du matin. \u{1F468}\u200D\u{1F469}\u200D\u{1F467}"),
+    ).toBe(base);
+  });
+
+  it("ne mange PAS les chiffres ni le « # » (Emoji mais pas pictographiques)", () => {
+    // « 3 signes qu'il ment » doit garder son 3 : sans quoi deux hooks « 3
+    // signes » et « 5 signes » deviendraient le même.
+    expect(hookIdentityKey("3 signes qu'il ment")).not.toBe(hookIdentityKey("5 signes qu'il ment"));
+    expect(hookIdentityKey("#1 raison de partir")).toContain("#1");
+  });
+});
+
 describe("campaignNameMatches", () => {
   it("tolère casse, accents et espaces sur le nom de campagne", () => {
     expect(campaignNameMatches("format warmup lab", LAB_CAMPAIGN_NAME)).toBe(

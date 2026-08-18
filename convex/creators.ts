@@ -23,6 +23,7 @@ import { DELETABLE_STATUSES, purgeAndDeleteAssignment } from "./assignments";
 import { ConvexError, v } from "convex/values";
 import { normalizeRef } from "./conversionAttribution";
 import type { Doc, Id } from "./_generated/dataModel";
+import { internalMutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 /**
@@ -1243,5 +1244,69 @@ export const cleanupTestCreators = e2eMutation({
       deleted++;
     }
     return { deleted };
+  },
+});
+
+
+// ─── Outillage : pose des refSlug depuis le CLI (npx convex run --prod) ──────
+
+/**
+ * Pose la ref du chemin court snytch.co sur une créatrice, DEPUIS LE CLI.
+ *
+ * `updateCreator` est une adminMutation (session requise) — inatteignable
+ * depuis `npx convex run`. Cette mutation interne sert l'amorçage : les
+ * refSlug n'existaient sur aucune fiche après le déploiement de #72, et sans
+ * elles la section « Ce que ça a rapporté » affiche « pas de ref configurée »
+ * partout.
+ *
+ * Résolution par (slug de projet, nom de créatrice) : les deux choses lisibles
+ * dans un appel CLI. Nom plié (casse/accents/espaces). REFUSE d'écraser une
+ * ref DIFFÉRENTE déjà posée sans `force` : une ref est une clé d'attribution —
+ * la changer par mégarde rattacherait l'historique à la mauvaise personne.
+ * Idempotent si la ref est identique.
+ */
+export const setCreatorRefSlugBySlug = internalMutation({
+  args: {
+    projectSlug: v.string(),
+    creatorName: v.string(),
+    refSlug: v.union(v.string(), v.null()),
+    force: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { projectSlug, creatorName, refSlug, force }) => {
+    const project = (await ctx.db.query("projects").collect()).find(
+      (p) => p.slug === projectSlug,
+    );
+    if (!project) throw new ConvexError(`Projet « ${projectSlug} » introuvable.`);
+    const fold = (t: string) =>
+      t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+    const creators = await ctx.db
+      .query("creators")
+      .withIndex("by_project", (q) => q.eq("projectId", project._id))
+      .collect();
+    const matches = creators.filter((c) => fold(c.name) === fold(creatorName));
+    if (matches.length !== 1) {
+      throw new ConvexError(
+        `${matches.length} créatrice(s) « ${creatorName} » sur ${projectSlug} — il en faut exactement une.`,
+      );
+    }
+    const c = matches[0];
+    const next = refSlug === null ? undefined : (normalizeRef(refSlug) ?? undefined);
+    if (
+      c.refSlug !== undefined &&
+      next !== undefined &&
+      c.refSlug !== next &&
+      force !== true
+    ) {
+      throw new ConvexError(
+        `${c.name} porte déjà la ref « ${c.refSlug} » — passer force:true pour la remplacer par « ${next} ».`,
+      );
+    }
+    await ctx.db.patch(c._id, { refSlug: next });
+    return {
+      creatorId: c._id,
+      name: c.name,
+      before: c.refSlug ?? null,
+      after: next ?? null,
+    };
   },
 });
