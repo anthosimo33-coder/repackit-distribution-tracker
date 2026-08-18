@@ -92,9 +92,23 @@ export const POSTHOG_CACHE_KEYS = {
   abArms: "abArms",
   abPersonArms: "abPersonArms",
   freePlan: "freePlan",
+  // ─── Réconciliation clients PostHog ↔ Whop par membership_id ──────────────
+  subsByMembership: "subsByMembership",
 } as const;
 
 // ─── Formes des agrégats cachés ──────────────────────────────────────────────
+
+/**
+ * Un `subscription_completed` NON-renouvellement par (jour Paris, membership_id)
+ * — la matière du contrôle croisé « Clients/jour PostHog vs Whop ». Depuis le
+ * 28/07 l'event porte `membership_id` : on peut donc APPARIER chaque sub au
+ * jour du 1er paiement Whop du même membership au lieu de comparer deux
+ * agrégats que rien ne relie. `membership_id` vide = event antérieur à la
+ * bascule d'instrumentation (ou schéma non respecté) → inappariable.
+ */
+export interface SubsByMembershipPayload {
+  rows: { day: string; membershipId: string; persons: number }[];
+}
 
 export interface OverviewPayload {
   daily: {
@@ -543,6 +557,20 @@ SELECT toStartOfDay(timestamp, 'Europe/Paris') AS d,
 FROM events
 WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
 GROUP BY d
+ORDER BY d`,
+  // Subs par (jour Paris, membership_id) — la clé qui rend l'écart EXPLICABLE.
+  // Personnes distinctes par membership : un retry serveur qui ré-émet l'event
+  // pour le même membership compte 1 ici et se réconcilie ensuite au jour de
+  // son paiement Whop (module pur lib/analytics-hub).
+  subsByMembership: `
+SELECT formatDateTime(toStartOfDay(timestamp, 'Europe/Paris'), '%Y-%m-%d') AS d,
+       ifNull(toString(properties.membership_id), '') AS membership_id,
+       uniq(person_id) AS persons
+FROM events
+WHERE event = 'subscription_completed'
+  AND ifNull(toString(properties.is_renewal), '') != 'true'
+  AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+GROUP BY d, membership_id
 ORDER BY d`,
 
   /**
@@ -1502,6 +1530,19 @@ export const runHourlySync = internalAction({
                 subs: cellNum(r, 4),
               }))
               .filter((d): d is OverviewPayload["daily"][number] => d.ts !== null),
+          }),
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.subsByMembership,
+          apiKey,
+          target,
+          QUERIES.subsByMembership,
+          (rows): SubsByMembershipPayload => ({
+            rows: rows.map((r) => ({
+              day: cellStr(r, 0),
+              membershipId: cellStr(r, 1),
+              persons: cellNum(r, 2),
+            })),
           }),
         ),
         await collect(

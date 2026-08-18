@@ -30,6 +30,7 @@ import {
   type InternalExcludedPayload,
   type AbPersonArmsPayload,
   type AbArmsPayload,
+  type SubsByMembershipPayload,
 } from "./posthogSync";
 import {
   internalAccountsFor,
@@ -1568,6 +1569,12 @@ export interface ReliabilityResult {
     /** subs PostHog par jour Paris — SEULEMENT pour le contrôle croisé PostHog↔Whop
      *  (le funnel garde PostHog ; l'affichage « Clients payants » passe sur Whop). */
     dailySubs: { day: string; subs: number }[];
+    /** subs PostHog par (jour Paris, membership_id) — réconciliation fine du
+     *  contrôle croisé (cf lib/analytics-hub.reconcileDailyClients). */
+    subsByMembership: { day: string; membershipId: string; persons: number }[];
+    /** Jour Paris du 1er paiement encaissé PAR membership Whop (internes exclus)
+     *  — l'autre moitié de la réconciliation. */
+    whopFirstPaidDay: { membershipId: string; day: string }[];
     /** Jour Paris courant — exclu du contrôle croisé (partiel des deux côtés). */
     todayParis: string;
     /**
@@ -1661,6 +1668,14 @@ export const getReliability = adminQuery({
       subs: d.subs,
     }));
     const todayParis = parisDay(Date.now());
+    // Subs par (jour, membership_id) — la CLÉ qui rend l'écart explicable
+    // (retry rejoué un autre jour, sub sans paiement encaissé, paiement sans
+    // event). Cache vide avant le 1er cron post-deploy → le contrôle retombe
+    // sur la comparaison brute, jamais sur une explication inventée.
+    const subsByMembership = read<SubsByMembershipPayload>(
+      POSTHOG_CACHE_KEYS.subsByMembership,
+      { rows: [] },
+    ).rows;
 
     // ─── Montant dû : total affiché vs somme de ses parts ───────────────────
     // On repasse par la MÊME source que l'écran Paiements (cyclePaymentsForCreator)
@@ -1722,6 +1737,7 @@ export const getReliability = adminQuery({
     let whopExcludedPre = 0;
     let whopExcludedAfter = 0;
     let dailyPaidClients: { day: string; clients: number }[] = [];
+    let whopFirstPaidDay: { membershipId: string; day: string }[] = [];
     let dailyRenewals: { day: string; renewals: number }[] = [];
     let dailyPaymentCount: { day: string; payments: number }[] = [];
     let whopSecuredMembers: number | null = null;
@@ -1783,6 +1799,10 @@ export const getReliability = adminQuery({
       dailyPaidClients = [...paidClientsByDay.entries()]
         .map(([day, clients]) => ({ day, clients }))
         .sort((a, b) => (a.day < b.day ? -1 : 1));
+      whopFirstPaidDay = [...firstPaid.entries()].map(([membershipId, ms]) => ({
+        membershipId,
+        day: parisDay(ms),
+      }));
 
       // RENOUVELLEMENTS par jour Paris — colonne jumelle de « Nouveaux clients ».
       // `dailyPaidClients` ne compte QUE le premier paiement d'un abonnement : une
@@ -1925,6 +1945,8 @@ export const getReliability = adminQuery({
         whopSecuredMembers,
         dailyFailedPayments,
         dailySubs,
+        subsByMembership,
+        whopFirstPaidDay,
         todayParis,
         payDue,
       },

@@ -87,6 +87,8 @@ export function FiabiliteTab({
       dailySignupsSum: c.dailySignupsSum,
       dailySubs: c.dailySubs,
       dailyPaidClients: c.dailyPaidClients,
+      subsByMembership: c.subsByMembership,
+      whopFirstPaidDay: c.whopFirstPaidDay,
       todayParis: c.todayParis,
     });
   }, [reliability.coherence]);
@@ -229,6 +231,21 @@ export function FiabiliteTab({
                 ))}
               </TableBody>
             </Table>
+            {/* Règle de lecture du contrôle croisé — issue du diagnostic du 28/07/2026
+                (11 vs 8) : les deux séries étaient déjà en jour Paris ; l'écart
+                venait d'events REJOUÉS un autre jour et d'un paiement remboursé,
+                pas d'un décalage de minuit. */}
+            <p className="text-xs text-slate-500">
+              <span className="font-medium text-slate-700">
+                Clients/jour PostHog vs Whop
+              </span>{" "}
+              — Whop fait foi pour les ventes (il encaisse). Depuis le 28/07,
+              chaque abonnement PostHog porte son identifiant Whop : un écart
+              se décompose en events rejoués un autre jour, abonnements sans
+              paiement abouti, ou paiements sans event. L&apos;alerte ne sonne
+              que sur ce qui reste inexpliqué (≥ 3 = écart, 2 = à surveiller) ;
+              un ±1 autour de minuit est attendu.
+            </p>
           </CardContent>
         </Card>
 
