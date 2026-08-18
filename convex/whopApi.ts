@@ -387,7 +387,10 @@ export function normalizeWhopMembership(raw: unknown): NormalizedWhopMembership 
   const abExperiment = getStr(md?.abExperiment);
   const abForced = typeof md?.abForced === "boolean" ? md.abForced : undefined;
   const distinctId = getStr(md?.distinctId) ?? getStr(md?.userToken);
-  const ref = getStr(md?.ref);
+  // `metadata.creatorRef` — la clé réellement posée par le site au checkout
+  // (confirmée sur l'API le 18/08 : présente, à null tant qu'aucune vente
+  // n'a transité par un chemin court). `ref` gardé en repli.
+  const ref = getStr(md?.creatorRef) ?? getStr(md?.ref);
   return {
     whopMembershipId: id,
     whopUserId,

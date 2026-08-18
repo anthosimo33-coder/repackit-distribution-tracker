@@ -274,11 +274,21 @@ export interface ConversionSyncSummary {
  * d'heure). `force` court-circuite la garde (run manuel / test).
  */
 export const runConversionSync = internalAction({
-  args: { force: v.optional(v.boolean()) },
-  handler: async (ctx, { force }): Promise<ConversionSyncSummary> => {
+  args: {
+    force: v.optional(v.boolean()),
+    /**
+     * Rejoue les N derniers jours au lieu de la seule veille — un rattrapage
+     * MANUEL après un défaut de source (ex. la requête PostHog invalide du
+     * 17/08, qui avait laissé 30 jours à visiteurs=null). Idempotent par
+     * construction (mergeDayRows) : rejouer n'écrase que la source qui répond
+     * et ne double jamais. Implique `force`.
+     */
+    backfillDays: v.optional(v.number()),
+  },
+  handler: async (ctx, { force, backfillDays }): Promise<ConversionSyncSummary> => {
     const now = Date.now();
     const heure = parisHour(now);
-    if (force !== true) {
+    if (force !== true && backfillDays === undefined) {
       if (heure === null) {
         console.error(
           "[conversion] heure de Paris incalculable — collecte NON lancée.",
@@ -299,16 +309,25 @@ export const runConversionSync = internalAction({
     let posthogErrors = 0;
 
     for (const proj of projects) {
-      const daysToCollect = proj.needsBackfill
-        ? lastParisDays(hier, BACKFILL_DAYS)
-        : [hier];
+      const daysToCollect =
+        backfillDays !== undefined && backfillDays > 0
+          ? lastParisDays(hier, Math.min(backfillDays, 90))
+          : proj.needsBackfill
+            ? lastParisDays(hier, BACKFILL_DAYS)
+            : [hier];
       const from = parisDayBounds(daysToCollect[0]).start;
       const to = parisDayBounds(daysToCollect[daysToCollect.length - 1]).end;
 
       // ── PostHog : UNE requête pour tout l'intervalle, par jour et par ref ──
-      // person.properties.ref = la ref posée par le chemin court. L'anonyme
-      // (ref vide) alimente la ligne « sans source ». Comptes internes exclus,
-      // comme partout dans le hub.
+      // `properties.creator_ref` AU NIVEAU EVENT : c'est là que snytch.co pose
+      // la ref du chemin court (mapping confirmé le 18/08 par le dev du site).
+      // Elle ne remonte sur la personne que pour une minorité de visiteurs —
+      // la lire sur `person.properties` en perdait plus de la moitié. Le jour
+      // Paris se calcule avec toStartOfDay(ts, tz) : HogQL refuse le fuseau en
+      // 2e argument de toDate() (« expects 1 argument ») — la requête d'origine
+      // échouait à CHAQUE run et la fusion par source laissait PostHog à null.
+      // L'anonyme (ref vide) alimente la ligne « sans source ». Comptes
+      // internes exclus, comme partout dans le hub.
       const phByDay = new Map<string, PosthogDayResult>();
       let posthogOk = false;
       if (proj.posthog !== null) {
@@ -323,14 +342,14 @@ export const runConversionSync = internalAction({
             host: proj.posthog.host,
           };
           const query = `
-SELECT toDate(timestamp, 'Europe/Paris') AS d,
-       coalesce(person.properties.ref, '') AS ref,
+SELECT formatDateTime(toStartOfDay(timestamp, 'Europe/Paris'), '%Y-%m-%d') AS d,
+       coalesce(properties.creator_ref, '') AS ref,
        uniqIf(person_id, event = '$pageview') AS visitors,
        uniqIf(person_id, event = 'signup_completed') AS signups
 FROM events
 WHERE event IN ('$pageview', 'signup_completed')
-  AND toDate(timestamp, 'Europe/Paris') >= toDate('${daysToCollect[0]}')
-  AND toDate(timestamp, 'Europe/Paris') <= toDate('${daysToCollect[daysToCollect.length - 1]}')${notInternalClause(internalAccountsFor(proj.slug))}
+  AND timestamp >= toDateTime('${daysToCollect[0]} 00:00:00', 'Europe/Paris')
+  AND timestamp < toDateTime('${parisDayKey(to)} 00:00:00', 'Europe/Paris')${notInternalClause(internalAccountsFor(proj.slug))}
 GROUP BY d, ref`;
           const res = await runHogQL(apiKey, target, query);
           if (res.error !== null) {

@@ -85,21 +85,43 @@ export function bestRun(runs: readonly HookRun[]): HookRun | null {
 }
 
 /**
- * Clé d'identité d'un hook par son TEXTE : casse, accents et espaces pliés.
+ * Emojis et pictogrammes à retirer d'une clé d'identité : drapeaux (indicateurs
+ * régionaux), symboles et pictogrammes divers, émoticônes, sélecteurs de
+ * variante et lieurs (ZWJ) qui les assemblent. Classes Unicode `\p{…}` avec le
+ * drapeau `u` — pas une liste de codepoints à entretenir. `\p{Extended_Pictographic}`
+ * couvre les emojis sans attraper les chiffres ni « # » (qui sont
+ * `Emoji` mais pas pictographiques — un hook « 3 signes qu'il ment » garde son 3).
+ */
+const EMOJI_RE = /[\p{Extended_Pictographic}\p{Regional_Indicator}\uFE0F\u200D]/gu;
+
+/**
+ * Clé d'identité d'un hook par son TEXTE : casse, accents, EMOJIS et espaces
+ * pliés.
  *
  * C'est elle qui rend la graduation IDEMPOTENTE. On ne peut pas comparer les
  * identifiants de briques (la copie en a un nouveau) ni le texte brut (une
  * majuscule ou un espace en trop rouvrirait la porte au doublon que tout ce
  * mécanisme cherche à éviter).
+ *
+ * ⚠️ EMOJIS PLIÉS — leçon de prod (audit du 18/08/2026). Les campagnes
+ * s'appellent « Format Warmup LAB  🇫🇷 » et « … Ouvertures prouvées 🇫🇷 » ; la
+ * clé ne pliait pas les drapeaux, `campaignNameMatches` échouait, et la
+ * graduation était INERTE en prod (bouton sans effet, « Programmer la
+ * frappe » masqué). Renommer les campagnes aurait résolu aujourd'hui en
+ * laissant le piège armé pour la prochaine ; le pliage le désarme pour
+ * toujours. Un emoji n'est jamais l'identité d'un texte, il le décore.
  */
 export function hookIdentityKey(content: string): string {
   return content
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
+    .replace(EMOJI_RE, "")
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
 }
+
+
 
 /**
  * Deux campagnes peuvent porter le même nom à la casse ou aux espaces près :
