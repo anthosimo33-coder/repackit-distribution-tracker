@@ -211,24 +211,48 @@ describe("detectAccountAlarms", () => {
 });
 
 describe("verdictOf", () => {
-  it("un post trop jeune est « en attente », pas « sous les seuils »", () => {
-    // Juger un post de 3 h le condamnerait avant qu'il ait vécu.
-    expect(verdictOf(post({ postedAt: NOW - 3 * HOUR, vues: 210 }), NOW)).toBe(
-      "pending",
-    );
-    // Juste au-delà de la borne, il est jugeable.
+  it("un post jeune SANS relevé est « en attente », pas « sous les seuils »", () => {
+    // Juger un post de 3 h qui n'a encore aucun relevé le condamnerait avant
+    // qu'il ait vécu. `vues: 0` = pas de snapshot (vuesLatest dénormalisé).
+    expect(
+      verdictOf(post({ postedAt: NOW - 3 * HOUR, vues: 0, likes: 0, saves: null, delta24h: 0 }), NOW),
+    ).toBe("pending");
+    // Juste au-delà de la borne, même sans relevé, il est jugeable.
     expect(
       verdictOf(
         post({
           postedAt: NOW - PENDING_POST_MAX_AGE_MS - 1,
-          vues: 210,
-          likes: 4,
-          delta24h: 3,
-          saves: 0,
+          vues: 0,
+          likes: 0,
+          delta24h: 0,
+          saves: null,
         }),
         NOW,
       ),
     ).not.toBe("pending");
+  });
+
+  it("un post jeune AVEC relevé n'est JAMAIS « en attente » — la donnée parle", () => {
+    // Le mensonge d'écran à éliminer : un post de 2 h qu'un relevé manuel montre
+    // à 105 000 vues s'affichait « en attente » jusqu'au lendemain 02 h. Avec
+    // des vues, tout son delta est récent → « monte », ou « porte ouverte ».
+    const jeuneEtEnorme = post({
+      postedAt: NOW - 2 * HOUR,
+      vues: 105_000,
+      likes: 9_800, // 9,3 %
+      saves: null, // saves pas encore collectées → pas de porte, mais pas « en attente »
+      followersDelta: null,
+      delta24h: 105_000,
+    });
+    expect(verdictOf(jeuneEtEnorme, NOW)).toBe("rising");
+    // Même un petit relevé compte : 210 vues à 3 h, tout est récent → monte.
+    expect(
+      verdictOf(post({ postedAt: NOW - 3 * HOUR, vues: 210, likes: 20, saves: null, delta24h: 210 }), NOW),
+    ).toBe("rising");
+    // Et si les quatre conditions sont là, la porte s'ouvre malgré l'âge.
+    expect(
+      verdictOf(post({ postedAt: NOW - 2 * HOUR, vues: 105_000, likes: 9_800, saves: 1_400, followersDelta: 312, delta24h: 105_000 }), NOW),
+    ).toBe("open-door");
   });
 
   it("la porte ouverte prime sur la tendance", () => {

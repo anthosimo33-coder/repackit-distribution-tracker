@@ -672,10 +672,26 @@ function Recent48h({
   );
 }
 
+/** "16/08" — jour Paris d'un relevé, pour dater une valeur qui n'est pas d'aujourd'hui. */
+function shortParisDay(ms: number): string {
+  return new Date(ms).toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "Europe/Paris",
+  });
+}
+
 function PostRow({ post: p, now }: { post: Post48h; now: number }) {
   const likeRate = rateOf(p.likes, p.vues);
   const savesState = savesAvailability(p.saves, p.plateforme);
   const saveRate = savesState === "measured" ? rateOf(p.saves, p.vues) : null;
+  // Le relevé qui porte les chiffres affichés n'est pas forcément d'aujourd'hui
+  // (le sync tourne à 23h30). On le DATE plutôt que de masquer la valeur : une
+  // donnée datée vaut mieux qu'un tiret. Rien à dater si le relevé est du jour.
+  const sourceDay =
+    p.snapshotAt !== null && shortParisDay(p.snapshotAt) !== shortParisDay(now)
+      ? shortParisDay(p.snapshotAt)
+      : null;
 
   return (
     <div className="flex items-center gap-3 py-2">
@@ -695,7 +711,11 @@ function PostRow({ post: p, now }: { post: Post48h; now: number }) {
           {p.compte} · {relativeAge(p.postedAt, now)}
         </div>
       </div>
-      <Metric value={formatNumber(p.vues)} label="vues" />
+      <Metric
+        value={formatNumber(p.vues)}
+        label={sourceDay ? `vues · au ${sourceDay}` : "vues"}
+        title={sourceDay ? `Dernier relevé le ${sourceDay} à 23h30 — le prochain sync met à jour.` : undefined}
+      />
       {/* LA colonne du tableau : un post qui monte vs un post qui s'éteint. */}
       <div className="w-20 shrink-0 text-right">
         {p.delta24h !== null ? (
@@ -714,10 +734,13 @@ function PostRow({ post: p, now }: { post: Post48h; now: number }) {
       </div>
       <RateCell rate={likeRate} tone={likeRateTone(likeRate)} label="likes" />
       {savesState === "collecting" ? (
+        // RÉSERVÉ aux posts qui n'ont AUCUN relevé portant des saves. Un post
+        // dont le dernier relevé date d'hier affiche sa valeur DATÉE (ci-dessous),
+        // pas cet état.
         <div className="w-16 shrink-0 text-right">
           <div
             className="text-xs italic text-slate-400"
-            title="Saves branchées récemment — en cours de collecte."
+            title="Aucun relevé avec saves pour ce post — en cours de collecte."
           >
             collecte…
           </div>
@@ -727,7 +750,12 @@ function PostRow({ post: p, now }: { post: Post48h; now: number }) {
         <RateCell
           rate={saveRate}
           tone={savesState === "unavailable" ? "unknown" : saveRateTone(saveRate)}
-          label="saves"
+          label={sourceDay && savesState === "measured" ? `saves · au ${sourceDay}` : "saves"}
+          title={
+            savesState === "measured" && p.saves !== null
+              ? `${formatNumber(p.saves)} save${p.saves > 1 ? "s" : ""}${sourceDay ? ` au ${sourceDay}` : ""}`
+              : undefined
+          }
         />
       )}
       <VerdictBadge verdict={verdictOf(p, now)} />
@@ -735,9 +763,17 @@ function PostRow({ post: p, now }: { post: Post48h; now: number }) {
   );
 }
 
-function Metric({ value, label }: { value: string; label: string }) {
+function Metric({
+  value,
+  label,
+  title,
+}: {
+  value: string;
+  label: string;
+  title?: string;
+}) {
   return (
-    <div className="w-16 shrink-0 text-right">
+    <div className="w-16 shrink-0 text-right" title={title}>
       <div className="text-xs tabular-nums text-slate-600">{value}</div>
       <div className="text-[10px] text-slate-400">{label}</div>
     </div>
@@ -755,13 +791,15 @@ function RateCell({
   rate,
   tone,
   label,
+  title,
 }: {
   rate: number | null;
   tone: RateTone;
   label: string;
+  title?: string;
 }) {
   return (
-    <div className="w-16 shrink-0 text-right">
+    <div className="w-16 shrink-0 text-right" title={title}>
       <div className={cn("text-xs tabular-nums", RATE_TONE_CLASS[tone])}>
         {rate === null ? "—" : formatPercent(rate)}
       </div>

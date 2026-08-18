@@ -135,7 +135,7 @@ export const decisionDashboard = adminQuery({
     // ── PostSignal d'une publication (+ libellé et type pour l'affichage) ────
     const signalOf = async (
       p: Doc<"publications">,
-    ): Promise<PostSignal & { label: string; type: string }> => {
+    ): Promise<PostSignal & { label: string; type: string; snapshotAt: number | null }> => {
       const ref = refs.get(p._id as string);
       const hookBrickId = (p.scriptCombo?.hookBrickId as string) ?? null;
       const hook = hookBrickId ? brickById.get(hookBrickId) : undefined;
@@ -163,11 +163,15 @@ export const decisionDashboard = adminQuery({
         hookBrickId,
         label: postLabel(p),
         type: typeOf(p),
+        // Instant du relevé qui porte vues/likes/saves affichés — l'écran le
+        // DATE quand il n'est pas d'aujourd'hui : « 3 218 · au 16/08 » vaut
+        // mieux qu'un tiret, tant que la date est visible.
+        snapshotAt: p.latestSnapshotAt ?? null,
       };
     };
 
     // ── Section « Posts des dernières 48 h » + portes ouvertes ───────────────
-    const posts48h: (PostSignal & { label: string; type: string })[] = [];
+    const posts48h: (PostSignal & { label: string; type: string; snapshotAt: number | null })[] = [];
     for (const p of published) {
       if (now - p.datePubli > RECENT_WINDOW_MS) continue;
       posts48h.push(await signalOf(p));
