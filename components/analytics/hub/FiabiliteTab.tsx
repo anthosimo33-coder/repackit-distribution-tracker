@@ -33,6 +33,27 @@ const SOURCE_LABELS: Record<string, string> = {
   scraping: "Vues (scraping)",
 };
 
+/**
+ * RUPTURES DE SÉRIE connues et datées — à lire avant de comparer deux périodes
+ * qui traversent l'une de ces dates. Documentées, PAS corrigées : la date est
+ * connue, le biais est borné à une seule transition, et un rétro-calcul serait
+ * plus fragile que la note. Même logique que la rupture J+X du 17/08.
+ */
+const SERIES_BREAKS: { since: string; what: string; effect: string }[] = [
+  {
+    since: "17/08/2026",
+    what: "Relevé de vues passé à 23h30 Paris (au lieu de 07h/08h UTC)",
+    effect:
+      "les colonnes J+X portent depuis ~47,5 h de vues au lieu de ~34 h : une comparaison J+1 qui traverse cette date compare deux choses différentes.",
+  },
+  {
+    since: "17/08/2026 23h32",
+    what: "Premier relevé d'abonnés par compte (delta d'abonnés du dashboard)",
+    effect:
+      "aucun historique avant : le delta n'existe qu'à partir de la 2e nuit (18/08), et sa fenêtre s'élargit d'un jour par nuit jusqu'à 4 jours (le 21/08) avant de se stabiliser. Un « +N abonnés » lu entre le 18 et le 21/08 couvre donc 1 à 3 jours, pas 4. Pas de rétro-calcul.",
+  },
+];
+
 /** Ce qui n'est pas mesurable, avec la raison. Curé — un trou caché fait décider sur du vide. */
 const NOT_MEASURABLE: { what: string; why: string }[] = [
   { what: "Détail des échecs de paiement", why: "propriété cause absente sur payment_failed" },
@@ -246,6 +267,26 @@ export function FiabiliteTab({
               que sur ce qui reste inexpliqué (≥ 3 = écart, 2 = à surveiller) ;
               un ±1 autour de minuit est attendu.
             </p>
+          </CardContent>
+        </Card>
+
+        {/* Ruptures de série — datées, documentées, non corrigées. */}
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <HubCardHeader
+              title="Ruptures de série connues"
+              subtitle="À lire avant de comparer deux périodes qui traversent l'une de ces dates. Documentées, pas corrigées : la date est connue, le biais est borné à une transition."
+            />
+            <ul className="space-y-2 text-xs text-slate-600">
+              {SERIES_BREAKS.map((b) => (
+                <li key={b.since + b.what}>
+                  <span className="font-medium text-slate-800">
+                    depuis le {b.since}
+                  </span>{" "}
+                  — {b.what}. {b.effect}
+                </li>
+              ))}
+            </ul>
           </CardContent>
         </Card>
 

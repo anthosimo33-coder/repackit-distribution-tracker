@@ -202,16 +202,32 @@ export type Verdict =
 /**
  * Verdict textuel court d'un post.
  *
- * Ordre de lecture : trop jeune d'abord (on ne juge pas un post de 3 h), puis
- * la fenêtre ouverte (l'information la plus actionnable), puis la tendance, et
- * « sous les seuils » en dernier — c'est le constat par défaut, pas un
- * diagnostic.
+ * Ordre de lecture : « en attente » d'abord, puis la fenêtre ouverte
+ * (l'information la plus actionnable), puis la tendance, et « sous les
+ * seuils » en dernier — c'est le constat par défaut, pas un diagnostic.
+ *
+ * ⚠️ « EN ATTENTE » = PAS ENCORE DE DONNÉES, pas « trop jeune ». La règle
+ * initiale était purement d'âge (< 12 h ⇒ en attente) : un post de 2 h qu'un
+ * relevé manuel montrait à 105 000 vues s'affichait « en attente » jusqu'au
+ * lendemain 02 h — un mensonge d'écran, l'inverse de ce que ce dashboard doit
+ * faire. L'âge ne sert plus qu'à protéger un post SANS relevé (0 vue) d'un
+ * « sous les seuils » prématuré : dès qu'un relevé existe, la donnée parle.
+ * Un post jeune avec des vues est par construction « monte » (tout son delta
+ * est récent) ou « porte ouverte » — jamais condamné, jamais masqué.
+ *
+ * Ce n'est PAS une question de fuseau : l'âge est une différence d'instants,
+ * `postedAt` et `now` sont des epochs. Le fuseau ne mord que sur les jours
+ * calendaires (cf viewsDaily), pas ici.
  *
  * ⚠️ « à graduer » n'est PAS produit ici : la graduation se juge sur le HOOK et
  * sa campagne, pas sur un post isolé. Elle apparaît dans « À décider ».
  */
 export function verdictOf(post: PostSignal, now: number): Verdict {
-  if (now - post.postedAt < PENDING_POST_MAX_AGE_MS) return "pending";
+  const trop_jeune = now - post.postedAt < PENDING_POST_MAX_AGE_MS;
+  // `vues === 0` ⇔ aucun relevé exploitable (vuesLatest est dénormalisé depuis
+  // le dernier snapshot ; sans snapshot il vaut 0). Une plateforme qui
+  // relèverait réellement 0 vue tombe aussi ici, et « en attente » reste juste.
+  if (trop_jeune && post.vues === 0) return "pending";
   if (detectOpenDoor(post, now) !== null) return "open-door";
 
   if (post.delta24h !== null && post.vues > 0) {
