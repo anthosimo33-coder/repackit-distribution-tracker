@@ -18,6 +18,29 @@ export type RateModel = {
  * préfère un nombre nu à un faux symbole). `narrowSymbol` donne « 4,99 $ » / « 4,99 €
  * » sans coller le code pays. Devise acceptée en minuscules (« usd », « eur »).
  */
+/**
+ * En-tête d'une colonne de MONTANT (CSV, export). Le montant lui-même reste un
+ * nombre nu — un tableur doit pouvoir le parser — donc la devise se dit dans
+ * l'en-tête, et elle vient de la DONNÉE, exactement comme dans formatMoney.
+ *
+ * L'en-tête du CSV des cycles annonçait « Total dû (€) » au-dessus de montants
+ * libellés en dollars (projects.payCurrency = "usd" sur les trois projets) : un
+ * document envoyé à des créateurs, qui se trompait de devise.
+ *
+ * Devise absente ⇒ AUCUNE mention, jamais une devise inventée (même règle que
+ * formatMoney, qui rend alors un nombre sans symbole). On affiche le CODE ISO
+ * (« USD ») et non le symbole : dans un fichier lu par un tableur, « $ » est
+ * ambigu (USD, CAD, AUD…).
+ */
+export function moneyColumnHeader(
+  label: string,
+  currency?: string | null,
+): string {
+  const code =
+    currency && currency.trim() !== "" ? currency.trim().toUpperCase() : null;
+  return code === null ? label : `${label} (${code})`;
+}
+
 export function formatMoney(n: number, currency?: string | null): string {
   const code =
     currency && currency.trim() !== "" ? currency.trim().toUpperCase() : null;

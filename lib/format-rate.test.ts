@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatMoney, formatViews, rateSummary } from "./format-rate";
+import { formatMoney, formatViews, rateSummary, moneyColumnHeader } from "./format-rate";
 
 // Intl fr-FR insère une espace fine insécable (U+202F, parfois U+00A0) avant $ ;
 // on normalise pour comparer (la NBSP reste côté UI — typographie FR correcte).
@@ -75,5 +75,32 @@ describe("rateSummary", () => {
     expect(normLines(rateSummary({ basePerPost: 10, viewBonusPer1k: 0 }, "usd"))).toEqual([
       "10,00 $ par post",
     ]);
+  });
+});
+
+/**
+ * En-tête d'une colonne de montant. Le CSV des cycles annonçait « Total dû (€) »
+ * au-dessus de montants libellés en DOLLARS (les trois projets de prod ont
+ * payCurrency = "usd") — un document envoyé à des créateurs, qui se trompait de
+ * devise. Même règle que formatMoney : la devise vient de la donnée, et une
+ * devise absente ne s'invente pas.
+ */
+describe("moneyColumnHeader — en-tête de colonne monétaire", () => {
+  it("annonce la devise RÉELLE de la donnée, en code ISO", () => {
+    // Le cas de prod : paie en dollars.
+    expect(moneyColumnHeader("Total dû", "usd")).toBe("Total dû (USD)");
+    expect(moneyColumnHeader("Total dû", "eur")).toBe("Total dû (EUR)");
+  });
+
+  it("devise absente ⇒ AUCUNE mention (jamais une devise inventée)", () => {
+    expect(moneyColumnHeader("Total dû", undefined)).toBe("Total dû");
+    expect(moneyColumnHeader("Total dû", null)).toBe("Total dû");
+    expect(moneyColumnHeader("Total dû", "   ")).toBe("Total dû");
+  });
+
+  it("ne rend JAMAIS un symbole : « $ » est ambigu dans un tableur (USD/CAD/AUD)", () => {
+    const h = moneyColumnHeader("Total dû", "usd");
+    expect(h).not.toContain("$");
+    expect(h).not.toContain("€");
   });
 });

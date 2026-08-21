@@ -30,7 +30,7 @@ import {
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
-import { formatMoney } from "@/lib/format-rate";
+import { formatMoney, moneyColumnHeader } from "@/lib/format-rate";
 import { formatCycleRange } from "@/lib/pay-cycle";
 import { downloadCsv } from "@/lib/csv";
 import { WhopRevenueCard } from "@/components/whop/WhopRevenueCard";
@@ -259,7 +259,9 @@ export default function PaiementsPage() {
                   "Méthode",
                   "Coordonnées",
                   "Cycle",
-                  "Total dû (€)",
+                  // Devise venue de la DONNÉE, jamais d'un littéral : l'en-tête
+                  // annonçait « (€) » au-dessus de montants en dollars.
+                  moneyColumnHeader("Total dû", payCurrency),
                   "Statut",
                 ],
                 ...rows.map((p) => [
