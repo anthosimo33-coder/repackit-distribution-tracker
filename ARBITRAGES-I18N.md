@@ -162,24 +162,52 @@ Le runtime Convex **n'importe jamais `lib/`** (règle A6) : next-intl ne servira
   corrigé en #51/#52. `next-intl` ne doit pas deviner un fuseau depuis la langue.
 - Le **libellé de paie est PERSISTÉ** : ne pas changer son format.
 
-## 10. Garde CI — `scripts/check-i18n.mjs`
+## 10. Garde CI — `scripts/check-i18n.mjs`, DEUX MODES
 
 Branchée dans `pnpm lint` **et** en CI (étape du job `test` — **clé de job à ne
 jamais renommer**).
 
-Trois règles, toutes bloquantes :
-1. Une chaîne française dans un fichier **déjà extrait** → échec.
-2. Les clés de `fr.json` et `en.json` **divergent** → échec.
-3. Un fichier de `scripts/i18n-baseline.json` qui **n'a plus** de français →
-   échec, avec demande de le retirer de la liste.
+### Mode STRICT — fichiers déjà extraits (hors baseline). Tolérance ZÉRO.
 
-**Cliquet** : la baseline liste ce qui reste à extraire et **ne peut que
-rétrécir**. Le compteur restant s'affiche à chaque exécution.
+**Aucun littéral**, accent ou pas, en position de :
+- texte JSX entre balises,
+- attribut de libellé (`placeholder`, `aria-label`, `title`, `alt`, `label`),
+- **valeur de propriété d'objet** servant de libellé (`label:`, `title:`,
+  `description:`, `tooltip:`, `cta:`…),
+- littéral libre reconnu comme de la prose — c'est ce qui rattrape le
+  **ternaire entre accolades JSX**, `{cond ? "Déclare ton premier compte." : "…"}`,
+  cas dominant côté créateur.
 
-**Exemption ligne à ligne**, raison **obligatoire** :
-```
-// i18n-exempt: <raison>
-```
+**C'est ce mode, et lui seul, qui empêche la régression.**
+
+`isProse` est volontairement conservateur : un accent suffit ; sinon il faut un
+**espace et une capitale**. Ça écarte les classes utilitaires, les ids, les
+chemins et les énumérations techniques. Les fragments de template literal et les
+lignes `className`/`import`/`cn(` sont exclus.
+
+**Zéro faux positif vérifié** sur tout le code déjà extrait
+(`components/layout/*` reste hors baseline).
+
+### Mode LARGE — reste du dépôt. Estimation grossière.
+
+Heuristique accent/mot-outil. **Elle sous-compte massivement** : l'UI créateur est
+faite de labels courts non accentués (« Gains », « Publier », « Mes comptes »).
+**Ne plus s'en servir comme métrique d'avancement.**
+
+### Avancement — en FICHIERS, jamais en chaînes
+
+`scripts/i18n-creator-scope.json` porte les **56 fichiers** du périmètre créateur
+(clôture d'imports des 22 routes non-admin). La garde affiche
+`Parcours créateur : N/56 fichiers extraits`.
+
+### Trois règles bloquantes
+
+1. Un littéral en position de libellé dans un fichier **déjà extrait** → échec.
+2. Clés de `fr.json` et `en.json` divergentes → échec.
+3. Un fichier de la baseline **sans plus aucun** littéral strict → échec, avec
+   demande de le retirer. **La baseline ne peut que rétrécir.**
+
+Exemption ligne à ligne, raison **obligatoire** : `// i18n-exempt: <raison>`
 
 ## 11. Découpage — 7 PRs
 

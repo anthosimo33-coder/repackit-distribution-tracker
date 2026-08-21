@@ -121,6 +121,10 @@ describe("formatMoney — la langue met en forme, elle ne choisit pas la devise"
     expect(fr).not.toContain("€");
     expect(en).not.toContain("€");
     // La mise en forme, elle, diffère (séparateurs, place du symbole).
+    expect(fr).toContain("$");
+    expect(en).toContain("$");
+    expect(fr).not.toContain("\u20ac");
+    expect(en).not.toContain("\u20ac");
     expect(fr).not.toBe(en);
   });
 
@@ -132,5 +136,6 @@ describe("formatMoney — la langue met en forme, elle ne choisit pas la devise"
   it("devise absente : nombre nu, quelle que soit la langue", () => {
     expect(formatMoney(1234.5, null, "en-US")).not.toContain("$");
     expect(formatMoney(1234.5, null, "en-US")).not.toContain("€");
+    expect(formatMoney(1234.5, null, "en-US")).not.toContain("\u20ac");
   });
 });

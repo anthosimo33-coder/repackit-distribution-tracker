@@ -8,8 +8,25 @@
  * personne ne le voit : une chaîne française dans une app française, ça
  * s'affiche parfaitement.
  *
- * CE QUI EST CHERCHÉ — uniquement dans les positions où une chaîne est
- * réellement RENDUE :
+ * DEUX MODES, et c'est le coeur de la garde.
+ *
+ *   MODE STRICT — fichiers DÉJÀ EXTRAITS (hors baseline). TOLÉRANCE ZÉRO :
+ *     aucun littéral en position de texte JSX, d'attribut de label
+ *     (placeholder, aria-label, title, alt, label) ni de valeur de propriété
+ *     d'objet servant de label. ACCENT OU PAS. C'est ce mode qui empêche la
+ *     régression, et lui seul.
+ *
+ *   MODE LARGE — reste du dépôt (fichiers de la baseline). Heuristique
+ *     accent/mot-outil, ESTIMATION GROSSIÈRE. Elle sous-compte massivement :
+ *     l'UI créateur est faite de labels courts non accentués (« Gains »,
+ *     « Publier », « Mes comptes ») et de valeurs de propriété d'objet, que
+ *     ce mode ne voit pas. NE PLUS s'en servir comme métrique d'avancement.
+ *
+ * L'AVANCEMENT se compte en FICHIERS extraits sur le périmètre créateur
+ * (scripts/i18n-creator-scope.json, 56 fichiers), jamais en chaînes.
+ *
+ * CE QUI EST CHERCHÉ EN MODE LARGE — uniquement dans les positions où une
+ * chaîne est réellement RENDUE :
  *   - texte JSX entre balises
  *   - attributs qui portent du texte lu par un humain (placeholder, title, alt,
  *     aria-label, label)
@@ -77,6 +94,72 @@ const JSX_TEXT = />\s*([^<>{}\n][^<>{}]{2,})\s*</g;
 /** Littéraux passés à un appel connu pour afficher son argument. */
 const CALL_LITERAL = /\b(?:toast\.\w+|ConvexError|new Error)\(\s*(["'])((?:(?!\1).){3,})\1/g;
 
+// ─── MODE STRICT ─────────────────────────────────────────────────────────────
+// Clés de propriété dont la VALEUR est un libellé affiché. `name` est
+// volontairement absente : elle porte aussi bien un libellé qu'un identifiant
+// technique (nom de champ de formulaire, nom d'icône), le faux positif serait
+// systématique.
+const LABEL_KEYS =
+  /\b(label|title|placeholder|heading|subtitle|description|message|tooltip|caption|cta|emptyText|helpText|hint|ariaLabel)\s*:\s*(["'])((?:(?!\2).)+)\2/g;
+/** Attributs de libellé, toute valeur littérale non vide. */
+const STRICT_ATTRS = /\b(placeholder|title|alt|aria-label|label)\s*=\s*"([^"]+)"/g;
+/**
+ * Texte JSX entre balises, tout littéral non vide.
+ * Le lookbehind écarte `=>` (fonction fléchée suivie d'un générique : le `>` de
+ * la flèche et le `<` du type encadraient du code, pas du texte).
+ */
+const STRICT_JSX = /(?<![=!<>-])>\s*([^<>{}\n][^<>{}]*?)\s*</g;
+
+/**
+ * Tout littéral de chaîne du fichier. Sert à rattraper les libellés qui ne sont
+ * dans AUCUNE des positions ci-dessus — le cas dominant côté créateur étant le
+ * ternaire entre accolades JSX : `{cond ? "Déclare ton premier compte." : "…"}`.
+ * Le filtre `isProse` fait tout le travail de discrimination.
+ */
+const STRICT_LITERAL = /(["'])((?:(?!\1)[^\\\n]|\\.){4,})\1/g;
+
+/** Lignes où un littéral n'est jamais de la copie : classes, imports, chemins. */
+const NON_TEXT_LINE = /\b(className|classList|import\s|from\s+["']|require\(|cn\(|clsx\(|cva\()/;
+
+/**
+ * Un littéral libre est-il de la PROSE affichée ? Volontairement conservateur —
+ * ce filtre s'applique à TOUT le fichier, un faux positif y coûte cher :
+ *   - un accent suffit ;
+ *   - sinon il faut un ESPACE et une CAPITALE (« Mes comptes », « Voir plus »),
+ *     ce qui écarte les classes utilitaires, les ids, les chemins et les
+ *     énumérations techniques en minuscules.
+ */
+function isProse(v) {
+  const t = v.trim();
+  if (t.length < 4) return false;
+  // Fragment de template literal capté au vol : ce n'est pas une chaîne close.
+  if (/[`}]|\$\{/.test(t)) return false;
+  if (ACCENT_RE.test(t)) return true;
+  if (!/\s/.test(t)) return false;
+  if (!/[A-ZÀ-Ý]/.test(t)) return false;
+  if (/^[a-z0-9\s:_/[\]().%-]+$/.test(t)) return false;
+  if (/^https?:|^\//.test(t)) return false;
+  return /[A-Za-zÀ-ÿ]{2}/.test(t);
+}
+
+/**
+ * Un littéral en position de libellé est-il du TEXTE ? On écarte ce qui ne peut
+ * pas être de la copie : ponctuation/symboles seuls, nombres, entités, et les
+ * identifiants techniques sans espace ni majuscule initiale (`sepa`, `by_user`,
+ * `text-sm`). Un mot seul capitalisé (« Gains ») EST du texte — c'est
+ * précisément ce que le mode large ratait.
+ */
+function isDisplayText(v) {
+  const t = v.trim();
+  if (t.length < 2) return false;
+  if (/^[\s\d.,:;!?/·—–\-+%()[\]{}<>|«»"'`~*#&@^$\\]*$/.test(t)) return false;
+  if (/^&[a-z]+;$/i.test(t)) return false;
+  if (/^\$?\{/.test(t)) return false;
+  // Identifiant technique : pas d'espace, et ni majuscule initiale ni accent.
+  if (!/\s/.test(t) && !/^[A-ZÀ-Ý]/.test(t) && !ACCENT_RE.test(t)) return false;
+  return /[A-Za-zÀ-ÿ]{2}/.test(t);
+}
+
 function looksFrench(s) {
   const text = s.trim();
   if (text.length < 3) return false;
@@ -101,6 +184,7 @@ function walk(dir, out = []) {
 }
 
 const findings = [];
+let roughCount = 0;
 
 for (const file of SCANNED_DIRS.flatMap((d) => walk(join(ROOT, d)))) {
   const lines = readFileSync(file, "utf8").split("\n");
@@ -112,21 +196,44 @@ for (const file of SCANNED_DIRS.flatMap((d) => walk(join(ROOT, d)))) {
     const code = line.replace(/^\s*(\/\/|\*|\/\*).*$/, "");
     if (code.trim() === "") return;
 
-    const hits = [];
+    const rel = relative(ROOT, file);
+
+    // Les DEUX modes tournent sur CHAQUE fichier, avec des rôles distincts :
+    //   strict → régressions (fichier extrait) ET obsolescence (fichier de la
+    //            baseline devenu propre). C'est le mode qui décide.
+    //   large  → uniquement l'ordre de grandeur affiché en fin d'exécution.
+    const strictHits = [];
+    if (!NON_TEXT_LINE.test(code)) {
+      STRICT_LITERAL.lastIndex = 0;
+      let m;
+      while ((m = STRICT_LITERAL.exec(code)) !== null) {
+        if (isProse(m[2])) strictHits.push(m[2].trim());
+      }
+    }
+    for (const re of [STRICT_ATTRS, STRICT_JSX, LABEL_KEYS, CALL_LITERAL]) {
+      re.lastIndex = 0;
+      let m;
+      while ((m = re.exec(code)) !== null) {
+        const value =
+          re === LABEL_KEYS ? m[3] : re === CALL_LITERAL ? m[2] : m[m.length - 1];
+        if (isDisplayText(value)) strictHits.push(value.trim());
+      }
+    }
+    for (const hit of new Set(strictHits)) {
+      findings.push({
+        file: rel,
+        line: i + 1,
+        text: hit.length > 70 ? `${hit.slice(0, 70)}…` : hit,
+      });
+    }
+
     for (const re of [TEXT_ATTRS, JSX_TEXT, CALL_LITERAL]) {
       re.lastIndex = 0;
       let m;
       while ((m = re.exec(code)) !== null) {
         const value = re === CALL_LITERAL ? m[2] : m[m.length - 1];
-        if (looksFrench(value)) hits.push(value.trim());
+        if (looksFrench(value)) roughCount += 1;
       }
-    }
-    for (const hit of hits) {
-      findings.push({
-        file: relative(ROOT, file),
-        line: i + 1,
-        text: hit.length > 70 ? `${hit.slice(0, 70)}…` : hit,
-      });
     }
   });
 }
@@ -164,7 +271,7 @@ let failed = false;
 if (regressions.length > 0) {
   failed = true;
   const n = regressions.reduce((s, [, hits]) => s + hits.length, 0);
-  console.error(`\n✖ ${n} chaîne(s) française(s) en dur dans des fichiers DÉJÀ extraits :`);
+  console.error(`\n✖ ${n} littéral(aux) en dur dans des fichiers DÉJÀ extraits (tolérance zéro) :`);
   for (const [, hits] of regressions) {
     for (const h of hits) console.error(`    ${h.file}:${h.line}  « ${h.text} »`);
   }
@@ -195,8 +302,17 @@ if (missingInEn.length > 0 || extraInEn.length > 0) {
 
 
 if (failed) process.exit(1);
-const remaining = [...byFile.values()].reduce((s, hits) => s + hits.length, 0);
+// AVANCEMENT — en FICHIERS du périmètre créateur, jamais en chaînes : le mode
+// large sous-compte massivement (labels courts non accentués, valeurs de
+// propriété d'objet). Le compteur de chaînes reste affiché, en ordre de
+// grandeur seulement.
+const scope = JSON.parse(
+  readFileSync(join(ROOT, "scripts/i18n-creator-scope.json"), "utf8"),
+).files;
+const scopeDone = scope.filter((f) => !BASELINE.has(f));
+const rough = roughCount;
 console.log(
   `✓ i18n — ${frKeys.size} clés, catalogues alignés, aucune régression.\n` +
-    `  Reste à extraire : ${remaining} chaîne(s) dans ${BASELINE.size} fichier(s) (scripts/i18n-baseline.json).`,
+    `  Parcours créateur : ${scopeDone.length}/${scope.length} fichiers extraits.\n` +
+    `  Reste (ordre de grandeur, mode large) : ~${rough} chaînes dans ${BASELINE.size} fichiers.`,
 );
