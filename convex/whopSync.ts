@@ -4,6 +4,7 @@ import {
   internalQuery,
 } from "./_generated/server";
 import { adminMutation, adminQuery } from "./functions";
+import { collectProjectWhopPayments } from "./whopPaymentsAccess";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -535,10 +536,14 @@ export const getWhopRevenue = adminQuery({
   args: {},
   handler: async (ctx) => {
     const project = await ctx.db.get(ctx.projectId);
-    const rows = await ctx.db
-      .query("whopPayments")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
+    // A4 — les abonnements internes sont exclus AVANT toute agrégation, via le
+    // point de passage unique. Ce site ne filtrait pas : c'est lui qui affichait
+    // un revenu supérieur à celui du hub pour le même périmètre.
+    const { payments: rows } = await collectProjectWhopPayments(
+      ctx,
+      ctx.projectId,
+      project?.slug ?? "",
+    );
 
     const byMonth = new Map<string, Doc<"whopPayments">[]>();
     for (const r of rows) {

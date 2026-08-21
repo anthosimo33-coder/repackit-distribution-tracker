@@ -9,6 +9,7 @@ import {
 import { api } from "@/convex/_generated/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { MixedCurrencyNotice } from "@/components/MixedCurrencyNotice";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatMoney } from "@/lib/format-rate";
 import { toast } from "sonner";
@@ -58,6 +59,10 @@ export function WhopRevenueCard() {
   // Revenu Whop : la devise vient de la donnée (jamais un défaut). Mois multi-devise
   // → currency null → montants sans symbole (jamais mélanger).
   const currency = current?.currency ?? null;
+  // A5 — le drapeau du mois courant et celui du projet entier : un mois peut
+  // être mono-devise dans un projet qui, lui, ne l'est pas.
+  const mixedCurrency = current?.mixedCurrency ?? data.total.mixedCurrency;
+  const mixedPresent = data.total.mixedCurrencyPresent;
   const history = data.months
     .filter((m) => m.period !== data.currentPeriod)
     .slice(0, 6);
@@ -81,6 +86,11 @@ export function WhopRevenueCard() {
   return (
     <Card className="border-emerald-200 bg-emerald-50/40">
       <CardContent className="space-y-4 p-5">
+        <MixedCurrencyNotice
+          mixed={mixedCurrency}
+          present={mixedPresent}
+          currencies={data.total.currenciesPresent}
+        />
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-2 text-sm font-medium text-emerald-800">
             <WalletIcon className="size-4" />

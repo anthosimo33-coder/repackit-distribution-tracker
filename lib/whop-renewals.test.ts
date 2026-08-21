@@ -460,3 +460,56 @@ describe("le ratio revenu/client garde le MÊME périmètre des deux côtés", (
     expect(s.revenueToDatePerClient).toBeNull();
   });
 });
+
+// ─── Garde A5 sur les agrégats qui contournent summarizeWhopRevenue ───────────
+// splitRevenueByOrigin, renewalsByPlan et computeRenewalStats accumulent
+// whopNetContribution directement : ils n'avaient AUCUNE garde de devise (ou,
+// pour computeRenewalStats, une garde qui ne couvrait qu'un champ sur douze).
+// Ils alimentent tout l'onglet Rétention.
+describe("garde A5 — agrégats de rétention en multi-devise", () => {
+  const eur = pay({ currency: "eur", billingReason: "subscription_cycle", planId: "plan_A" });
+  const usd = pay({
+    currency: "usd",
+    billingReason: "subscription_cycle",
+    planId: "plan_B",
+    paidAt: J2,
+    grossAmount: 5.99,
+    netAmount: 5.51,
+  });
+
+  it("splitRevenueByOrigin : montants zéroïsés, COMPTES conservés", () => {
+    // PRÉSENCE — mono-devise : le net est bien calculé.
+    const mono = splitRevenueByOrigin([eur], JOUR);
+    expect(mono.mixedCurrency).toBe(false);
+    expect(mono.renewalNet).toBe(7.35);
+    expect(mono.renewalCount).toBe(1);
+
+    // ABSENCE — bi-devise : les montants tombent, les comptes restent justes.
+    const mixte = splitRevenueByOrigin([eur, usd], JOUR);
+    expect(mixte.mixedCurrency).toBe(true);
+    expect(mixte.securedCurrencies).toEqual(["eur", "usd"]);
+    expect(mixte.renewalNet).toBe(0);
+    expect(mixte.renewalCount).toBe(2); // un compte n'a pas de devise
+    expect(mixte.renewalShare).toBeNull();
+    for (const d of mixte.days) {
+      expect(d.renewalNet).toBe(0);
+      expect(d.cumulativeRenewalNet).toBe(0);
+    }
+  });
+
+  it("renewalsByPlan : le net par offre tombe à 0, le nombre de renouvellements reste", () => {
+    const mono = renewalsByPlan([eur]);
+    expect(mono[0].renewalNet).toBe(7.35);
+
+    const mixte = renewalsByPlan([eur, usd]);
+    expect(mixte).toHaveLength(2);
+    expect(mixte.every((p) => p.renewalNet === 0)).toBe(true);
+    expect(mixte.reduce((s, p) => s + p.renewalCount, 0)).toBe(2);
+  });
+
+  it("PARITÉ A6 — la réplique convex/ se comporte à l'identique", () => {
+    expect(srv.splitRevenueByOrigin([eur, usd], JOUR).renewalNet).toBe(0);
+    expect(srv.splitRevenueByOrigin([eur], JOUR).renewalNet).toBe(7.35);
+    expect(srv.renewalsByPlan([eur, usd]).every((p) => p.renewalNet === 0)).toBe(true);
+  });
+});

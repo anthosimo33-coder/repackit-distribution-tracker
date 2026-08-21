@@ -76,6 +76,24 @@ function isSecuredRevenue(status: WhopStatus): boolean {
   return status === "paid";
 }
 
+/**
+ * Devises réellement ENCAISSÉES dans un lot (cf lib/whop-revenue — DOIT rester
+ * identique). Sert de garde A5 aux agrégats qui accumulent whopNetContribution
+ * sans passer par summarizeWhopRevenue : au-delà d'une devise, leurs sommes ne
+ * sont pas additionnables. Les paiements non sécurisés valent 0 et ne comptent
+ * donc pas — ce sont les mêmes lignes qui alimentent réellement les totaux.
+ */
+export function securedCurrenciesOf(
+  payments: ReadonlyArray<{ status: WhopStatus; currency?: string }>,
+): string[] {
+  const set = new Set<string>();
+  for (const p of payments) {
+    if (!isSecuredRevenue(p.status)) continue;
+    set.add(p.currency && p.currency !== "" ? p.currency : "(inconnue)");
+  }
+  return [...set].sort();
+}
+
 /** Client ayant PAYÉ (cf lib/whop-revenue) : paid|disputed. Base du COMPTE clients. */
 export function isCustomerPaid(status: WhopStatus): boolean {
   return status === "paid" || status === "disputed";
@@ -132,6 +150,21 @@ export interface WhopRevenueSummary {
   currencies: string[];
   /** true = plusieurs devises → sommes NON additionnables (=0). Lire byCurrency. */
   mixedCurrency: boolean;
+  /**
+   * Devises PRÉSENTES dans le lot, quel que soit le statut — échec, remboursement
+   * et litige compris. `currencies` ne retient que les devises ENCAISSÉES
+   * (paymentCount > 0, donc status "paid") : une devise qui n'apparaît qu'en
+   * échec ou en remboursement y est INVISIBLE. C'est ce qui rendait la garde A5
+   * aveugle exactement aux lignes qui traversent `refunded`/`disputed`.
+   */
+  currenciesPresent: string[];
+  /**
+   * true = plusieurs devises présentes en base, même si une seule est encaissée.
+   * NE zéroïse RIEN (sinon un simple paiement en échec dans une 2ᵉ devise
+   * effacerait un revenu parfaitement calculable) : c'est un signal à afficher,
+   * et la condition qui restreint `refunded`/`disputed` à la devise de `currency`.
+   */
+  mixedCurrencyPresent: boolean;
   byCurrency: WhopCurrencyRevenue[];
 }
 
@@ -213,6 +246,10 @@ export function summarizeWhopRevenue(
 
   const collected = byCurrency.filter((c) => c.paymentCount > 0);
   const currencies = collected.map((c) => c.currency);
+  // Devises PRÉSENTES : tout bucket créé, donc tout statut. Distinct de
+  // `currencies` (encaissées seulement) — cf WhopRevenueSummary.
+  const currenciesPresent = byCurrency.map((c) => c.currency).sort();
+  const mixedCurrencyPresent = currenciesPresent.length > 1;
   const paymentCount = byCurrency.reduce((s, c) => s + c.paymentCount, 0);
   const refundCount = byCurrency.reduce((s, c) => s + c.refundCount, 0);
   const disputedCount = byCurrency.reduce((s, c) => s + c.disputedCount, 0);
@@ -231,13 +268,31 @@ export function summarizeWhopRevenue(
       currency: null,
       currencies,
       mixedCurrency: true,
+      currenciesPresent,
+      mixedCurrencyPresent,
       byCurrency,
     };
   }
 
   const one = collected[0] ?? null;
-  const refunded = round2(byCurrency.reduce((s, c) => s + c.refunded, 0));
-  const disputed = round2(byCurrency.reduce((s, c) => s + c.disputed, 0));
+  // GARDE A5 sur les remboursements et les litiges. Ces deux montants étaient
+  // sommés sur TOUS les buckets de devise, alors que ni un remboursement ni un
+  // litige n'incrémente paymentCount : une 2ᵉ devise présente UNIQUEMENT en
+  // remboursement ou en litige passait donc la garde `mixedCurrency` (qui ne
+  // voit que l'encaissé) et se retrouvait additionnée en silence, affichée avec
+  // le symbole de l'autre devise et le contrôle de fiabilité au vert.
+  //
+  // Quand plusieurs devises sont présentes et qu'une seule est encaissée, on ne
+  // retient QUE le bucket de cette devise — le reste est signalé par
+  // mixedCurrencyPresent, jamais fondu dans le total. Devise unique ⇒ somme
+  // inchangée. Aucune devise encaissée (mois entièrement remboursé, par ex.) ⇒
+  // on somme toujours, sinon on masquerait un remboursement bien réel.
+  const refundScope =
+    mixedCurrencyPresent && one !== null
+      ? byCurrency.filter((c) => c.currency === one.currency)
+      : byCurrency;
+  const refunded = round2(refundScope.reduce((s, c) => s + c.refunded, 0));
+  const disputed = round2(refundScope.reduce((s, c) => s + c.disputed, 0));
   return {
     net: one ? one.net : 0,
     gross: one ? one.gross : 0,
@@ -251,6 +306,8 @@ export function summarizeWhopRevenue(
     currency: one ? one.currency : null,
     currencies,
     mixedCurrency: false,
+    currenciesPresent,
+    mixedCurrencyPresent,
     byCurrency,
   };
 }
@@ -335,6 +392,10 @@ export interface RevenueByOrigin {
   renewalShare: number | null;
   /** Nombre de paiements dont l'origine n'est pas connue (historique non re-synchronisé). */
   unknownPayments: number;
+  /** Devises encaissées du lot. Au-delà d'une, les montants sont NON sommables. */
+  securedCurrencies: string[];
+  /** true ⇒ montants zéroïsés (garde A5) ; les COMPTES restent justes. */
+  mixedCurrency: boolean;
 }
 
 /**
@@ -387,12 +448,43 @@ export function splitRevenueByOrigin(
     d.cumulativeRenewalNet = cr;
   }
 
+  // GARDE A5 — cette fonction accumule whopNetContribution sans passer par
+  // summarizeWhopRevenue : au-delà d'une devise encaissée, ses montants ne sont
+  // pas additionnables. On zéroïse les MONTANTS et on garde les COMPTES (mêmes
+  // conventions que summarizeWhopRevenue : un compte est sans dimension).
+  const securedCurrencies = securedCurrenciesOf(payments);
+  const mixedCurrency = securedCurrencies.length > 1;
+  if (mixedCurrency) {
+    for (const d of days) {
+      d.newNet = 0;
+      d.renewalNet = 0;
+      d.unknownNet = 0;
+      d.cumulativeNewNet = 0;
+      d.cumulativeRenewalNet = 0;
+    }
+    return {
+      days,
+      newNet: 0,
+      renewalNet: 0,
+      unknownNet: 0,
+      newCount: totals.newCount,
+      renewalCount: totals.renewalCount,
+      unknownCount: totals.unknownCount,
+      renewalShare: null,
+      unknownPayments: totals.unknownCount,
+      securedCurrencies,
+      mixedCurrency,
+    };
+  }
+
   const classified = round2(totals.newNet + totals.renewalNet);
   return {
     days,
     ...totals,
     renewalShare: classified > 0 ? Math.round((totals.renewalNet / classified) * 10000) / 10000 : null,
     unknownPayments: totals.unknownCount,
+    securedCurrencies,
+    mixedCurrency,
   };
 }
 
@@ -407,6 +499,10 @@ export interface RenewalsByPlan {
 
 /** Ventile les RENOUVELLEMENTS par offre Whop (le libellé est joint côté appelant). */
 export function renewalsByPlan(payments: WhopRenewalPaymentLike[]): RenewalsByPlan[] {
+  // GARDE A5 — même famille que splitRevenueByOrigin : accumulation directe de
+  // whopNetContribution, sans clé de devise. Au-delà d'une devise encaissée, le
+  // net par offre n'est pas sommable → montants à 0, comptes conservés.
+  const mixedCurrency = securedCurrenciesOf(payments).length > 1;
   const acc = new Map<string, { n: number; net: number; mem: Set<string> }>();
   for (const p of payments) {
     if (whopBillingOrigin(p.billingReason) !== "renewal") continue;
@@ -420,7 +516,12 @@ export function renewalsByPlan(payments: WhopRenewalPaymentLike[]): RenewalsByPl
     if (p.membershipId) a.mem.add(p.membershipId);
   }
   return [...acc.entries()]
-    .map(([planId, a]) => ({ planId, renewalCount: a.n, renewalNet: a.net, members: a.mem.size }))
+    .map(([planId, a]) => ({
+      planId,
+      renewalCount: a.n,
+      renewalNet: mixedCurrency ? 0 : a.net,
+      members: a.mem.size,
+    }))
     .sort((x, y) => y.renewalNet - x.renewalNet);
 }
 
@@ -786,6 +887,13 @@ export function computeRenewalStats(
     .sort((a, b) => b.count - a.count);
 
   const matured = due.renewed + due.failed + due.pending;
+  // GARDE A5 — `securedCurrencySet` existait déjà mais ne conditionnait QU'UN
+  // champ sur douze (revenueToDatePerClient) : tous les autres montants étaient
+  // sommés toutes devises confondues, y compris pendingRenewalAmount qui cumule
+  // du grossAmount BRUT. On étend la garde à TOUT montant. Les taux, comptes et
+  // distributions restent justes : ce sont des grandeurs sans dimension.
+  const mixedCurrency = securedCurrencySet.size > 1;
+  const money = (n: number) => (mixedCurrency ? 0 : n);
   return {
     due,
     renewalRateResolved,
@@ -793,23 +901,31 @@ export function computeRenewalStats(
     resolvedDueCount,
     averageCycles,
     cycleDistribution,
-    netPerPayment,
-    netTotal,
+    netPerPayment: mixedCurrency ? null : netPerPayment,
+    netTotal: money(netTotal),
     revenueToDatePerClient:
-      securedByMember.size > 0 && securedCurrencySet.size <= 1
+      securedByMember.size > 0 && !mixedCurrency
         ? round2(netTotal / securedByMember.size)
         : null,
     securedMembers: securedByMember.size,
     atRiskOnlyMembers: payingMembers - securedByMember.size,
     securedCurrencies: [...securedCurrencySet].sort(),
-    projectedPerClientResolved: projectFrom(renewalRateResolved),
-    projectedPerClientWorstCase: projectFrom(renewalRateWorstCase),
-    cohorts,
+    projectedPerClientResolved: mixedCurrency
+      ? null
+      : projectFrom(renewalRateResolved),
+    projectedPerClientWorstCase: mixedCurrency
+      ? null
+      : projectFrom(renewalRateWorstCase),
+    cohorts: mixedCurrency
+      ? cohorts.map((c) => ({ ...c, net: 0, netPerClient: 0 }))
+      : cohorts,
     matureShare:
       payingMembers > 0 ? Math.round((matured / payingMembers) * 10000) / 10000 : null,
     payingMembers,
-    pendingRenewalAmount,
-    byPlanOutcome,
+    pendingRenewalAmount: money(pendingRenewalAmount),
+    byPlanOutcome: mixedCurrency
+      ? byPlanOutcome.map((p) => ({ ...p, pendingAmount: 0 }))
+      : byPlanOutcome,
     failureCauses,
   };
 }

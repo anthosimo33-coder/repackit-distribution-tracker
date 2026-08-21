@@ -165,6 +165,8 @@ describe("summarizeWhopRevenue — agrégation période", () => {
       currency: null,
       currencies: [],
       mixedCurrency: false,
+      currenciesPresent: [],
+      mixedCurrencyPresent: false,
       byCurrency: [],
     });
   });
@@ -223,5 +225,65 @@ describe("summarizeWhopRevenue — frais & devises (A5)", () => {
     expect(s.currency).toBe("usd");
     expect(s.net).toBe(190);
     expect(s.byCurrency).toHaveLength(1);
+  });
+});
+
+// ─── Garde A5 étendue : devises PRÉSENTES vs devises ENCAISSÉES ───────────────
+// Contexte prod (2026-08-21) : 163 lignes eur + 1 ligne usd en ÉCHEC. `currencies`
+// ne voyait que l'encaissé, donc le garde-fou « aucune addition inter-devises »
+// affichait « 1 devise, ok » alors que la base en portait deux — et refunded/
+// disputed, eux, sommaient bel et bien tous les buckets.
+describe("garde A5 — devises présentes ≠ devises encaissées", () => {
+  it("une devise vue UNIQUEMENT en échec est invisible dans currencies mais présente dans currenciesPresent", () => {
+    const s = summarizeWhopRevenue([
+      paid({ currency: "eur", grossAmount: 4.99, feeAmount: 0.51, netAmount: 4.48 }),
+      { ...paid({ currency: "usd" }), status: "failed", grossAmount: 5.99, netAmount: 5.99 },
+    ]);
+    // PRÉSENCE : la 2e devise est bien détectée…
+    expect(s.currenciesPresent).toEqual(["eur", "usd"]);
+    expect(s.mixedCurrencyPresent).toBe(true);
+    // …ABSENCE : et elle ne déclenche PAS la zéroïsation, le revenu reste calculable.
+    expect(s.currencies).toEqual(["eur"]);
+    expect(s.mixedCurrency).toBe(false);
+    expect(s.net).toBe(4.48);
+    expect(s.currency).toBe("eur");
+  });
+
+  it("un remboursement dans une 2e devise n'est PLUS fondu dans le total", () => {
+    const rows: WhopPaymentLike[] = [
+      paid({ currency: "eur", grossAmount: 16.99, feeAmount: 1, netAmount: 15.99 }),
+      // Remboursement en usd : n'incrémente pas paymentCount, donc invisible de
+      // `currencies` — c'est précisément la ligne qui traversait la garde.
+      {
+        status: "refunded",
+        currency: "usd",
+        grossAmount: 5.99,
+        feeAmount: 0,
+        netAmount: 5.99,
+        refundedAmount: 5.99,
+      },
+    ];
+    const s = summarizeWhopRevenue(rows);
+    expect(s.currency).toBe("eur");
+    expect(s.mixedCurrency).toBe(false); // la garde historique ne se lève toujours pas
+    expect(s.mixedCurrencyPresent).toBe(true); // …mais le signal, lui, existe
+    // Le remboursement usd n'entre PAS dans le montant libellé en eur.
+    expect(s.refunded).toBe(0);
+  });
+
+  it("PRÉSENCE — en devise unique, le remboursement est bien compté (la garde ne masque rien)", () => {
+    const s = summarizeWhopRevenue([
+      paid({ currency: "eur", grossAmount: 16.99, feeAmount: 1, netAmount: 15.99 }),
+      {
+        status: "refunded",
+        currency: "eur",
+        grossAmount: 7.99,
+        feeAmount: 0,
+        netAmount: 7.99,
+        refundedAmount: 7.99,
+      },
+    ]);
+    expect(s.mixedCurrencyPresent).toBe(false);
+    expect(s.refunded).toBe(7.99);
   });
 });
