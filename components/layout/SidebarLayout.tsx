@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { MenuIcon } from "lucide-react";
 import { Sidebar } from "./Sidebar";
@@ -43,6 +44,7 @@ const VALID_FORMATS = ["carousel", "short", "screenrecorder"] as const;
  *   - aucun provider supplémentaire à wrap autour de l'app
  */
 export function SidebarLayout({ children }: { children: React.ReactNode }) {
+  const t = useTranslations("nav");
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const { project } = useProject();
@@ -103,7 +105,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
               <Button
                 variant="ghost"
                 size="icon-sm"
-                aria-label="Ouvrir le menu"
+                aria-label={t("action.openMenu")}
               >
                 <MenuIcon className="size-4" />
               </Button>

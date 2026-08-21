@@ -2,6 +2,12 @@
  * P6 — rendu de la grille de rémunération d'un format (pur, testé Vitest).
  */
 
+/**
+ * Langue de mise en forme par défaut. Tant qu'un appelant ne passe pas la
+ * langue active, le rendu est celui d'avant l'i18n — à l'octet près.
+ */
+export const FORMAT_LOCALE_DEFAULT = "fr-FR";
+
 export type RateModel = {
   basePerPost: number;
   viewBonusPer1k?: number;
@@ -41,16 +47,29 @@ export function moneyColumnHeader(
   return code === null ? label : `${label} (${code})`;
 }
 
-export function formatMoney(n: number, currency?: string | null): string {
+export function formatMoney(
+  n: number,
+  currency?: string | null,
+  /**
+   * Langue de MISE EN FORME (séparateurs, position du symbole). Elle ne change
+   * JAMAIS la devise : celle-ci vient de la transaction, jamais de la langue —
+   * un payout en dollars reste en dollars dans une interface en français.
+   *
+   * Défaut « fr-FR » : le rendu actuel est strictement préservé tant qu'un
+   * appelant ne passe pas explicitement la langue active. Les ~120 points
+   * d'appel migrent écran par écran, avec l'extraction de chaque écran.
+   */
+  locale: string = FORMAT_LOCALE_DEFAULT,
+): string {
   const code =
     currency && currency.trim() !== "" ? currency.trim().toUpperCase() : null;
   if (code === null) {
-    return new Intl.NumberFormat("fr-FR", {
+    return new Intl.NumberFormat(locale, {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(n);
   }
-  return new Intl.NumberFormat("fr-FR", {
+  return new Intl.NumberFormat(locale, {
     style: "currency",
     currency: code,
     currencyDisplay: "narrowSymbol",

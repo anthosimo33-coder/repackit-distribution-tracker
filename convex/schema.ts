@@ -39,6 +39,12 @@ export default defineSchema({
     // Optional par sécurité (un user créé par un chemin librairie sans rôle
     // reste valide) — traiter undefined comme "member" côté checks.
     role: v.optional(v.union(v.literal("superadmin"), v.literal("member"))),
+    // ─── LANGUE D'INTERFACE (i18n) ────────────────────────────────────────────
+    // Code de langue ("fr" | "en"). ABSENT ⇒ "fr" : aucune migration, tout
+    // compte existant reste en français. Ce champ FAIT FOI une fois le compte
+    // créé ; il est matérialisé dans le cookie NEXT_LOCALE pour que le rendu
+    // serveur n'ait pas à attendre Convex.
+    locale: v.optional(v.string()),
   })
     .index("email", ["email"])
     .index("phone", ["phone"]),
@@ -847,6 +853,13 @@ export default defineSchema({
     name: v.string(),
     email: v.string(),
     phone: v.optional(v.string()),
+    // ─── LANGUE D'INTERFACE (i18n) ────────────────────────────────────────────
+    // Posée par l'admin à la création de la fiche. ABSENT ⇒ "fr".
+    // Pourquoi ici EN PLUS de users.locale : l'e-mail d'INVITATION part AVANT
+    // que le compte existe (creators.userId est encore undefined), donc il n'y
+    // a pas d'users.locale à lire. Une fois le compte créé, users.locale hérite
+    // de cette valeur puis fait foi.
+    locale: v.optional(v.string()),
     // ─── POPULATION de la fiche — partenaire / talent / clippeur ───────────────
     // ABSENT = "partner" (créateur partenaire historique) ⇒ 0 migration : toutes
     // les fiches existantes restent des partenaires, au comportement inchangé.
