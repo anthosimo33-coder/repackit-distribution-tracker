@@ -13,11 +13,50 @@ if (!url) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
 const admin = createE2eClient(url);
 
 const DAY = 86_400_000;
-const dayMs = (off: number) => {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.getTime() + off * DAY;
+
+const PARIS_YMD = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Europe/Paris",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+const PARIS_HOUR = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/Paris",
+  hour: "2-digit",
+  hourCycle: "h23",
+});
+
+/**
+ * Minuit EUROPE/PARIS du jour courant, décalé de N jours.
+ *
+ * POURQUOI PARIS ET NON L'HEURE LOCALE. `calendarStatus` compare des JOURS
+ * CALENDAIRES PARISIENS (`parisDayIndex`, lib/calendar-status.ts) avec une
+ * tolérance ZÉRO. L'ancienne version ancrait minuit dans le fuseau du PROCESSUS
+ * (`d.setHours(0,0,0,0)`), c'est-à-dire UTC sur le runner GitHub : entre 22 h et
+ * minuit UTC, minuit-UTC-du-jour et l'instant du run tombaient sur deux jours
+ * parisiens DIFFÉRENTS, et le cas « à l'heure » sortait « en retard ». Échec
+ * déterministe sur 2 h par 24, vert le reste du temps — vu sur le run
+ * 32531839026 à 22:18 UTC.
+ *
+ * Le décalage de N jours est appliqué au JOUR CALENDAIRE, pas en ajoutant
+ * N × 24 h à un instant : autour d'un changement d'heure, ajouter 24 h ne
+ * retombe pas sur minuit.
+ */
+const parisMidnightMs = (offsetDays: number, now: number = Date.now()) => {
+  const [y, m, d] = PARIS_YMD.format(new Date(now)).split("-").map(Number);
+  const shifted = new Date(Date.UTC(y, m - 1, d + offsetDays));
+  const utcMidnight = Date.UTC(
+    shifted.getUTCFullYear(),
+    shifted.getUTCMonth(),
+    shifted.getUTCDate(),
+  );
+  // Paris vaut UTC+1 ou UTC+2 : à minuit UTC il est déjà 1 h ou 2 h à Paris.
+  // Retirer cet écart ramène exactement à 00:00 Paris du même jour.
+  const parisHour = Number(PARIS_HOUR.format(new Date(utcMidnight)));
+  return utcMidnight - parisHour * 3_600_000;
 };
+
+const dayMs = (off: number) => parisMidnightMs(off);
 
 /**
  * Brique B — statut CALENDRIER (à l'heure/en retard/manqué/prévu) calculé SUR
