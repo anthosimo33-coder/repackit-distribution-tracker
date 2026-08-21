@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
+import { useTranslations } from "next-intl";
 import { useAuthActions } from "@convex-dev/auth/react";
 import {
   BarChart3Icon,
@@ -35,6 +36,7 @@ import {
 } from "@/components/ui/tooltip";
 import { SidebarItem } from "./SidebarItem";
 import { NewButton } from "./NewButton";
+import { LanguageSelector } from "./LanguageSelector";
 import { ProjectSwitcher } from "@/components/project/ProjectSwitcher";
 import { useProjectPath } from "@/components/project/ProjectProvider";
 import { cn } from "@/lib/utils";
@@ -83,6 +85,10 @@ export function Sidebar({
     router.push("/login");
   }
 
+  // i18n — le libellé d'un lien EXTERNE (project.sidebarLinks) reste tel quel :
+  // c'est de la DONNÉE saisie par l'admin, pas du texte d'interface.
+  const t = useTranslations("nav");
+
   const item = (href: string) => ({
     href,
     isActive: pathname.startsWith(href),
@@ -92,46 +98,46 @@ export function Sidebar({
   const pilotageItems = [
     {
       icon: LayoutDashboardIcon,
-      label: "Dashboard",
+      label: t("item.dashboard"),
       ...item(projectPath("/dashboard")),
     },
     {
       icon: ClipboardCheckIcon,
-      label: "Validation",
+      label: t("item.validation"),
       // badge = nb d'assignments soumis en attente de validation (P8).
       badge: submittedCount,
       ...item(projectPath("/validation")),
     },
     {
       icon: FilmIcon,
-      label: "Rushes",
+      label: t("item.rushes"),
       // badge = prises en attente de décision (monter un script / refuser).
       badge: rushesCount,
       ...item(projectPath("/rushes")),
     },
     {
       icon: ClipboardListIcon,
-      label: "Assignments",
+      label: t("item.assignments"),
       ...item(projectPath("/assignments")),
     },
     {
       icon: CoinsIcon,
-      label: "Pricings",
+      label: t("item.pricings"),
       ...item(projectPath("/pricings")),
     },
     {
       icon: WalletIcon,
-      label: "Paiements",
+      label: t("item.paiements"),
       ...item(projectPath("/paiements")),
     },
     {
       icon: BarChart3Icon,
-      label: "Analytics",
+      label: t("item.analytics"),
       ...item(projectPath("/analytics")),
     },
     {
       icon: BellIcon,
-      label: "Notifications",
+      label: t("item.notifications"),
       ...item(projectPath("/notifications")),
     },
   ];
@@ -140,12 +146,12 @@ export function Sidebar({
   const creatorsItems = [
     {
       icon: UserPlusIcon,
-      label: "Créateurs",
+      label: t("item.createurs"),
       ...item(projectPath("/createurs")),
     },
     {
       icon: Users2Icon,
-      label: "Comptes",
+      label: t("item.comptes"),
       ...item(projectPath("/comptes")),
     },
   ];
@@ -154,22 +160,22 @@ export function Sidebar({
   const contenuItems = [
     {
       icon: ClapperboardIcon,
-      label: "Scripts",
+      label: t("item.scripts"),
       ...item(projectPath("/scripts")),
     },
     {
       icon: BookmarkIcon,
-      label: "Inspirations",
+      label: t("item.inspirations"),
       ...item(projectPath("/inspirations")),
     },
     {
       icon: ImagesIcon,
-      label: "Assets",
+      label: t("item.assets"),
       ...item(projectPath("/assets")),
     },
     {
       icon: HelpCircleIcon,
-      label: "Comment ça marche",
+      label: t("item.guide"),
       ...item(projectPath("/guide")),
     },
   ];
@@ -178,7 +184,7 @@ export function Sidebar({
   const veilleItems = [
     {
       icon: RadarIcon,
-      label: "Radar",
+      label: t("item.radar"),
       ...item(projectPath("/radar")),
     },
   ];
@@ -229,23 +235,23 @@ export function Sidebar({
 
       {/* Sections nav */}
       <nav className="flex-1 space-y-6 overflow-y-auto px-3 pb-3">
-        <SidebarSection collapsed={collapsed} label="Pilotage">
+        <SidebarSection collapsed={collapsed} label={t("section.pilotage")}>
           {pilotageItems.map(renderItem)}
         </SidebarSection>
-        <SidebarSection collapsed={collapsed} label="Créateurs">
+        <SidebarSection collapsed={collapsed} label={t("section.createurs")}>
           {creatorsItems.map(renderItem)}
         </SidebarSection>
-        <SidebarSection collapsed={collapsed} label="Contenu">
+        <SidebarSection collapsed={collapsed} label={t("section.contenu")}>
           {contenuItems.map(renderItem)}
         </SidebarSection>
-        <SidebarSection collapsed={collapsed} label="Veille">
+        <SidebarSection collapsed={collapsed} label={t("section.veille")}>
           {veilleItems.map(renderItem)}
         </SidebarSection>
 
         {/* Outils — liens externes propres au projet (configurable). Masqué
             quand le projet n'en a aucun. */}
         {externalLinkItems.length > 0 && (
-          <SidebarSection collapsed={collapsed} label="Outils">
+          <SidebarSection collapsed={collapsed} label={t("section.outils")}>
             {externalLinkItems.map((it) => (
               <SidebarItem
                 key={it.href}
@@ -269,6 +275,7 @@ export function Sidebar({
             {me.email}
           </div>
         )}
+        <LanguageSelector collapsed={collapsed} />
         {collapsed ? (
           <Tooltip>
             <TooltipTrigger
@@ -278,14 +285,14 @@ export function Sidebar({
                   size="sm"
                   onClick={handleSignOut}
                   className="w-full justify-center px-0 text-slate-600 hover:text-slate-900"
-                  aria-label="Se déconnecter"
+                  aria-label={t("action.logout")}
                 >
                   <LogOutIcon className="size-4" />
                 </Button>
               }
             />
             <TooltipContent side="right" sideOffset={8}>
-              Se déconnecter
+              {t("action.logout")}
             </TooltipContent>
           </Tooltip>
         ) : (
@@ -294,10 +301,10 @@ export function Sidebar({
             size="sm"
             onClick={handleSignOut}
             className="w-full justify-start gap-2 text-slate-600 hover:text-slate-900"
-            aria-label="Se déconnecter"
+            aria-label={t("action.logout")}
           >
             <LogOutIcon className="size-4" />
-            <span>Se déconnecter</span>
+            <span>{t("action.logout")}</span>
           </Button>
         )}
         {!isMobileDrawer && (
@@ -306,7 +313,7 @@ export function Sidebar({
             size="icon-sm"
             onClick={onToggle}
             className="w-full"
-            aria-label={collapsed ? "Étendre la sidebar" : "Réduire la sidebar"}
+            aria-label={collapsed ? t("action.expandSidebar") : t("action.collapseSidebar")}
           >
             {collapsed ? (
               <ChevronsRightIcon className="size-4" />

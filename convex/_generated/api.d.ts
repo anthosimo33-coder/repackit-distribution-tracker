@@ -56,6 +56,7 @@ import type * as handleHygiene from "../handleHygiene.js";
 import type * as hookAvailability from "../hookAvailability.js";
 import type * as hooks from "../hooks.js";
 import type * as http from "../http.js";
+import type * as i18n from "../i18n.js";
 import type * as icps from "../icps.js";
 import type * as inspirationThumbnails from "../inspirationThumbnails.js";
 import type * as inspirations from "../inspirations.js";
@@ -178,6 +179,7 @@ declare const fullApi: ApiFromModules<{
   hookAvailability: typeof hookAvailability;
   hooks: typeof hooks;
   http: typeof http;
+  i18n: typeof i18n;
   icps: typeof icps;
   inspirationThumbnails: typeof inspirationThumbnails;
   inspirations: typeof inspirations;

@@ -30,7 +30,7 @@ import {
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
-import { formatMoney } from "@/lib/format-rate";
+import { formatMoney, moneyColumnHeader } from "@/lib/format-rate";
 import { formatCycleRange } from "@/lib/pay-cycle";
 import { downloadCsv } from "@/lib/csv";
 import { WhopRevenueCard } from "@/components/whop/WhopRevenueCard";
@@ -259,7 +259,29 @@ export default function PaiementsPage() {
                   "Méthode",
                   "Coordonnées",
                   "Cycle",
-                  "Total dû (€)",
+                  // Devise venue de la DONNÉE, jamais d'un littéral : l'en-tête
+                  // annonçait « (€) » au-dessus de montants en dollars.
+                  //
+                  // UNE devise pour TOUTE la colonne — l'en-tête ne peut mentir
+                  // que si l'export mélangeait des projets. Il ne le peut pas :
+                  // `listPayments` est un adminQuery borné à ctx.projectId, les
+                  // créateurs sont lus by_project (convex/payments.ts:657) et
+                  // même les lignes ORPHELINES (fiche supprimée) passent par
+                  // by_project_period (:688). Une ligne du CSV vient donc
+                  // toujours du projet courant, dont `payCurrency` est la devise.
+                  //
+                  // Aucune garde d'exécution n'est posée ici, et c'est délibéré :
+                  // elle ne pourrait pas se déclencher. Les lignes ne portent ni
+                  // projectId ni devise (la table `payments` n'a aucun champ
+                  // currency), il n'y a donc rien à comparer — ce serait une
+                  // garde aveugle de plus, du même genre que le currencyCount
+                  // corrigé en #76.
+                  //
+                  // CE QUI RENDRAIT L'EN-TÊTE FAUX : un export cross-projet. Il
+                  // faudrait alors une devise PAR LIGNE, donc d'abord une devise
+                  // sur la donnée de paie — c'est la décision D1 du backlog, pas
+                  // un correctif d'affichage.
+                  moneyColumnHeader("Total dû", payCurrency),
                   "Statut",
                 ],
                 ...rows.map((p) => [

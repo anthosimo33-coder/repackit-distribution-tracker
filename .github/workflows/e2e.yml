@@ -66,6 +66,14 @@ jobs:
       - name: Tests unitaires (vitest)
         run: pnpm test:unit
 
+      # Garde i18n — bloque (a) toute chaîne française réintroduite dans un
+      # fichier DÉJÀ extrait, (b) toute divergence de clés entre messages/fr.json
+      # et messages/en.json. La baseline (scripts/i18n-baseline.json) liste ce
+      # qui reste à extraire et ne peut que rétrécir : une entrée devenue propre
+      # fait aussi échouer le job, pour forcer le nettoyage de la liste.
+      - name: Garde i18n (chaînes en dur + parité des catalogues)
+        run: pnpm check:i18n
+
       # Le tag du backend est lu DANS le script (source unique). Un tag bumpé
       # là-bas sans toucher ce workflow provoque au pire un cache miss — donc un
       # téléchargement de 57 Mo, jamais une exécution sur la mauvaise version.

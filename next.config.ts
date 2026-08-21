@@ -1,4 +1,15 @@
 import type { NextConfig } from "next";
+import createNextIntlPlugin from "next-intl/plugin";
+
+/**
+ * i18n — next-intl SANS routing par locale (aucun préfixe `/fr` ni `/en` dans
+ * les URLs). Le plugin ne fait qu'une chose ici : câbler `i18n/request.ts`
+ * comme source de configuration par requête. La langue est résolue là-bas
+ * (compte → fiche → cookie → Accept-Language → « fr »), jamais dans l'URL :
+ * préfixer casserait les liens existants et les redirects ci-dessous, pour
+ * zéro bénéfice sur une app entièrement authentifiée.
+ */
+const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 
 /**
  * P3 Multi-tenant — l'app interne vit désormais sous `/admin/[projectSlug]/…`.
@@ -94,4 +105,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withNextIntl(nextConfig);

@@ -952,7 +952,12 @@ export const getRevenueBreakdown = adminQuery({
           members: x.members,
           netTotal: round2(x.netTotal),
           ltv: x.members > 0 ? round2(x.netTotal / x.members) : null,
-          netPerPayment: s.paymentCount > 0 ? round2(s.net / s.paymentCount) : null,
+          // Même piège qu'au-dessus : net zéroïsé par la garde A5 ÷ un
+          // paymentCount non zéroïsé = 0,00 affiché au lieu d'un tiret.
+          netPerPayment:
+            s.mixedCurrency || s.paymentCount === 0
+              ? null
+              : round2(s.net / s.paymentCount),
           feeRate: s.feeRate,
           netPerMemberMonth:
             x.memberMonths > 0 ? round2(x.netTotal / x.memberMonths) : null,
@@ -1418,8 +1423,14 @@ export const getChurn = adminQuery({
       (p) => !isInternalWhopMembership(p.membershipId, internalCfg),
     );
     const summary = summarizeWhopRevenue(nonInternalPayments);
+    // En multi-devise, summarizeWhopRevenue met `net` à 0 mais garde
+    // `paymentCount` à sa vraie valeur (un compte est sans dimension) : la
+    // division rendait « 0,00 € », un montant plausible et faux, là où la
+    // grandeur n'est simplement pas calculable. On s'abstient.
     const netPerPayment =
-      summary.paymentCount > 0 ? round2(summary.net / summary.paymentCount) : null;
+      summary.mixedCurrency || summary.paymentCount === 0
+        ? null
+        : round2(summary.net / summary.paymentCount);
     const computedAt =
       members.length > 0 ? Math.max(...members.map((m) => m.updatedAt)) : null;
 

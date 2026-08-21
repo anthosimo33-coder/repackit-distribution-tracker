@@ -1,0 +1,50 @@
+{
+  "layout": {
+    "metadata": {
+      "title": "Jarvis Creator Studio",
+      "description": "Jarvis Creator Studio — studio de distribution de contenu"
+    }
+  },
+  "nav": {
+    "section": {
+      "pilotage": "Pilotage",
+      "createurs": "Créateurs",
+      "contenu": "Contenu",
+      "veille": "Veille",
+      "outils": "Outils"
+    },
+    "item": {
+      "dashboard": "Dashboard",
+      "validation": "Validation",
+      "rushes": "Rushes",
+      "assignments": "Assignments",
+      "pricings": "Pricings",
+      "paiements": "Paiements",
+      "analytics": "Analytics",
+      "notifications": "Notifications",
+      "createurs": "Créateurs",
+      "comptes": "Comptes",
+      "scripts": "Scripts",
+      "inspirations": "Inspirations",
+      "assets": "Assets",
+      "guide": "Comment ça marche",
+      "radar": "Radar"
+    },
+    "action": {
+      "new": "Nouveau",
+      "logout": "Se déconnecter",
+      "expandSidebar": "Étendre la sidebar",
+      "collapseSidebar": "Réduire la sidebar",
+      "openInNewTab": "Ouvre dans un nouvel onglet",
+      "openMenu": "Ouvrir le menu"
+    }
+  },
+  "settings": {
+    "language": {
+      "label": "Langue de l'interface",
+      "ariaLabel": "Changer la langue de l'interface",
+      "saved": "Langue enregistrée.",
+      "error": "La langue n'a pas pu être enregistrée."
+    }
+  }
+}

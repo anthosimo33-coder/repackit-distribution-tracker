@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatMoney, formatViews, rateSummary } from "./format-rate";
+import { formatMoney, formatViews, rateSummary, moneyColumnHeader } from "./format-rate";
 
 // Intl fr-FR insère une espace fine insécable (U+202F, parfois U+00A0) avant $ ;
 // on normalise pour comparer (la NBSP reste côté UI — typographie FR correcte).
@@ -75,5 +75,62 @@ describe("rateSummary", () => {
     expect(normLines(rateSummary({ basePerPost: 10, viewBonusPer1k: 0 }, "usd"))).toEqual([
       "10,00 $ par post",
     ]);
+  });
+});
+
+/**
+ * En-tête d'une colonne de montant. Le CSV des cycles annonçait « Total dû (€) »
+ * au-dessus de montants libellés en DOLLARS (les trois projets de prod ont
+ * payCurrency = "usd") — un document envoyé à des créateurs, qui se trompait de
+ * devise. Même règle que formatMoney : la devise vient de la donnée, et une
+ * devise absente ne s'invente pas.
+ */
+describe("moneyColumnHeader — en-tête de colonne monétaire", () => {
+  it("annonce la devise RÉELLE de la donnée, en code ISO", () => {
+    // Le cas de prod : paie en dollars.
+    expect(moneyColumnHeader("Total dû", "usd")).toBe("Total dû (USD)");
+    expect(moneyColumnHeader("Total dû", "eur")).toBe("Total dû (EUR)");
+  });
+
+  it("devise absente ⇒ AUCUNE mention (jamais une devise inventée)", () => {
+    expect(moneyColumnHeader("Total dû", undefined)).toBe("Total dû");
+    expect(moneyColumnHeader("Total dû", null)).toBe("Total dû");
+    expect(moneyColumnHeader("Total dû", "   ")).toBe("Total dû");
+  });
+
+  it("ne rend JAMAIS un symbole : « $ » est ambigu dans un tableur (USD/CAD/AUD)", () => {
+    const h = moneyColumnHeader("Total dû", "usd");
+    expect(h).not.toContain("$");
+    expect(h).not.toContain("€");
+  });
+});
+
+/**
+ * La langue ne pilote QUE la mise en forme. La devise vient de la transaction :
+ * un payout en dollars reste en dollars dans une interface en français — c'est
+ * la règle qui avait sauté en #157 et que formatMoney tient depuis.
+ */
+describe("formatMoney — la langue met en forme, elle ne choisit pas la devise", () => {
+  it("même devise, deux langues : la DEVISE ne bouge pas", () => {
+    const fr = formatMoney(1234.5, "usd", "fr-FR");
+    const en = formatMoney(1234.5, "usd", "en-US");
+    // Le montant est bien en dollars des deux côtés…
+    expect(fr).toContain("$");
+    expect(en).toContain("$");
+    // …et aucune des deux langues n'a transformé les dollars en euros.
+    expect(fr).not.toContain("€");
+    expect(en).not.toContain("€");
+    // La mise en forme, elle, diffère (séparateurs, place du symbole).
+    expect(fr).not.toBe(en);
+  });
+
+  it("sans langue explicite, le rendu est celui d'avant l'i18n", () => {
+    expect(formatMoney(1234.5, "usd")).toBe(formatMoney(1234.5, "usd", "fr-FR"));
+    expect(formatMoney(1234.5, null)).toBe(formatMoney(1234.5, null, "fr-FR"));
+  });
+
+  it("devise absente : nombre nu, quelle que soit la langue", () => {
+    expect(formatMoney(1234.5, null, "en-US")).not.toContain("$");
+    expect(formatMoney(1234.5, null, "en-US")).not.toContain("€");
   });
 });
