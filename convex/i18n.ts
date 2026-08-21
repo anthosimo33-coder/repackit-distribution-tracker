@@ -35,12 +35,17 @@ export const getMyLocale = authedQuery({
       return { locale: user.locale };
     }
     // Amorçage : la fiche créatrice porte la langue choisie par l'admin à
-    // l'invitation. `by_user` n'existe pas — les fiches sont indexées par
-    // projet ; un créateur peut en avoir plusieurs, on prend la première qui
-    // porte une langue (elles sont posées par le même admin, au même moment).
+    // l'invitation. Un créateur peut avoir plusieurs fiches (une par projet) —
+    // on prend la première qui porte une langue, elles sont posées par le même
+    // admin au même moment.
+    //
+    // Via l'index `by_user` (convex/schema.ts:975), PAS un `.filter()` : cette
+    // query est appelée par i18n/request.ts à CHAQUE rendu serveur d'un
+    // utilisateur sans `users.locale`, un scan de table complet y serait sur le
+    // chemin chaud de toutes les pages.
     const fiches = await ctx.db
       .query("creators")
-      .filter((q) => q.eq(q.field("userId"), ctx.userId))
+      .withIndex("by_user", (q) => q.eq("userId", ctx.userId))
       .collect();
     for (const f of fiches) {
       if (f.locale && f.locale.trim() !== "") return { locale: f.locale };
