@@ -31,10 +31,10 @@ import {
   type AbPersonArmsPayload,
   type AbArmsPayload,
 } from "./posthogSync";
-import {
-  internalAccountsFor,
-  isInternalWhopMembership,
-} from "./internalAccounts";
+// `internalAccountsFor` n'est plus appelé ici : la config A4 arrive désormais
+// par collectProjectWhopPayments (point de passage unique).
+import { isInternalWhopMembership } from "./internalAccounts";
+import { collectProjectWhopPayments } from "./whopPaymentsAccess";
 import {
   computeViewCounters,
   VIEW_COUNTER_USAGE,
@@ -717,6 +717,10 @@ export interface RevenueBreakdown {
   currency: string | null;
   /** A5 — true = revenu multi-devise : les totaux ne sont PAS additionnés. */
   mixedCurrency: boolean;
+  /** Devises PRÉSENTES (tout statut) — cf whopRevenue.currenciesPresent. */
+  currenciesPresent: string[];
+  /** Plusieurs devises en base, même si une seule encaissée. Ne zéroïse rien. */
+  mixedCurrencyPresent: boolean;
   /** A5 — taux de frais effectif (brut − net) / brut, fraction 0–1. null si mixte. */
   feeRate: number | null;
   periods: RevenuePeriod[];
@@ -800,6 +804,8 @@ export const getRevenueBreakdown = adminQuery({
         configured: false,
         currency: null,
         mixedCurrency: false,
+        currenciesPresent: [],
+        mixedCurrencyPresent: false,
         feeRate: null,
         periods: [],
         plans: [],
@@ -818,21 +824,13 @@ export const getRevenueBreakdown = adminQuery({
     }
 
     // A4 — écarte les abonnements internes (par membershipId, cf internalAccounts)
-    // AVANT toute agrégation ; on en tient le compte pour l'afficher.
-    const internalCfg = internalAccountsFor(project.slug);
-    const internalMembers = new Set<string>();
-    const payments = (
-      await ctx.db
-        .query("whopPayments")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect()
-    ).filter((p) => {
-      if (isInternalWhopMembership(p.membershipId, internalCfg)) {
-        if (p.membershipId) internalMembers.add(p.membershipId);
-        return false;
-      }
-      return true;
-    });
+    // AVANT toute agrégation ; on en tient le compte pour l'afficher. Le filtre
+    // passe par le point de passage unique (convex/whopPaymentsAccess).
+    const {
+      payments,
+      internalMemberIds: internalMembers,
+      cfg: internalCfg,
+    } = await collectProjectWhopPayments(ctx, ctx.projectId, project.slug);
 
     // Premier paiement ENCAISSÉ par membre → sépare nouveau vs récurrent.
     const firstSeen = new Map<string, number>();
@@ -1129,6 +1127,8 @@ export const getRevenueBreakdown = adminQuery({
       configured: true,
       currency: summary.currency,
       mixedCurrency: summary.mixedCurrency,
+      currenciesPresent: summary.currenciesPresent,
+      mixedCurrencyPresent: summary.mixedCurrencyPresent,
       feeRate: summary.feeRate,
       periods,
       plans,
@@ -1365,21 +1365,19 @@ export const getChurn = adminQuery({
         renewals: null as RenewalsPayload | null,
       };
     }
-    const internalCfg = internalAccountsFor(project.slug);
-    const [members, payments, plans] = await Promise.all([
+    const [members, collected, plans] = await Promise.all([
       ctx.db
         .query("whopMemberships")
         .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
         .collect(),
-      ctx.db
-        .query("whopPayments")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect(),
+      collectProjectWhopPayments(ctx, ctx.projectId, project.slug),
       ctx.db
         .query("whopPlans")
         .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
         .collect(),
     ]);
+    // A4 via le point de passage unique : `payments` est déjà purgé des internes.
+    const { payments, cfg: internalCfg } = collected;
 
     // Premier paiement encaissé + nombre, par membership (internes exclus).
     const payAgg = new Map<string, { first: number; count: number }>();
@@ -1734,31 +1732,40 @@ export const getReliability = adminQuery({
       duplicates: [],
     };
     if (project?.whop) {
-      const payments = await ctx.db
-        .query("whopPayments")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect();
-      currencyCount = summarizeWhopRevenue(payments).currencies.length;
       // A4 — comptes internes exclus DES DEUX CÔTÉS : ici aussi (pas seulement du
       // revenu), sinon « Clients payants » comptait le compte de test de l'admin.
-      const internalCfg = internalAccountsFor(project.slug);
-      const internalMembers = new Set<string>();
+      const {
+        payments,
+        all: allPayments,
+        internalMemberIds: internalMembers,
+        cfg: internalCfg,
+      } = await collectProjectWhopPayments(ctx, ctx.projectId, project.slug);
+      // Contrôle « Aucune addition inter-devises » : il comptait jusqu'ici les
+      // devises ENCAISSÉES (summarizeWhopRevenue.currencies), donc il était
+      // aveugle à une devise n'apparaissant qu'en échec, remboursement ou litige
+      // — exactement les lignes qui traversent les sommes non gardées. On compte
+      // désormais les devises PRÉSENTES, et sur le lot COMPLET : une devise qui
+      // n'existe que sur un compte interne reste une devise présente en base.
+      currencyCount = summarizeWhopRevenue(allPayments).currenciesPresent.length;
+      // Fraîcheur de synchro : sur TOUT le lot, le cron ingère aussi les internes.
+      for (const p of allPayments) {
+        whopSyncMs = Math.max(whopSyncMs ?? 0, p.updatedAt);
+      }
       // Premier paiement encaissé par membership (date de « début » du client).
       const firstPaid = new Map<string, number>();
       for (const p of payments) {
-        whopSyncMs = Math.max(whopSyncMs ?? 0, p.updatedAt);
         // COMPTE clients : un litige EN COURS reste un client qui a payé →
         // whopCollectedAmount (inclut "disputed"), PAS whopNetContribution (qui
         // exclut le litige du net). Garde « Clients payants » stable et aligné
         // avec PostHog (subscription_completed a bien été émis pour ce client).
         if (!p.membershipId || whopCollectedAmount(p) <= 0) continue;
-        if (isInternalWhopMembership(p.membershipId, internalCfg)) {
-          internalMembers.add(p.membershipId);
-          continue;
-        }
         const prev = firstPaid.get(p.membershipId);
         if (prev === undefined || p.paidAt < prev) firstPaid.set(p.membershipId, p.paidAt);
       }
+      // Compté sur TOUS les paiements internes, pas seulement ceux ayant
+      // encaissé : l'ancien test était placé APRÈS la garde
+      // `whopCollectedAmount <= 0`, donc un compte interne n'ayant jamais payé
+      // n'était jamais compté comme exclu — le KPI sous-estimait l'exclusion.
       whopInternalExcluded = internalMembers.size;
       let comparable = 0;
       for (const first of firstPaid.values()) {

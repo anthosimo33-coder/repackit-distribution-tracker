@@ -4,6 +4,7 @@ import type { QueryCtx } from "./_generated/server";
 import { computeLivePricingBreakdown, assignmentPublishedAt } from "./pricing";
 import { periodOf } from "./payments";
 import { summarizeWhopRevenue } from "./whopRevenue";
+import { collectProjectWhopPayments } from "./whopPaymentsAccess";
 
 /**
  * Rentabilité par PROJET (rentabilité P3) — met en face le REVENU Whop net
@@ -89,6 +90,9 @@ export const getProjectProfitability = adminQuery({
       return {
         configured: false as const,
         currency: null as string | null,
+        mixedCurrency: false,
+        mixedCurrencyPresent: false,
+        currenciesPresent: [] as string[],
         payCurrency: (project?.payCurrency ?? null) as string | null,
         fxRateToRevenue: (project?.fxRateToRevenue ?? null) as number | null,
         currentPeriod: periodOf(Date.now()),
@@ -101,6 +105,7 @@ export const getProjectProfitability = adminQuery({
         months: [] as Array<{
           period: string;
           revenueNet: number;
+          mixedCurrency: boolean;
           creatorCost: number;
           monetizedViews: number;
           warmupViews: number;
@@ -109,10 +114,13 @@ export const getProjectProfitability = adminQuery({
     }
 
     // ─── Revenu Whop net par mois (paidAt) — CONSTANT vis-à-vis du toggle ──────
-    const whopRows = await ctx.db
-      .query("whopPayments")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
+    // A4 — abonnements internes exclus via le point de passage unique. Ce site
+    // ne filtrait pas : la MARGE affichée intégrait le revenu du compte de test.
+    const { payments: whopRows } = await collectProjectWhopPayments(
+      ctx,
+      ctx.projectId,
+      project?.slug ?? "",
+    );
     const revByMonth = new Map<string, Doc<"whopPayments">[]>();
     for (const r of whopRows) {
       const m = periodOf(r.paidAt);
@@ -121,8 +129,14 @@ export const getProjectProfitability = adminQuery({
       else revByMonth.set(m, [r]);
     }
     const revenueNetByMonth = new Map<string, number>();
+    // Le drapeau A5 est conservé PAR MOIS : la marge et le RPM sont recalculés
+    // mois par mois côté client, un mois bi-devise doit donc pouvoir s'abstenir
+    // seul, sans effacer les mois voisins qui sont parfaitement calculables.
+    const mixedByMonth = new Map<string, boolean>();
     for (const [m, list] of revByMonth) {
-      revenueNetByMonth.set(m, summarizeWhopRevenue(list).net);
+      const s = summarizeWhopRevenue(list);
+      revenueNetByMonth.set(m, s.net);
+      mixedByMonth.set(m, s.mixedCurrency);
     }
     const totalRevenue = summarizeWhopRevenue(whopRows);
 
@@ -181,6 +195,7 @@ export const getProjectProfitability = adminQuery({
       .map((period) => ({
         period,
         revenueNet: revenueNetByMonth.get(period) ?? 0,
+        mixedCurrency: mixedByMonth.get(period) ?? false,
         creatorCost: costByMonth.get(period) ?? 0,
         monetizedViews: viewsByMonth.get(period)?.monetizedViews ?? 0,
         warmupViews: viewsByMonth.get(period)?.warmupViews ?? 0,
@@ -195,6 +210,12 @@ export const getProjectProfitability = adminQuery({
       // non calculée (jamais soustraire deux devises sans conversion).
       fxRateToRevenue: project?.fxRateToRevenue ?? null,
       currentPeriod: periodOf(Date.now()),
+      // A5 — le drapeau était calculé puis jeté : la carte affichait un revenu
+      // zéroïsé (donc une marge très négative) comme s'il s'agissait d'un vrai
+      // montant. Un chiffre faux est pire qu'un chiffre absent.
+      mixedCurrency: totalRevenue.mixedCurrency,
+      mixedCurrencyPresent: totalRevenue.mixedCurrencyPresent,
+      currenciesPresent: totalRevenue.currenciesPresent,
       total: {
         revenueNet: totalRevenue.net,
         creatorCost: totalCost,

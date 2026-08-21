@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { MixedCurrencyNotice } from "@/components/MixedCurrencyNotice";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -216,6 +217,7 @@ export function OffresTab({
   const plans = useMemo(() => revenue?.plans ?? [], [revenue]);
   const hasHistorical = plans.some((p) => !p.active);
   const currency = revenue?.currency ?? undefined;
+  const mixedCurrency = revenue?.mixedCurrency ?? false;
   const offerChanges = revenue?.offerChanges ?? [];
 
   // Répartition HEBDO vs MENSUEL (le mensuel ne se vend pas : à faire ressortir).
@@ -233,8 +235,15 @@ export function OffresTab({
         acc.mois.net += p.netTotal;
       }
     }
+    // A5 — chaque LIGNE d'offre est rendue avec SA devise (p.currency), mais ce
+    // pied de tableau les additionne. En bi-devise les montants ne veulent rien
+    // dire : on les neutralise, les COMPTES de clients restent justes.
+    if (mixedCurrency) {
+      acc.semaine.net = 0;
+      acc.mois.net = 0;
+    }
     return acc;
-  }, [plans]);
+  }, [plans, mixedCurrency]);
 
   // Litiges (chargebacks) EN COURS + remboursements — argent À RISQUE / rendu, déjà
   // DÉDUIT du revenu net. Les litiges sont triés serveur (le plus urgent d'abord).
@@ -246,6 +255,14 @@ export function OffresTab({
 
   return (
     <div className="space-y-6">
+      {/* A5 — chaque ligne d'offre porte SA devise, mais les pieds de tableau
+          les additionnent : le signal doit être en tête d'onglet. */}
+      <MixedCurrencyNotice
+        mixed={revenue?.mixedCurrency}
+        present={revenue?.mixedCurrencyPresent}
+        currencies={revenue?.currenciesPresent}
+      />
+
       {/* Litiges & remboursements — EN TÊTE : l'info la plus urgente du revenu. */}
       <Card>
         <CardContent className="space-y-3 p-4">

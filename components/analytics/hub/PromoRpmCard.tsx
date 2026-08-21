@@ -69,9 +69,12 @@ export function PromoRpmCard({
 }) {
   // Revenu net CUMULÉ (toutes périodes) — même base que la tuile « Revenu net
   // encaissé » juste au-dessus. Whop non configuré ⇒ null, jamais 0.
-  const revenueNet = revenue?.configured
-    ? Math.round(revenue.periods.reduce((s, p) => s + p.net, 0) * 100) / 100
-    : null;
+  // A5 — même somme cross-périodes que la tuile « Revenu net encaissé », donc
+  // même trou et même garde : bi-devise ⇒ null, jamais un total mélangé.
+  const revenueNet =
+    revenue?.configured && !revenue.mixedCurrency
+      ? Math.round(revenue.periods.reduce((s, p) => s + p.net, 0) * 100) / 100
+      : null;
   const currency = revenue?.currency ?? null; // revenu (€)
   const payCurrency = attribution?.payCurrency ?? null; // paie créatrices ($)
   const fx = effectiveFxRate(payCurrency, currency, attribution?.fxRateToRevenue);

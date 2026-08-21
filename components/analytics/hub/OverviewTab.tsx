@@ -29,6 +29,7 @@ import {
 import { EXPLAIN } from "./explanations";
 import { PromoRpmCard } from "./PromoRpmCard";
 import { PayCurrencyWarning } from "@/components/PayCurrencyWarning";
+import { MixedCurrencyNotice } from "@/components/MixedCurrencyNotice";
 import type { TrendPoint } from "./HubTrendChart";
 import type {
   ProductAnalyticsData,
@@ -242,9 +243,14 @@ export function OverviewTab({
       ? Math.round((paidN / checkoutN) * 1000) / 10
       : null;
 
-  const totalNet = revenue?.configured
-    ? Math.round(revenue.periods.reduce((s, p) => s + p.net, 0) * 100) / 100
-    : null;
+  // A5 — la garde du serveur est posée PAR PÉRIODE ; cette somme la traverse.
+  // Deux mois encaissés dans deux devises passent chacun la garde puis sont
+  // additionnés ici. `revenue.mixedCurrency` est global (calculé sur TOUS les
+  // paiements) : s'y adosser referme le trou. null ⇒ la tuile affiche « — ».
+  const totalNet =
+    revenue?.configured && !revenue.mixedCurrency
+      ? Math.round(revenue.periods.reduce((s, p) => s + p.net, 0) * 100) / 100
+      : null;
   const totalClients = reliability?.coherence.dashboardClients ?? null;
   const viewsPerClient =
     viewCounters && totalClients !== null && totalClients > 0
@@ -318,6 +324,15 @@ export function OverviewTab({
       {attribution ? (
         <PayCurrencyWarning payCurrency={attribution.payCurrency} />
       ) : null}
+
+      {/* A5 — le drapeau existait côté serveur sans aucun lecteur : un projet
+          bi-devise affichait « 0,00 » sans dire pourquoi. Indépendant de
+          `attribution` : il porte sur le REVENU, pas sur la paie. */}
+      <MixedCurrencyNotice
+        mixed={revenue?.mixedCurrency}
+        present={revenue?.mixedCurrencyPresent}
+        currencies={revenue?.currenciesPresent}
+      />
 
       {/* Éco unitaire — deux coûts ($) côte à côte + revenu par client (€). */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
