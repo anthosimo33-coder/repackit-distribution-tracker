@@ -225,3 +225,78 @@ systématiquement.
 
 `components/analytics/**` **ne figure nulle part** dans la clôture d'imports
 créateur, et pèse à lui seul **165 des 629** chaînes. Le reséquencement tient.
+
+---
+
+# 7. Vérifications préalables à la PR 2a
+
+Lecture seule, établies avant de coder.
+
+## (a) Le `<Select>` a-t-il besoin d'un défaut explicite ?
+
+**Non. `undefined` tombe correctement sur `fr` chez TOUS les lecteurs.**
+
+`normalizeLocale` (`i18n/locales.ts`) rend `null` pour tout ce qui n'est pas une
+langue supportée — exécuté, pas supposé :
+
+| entrée | sortie |
+|---|---|
+| `undefined`, `null`, `""`, `"   "` | `null` |
+| `"es"`, `42` | `null` |
+| `"fr"`, `"en"` | inchangé |
+| `"EN"`, `"en-US"` | `"en"` |
+
+Et chaque maillon garde sur la vérité avant de passer au suivant
+(`i18n/request.ts:resolveLocale`) : `users.locale` → `creators.locale` → cookie →
+`Accept-Language` → `DEFAULT_LOCALE = "fr"`. `getMyLocale` rend `{locale: null}`
+quand rien n'est posé, et `convex/i18n.ts` teste `f.locale && f.locale.trim() !== ""`.
+
+**Décision** : le `<Select>` **affiche** « Français » pré-sélectionné, mais
+n'envoie **rien** tant que l'admin ne choisit pas l'anglais. On ne stocke que la
+DIVERGENCE — même invariant que `remunere` : une valeur explicite épingle la
+fiche, et « fr » explicite sur 40 fiches existantes serait du bruit qui masque
+qui a réellement été invité en anglais.
+
+**Un seul endroit exigera un défaut explicite** : le rendu des e-mails. Il n'a ni
+cookie ni `Accept-Language` — la chaîne s'arrête au premier maillon. Le catalogue
+serveur devra donc faire `locale ?? "fr"` lui-même. Et il vivra dans `convex/`,
+pas dans `i18n/` : le runtime Convex n'importe pas hors de `convex/` (règle A6).
+
+## (b) Où la locale peut-elle se perdre, maillon par maillon ?
+
+Chaîne complète : invitation → clic → `/join` → signup → dashboard.
+**9 maillons, 6 perdent la locale aujourd'hui.**
+
+| # | Maillon | Fichier | Aujourd'hui |
+|---|---|---|---|
+| 1 | L'admin choisit la langue | `InviteCreatorDialog.tsx` | **PERDUE** — le champ n'existe pas |
+| 2 | `inviteCreator` écrit la fiche | `convex/creators.ts:166` | **PERDUE** — pas d'argument, rien écrit |
+| 3 | `sendCreatorInvite` lit le contact | `convex/emails.ts:106-113` | **PERDUE** — `getCreatorContact` rend `{email, name}` |
+| 4 | Rendu de l'e-mail | `convex/emails.ts:203-234` | **PERDUE** — littéraux FR, aucun paramètre de langue |
+| 5 | Le créateur clique | — | **RIEN À PERDRE** — mais son appareil n'a **ni session ni cookie** |
+| 6 | `getInvitationPreview` | `convex/creators.ts:716-721` | **PERDUE** — rend `{status, email, name, projectName}` |
+| 7 | Rendu de `/join` | `i18n/request.ts` | **PERDUE** — pas de session ⇒ pas de Convex, pas de cookie ⇒ `Accept-Language`, puis `fr`. **L'écran est français même si l'e-mail était anglais.** |
+| 8 | Signup | `convex/auth.ts:133` | **PERDUE** — `db.insert("users", {email, role})`, pas de locale. La fiche `creator` est pourtant **déjà chargée** ligne 128 |
+| 9 | Redirection `/app` | `convex/i18n.ts:getMyLocale` | **CONSERVÉE** — le repli sur `creators.locale` rattrape, *si* le maillon 2 est corrigé |
+
+### Trois conséquences pour le cadrage
+
+1. **Le maillon 9 marche déjà.** Une fois `creators.locale` écrit, le dashboard
+   est en anglais **sans** toucher `auth.ts` : `getMyLocale` fait le repli. Le
+   maillon 8 n'est donc pas une correction de bug, c'est une **optimisation** —
+   il rend `users.locale` autoritaire et supprime la lecture `creators` à chaque
+   rendu. À faire, mais ce n'est pas lui qui débloque l'anglais.
+
+2. **Le maillon 7 est le seul vrai trou d'expérience.** Sans le cookie posé
+   depuis la preview, le créateur US clique un e-mail anglais et atterrit sur un
+   écran français, puis sur un login français. `Accept-Language` peut le sauver
+   **par chance** si son navigateur annonce `en-US` — mais ce n'est pas piloté
+   par le choix de l'admin, et ça ne marche pas pour un francophone qu'on aurait
+   délibérément invité en anglais.
+
+3. **Le maillon 6 est le seul à débattre.** Exposer `locale` dans
+   `getInvitationPreview` n'ajoute aucune fuite : le token garde déjà la lecture,
+   et c'est une valeur **choisie par l'admin**, pas une donnée personnelle du
+   créateur. L'alternative — porter la langue dans l'URL (`/join/{token}?lang=en`) —
+   met une préférence dans un lien qui circule par e-mail et peut être modifiée à
+   la main. **Retenu : l'exposer dans la preview.**
