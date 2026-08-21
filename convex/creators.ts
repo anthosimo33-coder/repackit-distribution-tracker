@@ -25,6 +25,7 @@ import { normalizeRef } from "./conversionAttribution";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { normalizeCreatorLocale } from "./locales";
 
 /**
  * P1 Créateurs — gestion des créateurs côté admin + onboarding par lien
@@ -145,6 +146,11 @@ export const inviteCreator = adminMutation({
         v.literal("clipper"),
       ),
     ),
+    // LANGUE d'interface du créateur invité. ABSENT ⇒ français : on ne stocke
+    // que la DIVERGENCE, comme pour `kind`. C'est cette valeur qui décide de la
+    // langue de l'e-mail d'invitation — envoyé AVANT que le compte existe, donc
+    // avant qu'un `users.locale` puisse exister.
+    locale: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const name = args.name.trim();
@@ -176,6 +182,8 @@ export const inviteCreator = adminMutation({
         args.kind === undefined || args.kind === "partner"
           ? undefined
           : args.kind,
+      // Même règle que `kind` : « fr » est le défaut, on ne l'écrit pas.
+      locale: normalizeCreatorLocale(args.locale),
       createdAt: now,
     });
     const token = crypto.randomUUID();
@@ -279,6 +287,10 @@ export const updateCreator = adminMutation({
     paymentMethod: v.optional(PAYMENT_METHODS),
     paymentDetails: v.optional(v.string()),
     adminNotes: v.optional(v.string()),
+    // LANGUE d'interface — corrigeable SANS régénérer l'invitation. Une valeur
+    // « fr » explicite est normalisée en `undefined` (on ne stocke que la
+    // divergence) : repasser un créateur en français EFFACE le champ.
+    locale: v.optional(v.string()),
     // Ref du chemin court snytch.co (attribution de conversion). null = retirer.
     refSlug: v.optional(v.union(v.string(), v.null())),
     // Grille de paliers de bonus du créateur (cumul). null = détacher.
@@ -334,6 +346,9 @@ export const updateCreator = adminMutation({
       patch.name = name;
     }
     if (args.phone !== undefined) patch.phone = args.phone.trim() || undefined;
+    if (args.locale !== undefined) {
+      patch.locale = normalizeCreatorLocale(args.locale);
+    }
     if (args.status !== undefined) patch.status = args.status;
     // ─── ANCRE DE CYCLE D'UN TALENT — la ligne la plus délicate de ce module ──
     // Posée à la PREMIÈRE activation, jamais réécrite.
@@ -715,6 +730,17 @@ export const getInvitationPreview = publicQuery({
     const project = await ctx.db.get(inv.projectId);
     return {
       status: "valid" as const,
+      // LANGUE choisie par l'admin à l'invitation. Exposée ici parce que c'est
+      // le SEUL moment où /join peut la connaître : le créateur arrive sans
+      // session (rien à lire côté users) et sans cookie (premier passage sur le
+      // domaine). Sans elle, il clique un e-mail en anglais et atterrit sur un
+      // écran français — `Accept-Language` peut le sauver par chance, jamais par
+      // choix de l'admin.
+      //
+      // Aucune fuite ajoutée : le token garde déjà toute cette lecture, et c'est
+      // une valeur POSÉE PAR L'ADMIN, pas une donnée personnelle du créateur.
+      // `null` = défaut, la page ne pose alors aucun cookie.
+      locale: creator.locale ?? null,
       email: inv.email,
       name: creator.name,
       projectName: project?.name ?? null,
@@ -1040,6 +1066,25 @@ export const addCreatorToProject = adminMutation({
  * du test multi-projets sans passer par l'UI admin. Crée la fiche + le
  * membership "creator" si absents. Retourne le creatorId.
  */
+/**
+ * Lecture e2e de la LANGUE, des deux côtés à la fois : la fiche et le compte.
+ * Les deux ensemble parce que c'est leur COHÉRENCE qui est testée — la fiche
+ * porte le choix de l'admin, le compte en hérite au signup et fait foi ensuite.
+ * `null` des deux côtés = français par défaut, rien de stocké.
+ */
+export const e2eGetCreatorLocaleState = e2eMutation({
+  args: { creatorId: v.id("creators") },
+  handler: async (ctx, { creatorId }) => {
+    const c = await ctx.db.get(creatorId);
+    if (!c) throw new ConvexError("Fiche introuvable.");
+    const user = c.userId ? await ctx.db.get(c.userId) : null;
+    return {
+      creatorLocale: c.locale ?? null,
+      userLocale: user?.locale ?? null,
+    };
+  },
+});
+
 export const e2eAddCreatorToProject = e2eMutation({
   args: { email: v.string(), projectId: v.id("projects") },
   handler: async (ctx, { email, projectId }) => {

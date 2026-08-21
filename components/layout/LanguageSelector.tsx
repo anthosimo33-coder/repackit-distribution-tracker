@@ -7,24 +7,9 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { LanguagesIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
-import {
-  LOCALES,
-  LOCALE_COOKIE,
-  LOCALE_COOKIE_MAX_AGE_S,
-  LOCALE_LABELS,
-  type Locale,
-} from "@/i18n/locales";
+import { LOCALES, LOCALE_LABELS, type Locale } from "@/i18n/locales";
+import { writeLocaleCookie } from "@/i18n/locale-cookie";
 import { cn } from "@/lib/utils";
-
-/**
- * Écriture du cookie, HORS du composant : `document.cookie = …` est une
- * mutation d'une valeur externe, que la règle `react-hooks/immutability` du
- * compilateur React refuse dans un corps de composant. La sortir ici dit aussi
- * ce qu'elle est — un effet de bord sur le document, pas de l'état React.
- */
-function writeLocaleCookie(locale: Locale): void {
-  document.cookie = `${LOCALE_COOKIE}=${locale}; path=/; max-age=${LOCALE_COOKIE_MAX_AGE_S}; samesite=lax`;
-}
 
 /**
  * Choix de la langue d'interface.

@@ -1,9 +1,12 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useState, useEffect} from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
+import { useLocale } from "next-intl";
+import { normalizeLocale } from "@/i18n/locales";
+import { writeLocaleCookie } from "@/i18n/locale-cookie";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { ConvexError } from "convex/values";
 import { api } from "@/convex/_generated/api";
@@ -43,6 +46,29 @@ export default function JoinPage({
   const router = useRouter();
   const { signIn } = useAuthActions();
   const preview = useQuery(api.creators.getInvitationPreview, { token });
+
+  const currentLocale = useLocale();
+
+  // MAILLON 7 — le seul endroit où la langue choisie par l'admin peut atteindre
+  // le créateur avant qu'il ait un compte. Il arrive ici sans session (rien à
+  // lire côté users) et sans cookie (premier passage sur le domaine) : sans ce
+  // report, il clique un e-mail en anglais et lit un écran français, puis un
+  // login français.
+  //
+  // `router.refresh()` redemande le rendu SERVEUR, qui relit le cookie via
+  // i18n/request.ts — c'est lui qui rebascule la page. Pas de boucle : après le
+  // rafraîchissement `currentLocale` vaut la nouvelle langue et la condition
+  // devient fausse.
+  //
+  // Invitation SANS langue ⇒ `preview.locale` est null ⇒ AUCUN cookie posé, on
+  // laisse la chaîne de résolution faire son travail (Accept-Language, puis fr).
+  const inviteLocale =
+    preview?.status === "valid" ? normalizeLocale(preview.locale) : null;
+  useEffect(() => {
+    if (inviteLocale === null || inviteLocale === currentLocale) return;
+    writeLocaleCookie(inviteLocale);
+    router.refresh();
+  }, [inviteLocale, currentLocale, router]);
 
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);

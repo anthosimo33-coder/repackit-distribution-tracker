@@ -4,15 +4,24 @@
  * copie de clés. L'anglais est AJOUTÉ pour onboarder des créateurs US, il ne
  * remplace rien.
  *
- * Module SANS dépendance (ni React, ni Next, ni Convex) : il est importé aussi
- * bien par le rendu serveur que par le client et par scripts/check-i18n.mjs.
+ * Ce module porte les concerns NEXT (cookie, endonymes, Accept-Language) et
+ * réexporte la liste des langues depuis convex/locales.ts, sa source unique.
  */
 
-export const LOCALES = ["fr", "en"] as const;
-export type Locale = (typeof LOCALES)[number];
+// Source unique dans convex/ : le runtime Convex n'importe rien hors de
+// convex/ (règle A6), et les e-mails ont besoin de normaliser une langue.
+// La dépendance va donc dans le sens permis, Next → Convex.
+export {
+  LOCALES,
+  DEFAULT_LOCALE,
+  isLocale,
+  normalizeLocale,
+  normalizeCreatorLocale,
+  localeOrDefault,
+  type Locale,
+} from "@/convex/locales";
 
-/** Langue par défaut — dernier maillon de la chaîne de résolution. */
-export const DEFAULT_LOCALE: Locale = "fr";
+import { normalizeLocale, type Locale } from "@/convex/locales";
 
 /** Nom de la langue DANS cette langue (jamais traduit : c'est un endonyme). */
 export const LOCALE_LABELS: Record<Locale, string> = {
@@ -26,20 +35,7 @@ export const LOCALE_COOKIE = "NEXT_LOCALE";
 /** Un an : la préférence n'a pas de raison d'expirer avant. */
 export const LOCALE_COOKIE_MAX_AGE_S = 365 * 24 * 60 * 60;
 
-export function isLocale(v: unknown): v is Locale {
-  return typeof v === "string" && (LOCALES as readonly string[]).includes(v);
-}
 
-/**
- * Normalise une valeur quelconque en langue supportée, ou `null`.
- * Tolère les étiquettes régionales (« en-US » → « en ») et la casse : le
- * header Accept-Language et les préférences navigateur en produisent.
- */
-export function normalizeLocale(v: unknown): Locale | null {
-  if (typeof v !== "string") return null;
-  const base = v.trim().toLowerCase().split("-")[0];
-  return isLocale(base) ? base : null;
-}
 
 /**
  * Meilleure langue supportée d'un header `Accept-Language`, en respectant les
