@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslations } from "next-intl";
 
 import { Card, CardContent } from "@/components/ui/card";
@@ -124,7 +130,18 @@ export function QuadrantChart({
   // Set VIDE = aucun filtre (idiome des filtres de la page), pas « rien ».
   const [qualifications, setQualifications] = useState<Set<string>>(new Set());
   const [isolated, setIsolated] = useState<QuadrantKey | null>(null);
-  const [hovered, setHovered] = useState<QuadrantDatum | null>(null);
+  /**
+   * Point survolé (ou focalisé) ET son point d'ancrage en coordonnées écran.
+   * L'infobulle était posée à un coin FIXE de la carte : il fallait quitter le
+   * point des yeux pour la lire, et elle recouvrait la ligne de couverture.
+   */
+  const [tip, setTip] = useState<{
+    datum: QuadrantDatum;
+    x: number;
+    y: number;
+  } | null>(null);
+  /** Cadre du graphe : borne de repli de l'infobulle (cf. `PointTip`). */
+  const plotRef = useRef<HTMLDivElement>(null);
 
   // Horloge figée au montage : la fenêtre d'affichage ne doit pas glisser d'un
   // rendu à l'autre pendant qu'on lit la carte.
@@ -161,16 +178,18 @@ export function QuadrantChart({
     [view, hiddenByWarmup],
   );
 
-  // Échap sort de l'isolement — la sortie clavier d'un état visuel qui, sans
-  // elle, ne se quitterait qu'à la souris.
+  // Échap ferme l'isolement ET l'infobulle — la sortie clavier de deux états
+  // visuels qui, sans elle, ne se quitteraient qu'à la souris.
   useEffect(() => {
-    if (isolated === null) return;
+    if (isolated === null && tip === null) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setIsolated(null);
+      if (e.key !== "Escape") return;
+      setIsolated(null);
+      setTip(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [isolated]);
+  }, [isolated, tip]);
 
   return (
     <Card className="relative">
@@ -215,7 +234,10 @@ export function QuadrantChart({
           </div>
         ) : (
           <>
-            <div className="relative h-[420px] overflow-hidden rounded-lg border border-slate-200 sm:h-[460px]">
+            <div
+              ref={plotRef}
+              className="relative h-[420px] overflow-hidden rounded-lg border border-slate-200 sm:h-[460px]"
+            >
               {QUADRANT_KEYS.map((key) => (
                 <Zone
                   key={key}
@@ -270,7 +292,8 @@ export function QuadrantChart({
                   left={projectX(p.x, bounds, DISTRIBUTION_MULTIPLIER)}
                   bottom={projectY(p.y, top, thresholdPct)}
                   dimmed={isolated !== null && p.quadrant !== isolated}
-                  onHover={setHovered}
+                  active={tip?.datum.id === p.id}
+                  onShow={setTip}
                   onSelect={() => onSelectPost(p.id as Id<"publications">)}
                 />
               ))}
@@ -329,7 +352,14 @@ export function QuadrantChart({
         )}
       </CardContent>
 
-      {hovered && <PointTip datum={hovered} />}
+      {tip && (
+        <PointTip
+          datum={tip.datum}
+          anchorX={tip.x}
+          anchorY={tip.y}
+          boundsRef={plotRef}
+        />
+      )}
     </Card>
   );
 }
@@ -434,18 +464,29 @@ function Point({
   left,
   bottom,
   dimmed,
-  onHover,
+  active,
+  onShow,
   onSelect,
 }: {
   datum: QuadrantDatum;
   left: number;
   bottom: number;
   dimmed: boolean;
-  onHover: (d: QuadrantDatum | null) => void;
+  /** Ce point est celui que l'infobulle décrit. */
+  active: boolean;
+  onShow: (
+    tip: { datum: QuadrantDatum; x: number; y: number } | null,
+  ) => void;
   onSelect: () => void;
 }) {
   const t = useTranslations("tracker.quadrant");
   const style = datum.quadrant ? ZONE_STYLE[datum.quadrant] : null;
+
+  /** Ancre CLAVIER : pas de curseur, on vise le centre du point lui-même. */
+  const ancrerSurLePoint = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    onShow({ datum, x: r.left + r.width / 2, y: r.top + r.height / 2 });
+  };
 
   return (
     <button
@@ -456,16 +497,25 @@ function Point({
         vues: formatNumber(datum.vues),
         saves: formatNumber(datum.saves),
       })}
-      onPointerEnter={() => onHover(datum)}
-      onPointerLeave={() => onHover(null)}
-      onFocus={() => onHover(datum)}
-      onBlur={() => onHover(null)}
+      // L'infobulle SUIT le curseur tant qu'il reste sur le point : sur une
+      // cible de 12 px, l'écart entre le bord et le centre suffit à décaler la
+      // boîte, et c'est le curseur qui doit la porter, pas le point.
+      onPointerEnter={(e) => onShow({ datum, x: e.clientX, y: e.clientY })}
+      onPointerMove={(e) => onShow({ datum, x: e.clientX, y: e.clientY })}
+      onPointerLeave={() => onShow(null)}
+      onFocus={(e) => ancrerSurLePoint(e.currentTarget)}
+      onBlur={() => onShow(null)}
       onClick={onSelect}
       className={cn(
-        "absolute z-10 size-3 -translate-x-1/2 translate-y-1/2 cursor-pointer border transition-transform hover:z-30 hover:scale-150 focus-visible:z-30 focus-visible:scale-150 focus-visible:outline-none",
+        "absolute size-3 -translate-x-1/2 translate-y-1/2 cursor-pointer border transition-transform focus-visible:outline-none",
         // Losange pour la fenêtre de breakout : la FORME, pas la couleur — la
         // couleur est prise par le verdict.
         datum.breakout ? "rotate-45 rounded-[2px]" : "rounded-full",
+        // Le point DÉCRIT passe devant et grossit : entre deux points voisins,
+        // rien ne disait auquel des deux l'infobulle se rapportait.
+        active
+          ? "z-30 scale-[1.6] ring-2 ring-slate-900/25"
+          : "z-10 hover:z-30 hover:scale-[1.6]",
         dimmed && "opacity-20",
       )}
       style={{
@@ -481,15 +531,84 @@ function Point({
   );
 }
 
-/** Infobulle d'un point, ancrée en bas de carte (pas de suivi du curseur). */
-function PointTip({ datum }: { datum: QuadrantDatum }) {
+/** Décalage constant entre le point d'ancrage et le coin de l'infobulle. */
+const TIP_GAP = 12;
+/** Marge minimale au bord de la fenêtre — l'infobulle n'y touche jamais. */
+const TIP_EDGE = 8;
+
+/**
+ * Infobulle d'un point, ANCRÉE au point.
+ *
+ * Elle était posée à un coin fixe de la carte : il fallait quitter le point des
+ * yeux pour la lire, et elle recouvrait la ligne de couverture.
+ *
+ * Le placement est calculé en `useLayoutEffect` — donc AVANT la peinture, sans
+ * scintillement — parce qu'il demande la taille RÉELLE de la boîte : le contenu
+ * varie (légende sur une ou deux lignes, mention de breakout ou non), et une
+ * hauteur estimée ferait basculer la boîte trop tôt ou pas assez.
+ *
+ * La limite BASSE est le bas du CADRE DU GRAPHE, pas celui de la fenêtre :
+ * en dessous vivent la légende et la ligne de couverture, qu'on ne recouvre
+ * jamais. Quand la place manque, la boîte remonte au-dessus du point.
+ */
+function PointTip({
+  datum,
+  anchorX,
+  anchorY,
+  boundsRef,
+}: {
+  datum: QuadrantDatum;
+  anchorX: number;
+  anchorY: number;
+  boundsRef: React.RefObject<HTMLDivElement | null>;
+}) {
   const t = useTranslations("tracker.quadrant");
+  const ref = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const tip = el.getBoundingClientRect();
+    const cadre = boundsRef.current?.getBoundingClientRect();
+    const basLimite = Math.min(
+      cadre?.bottom ?? window.innerHeight,
+      window.innerHeight - TIP_EDGE,
+    );
+    const droiteLimite = window.innerWidth - TIP_EDGE;
+
+    // À droite du point par défaut ; à gauche si elle déborderait.
+    let left = anchorX + TIP_GAP;
+    if (left + tip.width > droiteLimite) left = anchorX - TIP_GAP - tip.width;
+    left = Math.max(TIP_EDGE, Math.min(left, droiteLimite - tip.width));
+
+    // En dessous par défaut ; au-dessus si elle déborderait.
+    let top = anchorY + TIP_GAP;
+    if (top + tip.height > basLimite) top = anchorY - TIP_GAP - tip.height;
+    top = Math.max(TIP_EDGE, top);
+
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
+  }, [anchorX, anchorY, datum, boundsRef]);
+
   return (
-    <div className="pointer-events-none absolute right-4 bottom-4 z-40 max-w-xs rounded-md border border-slate-200 bg-white p-2.5 text-xs shadow-lg">
-      <p className="font-medium text-slate-900">
+    <div
+      ref={ref}
+      data-slot="quadrant-point-tip"
+      // `pointer-events-none` : sans lui, la boîte se glisserait sous le
+      // curseur et volerait le survol du point voisin.
+      className="pointer-events-none fixed z-50 rounded-md border border-slate-200 bg-white p-2.5 text-xs shadow-lg"
+      // 280 px PLAFOND, mais jamais plus que la fenêtre : à 390 px de large,
+      // une boîte de 280 ne laisse que ~100 px de jeu horizontal, et le repli
+      // la plaquait loin du point qu'elle décrit. Sur un écran étroit elle
+      // s'ancre donc verticalement, et couvre la largeur.
+      style={{ width: "min(280px, calc(100vw - 2rem))" }}
+    >
+      {/* Deux lignes au maximum : une longue légende doit être coupée, pas
+          étirer la boîte. */}
+      <p className="line-clamp-2 font-medium text-slate-900">
         {datum.label.length > 0 ? datum.label : t("tooltip.noLabel")}
       </p>
-      <p className="text-slate-500">
+      <p className="truncate text-slate-500">
         {datum.creatorName ?? t("tooltip.noCreator")} · {datum.compte} ·{" "}
         {formatDate(datum.datePubli)}
       </p>
