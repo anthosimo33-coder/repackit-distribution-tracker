@@ -30,6 +30,8 @@ import {
 import {
   BASELINE_MIN_POSTS,
   BASELINE_WINDOW_DAYS,
+  BREAKOUT_MIN_VIEWS,
+  BREAKOUT_WINDOW_HOURS,
   DEFAULT_QUADRANT_PERIOD_DAYS,
   MIN_SAMPLE_VIEWS,
   DISTRIBUTION_MULTIPLIER,
@@ -48,6 +50,7 @@ import {
   type QuadrantDatum,
   type UnplacedReason,
 } from "@/lib/quadrant-view";
+import { InfoTip } from "@/components/InfoTip";
 import { formatDate, formatNumber, formatPercent } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { TrackerPost } from "./PostsList";
@@ -141,8 +144,11 @@ export function QuadrantChart({
       <CardContent className="space-y-4 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1">
-            <h3 className="text-base font-semibold text-slate-900">
+            <h3 className="flex items-center gap-1.5 text-base font-semibold text-slate-900">
               {t("title")}
+              <InfoTip label={t("info.aria", { sujet: t("title") })} side="bottom">
+                {t("info.title")}
+              </InfoTip>
             </h3>
             <p className="max-w-2xl text-xs text-slate-500">
               {t("subtitle", {
@@ -167,7 +173,7 @@ export function QuadrantChart({
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={360}>
-            <ScatterChart margin={{ top: 12, right: 24, left: 8, bottom: 28 }}>
+            <ScatterChart margin={{ top: 12, right: 24, left: 8, bottom: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
               <XAxis
                 type="number"
@@ -180,12 +186,6 @@ export function QuadrantChart({
                 axisLine={{ stroke: "#cbd5e1" }}
                 tickLine={false}
                 tickFormatter={(v: number) => `×${v}`}
-                label={{
-                  value: t("axisX"),
-                  position: "insideBottom",
-                  offset: -16,
-                  style: { fontSize: 11, fill: "#64748b" },
-                }}
               />
               <YAxis
                 type="number"
@@ -196,12 +196,6 @@ export function QuadrantChart({
                 tickLine={false}
                 width={56}
                 tickFormatter={(v: number) => `${v.toFixed(1).replace(".", ",")} %`}
-                label={{
-                  value: t("axisY"),
-                  angle: -90,
-                  position: "insideLeft",
-                  style: { fontSize: 11, fill: "#64748b" },
-                }}
               />
               {/* ZAxis figé : sans lui recharts fait varier la taille des points
                   sur une 3e dimension qu'on ne veut pas raconter ici. */}
@@ -246,6 +240,8 @@ export function QuadrantChart({
           </ResponsiveContainer>
         )}
 
+        <AxisCaptions />
+
         <Legend />
 
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -258,7 +254,14 @@ export function QuadrantChart({
               )}
             >
               <div className="flex items-baseline justify-between gap-2 font-medium text-slate-900">
-                <span>{t(`name.${key}`)}</span>
+                <span className="flex items-center gap-1.5">
+                  {t(`name.${key}`)}
+                  <InfoTip
+                    label={t("info.aria", { sujet: t(`name.${key}`) })}
+                  >
+                    {t(`info.${key}`)}
+                  </InfoTip>
+                </span>
                 <span className="tabular-nums">
                   {t("count", { count: view.counts[key] })}
                 </span>
@@ -353,6 +356,53 @@ function PeriodSelect({
   );
 }
 
+/**
+ * Légendes des axes, rendues en HTML sous le graphe plutôt qu'en `label`
+ * recharts. Un label recharts est du `<text>` SVG : on ne peut pas y accrocher
+ * un bouton atteignable au clavier. Les sortir du SVG rend l'explication de
+ * chaque axe accessible — et le texte sélectionnable au passage.
+ */
+function AxisCaptions() {
+  const t = useTranslations("tracker.quadrant");
+  const captions = [
+    {
+      caption: t("axisX"),
+      sujet: t("info.subjectX"),
+      body: t("info.axisX", {
+        windowDays: BASELINE_WINDOW_DAYS,
+        multiplier: DISTRIBUTION_MULTIPLIER,
+      }),
+    },
+    {
+      caption: t("axisY"),
+      sujet: t("info.subjectY"),
+      body: t("info.axisY", { saveRate: formatPercent(INTENT_SAVE_RATE, 1) }),
+    },
+  ];
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-1 text-xs text-slate-500">
+      {captions.map((c) => (
+        <span key={c.sujet} className="inline-flex items-center gap-1.5">
+          {c.caption}
+          <InfoTip label={t("info.aria", { sujet: c.sujet })}>{c.body}</InfoTip>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Séries de la légende qui portent une explication ; les deux autres (promo,
+ * warmup) se lisent seules. Le prédicat RESSERRE le type pour que la clé de
+ * message soit vérifiée par le compilateur — `info.warmup` n'existe pas, et
+ * c'est next-intl qui doit le dire, pas l'écran.
+ */
+const LEGEND_INFO = ["autre", "pending"] as const;
+type LegendInfoKey = (typeof LEGEND_INFO)[number];
+function hasLegendInfo(key: SeriesKey): key is LegendInfoKey {
+  return (LEGEND_INFO as readonly string[]).includes(key);
+}
+
 function Legend() {
   const t = useTranslations("tracker.quadrant");
   return (
@@ -365,11 +415,24 @@ function Legend() {
             style={{ backgroundColor: COLORS[key] }}
           />
           {t(`legend.${key}`)}
+          {hasLegendInfo(key) && (
+            <InfoTip label={t("info.aria", { sujet: t(`legend.${key}`) })}>
+              {key === "pending"
+                ? t("info.pending", { hours: MATURITY_HOURS })
+                : t("info.autre")}
+            </InfoTip>
+          )}
         </span>
       ))}
       <span className="inline-flex items-center gap-1.5">
         <StarMark />
         {t("legend.breakout")}
+        <InfoTip label={t("info.aria", { sujet: t("legend.breakout") })}>
+          {t("info.breakout", {
+            windowHours: BREAKOUT_WINDOW_HOURS,
+            minViews: `${Math.round(BREAKOUT_MIN_VIEWS / 1000)}K`,
+          })}
+        </InfoTip>
       </span>
     </div>
   );
