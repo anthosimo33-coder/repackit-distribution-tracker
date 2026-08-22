@@ -4,7 +4,7 @@ import { use, useState, useEffect} from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
-import { useLocale } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { normalizeLocale } from "@/i18n/locales";
 import { writeLocaleCookie } from "@/i18n/locale-cookie";
 import { useAuthActions } from "@convex-dev/auth/react";
@@ -48,6 +48,7 @@ export default function JoinPage({
   const preview = useQuery(api.creators.getInvitationPreview, { token });
 
   const currentLocale = useLocale();
+  const t = useTranslations("auth");
 
   // MAILLON 7 — le seul endroit où la langue choisie par l'admin peut atteindre
   // le créateur avant qu'il ait un compte. Il arrive ici sans session (rien à
@@ -91,7 +92,7 @@ export default function JoinPage({
       setError(
         err instanceof ConvexError && typeof err.data === "string"
           ? err.data
-          : "Création du compte impossible (mot de passe trop court — 8 caractères minimum — ou invitation invalide).",
+          : t("join.signupFailed"),
       );
       setSubmitting(false);
     }
@@ -107,24 +108,15 @@ export default function JoinPage({
         ) : preview.status === "invalid" ? (
           <>
             <CardHeader>
-              <CardTitle>Lien invalide</CardTitle>
-              <CardDescription>
-                Ce lien d&apos;invitation est invalide, a expiré ou a déjà été
-                utilisé.
-              </CardDescription>
+              <CardTitle>{t("join.invalidTitle")}</CardTitle>
+              <CardDescription>{t("join.invalidBody")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <p className="text-sm text-slate-600">
-                Si tu as déjà créé ton compte, connecte-toi avec ton email et
-                ton mot de passe.
-              </p>
+              <p className="text-sm text-slate-600">{t("join.invalidHint")}</p>
               <Link href="/login" className={buttonVariants({ className: "w-full" })}>
-                Se connecter
+                {t("login.submitSignIn")}
               </Link>
-              <p className="text-xs text-slate-500">
-                Sinon, demande un nouveau lien d&apos;invitation à ton
-                administrateur.
-              </p>
+              <p className="text-xs text-slate-500">{t("join.invalidAskAdmin")}</p>
             </CardContent>
           </>
         ) : (
@@ -132,17 +124,15 @@ export default function JoinPage({
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <BrandMark size={32} />
+                {/* i18n-exempt: nom de la plateforme (marque) servant de repli — un nom de projet ne se traduit pas, son repli non plus. */}
                 {preview.projectName ?? "Jarvis Creator Studio"}
               </CardTitle>
-              <CardDescription>
-                Bienvenue {preview.name} — choisis un mot de passe pour activer
-                ton compte créateur.
-              </CardDescription>
+              <CardDescription>{t("join.welcome", { name: preview.name })}</CardDescription>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="email">Email</Label>
+                  <Label htmlFor="email">{t("field.email")}</Label>
                   <Input
                     id="email"
                     type="email"
@@ -152,7 +142,7 @@ export default function JoinPage({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="password">Mot de passe</Label>
+                  <Label htmlFor="password">{t("field.password")}</Label>
                   <Input
                     id="password"
                     type="password"
@@ -172,7 +162,7 @@ export default function JoinPage({
                   {submitting && (
                     <Loader2Icon className="size-4 animate-spin" />
                   )}
-                  Activer mon compte
+                  {t("join.submit")}
                 </Button>
               </form>
             </CardContent>

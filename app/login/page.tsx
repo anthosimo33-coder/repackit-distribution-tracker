@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { ConvexError } from "convex/values";
@@ -30,6 +31,7 @@ import { BrandMark } from "@/components/brand/BrandMark";
  *    rejette avec un message explicite.
  */
 export default function LoginPage() {
+  const t = useTranslations("auth");
   const router = useRouter();
   const { signIn } = useAuthActions();
   const [flow, setFlow] = useState<"signIn" | "signUp">("signIn");
@@ -52,8 +54,8 @@ export default function LoginPage() {
         err instanceof ConvexError && typeof err.data === "string"
           ? err.data
           : flow === "signIn"
-            ? "Identifiants invalides."
-            : "Création de compte impossible (mot de passe trop court — 8 caractères minimum — ou inscription fermée).",
+            ? t("login.badCredentials")
+            : t("login.signupFailed"),
       );
       setSubmitting(false);
     }
@@ -65,18 +67,19 @@ export default function LoginPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <BrandMark size={32} />
+            {/* i18n-exempt: nom de la plateforme (marque) — ne se traduit pas. */}
             Jarvis Creator Studio
           </CardTitle>
           <CardDescription>
             {flow === "signIn"
-              ? "Connecte-toi à ton espace (admin ou créateur)."
-              : "Création du compte initial (premier démarrage uniquement)."}
+              ? t("login.subtitleSignIn")
+              : t("login.subtitleSignUp")}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">{t("field.email")}</Label>
               <Input
                 id="email"
                 type="email"
@@ -87,7 +90,7 @@ export default function LoginPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="password">Mot de passe</Label>
+              <Label htmlFor="password">{t("field.password")}</Label>
               <Input
                 id="password"
                 type="password"
@@ -107,7 +110,7 @@ export default function LoginPage() {
             )}
             <Button type="submit" className="w-full" disabled={submitting}>
               {submitting && <Loader2Icon className="size-4 animate-spin" />}
-              {flow === "signIn" ? "Se connecter" : "Créer le compte"}
+              {flow === "signIn" ? t("login.submitSignIn") : t("login.submitSignUp")}
             </Button>
           </form>
           <button
@@ -119,8 +122,8 @@ export default function LoginPage() {
             }}
           >
             {flow === "signIn"
-              ? "Premier démarrage ? Créer le compte initial"
-              : "Déjà un compte ? Se connecter"}
+              ? t("login.toSignUp")
+              : t("login.toSignIn")}
           </button>
         </CardContent>
       </Card>

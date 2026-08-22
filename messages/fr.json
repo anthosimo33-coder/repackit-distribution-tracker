@@ -149,5 +149,46 @@
         "autre": "Non qualifié"
       }
     }
+  },
+  "auth": {
+    "join": {
+      "invalidTitle": "Lien invalide",
+      "invalidBody": "Ce lien d'invitation est invalide, a expiré ou a déjà été utilisé.",
+      "invalidHint": "Si tu as déjà créé ton compte, connecte-toi avec ton email et ton mot de passe.",
+      "invalidAskAdmin": "Sinon, demande un nouveau lien d'invitation à ton administrateur.",
+      "welcome": "Bienvenue {name} — choisis un mot de passe pour activer ton compte créateur.",
+      "submit": "Activer mon compte",
+      "signupFailed": "Création du compte impossible (mot de passe trop court — 8 caractères minimum — ou invitation invalide)."
+    },
+    "login": {
+      "subtitleSignIn": "Connecte-toi à ton espace (admin ou créateur).",
+      "subtitleSignUp": "Création du compte initial (premier démarrage uniquement).",
+      "submitSignIn": "Se connecter",
+      "submitSignUp": "Créer le compte",
+      "toSignUp": "Premier démarrage ? Créer le compte initial",
+      "toSignIn": "Déjà un compte ? Se connecter",
+      "badCredentials": "Identifiants invalides.",
+      "signupFailed": "Création de compte impossible (mot de passe trop court — 8 caractères minimum — ou compte déjà existant).",
+      "projectNotFound": "Projet introuvable",
+      "projectNotFoundBody": "Aucun projet ne correspond à ce lien. Vérifie l'adresse ou connecte-toi sur la page générale.",
+      "goToGeneralLogin": "Aller à la connexion"
+    },
+    "reset": {
+      "invalidTitle": "Lien invalide",
+      "prompt": "Choisis un nouveau mot de passe.",
+      "newPassword": "Nouveau mot de passe",
+      "confirmPassword": "Confirmer le mot de passe",
+      "tooShort": "Le mot de passe doit faire au moins 8 caractères.",
+      "mismatch": "Les deux mots de passe ne correspondent pas.",
+      "failed": "Réinitialisation impossible. Demande un nouveau lien à ton administrateur.",
+      "invalidBody": "Ce lien de réinitialisation est invalide ou expiré. Demande un nouveau lien à ton administrateur.",
+      "title": "Réinitialise ton mot de passe",
+      "promptForProject": "Choisis un nouveau mot de passe pour {project}.",
+      "submit": "Réinitialiser le mot de passe"
+    },
+    "field": {
+      "email": "Email",
+      "password": "Mot de passe"
+    }
   }
 }

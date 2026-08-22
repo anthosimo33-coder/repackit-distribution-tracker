@@ -1,7 +1,6 @@
 {
   "_comment": "Fichiers PAS ENCORE extraits, détectés en mode STRICT (tolérance zéro). Cette liste ne peut que RÉTRÉCIR. Hors de cette liste = fichier extrait, où le moindre littéral en position de libellé fait échouer la CI, accent ou pas.",
   "files": [
-    "app/[projectSlug]/login/page.tsx",
     "app/admin/[projectSlug]/analytics/page.tsx",
     "app/admin/[projectSlug]/assets/[folderId]/page.tsx",
     "app/admin/[projectSlug]/assets/page.tsx",
@@ -23,10 +22,7 @@
     "app/app/layout.tsx",
     "app/app/outils/page.tsx",
     "app/clip/layout.tsx",
-    "app/join/[token]/page.tsx",
-    "app/login/page.tsx",
     "app/not-found.tsx",
-    "app/reset-password/[token]/page.tsx",
     "app/talent/layout.tsx",
     "components/ImageUploader.tsx",
     "components/PayCurrencyWarning.tsx",
