@@ -25,7 +25,6 @@ import {
   disputeDeadlineLabel,
   dash,
   pct,
-  formatDuration,
 } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import { AlertTriangleIcon, ReceiptTextIcon } from "lucide-react";
@@ -179,6 +178,21 @@ export function OffresTab({
   const AB_THRESHOLD = 330;
   /** Personnes écartées du tableau faute de bras stable (cf QUERIES.abArms). */
   const abExcluded = arms.reduce((sum, a) => sum + a.excludedFlippers, 0);
+  /**
+   * Ventilation de ces exclusions. Un bras qui diverge entre DEUX `$device_id`
+   * est une fusion d'identités PostHog (un humain, deux navigateurs, deux
+   * tirages) : attendu, non actionnable. Sur un SEUL appareil, l'app a re-tiré
+   * le bras d'une personne déjà assignée — c'est le seul sous-total sur lequel
+   * le produit peut agir, et un total agrégé le noie.
+   */
+  const abExcludedMultiDevice = arms.reduce(
+    (sum, a) => sum + a.excludedFlippersMultiDevice,
+    0,
+  );
+  const abExcludedSameDevice = arms.reduce(
+    (sum, a) => sum + a.excludedFlippersSameDevice,
+    0,
+  );
   /**
    * MARQUEUR DE RUPTURE — correctif SERVEUR du tirage de bras. Vérifié en prod le
    * 09/08 : dernière bascule à l'identification le 07/08 22:02:46.735 UTC,
@@ -567,9 +581,12 @@ export function OffresTab({
                 à sa création — et les deux tirages ne tombaient pas d&apos;accord.
                 Avant cette date, <strong>56 % des personnes mises à l&apos;épreuve</strong>{" "}
                 (10 sur 18 ayant une assignation de part et d&apos;autre de
-                l&apos;inscription) changeaient de bras à l&apos;identification ; après,
-                aucune sur 47. <strong>Les données d&apos;avant ne sont pas comparables
-                à celles d&apos;après.</strong>
+                l&apos;inscription) changeaient de bras à l&apos;identification. Le
+                correctif a éteint CE chemin-là — mais pas toute bascule : des
+                personnes changent encore de bras après la rupture, par le tirage
+                anonyme (colonne « écartées » ci-dessous).{" "}
+                <strong>Les données d&apos;avant ne sont pas comparables à celles
+                d&apos;après.</strong>
               </HubNotice>
               {abExcluded > 0 ? (
                 <p className="text-xs text-slate-500">
@@ -583,7 +600,31 @@ export function OffresTab({
                   vu un paywall et certaines ont converti — on retire de vraies
                   conversions pour ne pas les attribuer au mauvais bras. Détection par
                   la double valeur, jamais par une liste figée (elle grossit) ni par
-                  une fenêtre de date (elle jetterait aussi les cohortes saines).
+                  une fenêtre de date (elle jetterait aussi les cohortes saines).{" "}
+                  {abExcludedSameDevice > 0 ? (
+                    <>
+                      <strong>
+                        Dont {formatNumber(abExcludedSameDevice)} sur un SEUL appareil
+                      </strong>{" "}
+                      : celles-là ne s&apos;expliquent pas par une fusion
+                      d&apos;identités (deux navigateurs, deux tirages) — c&apos;est
+                      l&apos;app qui re-tire le bras d&apos;une personne déjà assignée.
+                      C&apos;est le seul sous-total actionnable côté produit ; les{" "}
+                      {formatNumber(abExcludedMultiDevice)} autres sont attendues.
+                    </>
+                  ) : null}
+                </p>
+              ) : null}
+              {abRev && abRev.excludedFlippers > 0 ? (
+                <p className="text-xs text-slate-500">
+                  <strong>
+                    {formatNumber(abRev.excludedFlippers)} abonnement(s) écarté(s) du
+                    revenu par bras
+                  </strong>{" "}
+                  ({formatMoney(abRev.excludedFlippersNet, revenue?.currency)}) : leur
+                  personne a changé de bras. Le tableau les retirait déjà de ses
+                  colonnes, mais leur argent y entrait encore par la metadata Whop —
+                  numérateur et dénominateur ne portaient pas sur la même population.
                 </p>
               ) : null}
               <p className="text-xs text-slate-500">
@@ -946,31 +987,16 @@ export function OffresTab({
                     {formatNumber(free.convertedPaid)}
                   </TableCell>
                 </TableRow>
-                <TableRow>
-                  <TableCell className="text-xs text-slate-600">
-                    Avaient ouvert le checkout avant
-                  </TableCell>
-                  <TableCell className="text-right text-xs tabular-nums text-red-600">
-                    {formatNumber(free.checkoutBefore)}
-                  </TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell className="text-xs text-slate-600">
-                    Délai médian gratuit → checkout
-                  </TableCell>
-                  <TableCell className="text-right text-xs tabular-nums">
-                    {free.medFreeToCheckoutMs === null
-                      ? "—"
-                      : free.medFreeToCheckoutMs < 0
-                        ? `−${formatDuration(-free.medFreeToCheckoutMs)}`
-                        : formatDuration(free.medFreeToCheckoutMs)}
-                  </TableCell>
-                </TableRow>
               </TableBody>
             </Table>
             <p className="text-xs text-slate-400">
-              Un délai négatif signifie que le checkout était ouvert AVANT le gratuit :
-              ces gens allaient payer.
+              « Ont reçu la semaine offerte » compte un OCTROI, pas un choix :
+              l&apos;event part aussi sur le chemin des payants, ~1 s avant leur
+              paiement. Le délai gratuit → checkout et le compteur « avaient ouvert
+              le checkout avant » ont été retirés pour cette raison — ils mesuraient
+              l&apos;ordre d&apos;émission, pas une décision. Savoir si le gratuit est
+              une porte de sortie ou de découverte demande un event émis au CHOIX du
+              plan gratuit, pas encore émis par l&apos;app.
             </p>
           </CardContent>
         </Card>
