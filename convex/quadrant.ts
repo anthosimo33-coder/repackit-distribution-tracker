@@ -319,10 +319,18 @@ export function breakoutFlags(
 /**
  * La case d'un post dont les DEUX scores sont connus.
  *
- * Distribution HAUTE = multiplicateur ET plancher de vues (jamais OU) : 3× la
- * médiane d'un compte qui plafonne à 400 vues n'est pas une distribution.
+ * Deux conditions en ET (jamais OU) pour la moitié haute, et elles ne disent
+ * pas la même chose :
+ *   - le MULTIPLICATEUR répond « ce post est-il sorti par rapport à son
+ *     compte ? » — c'est la mesure, relative, sur l'axe X ;
+ *   - `minSampleViews` répond « le save rate de ce post veut-il dire quelque
+ *     chose ? » — c'est une garde de FIABILITÉ sur l'axe Y (cf. le pourquoi
+ *     détaillé dans `convex/quadrantSettings.ts`). Sous ce volume, les deux
+ *     verdicts de la moitié haute se liraient sur un ratio bruité, donc on n'y
+ *     laisse pas monter le post.
+ *
  * Comparaisons LARGES (`>=`) des deux côtés — un post exactement au seuil est
- * au-dessus, comme l'énonce le réglage.
+ * au-dessus, comme l'énoncent les réglages.
  */
 export function quadrantFor(
   scoreDistribution: number,
@@ -332,7 +340,7 @@ export function quadrantFor(
 ): QuadrantKey {
   const distributionHigh =
     scoreDistribution >= settings.distributionMultiplier &&
-    vues >= settings.distributionMinViews;
+    vues >= settings.minSampleViews;
   const intentHigh = scoreIntent >= settings.intentSaveRate;
   if (distributionHigh) return intentHigh ? "scale" : "intent_faible";
   return intentHigh ? "distribution_faible" : "archiver";

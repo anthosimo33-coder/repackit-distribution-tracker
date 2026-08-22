@@ -50,7 +50,7 @@
   "tracker": {
     "quadrant": {
       "title": "Views × Intent quadrant",
-      "subtitle": "Every published post, plotted on two independent axes: how far it travelled compared with its account's median (×{multiplier} and {minViews} views to count as high) and how much of its audience saved it ({saveRate} to count as high). Scores are recomputed by the nightly sync.",
+      "subtitle": "Every published post on two independent axes: how far it travelled compared with its account's median (×{multiplier} to count as high) and how much of its audience saved it ({saveRate} to count as high). Under {minViews} views the save rate is not readable — the post does not move up. Scores recomputed by the nightly sync.",
       "axisX": "Distribution — views ÷ account median (log scale)",
       "axisY": "Intent — save rate",
       "empty": "No post can be plotted for this period.",

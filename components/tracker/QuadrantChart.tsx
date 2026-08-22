@@ -31,7 +31,7 @@ import {
   BASELINE_MIN_POSTS,
   BASELINE_WINDOW_DAYS,
   DEFAULT_QUADRANT_PERIOD_DAYS,
-  DISTRIBUTION_MIN_VIEWS,
+  MIN_SAMPLE_VIEWS,
   DISTRIBUTION_MULTIPLIER,
   INTENT_SAVE_RATE,
   MATURITY_HOURS,
@@ -147,7 +147,7 @@ export function QuadrantChart({
             <p className="max-w-2xl text-xs text-slate-500">
               {t("subtitle", {
                 multiplier: DISTRIBUTION_MULTIPLIER,
-                minViews: formatNumber(DISTRIBUTION_MIN_VIEWS),
+                minViews: formatNumber(MIN_SAMPLE_VIEWS),
                 saveRate: formatPercent(INTENT_SAVE_RATE, 1),
               })}
             </p>

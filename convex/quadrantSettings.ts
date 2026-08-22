@@ -36,8 +36,8 @@ export type QuadrantSettings = {
   maturityMs: number;
   /** Multiplicateur de la médiane à partir duquel la distribution est HAUTE. */
   distributionMultiplier: number;
-  /** Plancher de vues absolu, exigé EN PLUS du multiplicateur. */
-  distributionMinViews: number;
+  /** Volume de vues sous lequel le save rate n'est pas lisible (cf. `MIN_SAMPLE_VIEWS`). */
+  minSampleViews: number;
   /** Save rate à partir duquel l'intent est HAUT. */
   intentSaveRate: number;
   /** Durée pendant laquelle un gros post ouvre une fenêtre sur son compte. */
@@ -57,19 +57,51 @@ export type QuadrantSettings = {
 export const BASELINE_WINDOW_DAYS = 14;
 
 /**
- * Un post distribue « haut » quand il fait au moins 3× la médiane de son
+ * Un post distribue « haut » quand il fait au moins 2× la médiane de son
  * compte. La MÉDIANE et pas la moyenne : une seule vidéo virale déplacerait la
  * moyenne et rendrait tout le reste médiocre par construction.
+ *
+ * ×2 et non ×3 — calibré le 2026-08-22 sur 14 jours de prod (126 posts publiés,
+ * 70 classés). La bande ×2–×3 ne contient que 5 de ces 70 posts (50 sont sous
+ * ×2, 15 au-dessus de ×3) : la distribution est bimodale, donc le choix du
+ * multiplicateur est presque neutre sur le découpage. À neutralité près, on
+ * prend le seuil SENSIBLE — sur cet axe un faux positif coûte un coup d'œil,
+ * un faux négatif coûte un format qui marchait et qu'on ne reconduit pas.
+ *
+ * C'est `MIN_SAMPLE_VIEWS` qui porte la garde de fiabilité, pas ce
+ * multiplicateur-ci. Les deux réglages ne répondent pas à la même question et
+ * ne se compensent pas : celui-ci dit « à partir de quand c'est un burst »,
+ * l'autre « à partir de quand la mesure veut dire quelque chose ».
  */
-export const DISTRIBUTION_MULTIPLIER = 3;
+export const DISTRIBUTION_MULTIPLIER = 2;
 
 /**
- * Plancher ABSOLU, exigé EN PLUS du multiplicateur (ET, jamais OU). Sur un
- * compte neuf dont la médiane est à 300 vues, 3× ne veut rien dire : 900 vues
- * n'est pas une distribution, c'est du bruit. Le plancher est ce qui empêche le
- * quadrant de déclarer « format gagnant » sur un compte qui ne décolle pas.
+ * SEUIL DE FIABILITÉ STATISTIQUE — **ce n'est PAS une barre de performance.**
+ *
+ * Il garde l'axe INTENT, pas l'axe distribution. Le save rate est un ratio à
+ * très petit numérateur : à 1 000 vues, le seuil d'intent (0,5 %) représente
+ * CINQ saves. Une ou deux saves de bruit font alors changer un post de
+ * quadrant, et la classification devient un tirage. À 2 000 vues le même seuil
+ * représente dix saves — lisible. C'est tout ce que ce nombre dit.
+ *
+ * Il s'applique en ET avec le multiplicateur (`quadrantFor`) : un post sous ce
+ * volume ne monte pas dans la moitié haute, celle dont les deux verdicts
+ * (« reconduire », « resserrer l'intro produit ») se lisent sur le save rate.
+ * On refuse de faire agir sur une mesure qu'on sait bruitée.
+ *
+ * ⚠️ NE PAS le retuner pour « durcir » le quadrant. Le monter ne rend pas la
+ * lecture plus exigeante, il rend le quadrant AVEUGLE aux petits comptes : à
+ * 5 000 (la valeur d'origine), c'était ce plancher et non le ratio qui décidait
+ * pour 4 comptes sur 7 du roster — l'axe X cessait d'être relatif au compte
+ * pour redevenir un compteur de vues absolu. Pour changer ce qui compte comme
+ * burst, c'est `DISTRIBUTION_MULTIPLIER` qu'il faut bouger.
+ *
+ * Un plancher PROPORTIONNEL à la médiane du compte a été envisagé et écarté :
+ * il résout le mauvais problème. Proportionnel sur une médiane de 495, il
+ * admettrait des posts à 1 500 vues où le save rate est précisément le bruit
+ * que ce seuil existe pour écarter.
  */
-export const DISTRIBUTION_MIN_VIEWS = 5_000;
+export const MIN_SAMPLE_VIEWS = 2_000;
 
 /**
  * Save rate à partir duquel l'intent est HAUT. 0,5 % — un save est un geste
@@ -136,7 +168,7 @@ export const QUADRANT_SETTINGS: QuadrantSettings = {
   baselineIncludesWarmup: BASELINE_INCLUDES_WARMUP,
   maturityMs: MATURITY_HOURS * HOUR_MS,
   distributionMultiplier: DISTRIBUTION_MULTIPLIER,
-  distributionMinViews: DISTRIBUTION_MIN_VIEWS,
+  minSampleViews: MIN_SAMPLE_VIEWS,
   intentSaveRate: INTENT_SAVE_RATE,
   breakoutWindowMs: BREAKOUT_WINDOW_HOURS * HOUR_MS,
   breakoutMinViews: BREAKOUT_MIN_VIEWS,
