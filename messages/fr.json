@@ -100,6 +100,21 @@
         "saves_collecting": "{count, plural, one {# post antérieur à la collecte des saves} other {# posts antérieurs à la collecte des saves}} : la mesure arrivera pour les prochains.",
         "no_views": "{count, plural, one {# post à 0 vue mesurée} other {# posts à 0 vue mesurée}} : pas de dénominateur pour un save rate.",
         "notComputed": "{count, plural, one {# post pas encore classé} other {# posts pas encore classés}} : en attente du prochain relevé nocturne."
+      },
+      "info": {
+        "aria": "En savoir plus — {sujet}",
+        "subjectX": "l'axe distribution",
+        "subjectY": "l'axe intent",
+        "title": "Ce graphe répond à une question : pour chaque post, où est le problème ? Un post peut échouer de deux façons différentes : TikTok ne l'a pas distribué (problème de hook), ou il a été vu mais personne n'a montré d'intérêt pour le produit (problème d'intro produit). Ces deux échecs se corrigent de façon opposée — ce graphe les sépare pour ne pas corriger le mauvais truc.",
+        "axisX": "Est-ce que TikTok a poussé ce post ? Mesuré par rapport à la médiane du compte sur {windowDays} jours : un post est 'haut' s'il a fait au moins ×{multiplier} la médiane de SON compte. C'est relatif : 10 000 vues est un burst sur un petit compte et une journée normale sur un gros.",
+        "axisY": "Est-ce que les viewers ont montré un intérêt produit ? Mesuré par le taux de saves (enregistrements ÷ vues), seuil à {saveRate}. Un save = 'je garde pour plus tard' — c'est le signal le plus corrélé aux ventes dans notre historique. Les likes mesurent l'émotion, les saves mesurent l'intention.",
+        "scale": "Distribué ET sauvegardé : le hook accroche et le produit intéresse. Action : reconduire ce format/hook, c'est un gagnant prouvé.",
+        "intent_faible": "TikTok a distribué mais personne ne sauvegarde : les gens regardent sans s'intéresser au produit. Le hook est bon — ne pas y toucher. Le problème est dans le pont vers le produit : mention trop tardive, pas claire, ou absente. Action : resserrer l'intro produit.",
+        "distribution_faible": "Peu de vues mais un taux de saves élevé : le petit public touché s'intéresse fortement au produit. L'angle est bon — le garder. C'est le hook qui n'a pas accroché assez pour que TikTok pousse. Action : changer le hook, garder l'angle.",
+        "archiver": "Ni distribution ni intérêt. Un run raté peut être de la malchance (la distribution TikTok est une loterie) : on archive après 2 runs ratés, pas 1.",
+        "pending": "Un post de moins de {hours}h n'est pas classé : ses vues montent encore, le classer maintenant donnerait un faux verdict. Classement figé à {hours}h.",
+        "breakout": "Ce post a été publié dans les {windowHours}h suivant un breakout (≥{minViews}) du même compte. Ses chiffres sont probablement gonflés par la redistribution du breakout — lire son classement avec prudence, ce n'est pas forcément sa performance propre.",
+        "autre": "Post jamais marqué warmup ou promo dans Jarvia. À qualifier pour que les filtres et lectures soient justes."
       }
     }
   }

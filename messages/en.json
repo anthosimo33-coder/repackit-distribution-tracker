@@ -100,6 +100,21 @@
         "saves_collecting": "{count, plural, one {# post predating saves collection} other {# posts predating saves collection}}: the measure will land for the next ones.",
         "no_views": "{count, plural, one {# post with 0 measured views} other {# posts with 0 measured views}}: no denominator for a save rate.",
         "notComputed": "{count, plural, one {# post not classified yet} other {# posts not classified yet}}: waiting for the next nightly sync."
+      },
+      "info": {
+        "aria": "Learn more — {sujet}",
+        "subjectX": "the distribution axis",
+        "subjectY": "the intent axis",
+        "title": "This chart answers one question: for each post, where is the problem? A post can fail in two different ways: TikTok did not distribute it (a hook problem), or it was seen but nobody showed any interest in the product (a product-intro problem). These two failures are fixed in opposite ways — this chart separates them so you don't fix the wrong thing.",
+        "axisX": "Did TikTok push this post? Measured against the account's median over {windowDays} days: a post is 'high' if it did at least ×{multiplier} the median of ITS OWN account. It is relative: 10,000 views is a burst on a small account and an ordinary day on a big one.",
+        "axisY": "Did viewers show product interest? Measured by the save rate (saves ÷ views), threshold at {saveRate}. A save = 'I'm keeping this for later' — it is the signal most correlated with sales in our history. Likes measure emotion, saves measure intent.",
+        "scale": "Distributed AND saved: the hook lands and the product appeals. Action: run this format/hook again, it is a proven winner.",
+        "intent_faible": "TikTok distributed it but nobody saves: people watch without taking an interest in the product. The hook is good — leave it alone. The problem is the bridge to the product: mentioned too late, unclear, or missing. Action: tighten the product intro.",
+        "distribution_faible": "Few views but a high save rate: the small audience reached is strongly interested in the product. The angle is good — keep it. It is the hook that did not land hard enough for TikTok to push. Action: change the hook, keep the angle.",
+        "archiver": "Neither distribution nor interest. One failed run can be bad luck (TikTok distribution is a lottery): archive after 2 failed runs, not 1.",
+        "pending": "A post under {hours}h old is not classified: its views are still climbing, and classifying it now would give a false verdict. Classification settles at {hours}h.",
+        "breakout": "This post was published within {windowHours}h of a breakout (≥{minViews}) from the same account. Its numbers are probably inflated by the breakout's redistribution — read its classification with caution, it is not necessarily its own performance.",
+        "autre": "Post never marked warmup or promo in Jarvia. Qualify it so that filters and readings are accurate."
       }
     }
   }
