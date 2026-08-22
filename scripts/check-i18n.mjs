@@ -63,6 +63,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { catalogEntityViolations } from "./i18n-entities.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SCANNED_DIRS = ["app", "components"];
@@ -107,16 +108,29 @@ const STRICT_ATTRS = /\b(placeholder|title|alt|aria-label|label)\s*=\s*"([^"]+)"
  * Texte JSX entre balises, tout littéral non vide.
  * Le lookbehind écarte `=>` (fonction fléchée suivie d'un générique : le `>` de
  * la flèche et le `<` du type encadraient du code, pas du texte).
+ *
+ * BUG CORRIGÉ — le lookbehind ne regarde que le caractère AVANT le `>`. Il ne
+ * voyait donc pas le `=` qui SUIT dans l'opérateur `>=` : `x >= 200 && y < 300`
+ * livrait « = 200 && y ». D'où le `(?!=)` — 8 occurrences dans le dépôt, toutes
+ * des comparaisons bornées écrites sur une seule ligne.
  */
-const STRICT_JSX = /(?<![=!<>-])>\s*([^<>{}\n][^<>{}]*?)\s*</g;
+const STRICT_JSX = /(?<![=!<>-])>(?!=)\s*([^<>{}\n][^<>{}]*?)\s*</g;
 
 /**
  * Tout littéral de chaîne du fichier. Sert à rattraper les libellés qui ne sont
  * dans AUCUNE des positions ci-dessus — le cas dominant côté créateur étant le
  * ternaire entre accolades JSX : `{cond ? "Déclare ton premier compte." : "…"}`.
  * Le filtre `isProse` fait tout le travail de discrimination.
+ *
+ * BUG CORRIGÉ — la borne `{4,}` était posée sur le CONTENU, ce qui faisait
+ * REJETER les littéraux courts… puis apparier leur guillemet fermant avec le
+ * guillemet ouvrant du suivant, capturant le CODE entre les deux :
+ * `part.startsWith("**") && part.endsWith("**")` livrait « ) && part.endsWith( ».
+ * On apparie désormais TOUT littéral, même vide, et c'est `isProse` (longueur
+ * minimale comprise) qui écarte les courts — un littéral consommé ne peut plus
+ * servir de borne à un appariement fantôme.
  */
-const STRICT_LITERAL = /(["'])((?:(?!\1)[^\\\n]|\\.){4,})\1/g;
+const STRICT_LITERAL = /(["'])((?:(?!\1)[^\\\n]|\\.)*)\1/g;
 
 /** Lignes où un littéral n'est jamais de la copie : classes, imports, chemins. */
 const NON_TEXT_LINE = /\b(className|classList|import\s|from\s+["']|require\(|cn\(|clsx\(|cva\()/;
@@ -188,12 +202,43 @@ let roughCount = 0;
 
 for (const file of SCANNED_DIRS.flatMap((d) => walk(join(ROOT, d)))) {
   const lines = readFileSync(file, "utf8").split("\n");
+  let inBlockComment = false;
   lines.forEach((line, i) => {
     // Exemption : le marqueur lui-même, et la ligne qu'il couvre.
     if (EXEMPT_RE.test(line)) return;
     if (i > 0 && EXEMPT_RE.test(lines[i - 1])) return;
     // Commentaires : hors périmètre, assumé (cf en-tête).
-    const code = line.replace(/^\s*(\/\/|\*|\/\*).*$/, "");
+    //
+    // BUG CORRIGÉ — l'ancien filtre ne reconnaissait que `//`, `*` et `/*` en
+    // début de ligne. Il laissait donc passer (a) le commentaire JSX `{/* … */}`,
+    // qui commence par `{`, et (b) les lignes de CONTINUATION d'un bloc dont
+    // l'auteur n'aligne pas les `*`. La prose française du commentaire
+    // déclenchait alors isProse par son accent, et ses apostrophes fabriquaient
+    // en plus de faux littéraux — 13 détections fantômes dans le dépôt, dont le
+    // texte commençait au milieu d'un mot (signature reconnaissable).
+    //
+    // On suit donc l'état « dans un commentaire de bloc » d'une ligne à l'autre,
+    // et on retire aussi les commentaires ouverts par `{/*`.
+    let code = line;
+    if (inBlockComment) {
+      const end = code.indexOf("*/");
+      if (end === -1) return;
+      code = code.slice(end + 2);
+      inBlockComment = false;
+    }
+    // Blocs ouverts sur cette ligne : `/* … */`, `{/* … */}` — et non refermés.
+    for (;;) {
+      const open = code.search(/\{?\/\*/);
+      if (open === -1) break;
+      const close = code.indexOf("*/", open);
+      if (close === -1) {
+        code = code.slice(0, open);
+        inBlockComment = true;
+        break;
+      }
+      code = code.slice(0, open) + code.slice(close + 2);
+    }
+    code = code.replace(/\/\/.*$/, "");
     if (code.trim() === "") return;
 
     const rel = relative(ROOT, file);
@@ -255,6 +300,18 @@ const enKeys = new Set(flatten(en));
 const missingInEn = [...frKeys].filter((k) => !enKeys.has(k));
 const extraInEn = [...enKeys].filter((k) => !frKeys.has(k));
 
+// ─── Entités HTML dans les catalogues ────────────────────────────────────────
+// Le détecteur rend le littéral tel qu'il est écrit dans la SOURCE JSX, où la
+// convention ESLint `react/no-unescaped-entities` impose `&apos;`. Copié tel
+// quel dans un catalogue, il s'affiche LITTÉRALEMENT : une valeur passée par
+// `t()` n'est plus interprétée comme du JSX. Sur des centaines d'extractions,
+// un décodage à la main laisse forcément passer des cas — d'où cette assertion,
+// qui est le garde-fou qui fait foi.
+const entityViolations = [
+  ...catalogEntityViolations(fr).map((v) => ({ ...v, file: "messages/fr.json" })),
+  ...catalogEntityViolations(en).map((v) => ({ ...v, file: "messages/en.json" })),
+];
+
 const byFile = new Map();
 for (const f of findings) {
   if (!byFile.has(f.file)) byFile.set(f.file, []);
@@ -290,6 +347,24 @@ if (staleBaseline.length > 0) {
   );
   console.error("  Retire-les de la liste : la baseline ne doit que rétrécir.");
   for (const f of staleBaseline) console.error(`    ${f}`);
+}
+
+if (entityViolations.length > 0) {
+  failed = true;
+  console.error(
+    `\n✖ ${entityViolations.length} valeur(s) de catalogue contiennent une entité HTML :`,
+  );
+  for (const v of entityViolations) {
+    console.error(`    ${v.file}  ${v.key}`);
+    console.error(`      ${v.entities.join(" ")}  dans « ${v.value} »`);
+  }
+  console.error(
+    "\n  Une valeur passée par t() est rendue comme du TEXTE, pas comme du JSX :",
+  );
+  console.error(
+    "  « n&apos;existe » s'afficherait tel quel. Décoder à l'extraction",
+  );
+  console.error("  (scripts/i18n-entities.mjs → decodeHtmlEntities).");
 }
 
 if (missingInEn.length > 0 || extraInEn.length > 0) {

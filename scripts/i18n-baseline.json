@@ -187,7 +187,6 @@
     "components/tracker/TrackerDataView.tsx",
     "components/tracker/TrackerListSection.tsx",
     "components/ui/CopyButton.tsx",
-    "components/ui/SimpleMarkdown.tsx",
     "components/ui/badge.tsx",
     "components/ui/command.tsx",
     "components/ui/dialog.tsx",
