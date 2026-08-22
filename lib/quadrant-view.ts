@@ -13,10 +13,11 @@
  * tels quels. On ne fait que choisir ce qu'on trace et ce qu'on dit du reste.
  */
 
-import type {
-  QuadrantKey,
-  QuadrantQualification,
-  QuadrantSnapshot,
+import {
+  QUADRANT_KEYS,
+  type QuadrantKey,
+  type QuadrantQualification,
+  type QuadrantSnapshot,
 } from "../convex/quadrant";
 
 /**
@@ -107,6 +108,13 @@ export type QuadrantView = {
   total: number;
   /** Effectif de chaque case (posts classés uniquement). */
   counts: Record<QuadrantKey, number>;
+  /**
+   * Posts « en attente » qui SONT tracés (leurs deux scores sont calculables,
+   * ils apparaissent en gris). Comptés à part parce qu'ils sont à la fois
+   * visibles ET non classés : sans eux, la couverture les perdrait — ils ne
+   * sont ni dans `counts` ni dans `unplaced`.
+   */
+  pendingPlotted: number;
 };
 
 function emptyUnplaced(): Record<UnplacedReason, number> {
@@ -162,6 +170,7 @@ export function buildQuadrantView(
   const counts = emptyCounts();
   let notComputed = 0;
   let total = 0;
+  let pendingPlotted = 0;
 
   for (const p of posts) {
     if (p.datePubli < floor) continue;
@@ -188,6 +197,7 @@ export function buildQuadrantView(
     }
 
     if (q.status === "classified" && q.key) counts[q.key] += 1;
+    if (q.status === "pending") pendingPlotted += 1;
 
     points.push({
       id: p._id as string,
@@ -209,7 +219,74 @@ export function buildQuadrantView(
     });
   }
 
-  return { points, unplaced, notComputed, total, counts };
+  return { points, unplaced, notComputed, total, counts, pendingPlotted };
+}
+
+/* ── Couverture : ce que la carte NE montre pas ──────────────────────────── */
+
+/**
+ * Pourquoi un post publié de la période n'a pas de case. L'ordre est celui de
+ * l'affichage, du plus gros contributeur habituel au plus rare.
+ */
+export type CoverageCause =
+  /** Retiré par le filtre warmup de la PAGE — il n'a jamais atteint la carte. */
+  | "warmup"
+  | "pending"
+  | "not_measured"
+  | "no_baseline"
+  | "no_views"
+  | "saves_unavailable"
+  | "saves_collecting"
+  | "not_computed";
+
+export type QuadrantCoverage = {
+  /** Publiés dans la période, filtre warmup RÉINTÉGRÉ. */
+  published: number;
+  classified: number;
+  unclassified: number;
+  /** Les causes non nulles, dans l'ordre d'affichage. */
+  causes: { cause: CoverageCause; count: number }[];
+};
+
+/**
+ * De quoi est faite la population affichée — la ligne qui manquait.
+ *
+ * Le défaut qu'elle corrige : la carte lit « 3 Scale » et rien ne dit que c'est
+ * 3 sur 39 classés, eux-mêmes tirés de 126 publiés dont 56 écartés par le filtre
+ * warmup de la page. Trois nombres qui ne se déduisent pas les uns des autres, et
+ * dont l'absence fait lire un effectif comme un total.
+ *
+ * `hiddenByWarmup` vient du SERVEUR (`trackerWarmupHidden`) et pas d'un comptage
+ * local : les posts de chauffe sont retirés par la query AVANT que la carte les
+ * voie, elle ne peut pas les compter elle-même.
+ *
+ * INVARIANT : la somme des causes vaut exactement `unclassified`. Chaque post
+ * publié est soit classé, soit dans une et une seule cause — c'est ce que
+ * verrouille `lib/quadrant.test.ts`.
+ */
+export function buildCoverage(
+  view: QuadrantView,
+  hiddenByWarmup: number,
+): QuadrantCoverage {
+  const classified = QUADRANT_KEYS.reduce((s, k) => s + view.counts[k], 0);
+  const published = view.total + hiddenByWarmup;
+  const brut: { cause: CoverageCause; count: number }[] = [
+    { cause: "warmup", count: hiddenByWarmup },
+    // Les « en attente » TRACÉS comptent ici aussi : visibles, mais sans verdict.
+    { cause: "pending", count: view.unplaced.pending + view.pendingPlotted },
+    { cause: "not_measured", count: view.unplaced.not_measured },
+    { cause: "no_baseline", count: view.unplaced.no_baseline },
+    { cause: "no_views", count: view.unplaced.no_views },
+    { cause: "saves_unavailable", count: view.unplaced.saves_unavailable },
+    { cause: "saves_collecting", count: view.unplaced.saves_collecting },
+    { cause: "not_computed", count: view.notComputed },
+  ];
+  return {
+    published,
+    classified,
+    unclassified: published - classified,
+    causes: brut.filter((c) => c.count > 0),
+  };
 }
 
 /** Total des posts non traçables, toutes raisons confondues. */

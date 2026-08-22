@@ -54,7 +54,6 @@
       "axisX": "Distribution — vues ÷ médiane du compte (échelle log)",
       "axisY": "Intent — save rate",
       "empty": "Aucun post plaçable sur cette période.",
-      "warmupHidden": "Le filtre « Hors warmup » de la page est actif : les posts de chauffe ne sont pas sur ce graphe. Passe le filtre Warmup sur « Tous » pour les voir.",
       "count": "{count, plural, one {# post} other {# posts}}",
       "period": {
         "label": "Fenêtre affichée",
@@ -91,16 +90,6 @@
         "unclassified": "Non classé.",
         "breakout": "Publié dans la fenêtre d'un gros post du même compte : distribution peut-être empruntée."
       },
-      "unplaced": {
-        "title": "{count, plural, one {# post non placé} other {# posts non placés}} sur {total} publiés dans la période.",
-        "pending": "{count, plural, one {# post de moins de {hours} h} other {# posts de moins de {hours} h}} : trop tôt pour juger.",
-        "not_measured": "{count, plural, one {# post jamais relevé} other {# posts jamais relevés}} : aucune mesure de vues, ce n'est pas un zéro.",
-        "no_baseline": "{count, plural, one {# post sur un compte sans médiane de référence} other {# posts sur des comptes sans médiane de référence}} : moins de {minPosts} posts mesurés sur {windowDays} jours.",
-        "saves_unavailable": "{count, plural, one {# post sur une plateforme qui n'expose pas les saves} other {# posts sur des plateformes qui n'exposent pas les saves}} (Instagram, YouTube) : pas d'axe intent possible.",
-        "saves_collecting": "{count, plural, one {# post antérieur à la collecte des saves} other {# posts antérieurs à la collecte des saves}} : la mesure arrivera pour les prochains.",
-        "no_views": "{count, plural, one {# post à 0 vue mesurée} other {# posts à 0 vue mesurée}} : pas de dénominateur pour un save rate.",
-        "notComputed": "{count, plural, one {# post pas encore classé} other {# posts pas encore classés}} : en attente du prochain relevé nocturne."
-      },
       "info": {
         "aria": "En savoir plus — {sujet}",
         "subjectX": "l'axe distribution",
@@ -115,6 +104,20 @@
         "pending": "Un post de moins de {hours}h n'est pas classé : ses vues montent encore, le classer maintenant donnerait un faux verdict. Classement figé à {hours}h.",
         "breakout": "Ce post a été publié dans les {windowHours}h suivant un breakout (≥{minViews}) du même compte. Ses chiffres sont probablement gonflés par la redistribution du breakout — lire son classement avec prudence, ce n'est pas forcément sa performance propre.",
         "autre": "Post jamais marqué warmup ou promo dans Jarvia. À qualifier pour que les filtres et lectures soient justes."
+      },
+      "coverage": {
+        "allClassified": "{published} posts publiés dans la période, tous classés.",
+        "summary": "{classified} posts classés sur {published} publiés dans la période — {unclassified} non classés :",
+        "cause": {
+          "warmup": "{count, plural, one {# post écarté} other {# posts écartés}} par le filtre « Hors warmup » de la page : contenu de chauffe, hors de cette lecture. Passe le filtre Warmup sur « Tous » pour les voir.",
+          "pending": "{count, plural, one {# post de moins de {hours} h} other {# posts de moins de {hours} h}} : trop tôt pour juger.",
+          "not_measured": "{count, plural, one {# post jamais relevé} other {# posts jamais relevés}} : aucune mesure de vues, ce n'est pas un zéro.",
+          "no_baseline": "{count, plural, one {# post sur un compte sans médiane de référence} other {# posts sur des comptes sans médiane de référence}} : moins de {minPosts} posts mesurés sur {windowDays} jours.",
+          "no_views": "{count, plural, one {# post à 0 vue mesurée} other {# posts à 0 vue mesurée}} : pas de dénominateur pour un save rate.",
+          "saves_unavailable": "{count, plural, one {# post à intent NON MESURABLE} other {# posts à intent NON MESURABLE}} : Instagram et YouTube n'exposent pas les saves. Aucun réglage de seuil n'y changera rien.",
+          "saves_collecting": "{count, plural, one {# post antérieur à la collecte des saves} other {# posts antérieurs à la collecte des saves}} : la mesure arrivera pour les prochains.",
+          "not_computed": "{count, plural, one {# post pas encore classé} other {# posts pas encore classés}} : en attente du prochain relevé nocturne."
+        }
       }
     }
   }

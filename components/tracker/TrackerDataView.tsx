@@ -156,6 +156,15 @@ export function TrackerDataView() {
     mode === "charts" ? queryArgs : "skip",
   );
 
+  // Combien de posts le filtre warmup retire de la lecture. La carte quadrant ne
+  // peut pas le déduire de ses lignes : elles lui arrivent déjà filtrées. Même
+  // portée que la courbe (mode Charts), et pas de lecture du tout quand rien
+  // n'est caché (« Tous »).
+  const warmupHidden = useProjectQuery(
+    api.trackerData.trackerWarmupHidden,
+    mode === "charts" && warmup !== "all" ? queryArgs : "skip",
+  );
+
   // Docs complets (enrichis) pour ouvrir PublicationDetailDialog au clic sur une
   // ligne → accès au toggle warmup. Même pattern que ShortSourcesTable :
   // listPublications est déjà dédupliqué/caché par Convex. Cette vue tracker
@@ -486,6 +495,7 @@ export function TrackerDataView() {
           daily={daily}
           posts={posts}
           warmup={warmup}
+          hiddenByWarmup={warmup === "all" ? 0 : (warmupHidden ?? null)}
           onSelectPost={openDetail}
           byPlatform={byPlatform}
           byCreator={byCreator}
@@ -612,6 +622,7 @@ function ChartsPanel({
   daily,
   posts,
   warmup,
+  hiddenByWarmup,
   onSelectPost,
   byPlatform,
   byCreator,
@@ -622,6 +633,7 @@ function ChartsPanel({
   daily: DailyPoint[] | undefined;
   posts: TrackerPost[];
   warmup: WarmupFilter;
+  hiddenByWarmup: number | null;
   onSelectPost: (id: Id<"publications">) => void;
   byPlatform: CategoryAggregate[];
   byCreator: CategoryAggregate[];
@@ -716,7 +728,7 @@ function ChartsPanel({
           eux, sont écrits par le relevé nocturne et ne dépendent d'aucun filtre. */}
       <QuadrantChart
         posts={posts}
-        warmupFilter={warmup}
+        hiddenByWarmup={hiddenByWarmup}
         onSelectPost={onSelectPost}
       />
 
