@@ -323,6 +323,7 @@ export function AssignmentsCalendar({
         <CardContent className="space-y-3 p-4">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold capitalize text-slate-900">
+              {/* i18n-exempt: « MMMM yyyy » est un MASQUE date-fns, pas du texte — la langue du rendu vient de la locale passée à format(), jamais de cette chaîne. */}
               {format(currentMonth, "MMMM yyyy", { locale: fr })}
             </h2>
             <div className="flex items-center gap-1">

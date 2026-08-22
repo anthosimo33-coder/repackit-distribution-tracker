@@ -111,6 +111,7 @@ export function CreatorPublicationCalendar({
               <ChevronLeftIcon className="size-4" />
             </Button>
             <span className="min-w-28 text-center text-sm font-medium capitalize text-slate-700">
+              {/* i18n-exempt: « MMMM yyyy » est un MASQUE date-fns, pas du texte — la langue du rendu vient de la locale passée à format(), jamais de cette chaîne. */}
               {format(currentMonth, "MMMM yyyy", { locale: fr })}
             </span>
             <Button

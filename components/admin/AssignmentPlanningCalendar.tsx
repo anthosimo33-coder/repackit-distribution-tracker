@@ -161,6 +161,7 @@ export function AssignmentPlanningCalendar({
       {/* Calendrier mensuel */}
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold capitalize text-slate-900">
+          {/* i18n-exempt: « MMMM yyyy » est un MASQUE date-fns, pas du texte — la langue du rendu vient de la locale passée à format(), jamais de cette chaîne. */}
           {format(currentMonth, "MMMM yyyy", { locale: fr })}
         </h3>
         <div className="flex items-center gap-1">
@@ -216,6 +217,7 @@ export function AssignmentPlanningCalendar({
                 setDragOverKey((k) => (k === key ? null : k))
               }
               onDrop={(e) => handleDrop(e, day)}
+              // i18n-exempt: « EEEE d MMMM yyyy » est un MASQUE date-fns, pas du texte
               aria-label={format(day, "EEEE d MMMM yyyy", { locale: fr })}
               className={cn(
                 "min-h-16 rounded-md border p-1 transition-colors sm:min-h-20",
