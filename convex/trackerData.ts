@@ -5,6 +5,7 @@ import type { QueryCtx } from "./_generated/server";
 import { passesWarmupMode, type WarmupMode } from "./warmupMode";
 import { computeDailyViewDeltas } from "./viewsDaily";
 import { savesAvailability } from "./decisionThresholds";
+import { qualificationOf } from "./quadrant";
 
 /**
  * Vue TRACKER (refonte) — data des posts publiés. Deux queries scopées projet :
@@ -356,6 +357,14 @@ export const listTrackerPosts = adminQuery({
         // l'utilisateur choisit de les voir ("Tous"/"Warmup seulement"). Le
         // moteur de paie reste inchangé.
         isWarmup: p.isWarmup === true,
+        // QUALIFICATION éditoriale, TRI-ÉTAT — et c'est tout l'objet du champ.
+        // `isWarmup` ci-dessus est volontairement un booléen (la pastille « hors
+        // paie » ne connaît que deux états), mais il écrase la différence entre
+        // « promo, décidé » et « jamais qualifié ». La carte quadrant colore par
+        // qualification : sans ce champ, un post jamais qualifié serait peint
+        // « promo », c'est-à-dire qu'un défaut de saisie prendrait l'apparence
+        // d'une décision. Dérivé ici, au contact du champ brut.
+        qualification: qualificationOf(p.isWarmup),
         // Métriques LATEST dénormalisées (null → 0 pour les agrégats).
         vues: p.vuesLatest ?? 0,
         likes: p.likesLatest ?? 0,

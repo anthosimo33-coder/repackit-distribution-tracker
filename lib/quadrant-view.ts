@@ -13,11 +13,10 @@
  * tels quels. On ne fait que choisir ce qu'on trace et ce qu'on dit du reste.
  */
 
-import {
-  qualificationOf,
-  type QuadrantKey,
-  type QuadrantQualification,
-  type QuadrantSnapshot,
+import type {
+  QuadrantKey,
+  QuadrantQualification,
+  QuadrantSnapshot,
 } from "../convex/quadrant";
 
 /**
@@ -35,7 +34,14 @@ export type QuadrantViewPost = {
   saves?: number | null;
   creatorName: string | null;
   label: string;
-  isWarmup?: boolean;
+  /**
+   * Qualification TRI-ÉTAT servie par la query. ABSENTE = le producteur ne l'a
+   * pas dite → « autre » (non qualifié), jamais « promo » : un défaut de saisie
+   * ne doit pas prendre la couleur d'une décision. C'est exactement le repli
+   * qu'appliquait `isWarmup === true`, et qui rendait la couleur « non
+   * qualifié » inatteignable.
+   */
+  qualification?: QuadrantQualification;
   quadrant?: QuadrantSnapshot | null;
 };
 
@@ -191,7 +197,7 @@ export function buildQuadrantView(
       quadrant: q.status === "classified" ? (q.key ?? null) : null,
       pending: q.status === "pending",
       breakout: q.breakoutWindow,
-      qualification: qualificationOf(p.isWarmup),
+      qualification: p.qualification ?? "autre",
       baselineViews: q.baselineViews ?? null,
       vues: p.vues,
       saves: p.saves ?? null,

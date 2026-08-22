@@ -642,6 +642,27 @@ describe("vue de la carte", () => {
     expect(yhi).toBeGreaterThan(INTENT_SAVE_RATE * 100);
   });
 
+  it("colore par la qualification TRI-ÉTAT servie, jamais par un booléen", () => {
+    // Le défaut corrigé : la row du tracker sert `isWarmup` en BOOLÉEN, donc un
+    // post jamais qualifié y vaut `false` — s'en servir pour la couleur peignait
+    // « promo » un défaut de saisie, et rendait « non qualifié » inatteignable.
+    const posts = [
+      row({ _id: "w", qualification: "warmup", quadrant: CLASSE }),
+      row({ _id: "p", qualification: "promo", quadrant: CLASSE }),
+      row({ _id: "a", qualification: "autre", quadrant: CLASSE }),
+      // Producteur qui ne dit rien : « non qualifié », jamais « promo ».
+      row({ _id: "muet", quadrant: CLASSE }),
+    ];
+    const v = buildQuadrantView(posts, NOW, 14);
+    const par = new Map(v.points.map((p) => [p.id, p.qualification]));
+    expect(par.get("w")).toBe("warmup");
+    expect(par.get("p")).toBe("promo");
+    expect(par.get("a")).toBe("autre");
+    expect(par.get("muet")).toBe("autre");
+    // Les TROIS couleurs sont atteignables sur un même jeu.
+    expect(new Set(v.points.map((p) => p.qualification)).size).toBe(3);
+  });
+
   it("les graduations de l'axe log restent dans le domaine", () => {
     const ticks = xTicks([0.3, 12]);
     expect(ticks).toEqual([0.5, 1, 2, 3, 5, 10]);

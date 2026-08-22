@@ -195,7 +195,7 @@ export function QuadrantChart({
                 axisLine={{ stroke: "#cbd5e1" }}
                 tickLine={false}
                 width={56}
-                tickFormatter={(v: number) => `${v.toFixed(1)} %`}
+                tickFormatter={(v: number) => `${v.toFixed(1).replace(".", ",")} %`}
                 label={{
                   value: t("axisY"),
                   angle: -90,

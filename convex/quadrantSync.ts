@@ -1,4 +1,10 @@
-import { internalAction, internalMutation, internalQuery } from "./_generated/server";
+import {
+  internalAction,
+  internalMutation,
+  internalQuery,
+} from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
+import { e2eMutation } from "./functions";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -6,6 +12,7 @@ import {
   computeQuadrant,
   type QuadrantInput,
   type QuadrantResult,
+  type QuadrantSnapshot,
 } from "./quadrant";
 
 /**
@@ -19,7 +26,7 @@ import {
  *
  * Le CALCUL n'est pas ici — il vit dans le module pur `convex/quadrant.ts`,
  * importé à l'identique par la carte du tracker. Ce fichier ne fait que trois
- * choses : lire, appeler le module, écrire ce qui a changé.
+ * choses : lire, appeler le module, écrire.
  *
  * IDEMPOTENT : rejouer un run sur des données inchangées réécrit les mêmes
  * valeurs. Utilisable à la main pour peupler un déploiement sans attendre la
@@ -47,11 +54,11 @@ function isPublished(p: Doc<"publications">): boolean {
 }
 
 /**
- * Forme STOCKÉE d'un résultat. Les champs absents (`undefined`) sont OMIS et non
- * posés à `null` : le validateur du schéma les déclare optionnels, et un `null`
- * explicite ferait passer « pas de référence » pour une valeur mesurée.
+ * Forme STOCKÉE d'un résultat. Les champs absents sont OMIS et non posés à
+ * `null` : le validateur du schéma les déclare optionnels, et un `null` explicite
+ * ferait passer « pas de référence » pour une valeur mesurée.
  */
-function toStored(r: QuadrantResult, computedAt: number) {
+function toStored(r: QuadrantResult, computedAt: number): QuadrantSnapshot {
   return {
     computedAt,
     status: r.status,
@@ -80,16 +87,79 @@ export const listProjectIds = internalQuery({
 });
 
 /**
- * Recalcule le projet et écrit UNE TRANCHE de publications.
+ * Recalcule le projet et écrit UNE TRANCHE de ses publications publiées.
  *
- * `offset` porte sur la liste des posts publiés triée par `_id` — un ordre
- * stable et indépendant des données, donc une tranche qui ne se déplace pas
- * entre deux appels si une métrique bouge au même moment.
+ * `offset` porte sur la liste triée par `_id` — un ordre stable et indépendant
+ * des données, donc une tranche qui ne se déplace pas entre deux appels si une
+ * métrique bouge au même moment.
  *
- * Les posts NON publiés qui traînent un classement (URL retirée après coup)
- * sont nettoyés : garder un quadrant sur un post dépublié le ferait réapparaître
- * dans une lecture ultérieure.
+ * Les posts NON publiés qui traînent un classement (URL retirée après coup) sont
+ * nettoyés : garder un quadrant sur un post dépublié le ferait réapparaître dans
+ * une lecture ultérieure.
+ *
+ * Fonction NUE partagée par le chemin nocturne et le déclencheur e2e : les deux
+ * doivent exercer le même code, sans quoi le test ne prouverait rien du recalcul
+ * réel.
  */
+async function recomputeChunk(
+  ctx: MutationCtx,
+  {
+    projectId,
+    offset,
+    now,
+  }: { projectId: Id<"projects">; offset: number; now: number },
+): Promise<{ total: number; patched: number; next: number | null }> {
+  const all = await ctx.db
+    .query("publications")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+
+  const published = all
+    .filter(isPublished)
+    .sort((a, b) => (a._id as string).localeCompare(b._id as string));
+
+  const inputs: QuadrantInput[] = published.map((p) => ({
+    id: p._id as string,
+    compte: p.compte,
+    plateforme: p.plateforme,
+    datePubli: p.datePubli,
+    // `?? null` et jamais `?? 0` : une absence de relevé n'est pas une mesure à
+    // zéro, et la médiane du compte se calcule sur les mesures seulement.
+    vues: p.vuesLatest ?? null,
+    saves: p.savesLatest ?? null,
+    isWarmup: p.isWarmup,
+  }));
+
+  const results = computeQuadrant(inputs, now);
+  const byId = new Map(results.map((r) => [r.id, r]));
+
+  let patched = 0;
+  if (offset === 0) {
+    for (const p of all) {
+      if (!isPublished(p) && p.quadrant !== undefined) {
+        await ctx.db.patch(p._id, { quadrant: undefined });
+        patched += 1;
+      }
+    }
+  }
+
+  const slice = published.slice(offset, offset + PATCH_CHUNK);
+  for (const p of slice) {
+    const r = byId.get(p._id as string);
+    if (!r) continue;
+    await ctx.db.patch(p._id, { quadrant: toStored(r, now) });
+    patched += 1;
+  }
+
+  const consumed = offset + slice.length;
+  return {
+    total: published.length,
+    patched,
+    next: consumed < published.length ? consumed : null,
+  };
+}
+
+/** La tranche nocturne. Enchaînée par `runQuadrantRecompute`. */
 export const recomputeProjectQuadrantsChunk = internalMutation({
   args: {
     projectId: v.id("projects"),
@@ -98,59 +168,30 @@ export const recomputeProjectQuadrantsChunk = internalMutation({
   },
   handler: async (
     ctx,
-    { projectId, offset, now },
-  ): Promise<{ total: number; patched: number; next: number | null }> => {
-    const all = await ctx.db
-      .query("publications")
-      .withIndex("by_project", (q) => q.eq("projectId", projectId))
-      .collect();
+    args,
+  ): Promise<{ total: number; patched: number; next: number | null }> =>
+    recomputeChunk(ctx, args),
+});
 
-    const published = all
-      .filter(isPublished)
-      .sort((a, b) => (a._id as string).localeCompare(b._id as string));
-
-    const inputs: QuadrantInput[] = published.map((p) => ({
-      id: p._id as string,
-      compte: p.compte,
-      plateforme: p.plateforme,
-      datePubli: p.datePubli,
-      // `?? null` et jamais `?? 0` : une absence de relevé n'est pas une mesure
-      // à zéro, et la médiane du compte se calcule sur les mesures seulement.
-      vues: p.vuesLatest ?? null,
-      saves: p.savesLatest ?? null,
-      isWarmup: p.isWarmup,
-    }));
-
-    const results = computeQuadrant(inputs, now);
-    const byId = new Map(results.map((r) => [r.id, r]));
-
-    // Nettoyage des dépubliés : hors tranche, mais borné et rare (une URL
-    // retirée), donc traité au premier passage seulement.
-    let patched = 0;
-    if (offset === 0) {
-      for (const p of all) {
-        if (!isPublished(p) && p.quadrant !== undefined) {
-          await ctx.db.patch(p._id, { quadrant: undefined });
-          patched += 1;
-        }
-      }
-    }
-
-    const slice = published.slice(offset, offset + PATCH_CHUNK);
-    for (const p of slice) {
-      const r = byId.get(p._id as string);
-      if (!r) continue;
-      await ctx.db.patch(p._id, { quadrant: toStored(r, now) });
-      patched += 1;
-    }
-
-    const consumed = offset + slice.length;
-    return {
-      total: published.length,
-      patched,
-      next: consumed < published.length ? consumed : null,
-    };
+/**
+ * Déclencheur e2e — MÊME chemin de code que la nuit (`recomputeChunk`), jamais
+ * une réplique : un test qui exercerait une seconde implémentation ne prouverait
+ * rien du recalcul réel.
+ *
+ * `now` est fourni par la spec pour ancrer les fenêtres de 48 h et de 14 jours
+ * sur une horloge choisie plutôt que sur celle du runner. Gate `e2eMutation` :
+ * refusée d'office sur un déploiement sans E2E_SECRET, donc en prod.
+ */
+export const e2eRecomputeQuadrant = e2eMutation({
+  args: {
+    projectId: v.id("projects"),
+    now: v.optional(v.number()),
   },
+  handler: async (
+    ctx,
+    { projectId, now },
+  ): Promise<{ total: number; patched: number; next: number | null }> =>
+    recomputeChunk(ctx, { projectId, offset: 0, now: now ?? Date.now() }),
 });
 
 export type QuadrantRecomputeSummary = {

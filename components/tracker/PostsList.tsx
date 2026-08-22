@@ -14,7 +14,10 @@ import { PostWarmupBadge } from "@/components/PostWarmupBadge";
 import { formatNumber, formatPercent, formatDate } from "@/lib/format";
 import { FORMAT_CONFIGS, type FormatKey } from "@/lib/format-config";
 import { engagementRate } from "@/lib/tracker-data";
-import type { QuadrantSnapshot } from "@/convex/quadrant";
+import type {
+  QuadrantQualification,
+  QuadrantSnapshot,
+} from "@/convex/quadrant";
 import {
   ArrowDownIcon,
   ArrowUpDownIcon,
@@ -65,6 +68,10 @@ export type TrackerPost = {
   saves?: number | null;
   /** Pourquoi les saves manquent, quand elles manquent (cf savesAvailability). */
   savesAvailability?: "measured" | "collecting" | "unavailable";
+  /** Qualification éditoriale TRI-ÉTAT (warmup / promo / jamais qualifié).
+   *  Distincte d'`isWarmup` ci-dessus, qui est un booléen et confond donc
+   *  « promo » et « non qualifié ». Seul listTrackerPosts la renseigne. */
+  qualification?: QuadrantQualification;
   /** Classement « Vues × Intent » écrit par le relevé nocturne. `null`/absent =
    *  jamais recalculé — c'est une ignorance, pas un post sous les seuils. */
   quadrant?: QuadrantSnapshot | null;
