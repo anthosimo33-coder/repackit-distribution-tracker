@@ -24,10 +24,12 @@ import { formatDate } from "@/lib/format";
  * son Drive) — pas de chemin de données admin (cohérent avec le périmètre).
  */
 
-const KIND_LABEL: Record<"video" | "photo" | "other", string> = {
-  video: "Vidéo",
-  photo: "Photo",
-  other: "Fichier",
+// Table de CLÉS i18n, pas de libellés : la valeur stockée (`kind`) ne bouge
+// pas, seule sa traduction est résolue au rendu.
+const KIND_LABEL_KEY: Record<"video" | "photo" | "other", string> = {
+  video: "fichiers.kind.video",
+  photo: "fichiers.kind.photo",
+  other: "fichiers.kind.other",
 };
 
 /**
@@ -154,7 +156,7 @@ export default function FichiersScreen() {
                       {f.fileName}
                     </p>
                     <p className="text-xs text-slate-500">
-                      {KIND_LABEL[kind]} · {formatBytes(f.sizeBytes)} ·{" "}
+                      {KIND_LABEL_KEY[kind]} · {formatBytes(f.sizeBytes)} ·{" "}
                       {formatDate(f.uploadedAt)}
                     </p>
                   </div>

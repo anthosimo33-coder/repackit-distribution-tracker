@@ -22,6 +22,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { formatMoney, formatViews } from "@/lib/format-rate";
 import { formatDate } from "@/lib/format";
+import { useTranslations } from "next-intl";
 
 /**
  * Écran « Ma progression » (route POUSSÉE /app/progression, pas un onglet) —
@@ -84,6 +85,7 @@ type P = NonNullable<ReturnType<typeof buildProgression>>;
 
 /** Hero : vues cumulées → jauge vers le prochain palier (accent projet). */
 function Hero({ p, currency }: { p: P; currency?: string | null }) {
+  const t = useTranslations("portal");
   const pct = Math.round(p.progressToNext * 100);
   return (
     <Card className="border-primary/30 bg-primary/5">
@@ -103,7 +105,7 @@ function Hero({ p, currency }: { p: P; currency?: string | null }) {
         {p.nextReward ? (
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2 text-sm">
-              <span className="text-slate-500">Prochain palier</span>
+              <span className="text-slate-500">{t("progression.nextTier")}</span>
               <span className="flex items-center gap-1.5 font-semibold text-slate-900">
                 <RewardLabel reward={p.nextReward} currency={currency} />
               </span>

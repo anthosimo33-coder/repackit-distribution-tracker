@@ -112,6 +112,7 @@ export function useCreatorProject(): CreatorProjectContextValue {
   const ctx = useContext(CreatorProjectContext);
   if (!ctx) {
     throw new Error(
+      // i18n-exempt: erreur de PROGRAMMATION (garde de contexte React) — jamais lue par un utilisateur.
       "useCreatorProject must be used within CreatorProjectProvider",
     );
   }

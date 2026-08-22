@@ -190,5 +190,66 @@
       "email": "Email",
       "password": "Mot de passe"
     }
+  },
+  "portal": {
+    "notFound": {
+      "body": "Cette page n'existe pas."
+    },
+    "tools": {
+      "title": "Outils"
+    },
+    "verdict": {
+      "pending": "En attente"
+    },
+    "stream": {
+      "submitted": "Vidéo soumise (Cloudflare Stream)"
+    },
+    "modelVideo": {
+      "title": "Vidéo à reproduire"
+    },
+    "progression": {
+      "nextTier": "Prochain palier"
+    },
+    "script": {
+      "copyDescription": "Copier la description"
+    },
+    "copy": {
+      "copy": "Copier",
+      "copied": "Copié !"
+    },
+    "leaderboard": {
+      "projectTitle": "Classement du projet",
+      "cycleTitle": "Classement du cycle",
+      "projectSubtitle": "Ton classement sur les gains du cycle en cours. Les gains de chaque créateur sont visibles — vous êtes sur le même projet.",
+      "cycleSubtitle": "Gains du cycle en cours de chaque créateur (fenêtre J+30 personnelle, ancrée sur son premier post)."
+    },
+    "projectSwitcher": {
+      "change": "Changer de projet",
+      "mine": "Mes projets"
+    },
+    "todayPost": {
+      "empty": "Aucun post planifié à venir.",
+      "seeNext": "Voir le prochain post"
+    },
+    "comptes": {
+      "emptyReadOnly": "Ce créateur n'a pas encore déclaré de compte.",
+      "emptyCreator": "Déclare ton premier compte pour démarrer son warmup."
+    },
+    "calendarStatus": {
+      "onTime": "À l'heure",
+      "late": "En retard",
+      "missed": "Manqué",
+      "scheduled": "Prévu"
+    },
+    "fichiers": {
+      "kind": {
+        "video": "Vidéo",
+        "photo": "Photo",
+        "other": "Fichier"
+      }
+    },
+    "nav": {
+      "guide": "Guide"
+    }
   }
 }

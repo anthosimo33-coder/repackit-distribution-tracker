@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
 import type { Verdict } from "@/lib/verdict";
 
 const STYLES: Record<NonNullable<Verdict>, string> = {
@@ -19,7 +20,8 @@ export function VerdictBadge({
   verdict: Verdict;
   className?: string;
 }) {
-  const label = verdict ?? "En attente";
+  const t = useTranslations("portal");
+  const label = verdict ?? t("verdict.pending");
   const style = verdict ? STYLES[verdict] : PENDING;
   return (
     <span className={cn(BASE, style, className)}>{label}</span>

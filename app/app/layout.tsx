@@ -22,6 +22,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { getCreatorTools } from "@/lib/creator-tools";
 import { isSnytchProject } from "@/lib/snytch-drive";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
 
 /**
  * P5 — shell du portail créateur PARTENAIRE (/app/*). La garde par rôle est
@@ -67,6 +68,8 @@ export default function AppPortalLayout({
  *     de bouton Guide dans le header, pas d'onglet Outils.
  */
 function CreatorShell({ children }: { children: React.ReactNode }) {
+  const t = useTranslations("nav");
+  const tPortal = useTranslations("portal");
   const router = useRouter();
   const { signOut } = useAuthActions();
   const { current } = useCreatorProject();
@@ -99,7 +102,7 @@ function CreatorShell({ children }: { children: React.ReactNode }) {
           {hasTools && (
             <Link
               href="/app/guide"
-              aria-label="Guide"
+              aria-label={tPortal("nav.guide")}
               className={cn(
                 buttonVariants({ variant: "ghost", size: "icon-sm" }),
                 "text-slate-600 hover:text-slate-900",
@@ -112,7 +115,7 @@ function CreatorShell({ children }: { children: React.ReactNode }) {
             variant="ghost"
             size="icon-sm"
             onClick={handleSignOut}
-            aria-label="Se déconnecter"
+            aria-label={t("action.logout")}
             className="text-slate-600 hover:text-slate-900"
           >
             <LogOutIcon className="size-5" />

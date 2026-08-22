@@ -11,6 +11,7 @@ import {
   isSameLocalDay,
   representativePostedAt,
 } from "@/lib/calendar-status";
+import { useTranslations } from "next-intl";
 
 type BannerRow = {
   _id: Id<"assignments">;
@@ -47,6 +48,7 @@ export function TodayPostBanner({
   now: number;
   base: string;
 }) {
+  const t = useTranslations("portal");
   const mine = list.filter((a) => !a.managedByAdmin && a.postDate != null);
   if (mine.length === 0) return null;
 
@@ -127,13 +129,13 @@ export function TodayPostBanner({
               : {next.formatName}.
             </p>
           ) : (
-            <p className="text-slate-500">Aucun post planifié à venir.</p>
+            <p className="text-slate-500">{t("todayPost.empty")}</p>
           )}
         </div>
         {next && (
           <Link
             href={portalHref(base, `/assignments/${next._id}`)}
-            aria-label="Voir le prochain post"
+            aria-label={t("todayPost.seeNext")}
             className="shrink-0 text-primary"
           >
             <ArrowRightIcon className="size-4" />

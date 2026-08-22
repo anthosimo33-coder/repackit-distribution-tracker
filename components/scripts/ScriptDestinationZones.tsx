@@ -8,6 +8,7 @@ import {
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { brickModeDisplay, type BrickMode } from "@/lib/script-mode";
+import { useTranslations } from "next-intl";
 
 /**
  * SNYTCH — rend un script monté en DEUX zones de DESTINATION explicites, pour
@@ -28,6 +29,7 @@ export function ScriptDestinationZones({
   videoBlocks: { text: string; mode: BrickMode }[];
   descriptionScript: string;
 }) {
+  const t = useTranslations("portal");
   return (
     <div className="space-y-4">
       {/* ZONE 1 — dans la vidéo (hook + flux), un bloc PAR BRIQUE avec son mode. */}
@@ -73,7 +75,7 @@ export function ScriptDestinationZones({
           <SimpleMarkdown content={descriptionScript} />
           <CopyButton
             text={descriptionScript}
-            label="Copier la description"
+            label={t("script.copyDescription")}
             className="h-11 w-full text-base sm:h-9 sm:w-auto sm:text-sm"
           />
         </CardContent>

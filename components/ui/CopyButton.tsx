@@ -4,6 +4,7 @@ import { useState } from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
 
 /**
  * Bouton « copier dans le presse-papier » réutilisable — même pattern que
@@ -14,8 +15,8 @@ import { cn } from "@/lib/utils";
  */
 export function CopyButton({
   text,
-  label = "Copier",
-  copiedLabel = "Copié !",
+  label,
+  copiedLabel,
   className,
 }: {
   text: string;
@@ -23,6 +24,11 @@ export function CopyButton({
   copiedLabel?: string;
   className?: string;
 }) {
+  const t = useTranslations("portal");
+  // Les valeurs par défaut d'un paramètre ne peuvent pas appeler un hook :
+  // on résout ici, l'appelant garde la main en passant ses propres libellés.
+  const labelText = label ?? t("copy.copy");
+  const copiedText = copiedLabel ?? t("copy.copied");
   const [copied, setCopied] = useState(false);
 
   async function copy() {
@@ -47,7 +53,7 @@ export function CopyButton({
       ) : (
         <CopyIcon className="size-4" />
       )}
-      {copied ? copiedLabel : label}
+      {copied ? copiedText : labelText}
     </Button>
   );
 }

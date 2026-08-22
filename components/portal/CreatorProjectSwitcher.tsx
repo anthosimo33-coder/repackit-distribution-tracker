@@ -15,16 +15,18 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
 
 /**
  * Switcher de projet du portail créateur. Mobile-first (les créateurs sont au
  * téléphone) : zone tactile généreuse, dropdown plein-pouce.
  *   - 1 seul projet → affichage statique discret du projet courant (pas de menu).
  *   - N projets → bouton + dropdown listant SES projets, avec branding par
- *     projet (logo ou initiale + accent). Changer de projet mémorise le choix
+ *     projet (logo ou initiale + accent). {t("projectSwitcher.change")} mémorise le choix
  *     (localStorage via le provider) et renvoie au tableau de bord du projet.
  */
 export function CreatorProjectSwitcher() {
+  const t = useTranslations("portal");
   const router = useRouter();
   const { current, projects, setProjectId } = useCreatorProject();
   const multi = projects.length > 1;
@@ -57,7 +59,7 @@ export function CreatorProjectSwitcher() {
           <button
             type="button"
             className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-slate-100"
-            aria-label="Changer de projet"
+            aria-label={t("projectSwitcher.change")}
           >
             <ProjectAvatar project={current} />
             <span className="truncate text-sm font-semibold text-slate-900">
@@ -69,7 +71,7 @@ export function CreatorProjectSwitcher() {
       />
       <DropdownMenuContent align="start" className="w-60" sideOffset={6}>
         <DropdownMenuGroup>
-          <DropdownMenuLabel>Mes projets</DropdownMenuLabel>
+          <DropdownMenuLabel>{t("projectSwitcher.mine")}</DropdownMenuLabel>
           {projects.map((p) => (
             <DropdownMenuItem
               key={p.projectId}

@@ -19,6 +19,7 @@ import { WarmupCompteCard } from "@/components/creators/portal/WarmupCompteCard"
 import { WarmupGuideButton } from "@/components/warmup/WarmupGuideButton";
 import { getEffectiveStatus } from "@/lib/compte-status";
 import { mustCheckToday } from "@/lib/warmup";
+import { useTranslations } from "next-intl";
 
 /**
  * « Mes comptes » — écran RÉUTILISÉ par le portail créateur normal ET le mode
@@ -29,6 +30,7 @@ import { mustCheckToday } from "@/lib/warmup";
  * *AsAdmin scopé serveur en view-as).
  */
 export default function ComptesScreen() {
+  const t = useTranslations("portal");
   const projectId = useCreatorProjectId();
   const comptes = useMyComptes(projectId);
   const profile = useMyProfile(projectId);
@@ -186,8 +188,8 @@ export default function ComptesScreen() {
             <p className="text-sm text-slate-500">
               Aucun compte déclaré.{" "}
               {readOnly
-                ? "Ce créateur n'a pas encore déclaré de compte."
-                : "Déclare ton premier compte pour démarrer son warmup."}
+                ? t("comptes.emptyReadOnly")
+                : t("comptes.emptyCreator")}
             </p>
             {!readOnly && projectId && (
               <Button onClick={() => setDeclareOpen(true)}>
