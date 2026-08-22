@@ -227,6 +227,25 @@ Cas rencontrés :
   « la rupture ne casse rien donc l'assertion est faible », alors que la rupture
   n'avait simplement jamais été appliquée.
 
+## 10 ter. Une clé appartient à UN namespace — jamais de réutilisation
+
+**Ne JAMAIS réutiliser une clé existante sans avoir vérifié sa valeur exacte
+dans `fr.json`.**
+
+Un texte identique dans deux namespaces = **deux clés**, valeurs dupliquées.
+La duplication coûte moins cher qu'une régression silencieuse.
+
+**Cas réel, PR 2b lot 2** : `nav.item.guide` réutilisée pour le lien « Guide »
+du portail créateur. Cette clé vaut « **Comment ça marche** » — c'est le libellé
+de la sidebar *admin*. Le nom accessible du lien a changé, et
+`e2e/creator-portal-nav.spec.ts` est tombé sur
+`getByRole("link", { name: "Guide" })`.
+
+Ce n'est pas un accident isolé : sur des centaines d'extractions, le réflexe
+« cette chaîne existe déjà quelque part » se répète. Deux clés `nav.item.guide`
+= « Comment ça marche » et `portal.nav.guide` = « Guide » coexistent désormais,
+et c'est le comportement voulu.
+
 ## 11. Découpage — 7 PRs
 
 Ordre imposé par les **dépendances**, pas par le volume.
