@@ -14,6 +14,7 @@ import { PostWarmupBadge } from "@/components/PostWarmupBadge";
 import { formatNumber, formatPercent, formatDate } from "@/lib/format";
 import { FORMAT_CONFIGS, type FormatKey } from "@/lib/format-config";
 import { engagementRate } from "@/lib/tracker-data";
+import type { QuadrantSnapshot } from "@/convex/quadrant";
 import {
   ArrowDownIcon,
   ArrowUpDownIcon,
@@ -57,7 +58,18 @@ export type TrackerPost = {
    *  producteur listTrackerPosts (dashboard) le renseigne ; le drill-down
    *  scripts (postsForBrick) l'omet → pas de pastille là-bas. */
   isWarmup?: boolean;
+  /** Saves du dernier relevé. `null` = NON COLLECTÉ (jamais « 0 save ») :
+   *  Instagram/YouTube n'exposent pas la métrique et les posts antérieurs à sa
+   *  collecte n'en portent pas. Même optionalité que la campagne : seul
+   *  listTrackerPosts la renseigne. */
+  saves?: number | null;
+  /** Pourquoi les saves manquent, quand elles manquent (cf savesAvailability). */
+  savesAvailability?: "measured" | "collecting" | "unavailable";
+  /** Classement « Vues × Intent » écrit par le relevé nocturne. `null`/absent =
+   *  jamais recalculé — c'est une ignorance, pas un post sous les seuils. */
+  quadrant?: QuadrantSnapshot | null;
 };
+
 
 export type SortKey = "vues" | "date" | "likes" | "engagement";
 export type SortDir = "asc" | "desc";

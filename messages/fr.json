@@ -46,5 +46,61 @@
       "saved": "Langue enregistrée.",
       "error": "La langue n'a pas pu être enregistrée."
     }
+  },
+  "tracker": {
+    "quadrant": {
+      "title": "Quadrant Vues × Intent",
+      "subtitle": "Chaque post publié, croisé sur deux axes indépendants : à quelle distance il est sorti de la médiane de son compte (×{multiplier} et {minViews} vues pour être « haut ») et quelle part de son audience l'a enregistré ({saveRate} pour être « haut »). Les scores sont recalculés au relevé nocturne.",
+      "axisX": "Distribution — vues ÷ médiane du compte (échelle log)",
+      "axisY": "Intent — save rate",
+      "empty": "Aucun post plaçable sur cette période.",
+      "warmupHidden": "Le filtre « Hors warmup » de la page est actif : les posts de chauffe ne sont pas sur ce graphe. Passe le filtre Warmup sur « Tous » pour les voir.",
+      "count": "{count, plural, one {# post} other {# posts}}",
+      "period": {
+        "label": "Fenêtre affichée",
+        "days": "{days} derniers jours"
+      },
+      "legend": {
+        "promo": "Promo",
+        "warmup": "Warmup",
+        "autre": "Non qualifié",
+        "pending": "En attente",
+        "breakout": "Fenêtre de breakout"
+      },
+      "name": {
+        "scale": "Scale",
+        "intent_faible": "Intent faible",
+        "distribution_faible": "Distribution faible",
+        "archiver": "À archiver"
+      },
+      "verdict": {
+        "scale": "Scale : format gagnant.",
+        "intent_faible": "Distribution OK, intent faible → resserrer l'intro produit.",
+        "distribution_faible": "Intent OK, distribution faible → changer le hook, garder l'angle.",
+        "archiver": "Ni distribution ni intent → archiver après 2 runs."
+      },
+      "tooltip": {
+        "noCreator": "Sans créatrice rattachée",
+        "noLabel": "(sans titre)",
+        "views": "Vues",
+        "saves": "Saves",
+        "saveRate": "Save rate",
+        "distribution": "Distribution",
+        "distributionValue": "×{score} de {baseline}",
+        "pending": "En attente — moins de {hours} h, trop tôt pour juger.",
+        "unclassified": "Non classé.",
+        "breakout": "Publié dans la fenêtre d'un gros post du même compte : distribution peut-être empruntée."
+      },
+      "unplaced": {
+        "title": "{count, plural, one {# post non placé} other {# posts non placés}} sur {total} publiés dans la période.",
+        "pending": "{count, plural, one {# post de moins de {hours} h} other {# posts de moins de {hours} h}} : trop tôt pour juger.",
+        "not_measured": "{count, plural, one {# post jamais relevé} other {# posts jamais relevés}} : aucune mesure de vues, ce n'est pas un zéro.",
+        "no_baseline": "{count, plural, one {# post sur un compte sans médiane de référence} other {# posts sur des comptes sans médiane de référence}} : moins de {minPosts} posts mesurés sur {windowDays} jours.",
+        "saves_unavailable": "{count, plural, one {# post sur une plateforme qui n'expose pas les saves} other {# posts sur des plateformes qui n'exposent pas les saves}} (Instagram, YouTube) : pas d'axe intent possible.",
+        "saves_collecting": "{count, plural, one {# post antérieur à la collecte des saves} other {# posts antérieurs à la collecte des saves}} : la mesure arrivera pour les prochains.",
+        "no_views": "{count, plural, one {# post à 0 vue mesurée} other {# posts à 0 vue mesurée}} : pas de dénominateur pour un save rate.",
+        "notComputed": "{count, plural, one {# post pas encore classé} other {# posts pas encore classés}} : en attente du prochain relevé nocturne."
+      }
+    }
   }
 }

@@ -4,6 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { passesWarmupMode, type WarmupMode } from "./warmupMode";
 import { computeDailyViewDeltas } from "./viewsDaily";
+import { savesAvailability } from "./decisionThresholds";
 
 /**
  * Vue TRACKER (refonte) — data des posts publiés. Deux queries scopées projet :
@@ -14,6 +15,10 @@ import { computeDailyViewDeltas } from "./viewsDaily";
  *     Alimente la zone 2 (stats globales) + la zone 3 mode Liste + les 4 charts
  *     de comparaison par catégorie (tout dérivé client-side de cette liste, cf
  *     lib/tracker-data). C'est la SEULE source en mode Liste.
+ *     Elle sert AUSSI la carte « Vues × Intent » : les rows portent les saves et
+ *     le classement `quadrant` écrit par le relevé nocturne (convex/quadrantSync),
+ *     donc la carte hérite mécaniquement des mêmes filtres que le reste de la
+ *     page, sans query ni règle d'inclusion supplémentaire.
  *
  *  2. trackerViewsDaily — la série temporelle "vues GAGNÉES par jour" (deltas de
  *     snapshots répartis AU PRORATA du temps couvert, cf convex/viewsDaily.ts),
@@ -355,6 +360,17 @@ export const listTrackerPosts = adminQuery({
         vues: p.vuesLatest ?? 0,
         likes: p.likesLatest ?? 0,
         comments: p.commentsLatest ?? 0,
+        // SAVES — `null` et jamais 0 par défaut : Instagram/YouTube n'exposent
+        // pas la métrique et les posts antérieurs à sa collecte n'en portent
+        // pas. Replier sur 0 ferait passer une absence pour un save rate nul,
+        // c'est-à-dire pour une contre-performance (cf savesAvailability, qui
+        // sépare « la plateforme ne le donnera jamais » de « pas encore relevé »).
+        saves: p.savesLatest ?? null,
+        savesAvailability: savesAvailability(p.savesLatest, p.plateforme),
+        // Classement « Vues × Intent » écrit par le relevé nocturne (cf
+        // convex/quadrantSync.ts). `null` = jamais recalculé → la carte l'affiche
+        // « en attente du prochain relevé », pas « sous les seuils ».
+        quadrant: p.quadrant ?? null,
       });
     }
     return rows;

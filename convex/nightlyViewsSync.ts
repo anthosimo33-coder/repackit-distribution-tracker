@@ -491,6 +491,20 @@ export const finishNightlyRun = internalAction({
         `${enEchec.length} sans aucun relevé.`,
     );
 
+    // QUADRANT « Vues × Intent » — recalculé ICI et nulle part ailleurs : les
+    // vues et les saves qu'il lit viennent d'être écrites, un classement calculé
+    // à un autre moment porterait le même chiffre avec un horodatage trompeur.
+    // Tous les projets, pas seulement ceux du tally : un compte non relevé cette
+    // nuit a quand même vieilli, et la fenêtre de 14 jours a glissé sous lui.
+    //
+    // Encapsulé : un recalcul en échec ne doit pas priver l'admin de l'alerte de
+    // panne de relevé ci-dessous, qui est le vrai sujet de cette action.
+    try {
+      await ctx.runAction(internal.quadrantSync.runQuadrantRecompute, {});
+    } catch (e) {
+      console.error("[nightly-views] recalcul du quadrant en échec :", e);
+    }
+
     for (const [projectId, comptes] of groupByProject(tally)) {
       if (projectId === "" || !shouldAlert(comptes)) continue;
       const failed = failedComptes(comptes);
