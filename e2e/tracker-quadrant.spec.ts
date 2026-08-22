@@ -235,8 +235,14 @@ test.describe("Quadrant Vues × Intent", () => {
     // La carte ne peut pas le déduire de ses lignes (elles lui arrivent déjà
     // filtrées) : sans ce nombre, « 3 Scale » se lit comme un total. Base e2e
     // partagée → on mesure un DELTA, jamais un compte absolu.
-    const caches = () =>
-      admin.query(api.trackerData.trackerWarmupHidden, { warmup: "exclude" });
+    const depuis = ts - 30 * DAY;
+    const caches = async () =>
+      (
+        await admin.query(api.trackerData.trackerWarmupHiddenDates, {
+          warmup: "exclude",
+          since: depuis,
+        })
+      ).length;
     const avantBascule = await caches();
     await admin.mutation(api.publications.setPublicationWarmup, {
       publicationId: p3,
@@ -247,11 +253,28 @@ test.describe("Quadrant Vues × Intent", () => {
     // « Tous » ne cache rien, par définition — et ce n'est pas un hasard de
     // données : la query court-circuite avant même de lire la base.
     expect(
-      await admin.query(api.trackerData.trackerWarmupHidden, { warmup: "all" }),
-    ).toBe(0);
+      await admin.query(api.trackerData.trackerWarmupHiddenDates, {
+        warmup: "all",
+        since: depuis,
+      }),
+    ).toEqual([]);
     // Paire d'opposition : « Warmup seulement » cache les autres, donc > 0.
     expect(
-      await admin.query(api.trackerData.trackerWarmupHidden, { warmup: "only" }),
+      (
+        await admin.query(api.trackerData.trackerWarmupHiddenDates, {
+          warmup: "only",
+          since: depuis,
+        })
+      ).length,
     ).toBeGreaterThan(0);
+
+    // `since` BORNE réellement la lecture : p1 et p3 sont des posts de chauffe
+    // vieux de 9 et 5 jours ; une borne à 24 h ne doit plus les rendre.
+    const recents = await admin.query(
+      api.trackerData.trackerWarmupHiddenDates,
+      { warmup: "exclude", since: ts - DAY },
+    );
+    expect(recents.length).toBeLessThan(await caches());
+    for (const d of recents) expect(d).toBeGreaterThanOrEqual(ts - DAY);
   });
 });

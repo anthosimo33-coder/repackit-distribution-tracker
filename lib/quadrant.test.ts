@@ -709,7 +709,7 @@ describe("vue de la carte", () => {
     expect(tout.points).toHaveLength(3);
     expect(tout.hiddenByQualification).toBe(0);
 
-    const promoSeul = buildQuadrantView(posts, NOW, 14, new Set(["promo"]));
+    const promoSeul = buildQuadrantView(posts, NOW, 14, { qualifications: new Set(["promo"]) });
     expect(promoSeul.points.map((x) => x.id)).toEqual(["p"]);
     // Les deux autres sont MASQUÉS, pas oubliés : la couverture les retrouve.
     expect(promoSeul.hiddenByQualification).toBe(2);
@@ -758,8 +758,10 @@ describe("couverture — ce que la carte ne montre pas", () => {
   }
 
   it("chaque post publié est classé OU dans une seule cause", () => {
-    const v = buildQuadrantView(jeu(), NOW, 14);
-    const c = buildCoverage(v, 56);
+    const v = buildQuadrantView(jeu(), NOW, 14, {
+      hiddenWarmupDates: Array.from({ length: 56 }, () => NOW - 3 * DAY),
+    });
+    const c = buildCoverage(v);
     expect(c.published).toBe(v.total + 56);
     expect(c.classified).toBe(2);
     expect(c.unclassified).toBe(c.published - c.classified);
@@ -769,8 +771,11 @@ describe("couverture — ce que la carte ne montre pas", () => {
   });
 
   it("le filtre de qualification de la CARTE est une cause distincte du warmup de la PAGE", () => {
-    const v = buildQuadrantView(jeu(), NOW, 14, new Set(["promo"]));
-    const c = buildCoverage(v, 56);
+    const v = buildQuadrantView(jeu(), NOW, 14, {
+      qualifications: new Set(["promo"]),
+      hiddenWarmupDates: Array.from({ length: 56 }, () => NOW - 3 * DAY),
+    });
+    const c = buildCoverage(v);
     const warmup = c.causes.find((x) => x.cause === "warmup");
     const qualif = c.causes.find((x) => x.cause === "qualification");
     expect(warmup?.count).toBe(56);
@@ -781,7 +786,11 @@ describe("couverture — ce que la carte ne montre pas", () => {
   });
 
   it("le warmup filtré est compté, et cité en premier", () => {
-    const c = buildCoverage(buildQuadrantView(jeu(), NOW, 14), 56);
+    const c = buildCoverage(
+      buildQuadrantView(jeu(), NOW, 14, {
+        hiddenWarmupDates: Array.from({ length: 56 }, () => NOW - 3 * DAY),
+      }),
+    );
     expect(c.causes[0]).toEqual({ cause: "warmup", count: 56 });
     // Présence appariée : les autres causes sont bien là, pas écrasées.
     const causes = c.causes.map((x) => x.cause);
@@ -792,7 +801,7 @@ describe("couverture — ce que la carte ne montre pas", () => {
   });
 
   it("l'angle mort Instagram est une cause NOMMÉE, jamais un post médiocre", () => {
-    const c = buildCoverage(buildQuadrantView(jeu(), NOW, 14), 0);
+    const c = buildCoverage(buildQuadrantView(jeu(), NOW, 14));
     const ig = c.causes.find((x) => x.cause === "saves_unavailable");
     expect(ig?.count).toBe(1);
     // Et surtout : il n'a pas été rangé dans une case.
@@ -801,7 +810,7 @@ describe("couverture — ce que la carte ne montre pas", () => {
 
   it("sans warmup caché, la population est celle de la période", () => {
     const v = buildQuadrantView(jeu(), NOW, 14);
-    const c = buildCoverage(v, 0);
+    const c = buildCoverage(v);
     expect(c.published).toBe(6);
     expect(c.causes.some((x) => x.cause === "warmup")).toBe(false);
     expect(c.causes.reduce((s, x) => s + x.count, 0)).toBe(c.unclassified);
@@ -809,8 +818,57 @@ describe("couverture — ce que la carte ne montre pas", () => {
 
   it("tout classé : aucune cause à afficher", () => {
     const v = buildQuadrantView([row({ _id: "c1", quadrant: CLASSE })], NOW, 14);
-    const c = buildCoverage(v, 0);
+    const c = buildCoverage(v);
     expect(c.unclassified).toBe(0);
     expect(c.causes).toEqual([]);
+  });
+});
+
+
+describe("la population annoncée est celle de la PÉRIODE", () => {
+  /**
+   * Le défaut corrigé : le nombre de posts de chauffe cachés était calculé
+   * SERVEUR sur la plage de dates de la PAGE (illimitée par défaut), puis
+   * additionné à une population de 14 jours. La ligne annonçait « 37 classés
+   * sur 159 publiés dans la période » là où la période en comptait 129 — un
+   * total qui n'était celui d'aucune fenêtre. Constaté sur la prod : 74 posts
+   * visibles sur 14 j + 85 posts de chauffe de TOUTE l'histoire.
+   *
+   * Le remède est structurel : le serveur rend des DATES, et la fenêtre leur est
+   * appliquée au même endroit et par le même `floor` qu'aux posts visibles.
+   */
+  it("les posts de chauffe HORS période ne gonflent pas le total", () => {
+    const posts = [row({ _id: "ok", datePubli: NOW - 3 * DAY, quadrant: CLASSE })];
+    const dates = [
+      NOW - 2 * DAY, // dans la fenêtre
+      NOW - 13 * DAY, // dans la fenêtre
+      NOW - 20 * DAY, // HORS fenêtre de 14 j
+      NOW - 90 * DAY, // très au-delà
+    ];
+    const v = buildQuadrantView(posts, NOW, 14, { hiddenWarmupDates: dates });
+    expect(v.hiddenByWarmup).toBe(2);
+    expect(buildCoverage(v).published).toBe(3);
+  });
+
+  it("changer de période change AUSSI le décompte des cachés", () => {
+    const posts = [row({ _id: "ok", datePubli: NOW - 3 * DAY, quadrant: CLASSE })];
+    const dates = [NOW - 2 * DAY, NOW - 10 * DAY, NOW - 20 * DAY];
+    // 7 j : un seul caché ; 14 j : deux ; 30 j : les trois.
+    expect(
+      buildQuadrantView(posts, NOW, 7, { hiddenWarmupDates: dates }).hiddenByWarmup,
+    ).toBe(1);
+    expect(
+      buildQuadrantView(posts, NOW, 14, { hiddenWarmupDates: dates }).hiddenByWarmup,
+    ).toBe(2);
+    expect(
+      buildQuadrantView(posts, NOW, 30, { hiddenWarmupDates: dates }).hiddenByWarmup,
+    ).toBe(3);
+  });
+
+  it("une date FUTURE ne compte pas", () => {
+    const v = buildQuadrantView([], NOW, 14, {
+      hiddenWarmupDates: [NOW + 2 * DAY, NOW - 1 * DAY],
+    });
+    expect(v.hiddenByWarmup).toBe(1);
   });
 });

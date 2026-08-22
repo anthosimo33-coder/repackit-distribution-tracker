@@ -55,6 +55,7 @@ import {
 import { PublicationEditDialog } from "@/components/PublicationEditDialog";
 import { formatNumber, formatPercent } from "@/lib/format";
 import { angleFamilyKey } from "@/convex/angleFamily";
+import { MAX_QUADRANT_PERIOD_DAYS } from "@/convex/quadrantSettings";
 import { cn } from "@/lib/utils";
 import { BarChart3Icon, ListIcon } from "lucide-react";
 
@@ -156,13 +157,22 @@ export function TrackerDataView() {
     mode === "charts" ? queryArgs : "skip",
   );
 
-  // Combien de posts le filtre warmup retire de la lecture. La carte quadrant ne
-  // peut pas le déduire de ses lignes : elles lui arrivent déjà filtrées. Même
-  // portée que la courbe (mode Charts), et pas de lecture du tout quand rien
-  // n'est caché (« Tous »).
-  const warmupHidden = useProjectQuery(
-    api.trackerData.trackerWarmupHidden,
-    mode === "charts" && warmup !== "all" ? queryArgs : "skip",
+  // DATES des posts que le filtre warmup retire de la lecture. La carte quadrant
+  // ne peut pas les déduire de ses lignes : elles lui arrivent déjà filtrées.
+  // Des dates et pas un compte — c'est la carte qui leur applique SA période,
+  // sinon on additionne deux fenêtres différentes. Même portée que la courbe
+  // (mode Charts), et pas de lecture du tout quand rien n'est caché (« Tous »).
+  //
+  // La borne est FIGÉE au montage : recalculée à chaque rendu, elle changerait
+  // les arguments de la query en permanence et en annulerait le cache.
+  const [quadrantSince] = useState(
+    () => Date.now() - MAX_QUADRANT_PERIOD_DAYS * 86_400_000,
+  );
+  const warmupHiddenDates = useProjectQuery(
+    api.trackerData.trackerWarmupHiddenDates,
+    mode === "charts" && warmup !== "all"
+      ? { ...queryArgs, since: quadrantSince }
+      : "skip",
   );
 
   // Docs complets (enrichis) pour ouvrir PublicationDetailDialog au clic sur une
@@ -495,7 +505,9 @@ export function TrackerDataView() {
           daily={daily}
           posts={posts}
           warmup={warmup}
-          hiddenByWarmup={warmup === "all" ? 0 : (warmupHidden ?? null)}
+          hiddenWarmupDates={
+            warmup === "all" ? [] : (warmupHiddenDates ?? null)
+          }
           onSelectPost={openDetail}
           byPlatform={byPlatform}
           byCreator={byCreator}
@@ -622,7 +634,7 @@ function ChartsPanel({
   daily,
   posts,
   warmup,
-  hiddenByWarmup,
+  hiddenWarmupDates,
   onSelectPost,
   byPlatform,
   byCreator,
@@ -633,7 +645,7 @@ function ChartsPanel({
   daily: DailyPoint[] | undefined;
   posts: TrackerPost[];
   warmup: WarmupFilter;
-  hiddenByWarmup: number | null;
+  hiddenWarmupDates: readonly number[] | null;
   onSelectPost: (id: Id<"publications">) => void;
   byPlatform: CategoryAggregate[];
   byCreator: CategoryAggregate[];
@@ -728,7 +740,7 @@ function ChartsPanel({
           eux, sont écrits par le relevé nocturne et ne dépendent d'aucun filtre. */}
       <QuadrantChart
         posts={posts}
-        hiddenByWarmup={hiddenByWarmup}
+        hiddenWarmupDates={hiddenWarmupDates}
         onSelectPost={onSelectPost}
       />
 

@@ -123,6 +123,12 @@ export type QuadrantView = {
    * couverture, sans quoi on ne saurait pas lequel des deux cache quoi.
    */
   hiddenByQualification: number;
+  /**
+   * Posts que le filtre warmup de la PAGE a retirés, RESTREINTS à la période
+   * affichée. La carte ne peut pas les voir (la query les a écartés avant), et
+   * ils doivent pourtant entrer dans la population annoncée.
+   */
+  hiddenByWarmup: number;
 };
 
 function emptyUnplaced(): Record<UnplacedReason, number> {
@@ -171,9 +177,21 @@ export function buildQuadrantView(
   posts: readonly QuadrantViewPost[],
   now: number,
   periodDays: number,
-  /** Qualifications retenues. `undefined` = toutes (aucun filtre). */
-  qualifications?: ReadonlySet<QuadrantQualification>,
+  options?: {
+    /** Qualifications retenues. `undefined` = toutes (aucun filtre). */
+    qualifications?: ReadonlySet<QuadrantQualification>;
+    /**
+     * Dates de publication des posts que le filtre warmup de la PAGE a retirés
+     * (cf. `trackerWarmupHiddenDates`). Des DATES et pas un compte, pour que la
+     * fenêtre leur soit appliquée ICI, par le même `floor` que les posts
+     * visibles. Un compte pré-calculé côté serveur portait la plage de dates de
+     * la PAGE, pas la période de la CARTE : additionné à une population de
+     * 14 jours, il donnait un total qui n'était celui d'aucune période.
+     */
+    hiddenWarmupDates?: readonly number[];
+  },
 ): QuadrantView {
+  const qualifications = options?.qualifications;
   const floor = now - periodDays * DAY_MS;
   const points: QuadrantDatum[] = [];
   const unplaced = emptyUnplaced();
@@ -247,6 +265,11 @@ export function buildQuadrantView(
     counts,
     pendingPlotted,
     hiddenByQualification,
+    // MÊME `floor` que les posts visibles : c'est tout l'intérêt de recevoir
+    // des dates plutôt qu'un compte.
+    hiddenByWarmup: (options?.hiddenWarmupDates ?? []).filter(
+      (d) => d >= floor && d <= now,
+    ).length,
   };
 }
 
@@ -286,22 +309,20 @@ export type QuadrantCoverage = {
  * warmup de la page. Trois nombres qui ne se déduisent pas les uns des autres, et
  * dont l'absence fait lire un effectif comme un total.
  *
- * `hiddenByWarmup` vient du SERVEUR (`trackerWarmupHidden`) et pas d'un comptage
- * local : les posts de chauffe sont retirés par la query AVANT que la carte les
- * voie, elle ne peut pas les compter elle-même.
+ * Les posts de chauffe cachés viennent du SERVEUR (`trackerWarmupHiddenDates`)
+ * et pas d'un comptage local : la query les retire AVANT que la carte les voie.
+ * Ils arrivent sous forme de DATES, et c'est `buildQuadrantView` qui leur
+ * applique la période — la même qu'aux posts visibles.
  *
  * INVARIANT : la somme des causes vaut exactement `unclassified`. Chaque post
  * publié est soit classé, soit dans une et une seule cause — c'est ce que
  * verrouille `lib/quadrant.test.ts`.
  */
-export function buildCoverage(
-  view: QuadrantView,
-  hiddenByWarmup: number,
-): QuadrantCoverage {
+export function buildCoverage(view: QuadrantView): QuadrantCoverage {
   const classified = QUADRANT_KEYS.reduce((s, k) => s + view.counts[k], 0);
-  const published = view.total + hiddenByWarmup;
+  const published = view.total + view.hiddenByWarmup;
   const brut: { cause: CoverageCause; count: number }[] = [
-    { cause: "warmup", count: hiddenByWarmup },
+    { cause: "warmup", count: view.hiddenByWarmup },
     { cause: "qualification", count: view.hiddenByQualification },
     // Les « en attente » TRACÉS comptent ici aussi : visibles, mais sans verdict.
     { cause: "pending", count: view.unplaced.pending + view.pendingPlotted },
