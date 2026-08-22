@@ -14,7 +14,7 @@ import {
 } from "../convex/quadrant";
 import {
   BASELINE_MIN_POSTS,
-  DISTRIBUTION_MIN_VIEWS,
+  MIN_SAMPLE_VIEWS,
   DISTRIBUTION_MULTIPLIER,
   INTENT_SAVE_RATE,
   QUADRANT_SETTINGS,
@@ -307,50 +307,67 @@ describe("fenêtre de breakout", () => {
 });
 
 describe("les quatre cases", () => {
+  /**
+   * RÈGLAGE D'ÉPREUVE, volontairement DIFFÉRENT de la calibration en vigueur
+   * (×2 / 2 000). Les tests de RÈGLE ne doivent pas pouvoir passer par accident
+   * parce qu'ils rejouent les valeurs de prod : ici on vérifie que la mécanique
+   * obéit aux réglages qu'on lui donne, quels qu'ils soient. La calibration
+   * réelle, elle, est épinglée dans son propre describe plus bas.
+   */
+  const REGLAGE = {
+    ...QUADRANT_SETTINGS,
+    distributionMultiplier: 3,
+    minSampleViews: 5_000,
+  };
+
   it("chaque case est le couple d'axes annoncé", () => {
     for (const key of QUADRANT_KEYS) {
       const { distributionHigh, intentHigh } = QUADRANT_AXES[key];
       const score = distributionHigh ? 4.2 : 1.1;
       const vues = distributionHigh ? 41_207 : 2_118;
       const intent = intentHigh ? 0.0081 : 0.0012;
-      expect(quadrantFor(score, vues, intent)).toBe(key);
+      expect(quadrantFor(score, vues, intent, REGLAGE)).toBe(key);
     }
   });
 
-  it("distribution HAUTE exige le multiplicateur ET le plancher de vues", () => {
-    // 4,1× la médiane d'un petit compte : le ratio passe, le plancher non.
-    expect(quadrantFor(4.1, 4_120, 0.0091)).toBe("distribution_faible");
-    // Beaucoup de vues mais à peine au-dessus de la médiane du compte.
-    expect(quadrantFor(1.2, 92_400, 0.0091)).toBe("distribution_faible");
+  it("la moitié haute exige le multiplicateur ET le volume lisible", () => {
+    // Le ratio passe, le volume non : le save rate de ce post n'est pas lisible,
+    // il ne monte pas — quand bien même il a quadruplé la médiane de son compte.
+    expect(quadrantFor(4.1, 4_120, 0.0091, REGLAGE)).toBe("distribution_faible");
+    // Le volume passe, le ratio non : beaucoup de vues, mais à peine au-dessus
+    // de ce que ce compte fait d'habitude.
+    expect(quadrantFor(1.2, 92_400, 0.0091, REGLAGE)).toBe("distribution_faible");
     // Les deux : c'est du scale.
-    expect(quadrantFor(4.1, 41_200, 0.0091)).toBe("scale");
+    expect(quadrantFor(4.1, 41_200, 0.0091, REGLAGE)).toBe("scale");
   });
 
-  it("les seuils sont LARGES des deux côtés", () => {
-    expect(
-      quadrantFor(DISTRIBUTION_MULTIPLIER, DISTRIBUTION_MIN_VIEWS, INTENT_SAVE_RATE),
-    ).toBe("scale");
-    expect(
-      quadrantFor(
-        DISTRIBUTION_MULTIPLIER - 0.001,
-        DISTRIBUTION_MIN_VIEWS,
-        INTENT_SAVE_RATE,
-      ),
-    ).toBe("distribution_faible");
-    expect(
-      quadrantFor(
-        DISTRIBUTION_MULTIPLIER,
-        DISTRIBUTION_MIN_VIEWS - 1,
-        INTENT_SAVE_RATE,
-      ),
-    ).toBe("distribution_faible");
-    expect(
-      quadrantFor(
-        DISTRIBUTION_MULTIPLIER,
-        DISTRIBUTION_MIN_VIEWS,
-        INTENT_SAVE_RATE - 0.00001,
-      ),
-    ).toBe("intent_faible");
+  it("les seuils sont LARGES des trois côtés", () => {
+    const { distributionMultiplier: m, minSampleViews: v, intentSaveRate: i } =
+      REGLAGE;
+    expect(quadrantFor(m, v, i, REGLAGE)).toBe("scale");
+    expect(quadrantFor(m - 0.001, v, i, REGLAGE)).toBe("distribution_faible");
+    expect(quadrantFor(m, v - 1, i, REGLAGE)).toBe("distribution_faible");
+    expect(quadrantFor(m, v, i - 0.00001, REGLAGE)).toBe("intent_faible");
+  });
+});
+
+describe("calibration en vigueur", () => {
+  /**
+   * Ces deux valeurs ont été TRANCHÉES sur 14 jours de prod (cf. les commentaires
+   * de `convex/quadrantSettings.ts`). Les épingler ici fait qu'un changement de
+   * calibration est une modification VISIBLE et délibérée — une ligne de test à
+   * mettre à jour — et pas un chiffre qui glisse dans un fichier de réglages.
+   */
+  it("multiplicateur ×2, volume lisible à 2 000 vues", () => {
+    expect(DISTRIBUTION_MULTIPLIER).toBe(2);
+    expect(MIN_SAMPLE_VIEWS).toBe(2_000);
+  });
+
+  it("le volume lisible vaut au moins dix saves au seuil d'intent", () => {
+    // La raison d'être du réglage, exprimée en saves et pas en vues : sous dix
+    // saves, une ou deux saves de bruit changent le post de quadrant. C'est CE
+    // rapport-là qu'il faut préserver si l'un des deux seuils bouge.
+    expect(MIN_SAMPLE_VIEWS * INTENT_SAVE_RATE).toBeGreaterThanOrEqual(10);
   });
 });
 

@@ -50,7 +50,7 @@
   "tracker": {
     "quadrant": {
       "title": "Quadrant Vues × Intent",
-      "subtitle": "Chaque post publié, croisé sur deux axes indépendants : à quelle distance il est sorti de la médiane de son compte (×{multiplier} et {minViews} vues pour être « haut ») et quelle part de son audience l'a enregistré ({saveRate} pour être « haut »). Les scores sont recalculés au relevé nocturne.",
+      "subtitle": "Chaque post publié, croisé sur deux axes indépendants : à quelle distance il est sorti de la médiane de son compte (×{multiplier} pour être « haut ») et quelle part de son audience l'a enregistré ({saveRate} pour être « haut »). Sous {minViews} vues le save rate n'est pas lisible — le post ne monte pas dans la moitié haute. Scores recalculés au relevé nocturne.",
       "axisX": "Distribution — vues ÷ médiane du compte (échelle log)",
       "axisY": "Intent — save rate",
       "empty": "Aucun post plaçable sur cette période.",
