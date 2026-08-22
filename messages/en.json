@@ -250,6 +250,156 @@
     },
     "nav": {
       "guide": "Guide"
+    },
+    "dashboard": {
+      "produce": {
+        "title": "{count, plural, one {vidéo à produire} other {vidéos à produire}}",
+        "description": "Tourne ta vidéo selon le brief, puis envoie ton MP4."
+      },
+      "warmup": {
+        "title": "{count, plural, one {warmup à cocher aujourd'hui} other {warmups à cocher aujourd'hui}}",
+        "description": "Coche le check du jour pour faire avancer le warmup.",
+        "cta": "Cocher mes warmups"
+      },
+      "publish": {
+        "title": "{count, plural, one {vidéo à publier} other {vidéos à publier}}",
+        "description": "Validée(s) — publie et colle l'URL pour déclencher ton paiement."
+      },
+      "redo": {
+        "title": "{count, plural, one {vidéo à refaire} other {vidéos à refaire}}",
+        "description": "Refusée(s) par l'admin — corrige et re-soumets."
+      },
+      "step": {
+        "declare": {
+          "title": "Déclare ton compte",
+          "done": "Compte déclaré",
+          "todo": "Ajoute ton @ TikTok / Instagram / YouTube.",
+          "cta": "Déclarer mon compte"
+        },
+        "warmup": {
+          "title": "Fais ton warmup",
+          "done": "Warmup terminé",
+          "progress": "Jour {done}/{target}",
+          "locked": "Disponible après la déclaration de ton compte.",
+          "cta": "Cocher le check du jour"
+        },
+        "bio": {
+          "title": "Applique ta bio",
+          "todo": "Une bio t'a été fournie — copie-la sur ton profil.",
+          "done": "Bio appliquée",
+          "cta": "Voir la bio"
+        },
+        "validation": {
+          "title": "Validation de ton compte",
+          "done": "Compte validé — tu peux recevoir des missions.",
+          "todo": "L'équipe valide ton compte une fois le warmup terminé."
+        }
+      },
+      "managedBadge": "Géré par l'équipe",
+      "videos": {
+        "title": "Mes vidéos publiées",
+        "subtitle": "Ton activité vidéo ce cycle.",
+        "online": "En ligne",
+        "views": "Vues",
+        "gains": "Gains",
+        "detailLink": "Voir le détail par vidéo"
+      },
+      "earnings": {
+        "title": "Mes gains",
+        "subtitle": "Gagné ce mois + prochaine paie.",
+        "paidIn": "{days, plural, one {Payé dans # jour (le {date})} other {Payé dans # jours (le {date})}}",
+        "nextPayout": "Prochaine paie le {date}"
+      }
+    },
+    "profil": {
+      "method": {
+        "sepa": "SEPA (virement bancaire)",
+        "paypal": "PayPal",
+        "usdt": "USDT (crypto)",
+        "autre": "Autre"
+      },
+      "placeholder": {
+        "sepa": "IBAN + nom du titulaire",
+        "paypal": "Email PayPal",
+        "usdt": "Adresse du wallet (réseau)",
+        "autre": "Précise comment te payer"
+      },
+      "saved": "Profil enregistré.",
+      "error": "Une erreur est survenue.",
+      "identityTitle": "Identité",
+      "name": "Nom",
+      "email": "Email",
+      "phone": "Téléphone",
+      "paymentTitle": "Paiement",
+      "methodLabel": "Méthode de paiement",
+      "methodPlaceholder": "Choisir…",
+      "detailsLabel": "Coordonnées de paiement",
+      "detailsPlaceholder": "IBAN, email, wallet…"
+    },
+    "assignment": {
+      "started": "C'est parti — bon tournage !",
+      "startFailed": "Impossible de démarrer la mission",
+      "videoSent": "Vidéo envoyée — en attente de validation",
+      "videoSendFailed": "Échec de l'envoi de la vidéo",
+      "published": "Publication confirmée — paiement en route 🎉",
+      "publishFailed": "Échec de la confirmation de publication",
+      "myVideo": "Ta vidéo soumise",
+      "ro": {
+        "todo": "Mission pas encore démarrée par le créateur.",
+        "inProgress": "En production — le créateur doit soumettre sa vidéo.",
+        "submitted": "Vidéo envoyée — en attente de validation par l'admin.",
+        "resubmit": "Le créateur doit re-soumettre une vidéo.",
+        "toPublish": "Vidéo validée — le créateur doit publier puis coller les URLs."
+      },
+      "redoTitle": "Vidéo à refaire",
+      "publishedPaid": "Publié et payé ✓",
+      "publishedOnly": "Publié ✓",
+      "uploadTitle": "Soumettre ta vidéo",
+      "uploadHint": "{count, plural, one {Envoie ton MP4 (non publié). L'admin la valide avant que tu la publies sur ton compte.} other {Envoie ton MP4 (non publié). L'admin la valide avant que tu la publies sur tes comptes.}}",
+      "dropHere": "Glisse ta vidéo ici",
+      "validatedPublish": "{count, plural, one {Ta vidéo est validée — publie-la sur ton compte, puis colle l'URL ci-dessous.} other {Ta vidéo est validée — publie-la sur chaque plateforme, puis colle les URLs ci-dessous.}}",
+      "publishOn": "Publie sur {platform}",
+      "wrongLink": "Ce lien n'est pas un lien {platform}."
+    },
+    "sidebar": {
+      "dashboard": "Tableau de bord",
+      "comptes": "Mes comptes",
+      "paiements": "Mes paiements",
+      "profil": "Profil",
+      "guide": "Comment ça marche",
+      "fichiers": "Mes fichiers",
+      "videos": "Mes vidéos",
+      "aria": "Navigation créateur",
+      "logout": "Se déconnecter"
+    },
+    "bottomNav": {
+      "home": "Accueil",
+      "comptes": "Comptes",
+      "gains": "Gains",
+      "profil": "Profil",
+      "outils": "Outils",
+      "guide": "Guide",
+      "fichiers": "Fichiers",
+      "videos": "Vidéos",
+      "aria": "Navigation portail"
+    },
+    "paiements": {
+      "kind": {
+        "base": "Base",
+        "bonus": "Bonus",
+        "fixed": "Fixe",
+        "cpm": "CPM",
+        "bonus_tier": "Palier",
+        "clip": "Clip",
+        "retainer": "Forfait"
+      },
+      "fixe": "Fixe",
+      "cpmAccum": "CPM accumulé (sur tes vues)",
+      "bonusTiers": "Bonus paliers (cumul de vues)",
+      "subtotal": "Sous-total pricing",
+      "total": "Total",
+      "dueThisCycle": "Dû ce cycle",
+      "dueForCycle": "Dû pour le cycle en cours ({range})"
     }
   }
 }

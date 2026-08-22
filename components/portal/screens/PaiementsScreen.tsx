@@ -17,6 +17,7 @@ import { formatCycleRange } from "@/lib/pay-cycle";
 import { ArrowRightIcon, ChevronRightIcon } from "lucide-react";
 import type { FunctionReturnType } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useTranslations } from "next-intl";
 
 /**
  * « Mes paiements / gains » — écran RÉUTILISÉ par le portail créateur normal ET
@@ -123,16 +124,16 @@ function BonusTierPanel({
   );
 }
 
-const KIND_TAG: Record<string, { label: string; className: string }> = {
-  base: { label: "Base", className: "bg-slate-200 text-slate-600" },
-  bonus: { label: "Bonus", className: "bg-indigo-50 text-indigo-600" },
-  fixed: { label: "Fixe", className: "bg-emerald-50 text-emerald-600" },
-  cpm: { label: "CPM", className: "bg-sky-50 text-sky-600" },
-  bonus_tier: { label: "Palier", className: "bg-amber-50 text-amber-600" },
+const KIND_TAG = {
+  base: { labelKey: "paiements.kind.base", className: "bg-slate-200 text-slate-600" },
+  bonus: { labelKey: "paiements.kind.bonus", className: "bg-indigo-50 text-indigo-600" },
+  fixed: { labelKey: "paiements.kind.fixed", className: "bg-emerald-50 text-emerald-600" },
+  cpm: { labelKey: "paiements.kind.cpm", className: "bg-sky-50 text-sky-600" },
+  bonus_tier: { labelKey: "paiements.kind.bonus_tier", className: "bg-amber-50 text-amber-600" },
   // Chantier pricing talent/clippeur — quatre modèles, quatre étiquettes.
-  clip: { label: "Clip", className: "bg-violet-50 text-violet-600" },
-  retainer: { label: "Forfait", className: "bg-teal-50 text-teal-600" },
-};
+  clip: { labelKey: "paiements.kind.clip", className: "bg-violet-50 text-violet-600" },
+  retainer: { labelKey: "paiements.kind.retainer", className: "bg-teal-50 text-teal-600" },
+} as const;
 
 function KindTag({
   kind,
@@ -146,15 +147,16 @@ function KindTag({
     | "clip"
     | "retainer";
 }) {
-  const t = KIND_TAG[kind] ?? KIND_TAG.base;
+  const tag = KIND_TAG[kind] ?? KIND_TAG.base;
+  const tt = useTranslations("portal");
   return (
     <span
       className={cn(
         "inline-flex shrink-0 rounded px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase",
-        t.className,
+        tag.className,
       )}
     >
-      {t.label}
+      {tt(tag.labelKey)}
     </span>
   );
 }
@@ -170,6 +172,7 @@ function PricingBreakdown({
   b: Payment["pricingBreakdown"];
   currency?: string | null;
 }) {
+  const t = useTranslations("portal");
   if (b.total <= 0 && b.perPricing.length === 0) return null;
   // Un cycle peut mélanger DEUX barèmes (un pricing édité en place laisse des
   // vidéos figées sur l'ancien) : on rend alors une ligne PAR barème, sinon le
@@ -181,7 +184,7 @@ function PricingBreakdown({
         Détail (temps réel)
       </p>
       {groupes.length === 0 ? (
-        <Row label="Fixe" amount={b.fixedTotal} currency={currency} />
+        <Row label={t("paiements.fixe")} amount={b.fixedTotal} currency={currency} />
       ) : (
         groupes.map((g) => (
           <Row
@@ -193,7 +196,7 @@ function PricingBreakdown({
           />
         ))
       )}
-      <Row label="CPM accumulé (sur tes vues)" amount={b.cpmTotal} currency={currency} />
+      <Row label={t("paiements.cpmAccum")} amount={b.cpmTotal} currency={currency} />
       {b.bonusTierCashTotal > 0 &&
         (b.bonusTierCashUnlocks.length > 0 ? (
           // Une ligne par palier cash débloqué sur ce cycle (cohérent avec la
@@ -209,13 +212,13 @@ function PricingBreakdown({
         ) : (
           // Cycle gelé (payé) → détail par palier indisponible : ligne agrégée.
           <Row
-            label="Bonus paliers (cumul de vues)"
+            label={t("paiements.bonusTiers")}
             amount={b.bonusTierCashTotal}
             currency={currency}
           />
         ))}
       <div className="flex items-center justify-between border-t border-slate-100 pt-2 text-sm font-semibold">
-        <span>Sous-total pricing</span>
+        <span>{t("paiements.subtotal")}</span>
         <span className="tabular-nums" data-testid="pricing-total">
           {formatMoney(b.total, currency)}
         </span>
@@ -249,6 +252,7 @@ function Row({
 }
 
 function LineItems({ p, currency }: { p: Payment; currency?: string | null }) {
+  const t = useTranslations("portal");
   return (
     <ul className="divide-y divide-slate-100">
       {p.lineItems.map((li, i) => (
@@ -266,7 +270,7 @@ function LineItems({ p, currency }: { p: Payment; currency?: string | null }) {
         </li>
       ))}
       <li className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm font-semibold">
-        <span>Total</span>
+        <span>{t("paiements.total")}</span>
         <span className="tabular-nums">{formatMoney(p.totalDue, currency)}</span>
       </li>
     </ul>
@@ -316,6 +320,7 @@ function PastPeriod({ p, currency }: { p: Payment; currency?: string | null }) {
 }
 
 export default function PaiementsScreen() {
+  const t = useTranslations("portal");
   const { current: currentProject } = useCreatorProject();
   // Devise de la paie créatrices (projects.payCurrency, $ Snytch ; null → sans
   // symbole), passée aux sous-composants (un hook ne court qu'en corps de composant).
@@ -356,8 +361,8 @@ export default function PaiementsScreen() {
             <CardContent className="space-y-1 py-7 text-center">
               <p className="text-sm text-slate-500">
                 {current
-                  ? `Dû pour le cycle en cours (${formatCycleRange(current.cycleStart, current.cycleEnd)})`
-                  : "Dû ce cycle"}
+                  ? t("paiements.dueForCycle", { range: formatCycleRange(current.cycleStart, current.cycleEnd) })
+                  : t("paiements.dueThisCycle")}
               </p>
               <p
                 className="text-4xl font-semibold tabular-nums text-slate-900"

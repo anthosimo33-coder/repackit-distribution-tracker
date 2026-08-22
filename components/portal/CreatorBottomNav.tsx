@@ -17,6 +17,7 @@ import {
   WrenchIcon,
   type LucideIcon,
 } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 /**
  * Barre d'onglets MOBILE du portail créateur (style app native, au pouce).
@@ -35,45 +36,47 @@ import {
 type BadgeKey = "actionable" | "warmupDue";
 type Tab = {
   href: string;
-  label: string;
+  /** CLÉ i18n (littérale) — t() n'accepte pas un `string` élargi. */
+  labelKey: Parameters<ReturnType<typeof useTranslations<"portal">>>[0];
   icon: LucideIcon;
   exact: boolean;
   badgeKey?: BadgeKey;
 };
 
-const BASE_TABS: Tab[] = [
-  { href: "/app", label: "Accueil", icon: HomeIcon, exact: true, badgeKey: "actionable" },
-  { href: "/app/comptes", label: "Comptes", icon: AtSignIcon, exact: false, badgeKey: "warmupDue" },
-  { href: "/app/paiements", label: "Gains", icon: WalletIcon, exact: false },
-  { href: "/app/profil", label: "Profil", icon: UserIcon, exact: false },
-];
+// `as const` : cf CreatorSidebar — labelKey doit rester littéral pour t().
+const BASE_TABS = [
+  { href: "/app", labelKey: "bottomNav.home", icon: HomeIcon, exact: true, badgeKey: "actionable" },
+  { href: "/app/comptes", labelKey: "bottomNav.comptes", icon: AtSignIcon, exact: false, badgeKey: "warmupDue" },
+  { href: "/app/paiements", labelKey: "bottomNav.gains", icon: WalletIcon, exact: false },
+  { href: "/app/profil", labelKey: "bottomNav.profil", icon: UserIcon, exact: false },
+] as const;
 
-const OUTILS_TAB: Tab = {
+const OUTILS_TAB = {
   href: "/app/outils",
-  label: "Outils",
+  labelKey: "bottomNav.outils",
   icon: WrenchIcon,
   exact: false,
-};
-const GUIDE_TAB: Tab = {
+} as const;
+const GUIDE_TAB = {
   href: "/app/guide",
-  label: "Guide",
+  labelKey: "bottomNav.guide",
   icon: HelpCircleIcon,
   exact: false,
-};
+} as const;
 // Dépôt de contenu — Snytch uniquement (cf lib/snytch-drive), inséré après Comptes.
-const FICHIERS_TAB: Tab = {
+const FICHIERS_TAB = {
   href: "/app/fichiers",
-  label: "Fichiers",
+  labelKey: "bottomNav.fichiers",
   icon: FilesIcon,
   exact: false,
-};
+} as const;
 // Suivi des vidéos publiées — Snytch uniquement, inséré après Fichiers.
-const VIDEOS_TAB: Tab = {
+const VIDEOS_TAB = {
   href: "/app/videos",
-  label: "Vidéos",
+  labelKey: "bottomNav.videos",
   icon: FilmIcon,
   exact: false,
-};
+} as const;
 
 export function CreatorBottomNav({
   projectId,
@@ -84,10 +87,11 @@ export function CreatorBottomNav({
   hasTools: boolean;
   showFiles: boolean;
 }) {
+  const t = useTranslations("portal");
   const pathname = usePathname();
   // Snytch → 7 onglets (Fichiers + Vidéos insérés) ; sinon 5 (inchangé).
   const lastTab = hasTools ? OUTILS_TAB : GUIDE_TAB;
-  const tabs: Tab[] = showFiles
+  const tabs: readonly Tab[] = showFiles
     ? [
         BASE_TABS[0],
         BASE_TABS[1],
@@ -115,7 +119,7 @@ export function CreatorBottomNav({
 
   return (
     <nav
-      aria-label="Navigation portail"
+      aria-label={t("bottomNav.aria")}
       className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 backdrop-blur supports-backdrop-filter:bg-white/80 md:hidden"
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
@@ -129,17 +133,17 @@ export function CreatorBottomNav({
               : "grid-cols-5",
         )}
       >
-        {tabs.map((t) => {
-          const active = t.exact
-            ? pathname === t.href
-            : pathname.startsWith(t.href);
-          const Icon = t.icon;
-          const count = t.badgeKey ? badgeCount[t.badgeKey] : 0;
+        {tabs.map((tab) => {
+          const active = tab.exact
+            ? pathname === tab.href
+            : pathname.startsWith(tab.href);
+          const Icon = tab.icon;
+          const count = tab.badgeKey ? badgeCount[tab.badgeKey] : 0;
           const showBadge = count > 0;
           return (
-            <li key={t.href}>
+            <li key={tab.href}>
               <Link
-                href={t.href}
+                href={tab.href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
                   "relative flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors",
@@ -154,7 +158,7 @@ export function CreatorBottomNav({
                     </span>
                   )}
                 </span>
-                {t.label}
+                {t(tab.labelKey)}
               </Link>
             </li>
           );
