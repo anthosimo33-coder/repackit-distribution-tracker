@@ -30,8 +30,14 @@ import {
   type InternalExcludedPayload,
   type AbPersonArmsPayload,
   type AbArmsPayload,
+  type AbFlippersPayload,
   type SubsByMembershipPayload,
 } from "./posthogSync";
+import {
+  resolveArm,
+  armDivergence,
+  type ArmLookup,
+} from "./abAttribution";
 // `internalAccountsFor` n'est plus appelé ici : la config A4 arrive désormais
 // par collectProjectWhopPayments (point de passage unique).
 import { isInternalWhopMembership } from "./internalAccounts";
@@ -779,6 +785,16 @@ export interface RevenueBreakdown {
     divergences: { membershipId: string; metadata: string; posthog: string }[];
     /** Abonnements de la fenêtre sans bras par aucune des deux voies. */
     unattached: number;
+    /**
+     * Abonnements ÉCARTÉS parce que leur personne a changé de bras. Le tableau
+     * par bras les retire déjà de ses colonnes (`excludedFlippers`) : sans cette
+     * exclusion côté revenu, leur argent entrait au numérateur d'un bras dont le
+     * dénominateur les excluait. Compteur VISIBLE — une exclusion silencieuse se
+     * lit comme un bras qui vend mal.
+     */
+    excludedFlippers: number;
+    /** Net correspondant, retiré des colonnes de bras. */
+    excludedFlippersNet: number;
   };
 }
 
@@ -820,7 +836,14 @@ export const getRevenueBreakdown = adminQuery({
         churnAvailable: false,
         internalExcludedMembers: 0,
         offerChanges,
-        abRevenue: { startMs: null, rows: [], divergences: [], unattached: 0 },
+        abRevenue: {
+          startMs: null,
+          rows: [],
+          divergences: [],
+          unattached: 0,
+          excludedFlippers: 0,
+          excludedFlippersNet: 0,
+        },
       };
     }
 
@@ -1047,6 +1070,27 @@ export const getRevenueBreakdown = adminQuery({
     const personArms = new Map(
       armsPayload.rows.map((r) => [r.distinctId, r.variant] as const),
     );
+    // Garde anti-flipper EXPLICITE (test positif). Sans elle, la seule
+    // matérialisation de la garde était l'ABSENCE de la ligne ci-dessus : elle
+    // ne mordait donc que sur le repli, et `abVariant ?? repli` la
+    // court-circuitait dès qu'une metadata Whop existait.
+    const flippersRow = await ctx.db
+      .query("posthogCache")
+      .withIndex("by_project_key", (q) =>
+        q.eq("projectId", ctx.projectId).eq("key", POSTHOG_CACHE_KEYS.abFlippers),
+      )
+      .first();
+    let flipperDistinctIds = new Set<string>();
+    if (flippersRow && flippersRow.json !== "") {
+      try {
+        flipperDistinctIds = new Set(
+          (JSON.parse(flippersRow.json) as AbFlippersPayload).distinctIds,
+        );
+      } catch {
+        flipperDistinctIds = new Set();
+      }
+    }
+    const armLookup: ArmLookup = { personArms, flipperDistinctIds };
     // Début du test = celui du CACHE POSTHOG (1re émission d'experiment_variant),
     // la même borne que le tableau par bras. Le déduire du 1er membership portant
     // un abVariant datait le test de sa 1re VENTE : tout abonnement conclu entre
@@ -1090,22 +1134,36 @@ export const getRevenueBreakdown = adminQuery({
     >();
     const abDivergences: { membershipId: string; metadata: string; posthog: string }[] = [];
     let abUnattached = 0;
+    let abExcludedFlippers = 0;
+    let abExcludedFlippersNet = 0;
     for (const m of abMemberships) {
       if (isInternalWhopMembership(m.whopMembershipId, internalCfg)) continue;
       if (abStartMs === null || m.createdAt < abStartMs) continue; // hors fenêtre du test
-      if (m.abForced === true) continue; // session de QA : hors revenu comme hors events
-      const fromPosthog = m.distinctId ? personArms.get(m.distinctId) : undefined;
-      const variant = m.abVariant ?? fromPosthog;
-      if (!variant) {
-        abUnattached += 1;
-        continue;
+      // Résolution UNIQUE, gardes AVANT les deux voies (cf convex/abAttribution).
+      const resolved = resolveArm(
+        { abVariant: m.abVariant, abForced: m.abForced, distinctId: m.distinctId },
+        armLookup,
+      );
+      if (resolved.variant === null) {
+        // Une exclusion se COMPTE, sinon elle se lit comme un bras qui vend mal.
+        if (resolved.rejected === "flipper") {
+          abExcludedFlippers += 1;
+          abExcludedFlippersNet = round2(
+            abExcludedFlippersNet +
+              (netByMembership.get(m.whopMembershipId)?.net ?? 0),
+          );
+        } else if (resolved.rejected === "unassigned") {
+          abUnattached += 1;
+        }
+        continue; // "forced" : session de QA, hors revenu comme hors events
       }
-      if (m.abVariant && fromPosthog && m.abVariant !== fromPosthog) {
-        abDivergences.push({
-          membershipId: m.whopMembershipId,
-          metadata: m.abVariant,
-          posthog: fromPosthog,
-        });
+      const variant = resolved.variant;
+      const divergence = armDivergence(
+        { abVariant: m.abVariant, distinctId: m.distinctId },
+        armLookup,
+      );
+      if (divergence) {
+        abDivergences.push({ membershipId: m.whopMembershipId, ...divergence });
       }
       const money = netByMembership.get(m.whopMembershipId) ?? { net: 0, atRisk: 0 };
       const a =
@@ -1127,6 +1185,8 @@ export const getRevenueBreakdown = adminQuery({
         .sort((x, y) => x.variant.localeCompare(y.variant)),
       divergences: abDivergences,
       unattached: abUnattached,
+      excludedFlippers: abExcludedFlippers,
+      excludedFlippersNet: abExcludedFlippersNet,
     };
 
     return {

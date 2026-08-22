@@ -56,7 +56,29 @@ export const CONTRACT_EVENTS: ContractEvent[] = [
   // ─── Acquisition ───────────────────────────────────────────────────────────
   { name: "$pageview", category: "acquisition", props: [] },
   { name: "signup_completed", category: "acquisition", props: ["method", "server_side", "distinct_id"] },
-  { name: "free_tier_started", category: "acquisition", props: ["is_free_tier"] },
+  {
+    name: "free_tier_started",
+    category: "acquisition",
+    props: ["is_free_tier", "plan_id", "server_side", "trigger"],
+    // Marque un OCTROI de la semaine offerte, pas un CHOIX : la copie serveur
+    // part ~1 s après `onboarding_completed` pour toute personne du bras soft
+    // qui termine l'onboarding, y compris celles qui paient 3 s plus tard
+    // (22 payants soft sur 22 l'émettent, mesuré le 22/08). Ne PAS en tirer
+    // « a préféré le gratuit » — cf `free_tier_chosen` ci-dessous.
+    note: "octroi, pas choix : émis aussi sur le chemin des payants (22/22) ; double émission client+serveur depuis le 02/08",
+  },
+  {
+    name: "free_tier_chosen",
+    category: "acquisition",
+    props: ["plan_id", "server_side"],
+    notYetEmitted: true,
+    // La question « le gratuit est-il une porte de SORTIE ou de DÉCOUVERTE ? »
+    // n'a aucune réponse mesurable tant que l'octroi et le choix partagent le
+    // même event : le délai gratuit→checkout mesuré (médiane −21 s, 83 % de
+    // valeurs négatives) ne décrit que l'ordre d'émission. Il faut un event émis
+    // au TAP sur « continuer gratuitement », distinct de l'octroi d'accès.
+    note: "attendu : émission au CHOIX explicite du plan gratuit, distincte de l'octroi (free_tier_started)",
+  },
 
   // ─── Activation produit ──────────────────────────────────────────────────
   { name: "username_entered", category: "activation", props: ["account_id"] },
@@ -117,12 +139,24 @@ export const CONTRACT_EVENTS: ContractEvent[] = [
     // `is_renewal` sépare premier paiement et renouvellement — l'event est réémis à
     // chaque cycle par le lot serveur ; la série quotidienne (QUERIES.overview) la
     // filtre pour ne compter que les nouveaux clients.
+    //
+    // ⚠️ L'EVENT NE DIT PAS SI LE PAIEMENT A ABOUTI. Mesuré le 22/08 sur la
+    // fenêtre du test : 35 events `is_renewal=true` pour 27 cycles réellement
+    // ENCAISSÉS côté Whop — l'app émet aussi sur les cycles ÉCHOUÉS (6, dont 4
+    // `past_due`) et REMBOURSÉS (2). Ce n'est PAS un doublon d'ingestion (0
+    // whopId dupliqué, appariement 1:1 avec les cycles Whop, écart médian 2 s) :
+    // c'est un PÉRIMÈTRE différent, et l'arithmétique se referme exactement
+    // (35/27 = +30 %, 35/30 = +17 %). Aucune des 10 propriétés ci-dessous ne
+    // sépare les deux cas — `amount` porte le prix du PLAN, identique sur un
+    // échec. D'où les trois propriétés déclarées `notYetEmitted` plus bas
+    // (payment_status, payment_id, paid_at). Tant qu'elles manquent, tout
+    // comptage de renouvellements doit venir de Whop, jamais de PostHog.
     props: [
       "plan_name", "method", "server_side",
       "is_renewal", "membership_id",
       "amount", "currency", "plan_id", "cadence", "slot_type",
     ],
-    note: "is_renewal émise depuis le 28/07 ; le chemin temps réel l'a mise à false sur 2 renouvellements (06 et 07/08), le lot de 06:00 UTC étiquette juste",
+    note: "is_renewal émise depuis le 28/07 ; émise AUSSI sur les cycles échoués et remboursés (35 events pour 27 encaissements sur la fenêtre du test) → compter les renouvellements depuis Whop",
   },
   { name: "subscription_cancelled", category: "monetization", props: ["reason", "plan_name"] },
   { name: "purchase_celebrated", category: "monetization", props: [] },
@@ -196,6 +230,25 @@ export const CONTRACT_PROPERTIES: ContractProperty[] = [
   // Nombre de cibles incluses dans l'offre affichée (1 en soft, 3 en hard) :
   // sans lui, deux prix ne sont pas comparables.
   { name: "max_targets", onEvent: "paywall_viewed" },
+  // ─── Issue du paiement sur subscription_completed — ATTENDUES, ABSENTES ────
+  // L'event part sur CHAQUE cycle de renouvellement, encaissé ou non : sur la
+  // fenêtre du test, 35 events pour 27 encaissements (6 échecs + 2 remboursés).
+  // Aucune propriété actuelle ne les sépare. Ces trois-là suffisent, et la carte
+  // Fiabilité les affichera « attendues, absentes » jusqu'à leur arrivée (A1).
+  //
+  // `payment_status` — l'issue réelle du prélèvement (succeeded / failed /
+  // refunded). C'est LA propriété manquante : sans elle un cycle échoué est
+  // indistinguable d'un encaissement.
+  { name: "payment_status", onEvent: "subscription_completed", notYetEmitted: true },
+  // `payment_id` — l'identifiant Whop `pay_*`. Clé d'IDEMPOTENCE (un même
+  // paiement ne doit produire qu'un event, quel que soit le nombre de livraisons
+  // du webhook) ET clé de jointure EXACTE avec whopPayments.whopId : aujourd'hui
+  // la jointure passe par membership_id, qui identifie l'abonnement, pas le CYCLE.
+  { name: "payment_id", onEvent: "subscription_completed", notYetEmitted: true },
+  // `paid_at` — l'instant de l'encaissement, distinct du timestamp d'émission.
+  // Le lot serveur de 06:00 UTC rapporte les paiements de la veille : sans lui,
+  // la série quotidienne PostHog est décalée d'un jour par rapport à Whop.
+  { name: "paid_at", onEvent: "subscription_completed", notYetEmitted: true },
 ];
 
 /**

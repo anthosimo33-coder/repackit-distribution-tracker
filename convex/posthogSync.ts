@@ -60,6 +60,70 @@ const RETENTION_WEEKS = 9;
 /** Borne des segments listés (sources, variants, langues) — anti-explosion d'UI. */
 const SEGMENT_LIMIT = 20;
 
+/**
+ * DOUBLE ÉMISSION client + serveur — déduplication de LECTURE.
+ *
+ * Depuis le lot d'instrumentation serveur de l'app (semaine du 02/08/2026),
+ * `target_added` part DEUX FOIS pour un seul ajout de cible : une copie serveur
+ * (`server_side='true'`, porteuse de `slot_type`) puis une copie client ~0,1 s
+ * après. Les deux ne partagent PAS d'`$insert_id` (la copie serveur n'en a pas)
+ * → la déduplication native de PostHog ne joue pas. Mesuré en prod le 22/08 :
+ * 339 events post-rupture pour 173 copies serveur et 166 copies client, chaque
+ * copie client ayant son jumeau serveur. Conséquence : tout compteur de
+ * MAGNITUDE valait le double (la carte affichait 1,85 cible/client pour 0,93).
+ *
+ * `dedupedCount` garde la copie SERVEUR quand elle existe pour cette personne,
+ * et retombe sur le comptage brut sinon — ce qui préserve l'historique
+ * ANTÉRIEUR au 02/08 (100 % client, aucune copie serveur) et survivra au jour
+ * où l'app retirera la copie client.
+ *
+ * ⚠️ NE PAS l'appliquer à un test de PRÉSENCE (`countIf(...) > 0`) : il est
+ * insensible au doublon, et le filtrer ne ferait que perdre de l'historique.
+ * ⚠️ NE PAS l'appliquer à `target_removed` : sa copie serveur est INCOMPLÈTE
+ * (18 serveur pour 48 client sur la semaine du 16/08) — dédupliquer y
+ * supprimerait des faits réels.
+ */
+const SERVER_COPY = `toString(properties.server_side) = 'true'`;
+
+/**
+ * Compte les occurrences d'un event en neutralisant la double émission.
+ * `extra` ajoute une condition (ex. une borne de fenêtre) aux deux branches.
+ */
+function dedupedCount(event: string, extra = ""): string {
+  const srv = `event = '${event}' AND ${SERVER_COPY}${extra}`;
+  const all = `event = '${event}'${extra}`;
+  return `if(countIf(${srv}) > 0, countIf(${srv}), countIf(${all}))`;
+}
+
+/**
+ * Idem pour un tableau d'horodatages (`groupArrayIf`) : la branche serveur si
+ * elle existe pour cette personne, le tableau brut sinon.
+ */
+function dedupedTimestamps(event: string, extra = ""): string {
+  const srv = `event = '${event}' AND ${SERVER_COPY}${extra}`;
+  const all = `event = '${event}'${extra}`;
+  return `if(countIf(${srv}) > 0, groupArrayIf(timestamp, ${srv}), groupArrayIf(timestamp, ${all}))`;
+}
+
+/**
+ * EXPÉRIENCE COURANTE — les requêtes d'A/B test se bornent à l'`experiment_id`
+ * le plus récent, pas à « toute émission d'`experiment_variant` sur 90 jours ».
+ * Sans cette borne, une personne passée de `paywall_ab_2026_08` à `…_v2` (les
+ * bras sont RE-TIRÉS à chaque nouvelle expérience) comptait comme instable :
+ * mesuré en prod le 22/08, 52 personnes écartées dont ~24 par ce seul artefact.
+ * Le début de fenêtre affiché par la carte devient celui de l'expérience EN
+ * COURS (2026-08-08 10:18:56) au lieu de celui de la précédente (03/08 15:02).
+ */
+const AB_EXPERIMENT_CTE = `(SELECT argMax(toString(properties.experiment_id), timestamp) FROM events
+      WHERE isNotNull(properties.experiment_id)
+        AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY) AS ab_exp,
+     (SELECT min(timestamp) FROM events
+      WHERE toString(properties.experiment_id) = ab_exp
+        AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY) AS ab_start`;
+
+/** Vrai si l'event porte un bras DE L'EXPÉRIENCE COURANTE. */
+const AB_ARMED = `isNotNull(properties.experiment_variant) AND toString(properties.experiment_id) = ab_exp`;
+
 /** Clés d'agrégat stockées dans posthogCache (une row par (projet, key)). */
 export const POSTHOG_CACHE_KEYS = {
   overview: "overview",
@@ -91,6 +155,7 @@ export const POSTHOG_CACHE_KEYS = {
   abVariants: "abVariants",
   abArms: "abArms",
   abPersonArms: "abPersonArms",
+  abFlippers: "abFlippers",
   freePlan: "freePlan",
   // ─── Réconciliation clients PostHog ↔ Whop par membership_id ──────────────
   subsByMembership: "subsByMembership",
@@ -188,9 +253,35 @@ export interface AbArmsPayload {
      * comme un bras qui recrute mal.
      */
     excludedFlippers: number;
+    /**
+     * Sous-total des flippers vus sur PLUSIEURS `$device_id` : c'est la fusion
+     * d'identités PostHog (un même humain sur deux navigateurs, chacun tiré de
+     * son côté), attendue et non actionnable côté app.
+     */
+    excludedFlippersMultiDevice: number;
+    /**
+     * Sous-total des flippers vus sur UN SEUL `$device_id` : là, l'app a
+     * re-tiré le bras d'une personne déjà assignée. C'est le SEUL signal d'un
+     * défaut applicatif — un total agrégé ne permet pas de le distinguer.
+     */
+    excludedFlippersSameDevice: number;
   }[];
-  /** Début de la fenêtre = 1re émission d'experiment_variant (ms). */
+  /**
+   * Début de la fenêtre = 1re émission de l'`experiment_id` COURANT (ms). Ce
+   * n'est PAS la 1re émission d'`experiment_variant` tous tests confondus : une
+   * expérience précédente décalerait la borne vers le passé et ferait entrer sa
+   * cohorte dans les colonnes de celle-ci.
+   */
   startMs: number | null;
+}
+
+/**
+ * `distinct_id` des personnes à bras INSTABLE, pour appliquer la garde
+ * anti-flipper sur les DEUX voies de rattachement (cf convex/abAttribution.ts).
+ * Liste plate : le test est une APPARTENANCE, pas une jointure.
+ */
+export interface AbFlippersPayload {
+  distinctIds: string[];
 }
 
 /**
@@ -219,6 +310,8 @@ export function normalizeAbArms(payload: AbArmsPayload): AbArmsPayload {
       clientTargets: num(r.clientTargets),
       armTargets: num(r.armTargets),
       excludedFlippers: num(r.excludedFlippers),
+      excludedFlippersMultiDevice: num(r.excludedFlippersMultiDevice),
+      excludedFlippersSameDevice: num(r.excludedFlippersSameDevice),
     })),
   };
 }
@@ -374,15 +467,16 @@ export interface AbVariantsPayload {
 
 /** B3 — plan gratuit : usage réel, passage au payant, délai gratuit→checkout. */
 export interface FreePlanPayload {
+  /**
+   * Personnes ayant REÇU la semaine offerte (`free_tier_started`). Ce n'est PAS
+   * « ont choisi le gratuit » : l'event marque un octroi, émis aussi sur le
+   * chemin des payants (cf QUERIES.freePlan).
+   */
   signups: number;
   /** A fait ≥ 1 action produit (recherche / scan / cible). */
   used: number;
   /** Passés au payant (subscription_completed). */
   convertedPaid: number;
-  /** Avaient ouvert le checkout AVANT le gratuit. */
-  checkoutBefore: number;
-  /** Délai médian gratuit→checkout (ms, SIGNÉ : négatif = checkout avant). null si aucun. */
-  medFreeToCheckoutMs: number | null;
 }
 
 /**
@@ -761,9 +855,7 @@ LIMIT ${SEGMENT_LIMIT}`,
    * est borné à la fenêtre du test par `timestamp >= ab_start`.
    */
   abArms: `
-WITH (SELECT min(timestamp) FROM events
-      WHERE isNotNull(properties.experiment_variant)
-        AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY) AS ab_start
+WITH ${AB_EXPERIMENT_CTE}
 SELECT bras AS variant, uniqIf(person_id, stable) AS exposed,
   uniqIf(person_id, stable AND n_paywalls > 0) AS paywall_viewers,
   uniqIf(person_id, stable AND n_checkouts > 0) AS checkouts,
@@ -774,14 +866,21 @@ SELECT bras AS variant, uniqIf(person_id, stable) AS exposed,
   sum(if(stable, length(target_ts), 0)) AS arm_targets,
   -- Écartées faute de bras stable. Rangées sous leur DERNIER bras (argMaxIf) :
   -- c'est celui que la carte leur aurait attribué, donc la ligne qu'elles
-  -- auraient faussée.
+  -- auraient faussée. Ventilées par NOMBRE D'APPAREILS : un bras qui diverge
+  -- entre deux $device_id est une fusion d'identités PostHog (attendue) ; sur un
+  -- SEUL appareil, c'est l'app qui re-tire le bras — le seul signal actionnable.
   uniqIf(person_id, NOT stable) AS excluded_flippers,
+  uniqIf(person_id, NOT stable AND n_devices > 1) AS excluded_flippers_multi_device,
+  uniqIf(person_id, NOT stable AND n_devices <= 1) AS excluded_flippers_same_device,
   min(started) AS started
 FROM (
   SELECT person_id,
-    argMaxIf(toString(properties.experiment_variant), timestamp, isNotNull(properties.experiment_variant)) AS bras,
-    -- Un seul bras vu sur toute la fenêtre = tirage tenu.
-    uniqIf(toString(properties.experiment_variant), isNotNull(properties.experiment_variant)) = 1 AS stable,
+    argMaxIf(toString(properties.experiment_variant), timestamp, ${AB_ARMED}) AS bras,
+    -- Un seul bras vu sur L'EXPÉRIENCE COURANTE = tirage tenu. Sans la borne
+    -- par experiment_id, un passage v1 → v2 (bras re-tirés) comptait comme
+    -- une bascule : ~24 des 52 exclusions mesurées le 22/08 étaient cet artefact.
+    uniqIf(toString(properties.experiment_variant), ${AB_ARMED}) = 1 AS stable,
+    uniq(toString(properties.$device_id)) AS n_devices,
     countIf(event = 'paywall_viewed' AND timestamp >= ab_start) AS n_paywalls,
     countIf(event = 'checkout_started' AND timestamp >= ab_start) AS n_checkouts,
     countIf(event = 'subscription_completed' AND timestamp >= ab_start) AS n_subs,
@@ -789,11 +888,14 @@ FROM (
     -- c'est ce qui sépare un nouveau client d'un renouvellement. minIf sans
     -- correspondance rend l'epoch 0, jamais null → toujours gardé par n_subs > 0.
     minIf(timestamp, event = 'subscription_completed') AS t_first_sub,
-    groupArrayIf(timestamp, event = 'target_added' AND timestamp >= ab_start) AS target_ts,
+    -- Cibles DÉDUPLIQUÉES : la double émission client+serveur doublait
+    -- client_targets et arm_targets (1,85 cible/client affiché pour 0,93 réel).
+    ${dedupedTimestamps("target_added", " AND timestamp >= ab_start")} AS target_ts,
     ab_start AS started
   FROM events
   WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
   GROUP BY person_id
+  HAVING countIf(${AB_ARMED}) > 0
 )
 WHERE isNotNull(bras) AND bras != '' AND bras != 'NULL'
 GROUP BY variant
@@ -811,16 +913,15 @@ LIMIT ${SEGMENT_LIMIT}`,
    * refusent de dire.
    */
   abPersonArms: `
+WITH ${AB_EXPERIMENT_CTE}
 SELECT distinct_id, bras AS variant FROM (
   SELECT distinct_id,
-    argMaxIf(toString(properties.experiment_variant), timestamp, isNotNull(properties.experiment_variant)) AS bras
+    argMaxIf(toString(properties.experiment_variant), timestamp, ${AB_ARMED}) AS bras
   FROM events
-  WHERE timestamp >= (SELECT min(timestamp) FROM events
-      WHERE isNotNull(properties.experiment_variant)
-        AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY)${notCounted}
+  WHERE timestamp >= ab_start${notCounted}
     AND NOT (person_id IN (
       SELECT person_id FROM events
-      WHERE isNotNull(properties.experiment_variant)
+      WHERE ${AB_ARMED}
         AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
       GROUP BY person_id
       HAVING uniq(toString(properties.experiment_variant)) > 1
@@ -828,7 +929,34 @@ SELECT distinct_id, bras AS variant FROM (
   GROUP BY distinct_id
 )
 WHERE isNotNull(bras) AND bras != '' AND bras != 'NULL'
-LIMIT 1000`,
+LIMIT 10000`,
+
+  /**
+   * `distinct_id` des personnes à bras INSTABLE — la garde anti-flipper rendue
+   * EXPLICITE, en test POSITIF.
+   *
+   * Sans elle, la seule matérialisation de la garde était l'ABSENCE d'une ligne
+   * dans `abPersonArms` : elle ne pouvait donc mordre que sur la voie de repli,
+   * et `metadata.abVariant ?? repli` la court-circuitait (cf convex/abAttribution.ts).
+   * Une absence est de surcroît AMBIGUË — flipper écarté, jamais assigné, ou
+   * payload tronqué ? Ici la présence dans la liste est un fait, pas une déduction.
+   *
+   * Volume borné (prod 22/08 : 130 distinct_id pour 28 personnes) — une liste
+   * plate suffit, et le `LIMIT` explicite évite la troncature silencieuse à 100.
+   */
+  abFlippers: `
+WITH ${AB_EXPERIMENT_CTE}
+SELECT distinct_id FROM events
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+  AND person_id IN (
+    SELECT person_id FROM events
+    WHERE ${AB_ARMED}
+      AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+    GROUP BY person_id
+    HAVING uniq(toString(properties.experiment_variant)) > 1
+  )
+GROUP BY distinct_id
+LIMIT 10000`,
 
   /** Sources → inscrits / abonnés (une personne compte une fois par source). */
   sources: `
@@ -872,7 +1000,9 @@ FROM (
       minIf(timestamp, event = 'signup_completed') AS t_signup,
       max(timestamp) AS t_last,
       countIf(event IN ('squad_created', 'squad_joined')) AS squads,
-      countIf(event = 'target_added') AS targets
+      -- Seuil targets > 1 : la double émission faisait basculer en
+      -- « multi_target » toute personne n'ayant qu'UNE cible réelle.
+      ${dedupedCount("target_added")} AS targets
     FROM events
     WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
     GROUP BY person_id
@@ -906,7 +1036,8 @@ FROM (
     countIf(event = 'subscription_completed') AS subbed,
     countIf(event IN ('squad_created', 'squad_joined')) AS squads,
     countIf(event = 'first_alert_received') AS alerts,
-    countIf(event = 'target_added') AS targets,
+    -- Seuil targets >= 2 : idem, la double émission le franchissait toute seule.
+    ${dedupedCount("target_added")} AS targets,
     countIf(event = 'push_enabled') AS push,
     countIf(event = 'referral_link_shared') AS referrals
   FROM events
@@ -1147,7 +1278,8 @@ FROM (
       countIf(event = 'paywall_viewed') AS viewed,
       countIf(event = 'checkout_started') AS checkout,
       countIf(event = 'subscription_completed') AS paid,
-      countIf(event = 'target_added') AS targets
+      -- client_targets est une SOMME : la double émission la doublait.
+      ${dedupedCount("target_added")} AS targets
     FROM events
     WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
       AND event IN ('paywall_viewed', 'checkout_started', 'subscription_completed', 'target_added')
@@ -1160,27 +1292,38 @@ ORDER BY exposed DESC
 LIMIT ${SEGMENT_LIMIT}`,
 
   /**
-   * B3 — plan gratuit : usage réel (≥1 action produit), passage au payant, et
-   * délai gratuit→checkout (signé : négatif = le checkout précédait le gratuit).
+   * B3 — plan gratuit : population ayant REÇU la semaine offerte, usage réel
+   * (≥ 1 action produit) et passage au payant.
+   *
+   * ⚠️ CE QUE `free_tier_started` DIT, ET CE QU'IL NE DIT PAS. L'event marque
+   * un OCTROI (plan `snytch_free_week`), pas un CHOIX : côté serveur il part
+   * ~1 s après `onboarding_completed` pour toute personne du bras soft qui
+   * termine l'onboarding — y compris celles qui paient 3 s plus tard (mesuré le
+   * 22/08 : 22 payants soft sur 22 l'émettent). On ne peut donc PAS en tirer
+   * « la personne a préféré le gratuit ».
+   *
+   * Deux colonnes ont été RETIRÉES pour cette raison, et ne doivent pas être
+   * réintroduites : `checkout_before` (« avait ouvert le checkout avant le
+   * gratuit ») et `med_free_to_checkout_s` (délai signé gratuit→checkout,
+   * médiane mesurée −21 s, 83 % de valeurs négatives). Elles ne mesuraient pas
+   * un comportement mais l'ORDRE D'ÉMISSION de l'instrumentation : l'octroi part
+   * sur le chemin de RETOUR du checkout, donc après lui, mécaniquement. Il
+   * faudrait un event émis au CHOIX explicite du plan gratuit pour répondre à
+   * « porte de sortie ou porte de découverte ? » — il n'existe pas encore (cf
+   * `free_tier_chosen`, déclaré `notYetEmitted` dans convex/analyticsContract).
    */
   freePlan: `
 SELECT
   count() AS signups,
   countIf(used > 0) AS used,
-  countIf(paid > 0) AS converted_paid,
-  countIf(checkout_before > 0) AS checkout_before,
-  countIf(has_checkout > 0) AS n_delay,
-  quantileIf(0.5)(free_to_checkout, has_checkout > 0) AS med_free_to_checkout_s
+  countIf(paid > 0) AS converted_paid
 FROM (
   SELECT person_id,
-    countIf(event = 'checkout_started') AS has_checkout,
     countIf(event = 'subscription_completed') AS paid,
-    countIf(event IN ('handle_search_result', 'scan_completed', 'target_added')) AS used,
-    if(countIf(event = 'checkout_started') > 0 AND minIf(timestamp, event = 'checkout_started') < minIf(timestamp, event = 'free_tier_started'), 1, 0) AS checkout_before,
-    if(countIf(event = 'checkout_started') > 0, dateDiff('second', minIf(timestamp, event = 'free_tier_started'), minIf(timestamp, event = 'checkout_started')), NULL) AS free_to_checkout
+    countIf(event IN ('handle_search_result', 'scan_completed', 'target_added')) AS used
   FROM events
   WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
-    AND event IN ('free_tier_started', 'checkout_started', 'subscription_completed', 'handle_search_result', 'scan_completed', 'target_added')
+    AND event IN ('free_tier_started', 'subscription_completed', 'handle_search_result', 'scan_completed', 'target_added')
   GROUP BY person_id
   HAVING countIf(event = 'free_tier_started') > 0
 )`,
@@ -1633,8 +1776,10 @@ export const runHourlySync = internalAction({
               clientTargets: cellNum(r, 7),
               armTargets: cellNum(r, 8),
               excludedFlippers: cellNum(r, 9),
+              excludedFlippersMultiDevice: cellNum(r, 10),
+              excludedFlippersSameDevice: cellNum(r, 11),
             })),
-            startMs: rows.length > 0 ? cellTimeMs(rows[0], 10) : null,
+            startMs: rows.length > 0 ? cellTimeMs(rows[0], 12) : null,
           }),
         ),
         await collect(
@@ -1647,6 +1792,15 @@ export const runHourlySync = internalAction({
               distinctId: cellStr(r, 0),
               variant: cellStr(r, 1),
             })),
+          }),
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.abFlippers,
+          apiKey,
+          target,
+          QUERIES.abFlippers,
+          (rows): AbFlippersPayload => ({
+            distinctIds: rows.map((r) => cellStr(r, 0)).filter((d) => d !== ""),
           }),
         ),
         await collect(
@@ -1850,14 +2004,10 @@ export const runHourlySync = internalAction({
           QUERIES.freePlan,
           (rows): FreePlanPayload => {
             const r = rows[0] ?? [];
-            const nDelay = cellNum(r, 4);
             return {
               signups: cellNum(r, 0),
               used: cellNum(r, 1),
               convertedPaid: cellNum(r, 2),
-              checkoutBefore: cellNum(r, 3),
-              // délai en SECONDES (signé) → ms. Pas de free-user avec checkout ⇒ null.
-              medFreeToCheckoutMs: nDelay > 0 ? cellNum(r, 5) * 1000 : null,
             };
           },
         ),
@@ -2067,8 +2217,6 @@ export const getProductAnalytics = adminQuery({
         signups: 0,
         used: 0,
         convertedPaid: 0,
-        checkoutBefore: 0,
-        medFreeToCheckoutMs: null,
       },
       firstSearchAfterPay: {
         paid: 0,

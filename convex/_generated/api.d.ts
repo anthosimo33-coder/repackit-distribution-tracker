@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as abAttribution from "../abAttribution.js";
 import type * as accountPhase from "../accountPhase.js";
 import type * as adminRecovery from "../adminRecovery.js";
 import type * as analyticsContract from "../analyticsContract.js";
@@ -136,6 +137,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  abAttribution: typeof abAttribution;
   accountPhase: typeof accountPhase;
   adminRecovery: typeof adminRecovery;
   analyticsContract: typeof analyticsContract;
