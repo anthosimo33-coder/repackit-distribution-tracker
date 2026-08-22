@@ -115,6 +115,14 @@ export type QuadrantView = {
    * sont ni dans `counts` ni dans `unplaced`.
    */
   pendingPlotted: number;
+  /**
+   * Posts de la période écartés par le filtre de QUALIFICATION de la carte
+   * (promo / warmup / non qualifié). Distinct du filtre warmup de la PAGE :
+   * celui-là retire les posts avant que la carte les voie, celui-ci agit sur
+   * les posts qu'elle a déjà. Les deux sont comptés séparément dans la
+   * couverture, sans quoi on ne saurait pas lequel des deux cache quoi.
+   */
+  hiddenByQualification: number;
 };
 
 function emptyUnplaced(): Record<UnplacedReason, number> {
@@ -163,6 +171,8 @@ export function buildQuadrantView(
   posts: readonly QuadrantViewPost[],
   now: number,
   periodDays: number,
+  /** Qualifications retenues. `undefined` = toutes (aucun filtre). */
+  qualifications?: ReadonlySet<QuadrantQualification>,
 ): QuadrantView {
   const floor = now - periodDays * DAY_MS;
   const points: QuadrantDatum[] = [];
@@ -171,10 +181,20 @@ export function buildQuadrantView(
   let notComputed = 0;
   let total = 0;
   let pendingPlotted = 0;
+  let hiddenByQualification = 0;
 
   for (const p of posts) {
     if (p.datePubli < floor) continue;
     total += 1;
+
+    // Le filtre de qualification s'applique AVANT toute lecture du classement :
+    // un post masqué n'est ni classé ni « non plaçable », il est simplement
+    // hors du champ demandé — et compté comme tel.
+    const qualification = p.qualification ?? "autre";
+    if (qualifications && !qualifications.has(qualification)) {
+      hiddenByQualification += 1;
+      continue;
+    }
 
     const q = p.quadrant;
     if (!q) {
@@ -207,7 +227,7 @@ export function buildQuadrantView(
       quadrant: q.status === "classified" ? (q.key ?? null) : null,
       pending: q.status === "pending",
       breakout: q.breakoutWindow,
-      qualification: p.qualification ?? "autre",
+      qualification,
       baselineViews: q.baselineViews ?? null,
       vues: p.vues,
       saves: p.saves ?? null,
@@ -219,7 +239,15 @@ export function buildQuadrantView(
     });
   }
 
-  return { points, unplaced, notComputed, total, counts, pendingPlotted };
+  return {
+    points,
+    unplaced,
+    notComputed,
+    total,
+    counts,
+    pendingPlotted,
+    hiddenByQualification,
+  };
 }
 
 /* ── Couverture : ce que la carte NE montre pas ──────────────────────────── */
@@ -231,6 +259,8 @@ export function buildQuadrantView(
 export type CoverageCause =
   /** Retiré par le filtre warmup de la PAGE — il n'a jamais atteint la carte. */
   | "warmup"
+  /** Retiré par le filtre de qualification de la CARTE. */
+  | "qualification"
   | "pending"
   | "not_measured"
   | "no_baseline"
@@ -272,6 +302,7 @@ export function buildCoverage(
   const published = view.total + hiddenByWarmup;
   const brut: { cause: CoverageCause; count: number }[] = [
     { cause: "warmup", count: hiddenByWarmup },
+    { cause: "qualification", count: view.hiddenByQualification },
     // Les « en attente » TRACÉS comptent ici aussi : visibles, mais sans verdict.
     { cause: "pending", count: view.unplaced.pending + view.pendingPlotted },
     { cause: "not_measured", count: view.unplaced.not_measured },

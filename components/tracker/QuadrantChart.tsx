@@ -1,18 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
-import {
-  CartesianGrid,
-  ReferenceLine,
-  ResponsiveContainer,
-  Scatter,
-  ScatterChart,
-  Tooltip,
-  XAxis,
-  YAxis,
-  ZAxis,
-} from "recharts";
+
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Select,
@@ -21,6 +11,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { FilterMultiSelect } from "@/components/filters/FilterMultiSelect";
+import { InfoTip } from "@/components/InfoTip";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
   QUADRANT_KEYS,
@@ -33,67 +25,83 @@ import {
   BREAKOUT_MIN_VIEWS,
   BREAKOUT_WINDOW_HOURS,
   DEFAULT_QUADRANT_PERIOD_DAYS,
-  MIN_SAMPLE_VIEWS,
   DISTRIBUTION_MULTIPLIER,
   INTENT_SAVE_RATE,
   MATURITY_HOURS,
+  MIN_SAMPLE_VIEWS,
   QUADRANT_PERIOD_DAYS,
   type QuadrantPeriodDays,
 } from "@/convex/quadrantSettings";
 import {
-  buildQuadrantView,
   buildCoverage,
-  xDomain,
-  xTicks,
-  yDomain,
+  buildQuadrantView,
   type QuadrantDatum,
 } from "@/lib/quadrant-view";
-import { InfoTip } from "@/components/InfoTip";
+import {
+  projectX,
+  projectY,
+  SPLIT_X,
+  SPLIT_Y,
+  xBounds,
+  xTicksFor,
+  yMax,
+  zoneBox,
+} from "@/lib/quadrant-plot";
 import { formatDate, formatNumber, formatPercent } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { TrackerPost } from "./PostsList";
 
 /**
- * Carte « Vues × Intent » — chaque post publié devient un point sur deux axes
- * indépendants : à quel point il est sorti par rapport à son compte (X, échelle
- * log) et à quel point il a donné envie d'y revenir (Y, save rate). Les deux
- * lignes de seuil découpent les quatre décisions.
+ * Carte « Vues × Intent ».
  *
- * ── Ce que cette carte NE FAIT PAS ───────────────────────────────────────────
- * Elle ne calcule rien. Les scores et la case sont écrits par le relevé nocturne
- * (`convex/quadrantSync.ts`) via le module pur `convex/quadrant.ts`, et lus tels
- * quels : deux personnes qui ouvrent la page au même moment voient le même
- * verdict pour un post donné, quels que soient leurs filtres.
+ * ── Ce que la refonte a changé, et pourquoi ─────────────────────────────────
+ * Les quatre cases étaient deux traits pointillés dans le graphe et quatre
+ * encadrés SOUS le graphe : l'œil ne faisait pas le lien, et il fallait
+ * traduire un diagnostic (« intent faible ») en décision. Les cases sont
+ * devenues les FONDS du graphe, nommées par l'action à faire, et la couleur du
+ * point porte son verdict au lieu de sa qualification — l'information
+ * principale n'est plus portée par la seule position.
  *
- * ── Filtres ──────────────────────────────────────────────────────────────────
- * Créatrice, compte et qualification (le tri-état warmup) viennent de la BARRE
- * DE LA PAGE — la carte consomme la même liste que les autres graphes, donc les
- * mêmes filtres, sans état dupliqué. Seule la fenêtre d'affichage (7/14/30 j)
- * est locale : c'est un réglage de lecture de cette carte, pas un filtre de page.
+ * ── Pourquoi pas recharts ici ────────────────────────────────────────────────
+ * Les deux axes sont repliés sur leur seuil (cf. `lib/quadrant-plot.ts`), ce
+ * qui demande des échelles sur mesure, et les zones portent du texte riche
+ * aligné sur leur bord. Les deux se font contre recharts, pas avec. Le rendu
+ * est donc du HTML positionné, et la contrepartie est heureuse : la projection
+ * devient une fonction PURE, testée en vitest, au lieu d'un réglage d'options.
  *
- * ⚠️ Le tri-état warmup vaut « hors warmup » par DÉFAUT sur cette page : sans
- * changement, les points de chauffe ne sont pas là et la carte le dit.
+ * ── Ce qui n'a pas changé ────────────────────────────────────────────────────
+ * Aucun calcul, aucun seuil, aucune classification. La carte lit toujours le
+ * classement écrit par le relevé nocturne, et la ligne de couverture reste la
+ * garde contre la lecture d'un effectif comme un total.
  */
 
-const COLORS: Record<QuadrantQualification | "pending", string> = {
-  // Ambre = warmup, la couleur déjà associée à « hors paie » (PostWarmupBadge).
-  warmup: "#d97706",
-  promo: "#4f46e5",
-  autre: "#0891b2",
-  // Gris = « on ne juge pas encore », jamais une catégorie de contenu.
-  pending: "#94a3b8",
+/** Teintes par case : plaque très claire, encre foncée (AA), point moyen. */
+const ZONE_STYLE: Record<
+  QuadrantKey,
+  { plate: string; ink: string; dot: string }
+> = {
+  scale: { plate: "#ecfdf5", ink: "#065f46", dot: "#10b981" },
+  distribution_faible: {
+    plate: "#f0f9ff",
+    ink: "#075985",
+    dot: "#0ea5e9",
+  },
+  intent_faible: {
+    plate: "#fffbeb",
+    ink: "#92400e",
+    dot: "#f59e0b",
+  },
+  archiver: { plate: "#f8fafc", ink: "#334155", dot: "#94a3b8" },
 };
 
-type SeriesKey = QuadrantQualification | "pending";
-const SERIES: readonly SeriesKey[] = ["promo", "warmup", "autre", "pending"];
+/** Gris des points « en attente » : ils n'ont pas encore de verdict à porter. */
+const PENDING_EDGE = "#94a3b8";
 
-/** Couleur de fond de chaque case, pour la légende des verdicts. */
-const QUADRANT_TONE: Record<QuadrantKey, string> = {
-  scale: "border-emerald-200 bg-emerald-50",
-  intent_faible: "border-amber-200 bg-amber-50",
-  distribution_faible: "border-sky-200 bg-sky-50",
-  archiver: "border-slate-200 bg-slate-50",
-};
+const QUALIFICATIONS: readonly QuadrantQualification[] = [
+  "promo",
+  "warmup",
+  "autre",
+];
 
 export function QuadrantChart({
   posts,
@@ -113,40 +121,59 @@ export function QuadrantChart({
   const [periodDays, setPeriodDays] = useState<QuadrantPeriodDays>(
     DEFAULT_QUADRANT_PERIOD_DAYS,
   );
+  // Set VIDE = aucun filtre (idiome des filtres de la page), pas « rien ».
+  const [qualifications, setQualifications] = useState<Set<string>>(new Set());
+  const [isolated, setIsolated] = useState<QuadrantKey | null>(null);
+  const [hovered, setHovered] = useState<QuadrantDatum | null>(null);
 
   // Horloge figée au montage : la fenêtre d'affichage ne doit pas glisser d'un
   // rendu à l'autre pendant qu'on lit la carte.
   const [now] = useState(() => Date.now());
 
   const view = useMemo(
-    () => buildQuadrantView(posts, now, periodDays),
-    [posts, now, periodDays],
+    () =>
+      buildQuadrantView(
+        posts,
+        now,
+        periodDays,
+        qualifications.size
+          ? (qualifications as ReadonlySet<QuadrantQualification>)
+          : undefined,
+      ),
+    [posts, now, periodDays, qualifications],
   );
 
   const thresholdPct = INTENT_SAVE_RATE * 100;
-  const xd = useMemo(
-    () => xDomain(view.points, DISTRIBUTION_MULTIPLIER),
+  const bounds = useMemo(
+    () => xBounds(view.points.map((p) => p.x), DISTRIBUTION_MULTIPLIER),
     [view.points],
   );
-  const yd = useMemo(() => yDomain(view.points, thresholdPct), [view.points, thresholdPct]);
-  const ticks = useMemo(() => xTicks(xd), [xd]);
-
-  const bySeries = useMemo(() => {
-    const map = new Map<SeriesKey, QuadrantDatum[]>();
-    for (const key of SERIES) map.set(key, []);
-    for (const p of view.points) {
-      map.get(p.pending ? "pending" : p.qualification)?.push(p);
-    }
-    return map;
-  }, [view.points]);
-
+  const top = useMemo(
+    () => yMax(view.points.map((p) => p.y), thresholdPct),
+    [view.points, thresholdPct],
+  );
+  const ticks = useMemo(
+    () => xTicksFor(bounds, DISTRIBUTION_MULTIPLIER),
+    [bounds],
+  );
   const coverage = useMemo(
     () => (hiddenByWarmup === null ? null : buildCoverage(view, hiddenByWarmup)),
     [view, hiddenByWarmup],
   );
 
+  // Échap sort de l'isolement — la sortie clavier d'un état visuel qui, sans
+  // elle, ne se quitterait qu'à la souris.
+  useEffect(() => {
+    if (isolated === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsolated(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isolated]);
+
   return (
-    <Card>
+    <Card className="relative">
       <CardContent className="space-y-4 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1">
@@ -164,7 +191,22 @@ export function QuadrantChart({
               })}
             </p>
           </div>
-          <PeriodSelect value={periodDays} onChange={setPeriodDays} />
+          <div className="flex flex-wrap items-end gap-3">
+            {/* La qualification a quitté la couleur des points : elle est
+                devenue un filtre, la couleur portant désormais le verdict. */}
+            <FilterMultiSelect
+              label={t("qualification.label")}
+              selectedValues={qualifications}
+              onChange={setQualifications}
+              options={QUALIFICATIONS.map((q) => ({
+                value: q,
+                label: t(`legendQualification.${q}`),
+              }))}
+              allLabel={t("qualification.all")}
+              width="w-44"
+            />
+            <PeriodSelect value={periodDays} onChange={setPeriodDays} />
+          </div>
         </div>
 
         {view.points.length === 0 ? (
@@ -172,109 +214,90 @@ export function QuadrantChart({
             {t("empty")}
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height={360}>
-            <ScatterChart margin={{ top: 12, right: 24, left: 8, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis
-                type="number"
-                dataKey="x"
-                scale="log"
-                domain={xd}
-                ticks={ticks}
-                allowDataOverflow
-                tick={{ fontSize: 11, fill: "#475569" }}
-                axisLine={{ stroke: "#cbd5e1" }}
-                tickLine={false}
-                tickFormatter={(v: number) => `×${v}`}
+          <>
+            <div className="relative h-[420px] overflow-hidden rounded-lg border border-slate-200 sm:h-[460px]">
+              {QUADRANT_KEYS.map((key) => (
+                <Zone
+                  key={key}
+                  zone={key}
+                  count={view.counts[key]}
+                  isolated={isolated}
+                  onToggle={() =>
+                    setIsolated((cur) => (cur === key ? null : key))
+                  }
+                />
+              ))}
+
+              {/* Les deux traits de seuil, chacun avec son étiquette. */}
+              <div
+                aria-hidden
+                className="absolute top-0 bottom-0 z-20 w-px bg-slate-400"
+                style={{ left: `${SPLIT_X * 100}%` }}
               />
-              <YAxis
-                type="number"
-                dataKey="y"
-                domain={yd}
-                tick={{ fontSize: 11, fill: "#475569" }}
-                axisLine={{ stroke: "#cbd5e1" }}
-                tickLine={false}
-                width={56}
-                tickFormatter={(v: number) => `${v.toFixed(1).replace(".", ",")} %`}
+              <div
+                aria-hidden
+                className="absolute right-0 left-0 z-20 h-px bg-slate-400"
+                style={{ top: `${(1 - SPLIT_Y) * 100}%` }}
               />
-              {/* ZAxis figé : sans lui recharts fait varier la taille des points
-                  sur une 3e dimension qu'on ne veut pas raconter ici. */}
-              <ZAxis type="number" range={[70, 70]} />
-              <ReferenceLine
-                x={DISTRIBUTION_MULTIPLIER}
-                stroke="#64748b"
-                strokeDasharray="4 4"
-              />
-              <ReferenceLine
-                y={thresholdPct}
-                stroke="#64748b"
-                strokeDasharray="4 4"
-              />
-              <Tooltip
-                cursor={{ strokeDasharray: "3 3" }}
-                content={<QuadrantTooltip />}
-              />
-              {SERIES.flatMap((key) => {
-                const rows = bySeries.get(key) ?? [];
-                // Deux séries par couleur : les points en fenêtre de breakout
-                // prennent une ÉTOILE. La forme dit « distribution peut-être
-                // empruntée » sans voler la couleur à la qualification.
-                return [false, true].map((breakout) => (
-                  <Scatter
-                    key={`${key}-${breakout}`}
-                    name={key}
-                    data={rows.filter((r) => r.breakout === breakout)}
-                    fill={COLORS[key]}
-                    fillOpacity={0.75}
-                    shape={breakout ? "star" : "circle"}
-                    legendType="none"
-                    onClick={(entry: unknown) => {
-                      const datum = extractDatum(entry);
-                      if (datum) onSelectPost(datum.id as Id<"publications">);
-                    }}
-                    className="cursor-pointer"
-                  />
-                ));
-              })}
-            </ScatterChart>
-          </ResponsiveContainer>
+              {/* En BAS de la ligne verticale, près des graduations de X
+                  auxquelles elle se rapporte. En haut, elle percutait le titre
+                  de la case de droite dès que le cadre se resserrait. */}
+              <span
+                className="absolute bottom-2 z-30 -translate-x-1/2 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-medium text-slate-500"
+                style={{ left: `${SPLIT_X * 100}%` }}
+              >
+                {t("threshold.x", { multiplier: DISTRIBUTION_MULTIPLIER })}
+              </span>
+              {/* Au CROISEMENT des deux lignes : le seul endroit du cadre
+                  qu'aucune zone n'utilise pour écrire. Au bord gauche, cette
+                  étiquette recouvrait le nom technique de la case. */}
+              <span
+                className="absolute z-30 -translate-x-[calc(100%+6px)] -translate-y-1/2 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-medium text-slate-500"
+                style={{
+                  top: `${(1 - SPLIT_Y) * 100}%`,
+                  left: `${SPLIT_X * 100}%`,
+                }}
+              >
+                {t("threshold.y", {
+                  saveRate: formatPercent(INTENT_SAVE_RATE, 1),
+                })}
+              </span>
+
+              {view.points.map((p) => (
+                <Point
+                  key={p.id}
+                  datum={p}
+                  left={projectX(p.x, bounds, DISTRIBUTION_MULTIPLIER)}
+                  bottom={projectY(p.y, top, thresholdPct)}
+                  dimmed={isolated !== null && p.quadrant !== isolated}
+                  onHover={setHovered}
+                  onSelect={() => onSelectPost(p.id as Id<"publications">)}
+                />
+              ))}
+            </div>
+
+            {/* Graduations de X, posées aux mêmes positions que les points. */}
+            <div className="relative h-4">
+              {ticks.map((tick) => (
+                <span
+                  key={tick.value}
+                  className="absolute -translate-x-1/2 text-[10px] text-slate-400"
+                  style={{ left: `${tick.pos * 100}%` }}
+                >
+                  {`×${String(tick.value).replace(".", ",")}`}
+                </span>
+              ))}
+            </div>
+            <div className="flex justify-between text-[10px] font-medium tracking-wide text-slate-400 uppercase">
+              <span>{t("axis.low")}</span>
+              <span>{t("axis.high")}</span>
+            </div>
+          </>
         )}
 
         <AxisCaptions />
-
         <Legend />
 
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {QUADRANT_KEYS.map((key) => (
-            <div
-              key={key}
-              className={cn(
-                "rounded-md border px-3 py-2 text-xs",
-                QUADRANT_TONE[key],
-              )}
-            >
-              <div className="flex items-baseline justify-between gap-2 font-medium text-slate-900">
-                <span className="flex items-center gap-1.5">
-                  {t(`name.${key}`)}
-                  <InfoTip
-                    label={t("info.aria", { sujet: t(`name.${key}`) })}
-                  >
-                    {t(`info.${key}`)}
-                  </InfoTip>
-                </span>
-                <span className="tabular-nums">
-                  {t("count", { count: view.counts[key] })}
-                </span>
-              </div>
-              <p className="mt-0.5 text-slate-600">{t(`verdict.${key}`)}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* COUVERTURE — permanente, et c'est le point. « 3 Scale » ne dit pas
-            s'il s'agit de 3 sur 5 ou de 3 sur 126 ; cette ligne donne la
-            population, ce qui en sort, et pourquoi. Chaque post publié y est
-            soit classé, soit dans une et une seule cause (invariant testé). */}
         {coverage !== null && (
           <div className="space-y-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
             <p className="font-medium text-slate-700">
@@ -305,24 +328,200 @@ export function QuadrantChart({
           </div>
         )}
       </CardContent>
+
+      {hovered && <PointTip datum={hovered} />}
     </Card>
   );
 }
 
 /**
- * recharts remonte au clic les props du symbole rendu, dont la donnée d'origine
- * sous `payload`. Extraction DÉFENSIVE : selon la série et la version, l'objet
- * reçu est tantôt le symbole, tantôt la donnée elle-même. On ne veut pas qu'un
- * clic ouvre la mauvaise fiche parce qu'une forme a changé.
+ * Une case, devenue le FOND du graphe.
+ *
+ * Le bouton d'isolement est posé SOUS le contenu et le contenu est en
+ * `pointer-events-none` : cliquer n'importe où dans la case — texte compris —
+ * atteint le bouton, sans imbriquer un bouton dans un bouton (l'infobulle « i »
+ * en est un, et le HTML l'interdit). L'infobulle rétablit les événements pour
+ * elle seule.
  */
-function extractDatum(entry: unknown): QuadrantDatum | null {
-  if (!entry || typeof entry !== "object") return null;
-  const withPayload = entry as { payload?: unknown; id?: unknown };
-  const candidate =
-    withPayload.payload && typeof withPayload.payload === "object"
-      ? (withPayload.payload as QuadrantDatum)
-      : (entry as QuadrantDatum);
-  return typeof candidate.id === "string" ? candidate : null;
+function Zone({
+  zone,
+  count,
+  isolated,
+  onToggle,
+}: {
+  zone: QuadrantKey;
+  count: number;
+  isolated: QuadrantKey | null;
+  onToggle: () => void;
+}) {
+  const t = useTranslations("tracker.quadrant");
+  const box = zoneBox(zone);
+  const style = ZONE_STYLE[zone];
+  const dimmed = isolated !== null && isolated !== zone;
+  const name = t(`name.${zone}`);
+
+  return (
+    <div
+      className={cn(
+        "absolute transition-opacity duration-150",
+        dimmed && "opacity-30",
+      )}
+      style={{
+        left: `${box.left * 100}%`,
+        top: `${box.top * 100}%`,
+        width: `${box.width * 100}%`,
+        height: `${box.height * 100}%`,
+        backgroundColor: style.plate,
+      }}
+    >
+      <button
+        type="button"
+        aria-pressed={isolated === zone}
+        aria-label={
+          isolated === zone ? t("zone.showAll") : t("zone.isolate", { zone: name })
+        }
+        onClick={onToggle}
+        className="absolute inset-0 z-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:outline-none"
+      />
+      <div
+        className={cn(
+          "pointer-events-none absolute inset-0 z-10 flex flex-col p-3",
+          box.align === "right" && "items-end text-right",
+        )}
+        style={{ color: style.ink }}
+      >
+        {/* Titre et compteur COLLÉS, sur le bord extérieur. Les pousser aux
+            deux extrémités de la zone (`justify-between`) plaquait le gros
+            chiffre contre la ligne de séparation : les compteurs des deux
+            cases voisines s'y rejoignaient, et percutaient l'étiquette de
+            seuil posée au même endroit. */}
+        <div
+          className={cn(
+            // EMPILÉ en dessous de `sm` : sur un cadre étroit le titre passe à
+            // la ligne, et posé à côté de lui le compteur se retrouvait rejeté
+            // contre la ligne de séparation — la collision qu'on vient de
+            // corriger, revenue par la largeur.
+            "flex flex-col items-start gap-0.5 sm:flex-row sm:items-baseline sm:gap-2",
+            box.align === "right" && "items-end sm:flex-row-reverse",
+          )}
+        >
+          <span className="pointer-events-auto flex items-center gap-1 text-[13px] leading-tight font-semibold sm:text-sm">
+            {t(`action.${zone}`)}
+            <InfoTip label={t("info.aria", { sujet: name })}>
+              {t(`info.${zone}`)}
+            </InfoTip>
+          </span>
+          <span className="text-2xl leading-none font-bold tabular-nums sm:text-3xl">
+            {count}
+          </span>
+        </div>
+        {/* Le texte se retire plutôt que de déborder sur les points : sous‑texte
+            masqué en dessous de `sm`, nom technique en dessous de `md`. */}
+        <p className="mt-1 hidden max-w-[15rem] text-[11px] leading-snug opacity-80 sm:block">
+          {t(`actionSub.${zone}`)}
+        </p>
+        <span className="mt-auto hidden text-[9px] font-semibold tracking-wider uppercase opacity-60 md:block">
+          {name}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** Un post. Bouton : atteignable au clavier, et le clic ouvre sa fiche. */
+function Point({
+  datum,
+  left,
+  bottom,
+  dimmed,
+  onHover,
+  onSelect,
+}: {
+  datum: QuadrantDatum;
+  left: number;
+  bottom: number;
+  dimmed: boolean;
+  onHover: (d: QuadrantDatum | null) => void;
+  onSelect: () => void;
+}) {
+  const t = useTranslations("tracker.quadrant");
+  const style = datum.quadrant ? ZONE_STYLE[datum.quadrant] : null;
+
+  return (
+    <button
+      type="button"
+      aria-label={t("point.aria", {
+        label: datum.label.length > 0 ? datum.label : t("tooltip.noLabel"),
+        compte: datum.compte,
+        vues: formatNumber(datum.vues),
+        saves: formatNumber(datum.saves),
+      })}
+      onPointerEnter={() => onHover(datum)}
+      onPointerLeave={() => onHover(null)}
+      onFocus={() => onHover(datum)}
+      onBlur={() => onHover(null)}
+      onClick={onSelect}
+      className={cn(
+        "absolute z-10 size-3 -translate-x-1/2 translate-y-1/2 cursor-pointer border transition-transform hover:z-30 hover:scale-150 focus-visible:z-30 focus-visible:scale-150 focus-visible:outline-none",
+        // Losange pour la fenêtre de breakout : la FORME, pas la couleur — la
+        // couleur est prise par le verdict.
+        datum.breakout ? "rotate-45 rounded-[2px]" : "rounded-full",
+        dimmed && "opacity-20",
+      )}
+      style={{
+        left: `${left * 100}%`,
+        bottom: `${bottom * 100}%`,
+        backgroundColor: style ? style.dot : "#ffffff",
+        borderColor: style ? "rgba(255,255,255,.9)" : PENDING_EDGE,
+        // Cercle vide à bord pointillé : un post en attente n'a pas de verdict,
+        // il ne doit donc porter aucune couleur de verdict.
+        borderStyle: style ? "solid" : "dashed",
+      }}
+    />
+  );
+}
+
+/** Infobulle d'un point, ancrée en bas de carte (pas de suivi du curseur). */
+function PointTip({ datum }: { datum: QuadrantDatum }) {
+  const t = useTranslations("tracker.quadrant");
+  return (
+    <div className="pointer-events-none absolute right-4 bottom-4 z-40 max-w-xs rounded-md border border-slate-200 bg-white p-2.5 text-xs shadow-lg">
+      <p className="font-medium text-slate-900">
+        {datum.label.length > 0 ? datum.label : t("tooltip.noLabel")}
+      </p>
+      <p className="text-slate-500">
+        {datum.creatorName ?? t("tooltip.noCreator")} · {datum.compte} ·{" "}
+        {formatDate(datum.datePubli)}
+      </p>
+      <dl className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 text-slate-600">
+        <dt>{t("tooltip.views")}</dt>
+        <dd className="text-right tabular-nums">{formatNumber(datum.vues)}</dd>
+        <dt>{t("tooltip.saves")}</dt>
+        <dd className="text-right tabular-nums">{formatNumber(datum.saves)}</dd>
+        <dt>{t("tooltip.saveRate")}</dt>
+        <dd className="text-right tabular-nums">
+          {formatPercent(datum.scoreIntent, 2)}
+        </dd>
+        <dt>{t("tooltip.distribution")}</dt>
+        <dd className="text-right tabular-nums">
+          {t("tooltip.distributionValue", {
+            score: datum.x.toFixed(1).replace(".", ","),
+            baseline: formatNumber(datum.baselineViews),
+          })}
+        </dd>
+      </dl>
+      <p className="mt-1.5 border-t border-slate-100 pt-1.5 font-medium text-slate-900">
+        {datum.pending
+          ? t("tooltip.pending", { hours: MATURITY_HOURS })
+          : datum.quadrant
+            ? t(`action.${datum.quadrant}`)
+            : t("tooltip.unclassified")}
+      </p>
+      {datum.breakout && (
+        <p className="mt-1 text-slate-500">{t("tooltip.breakout")}</p>
+      )}
+    </div>
+  );
 }
 
 function PeriodSelect({
@@ -360,10 +559,8 @@ function PeriodSelect({
 }
 
 /**
- * Légendes des axes, rendues en HTML sous le graphe plutôt qu'en `label`
- * recharts. Un label recharts est du `<text>` SVG : on ne peut pas y accrocher
- * un bouton atteignable au clavier. Les sortir du SVG rend l'explication de
- * chaque axe accessible — et le texte sélectionnable au passage.
+ * Légendes des axes, en HTML sous le graphe : elles portent une pastille « i »,
+ * et un bouton ne s'accroche pas à du `<text>` SVG.
  */
 function AxisCaptions() {
   const t = useTranslations("tracker.quadrant");
@@ -395,40 +592,19 @@ function AxisCaptions() {
 }
 
 /**
- * Séries de la légende qui portent une explication ; les deux autres (promo,
- * warmup) se lisent seules. Le prédicat RESSERRE le type pour que la clé de
- * message soit vérifiée par le compilateur — `info.warmup` n'existe pas, et
- * c'est next-intl qui doit le dire, pas l'écran.
+ * La légende ne décrit plus que ce que la couleur NE dit pas : la forme
+ * (breakout), le cercle vide (en attente), et le fait que la couleur porte
+ * désormais le verdict.
  */
-const LEGEND_INFO = ["autre", "pending"] as const;
-type LegendInfoKey = (typeof LEGEND_INFO)[number];
-function hasLegendInfo(key: SeriesKey): key is LegendInfoKey {
-  return (LEGEND_INFO as readonly string[]).includes(key);
-}
-
 function Legend() {
   const t = useTranslations("tracker.quadrant");
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600">
-      {SERIES.map((key) => (
-        <span key={key} className="inline-flex items-center gap-1.5">
-          <span
-            aria-hidden
-            className="inline-block size-2.5 rounded-full"
-            style={{ backgroundColor: COLORS[key] }}
-          />
-          {t(`legend.${key}`)}
-          {hasLegendInfo(key) && (
-            <InfoTip label={t("info.aria", { sujet: t(`legend.${key}`) })}>
-              {key === "pending"
-                ? t("info.pending", { hours: MATURITY_HOURS })
-                : t("info.autre")}
-            </InfoTip>
-          )}
-        </span>
-      ))}
       <span className="inline-flex items-center gap-1.5">
-        <StarMark />
+        <span
+          aria-hidden
+          className="inline-block size-2.5 rotate-45 rounded-[2px] bg-slate-500"
+        />
         {t("legend.breakout")}
         <InfoTip label={t("info.aria", { sujet: t("legend.breakout") })}>
           {t("info.breakout", {
@@ -437,71 +613,17 @@ function Legend() {
           })}
         </InfoTip>
       </span>
-    </div>
-  );
-}
-
-/** Le même symbole que la série « fenêtre de breakout », pour la légende. */
-function StarMark() {
-  return (
-    <svg viewBox="0 0 12 12" className="size-3 fill-slate-500" aria-hidden>
-      <path d="M6 0.5 7.4 4.3 11.5 4.5 8.3 7 9.4 11 6 8.8 2.6 11 3.7 7 0.5 4.5 4.6 4.3Z" />
-    </svg>
-  );
-}
-
-function QuadrantTooltip({
-  active,
-  payload,
-}: {
-  active?: boolean;
-  payload?: Array<{ payload?: QuadrantDatum }>;
-}) {
-  const t = useTranslations("tracker.quadrant");
-  const datum = active ? payload?.[0]?.payload : undefined;
-  if (!datum) return null;
-
-  return (
-    <div className="max-w-xs rounded-md border border-slate-200 bg-white p-2.5 text-xs shadow-sm">
-      <p className="font-medium text-slate-900">
-        {datum.creatorName ?? t("tooltip.noCreator")}
-      </p>
-      <p className="text-slate-500">
-        {datum.compte} · {datum.plateforme} · {formatDate(datum.datePubli)}
-      </p>
-      <p className="mt-1 line-clamp-3 text-slate-700">
-        {datum.label.length > 0 ? datum.label : t("tooltip.noLabel")}
-      </p>
-      <dl className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 text-slate-600">
-        <dt>{t("tooltip.views")}</dt>
-        <dd className="text-right tabular-nums">{formatNumber(datum.vues)}</dd>
-        <dt>{t("tooltip.saves")}</dt>
-        <dd className="text-right tabular-nums">{formatNumber(datum.saves)}</dd>
-        <dt>{t("tooltip.saveRate")}</dt>
-        <dd className="text-right tabular-nums">
-          {formatPercent(datum.scoreIntent, 2)}
-        </dd>
-        <dt>{t("tooltip.distribution")}</dt>
-        <dd className="text-right tabular-nums">
-          {t("tooltip.distributionValue", {
-            score: datum.x.toFixed(1).replace(".", ","),
-            baseline: formatNumber(datum.baselineViews),
-          })}
-        </dd>
-      </dl>
-      <p className="mt-1.5 border-t border-slate-100 pt-1.5 font-medium text-slate-900">
-        {datum.pending
-          ? t("tooltip.pending", { hours: MATURITY_HOURS })
-          : datum.quadrant
-            ? t(`name.${datum.quadrant}`)
-            : t("tooltip.unclassified")}
-      </p>
-      {!datum.pending && datum.quadrant && (
-        <p className="text-slate-600">{t(`verdict.${datum.quadrant}`)}</p>
-      )}
-      {datum.breakout && (
-        <p className="mt-1 text-slate-500">{t("tooltip.breakout")}</p>
-      )}
+      <span className="inline-flex items-center gap-1.5">
+        <span
+          aria-hidden
+          className="inline-block size-2.5 rounded-full border border-dashed border-slate-400 bg-white"
+        />
+        {t("legend.pending")}
+        <InfoTip label={t("info.aria", { sujet: t("legend.pending") })}>
+          {t("info.pending", { hours: MATURITY_HOURS })}
+        </InfoTip>
+      </span>
+      <span className="text-slate-500">{t("legend.colorIsVerdict")}</span>
     </div>
   );
 }
