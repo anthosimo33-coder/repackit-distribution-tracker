@@ -86,7 +86,11 @@ const FR_STOPWORDS = [
 const STOPWORD_RE = new RegExp(`(^|[^\\p{L}])(${FR_STOPWORDS.join("|")})([^\\p{L}]|$)`, "iu");
 const ACCENT_RE = /[éèêëàâäçùûüôöîïœæÉÈÊËÀÂÄÇÙÛÜÔÖÎÏŒÆ]/;
 
-const EXEMPT_RE = /\/\/\s*i18n-exempt:\s*\S+/;
+// Le marqueur s'écrit `// i18n-exempt: <raison>` en TypeScript et
+// `{/* i18n-exempt: <raison> */}` en JSX — les deux formes sont acceptées.
+// N'accepter que `//` rendait le marqueur INOPÉRANT partout où il en faut le
+// plus : dans du JSX, où `//` n'est pas un commentaire valide entre balises.
+const EXEMPT_RE = /(?:\/\/|\{?\/\*)\s*i18n-exempt:\s*\S+/;
 
 /** Attributs dont la valeur est lue par un humain. */
 const TEXT_ATTRS = /\b(placeholder|title|alt|aria-label|label)\s*=\s*"([^"]{3,})"/g;

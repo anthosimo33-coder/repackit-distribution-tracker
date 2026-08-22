@@ -116,8 +116,11 @@ export function DeclareCompteDialog({
                 <SelectValue>{plateforme}</SelectValue>
               </SelectTrigger>
               <SelectContent>
+                {/* i18n-exempt: le texte EST la valeur d'enum envoyée au serveur (plateforme, v.literal côté Convex) — et une marque ne se traduit pas. */}
                 <SelectItem value="TikTok">TikTok</SelectItem>
+                {/* i18n-exempt: le texte EST la valeur d'enum envoyée au serveur (plateforme, v.literal côté Convex) — et une marque ne se traduit pas. */}
                 <SelectItem value="Instagram">Instagram</SelectItem>
+                {/* i18n-exempt: le texte EST la valeur d'enum envoyée au serveur (plateforme, v.literal côté Convex) — et une marque ne se traduit pas. */}
                 <SelectItem value="YouTube">YouTube</SelectItem>
               </SelectContent>
             </Select>
