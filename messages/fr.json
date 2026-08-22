@@ -54,29 +54,20 @@
       "axisX": "Distribution — vues ÷ médiane du compte (échelle log)",
       "axisY": "Intent — save rate",
       "empty": "Aucun post plaçable sur cette période.",
-      "count": "{count, plural, one {# post} other {# posts}}",
       "period": {
         "label": "Fenêtre affichée",
         "days": "{days} derniers jours"
       },
       "legend": {
-        "promo": "Promo",
-        "warmup": "Warmup",
-        "autre": "Non qualifié",
         "pending": "En attente",
-        "breakout": "Fenêtre de breakout"
+        "breakout": "Fenêtre de breakout",
+        "colorIsVerdict": "la couleur indique le verdict"
       },
       "name": {
         "scale": "Scale",
         "intent_faible": "Intent faible",
         "distribution_faible": "Distribution faible",
         "archiver": "À archiver"
-      },
-      "verdict": {
-        "scale": "Scale : format gagnant.",
-        "intent_faible": "Distribution OK, intent faible → resserrer l'intro produit.",
-        "distribution_faible": "Intent OK, distribution faible → changer le hook, garder l'angle.",
-        "archiver": "Ni distribution ni intent → archiver après 2 runs."
       },
       "tooltip": {
         "noCreator": "Sans créatrice rattachée",
@@ -116,8 +107,46 @@
           "no_views": "{count, plural, one {# post à 0 vue mesurée} other {# posts à 0 vue mesurée}} : pas de dénominateur pour un save rate.",
           "saves_unavailable": "{count, plural, one {# post à intent NON MESURABLE} other {# posts à intent NON MESURABLE}} : Instagram et YouTube n'exposent pas les saves. Aucun réglage de seuil n'y changera rien.",
           "saves_collecting": "{count, plural, one {# post antérieur à la collecte des saves} other {# posts antérieurs à la collecte des saves}} : la mesure arrivera pour les prochains.",
-          "not_computed": "{count, plural, one {# post pas encore classé} other {# posts pas encore classés}} : en attente du prochain relevé nocturne."
+          "not_computed": "{count, plural, one {# post pas encore classé} other {# posts pas encore classés}} : en attente du prochain relevé nocturne.",
+          "qualification": "{count, plural, one {# post masqué} other {# posts masqués}} par le filtre Qualification de la carte."
         }
+      },
+      "action": {
+        "scale": "Reconduire",
+        "distribution_faible": "Changer le hook",
+        "intent_faible": "Resserrer l'intro produit",
+        "archiver": "Archiver après 2 runs"
+      },
+      "actionSub": {
+        "scale": "Distribué et enregistré. Format gagnant, à rejouer tel quel.",
+        "distribution_faible": "L'angle intéresse, l'entrée n'accroche pas. Garder l'angle, réécrire le hook.",
+        "intent_faible": "Vu mais pas enregistré. Le hook marche, le pont vers le produit casse.",
+        "archiver": "Ni distribution ni intérêt. Un run raté peut être de la malchance."
+      },
+      "threshold": {
+        "x": "seuil ×{multiplier}",
+        "y": "seuil {saveRate} de saves"
+      },
+      "axis": {
+        "low": "← peu distribué",
+        "high": "très distribué →"
+      },
+      "qualification": {
+        "label": "Qualification",
+        "all": "Toutes"
+      },
+      "zone": {
+        "isolate": "Isoler la case {zone}",
+        "showAll": "Afficher les quatre cases",
+        "isolated": "Case {zone} isolée — Échap ou nouveau clic pour tout revoir."
+      },
+      "point": {
+        "aria": "{label} — {compte}, {vues} vues, {saves} saves"
+      },
+      "legendQualification": {
+        "promo": "Promo",
+        "warmup": "Warmup",
+        "autre": "Non qualifié"
       }
     }
   }

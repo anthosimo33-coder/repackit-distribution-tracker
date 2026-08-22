@@ -54,29 +54,20 @@
       "axisX": "Distribution — views ÷ account median (log scale)",
       "axisY": "Intent — save rate",
       "empty": "No post can be plotted for this period.",
-      "count": "{count, plural, one {# post} other {# posts}}",
       "period": {
         "label": "Displayed window",
         "days": "Last {days} days"
       },
       "legend": {
-        "promo": "Promo",
-        "warmup": "Warm-up",
-        "autre": "Unqualified",
         "pending": "Pending",
-        "breakout": "Breakout window"
+        "breakout": "Breakout window",
+        "colorIsVerdict": "colour indicates the verdict"
       },
       "name": {
         "scale": "Scale",
         "intent_faible": "Low intent",
         "distribution_faible": "Low distribution",
         "archiver": "Archive"
-      },
-      "verdict": {
-        "scale": "Scale: winning format.",
-        "intent_faible": "Distribution fine, intent low → tighten the product intro.",
-        "distribution_faible": "Intent fine, distribution low → change the hook, keep the angle.",
-        "archiver": "Neither distribution nor intent → archive after 2 runs."
       },
       "tooltip": {
         "noCreator": "No creator attached",
@@ -116,8 +107,46 @@
           "no_views": "{count, plural, one {# post with 0 measured views} other {# posts with 0 measured views}}: no denominator for a save rate.",
           "saves_unavailable": "{count, plural, one {# post with UNMEASURABLE intent} other {# posts with UNMEASURABLE intent}}: Instagram and YouTube do not expose saves. No threshold setting will change that.",
           "saves_collecting": "{count, plural, one {# post predating saves collection} other {# posts predating saves collection}}: the measure will land for the next ones.",
-          "not_computed": "{count, plural, one {# post not classified yet} other {# posts not classified yet}}: waiting for the next nightly sync."
+          "not_computed": "{count, plural, one {# post not classified yet} other {# posts not classified yet}}: waiting for the next nightly sync.",
+          "qualification": "{count, plural, one {# post hidden} other {# posts hidden}} by the card's Qualification filter."
         }
+      },
+      "action": {
+        "scale": "Run it again",
+        "distribution_faible": "Change the hook",
+        "intent_faible": "Tighten the product intro",
+        "archiver": "Archive after 2 runs"
+      },
+      "actionSub": {
+        "scale": "Distributed and saved. Winning format, replay it as is.",
+        "distribution_faible": "The angle appeals, the opening does not land. Keep the angle, rewrite the hook.",
+        "intent_faible": "Seen but not saved. The hook works, the bridge to the product breaks.",
+        "archiver": "Neither distribution nor interest. One failed run can be bad luck."
+      },
+      "threshold": {
+        "x": "threshold ×{multiplier}",
+        "y": "threshold {saveRate} saves"
+      },
+      "axis": {
+        "low": "← barely distributed",
+        "high": "widely distributed →"
+      },
+      "qualification": {
+        "label": "Qualification",
+        "all": "All"
+      },
+      "zone": {
+        "isolate": "Isolate the {zone} box",
+        "showAll": "Show all four boxes",
+        "isolated": "{zone} box isolated — Esc or click again to see everything."
+      },
+      "point": {
+        "aria": "{label} — {compte}, {vues} views, {saves} saves"
+      },
+      "legendQualification": {
+        "promo": "Promo",
+        "warmup": "Warm-up",
+        "autre": "Unqualified"
       }
     }
   }

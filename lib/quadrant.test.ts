@@ -699,6 +699,26 @@ describe("vue de la carte", () => {
     expect(v.unplaced.pending).toBe(1);
   });
 
+  it("le filtre de QUALIFICATION masque sans faire disparaître", () => {
+    const posts = [
+      row({ _id: "w", qualification: "warmup", quadrant: CLASSE }),
+      row({ _id: "p", qualification: "promo", quadrant: CLASSE }),
+      row({ _id: "a", qualification: "autre", quadrant: CLASSE }),
+    ];
+    const tout = buildQuadrantView(posts, NOW, 14);
+    expect(tout.points).toHaveLength(3);
+    expect(tout.hiddenByQualification).toBe(0);
+
+    const promoSeul = buildQuadrantView(posts, NOW, 14, new Set(["promo"]));
+    expect(promoSeul.points.map((x) => x.id)).toEqual(["p"]);
+    // Les deux autres sont MASQUÉS, pas oubliés : la couverture les retrouve.
+    expect(promoSeul.hiddenByQualification).toBe(2);
+    expect(promoSeul.total).toBe(3);
+    // Et le décompte des cases suit le filtre, sinon le chiffre de la zone
+    // annoncerait des posts qu'on ne voit pas.
+    expect(promoSeul.counts.scale).toBe(1);
+  });
+
   it("les graduations de l'axe log restent dans le domaine", () => {
     const ticks = xTicks([0.3, 12]);
     expect(ticks).toEqual([0.5, 1, 2, 3, 5, 10]);
@@ -746,6 +766,18 @@ describe("couverture — ce que la carte ne montre pas", () => {
     // L'INVARIANT : la somme des causes reconstitue exactement les non classés.
     const somme = c.causes.reduce((s, x) => s + x.count, 0);
     expect(somme).toBe(c.unclassified);
+  });
+
+  it("le filtre de qualification de la CARTE est une cause distincte du warmup de la PAGE", () => {
+    const v = buildQuadrantView(jeu(), NOW, 14, new Set(["promo"]));
+    const c = buildCoverage(v, 56);
+    const warmup = c.causes.find((x) => x.cause === "warmup");
+    const qualif = c.causes.find((x) => x.cause === "qualification");
+    expect(warmup?.count).toBe(56);
+    expect(qualif?.count).toBe(v.hiddenByQualification);
+    expect(qualif?.count).toBeGreaterThan(0);
+    // L'invariant tient AUSSI avec les deux filtres actifs en même temps.
+    expect(c.causes.reduce((s, x) => s + x.count, 0)).toBe(c.unclassified);
   });
 
   it("le warmup filtré est compté, et cité en premier", () => {
