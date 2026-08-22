@@ -387,25 +387,32 @@ export const listTrackerPosts = adminQuery({
 });
 
 /**
- * Combien de posts le filtre WARMUP retire-t-il de la lecture courante ?
+ * Dates de publication des posts que le filtre WARMUP retire de la lecture.
  *
  * La carte « Vues × Intent » ne peut pas les compter elle-même : `listTrackerPosts`
- * les a déjà retirés quand elle reçoit ses lignes. Sans ce nombre, la carte
- * affiche « 3 Scale » sans pouvoir dire que c'est 3 sur 39 classés tirés de 126
- * publiés — un effectif se lit alors comme un total.
+ * les a déjà retirés quand elle reçoit ses lignes. Sans eux, la carte affiche
+ * « 3 Scale » sans pouvoir dire de quelle population c'est tiré.
+ *
+ * ⚠️ DES DATES, ET PAS UN COMPTE — c'est le correctif. Un compte calculé ici
+ * porte la plage de dates de la PAGE (illimitée par défaut), alors que la carte
+ * raisonne sur SA période (7/14/30 j). Additionner les deux donnait un total
+ * qui n'était celui d'aucune période : 74 posts sur 14 jours + 85 posts de
+ * chauffe de TOUTE l'histoire = « 159 publiés dans la période ». En rendant les
+ * dates, c'est `buildQuadrantView` qui applique la fenêtre — le même `floor`
+ * qu'aux posts visibles, au même endroit.
+ *
+ * `since` est fourni par l'appelant (jamais `Date.now()` ici : une query qui lit
+ * l'horloge n'est plus cachable sur ses arguments) et vaut la plus longue
+ * période offerte par la carte. Au-delà, une date ne peut plus servir.
  *
  * MÊME règle d'inclusion que les deux autres queries (`publishedAndMatches`), le
- * warmup NEUTRALISÉ le temps du comptage : on compte les posts qui passeraient
- * tous les autres filtres et que seul le mode warmup écarte. Aucune règle
- * dupliquée — c'est le même prédicat, appelé avec « all ».
- *
- * Mode « all » ⇒ 0 sans lire la base : rien n'est caché.
+ * warmup NEUTRALISÉ le temps du comptage. Mode « all » ⇒ rien, sans lire la base.
  */
-export const trackerWarmupHidden = adminQuery({
-  args: filterArgs,
-  handler: async (ctx, args): Promise<number> => {
+export const trackerWarmupHiddenDates = adminQuery({
+  args: { ...filterArgs, since: v.number() },
+  handler: async (ctx, args): Promise<number[]> => {
     const mode = args.warmup ?? "exclude";
-    if (mode === "all") return 0;
+    if (mode === "all") return [];
 
     const refs = await buildPublicationAssignmentMap(ctx);
     const pubs = await ctx.db
@@ -413,13 +420,14 @@ export const trackerWarmupHidden = adminQuery({
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
 
-    let caches = 0;
+    const dates: number[] = [];
     for (const p of pubs) {
+      if (p.datePubli < args.since) continue;
       const sansFiltreWarmup = { ...args, warmup: "all" as const };
       if (!publishedAndMatches(p, sansFiltreWarmup, (id) => refs.get(id))) continue;
-      if (!matchesWarmupFilter(p.isWarmup === true, mode)) caches += 1;
+      if (!matchesWarmupFilter(p.isWarmup === true, mode)) dates.push(p.datePubli);
     }
-    return caches;
+    return dates;
   },
 });
 

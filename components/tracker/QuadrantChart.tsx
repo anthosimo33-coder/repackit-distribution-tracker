@@ -111,16 +111,18 @@ const QUALIFICATIONS: readonly QuadrantQualification[] = [
 
 export function QuadrantChart({
   posts,
-  hiddenByWarmup,
+  hiddenWarmupDates,
   onSelectPost,
 }: {
   posts: TrackerPost[];
   /**
-   * Posts que le filtre warmup de la PAGE a retirés avant que la carte les voie
-   * (cf. `trackerWarmupHidden`). `null` = pas encore connu : la ligne de
-   * couverture attend plutôt que d'annoncer un total qu'elle devra corriger.
+   * DATES des posts que le filtre warmup de la PAGE a retirés avant que la carte
+   * les voie (cf. `trackerWarmupHiddenDates`). La période leur est appliquée
+   * dans `buildQuadrantView`, avec les posts visibles. `null` = pas encore
+   * connu : la ligne de couverture attend plutôt que d'annoncer un total
+   * qu'elle devra corriger.
    */
-  hiddenByWarmup: number | null;
+  hiddenWarmupDates: readonly number[] | null;
   onSelectPost: (id: Id<"publications">) => void;
 }) {
   const t = useTranslations("tracker.quadrant");
@@ -149,15 +151,13 @@ export function QuadrantChart({
 
   const view = useMemo(
     () =>
-      buildQuadrantView(
-        posts,
-        now,
-        periodDays,
-        qualifications.size
+      buildQuadrantView(posts, now, periodDays, {
+        qualifications: qualifications.size
           ? (qualifications as ReadonlySet<QuadrantQualification>)
           : undefined,
-      ),
-    [posts, now, periodDays, qualifications],
+        hiddenWarmupDates: hiddenWarmupDates ?? [],
+      }),
+    [posts, now, periodDays, qualifications, hiddenWarmupDates],
   );
 
   const thresholdPct = INTENT_SAVE_RATE * 100;
@@ -174,8 +174,8 @@ export function QuadrantChart({
     [bounds],
   );
   const coverage = useMemo(
-    () => (hiddenByWarmup === null ? null : buildCoverage(view, hiddenByWarmup)),
-    [view, hiddenByWarmup],
+    () => (hiddenWarmupDates === null ? null : buildCoverage(view)),
+    [view, hiddenWarmupDates],
   );
 
   // Échap ferme l'isolement ET l'infobulle — la sortie clavier de deux états

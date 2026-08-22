@@ -188,3 +188,12 @@ export const QUADRANT_SETTINGS: QuadrantSettings = {
 export const QUADRANT_PERIOD_DAYS = [7, 14, 30] as const;
 export type QuadrantPeriodDays = (typeof QUADRANT_PERIOD_DAYS)[number];
 export const DEFAULT_QUADRANT_PERIOD_DAYS: QuadrantPeriodDays = 14;
+
+/**
+ * La plus longue période offerte. Sert de borne aux lectures serveur qui
+ * doivent couvrir n'importe laquelle des fenêtres : au-delà, une donnée ne peut
+ * plus être affichée par la carte. Dérivée de la liste, jamais recopiée.
+ */
+export const MAX_QUADRANT_PERIOD_DAYS: number = Math.max(
+  ...QUADRANT_PERIOD_DAYS,
+);
