@@ -430,6 +430,62 @@ export default defineSchema({
     // des snapshots existants). undefined = aucun snapshot OU row pas encore
     // reprocessée (fallback recalcul depuis datePubli côté lecture).
     latestSnapshotDaysSince: v.optional(v.number()),
+    // ─── QUADRANT « Vues × Intent » — classement DÉRIVÉ, recalculé la nuit ────
+    // Même nature que les champs `*Latest` ci-dessus : une valeur dénormalisée
+    // qu'aucune saisie ne produit, écrite par un job et relue telle quelle par
+    // l'écran. Ici le job est le RELEVÉ NOCTURNE (cf convex/quadrantSync.ts,
+    // appelé en fin de chaîne par finishNightlyRun) : le classement se rafraîchit
+    // exactement quand les vues et les saves qu'il lit se rafraîchissent, jamais
+    // entre deux — il n'est donc jamais plus vieux que la donnée qu'il décrit.
+    //
+    // Le calcul lui-même vit dans le module PUR convex/quadrant.ts, importé à
+    // l'identique par le recalcul et par la carte du tracker.
+    //
+    // Absent = jamais recalculé (post créé depuis le dernier relevé, ou projet
+    // dont la nuit n'est pas encore passée) → la carte l'affiche « en attente du
+    // prochain relevé », jamais comme un post sous les seuils. Optional ⇒ 0
+    // migration : aucune lecture existante ne change, et le champ apparaît au
+    // premier run nocturne.
+    //
+    // ⚠️ AUCUN lien avec la paie. `isWarmup` n'entre ici que comme couleur de
+    // point ; ni ce champ ni ses seuils ne sont lus par le moteur de paie, la
+    // graduation LAB ou le moteur de décision.
+    quadrant: v.optional(
+      v.object({
+        computedAt: v.number(),
+        status: v.union(
+          v.literal("classified"),
+          v.literal("pending"),
+          v.literal("not_measured"),
+          v.literal("no_baseline"),
+          v.literal("no_intent"),
+        ),
+        /** Renseigné UNIQUEMENT quand status === "no_intent". */
+        reason: v.optional(
+          v.union(
+            v.literal("saves_unavailable"),
+            v.literal("saves_collecting"),
+            v.literal("no_views"),
+          ),
+        ),
+        /** Médiane du compte sur la fenêtre. Absente = pas de référence. */
+        baselineViews: v.optional(v.number()),
+        /** Taille de l'échantillon derrière la médiane (0 = aucun post éligible). */
+        baselineSample: v.number(),
+        scoreDistribution: v.optional(v.number()),
+        scoreIntent: v.optional(v.number()),
+        /** La case, UNIQUEMENT quand status === "classified". */
+        key: v.optional(
+          v.union(
+            v.literal("scale"),
+            v.literal("intent_faible"),
+            v.literal("distribution_faible"),
+            v.literal("archiver"),
+          ),
+        ),
+        breakoutWindow: v.boolean(),
+      }),
+    ),
     // Tracking auto YouTube — horodatage du dernier relevé réussi par le cron
     // (API Data v3). Présent ⇒ publication YouTube synchronisée automatiquement
     // (indicateur admin "vues synchronisées auto"). undefined pour TikTok/Insta

@@ -40,6 +40,7 @@ import {
   CAMPAIGN_NONE_LABEL,
   ANGLE_FAMILY_NONE_LABEL,
 } from "@/lib/tracker-data";
+import { QuadrantChart } from "./QuadrantChart";
 import {
   PostsList,
   sortTrackerPosts,
@@ -483,11 +484,14 @@ export function TrackerDataView() {
       ) : (
         <ChartsPanel
           daily={daily}
+          posts={posts}
+          warmup={warmup}
+          onSelectPost={openDetail}
           byPlatform={byPlatform}
           byCreator={byCreator}
           byFormat={byFormat}
           byCampaign={byCampaign}
-        byAngleFamily={byAngleFamily}
+          byAngleFamily={byAngleFamily}
         />
       )}
 
@@ -606,6 +610,9 @@ type CategoryAggregate = ReturnType<typeof aggregateByCategory>[number];
 
 function ChartsPanel({
   daily,
+  posts,
+  warmup,
+  onSelectPost,
   byPlatform,
   byCreator,
   byFormat,
@@ -613,6 +620,9 @@ function ChartsPanel({
   byAngleFamily,
 }: {
   daily: DailyPoint[] | undefined;
+  posts: TrackerPost[];
+  warmup: WarmupFilter;
+  onSelectPost: (id: Id<"publications">) => void;
   byPlatform: CategoryAggregate[];
   byCreator: CategoryAggregate[];
   byFormat: CategoryAggregate[];
@@ -698,6 +708,17 @@ function ChartsPanel({
           )}
         </CardContent>
       </Card>
+
+      {/* Quadrant « Vues × Intent » — la seule carte DÉCISIONNELLE de la vue :
+          les autres décrivent le volume, celle-ci répond « on reconduit ou
+          pas ». Elle consomme la MÊME liste de posts que les graphes ci-dessus
+          (aucune query en plus), donc les mêmes filtres de page ; ses scores,
+          eux, sont écrits par le relevé nocturne et ne dépendent d'aucun filtre. */}
+      <QuadrantChart
+        posts={posts}
+        warmupFilter={warmup}
+        onSelectPost={onSelectPost}
+      />
 
       {/* Graphiques 2-5 — comparaisons par catégorie. */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

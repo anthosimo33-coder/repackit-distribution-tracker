@@ -1,0 +1,158 @@
+/**
+ * SEUILS du quadrant « Vues × Intent » — un seul endroit, commenté, parce
+ * qu'ils vont bouger.
+ *
+ * Module PUR, sans aucun import : il est lu par le calcul serveur
+ * (`convex/quadrant.ts`, appelé au relevé nocturne) ET par la carte du tracker.
+ * Aucun composant ne redéfinit un seuil — un chiffre écrit dans du JSX est un
+ * chiffre que personne ne retrouve le jour où il faut le changer.
+ *
+ * Même gabarit que `convex/decisionThresholds.ts` (seuils du dashboard
+ * décisionnel) ; les deux jeux restent SÉPARÉS volontairement. Ils se
+ * ressemblent (48 h, 15 000 vues) mais ne répondent pas à la même question :
+ * là-bas « ce post mérite-t-il une action tout de suite ? », ici « ce format
+ * mérite-t-il d'être reconduit ? ». Les fondre ferait bouger le dashboard
+ * décisionnel à chaque réglage du quadrant.
+ *
+ * ⚠️ Toucher un seuil change la LECTURE, jamais la donnée : les vues et les
+ * saves sont celles du relevé, le quadrant n'est qu'un classement dérivé
+ * recalculé chaque nuit. Aucun de ces réglages ne touche la paie.
+ */
+
+const HOUR_MS = 3_600_000;
+const DAY_MS = 86_400_000;
+
+export type QuadrantSettings = {
+  /** Fenêtre glissante de la médiane de référence d'un compte. */
+  baselineWindowMs: number;
+  /** En dessous de ce nombre de posts mesurés, pas de médiane de référence. */
+  baselineMinPosts: number;
+  /**
+   * Les posts de chauffe comptent-ils dans la médiane de référence du compte ?
+   * Cf. `BASELINE_INCLUDES_WARMUP` pour l'arbitrage.
+   */
+  baselineIncludesWarmup: boolean;
+  /** Âge en dessous duquel un post n'est pas jugeable (« en attente »). */
+  maturityMs: number;
+  /** Multiplicateur de la médiane à partir duquel la distribution est HAUTE. */
+  distributionMultiplier: number;
+  /** Plancher de vues absolu, exigé EN PLUS du multiplicateur. */
+  distributionMinViews: number;
+  /** Save rate à partir duquel l'intent est HAUT. */
+  intentSaveRate: number;
+  /** Durée pendant laquelle un gros post ouvre une fenêtre sur son compte. */
+  breakoutWindowMs: number;
+  /** Vues à partir desquelles un post ouvre une fenêtre. */
+  breakoutMinViews: number;
+};
+
+/* ── Les QUATRE seuils du quadrant ────────────────────────────────────────── */
+
+/**
+ * Fenêtre glissante de la médiane de référence. 14 jours : assez long pour
+ * qu'un compte qui publie tous les deux jours ait un échantillon, assez court
+ * pour que la référence suive la trajectoire réelle du compte (un compte qui
+ * monte ne doit pas être jugé sur ce qu'il faisait il y a deux mois).
+ */
+export const BASELINE_WINDOW_DAYS = 14;
+
+/**
+ * Un post distribue « haut » quand il fait au moins 3× la médiane de son
+ * compte. La MÉDIANE et pas la moyenne : une seule vidéo virale déplacerait la
+ * moyenne et rendrait tout le reste médiocre par construction.
+ */
+export const DISTRIBUTION_MULTIPLIER = 3;
+
+/**
+ * Plancher ABSOLU, exigé EN PLUS du multiplicateur (ET, jamais OU). Sur un
+ * compte neuf dont la médiane est à 300 vues, 3× ne veut rien dire : 900 vues
+ * n'est pas une distribution, c'est du bruit. Le plancher est ce qui empêche le
+ * quadrant de déclarer « format gagnant » sur un compte qui ne décolle pas.
+ */
+export const DISTRIBUTION_MIN_VIEWS = 5_000;
+
+/**
+ * Save rate à partir duquel l'intent est HAUT. 0,5 % — un save est un geste
+ * coûteux comparé au like, l'ordre de grandeur n'est pas le même (cf.
+ * `SAVE_RATE_GOOD = 1 %` du dashboard décisionnel, qui répond à une autre
+ * question : là-bas « ce post-ci mérite une action », ici « cet axe de contenu
+ * déclenche l'intention »).
+ */
+export const INTENT_SAVE_RATE = 0.005;
+
+/* ── Réglages de bordure — hors des quatre, mais jamais en dur non plus ────── */
+
+/**
+ * En dessous de 48 h, un post n'a pas fini de prendre ses vues : le juger le
+ * condamnerait avant qu'il ait vécu. Ces posts sont AFFICHÉS (en gris) mais
+ * jamais classés, et ils sont RETIRÉS de la médiane de référence — sans quoi
+ * chaque publication de la veille tirerait la référence du compte vers le bas.
+ */
+export const MATURITY_HOURS = 48;
+
+/**
+ * Un post publié dans les 48 h qui suivent un gros post du MÊME compte hérite
+ * d'une audience qu'il n'a pas construite. Le drapeau ne le disqualifie pas —
+ * il dit « cette distribution est peut-être empruntée », ce qui change la
+ * lecture d'un point en haut à droite.
+ */
+export const BREAKOUT_WINDOW_HOURS = 48;
+export const BREAKOUT_MIN_VIEWS = 15_000;
+
+/**
+ * Une médiane sur un seul post est une tautologie : le post EST sa propre
+ * référence, son score vaut 1, il ne peut par construction jamais distribuer
+ * « haut ». Sur deux posts, la médiane est leur moyenne et un seul écart la
+ * déplace de moitié. À partir de 3 mesures la médiane commence à dire quelque
+ * chose ; en dessous on préfère afficher « pas de référence » qu'un chiffre qui
+ * a l'air d'un chiffre.
+ */
+export const BASELINE_MIN_POSTS = 3;
+
+/**
+ * ARBITRAGE — les posts de chauffe comptent DANS la médiane de référence.
+ *
+ * La règle produit (TD-019, `convex/warmupMode.ts`) est que le warmup sort de
+ * TOUT agrégat de performance et de tout dénominateur de taux. Ce réglage-ci
+ * s'en écarte volontairement, et voici pourquoi : la médiane de référence ne
+ * mesure pas une performance, elle mesure ce que le COMPTE fait normalement —
+ * sa capacité de distribution, au même titre que son nombre d'abonnés. Le
+ * warmup fait partie de ce que le compte publie, donc de ce qu'il distribue.
+ *
+ * L'écarter rendrait la comparaison plus flatteuse (les posts promo seraient
+ * comparés entre eux, et ils distribuent structurellement moins) et, sur les
+ * comptes majoritairement en chauffe, ferait tomber l'échantillon sous
+ * `BASELINE_MIN_POSTS` — donc plus de référence du tout.
+ *
+ * Réglage EXPLICITE plutôt qu'implicite : le basculer à `false` est un
+ * changement d'une ligne, et les tests couvrent les deux lectures.
+ */
+export const BASELINE_INCLUDES_WARMUP = true;
+
+/** Le jeu de seuils par défaut, assemblé depuis les constantes ci-dessus. */
+export const QUADRANT_SETTINGS: QuadrantSettings = {
+  baselineWindowMs: BASELINE_WINDOW_DAYS * DAY_MS,
+  baselineMinPosts: BASELINE_MIN_POSTS,
+  baselineIncludesWarmup: BASELINE_INCLUDES_WARMUP,
+  maturityMs: MATURITY_HOURS * HOUR_MS,
+  distributionMultiplier: DISTRIBUTION_MULTIPLIER,
+  distributionMinViews: DISTRIBUTION_MIN_VIEWS,
+  intentSaveRate: INTENT_SAVE_RATE,
+  breakoutWindowMs: BREAKOUT_WINDOW_HOURS * HOUR_MS,
+  breakoutMinViews: BREAKOUT_MIN_VIEWS,
+};
+
+/* ── Périodes d'affichage de la carte ─────────────────────────────────────── */
+
+/**
+ * Fenêtres proposées par le sélecteur de la carte. 14 est la valeur par défaut
+ * parce que c'est aussi la fenêtre de la médiane de référence : afficher
+ * exactement la période sur laquelle les scores ont été calculés.
+ *
+ * ⚠️ C'est un filtre d'AFFICHAGE : il choisit les points tracés, jamais la
+ * fenêtre de `BASELINE_WINDOW_DAYS`. Regarder 7 jours ne recalcule pas les
+ * scores sur 7 jours — la référence d'un compte reste la même.
+ */
+export const QUADRANT_PERIOD_DAYS = [7, 14, 30] as const;
+export type QuadrantPeriodDays = (typeof QUADRANT_PERIOD_DAYS)[number];
+export const DEFAULT_QUADRANT_PERIOD_DAYS: QuadrantPeriodDays = 14;

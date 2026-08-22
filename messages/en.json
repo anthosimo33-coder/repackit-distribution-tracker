@@ -46,5 +46,61 @@
       "saved": "Langue enregistrée.",
       "error": "La langue n'a pas pu être enregistrée."
     }
+  },
+  "tracker": {
+    "quadrant": {
+      "title": "Views × Intent quadrant",
+      "subtitle": "Every published post, plotted on two independent axes: how far it travelled compared with its account's median (×{multiplier} and {minViews} views to count as high) and how much of its audience saved it ({saveRate} to count as high). Scores are recomputed by the nightly sync.",
+      "axisX": "Distribution — views ÷ account median (log scale)",
+      "axisY": "Intent — save rate",
+      "empty": "No post can be plotted for this period.",
+      "warmupHidden": "The page's “Excluding warmup” filter is on: warm-up posts are not on this chart. Switch the Warmup filter to “All” to see them.",
+      "count": "{count, plural, one {# post} other {# posts}}",
+      "period": {
+        "label": "Displayed window",
+        "days": "Last {days} days"
+      },
+      "legend": {
+        "promo": "Promo",
+        "warmup": "Warm-up",
+        "autre": "Unqualified",
+        "pending": "Pending",
+        "breakout": "Breakout window"
+      },
+      "name": {
+        "scale": "Scale",
+        "intent_faible": "Low intent",
+        "distribution_faible": "Low distribution",
+        "archiver": "Archive"
+      },
+      "verdict": {
+        "scale": "Scale: winning format.",
+        "intent_faible": "Distribution fine, intent low → tighten the product intro.",
+        "distribution_faible": "Intent fine, distribution low → change the hook, keep the angle.",
+        "archiver": "Neither distribution nor intent → archive after 2 runs."
+      },
+      "tooltip": {
+        "noCreator": "No creator attached",
+        "noLabel": "(untitled)",
+        "views": "Views",
+        "saves": "Saves",
+        "saveRate": "Save rate",
+        "distribution": "Distribution",
+        "distributionValue": "×{score} of {baseline}",
+        "pending": "Pending — under {hours} h, too early to judge.",
+        "unclassified": "Unclassified.",
+        "breakout": "Published inside the window of a big post from the same account: distribution may be borrowed."
+      },
+      "unplaced": {
+        "title": "{count, plural, one {# post not plotted} other {# posts not plotted}} out of {total} published in the period.",
+        "pending": "{count, plural, one {# post under {hours} h old} other {# posts under {hours} h old}}: too early to judge.",
+        "not_measured": "{count, plural, one {# post never measured} other {# posts never measured}}: no view reading at all, which is not a zero.",
+        "no_baseline": "{count, plural, one {# post on an account with no reference median} other {# posts on accounts with no reference median}}: fewer than {minPosts} measured posts over {windowDays} days.",
+        "saves_unavailable": "{count, plural, one {# post on a platform that does not expose saves} other {# posts on platforms that do not expose saves}} (Instagram, YouTube): no intent axis possible.",
+        "saves_collecting": "{count, plural, one {# post predating saves collection} other {# posts predating saves collection}}: the measure will land for the next ones.",
+        "no_views": "{count, plural, one {# post with 0 measured views} other {# posts with 0 measured views}}: no denominator for a save rate.",
+        "notComputed": "{count, plural, one {# post not classified yet} other {# posts not classified yet}}: waiting for the next nightly sync."
+      }
+    }
   }
 }

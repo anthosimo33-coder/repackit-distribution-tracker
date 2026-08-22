@@ -4,6 +4,8 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { passesWarmupMode, type WarmupMode } from "./warmupMode";
 import { computeDailyViewDeltas } from "./viewsDaily";
+import { savesAvailability } from "./decisionThresholds";
+import { qualificationOf } from "./quadrant";
 
 /**
  * Vue TRACKER (refonte) — data des posts publiés. Deux queries scopées projet :
@@ -14,6 +16,10 @@ import { computeDailyViewDeltas } from "./viewsDaily";
  *     Alimente la zone 2 (stats globales) + la zone 3 mode Liste + les 4 charts
  *     de comparaison par catégorie (tout dérivé client-side de cette liste, cf
  *     lib/tracker-data). C'est la SEULE source en mode Liste.
+ *     Elle sert AUSSI la carte « Vues × Intent » : les rows portent les saves et
+ *     le classement `quadrant` écrit par le relevé nocturne (convex/quadrantSync),
+ *     donc la carte hérite mécaniquement des mêmes filtres que le reste de la
+ *     page, sans query ni règle d'inclusion supplémentaire.
  *
  *  2. trackerViewsDaily — la série temporelle "vues GAGNÉES par jour" (deltas de
  *     snapshots répartis AU PRORATA du temps couvert, cf convex/viewsDaily.ts),
@@ -351,10 +357,29 @@ export const listTrackerPosts = adminQuery({
         // l'utilisateur choisit de les voir ("Tous"/"Warmup seulement"). Le
         // moteur de paie reste inchangé.
         isWarmup: p.isWarmup === true,
+        // QUALIFICATION éditoriale, TRI-ÉTAT — et c'est tout l'objet du champ.
+        // `isWarmup` ci-dessus est volontairement un booléen (la pastille « hors
+        // paie » ne connaît que deux états), mais il écrase la différence entre
+        // « promo, décidé » et « jamais qualifié ». La carte quadrant colore par
+        // qualification : sans ce champ, un post jamais qualifié serait peint
+        // « promo », c'est-à-dire qu'un défaut de saisie prendrait l'apparence
+        // d'une décision. Dérivé ici, au contact du champ brut.
+        qualification: qualificationOf(p.isWarmup),
         // Métriques LATEST dénormalisées (null → 0 pour les agrégats).
         vues: p.vuesLatest ?? 0,
         likes: p.likesLatest ?? 0,
         comments: p.commentsLatest ?? 0,
+        // SAVES — `null` et jamais 0 par défaut : Instagram/YouTube n'exposent
+        // pas la métrique et les posts antérieurs à sa collecte n'en portent
+        // pas. Replier sur 0 ferait passer une absence pour un save rate nul,
+        // c'est-à-dire pour une contre-performance (cf savesAvailability, qui
+        // sépare « la plateforme ne le donnera jamais » de « pas encore relevé »).
+        saves: p.savesLatest ?? null,
+        savesAvailability: savesAvailability(p.savesLatest, p.plateforme),
+        // Classement « Vues × Intent » écrit par le relevé nocturne (cf
+        // convex/quadrantSync.ts). `null` = jamais recalculé → la carte l'affiche
+        // « en attente du prochain relevé », pas « sous les seuils ».
+        quadrant: p.quadrant ?? null,
       });
     }
     return rows;
