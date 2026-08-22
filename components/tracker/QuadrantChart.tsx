@@ -42,13 +42,11 @@ import {
 } from "@/convex/quadrantSettings";
 import {
   buildQuadrantView,
-  unplacedTotal,
-  UNPLACED_REASONS,
+  buildCoverage,
   xDomain,
   xTicks,
   yDomain,
   type QuadrantDatum,
-  type UnplacedReason,
 } from "@/lib/quadrant-view";
 import { InfoTip } from "@/components/InfoTip";
 import { formatDate, formatNumber, formatPercent } from "@/lib/format";
@@ -99,11 +97,16 @@ const QUADRANT_TONE: Record<QuadrantKey, string> = {
 
 export function QuadrantChart({
   posts,
-  warmupFilter,
+  hiddenByWarmup,
   onSelectPost,
 }: {
   posts: TrackerPost[];
-  warmupFilter: "all" | "exclude" | "only";
+  /**
+   * Posts que le filtre warmup de la PAGE a retirés avant que la carte les voie
+   * (cf. `trackerWarmupHidden`). `null` = pas encore connu : la ligne de
+   * couverture attend plutôt que d'annoncer un total qu'elle devra corriger.
+   */
+  hiddenByWarmup: number | null;
   onSelectPost: (id: Id<"publications">) => void;
 }) {
   const t = useTranslations("tracker.quadrant");
@@ -137,7 +140,10 @@ export function QuadrantChart({
     return map;
   }, [view.points]);
 
-  const unplacedCount = unplacedTotal(view.unplaced);
+  const coverage = useMemo(
+    () => (hiddenByWarmup === null ? null : buildCoverage(view, hiddenByWarmup)),
+    [view, hiddenByWarmup],
+  );
 
   return (
     <Card>
@@ -160,12 +166,6 @@ export function QuadrantChart({
           </div>
           <PeriodSelect value={periodDays} onChange={setPeriodDays} />
         </div>
-
-        {warmupFilter === "exclude" && (
-          <p className="rounded-md border border-dashed border-slate-200 px-3 py-2 text-xs text-slate-500">
-            {t("warmupHidden")}
-          </p>
-        )}
 
         {view.points.length === 0 ? (
           <div className="flex h-[320px] items-center justify-center rounded-md border border-dashed border-slate-200 text-sm text-slate-400">
@@ -271,40 +271,43 @@ export function QuadrantChart({
           ))}
         </div>
 
-        {(unplacedCount > 0 || view.notComputed > 0) && (
+        {/* COUVERTURE — permanente, et c'est le point. « 3 Scale » ne dit pas
+            s'il s'agit de 3 sur 5 ou de 3 sur 126 ; cette ligne donne la
+            population, ce qui en sort, et pourquoi. Chaque post publié y est
+            soit classé, soit dans une et une seule cause (invariant testé). */}
+        {coverage !== null && (
           <div className="space-y-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
             <p className="font-medium text-slate-700">
-              {t("unplaced.title", {
-                count: unplacedCount + view.notComputed,
-                total: view.total,
-              })}
-            </p>
-            <ul className="space-y-0.5">
-              {/* Les seuils cités dans ces phrases viennent des réglages, jamais
-                  d'un chiffre recopié : changer un seuil doit changer le texte
-                  qui l'explique, sinon l'écran ment poliment. */}
-              {UNPLACED_REASONS.filter((r) => view.unplaced[r] > 0).map((r) => (
-                <li key={r}>
-                  {t(`unplaced.${r}` as UnplacedMessageKey, {
-                    count: view.unplaced[r],
-                    minPosts: BASELINE_MIN_POSTS,
-                    windowDays: BASELINE_WINDOW_DAYS,
-                    hours: MATURITY_HOURS,
+              {coverage.unclassified === 0
+                ? t("coverage.allClassified", { published: coverage.published })
+                : t("coverage.summary", {
+                    classified: coverage.classified,
+                    published: coverage.published,
+                    unclassified: coverage.unclassified,
                   })}
-                </li>
-              ))}
-              {view.notComputed > 0 && (
-                <li>{t("unplaced.notComputed", { count: view.notComputed })}</li>
-              )}
-            </ul>
+            </p>
+            {coverage.causes.length > 0 && (
+              <ul className="space-y-0.5">
+                {/* Les seuils cités viennent des réglages, jamais d'un chiffre
+                    recopié : changer un seuil doit changer le texte qui l'explique. */}
+                {coverage.causes.map((c) => (
+                  <li key={c.cause}>
+                    {t(`coverage.cause.${c.cause}`, {
+                      count: c.count,
+                      minPosts: BASELINE_MIN_POSTS,
+                      windowDays: BASELINE_WINDOW_DAYS,
+                      hours: MATURITY_HOURS,
+                    })}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
       </CardContent>
     </Card>
   );
 }
-
-type UnplacedMessageKey = `unplaced.${UnplacedReason}`;
 
 /**
  * recharts remonte au clic les props du symbole rendu, dont la donnée d'origine

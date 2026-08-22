@@ -22,6 +22,7 @@ import {
 import { median as medianScriptStats } from "./scriptStats";
 import { median as medianScriptAnalytics } from "../convex/scriptAnalytics";
 import {
+  buildCoverage,
   buildQuadrantView,
   unplacedTotal,
   xDomain,
@@ -680,9 +681,104 @@ describe("vue de la carte", () => {
     expect(new Set(v.points.map((p) => p.qualification)).size).toBe(3);
   });
 
+  it("compte à part les « en attente » TRACÉS", () => {
+    const posts = [
+      row({ _id: "ok", quadrant: CLASSE }),
+      row({ _id: "attente1", quadrant: { ...CLASSE, status: "pending", key: undefined } }),
+      // En attente ET non traçable (pas de score d'intent) : compté ailleurs.
+      row({
+        _id: "attente2",
+        quadrant: {
+          computedAt: NOW, status: "pending", baselineSample: 5,
+          scoreDistribution: 1.2, breakoutWindow: false,
+        },
+      }),
+    ];
+    const v = buildQuadrantView(posts, NOW, 14);
+    expect(v.pendingPlotted).toBe(1);
+    expect(v.unplaced.pending).toBe(1);
+  });
+
   it("les graduations de l'axe log restent dans le domaine", () => {
     const ticks = xTicks([0.3, 12]);
     expect(ticks).toEqual([0.5, 1, 2, 3, 5, 10]);
     expect(ticks.every((t) => t > 0)).toBe(true);
+  });
+});
+
+
+describe("couverture — ce que la carte ne montre pas", () => {
+  /**
+   * Le défaut corrigé : « 3 Scale » sans population se lit comme un total. La
+   * ligne de couverture n'a de valeur que si elle est EXHAUSTIVE — d'où
+   * l'invariant testé ici plutôt que constaté à l'œil sur une capture.
+   */
+  function jeu(): QuadrantViewPost[] {
+    return [
+      row({ _id: "c1", quadrant: CLASSE }),
+      row({ _id: "c2", quadrant: { ...CLASSE, key: "archiver" } }),
+      row({ _id: "att", quadrant: { ...CLASSE, status: "pending", key: undefined } }),
+      row({
+        _id: "ig",
+        quadrant: {
+          computedAt: NOW, status: "no_intent", reason: "saves_unavailable",
+          baselineViews: 812, baselineSample: 4, scoreDistribution: 0.74,
+          breakoutWindow: false,
+        },
+      }),
+      row({
+        _id: "sansref",
+        quadrant: {
+          computedAt: NOW, status: "no_baseline", baselineSample: 1,
+          scoreIntent: 0.004, breakoutWindow: false,
+        },
+      }),
+      row({ _id: "jamais", quadrant: null }),
+    ];
+  }
+
+  it("chaque post publié est classé OU dans une seule cause", () => {
+    const v = buildQuadrantView(jeu(), NOW, 14);
+    const c = buildCoverage(v, 56);
+    expect(c.published).toBe(v.total + 56);
+    expect(c.classified).toBe(2);
+    expect(c.unclassified).toBe(c.published - c.classified);
+    // L'INVARIANT : la somme des causes reconstitue exactement les non classés.
+    const somme = c.causes.reduce((s, x) => s + x.count, 0);
+    expect(somme).toBe(c.unclassified);
+  });
+
+  it("le warmup filtré est compté, et cité en premier", () => {
+    const c = buildCoverage(buildQuadrantView(jeu(), NOW, 14), 56);
+    expect(c.causes[0]).toEqual({ cause: "warmup", count: 56 });
+    // Présence appariée : les autres causes sont bien là, pas écrasées.
+    const causes = c.causes.map((x) => x.cause);
+    expect(causes).toContain("saves_unavailable");
+    expect(causes).toContain("no_baseline");
+    expect(causes).toContain("pending");
+    expect(causes).toContain("not_computed");
+  });
+
+  it("l'angle mort Instagram est une cause NOMMÉE, jamais un post médiocre", () => {
+    const c = buildCoverage(buildQuadrantView(jeu(), NOW, 14), 0);
+    const ig = c.causes.find((x) => x.cause === "saves_unavailable");
+    expect(ig?.count).toBe(1);
+    // Et surtout : il n'a pas été rangé dans une case.
+    expect(c.classified).toBe(2);
+  });
+
+  it("sans warmup caché, la population est celle de la période", () => {
+    const v = buildQuadrantView(jeu(), NOW, 14);
+    const c = buildCoverage(v, 0);
+    expect(c.published).toBe(6);
+    expect(c.causes.some((x) => x.cause === "warmup")).toBe(false);
+    expect(c.causes.reduce((s, x) => s + x.count, 0)).toBe(c.unclassified);
+  });
+
+  it("tout classé : aucune cause à afficher", () => {
+    const v = buildQuadrantView([row({ _id: "c1", quadrant: CLASSE })], NOW, 14);
+    const c = buildCoverage(v, 0);
+    expect(c.unclassified).toBe(0);
+    expect(c.causes).toEqual([]);
   });
 });

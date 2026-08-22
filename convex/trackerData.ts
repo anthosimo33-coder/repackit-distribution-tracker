@@ -386,6 +386,43 @@ export const listTrackerPosts = adminQuery({
   },
 });
 
+/**
+ * Combien de posts le filtre WARMUP retire-t-il de la lecture courante ?
+ *
+ * La carte « Vues × Intent » ne peut pas les compter elle-même : `listTrackerPosts`
+ * les a déjà retirés quand elle reçoit ses lignes. Sans ce nombre, la carte
+ * affiche « 3 Scale » sans pouvoir dire que c'est 3 sur 39 classés tirés de 126
+ * publiés — un effectif se lit alors comme un total.
+ *
+ * MÊME règle d'inclusion que les deux autres queries (`publishedAndMatches`), le
+ * warmup NEUTRALISÉ le temps du comptage : on compte les posts qui passeraient
+ * tous les autres filtres et que seul le mode warmup écarte. Aucune règle
+ * dupliquée — c'est le même prédicat, appelé avec « all ».
+ *
+ * Mode « all » ⇒ 0 sans lire la base : rien n'est caché.
+ */
+export const trackerWarmupHidden = adminQuery({
+  args: filterArgs,
+  handler: async (ctx, args): Promise<number> => {
+    const mode = args.warmup ?? "exclude";
+    if (mode === "all") return 0;
+
+    const refs = await buildPublicationAssignmentMap(ctx);
+    const pubs = await ctx.db
+      .query("publications")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+
+    let caches = 0;
+    for (const p of pubs) {
+      const sansFiltreWarmup = { ...args, warmup: "all" as const };
+      if (!publishedAndMatches(p, sansFiltreWarmup, (id) => refs.get(id))) continue;
+      if (!matchesWarmupFilter(p.isWarmup === true, mode)) caches += 1;
+    }
+    return caches;
+  },
+});
+
 // ─── Vues gagnées par jour (deltas de snapshots) ─────────────────────────────
 // L'algorithme (répartition AU PRORATA du temps, jours calendaires Europe/Paris)
 // vit dans le module PUR convex/viewsDaily.ts — importé tel quel ici ET par
