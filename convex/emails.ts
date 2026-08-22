@@ -16,6 +16,7 @@ import {
   sendEmail,
   type EmailConfig,
 } from "./emailApi";
+import { inviteEmailCopy } from "./emailMessages";
 
 /**
  * Notifications EMAIL (Resend) — 5 événements : invitation créateur, vidéo
@@ -108,7 +109,8 @@ export const getCreatorContact = internalQuery({
   handler: async (ctx, { creatorId }) => {
     const c = await ctx.db.get(creatorId);
     if (!c) return null;
-    return { email: c.email, name: c.name };
+    // LANGUE DU DESTINATAIRE — cf localeOrDefault côté rendu. Absente ⇒ français.
+    return { email: c.email, name: c.name, locale: c.locale ?? null };
   },
 });
 
@@ -124,6 +126,10 @@ export const getAssignmentNotifyData = internalQuery({
     return {
       email: c.email,
       name: c.name,
+      // LANGUE DU DESTINATAIRE — un e-mail part TOUJOURS dans sa langue, jamais
+      // dans celle de l'expéditeur ni du serveur. Absente ⇒ le rendu retombe sur
+      // le français (localeOrDefault) : ici on ne décide rien, on transporte.
+      locale: c.locale ?? null,
       // null = aucun format nommé rattaché. Chaque template formule sa phrase
       // en conséquence (pas de repli « ta mission » qui donnait « ta vidéo pour
       // ta mission »).
@@ -150,6 +156,8 @@ export const listDeadlineReminderTargets = internalQuery({
       assignmentId: Id<"assignments">;
       email: string;
       name: string;
+      /** Langue du destinataire (null ⇒ français). */
+      locale: string | null;
       /** null = pas de format nommé (cf getAssignmentNotifyData). */
       missionLabel: string | null;
       dueDate: number;
@@ -178,6 +186,7 @@ export const listDeadlineReminderTargets = internalQuery({
             assignmentId: a._id,
             email: c.email,
             name: c.name,
+            locale: c.locale ?? null,
             missionLabel: format?.name ?? null,
             dueDate: a.dueDate,
           });
@@ -213,21 +222,19 @@ export const sendCreatorInvite = internalAction({
       return { ok: false, reason: "test-recipient" };
     }
     const url = `${cfg.appBaseUrl}/join/${token}`;
-    const subject = "Bienvenue chez Jarvia 👋";
+    // Langue du DESTINATAIRE (creators.locale), pas celle du serveur. Absente ⇒
+    // français : inviteEmailCopy applique le défaut, il n'y a ni cookie ni
+    // Accept-Language de ce côté.
+    const copy = inviteEmailCopy(c.locale);
+    const subject = copy.subject;
     const html = renderEmail({
       title: subject,
       bodyHtml:
-        p(`Salut ${escapeHtml(c.name)},`) +
-        p(
-          "Ton espace créateur est prêt. Tu y retrouveras tes missions, tes vidéos " +
-            "et tes gains, tout au même endroit.",
-        ) +
-        p(
-          "Le lien ci-dessous te permet de choisir ton mot de passe et de commencer.",
-        ),
-      cta: { label: "Activer mon accès", url },
-      footerNote:
-        "Le lien est personnel et à usage unique. S'il a expiré, écris-moi et je t'en renvoie un.",
+        p(copy.greeting(escapeHtml(c.name))) +
+        p(copy.intro) +
+        p(copy.linkHint),
+      cta: { label: copy.ctaLabel, url },
+      footerNote: copy.footerNote,
     });
     return deliver(cfg, "invitation créateur", c.email, subject, html);
   },

@@ -209,6 +209,24 @@ faite de labels courts non accentués (« Gains », « Publier », « Mes compte
 
 Exemption ligne à ligne, raison **obligatoire** : `// i18n-exempt: <raison>`
 
+## 10 bis. Méthode — un test vert ne prouve rien
+
+**Un test vert ne prouve rien tant qu'il n'a pas été vu rouge.**
+
+**Une rupture côté Convex n'a d'effet qu'après redéploiement** — sans ça, la
+rupture ne teste rien et le vert est faux.
+
+Cas rencontrés :
+- **contre-test locale sans cas « fr » explicite** (vert à tort) — le contre-test
+  n'envoyait aucune locale, donc le chemin « `fr` explicite → on ne stocke rien »
+  n'était jamais exercé. Casser `normalizeCreatorLocale` laissait le test vert.
+  C'est la rupture qui l'a révélé, pas la relecture.
+- **trois ruptures backend sans redéploiement** — les modifications de
+  `convex/locales.ts` et `convex/auth.ts` n'affectaient pas le backend local
+  déjà déployé. Les tests restaient verts, ce qui ressemblait à s'y méprendre à
+  « la rupture ne casse rien donc l'assertion est faible », alors que la rupture
+  n'avait simplement jamais été appliquée.
+
 ## 11. Découpage — 7 PRs
 
 Ordre imposé par les **dépendances**, pas par le volume.
