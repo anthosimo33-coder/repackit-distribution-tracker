@@ -2,16 +2,16 @@
   "layout": {
     "metadata": {
       "title": "Jarvis Creator Studio",
-      "description": "Jarvis Creator Studio — studio de distribution de contenu"
+      "description": "Jarvis Creator Studio — content distribution studio"
     }
   },
   "nav": {
     "section": {
-      "pilotage": "Pilotage",
-      "createurs": "Créateurs",
-      "contenu": "Contenu",
-      "veille": "Veille",
-      "outils": "Outils"
+      "pilotage": "Operations",
+      "createurs": "Creators",
+      "contenu": "Content",
+      "veille": "Radar",
+      "outils": "Tools"
     },
     "item": {
       "dashboard": "Dashboard",
@@ -19,38 +19,38 @@
       "rushes": "Rushes",
       "assignments": "Assignments",
       "pricings": "Pricings",
-      "paiements": "Paiements",
+      "paiements": "Payments",
       "analytics": "Analytics",
       "notifications": "Notifications",
-      "createurs": "Créateurs",
-      "comptes": "Comptes",
+      "createurs": "Creators",
+      "comptes": "Accounts",
       "scripts": "Scripts",
       "inspirations": "Inspirations",
       "assets": "Assets",
-      "guide": "Comment ça marche",
+      "guide": "How it works",
       "radar": "Radar"
     },
     "action": {
-      "new": "Nouveau",
-      "logout": "Se déconnecter",
-      "expandSidebar": "Étendre la sidebar",
-      "collapseSidebar": "Réduire la sidebar",
-      "openInNewTab": "Ouvre dans un nouvel onglet",
-      "openMenu": "Ouvrir le menu"
+      "new": "New",
+      "logout": "Log out",
+      "expandSidebar": "Expand sidebar",
+      "collapseSidebar": "Collapse sidebar",
+      "openInNewTab": "Opens in a new tab",
+      "openMenu": "Open menu"
     }
   },
   "settings": {
     "language": {
-      "label": "Langue de l'interface",
-      "ariaLabel": "Changer la langue de l'interface",
-      "saved": "Langue enregistrée.",
-      "error": "La langue n'a pas pu être enregistrée."
+      "label": "Interface language",
+      "ariaLabel": "Change the interface language",
+      "saved": "Language saved.",
+      "error": "Your language couldn't be saved."
     }
   },
   "tracker": {
     "quadrant": {
       "title": "Views × Intent quadrant",
-      "subtitle": "Every published post on two independent axes: how far it travelled compared with its account's median (×{multiplier} to count as high) and how much of its audience saved it ({saveRate} to count as high). Under {minViews} views the save rate is not readable — the post does not move up. Scores recomputed by the nightly sync.",
+      "subtitle": "Every published post on two independent axes: how far it traveled compared with its account's median (×{multiplier} to count as high) and how much of its audience saved it ({saveRate} to count as high). Under {minViews} views the save rate is not readable — the post does not move up. Scores recomputed by the nightly sync.",
       "axisX": "Distribution — views ÷ account median (log scale)",
       "axisY": "Intent — save rate",
       "empty": "No post can be plotted for this period.",
@@ -152,100 +152,100 @@
   },
   "auth": {
     "join": {
-      "invalidTitle": "Lien invalide",
-      "invalidBody": "Ce lien d'invitation est invalide, a expiré ou a déjà été utilisé.",
-      "invalidHint": "Si tu as déjà créé ton compte, connecte-toi avec ton email et ton mot de passe.",
-      "invalidAskAdmin": "Sinon, demande un nouveau lien d'invitation à ton administrateur.",
-      "welcome": "Bienvenue {name} — choisis un mot de passe pour activer ton compte créateur.",
-      "submit": "Activer mon compte",
-      "signupFailed": "Création du compte impossible (mot de passe trop court — 8 caractères minimum — ou invitation invalide)."
+      "invalidTitle": "Invalid link",
+      "invalidBody": "This invitation link is invalid, has expired, or has already been used.",
+      "invalidHint": "If you've already created your account, sign in with your email and password.",
+      "invalidAskAdmin": "Otherwise, ask your administrator for a new invitation link.",
+      "welcome": "Welcome {name} — choose a password to activate your creator account.",
+      "submit": "Activate my account",
+      "signupFailed": "Couldn't create the account (password too short — 8 characters minimum — or invalid invitation)."
     },
     "login": {
-      "subtitleSignIn": "Connecte-toi à ton espace (admin ou créateur).",
-      "subtitleSignUp": "Création du compte initial (premier démarrage uniquement).",
-      "submitSignIn": "Se connecter",
-      "submitSignUp": "Créer le compte",
-      "toSignUp": "Premier démarrage ? Créer le compte initial",
-      "toSignIn": "Déjà un compte ? Se connecter",
-      "badCredentials": "Identifiants invalides.",
-      "signupFailed": "Création de compte impossible (mot de passe trop court — 8 caractères minimum — ou compte déjà existant).",
-      "projectNotFound": "Projet introuvable",
-      "projectNotFoundBody": "Aucun projet ne correspond à ce lien. Vérifie l'adresse ou connecte-toi sur la page générale.",
-      "goToGeneralLogin": "Aller à la connexion"
+      "subtitleSignIn": "Sign in to your space (admin or creator).",
+      "subtitleSignUp": "Initial account setup (first run only).",
+      "submitSignIn": "Sign in",
+      "submitSignUp": "Create the account",
+      "toSignUp": "First run? Create the initial account",
+      "toSignIn": "Already have an account? Sign in",
+      "badCredentials": "Invalid credentials.",
+      "signupFailed": "Couldn't create the account (password too short — 8 characters minimum — or the account already exists).",
+      "projectNotFound": "Project not found",
+      "projectNotFoundBody": "No project matches this link. Check the address or sign in from the general page.",
+      "goToGeneralLogin": "Go to sign-in"
     },
     "reset": {
-      "invalidTitle": "Lien invalide",
-      "prompt": "Choisis un nouveau mot de passe.",
-      "newPassword": "Nouveau mot de passe",
-      "confirmPassword": "Confirmer le mot de passe",
-      "tooShort": "Le mot de passe doit faire au moins 8 caractères.",
-      "mismatch": "Les deux mots de passe ne correspondent pas.",
-      "failed": "Réinitialisation impossible. Demande un nouveau lien à ton administrateur.",
-      "invalidBody": "Ce lien de réinitialisation est invalide ou expiré. Demande un nouveau lien à ton administrateur.",
-      "title": "Réinitialise ton mot de passe",
-      "promptForProject": "Choisis un nouveau mot de passe pour {project}.",
-      "submit": "Réinitialiser le mot de passe"
+      "invalidTitle": "Invalid link",
+      "prompt": "Choose a new password.",
+      "newPassword": "New password",
+      "confirmPassword": "Confirm password",
+      "tooShort": "Your password must be at least 8 characters.",
+      "mismatch": "The two passwords don't match.",
+      "failed": "Couldn't reset your password. Ask your administrator for a new link.",
+      "invalidBody": "This reset link is invalid or has expired. Ask your administrator for a new link.",
+      "title": "Reset your password",
+      "promptForProject": "Choose a new password for {project}.",
+      "submit": "Reset password"
     },
     "field": {
       "email": "Email",
-      "password": "Mot de passe"
+      "password": "Password"
     }
   },
   "portal": {
     "notFound": {
-      "body": "Cette page n'existe pas."
+      "body": "This page doesn't exist."
     },
     "tools": {
-      "title": "Outils"
+      "title": "Tools"
     },
     "verdict": {
-      "pending": "En attente"
+      "pending": "Pending"
     },
     "stream": {
-      "submitted": "Vidéo soumise (Cloudflare Stream)"
+      "submitted": "Video submitted (Cloudflare Stream)"
     },
     "modelVideo": {
-      "title": "Vidéo à reproduire"
+      "title": "Video to recreate"
     },
     "progression": {
-      "nextTier": "Prochain palier"
+      "nextTier": "Next tier"
     },
     "script": {
-      "copyDescription": "Copier la description"
+      "copyDescription": "Copy the description"
     },
     "copy": {
-      "copy": "Copier",
-      "copied": "Copié !"
+      "copy": "Copy",
+      "copied": "Copied!"
     },
     "leaderboard": {
-      "projectTitle": "Classement du projet",
-      "cycleTitle": "Classement du cycle",
-      "projectSubtitle": "Ton classement sur les gains du cycle en cours. Les gains de chaque créateur sont visibles — vous êtes sur le même projet.",
-      "cycleSubtitle": "Gains du cycle en cours de chaque créateur (fenêtre J+30 personnelle, ancrée sur son premier post)."
+      "projectTitle": "Project leaderboard",
+      "cycleTitle": "Cycle leaderboard",
+      "projectSubtitle": "Where you stand on this cycle's earnings. Every creator's earnings are visible — you're all on the same project.",
+      "cycleSubtitle": "Each creator's earnings for the current cycle (personal 30-day window, anchored on their first post)."
     },
     "projectSwitcher": {
-      "change": "Changer de projet",
-      "mine": "Mes projets"
+      "change": "Switch project",
+      "mine": "My projects"
     },
     "todayPost": {
-      "empty": "Aucun post planifié à venir.",
-      "seeNext": "Voir le prochain post"
+      "empty": "No upcoming post scheduled.",
+      "seeNext": "See the next post"
     },
     "comptes": {
-      "emptyReadOnly": "Ce créateur n'a pas encore déclaré de compte.",
-      "emptyCreator": "Déclare ton premier compte pour démarrer son warmup."
+      "emptyReadOnly": "This creator hasn't declared an account yet.",
+      "emptyCreator": "Declare your first account to start its warm-up."
     },
     "calendarStatus": {
-      "onTime": "À l'heure",
-      "late": "En retard",
-      "missed": "Manqué",
-      "scheduled": "Prévu"
+      "onTime": "On time",
+      "late": "Late",
+      "missed": "Missed",
+      "scheduled": "Scheduled"
     },
     "fichiers": {
       "kind": {
-        "video": "Vidéo",
+        "video": "Video",
         "photo": "Photo",
-        "other": "Fichier"
+        "other": "File"
       }
     },
     "nav": {
@@ -253,153 +253,153 @@
     },
     "dashboard": {
       "produce": {
-        "title": "{count, plural, one {vidéo à produire} other {vidéos à produire}}",
-        "description": "Tourne ta vidéo selon le brief, puis envoie ton MP4."
+        "title": "{count, plural, one {video to shoot} other {videos to shoot}}",
+        "description": "Shoot your video from the brief, then send your MP4."
       },
       "warmup": {
-        "title": "{count, plural, one {warmup à cocher aujourd'hui} other {warmups à cocher aujourd'hui}}",
-        "description": "Coche le check du jour pour faire avancer le warmup.",
-        "cta": "Cocher mes warmups"
+        "title": "{count, plural, one {warm-up to check off today} other {warm-ups to check off today}}",
+        "description": "Check off today's task to move the warm-up forward.",
+        "cta": "Check off my warm-ups"
       },
       "publish": {
-        "title": "{count, plural, one {vidéo à publier} other {vidéos à publier}}",
-        "description": "Validée(s) — publie et colle l'URL pour déclencher ton paiement."
+        "title": "{count, plural, one {video to publish} other {videos to publish}}",
+        "description": "Approved — publish it and paste the URL to trigger your payment."
       },
       "redo": {
-        "title": "{count, plural, one {vidéo à refaire} other {vidéos à refaire}}",
-        "description": "Refusée(s) par l'admin — corrige et re-soumets."
+        "title": "{count, plural, one {video to redo} other {videos to redo}}",
+        "description": "Rejected by the admin — fix it and resubmit."
       },
       "step": {
         "declare": {
-          "title": "Déclare ton compte",
-          "done": "Compte déclaré",
-          "todo": "Ajoute ton @ TikTok / Instagram / YouTube.",
-          "cta": "Déclarer mon compte"
+          "title": "Declare your account",
+          "done": "Account declared",
+          "todo": "Add your TikTok / Instagram / YouTube @.",
+          "cta": "Declare my account"
         },
         "warmup": {
-          "title": "Fais ton warmup",
-          "done": "Warmup terminé",
-          "progress": "Jour {done}/{target}",
-          "locked": "Disponible après la déclaration de ton compte.",
-          "cta": "Cocher le check du jour"
+          "title": "Do your warm-up",
+          "done": "Warm-up complete",
+          "progress": "Day {done}/{target}",
+          "locked": "Available once you've declared your account.",
+          "cta": "Check off today's task"
         },
         "bio": {
-          "title": "Applique ta bio",
-          "todo": "Une bio t'a été fournie — copie-la sur ton profil.",
-          "done": "Bio appliquée",
-          "cta": "Voir la bio"
+          "title": "Apply your bio",
+          "todo": "A bio has been written for you — copy it to your profile.",
+          "done": "Bio applied",
+          "cta": "View the bio"
         },
         "validation": {
-          "title": "Validation de ton compte",
-          "done": "Compte validé — tu peux recevoir des missions.",
-          "todo": "L'équipe valide ton compte une fois le warmup terminé."
+          "title": "Account approval",
+          "done": "Account approved — you can now receive assignments.",
+          "todo": "The team approves your account once the warm-up is complete."
         }
       },
-      "managedBadge": "Géré par l'équipe",
+      "managedBadge": "Managed by the team",
       "videos": {
-        "title": "Mes vidéos publiées",
-        "subtitle": "Ton activité vidéo ce cycle.",
-        "online": "En ligne",
-        "views": "Vues",
-        "gains": "Gains",
-        "detailLink": "Voir le détail par vidéo"
+        "title": "My published videos",
+        "subtitle": "Your video activity this cycle.",
+        "online": "Live",
+        "views": "Views",
+        "gains": "Earnings",
+        "detailLink": "See the breakdown by video"
       },
       "earnings": {
-        "title": "Mes gains",
-        "subtitle": "Gagné ce mois + prochaine paie.",
-        "paidIn": "{days, plural, one {Payé dans # jour (le {date})} other {Payé dans # jours (le {date})}}",
-        "nextPayout": "Prochaine paie le {date}"
+        "title": "My earnings",
+        "subtitle": "Earned this month + next payout.",
+        "paidIn": "{days, plural, one {Paid in # day (on {date})} other {Paid in # days (on {date})}}",
+        "nextPayout": "Next payout on {date}"
       }
     },
     "profil": {
       "method": {
-        "sepa": "SEPA (virement bancaire)",
+        "sepa": "SEPA (bank transfer)",
         "paypal": "PayPal",
         "usdt": "USDT (crypto)",
-        "autre": "Autre"
+        "autre": "Other"
       },
       "placeholder": {
-        "sepa": "IBAN + nom du titulaire",
-        "paypal": "Email PayPal",
-        "usdt": "Adresse du wallet (réseau)",
-        "autre": "Précise comment te payer"
+        "sepa": "IBAN + account holder name",
+        "paypal": "PayPal email",
+        "usdt": "Wallet address (network)",
+        "autre": "Tell us how to pay you"
       },
-      "saved": "Profil enregistré.",
-      "error": "Une erreur est survenue.",
-      "identityTitle": "Identité",
-      "name": "Nom",
+      "saved": "Profile saved.",
+      "error": "Something went wrong.",
+      "identityTitle": "Identity",
+      "name": "Name",
       "email": "Email",
-      "phone": "Téléphone",
-      "paymentTitle": "Paiement",
-      "methodLabel": "Méthode de paiement",
-      "methodPlaceholder": "Choisir…",
-      "detailsLabel": "Coordonnées de paiement",
+      "phone": "Phone",
+      "paymentTitle": "Payment",
+      "methodLabel": "Payment method",
+      "methodPlaceholder": "Choose…",
+      "detailsLabel": "Payment details",
       "detailsPlaceholder": "IBAN, email, wallet…"
     },
     "assignment": {
-      "started": "C'est parti — bon tournage !",
-      "startFailed": "Impossible de démarrer la mission",
-      "videoSent": "Vidéo envoyée — en attente de validation",
-      "videoSendFailed": "Échec de l'envoi de la vidéo",
-      "published": "Publication confirmée — paiement en route 🎉",
-      "publishFailed": "Échec de la confirmation de publication",
-      "myVideo": "Ta vidéo soumise",
+      "started": "You're on — happy shooting!",
+      "startFailed": "Couldn't start the assignment",
+      "videoSent": "Video sent — waiting for approval",
+      "videoSendFailed": "Couldn't send the video",
+      "published": "Publication confirmed — payment on its way 🎉",
+      "publishFailed": "Couldn't confirm the publication",
+      "myVideo": "Your submitted video",
       "ro": {
-        "todo": "Mission pas encore démarrée par le créateur.",
-        "inProgress": "En production — le créateur doit soumettre sa vidéo.",
-        "submitted": "Vidéo envoyée — en attente de validation par l'admin.",
-        "resubmit": "Le créateur doit re-soumettre une vidéo.",
-        "toPublish": "Vidéo validée — le créateur doit publier puis coller les URLs."
+        "todo": "The creator hasn't started this assignment yet.",
+        "inProgress": "In production — the creator still has to submit their video.",
+        "submitted": "Video sent — waiting for the admin to approve it.",
+        "resubmit": "The creator has to submit a new video.",
+        "toPublish": "Video approved — the creator has to publish it, then paste the URLs."
       },
-      "redoTitle": "Vidéo à refaire",
-      "publishedPaid": "Publié et payé ✓",
-      "publishedOnly": "Publié ✓",
-      "uploadTitle": "Soumettre ta vidéo",
-      "uploadHint": "{count, plural, one {Envoie ton MP4 (non publié). L'admin la valide avant que tu la publies sur ton compte.} other {Envoie ton MP4 (non publié). L'admin la valide avant que tu la publies sur tes comptes.}}",
-      "dropHere": "Glisse ta vidéo ici",
-      "validatedPublish": "{count, plural, one {Ta vidéo est validée — publie-la sur ton compte, puis colle l'URL ci-dessous.} other {Ta vidéo est validée — publie-la sur chaque plateforme, puis colle les URLs ci-dessous.}}",
-      "publishOn": "Publie sur {platform}",
-      "wrongLink": "Ce lien n'est pas un lien {platform}."
+      "redoTitle": "Video to redo",
+      "publishedPaid": "Published and paid ✓",
+      "publishedOnly": "Published ✓",
+      "uploadTitle": "Submit your video",
+      "uploadHint": "{count, plural, one {Send your MP4 (unpublished). The admin approves it before you publish it on your account.} other {Send your MP4 (unpublished). The admin approves it before you publish it on your accounts.}}",
+      "dropHere": "Drop your video here",
+      "validatedPublish": "{count, plural, one {Your video is approved — publish it on your account, then paste the URL below.} other {Your video is approved — publish it on each platform, then paste the URLs below.}}",
+      "publishOn": "Publish on {platform}",
+      "wrongLink": "This isn't a {platform} link."
     },
     "sidebar": {
-      "dashboard": "Tableau de bord",
-      "comptes": "Mes comptes",
-      "paiements": "Mes paiements",
-      "profil": "Profil",
-      "guide": "Comment ça marche",
-      "fichiers": "Mes fichiers",
-      "videos": "Mes vidéos",
-      "aria": "Navigation créateur",
-      "logout": "Se déconnecter"
+      "dashboard": "Dashboard",
+      "comptes": "My accounts",
+      "paiements": "My payments",
+      "profil": "Profile",
+      "guide": "How it works",
+      "fichiers": "My files",
+      "videos": "My videos",
+      "aria": "Creator navigation",
+      "logout": "Log out"
     },
     "bottomNav": {
-      "home": "Accueil",
-      "comptes": "Comptes",
-      "gains": "Gains",
-      "profil": "Profil",
-      "outils": "Outils",
+      "home": "Home",
+      "comptes": "Accounts",
+      "gains": "Earnings",
+      "profil": "Profile",
+      "outils": "Tools",
       "guide": "Guide",
-      "fichiers": "Fichiers",
-      "videos": "Vidéos",
-      "aria": "Navigation portail"
+      "fichiers": "Files",
+      "videos": "Videos",
+      "aria": "Portal navigation"
     },
     "paiements": {
       "kind": {
         "base": "Base",
         "bonus": "Bonus",
-        "fixed": "Fixe",
+        "fixed": "Flat",
         "cpm": "CPM",
-        "bonus_tier": "Palier",
+        "bonus_tier": "Tier",
         "clip": "Clip",
-        "retainer": "Forfait"
+        "retainer": "Retainer"
       },
-      "fixe": "Fixe",
-      "cpmAccum": "CPM accumulé (sur tes vues)",
-      "bonusTiers": "Bonus paliers (cumul de vues)",
-      "subtotal": "Sous-total pricing",
+      "fixe": "Flat",
+      "cpmAccum": "Accrued CPM (on your views)",
+      "bonusTiers": "Tier bonuses (cumulative views)",
+      "subtotal": "Pricing subtotal",
       "total": "Total",
-      "dueThisCycle": "Dû ce cycle",
-      "dueForCycle": "Dû pour le cycle en cours ({range})"
+      "dueThisCycle": "Due this cycle",
+      "dueForCycle": "Due for the current cycle ({range})"
     }
   }
 }
