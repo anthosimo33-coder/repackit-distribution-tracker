@@ -23,6 +23,7 @@ import { formatBytes } from "@/lib/snytch-drive";
 import { formatDate } from "@/lib/format";
 import { isPlaceholderExampleTitle } from "@/lib/talent-brief";
 import { cn } from "@/lib/utils";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * ESPACE TALENT — un seul écran, et c'est tout ce qu'il y a.
@@ -78,6 +79,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 }
 
 export function TalentSpaceScreen() {
+  const loc = useIntlLocale();
   const { projectId } = useTalentProject();
   const readOnly = useReadOnly();
   const brief = useTalentBrief(projectId);
@@ -191,7 +193,7 @@ export function TalentSpaceScreen() {
                     </Badge>
                   </div>
                   <p className="text-xs text-slate-400">
-                    {formatDate(rush.depositedAt)} · {formatBytes(rush.sizeBytes)}
+                    {formatDate(rush.depositedAt, loc)} · {formatBytes(rush.sizeBytes, loc)}
                   </p>
                   {/*
                     Motif de refus — TEXTE BRUT, jamais <SimpleMarkdown>. C'est de

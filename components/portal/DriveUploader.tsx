@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { ConvexError } from "convex/values";
 import { classifyDriveKind, formatBytes } from "@/lib/snytch-drive";
 import { cn } from "@/lib/utils";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * Dépôt de fichiers — upload navigateur → Google Drive (le gros fichier ne
@@ -176,6 +177,7 @@ export function DriveUploader({
   limits: DriveUploadLimits;
   copy: DriveUploadCopy;
 }) {
+  const loc = useIntlLocale();
   const [items, setItems] = useState<UploadItem[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -333,7 +335,7 @@ export function DriveUploader({
                     {it.name}
                   </p>
                   <span className="shrink-0 text-xs tabular-nums text-slate-400">
-                    {formatBytes(it.size)}
+                    {formatBytes(it.size, loc)}
                   </span>
                 </div>
                 {it.status === "uploading" && (

@@ -9,6 +9,7 @@ import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
 import { useMyProgression } from "@/components/portal/creator-data";
 import { rewardEmoji } from "@/lib/progression";
 import { formatMoney, formatViews } from "@/lib/format-rate";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * Overlay GLOBAL de célébration de palier — monté dans le shell créateur, donc
@@ -32,6 +33,7 @@ export function ProgressionCelebration({
 }: {
   projectId: Id<"projects">;
 }) {
+  const loc = useIntlLocale();
   const va = useViewAs();
   // Devise de la paie créatrices ($ Snytch ; null → sans symbole) — le shell
   // créateur monte cet overlay sous le CreatorProjectProvider.
@@ -94,13 +96,13 @@ export function ProgressionCelebration({
           Palier débloqué !
         </p>
         <p className="mt-1 text-sm text-slate-500">
-          Tu as atteint {formatViews(headline.seuilVues)} vues cumulées.
+          Tu as atteint {formatViews(headline.seuilVues, loc)} vues cumulées.
         </p>
 
         <div className="mt-4 rounded-xl bg-primary/5 px-4 py-3">
           <p className="text-xl font-semibold text-slate-900">
             {headline.kind === "cash"
-              ? formatMoney(headline.amount ?? 0, payCurrency)
+              ? formatMoney(headline.amount ?? 0, payCurrency, loc)
               : `${headline.emoji} ${headline.label}`}
           </p>
           <p className="mt-1 text-xs text-slate-500">

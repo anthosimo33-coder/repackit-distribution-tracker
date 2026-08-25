@@ -12,6 +12,7 @@ import {
   representativePostedAt,
 } from "@/lib/calendar-status";
 import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 type BannerRow = {
   _id: Id<"assignments">;
@@ -23,8 +24,8 @@ type BannerRow = {
   publishedAt?: number | null;
 };
 
-function longDate(ts: number): string {
-  return new Date(ts).toLocaleDateString("fr-FR", {
+function longDate(ts: number, locale: string): string {
+  return new Date(ts).toLocaleDateString(locale, {
     weekday: "long",
     day: "2-digit",
     month: "long",
@@ -48,6 +49,7 @@ export function TodayPostBanner({
   now: number;
   base: string;
 }) {
+  const loc = useIntlLocale();
   const t = useTranslations("portal");
   const mine = list.filter((a) => !a.managedByAdmin && a.postDate != null);
   if (mine.length === 0) return null;
@@ -121,7 +123,7 @@ export function TodayPostBanner({
             <p className="text-slate-500">
               Prochain post{" "}
               <span className="font-medium capitalize">
-                {longDate(next.postDate!)}
+                {longDate(next.postDate!, loc)}
               </span>{" "}
               {formatPostWindow(next.postWindow) !== null
                 ? ` entre ${formatPostWindow(next.postWindow)!.replace("-", " et ")}`

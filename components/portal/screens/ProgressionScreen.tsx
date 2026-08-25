@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { formatMoney, formatViews } from "@/lib/format-rate";
 import { formatDate } from "@/lib/format";
 import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * Écran « Ma progression » (route POUSSÉE /app/progression, pas un onglet) —
@@ -85,6 +86,7 @@ type P = NonNullable<ReturnType<typeof buildProgression>>;
 
 /** Hero : vues cumulées → jauge vers le prochain palier (accent projet). */
 function Hero({ p, currency }: { p: P; currency?: string | null }) {
+  const loc = useIntlLocale();
   const t = useTranslations("portal");
   const pct = Math.round(p.progressToNext * 100);
   return (
@@ -98,7 +100,7 @@ function Hero({ p, currency }: { p: P; currency?: string | null }) {
             className="text-4xl font-semibold tabular-nums text-slate-900"
             data-testid="progression-cumul"
           >
-            {formatViews(p.cumulViews)}
+            {formatViews(p.cumulViews, loc)}
           </p>
         </div>
 
@@ -120,7 +122,7 @@ function Hero({ p, currency }: { p: P; currency?: string | null }) {
             <p className="text-xs text-slate-500">
               Plus que{" "}
               <span className="font-semibold tabular-nums text-slate-700">
-                {formatViews(p.remainingViews)}
+                {formatViews(p.remainingViews, loc)}
               </span>{" "}
               vues.
             </p>
@@ -135,7 +137,7 @@ function Hero({ p, currency }: { p: P; currency?: string | null }) {
           <div className="flex flex-wrap justify-center gap-1.5 border-t border-primary/15 pt-3">
             {p.cashUnlockedTotal > 0 && (
               <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
-                + {formatMoney(p.cashUnlockedTotal, currency)} débloqués
+                + {formatMoney(p.cashUnlockedTotal, currency, loc)} débloqués
               </span>
             )}
             {p.itemsUnlocked.map((r, i) => (
@@ -204,6 +206,7 @@ function LadderRow({
   current: boolean;
   currency?: string | null;
 }) {
+  const loc = useIntlLocale();
   const Icon = entry.unlocked
     ? CircleCheckIcon
     : current
@@ -237,9 +240,9 @@ function LadderRow({
           <RewardLabel reward={entry.reward} currency={currency} />
         </p>
         <p className="text-xs text-slate-400">
-          {formatViews(entry.threshold)} vues
+          {formatViews(entry.threshold, loc)} vues
           {entry.unlocked && entry.unlockedAt
-            ? ` · débloqué le ${formatDate(entry.unlockedAt)}`
+            ? ` · débloqué le ${formatDate(entry.unlockedAt, loc)}`
             : ""}
         </p>
       </div>
@@ -308,11 +311,12 @@ function RewardLabel({
   reward: ProgressionReward;
   currency?: string | null;
 }) {
+  const loc = useIntlLocale();
   if (reward.kind === "cash") {
     return (
       <>
         <TrophyIcon className="size-3.5 text-primary" aria-hidden />
-        {formatMoney(reward.amount, currency)}
+        {formatMoney(reward.amount, currency, loc)}
       </>
     );
   }

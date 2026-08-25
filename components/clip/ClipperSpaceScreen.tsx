@@ -24,6 +24,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { ASSIGNMENT_STATUS, type AssignmentStatus } from "@/lib/assignment-status";
 import { formatDate } from "@/lib/format";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 import {
   PHASE_LABELS,
   accountPhaseAt,
@@ -297,6 +298,7 @@ function MesComptes() {
 }
 
 function MesClips() {
+  const loc = useIntlLocale();
   const { projectId } = useClipperProject();
   const clips = useMyClips(projectId);
   const base = useClipperBase();
@@ -332,7 +334,7 @@ function MesClips() {
                         </Badge>
                         {c.dueDate !== undefined && (
                           <span className="text-xs text-slate-500">
-                            à rendre le {formatDate(c.dueDate)}
+                            à rendre le {formatDate(c.dueDate, loc)}
                           </span>
                         )}
                       </div>

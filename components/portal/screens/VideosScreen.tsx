@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { formatMoney, formatViews } from "@/lib/format-rate";
 import { publishedAgo } from "@/lib/video-tracking";
 import { isSnytchProject } from "@/lib/snytch-drive";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 import {
   CREATOR_VIDEO_FILTERS,
   countCreatorVideosByFilter,
@@ -137,12 +138,13 @@ function StatusChip({ status }: { status: Video["status"] }) {
 
 /** Bloc Vues + Gain — vidéos EN LIGNE uniquement (published/paid). */
 function OnlineMetrics({ v, currency }: { v: Video; currency?: string | null }) {
+  const loc = useIntlLocale();
   return (
     <div className="flex items-end justify-between gap-3">
       <div>
         <p className="text-xs text-slate-400">Vues</p>
         <p className="text-lg font-semibold tabular-nums text-slate-900">
-          {v.views === null ? "—" : formatViews(v.views)}
+          {v.views === null ? "—" : formatViews(v.views, loc)}
         </p>
       </div>
       <div className="text-right">
@@ -153,7 +155,7 @@ function OnlineMetrics({ v, currency }: { v: Video; currency?: string | null }) 
             v.capped ? "text-emerald-600" : "text-slate-900",
           )}
         >
-          {v.gain === null ? "—" : formatMoney(v.gain, currency)}
+          {v.gain === null ? "—" : formatMoney(v.gain, currency, loc)}
         </p>
         {v.capped && (
           <span className="text-[0.65rem] font-semibold uppercase tracking-wide text-emerald-600">

@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FilmIcon, ImageIcon, FilesIcon, InboxIcon } from "lucide-react";
 import { isSnytchProject, classifyDriveKind, formatBytes } from "@/lib/snytch-drive";
 import { formatDate } from "@/lib/format";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * « Dépôt de contenu » — écran créateur SNYTCH UNIQUEMENT. Le créateur dépose
@@ -67,6 +68,7 @@ function Notice({ title, body }: { title: string; body: string }) {
 }
 
 export default function FichiersScreen() {
+  const loc = useIntlLocale();
   const { current } = useCreatorProject();
   const va = useViewAs();
   const snytch = isSnytchProject(current.slug);
@@ -156,8 +158,8 @@ export default function FichiersScreen() {
                       {f.fileName}
                     </p>
                     <p className="text-xs text-slate-500">
-                      {KIND_LABEL_KEY[kind]} · {formatBytes(f.sizeBytes)} ·{" "}
-                      {formatDate(f.uploadedAt)}
+                      {KIND_LABEL_KEY[kind]} · {formatBytes(f.sizeBytes, loc)} ·{" "}
+                      {formatDate(f.uploadedAt, loc)}
                     </p>
                   </div>
                 </li>

@@ -9,6 +9,7 @@ import { portalHref } from "@/lib/view-as";
 import { useMyProfile, useMyPayments } from "@/components/portal/creator-data";
 import { usePortalBase } from "@/components/portal/ViewAsContext";
 import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * QW3 — bandeau d'action « coordonnées de paiement manquantes ». S'affiche
@@ -22,6 +23,7 @@ import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
  * Renvoie vers /app/profil (section coordonnées de paiement).
  */
 export function PaymentInfoNudge({ projectId }: { projectId: Id<"projects"> }) {
+  const loc = useIntlLocale();
   const profile = useMyProfile(projectId);
   const payments = useMyPayments(projectId);
   const base = usePortalBase();
@@ -45,7 +47,7 @@ export function PaymentInfoNudge({ projectId }: { projectId: Id<"projects"> }) {
         </p>
         <p className="text-sm text-amber-800">
           Sans elles, on ne peut pas te verser tes{" "}
-          {formatMoney(amountOwed(payments), payCurrency)}.
+          {formatMoney(amountOwed(payments), payCurrency, loc)}.
         </p>
       </div>
       <ArrowRightIcon className="size-4 shrink-0 text-amber-700" />

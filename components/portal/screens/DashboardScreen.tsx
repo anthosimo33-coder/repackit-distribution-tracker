@@ -65,6 +65,7 @@ import {
   type AssignmentStatus,
 } from "@/lib/assignment-status";
 import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * Accueil du portail créateur — DASHBOARD ORIENTÉ ACTION, scopé au PROJET
@@ -90,8 +91,8 @@ const TYPE_LABELS: Record<string, string> = {
 
 const ITEM_CAP = 5;
 
-function formatDate(ts: number) {
-  return new Date(ts).toLocaleDateString("fr-FR", {
+function formatDate(ts: number, locale: string) {
+  return new Date(ts).toLocaleDateString(locale, {
     day: "2-digit",
     month: "short",
   });
@@ -686,6 +687,7 @@ function NextTierCard({
   base: string;
   currency?: string | null;
 }) {
+  const loc = useIntlLocale();
   const raw = useMyProgression(projectId);
   const p = raw ? buildProgression(raw) : null;
   if (!p || !p.nextReward) return null;
@@ -709,7 +711,7 @@ function NextTierCard({
               </p>
               <p className="truncate text-xs text-slate-500">
                 {reward.kind === "cash"
-                  ? formatMoney(reward.amount, currency)
+                  ? formatMoney(reward.amount, currency, loc)
                   : `${reward.emoji} ${reward.label}`}
               </p>
             </div>
@@ -724,7 +726,7 @@ function NextTierCard({
           <p className="text-xs text-slate-500">
             Plus que{" "}
             <span className="font-semibold tabular-nums text-slate-700">
-              {formatViews(p.remainingViews)}
+              {formatViews(p.remainingViews, loc)}
             </span>{" "}
             vues.
           </p>
@@ -780,6 +782,7 @@ function AssignmentItem({
   showFeedback?: boolean;
   managed?: boolean;
 }) {
+  const loc = useIntlLocale();
   const t = useTranslations("portal");
   // Compte géré : aucune urgence (elle n'agit pas), et un badge « géré par
   // l'équipe » remplace le statut de workflow (« À publier » serait trompeur).
@@ -802,7 +805,7 @@ function AssignmentItem({
             )}
           </div>
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
-            <span className="text-slate-500">Échéance {formatDate(a.dueDate)}</span>
+            <span className="text-slate-500">Échéance {formatDate(a.dueDate, loc)}</span>
             {a.targets.length > 0 && (
               <span className="font-mono text-slate-400">
                 · {a.targets.map((t) => t.platform).join(" · ")}
@@ -870,6 +873,7 @@ function VideoStatsCard({
   base: string;
   currency?: string | null;
 }) {
+  const loc = useIntlLocale();
   const t = useTranslations("portal");
   const stats = useMyVideoStats(projectId);
   if (!stats || stats.onlineCount === 0) return null;
@@ -885,8 +889,8 @@ function VideoStatsCard({
       <CardContent className="space-y-3">
         <div className="grid grid-cols-3 gap-2">
           <VideoStat label={t("dashboard.videos.online")} value={String(stats.onlineCount)} />
-          <VideoStat label={t("dashboard.videos.views")} value={formatViews(stats.totalViews)} />
-          <VideoStat label={t("dashboard.videos.gains")} value={formatMoney(stats.totalGain, currency)} />
+          <VideoStat label={t("dashboard.videos.views")} value={formatViews(stats.totalViews, loc)} />
+          <VideoStat label={t("dashboard.videos.gains")} value={formatMoney(stats.totalGain, currency, loc)} />
         </div>
         <Link
           href={portalHref(base, "/videos")}
@@ -929,6 +933,7 @@ function EarningsOverview({
   detailHref: string;
   currency?: string | null;
 }) {
+  const loc = useIntlLocale();
   const t = useTranslations("portal");
   return (
     <Card>
@@ -947,14 +952,14 @@ function EarningsOverview({
             className="text-3xl font-semibold tabular-nums text-slate-900"
             data-testid="dashboard-due"
           >
-            {formatMoney(dueNow, currency)}
+            {formatMoney(dueNow, currency, loc)}
           </p>
         )}
         {nextPayoutTs !== null && payoutDays !== null && (
           <p className="text-xs text-slate-500">
             {dueNow > 0
-              ? t("dashboard.earnings.paidIn", { days: payoutDays, date: formatDate(nextPayoutTs) })
-              : t("dashboard.earnings.nextPayout", { date: formatDate(nextPayoutTs) })}
+              ? t("dashboard.earnings.paidIn", { days: payoutDays, date: formatDate(nextPayoutTs, loc) })
+              : t("dashboard.earnings.nextPayout", { date: formatDate(nextPayoutTs, loc) })}
           </p>
         )}
         <Link

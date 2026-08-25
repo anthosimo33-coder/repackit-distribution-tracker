@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format-rate";
 import { formatDate } from "@/lib/format";
 import { formatCycleRange } from "@/lib/pay-cycle";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 import { ArrowRightIcon, ChevronRightIcon } from "lucide-react";
 import type { FunctionReturnType } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -30,7 +31,7 @@ import { useTranslations } from "next-intl";
 type Payment = FunctionReturnType<typeof api.payments.getMyPayments>[number];
 
 const DAY_MS = 86_400_000;
-const fmtViews = (n: number) => n.toLocaleString("fr-FR");
+const fmtViews = (n: number, locale: string) => n.toLocaleString(locale);
 
 /**
  * Paliers de bonus (cumul de vues À VIE) — motivant : cumul, jauge vers le
@@ -43,6 +44,7 @@ function BonusTierPanel({
   projectId: Id<"projects">;
   currency?: string | null;
 }) {
+  const loc = useIntlLocale();
   const status = useMyBonusStatus(projectId);
   const base = usePortalBase();
   if (!status || (status.tiers.length === 0 && status.natureUnlocked.length === 0))
@@ -65,7 +67,7 @@ function BonusTierPanel({
             className="text-sm font-medium tabular-nums text-amber-800"
             data-testid="cumul-views"
           >
-            {fmtViews(status.cumulViews)} vues cumulées
+            {fmtViews(status.cumulViews, loc)} vues cumulées
           </span>
         </div>
         {next ? (
@@ -79,12 +81,12 @@ function BonusTierPanel({
             <p className="text-xs text-amber-800">
               Plus que{" "}
               <span className="font-semibold tabular-nums">
-                {fmtViews(status.viewsToNext ?? 0)}
+                {fmtViews(status.viewsToNext ?? 0, loc)}
               </span>{" "}
               vues avant{" "}
               <span className="font-semibold">
                 {next.rewardType === "cash"
-                  ? `${formatMoney(next.montant ?? 0, currency)}`
+                  ? `${formatMoney(next.montant ?? 0, currency, loc)}`
                   : next.libelle}
               </span>
               .
@@ -99,7 +101,7 @@ function BonusTierPanel({
           <div className="flex flex-wrap gap-1.5 pt-1">
             {status.cashUnlockedTotal > 0 && (
               <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
-                + {formatMoney(status.cashUnlockedTotal, currency)} débloqués
+                + {formatMoney(status.cashUnlockedTotal, currency, loc)} débloqués
               </span>
             )}
             {status.natureUnlocked.map((r, i) => (
@@ -172,6 +174,7 @@ function PricingBreakdown({
   b: Payment["pricingBreakdown"];
   currency?: string | null;
 }) {
+  const loc = useIntlLocale();
   const t = useTranslations("portal");
   if (b.total <= 0 && b.perPricing.length === 0) return null;
   // Un cycle peut mélanger DEUX barèmes (un pricing édité en place laisse des
@@ -190,7 +193,7 @@ function PricingBreakdown({
           <Row
             key={`${g.pricingId}:${g.montantFixe}:${g.nbVideosCible}`}
             label={`Fixe — ${g.videoCount}/${g.nbVideosCible} vidéos publiées`}
-            sub={`sur ${formatMoney(g.montantFixe, currency)}`}
+            sub={`sur ${formatMoney(g.montantFixe, currency, loc)}`}
             amount={g.fixed}
             currency={currency}
           />
@@ -204,7 +207,7 @@ function PricingBreakdown({
           b.bonusTierCashUnlocks.map((u, i) => (
             <Row
               key={i}
-              label={`Bonus palier ${fmtViews(u.seuilVues)} vues`}
+              label={`Bonus palier ${fmtViews(u.seuilVues, loc)} vues`}
               amount={u.montant}
               currency={currency}
             />
@@ -220,7 +223,7 @@ function PricingBreakdown({
       <div className="flex items-center justify-between border-t border-slate-100 pt-2 text-sm font-semibold">
         <span>{t("paiements.subtotal")}</span>
         <span className="tabular-nums" data-testid="pricing-total">
-          {formatMoney(b.total, currency)}
+          {formatMoney(b.total, currency, loc)}
         </span>
       </div>
     </div>
@@ -238,6 +241,7 @@ function Row({
   amount: number;
   currency?: string | null;
 }) {
+  const loc = useIntlLocale();
   return (
     <div className="flex items-center justify-between gap-3 text-sm">
       <span className="min-w-0 text-slate-600">
@@ -245,13 +249,14 @@ function Row({
         {sub ? <span className="text-slate-400"> {sub}</span> : null}
       </span>
       <span className="shrink-0 tabular-nums text-slate-900">
-        {formatMoney(amount, currency)}
+        {formatMoney(amount, currency, loc)}
       </span>
     </div>
   );
 }
 
 function LineItems({ p, currency }: { p: Payment; currency?: string | null }) {
+  const loc = useIntlLocale();
   const t = useTranslations("portal");
   return (
     <ul className="divide-y divide-slate-100">
@@ -265,19 +270,20 @@ function LineItems({ p, currency }: { p: Payment; currency?: string | null }) {
             <span className="truncate text-slate-700">{li.label}</span>
           </span>
           <span className="shrink-0 tabular-nums text-slate-900">
-            {formatMoney(li.amount, currency)}
+            {formatMoney(li.amount, currency, loc)}
           </span>
         </li>
       ))}
       <li className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm font-semibold">
         <span>{t("paiements.total")}</span>
-        <span className="tabular-nums">{formatMoney(p.totalDue, currency)}</span>
+        <span className="tabular-nums">{formatMoney(p.totalDue, currency, loc)}</span>
       </li>
     </ul>
   );
 }
 
 function PastPeriod({ p, currency }: { p: Payment; currency?: string | null }) {
+  const loc = useIntlLocale();
   const [open, setOpen] = useState(false);
   return (
     <Card>
@@ -294,11 +300,11 @@ function PastPeriod({ p, currency }: { p: Payment; currency?: string | null }) {
             )}
           />
           <span className="font-medium text-slate-900">
-            {formatCycleRange(p.cycleStart, p.cycleEnd)}
+            {formatCycleRange(p.cycleStart, p.cycleEnd, loc)}
           </span>
           {p.status === "paid" ? (
             <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-              Payé{p.paidAt ? ` le ${formatDate(p.paidAt)}` : ""}
+              Payé{p.paidAt ? ` le ${formatDate(p.paidAt, loc)}` : ""}
             </span>
           ) : (
             <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
@@ -307,7 +313,7 @@ function PastPeriod({ p, currency }: { p: Payment; currency?: string | null }) {
           )}
         </span>
         <span className="shrink-0 tabular-nums font-medium text-slate-900">
-          {formatMoney(p.totalDue, currency)}
+          {formatMoney(p.totalDue, currency, loc)}
         </span>
       </button>
       {open && (
@@ -320,6 +326,7 @@ function PastPeriod({ p, currency }: { p: Payment; currency?: string | null }) {
 }
 
 export default function PaiementsScreen() {
+  const loc = useIntlLocale();
   const t = useTranslations("portal");
   const { current: currentProject } = useCreatorProject();
   // Devise de la paie créatrices (projects.payCurrency, $ Snytch ; null → sans
@@ -361,20 +368,20 @@ export default function PaiementsScreen() {
             <CardContent className="space-y-1 py-7 text-center">
               <p className="text-sm text-slate-500">
                 {current
-                  ? t("paiements.dueForCycle", { range: formatCycleRange(current.cycleStart, current.cycleEnd) })
+                  ? t("paiements.dueForCycle", { range: formatCycleRange(current.cycleStart, current.cycleEnd, loc) })
                   : t("paiements.dueThisCycle")}
               </p>
               <p
                 className="text-4xl font-semibold tabular-nums text-slate-900"
                 data-testid="due-now"
               >
-                {formatMoney(dueNow, payCurrency)}
+                {formatMoney(dueNow, payCurrency, loc)}
               </p>
               {nextTs !== null && days !== null ? (
                 <p className="text-sm text-slate-500">
                   {dueNow > 0
-                    ? `Payé dans ${days} jour${days > 1 ? "s" : ""} (le ${formatDate(nextTs)})`
-                    : `Prochaine paie le ${formatDate(nextTs)}`}
+                    ? `Payé dans ${days} jour${days > 1 ? "s" : ""} (le ${formatDate(nextTs, loc)})`
+                    : `Prochaine paie le ${formatDate(nextTs, loc)}`}
                 </p>
               ) : (
                 <p className="text-sm text-slate-500">

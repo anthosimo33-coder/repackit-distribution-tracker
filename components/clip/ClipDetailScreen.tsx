@@ -21,6 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { ASSIGNMENT_STATUS, type AssignmentStatus } from "@/lib/assignment-status";
 import { formatDate } from "@/lib/format";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * FICHE D'UN CLIP — le script à monter, les consignes, le dépôt du montage, et
@@ -34,6 +35,7 @@ import { formatDate } from "@/lib/format";
  * exactement ce qui a de la valeur.
  */
 export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
+  const loc = useIntlLocale();
   const { projectId } = useClipperProject();
   const readOnly = useReadOnly();
   const base = useClipperBase();
@@ -109,7 +111,7 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
         </Badge>
         {clip.dueDate !== undefined && (
           <span className="text-xs text-slate-500">
-            à rendre le {formatDate(clip.dueDate)}
+            à rendre le {formatDate(clip.dueDate, loc)}
           </span>
         )}
       </div>

@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format-rate";
 import { formatCycleRange } from "@/lib/pay-cycle";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * Leaderboard des créateurs d'un projet — podium top 3 + liste (rang 4+), classés
@@ -188,6 +189,7 @@ function PodiumSpot({
   entry: LeaderboardEntry;
   currency?: string | null;
 }) {
+  const loc = useIntlLocale();
   const m = MEDAL[entry.rank as 1 | 2 | 3];
   // Pédestal décroissant 1 > 2 > 3 ; items-end aligne les bases → le 1er culmine.
   const pedestalH =
@@ -237,11 +239,11 @@ function PodiumSpot({
           {entry.name}
         </p>
         <p className="text-sm font-bold tabular-nums text-foreground">
-          {formatMoney(entry.totalDue, currency)}
+          {formatMoney(entry.totalDue, currency, loc)}
         </p>
         {/* Fenêtre de cycle — obligatoire (mitigation de la désynchro). */}
         <p className="mt-0.5 line-clamp-1 text-center text-[11px] text-muted-foreground">
-          {formatCycleRange(entry.cycleStart, entry.cycleEnd)}
+          {formatCycleRange(entry.cycleStart, entry.cycleEnd, loc)}
         </p>
         {entry.isMe && (
           <div className="mt-1">
@@ -271,6 +273,7 @@ function ListRow({
   entry: LeaderboardEntry;
   currency?: string | null;
 }) {
+  const loc = useIntlLocale();
   return (
     <li
       className={cn(
@@ -295,11 +298,11 @@ function ListRow({
           {entry.isMe && <MePill />}
         </div>
         <p className="truncate text-xs text-muted-foreground">
-          {formatCycleRange(entry.cycleStart, entry.cycleEnd)}
+          {formatCycleRange(entry.cycleStart, entry.cycleEnd, loc)}
         </p>
       </div>
       <span className="shrink-0 text-sm font-bold tabular-nums text-foreground">
-        {formatMoney(entry.totalDue, currency)}
+        {formatMoney(entry.totalDue, currency, loc)}
       </span>
     </li>
   );
