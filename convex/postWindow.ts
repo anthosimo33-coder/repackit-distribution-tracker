@@ -79,7 +79,9 @@ export function postWindowSentence(
 ): string {
   const plage = formatPostWindow(w);
   return plage === null
+    // i18n-exempt: postWindowSentence n'est consommée par AUCUN écran (seulement son test) — dette notée
     ? `À publier le ${jourFormate}`
+    // i18n-exempt: postWindowSentence n'est consommée par AUCUN écran (seulement son test) — dette notée
     : `À publier le ${jourFormate} entre ${hhmm(w!.startMin)} et ${hhmm(w!.endMin)}`;
 }
 

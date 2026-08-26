@@ -195,7 +195,7 @@ export default function ProfilScreen() {
                     className="h-11 w-full text-base sm:h-9 sm:w-auto sm:text-sm"
                   >
                     {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-                    Enregistrer
+                    {t("profil.save")}
                   </Button>
                 </div>
               )}

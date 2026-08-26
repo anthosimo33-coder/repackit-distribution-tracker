@@ -144,10 +144,12 @@ async function uploadViaProxy(
       body: file.slice(start, end),
     });
     if (!res.ok) {
+      // i18n-exempt: helper hors composant (pas de hook) ; l'appelant affiche drive.uploadFailed
       throw new Error(`Upload interrompu (HTTP ${res.status}).`);
     }
     const data = (await res.json()) as ProxyChunkResponse;
     if (data.status === "error") {
+      // i18n-exempt: helper hors composant (pas de hook) ; l'appelant affiche drive.uploadFailed
       throw new Error(`Drive a refusé l'upload (HTTP ${data.httpStatus}).`);
     }
     if (data.status === "complete") {
@@ -220,7 +222,7 @@ export function DriveUploader({
         thumbnailLink: res.thumbnailLink,
       });
       patch(item.localId, { status: "done", progress: 100 });
-      toast.success(`${item.name} envoyé`);
+      toast.success(tdr("fileSent", { name: item.name }));
     } catch (e) {
       // Surface le message réel (ConvexError métier OU Error d'upload avec le
       // code HTTP) pour un diagnostic utile côté créateur/fondateur.
@@ -357,7 +359,7 @@ export function DriveUploader({
                     </div>
                     <p className="flex items-center gap-1 text-xs text-slate-500">
                       <Loader2Icon className="size-3 animate-spin" />
-                      Envoi {it.progress}%
+                      {tdr("progress", { percent: it.progress })}
                     </p>
                   </div>
                 )}

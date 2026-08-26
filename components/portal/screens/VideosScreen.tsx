@@ -193,7 +193,7 @@ function VideoRow({
             ))}
             {v.publishedAt !== null && (
               <span className="text-xs text-slate-400">
-                Publié {publishedAgo(v.publishedAt, now)}
+                {tv("publishedAgo", { ago: publishedAgo(v.publishedAt, now) })}
               </span>
             )}
             {v.status === "paid" && (
@@ -246,7 +246,7 @@ function VideoRow({
             {v.hasSubmittedVideo && (
               <VideoIcon className="size-4 shrink-0 text-slate-400" />
             )}
-            Vidéo soumise — en attente de la validation de l&apos;équipe.
+            {tv("submittedWaiting")}
           </p>
         )}
       </CardContent>

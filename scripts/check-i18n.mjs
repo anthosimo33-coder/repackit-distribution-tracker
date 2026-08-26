@@ -69,6 +69,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { catalogEntityViolations } from "./i18n-entities.mjs";
+import {
+  scanSpans,
+  stripInterpolations,
+  looksLikeSentence,
+} from "./i18n-detect.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
@@ -172,20 +177,42 @@ const STRICT_JSX = /(?<![=!<>-])>(?!=)\s*([^<>{}\n][^<>{}]*?)\s*</g;
  * accepte les sauts de ligne. Les garde-fous ci-dessous évitent de capturer du
  * CODE entre deux chevrons sans rapport (`Array<string> = [];` … `<div`).
  */
-const MULTILINE_JSX = /(?<![=!<>-])>(?!=)([^<>{}]*)</g;
-
 /**
- * Signature de CODE entre deux chevrons : une affectation, un guillemet, ou un
- * point-virgule EN FIN DE LIGNE (terminateur d'instruction).
+ * Signature de CODE : une affectation, un guillemet, ou un point-virgule EN FIN
+ * DE LIGNE (terminateur d'instruction).
  *
  * ⚠️ Le point-virgule seul ne suffit pas : la ponctuation française l'utilise
  * avec des espaces autour (« un admin la relit ; une fois validée… »), et le
  * rejeter en bloc rendait invisible toute phrase qui en contient. Faux négatif
  * trouvé sur ClipDetailScreen, après coup.
+ *
+ * ⚠️ Ce test s'applique au texte APRÈS retrait des interpolations : les
+ * guillemets et les `=` vivent presque toujours DANS l'interpolation
+ * (`{cond ? "a" : "b"}`), pas dans la prose qui l'entoure.
  */
 const LOOKS_LIKE_CODE = /[="'`]|;\s*$/m;
 
 const STRICT_LITERAL = /(["'])((?:(?!\1)[^\\\n]|\\.)*)\1/g;
+
+/**
+ * LITTÉRAUX TEMPLATE — le troisième trou.
+ *
+ * `STRICT_LITERAL` n'apparie que `"` et `'`. Tout ce qui s'écrit entre backticks
+ * lui échappait, or c'est la forme naturelle dès qu'une phrase interpole :
+ *
+ *     `Upload échoué (HTTP ${res.status}).`
+ *     `Il manque le lien pour ${platform}.`
+ *     `Aucun projet « ${slug} » n'existe.`
+ *
+ * On les apparie donc aussi, et on retire `${…}` avant de tester la prose — le
+ * texte à extraire est ce qui reste. Un template mono-ligne suffit : sur
+ * plusieurs lignes, c'est du HTML ou du SQL, pas une phrase d'interface.
+ */
+const TEMPLATE_LITERAL = /`((?:[^`\\]|\\.)*)`/g;
+
+/** Retire les interpolations `${…}` d'un template. */
+const stripTemplate = (s) =>
+  s.replace(/\$\{[^}]*\}/g, " ").replace(/\s+/g, " ").trim();
 
 /** Lignes où un littéral n'est jamais de la copie : classes, imports, chemins. */
 const NON_TEXT_LINE = /\b(className|classList|import\s|from\s+["']|require\(|cn\(|clsx\(|cva\()/;
@@ -292,6 +319,12 @@ for (const rel of SCOPE) {
       while ((m = STRICT_LITERAL.exec(code)) !== null) {
         if (isProse(m[2])) strictHits.push(m[2].trim());
       }
+      TEMPLATE_LITERAL.lastIndex = 0;
+      let tm;
+      while ((tm = TEMPLATE_LITERAL.exec(code)) !== null) {
+        const t = stripTemplate(tm[1]);
+        if (t !== "" && looksLikeSentence(t) && isProse(t)) strictHits.push(t);
+      }
     }
     for (const re of [STRICT_ATTRS, STRICT_JSX, LABEL_KEYS, CALL_LITERAL]) {
       re.lastIndex = 0;
@@ -317,25 +350,16 @@ for (const rel of SCOPE) {
   // du code — « , id: Id » sortait de `creator-data.ts` à ce titre.
   if (!rel.endsWith(".tsx")) continue;
   const joined = cleanLines.join("\n");
-  MULTILINE_JSX.lastIndex = 0;
-  let mm;
-  while ((mm = MULTILINE_JSX.exec(joined)) !== null) {
-    const raw = mm[1];
-    const text = raw.trim();
-    if (text === "" || LOOKS_LIKE_CODE.test(raw)) continue;
+  for (const span of scanSpans(joined)) {
     // Une prose JSX tient en quelques lignes ; au-delà, on a sauté par-dessus du
     // code sans rapport et la capture n'a plus de sens.
-    if ((raw.match(/\n/g) || []).length > 4) continue;
-    // Le texte peut être coupé par Prettier : on le recolle pour le lire, mais
-    // on le signale à la ligne où il COMMENCE.
-    const flat = text.replace(/\s+/g, " ");
-    // Une phrase commence par une lettre, un chiffre ou un ouvrant de citation.
-    // Un fragment de code capté entre deux chevrons commence par de la
-    // ponctuation — `) : done ? (` (ternaire JSX) et `, id: Id` sortaient ainsi.
-    if (!/^[\p{L}\p{N}«—]/u.test(flat)) continue;
+    if ((span.raw.match(/\n/g) || []).length > 6) continue;
+    // Le TEXTE, c'est ce qui reste une fois les interpolations retirées.
+    const flat = stripInterpolations(span.raw);
+    if (flat === "" || LOOKS_LIKE_CODE.test(flat)) continue;
+    if (!looksLikeSentence(flat)) continue;
     if (!isDisplayText(flat)) continue;
-    const start = mm.index + mm[0].indexOf(raw);
-    const line = joined.slice(0, start).split("\n").length;
+    const line = joined.slice(0, span.index).split("\n").length;
     findings.push({
       file: rel,
       line,

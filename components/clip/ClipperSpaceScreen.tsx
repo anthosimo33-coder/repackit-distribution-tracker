@@ -87,7 +87,7 @@ function EtatDuCompte({
   if (refusedReason !== null) {
     return (
       <p className="text-xs text-rose-700">
-        Compte refusé — {refusedReason}
+        {tc("accountRefused", { reason: refusedReason })}
       </p>
     );
   }
@@ -340,7 +340,7 @@ function MesClips() {
                         </Badge>
                         {c.dueDate !== undefined && (
                           <span className="text-xs text-slate-500">
-                            à rendre le {formatDate(c.dueDate, loc)}
+                            {tc("dueOn", { date: formatDate(c.dueDate, loc) })}
                           </span>
                         )}
                       </div>

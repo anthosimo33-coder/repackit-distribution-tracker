@@ -251,6 +251,7 @@ export function quotaRefusal(
   if (phase === null) {
     return err(
       ERR.CLIP_QUOTA_NOT_VALIDATED,
+      // i18n-exempt: repli FR de la charge d'erreur ; le client rend error.ERR_CLIP_QUOTA_* dans sa langue
       `Le compte ${handle} n'était pas encore validé le ${jour} : aucune publication possible à cette date.`,
       { handle, date: jour, at },
     );
@@ -258,6 +259,7 @@ export function quotaRefusal(
   if (postsPerDay === 0) {
     return err(
       ERR.CLIP_QUOTA_PHASE_ZERO,
+      // i18n-exempt: repli FR de la charge d'erreur ; le client rend error.ERR_CLIP_QUOTA_* dans sa langue
       `Le compte ${handle} est en phase de ${PHASE_FR[phase]} le ${jour} : aucune publication possible à cette date.`,
       { handle, date: jour, at, phaseKey: PHASE_INLINE_KEYS[phase] },
     );

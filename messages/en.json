@@ -171,7 +171,8 @@
       "signupFailed": "Couldn't create the account (password too short — 8 characters minimum — or the account already exists).",
       "projectNotFound": "Project not found",
       "projectNotFoundBody": "No project matches this link. Check the address or sign in from the general page.",
-      "goToGeneralLogin": "Go to sign-in"
+      "goToGeneralLogin": "Go to sign-in",
+      "subtitleProject": "Sign in to your {project} space."
     },
     "reset": {
       "invalidTitle": "Invalid link",
@@ -200,7 +201,8 @@
     },
     "tools": {
       "title": "Tools",
-      "empty": "No tools available for this project."
+      "empty": "No tools available for this project.",
+      "subtitle": "{project}'s tools — they open in a new tab."
     },
     "verdict": {
       "pending": "Pending"
@@ -209,7 +211,8 @@
       "submitted": "Video submitted (Cloudflare Stream)"
     },
     "modelVideo": {
-      "title": "Video to recreate"
+      "title": "Video to recreate",
+      "playAria": "Play the video {title}"
     },
     "progression": {
       "nextTier": "Next tier",
@@ -222,7 +225,11 @@
       "back": "Back",
       "title": "My progress",
       "empty": "Your progress will show up here as soon as you get your first views.",
-      "cumulViews": "Total views"
+      "cumulViews": "Total views",
+      "viewsToGo": "{count, plural, one {{views} view to go.} other {{views} views to go.}}",
+      "subtitle": "Your total views unlock {project}'s rewards.",
+      "thresholdViews": "{views} views",
+      "unlockedOn": " · unlocked on {date}"
     },
     "script": {
       "copyDescription": "Copy the description",
@@ -249,7 +256,9 @@
       "empty": "No upcoming post scheduled.",
       "seeNext": "See the next post",
       "title": "Today you're posting",
-      "nothing": "Nothing to post today."
+      "nothing": "Nothing to post today.",
+      "next": "Next post {date}: {format}.",
+      "nextWindow": "Next post {date} between {window}: {format}."
     },
     "comptes": {
       "emptyReadOnly": "This creator hasn't declared an account yet.",
@@ -261,7 +270,8 @@
       "subtitle": "Declare your accounts and follow their warm-up.",
       "createExact": "Create exactly these handles — they have to match the accounts you declare afterwards.",
       "warmupDue": "{count, plural, one {You have # warm-up to do today — check it off below.} other {You have # warm-ups to do today — check them off below.}}",
-      "bioDue": "{count, plural, one {# bio to update — copy it to your account, then confirm below.} other {# bios to update — copy them to your accounts, then confirm below.}}"
+      "bioDue": "{count, plural, one {# bio to update — copy it to your account, then confirm below.} other {# bios to update — copy them to your accounts, then confirm below.}}",
+      "noneDeclared": "No account declared."
     },
     "calendarStatus": {},
     "fichiers": {
@@ -346,7 +356,11 @@
       "warmupDoneToday": "Warm-up in progress — you're good for today ✓",
       "warmupDailyHint": "Come back and check it off every day until the end: that's what gets your account ready to publish.",
       "nextTier": "Next tier",
-      "seeDetail": "See details"
+      "seeDetail": "See details",
+      "greeting": "Hi there",
+      "greetingNamed": "Hi {name}",
+      "subtitle": "What you need to do for {project}.",
+      "dueOn": "Due {date}"
     },
     "profil": {
       "method": {
@@ -375,7 +389,8 @@
       "title": "Profile",
       "notFound": "Profile not found.",
       "identityHint": "Your name and email are managed by the team. To change them, get in touch with an administrator.",
-      "paymentHint": "Tell us how to pay you. These details are visible to the admin who runs the transfers."
+      "paymentHint": "Tell us how to pay you. These details are visible to the admin who runs the transfers.",
+      "save": "Save"
     },
     "assignment": {
       "started": "You're on — happy shooting!",
@@ -405,7 +420,10 @@
       "shootHint": "Shoot your video from the brief, then send it for approval.",
       "submitMine": "Submit my video",
       "sentAwaiting": "Video sent — waiting for the admin to approve it.",
-      "resubmit": "Submit another video"
+      "resubmit": "Submit another video",
+      "urlWrongPlatform": "The URL for {platform} doesn't match that platform.",
+      "managedNotice": "— the team publishes this content. There's nothing for you to submit or publish; the post and its performance will show up in “My videos”.",
+      "seePostOn": "View the {platform} post"
     },
     "sidebar": {
       "dashboard": "Dashboard",
@@ -460,8 +478,17 @@
         "fixed": "{count, plural, one {Flat — # video published} other {Flat — # videos published}}",
         "cpm": "CPM — {views} views",
         "bonusTier": "Tier bonuses (cumulative views)",
-        "retainer": "Retainer — cycle {cycle}"
-      }
+        "retainer": "Retainer — cycle {cycle}",
+        "fixedGroup": "Flat — {done}/{target} videos published",
+        "outOf": "out of {amount}",
+        "tierBonus": "{views}-view tier bonus"
+      },
+      "tiersTitle": "🏆 Reward tiers",
+      "cumulViews": "{views} total views",
+      "viewsBefore": "{count, plural, one {{views} view to go before {reward}.} other {{views} views to go before {reward}.}}",
+      "paidLabel": "Paid",
+      "paidOn": "Paid on {date}",
+      "rewardFallback": "Reward"
     },
     "videos": {
       "trackingActive": "Tracking active",
@@ -485,7 +512,9 @@
       "emptyTitle": "No videos yet",
       "emptyBody": "As soon as you submit a video, it shows up here with its status, then its tracking (views + earnings) once it's live.",
       "emptyFilter": "No videos in this filter.",
-      "unavailable": "Video tracking isn't available for this project."
+      "unavailable": "Video tracking isn't available for this project.",
+      "publishedAgo": "Published {ago}",
+      "submittedWaiting": "Video submitted — waiting for the team to approve it."
     },
     "declare": {
       "declared": "Account declared — warm-up started",
@@ -495,7 +524,9 @@
       "platform": "Platform",
       "handle": "Handle *",
       "url": "Account URL",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "expectedHandle": "Expected @:",
+      "submit": "Declare"
     },
     "assignmentDetail": {
       "backToDashboard": "Back to the dashboard",
@@ -525,7 +556,8 @@
       "doneToday": "Done today ✓",
       "keywords": "Keywords to search for",
       "keywordsWait": "Waiting for the keywords the admin sets.",
-      "instructions": "Brief"
+      "instructions": "Brief",
+      "dayOf": "Day {day} / {target}"
     },
     "celebration": {
       "reward": "Reward",
@@ -534,7 +566,8 @@
       "addedToPay": "Added to your next payout.",
       "weContactYou": "We'll get in touch to hand it over.",
       "great": "Awesome 🎉",
-      "extraRewards": "{count, plural, one {+# more reward unlocked.} other {+# more rewards unlocked.}}"
+      "extraRewards": "{count, plural, one {+# more reward unlocked.} other {+# more rewards unlocked.}}",
+      "reached": "You've reached {views} total views."
     },
     "guide": {
       "title": "How it works",
@@ -564,10 +597,13 @@
       "notLinked": "No project linked to your account. Get in touch with an administrator."
     },
     "catchUp": {
-      "title": "To catch up"
+      "title": "To catch up",
+      "plannedOn": "Planned for {date} — publish it as soon as you can",
+      "plannedOnWindow": "Planned for {date} ({window}) — publish it as soon as you can"
     },
     "nudge": {
-      "addPaymentInfo": "Add your payment details"
+      "addPaymentInfo": "Add your payment details",
+      "cantPay": "Without them, we can't pay you your {amount}."
     },
     "mySpace": "My space"
   },
@@ -948,7 +984,13 @@
     "forDate": "For {date}",
     "counterPhaseZero": "in {phase} phase that day — publication will be refused",
     "counterQuota": "{count, plural, one {# post out of {max} that day} other {# posts out of {max} that day}}",
-    "counterQuotaFull": "{count, plural, one {# post out of {max} that day — quota reached} other {# posts out of {max} that day — quota reached}}"
+    "counterQuotaFull": "{count, plural, one {# post out of {max} that day — quota reached} other {# posts out of {max} that day — quota reached}}",
+    "dueOn": "due {date}",
+    "missingLinks": "The link for {platforms} is missing.",
+    "accountMatch": "✓ Account matches (@{handle})",
+    "accountMismatch": "⚠️ This link points to @{detected}, not {expected}.",
+    "expectedAccount": "the expected account",
+    "accountRefused": "Account refused — {reason}"
   },
   "phase": {
     "label": {
@@ -974,7 +1016,9 @@
     "uploadError": "Upload failed",
     "constraints": "MP4, MOV or WebM — 300 MB max",
     "browse": "Browse",
-    "selectVideo": "Select a video"
+    "selectVideo": "Select a video",
+    "httpFailed": "Upload failed (HTTP {status}).",
+    "progress": "Uploading {percent}%"
   },
   "format": {
     "brief": "Brief",
@@ -982,7 +1026,12 @@
     "todo": "Do",
     "avoid": "Avoid",
     "examples": "Sample videos",
-    "pay": "Pay"
+    "pay": "Pay",
+    "rate": {
+      "base": "{amount} per post",
+      "viewBonus": "+ {amount} / 1,000 views",
+      "bounty": "{amount} bounty at {views} views"
+    }
   },
   "talent": {
     "deposit": "Upload",
@@ -1003,7 +1052,8 @@
     "total": "Estimated total",
     "disclaimer": "Indicative estimate; payment is based on the actual views of the approved post.",
     "baseFixed": "Base (flat per video)",
-    "cpm": "CPM (on your views)"
+    "cpm": "CPM (on your views)",
+    "forViews": "Estimate for {views} views"
   },
   "videoExample": {
     "unavailable": "Video unavailable",
@@ -1021,7 +1071,11 @@
     "uploadFailed": "Upload failed.",
     "sending": "Files being uploaded",
     "sent": "Sent",
-    "retry": "Retry"
+    "retry": "Retry",
+    "httpInterrupted": "Upload interrupted (HTTP {status}).",
+    "httpRefused": "Drive refused the upload (HTTP {status}).",
+    "fileSent": "{name} sent",
+    "progress": "Uploading {percent}%"
   },
   "leaderboard": {
     "me": "You",
@@ -1034,7 +1088,8 @@
     "notFound": "Project not found",
     "denied": "Access denied",
     "deniedBody": "Your account doesn't have access to this project. Ask an administrator to add you.",
-    "backHome": "Back to home"
+    "backHome": "Back to home",
+    "noneNamed": "No project named “{slug}” exists."
   },
   "stream": {
     "transcoding": "Transcoding in progress — the video will be viewable here shortly (the player appears automatically)."

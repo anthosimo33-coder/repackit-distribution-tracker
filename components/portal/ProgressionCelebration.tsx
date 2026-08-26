@@ -98,7 +98,7 @@ export function ProgressionCelebration({
         </div>
         <p className="mt-3 text-lg font-semibold text-slate-900">{tcel("tierUnlockedBang")}</p>
         <p className="mt-1 text-sm text-slate-500">
-          Tu as atteint {formatViews(headline.seuilVues, loc)} vues cumulées.
+          {tcel("reached", { views: formatViews(headline.seuilVues, loc) })}
         </p>
 
         <div className="mt-4 rounded-xl bg-primary/5 px-4 py-3">

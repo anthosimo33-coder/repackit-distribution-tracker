@@ -76,6 +76,10 @@ export function AssignmentActions({
 }) {
   const showError = useConvexError();
   const t = useTranslations("portal");
+  // Alias STABLE : les `.map((t) => …)` de ce fichier nomment leur cible `t` et
+  // masquent le hook à l'intérieur. Renommer le paramètre toucherait beaucoup
+  // plus de lignes qu'un alias, pour le même résultat.
+  const tr = t;
   const start = useMutation(api.assignments.startAssignment);
   const submitVideo = useMutation(api.assignments.submitVideo);
   const confirmPublication = useMutation(api.assignments.confirmPublication);
@@ -127,7 +131,9 @@ export function AssignmentActions({
       const val = (urls[t.platform] ?? "").trim();
       const detected = val ? detectInspirationType(val) : null;
       if (!detected || detected.plateforme !== t.platform) {
-        toast.error(`L'URL pour ${t.platform} ne correspond pas à cette plateforme.`);
+        toast.error(
+          tr("assignment.urlWrongPlatform", { platform: t.platform }),
+        );
         return;
       }
     }
@@ -188,9 +194,7 @@ export function AssignmentActions({
           <UsersIcon className="mt-0.5 size-4 shrink-0 text-slate-400" />
           <span>
             <span className="font-medium text-slate-800">{t("assignment.managedBadge2")}</span>{" "}
-            — l&apos;équipe publie ce contenu. Tu n&apos;as rien à soumettre ni à
-            publier ; le post et ses performances apparaîtront dans « Mes
-            vidéos ».
+            {t("assignment.managedNotice")}
           </span>
         </div>
         {isOnline && publishedTargets.length > 0 && (
@@ -203,7 +207,7 @@ export function AssignmentActions({
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
               >
-                Voir le post {t.platform}
+                {tr("assignment.seePostOn", { platform: t.platform })}
                 <ExternalLinkIcon className="size-3.5" />
               </a>
             ))}
@@ -266,7 +270,7 @@ export function AssignmentActions({
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
               >
-                Voir le post {t.platform}
+                {tr("assignment.seePostOn", { platform: t.platform })}
                 <ExternalLinkIcon className="size-3.5" />
               </a>
             ))}
@@ -435,7 +439,7 @@ export function AssignmentActions({
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
         >
-          Voir le post {t.platform}
+          {tr("assignment.seePostOn", { platform: t.platform })}
           <ExternalLinkIcon className="size-3.5" />
         </a>
       ))}

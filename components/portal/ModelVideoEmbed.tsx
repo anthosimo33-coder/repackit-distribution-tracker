@@ -32,6 +32,7 @@ import { VideoExample } from "@/components/formats/VideoExample";
 type ModelVideo = { url: string; title?: string; note?: string };
 
 export function ModelVideoEmbed({ video }: { video: ModelVideo }) {
+  const tm = useTranslations("portal");
   const t = useTranslations("portal");
   const detected = detectInspirationType(video.url);
   const platform = detected?.plateforme ?? null; // TikTok | Instagram | YouTube | null
@@ -108,7 +109,7 @@ export function ModelVideoEmbed({ video }: { video: ModelVideo }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        aria-label={`Lire la vidéo ${video.title ?? ""}`.trim()}
+        aria-label={tm("modelVideo.playAria", { title: video.title ?? "" }).trim()}
         className={`group relative block overflow-hidden rounded-lg border border-slate-200 bg-slate-900 ${frameClass}`}
       >
         {thumbnailUrl ? (

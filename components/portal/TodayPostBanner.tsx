@@ -121,14 +121,19 @@ export function TodayPostBanner({
           </p>
           {next ? (
             <p className="text-slate-500">
-              Prochain post{" "}
-              <span className="font-medium capitalize">
-                {longDate(next.postDate!, loc)}
-              </span>{" "}
               {formatPostWindow(next.postWindow) !== null
-                ? ` entre ${formatPostWindow(next.postWindow)!.replace("-", " et ")}`
-                : ""}{" "}
-              : {next.formatName}.
+                ? t("todayPost.nextWindow", {
+                    date: longDate(next.postDate!, loc),
+                    window: formatPostWindow(next.postWindow)!.replace(
+                      "-",
+                      loc.startsWith("fr") ? " et " : " and ",
+                    ),
+                    format: next.formatName,
+                  })
+                : t("todayPost.next", {
+                    date: longDate(next.postDate!, loc),
+                    format: next.formatName,
+                  })}
             </p>
           ) : (
             <p className="text-slate-500">{t("todayPost.empty")}</p>

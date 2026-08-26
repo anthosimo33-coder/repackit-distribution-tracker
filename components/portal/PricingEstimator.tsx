@@ -38,7 +38,7 @@ export function PricingEstimator({
     <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
       <div className="flex items-baseline justify-between">
         <span className="text-sm font-medium text-slate-700">
-          Estimation pour {formatViews(views, loc)} vues
+          {te("forViews", { views: formatViews(views, loc) })}
         </span>
         <span className="text-2xl font-semibold tabular-nums text-slate-900">
           {formatMoney(e.total, currency, loc)}

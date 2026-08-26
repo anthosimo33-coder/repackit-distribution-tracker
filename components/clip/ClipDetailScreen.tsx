@@ -116,7 +116,7 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
         </Badge>
         {clip.dueDate !== undefined && (
           <span className="text-xs text-slate-500">
-            à rendre le {formatDate(clip.dueDate, loc)}
+            {tc("dueOn", { date: formatDate(clip.dueDate, loc) })}
           </span>
         )}
       </div>

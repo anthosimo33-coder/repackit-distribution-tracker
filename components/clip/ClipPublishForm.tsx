@@ -96,15 +96,17 @@ function LigneCompte({
   if (check.status === "match") {
     return (
       <p className="text-xs text-emerald-600">
-        ✓ Compte cohérent (@{check.detected})
+        {tc("accountMatch", { handle: check.detected ?? "" })}
       </p>
     );
   }
   if (check.status === "mismatch") {
     return (
       <p className="text-xs font-medium text-amber-700">
-        ⚠️ Ce lien pointe vers @{check.detected}, pas{" "}
-        {expected ? `@${expected}` : "le compte attendu"}.
+        {tc("accountMismatch", {
+          detected: check.detected ?? "",
+          expected: expected ? `@${expected}` : tc("expectedAccount"),
+        })}
       </p>
     );
   }
@@ -216,7 +218,9 @@ export function ClipPublishForm({
     const manquantes = payload.filter((u) => u.url.length === 0);
     if (manquantes.length > 0) {
       toast.error(
-        `Il manque le lien pour ${manquantes.map((m) => m.platform).join(" et ")}.`,
+        tc("missingLinks", {
+          platforms: manquantes.map((m) => m.platform).join(" et "),
+        }),
       );
       return;
     }

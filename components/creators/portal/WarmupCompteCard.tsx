@@ -139,7 +139,7 @@ export function WarmupCompteCard({
             <div className="space-y-1.5">
               <div className="flex flex-col gap-1 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-2">
                 <span className="shrink-0 font-medium text-slate-700">
-                  Jour {progress.day} / {progress.targetDays}
+                  {tw("dayOf", { day: progress.day, target: progress.targetDays })}
                 </span>
                 {warmupDone ? (
                   <span className="text-xs font-medium text-blue-600">{tw("warmupDone")}</span>

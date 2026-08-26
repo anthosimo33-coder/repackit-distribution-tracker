@@ -1,4 +1,3 @@
 {
-  "_": "Fichiers DU PERIMETRE CREATEUR pas encore extraits. La liste ne peut que RETRECIR : un fichier qui n'a plus de litteral doit en sortir (la CI le reclame). Un fichier ABSENT de scripts/i18n-creator-scope.json n'est pas ici parce qu'il serait propre, mais parce qu'il est HORS PERIMETRE : l'admin et l'analytics restent en francais, volontairement.",
   "files": []
 }

@@ -17,7 +17,7 @@ verts après chaque lot.
 |---|---:|---:|
 | Fichiers du périmètre extraits | 30/56 (liste dérivée) | **146/146** |
 | Chaînes françaises dans le périmètre | ~325 | **0** |
-| Complétion du catalogue anglais | 33 % | **100 %** — 653 traduites + 38 identiques *légitimement*, 0 hors liste blanche (691 clés) |
+| Complétion du catalogue anglais | 33 % | **100 %** — 0 hors liste blanche (744 clés) |
 | Rejets Convex du parcours en français | 80 | **0** |
 | E-mails créateur en anglais | 1/7 | **7/7** |
 
@@ -820,6 +820,128 @@ sens le plus **conservateur** pendant la traversée, et méritent ton avis.
 | 2 | **~2 588 chaînes admin/analytics restent en français.** | C'est le périmètre, pas un reste. La garde les ignore explicitement (`A7` marqué hors scope). |
 | 3 | **Les ~55 specs e2e assertent des libellés français.** | Elles tournent en locale `fr`, qui est le défaut du produit : rien à changer. Les deux qui branchaient sur le TEXTE d'une erreur serveur ont été passées au **code** en A2. |
 | 4 | **La garde ne voit pas les phrases assemblées dans une expression `{}`.** | Limite connue et documentée : elle attrape les littéraux, pas les phrases reconstruites. Les 5 cas du périmètre ont été traités à la main en A6. |
+
+### 11.7 Ce que la garde ne voit TOUJOURS pas — limites connues
+
+> **Une garde verte ne prouve pas qu'un écran est traduit.** Elle prouve
+> qu'aucun motif CONNU n'a été réintroduit. Les deux fois où du français est
+> réapparu à l'écran, c'est **l'e2e ou l'œil** qui l'ont vu — jamais la garde.
+>
+> **Contre-mesure, à appliquer et pas à ranger** : après TOUT lot touchant le
+> parcours créateur, passage **à l'œil** sur les écrans concernés **en locale
+> EN**. Pas un survol du diff — l'écran rendu.
+>
+> ```bash
+> document.cookie = "NEXT_LOCALE=en; path=/"; location.reload()
+> ```
+>
+> Le coût est de quelques minutes ; le coût de l'inverse est un créateur US qui
+> tombe sur du français et n'en dit rien.
+
+Le détecteur a menti trois fois. Cette liste dit où il est aveugle **par
+construction**, pour que la prochaine session ne reparte pas de « 0 chaîne » en
+croyant que c'est fini. Chaque ligne a été **vérifiée**, pas supposée : sonde
+posée dans le périmètre, garde exécutée, résultat observé.
+
+Les deux prédicats qui décident :
+
+| | `isProse` (littéral NU) | `isDisplayText` (attribut, `label:`, texte JSX) |
+|---|---|---|
+| `"Publier"` — mot seul, capitale, sans accent | ❌ rejeté | ✓ accepté |
+| `"jours"` — mot seul, minuscule, sans accent | ❌ rejeté | ❌ rejeté |
+| `"deuxième"` — accent | ✓ | ✓ |
+| `"Mes comptes"` — espace + capitale | ✓ | ✓ |
+
+#### Angles morts vérifiés
+
+| # | Motif | Exemple | Pourquoi |
+|---:|---|---|---|
+| 1 | **Mot seul sans accent en littéral NU** | `const A = ["Publier", "Annuler"]` | `isProse` exige un accent, ou un espace ET une capitale. Un tableau de libellés courts passe entier. |
+| 2 | **Mot minuscule sans accent, partout** | `n > 1 ? "jours" : "jour"` | rejeté par les DEUX prédicats. C'est le pluriel concaténé, précisément ce que le lot A6 traquait à la main. |
+| 3 | **Fragment de concaténation d'un seul mot** | `"Aucun " + n + " compte"` | chaque littéral est jugé SÉPARÉMENT ; `"Aucun "` seul ne passe pas. Un fragment de deux mots, lui, est vu. |
+| 4 | **Template MULTI-LIGNE** | `` `Bienvenue\nsur la plateforme` `` | la passe template travaille ligne par ligne. |
+
+#### Ce qui est HORS PÉRIMÈTRE par décision (pas un trou)
+
+| Motif | Statut |
+|---|---|
+| Seeds, Telegram, tests, fixtures | exclus explicitement (`SKIP_FILE`, décision `ARBITRAGES-I18N.md` §7) |
+| `app/admin/**`, analytics | hors périmètre — l'admin reste en FR |
+
+#### ⚠️ Les e-mails — le seul point du parcours créateur que RIEN ne surveille
+
+C'est un **risque**, pas une note technique.
+
+Un e-mail est le **premier contact** d'un créateur US avec la plateforme —
+l'invitation arrive **avant sa première connexion**, donc avant tout écran, avant
+tout `NEXT_LOCALE`, avant toute chance de se rattraper. S'il arrive en français,
+le parcours est perdu au premier geste et la personne ne dira rien : elle ne
+reviendra pas.
+
+**État réel au 2026-08-27** : les **sept** catalogues (`INVITE`, `APPROVED`,
+`REJECTED`, `PAID`, `ASSIGNED`, `NUDGE`, `REMINDER`) ont bien leurs deux
+branches `fr` / `en`, avec du **vrai** anglais. Rien n'est cassé aujourd'hui.
+
+**Ce qui n'existe pas, c'est le filet.** `convex/emailMessages.ts` est hors de
+la clôture d'imports : le runtime Convex n'est jamais importé côté client
+(règle A6), donc le périmètre généré ne peut pas l'atteindre. Ajouter demain un
+huitième e-mail avec la seule branche `fr`, ou laisser une valeur `en` recopiée
+du français, **ne casse aucun test et n'allume aucune garde**.
+
+**L'option qu'on n'a PAS prise, et pourquoi.**
+
+| Option | Verdict |
+|---|---|
+| Étendre le périmètre du détecteur à `emailMessages.ts` | **Écartée, et il faut le dire clairement : ce serait une faute.** Le détecteur cherche du français qui aurait dû être extrait dans un catalogue. Or ce fichier **EST** le catalogue : son français y est légitime et cohabite avec son anglais. Le pointer dessus signalerait chaque valeur `fr:` — ~100 % de faux positifs. La garde deviendrait du bruit, et quelqu'un la désactiverait au bout de trois jours. |
+| Étendre les **règles de catalogue** (parité des clés, `en` ≠ `fr`, parité ICU) aux objets `Record<Locale, …>` de `emailMessages.ts` | **La bonne réponse — pas faite, faute de temps, pas d'obstacle.** C'est exactement ce que la garde applique déjà à `messages/*.json`. Le seul travail est la forme : lire des littéraux objet TypeScript au lieu de JSON. **Dette assumée, à reprendre en premier si un e-mail part en anglais bancal.** |
+
+**En attendant le filet** : toute PR qui touche `convex/emailMessages.ts` se
+relit branche `en` par branche `en`, à la main. C'est la seule barrière.
+
+#### Ce qu'aucune garde statique ne peut voir
+
+| Motif | Pourquoi |
+|---|---|
+| **Texte en BASE** — `guideModules`, `lineItems[].label`, briefs, notes | la garde lit du code, pas des données |
+| **Texte dans une image ou un SVG** | aucun `<text>` aujourd'hui, mais rien ne l'empêche |
+| **Clé i18n fautive dans une TABLE** (`useLabel`) | typée `string` : la clé s'affiche brute à l'exécution. C'est ce qui a fait lire `status.rush.deposited` à un talent — attrapé par l'e2e, jamais par la garde ni par tsc. |
+| **Valeur `en.json` qui n'est pas de l'anglais** | la garde B2 vérifie qu'elle DIFFÈRE du français, pas qu'elle soit anglaise. Une phrase reformulée en français y passerait. |
+
+**La conséquence pratique** est en tête de section : elle s'y lit avant la
+liste, pas après — c'est la seule ligne de ce document qui change une habitude.
+
+### 11.6 Le détecteur avait trois trous de plus — et le guide est de la donnée
+
+Testé à l'écran, le portail d'une créatrice EN montrait encore du français que
+la garde ne voyait pas. Diagnostic avant correctif : le périmètre était bon, les
+fichiers concernés étaient tous dans les 146. C'est le DÉTECTEUR qui était aveugle.
+
+| Trou | Motif | Pourquoi |
+|---|---|---|
+| **1** | texte JSX voisin d'une interpolation — `Bonjour{name}`, `{fmt(x)} vues cumulées` | la capture `>[^<>{}]*<` EXCLUAIT les accolades ; c'est la forme **dominante** du dépôt |
+| **2** | prose ouvrant par un emoji — `🏆 Paliers de récompense` | mon propre garde-fou anti-fragment, trop strict |
+| **3** | littéraux template — `` `Upload échoué (HTTP ${s}).` `` | `STRICT_LITERAL` n'appariait que `"` et `'` |
+
+**54 chaînes** rendues visibles, extraites en clés ICU **complètes** — jamais des
+fragments recollés : `Plus que {views} vues avant {reward}.` et non
+« Plus que » + valeur + « vues avant ». Un fragment recollé donne une phrase
+anglaise à syntaxe française.
+
+**Faux positifs mesurés, pas supposés** : autoriser les accolades a d'abord donné
+65 détections dont **10 fausses (15 %)**. Un filtre de jetons de code les
+élimine — 54 détections, **0 fausse**, revues une par une. Une garde qui crie à
+tort finit désactivée.
+
+Les primitives du détecteur vivent maintenant dans `scripts/i18n-detect.mjs`,
+avec **11 tests** — dont la contre-épreuve que le desserrage du trou 2 n'a pas
+rouvert la porte aux fragments qu'il écartait à raison.
+
+**Le guide « How it works » n'est PAS un lot d'extraction.** Son contenu vit dans
+la table `guideModules` : 11 modules, 16 060 caractères de Markdown, écrits et
+édités par l'admin, scopés par projet. C'est de la DONNÉE, au même titre que
+`payments.lineItems[].label`. Décision prise : **un jeu de modules par langue**
+(champ `locale`, repli FR), livré comme lot séparé — repli et bandeau
+« disponible en français seulement » d'abord, rédaction ensuite.
 
 ### 11.5 La preview « Voir son espace » rendait dans la langue de l'admin
 

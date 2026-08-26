@@ -62,13 +62,15 @@ function BonusTierPanel({
       <CardContent className="space-y-3 py-5">
         <div className="flex items-baseline justify-between gap-2">
           <span className="text-sm font-semibold text-amber-900">
-            🏆 Paliers de récompense
+            {t("paiements.tiersTitle")}
           </span>
           <span
             className="text-sm font-medium tabular-nums text-amber-800"
             data-testid="cumul-views"
           >
-            {fmtViews(status.cumulViews, loc)} vues cumulées
+            {t("paiements.cumulViews", {
+              views: fmtViews(status.cumulViews, loc),
+            })}
           </span>
         </div>
         {next ? (
@@ -80,17 +82,14 @@ function BonusTierPanel({
               />
             </div>
             <p className="text-xs text-amber-800">
-              Plus que{" "}
-              <span className="font-semibold tabular-nums">
-                {fmtViews(status.viewsToNext ?? 0, loc)}
-              </span>{" "}
-              vues avant{" "}
-              <span className="font-semibold">
-                {next.rewardType === "cash"
-                  ? `${formatMoney(next.montant ?? 0, currency, loc)}`
-                  : next.libelle}
-              </span>
-              .
+              {t("paiements.viewsBefore", {
+                count: status.viewsToNext ?? 0,
+                views: fmtViews(status.viewsToNext ?? 0, loc),
+                reward:
+                  next.rewardType === "cash"
+                    ? formatMoney(next.montant ?? 0, currency, loc)
+                    : (next.libelle ?? t("paiements.rewardFallback")),
+              })}
             </p>
           </div>
         ) : (
@@ -189,8 +188,13 @@ function PricingBreakdown({
         groupes.map((g) => (
           <Row
             key={`${g.pricingId}:${g.montantFixe}:${g.nbVideosCible}`}
-            label={`Fixe — ${g.videoCount}/${g.nbVideosCible} vidéos publiées`}
-            sub={`sur ${formatMoney(g.montantFixe, currency, loc)}`}
+            label={t("paiements.line.fixedGroup", {
+              done: g.videoCount,
+              target: g.nbVideosCible,
+            })}
+            sub={t("paiements.line.outOf", {
+              amount: formatMoney(g.montantFixe, currency, loc),
+            })}
             amount={g.fixed}
             currency={currency}
           />
@@ -204,7 +208,9 @@ function PricingBreakdown({
           b.bonusTierCashUnlocks.map((u, i) => (
             <Row
               key={i}
-              label={`Bonus palier ${fmtViews(u.seuilVues, loc)} vues`}
+              label={t("paiements.line.tierBonus", {
+                views: fmtViews(u.seuilVues, loc),
+              })}
               amount={u.montant}
               currency={currency}
             />
@@ -336,7 +342,11 @@ function PastPeriod({ p, currency }: { p: Payment; currency?: string | null }) {
           </span>
           {p.status === "paid" ? (
             <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-              Payé{p.paidAt ? ` le ${formatMoneyDate(p.paidAt, loc)}` : ""}
+              {p.paidAt
+                ? t("paiements.paidOn", {
+                    date: formatMoneyDate(p.paidAt, loc),
+                  })
+                : t("paiements.paidLabel")}
             </span>
           ) : (
             <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">{t("paiements.pending")}</span>

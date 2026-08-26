@@ -9,15 +9,21 @@ import { localeOrDefault, type Locale } from "./locales";
  * maillons ici — la langue arrive en argument, depuis la fiche du DESTINATAIRE,
  * et le défaut doit être explicite (`localeOrDefault`).
  *
- * ⚠️ SEUL l'e-mail d'invitation est traduit à ce stade. C'est le premier contact
- * d'un créateur US : s'il arrive en français, tout le reste du parcours est déjà
- * perdu. Les six autres e-mails restent en français — ils transportent désormais
- * la langue du destinataire (les résolveurs la renvoient), il ne leur manque que
- * leur entrée dans ce catalogue.
+ * Les SEPT e-mails sont traduits (INVITE, APPROVED, REJECTED, PAID, ASSIGNED,
+ * NUDGE, REMINDER). L'invitation compte double : c'est le premier contact d'un
+ * créateur US, reçu AVANT sa première connexion — donc avant tout écran, avant
+ * tout `NEXT_LOCALE`. En français, le parcours est perdu au premier geste.
  *
- * Les valeurs anglaises sont ici de VRAIES traductions, contrairement à
- * `messages/en.json` qui recopie le français : cet e-mail doit être lisible par
- * quelqu'un qui ne parle pas français, sinon la PR ne sert à rien.
+ * Les valeurs anglaises sont ici de VRAIES traductions : ces e-mails doivent
+ * être lisibles par quelqu'un qui ne parle pas français.
+ *
+ * ⚠️ RIEN NE SURVEILLE CE FICHIER. Il est hors de la clôture d'imports (le
+ * runtime Convex n'est jamais importé côté client, règle A6), donc hors du
+ * périmètre généré : ajouter un huitième e-mail sans branche `en`, ou y recopier
+ * du français, ne casse AUCUN test et n'allume AUCUNE garde. Toute PR qui touche
+ * ce fichier se relit branche `en` par branche `en`, à la main.
+ * Voir `I18N_STATUS.md` §11.7 — dette identifiée : étendre les règles de
+ * catalogue (parité des clés, `en` ≠ `fr`) à ces `Record<Locale, …>`.
  */
 
 export interface InviteEmailCopy {

@@ -179,10 +179,10 @@ export default function DashboardScreen() {
     <div className="mx-auto max-w-2xl space-y-6">
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-          Bonjour{name ? ` ${name}` : ""}
+          {name ? t("dashboard.greetingNamed", { name }) : t("dashboard.greeting")}
         </h1>
         <p className="text-sm text-slate-500">
-          Ce que tu as à faire pour {current.name}.
+          {t("dashboard.subtitle", { project: current.name })}
         </p>
       </header>
 
@@ -710,11 +710,10 @@ function NextTierCard({
             />
           </div>
           <p className="text-xs text-slate-500">
-            Plus que{" "}
-            <span className="font-semibold tabular-nums text-slate-700">
-              {formatViews(p.remainingViews, loc)}
-            </span>{" "}
-            vues.
+            {t("progression.viewsToGo", {
+              count: p.remainingViews,
+              views: formatViews(p.remainingViews, loc),
+            })}
           </p>
         </CardContent>
       </Card>
@@ -792,7 +791,9 @@ function AssignmentItem({
             )}
           </div>
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
-            <span className="text-slate-500">Échéance {formatDate(a.dueDate, loc)}</span>
+            <span className="text-slate-500">
+              {t("dashboard.dueOn", { date: formatDate(a.dueDate, loc) })}
+            </span>
             {a.targets.length > 0 && (
               <span className="font-mono text-slate-400">
                 · {a.targets.map((t) => t.platform).join(" · ")}
