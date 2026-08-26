@@ -13,11 +13,14 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { accountUrlCheck, type UrlPlateforme } from "@/lib/post-url-account";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useLabel } from "@/lib/use-label";
 import {
-  PHASE_LABELS,
+  PHASE_INLINE_KEYS,
   accountPhaseAt,
   dayKeyToUtcInstant,
-  formatUtcDayFr,
+  formatUtcDay,
   postsPerDayAt,
   utcDayKey,
 } from "@/convex/accountPhase";
@@ -57,21 +60,22 @@ export type ClipPublishTarget = {
 
 /** Ce que la lecture d'URL a donné, dit en clair — jamais un silence. */
 function LigneDateLue({ read }: { read: PostDateRead }) {
+  const loc = useIntlLocale();
+  const tc = useTranslations("clip");
   if (read.at !== null) {
     return (
       <p className="text-xs text-emerald-700">
-        Date lue dans le lien : {formatUtcDayFr(read.at)}. Corrige-la si ce
-        n&apos;est pas ça.
+        {tc("dateRead", { date: formatUtcDay(read.at, loc.startsWith("fr") ? "fr" : "en") })}
       </p>
     );
   }
   const pourquoi =
     read.reason === "shortlink"
-      ? "Lien raccourci — la date n'y est pas. Vérifie-la."
+      ? tc("dateShortlink")
       : read.reason === "platform"
-        ? "Cette plateforme ne porte pas la date dans son lien. Vérifie-la."
+        ? tc("dateNoPlatform")
         : read.reason === "out-of-range"
-          ? "Date illisible dans ce lien. Vérifie-la."
+          ? tc("dateUnreadable")
           : null;
   return pourquoi ? <p className="text-xs text-slate-500">{pourquoi}</p> : null;
 }
@@ -86,6 +90,7 @@ function LigneCompte({
   platform: Plateforme;
   expected: string | null;
 }) {
+  const tc = useTranslations("clip");
   if (url.trim() === "") return null;
   const check = accountUrlCheck(url, platform as UrlPlateforme, expected);
   if (check.status === "match") {
@@ -113,6 +118,9 @@ export function ClipPublishForm({
   clipId: Id<"assignments">;
   targets: ClipPublishTarget[];
 }) {
+  const tLabel = useLabel();
+  const loc = useIntlLocale();
+  const tc = useTranslations("clip");
   const { projectId } = useClipperProject();
   const publier = useMutation(api.assignments.confirmClipPublication);
   const quota = useQuery(api.clipQuota.myQuotaWindow, { projectId });
@@ -168,13 +176,13 @@ export function ClipPublishForm({
     if (compte.validatedAt === null) {
       return {
         handle: t.accountHandle,
-        texte: "compte pas encore validé — la publication sera refusée",
+        texte: tc("accountNotApproved"),
       };
     }
     if (horsFenetre) {
       return {
         handle: t.accountHandle,
-        texte: "date hors de la fenêtre affichée — le serveur vérifiera",
+        texte: tc("dateOutOfWindow"),
       };
     }
     const phase = accountPhaseAt(compte.validatedAt, instantChoisi);
@@ -183,17 +191,17 @@ export function ClipPublishForm({
     if (max === 0) {
       return {
         handle: t.accountHandle,
-        texte: `en phase de ${
-          phase ? PHASE_LABELS[phase].toLowerCase() : "—"
-        } ce jour-là — la publication sera refusée`,
+        texte: tc("counterPhaseZero", {
+          phase: phase ? tLabel(PHASE_INLINE_KEYS[phase]) : tc("phaseUnknown"),
+        }),
       };
     }
     return {
       handle: t.accountHandle,
       texte:
         deja >= max
-          ? `${deja} publication${deja > 1 ? "s" : ""} sur ${max} ce jour-là — quota atteint`
-          : `${deja} publication${deja > 1 ? "s" : ""} sur ${max} ce jour-là`,
+          ? tc("counterQuotaFull", { count: deja, max })
+          : tc("counterQuota", { count: deja, max }),
     };
   });
 
@@ -225,10 +233,10 @@ export function ClipPublishForm({
         urls: payload,
         ...(publishedAt !== undefined ? { publishedAt } : {}),
       });
-      toast.success("Publié — le suivi des vues démarre.");
+      toast.success(tc("published"));
       setUrls({});
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Échec de la publication"));
+      toast.error(convexErrorMessage(e, tc("publishFailed")));
     } finally {
       setBusy(false);
     }
@@ -270,7 +278,7 @@ export function ClipPublishForm({
       {/* DATE — en clair dans le formulaire, jamais derrière un « avancé ». */}
       <div className="space-y-1">
         <Label htmlFor="clip-date" className="text-xs">
-          Date de sortie du post
+          {tc("postDate")}
         </Label>
         <Input
           id="clip-date"
@@ -281,15 +289,14 @@ export function ClipPublishForm({
         />
         <LigneDateLue read={lecture} />
         <p className="text-xs text-slate-500">
-          C&apos;est cette date qui compte pour ton quota, pas le moment où tu
-          colles le lien.
+          {tc("dateCountsHint")}
         </p>
       </div>
 
       {/* COMPTEUR — il suit la DATE CHOISIE, jamais « aujourd'hui ». */}
       <div className="rounded-md border border-slate-200 bg-slate-50 p-2">
         <p className="text-xs font-medium text-slate-900">
-          Pour le {formatUtcDayFr(instantChoisi)}
+          {tc("forDate", { date: formatUtcDay(instantChoisi, loc.startsWith("fr") ? "fr" : "en") })}
         </p>
         <ul className="mt-1 space-y-0.5">
           {compteurs.map((c) =>

@@ -1,3 +1,4 @@
+import { localeOrDefault } from "./locales";
 /**
  * PHASE ET QUOTA d'un compte de CLIPPEUR — source unique de la règle.
  *
@@ -52,12 +53,27 @@ const PHASE_TABLE: ReadonlyArray<{
   { phase: "croisiere", fromDay: 14, postsPerDay: 2 },
 ];
 
-/** Libellés FR (écran clippeur). Aucun terme technique exposé. */
-export const PHASE_LABELS: Record<AccountPhase, string> = {
-  chauffe: "Chauffe",
-  warmup: "Échauffement",
-  demo: "Démo",
-  croisiere: "Croisière",
+/**
+ * CLÉS des libellés de phase (écran clippeur). Aucun terme technique exposé.
+ *
+ * Deux tables, et ce n'est pas de la redondance : `PHASE_LABEL_KEYS` sert en
+ * TÊTE (« Chauffe »), `PHASE_INLINE_KEYS` sert INCRUSTÉ dans une phrase
+ * (« en phase de chauffe »). Le code faisait `.toLowerCase()` sur le libellé —
+ * faux dès qu'on traduit : l'anglais ne minusculise pas ses noms de la même
+ * façon, et l'ordre des mots change. Cf I18N-TEXTE-AUSSI-DONNEE.md, famille B.
+ */
+export const PHASE_LABEL_KEYS: Record<AccountPhase, string> = {
+  chauffe: "phase.label.chauffe",
+  warmup: "phase.label.warmup",
+  demo: "phase.label.demo",
+  croisiere: "phase.label.croisiere",
+};
+
+export const PHASE_INLINE_KEYS: Record<AccountPhase, string> = {
+  chauffe: "phase.inline.chauffe",
+  warmup: "phase.inline.warmup",
+  demo: "phase.inline.demo",
+  croisiere: "phase.inline.croisiere",
 };
 
 /**
@@ -147,30 +163,17 @@ export function utcDayRange(at: number): { start: number; end: number } {
   return { start, end: start + DAY_MS };
 }
 
-const JOURS_FR = [
-  "dimanche",
-  "lundi",
-  "mardi",
-  "mercredi",
-  "jeudi",
-  "vendredi",
-  "samedi",
-] as const;
+const JOURS = {
+  fr: ["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"],
+  en: ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"],
+} as const;
 
-const MOIS_FR = [
-  "janvier",
-  "février",
-  "mars",
-  "avril",
-  "mai",
-  "juin",
-  "juillet",
-  "août",
-  "septembre",
-  "octobre",
-  "novembre",
-  "décembre",
-] as const;
+const MOIS = {
+  fr: ["janvier","février","mars","avril","mai","juin","juillet","août",
+       "septembre","octobre","novembre","décembre"],
+  en: ["January","February","March","April","May","June","July","August",
+       "September","October","November","December"],
+} as const;
 
 /**
  * Journée UTC en toutes lettres — « lundi 10 août ».
@@ -189,11 +192,19 @@ const MOIS_FR = [
  *
  * Exporté : l'écran clippeur affiche la MÊME chaîne que celle du refus.
  */
-export function formatUtcDayFr(at: number): string {
+export function formatUtcDay(at: number, locale: unknown = "fr"): string {
+  const l = localeOrDefault(locale);
   const d = new Date(at);
   const quantieme = d.getUTCDate();
-  return `${JOURS_FR[d.getUTCDay()]} ${quantieme === 1 ? "1er" : quantieme} ${
-    MOIS_FR[d.getUTCMonth()]
+  // L'ORDRE DES MOTS change avec la langue, pas seulement les mots :
+  //   fr → « lundi 10 août »        (jour quantième mois)
+  //   en → « Monday, August 10 »    (jour, mois quantième)
+  // Et l'ordinal « 1er » n'a pas d'équivalent en anglais US courant.
+  if (l === "en") {
+    return `${JOURS.en[d.getUTCDay()]}, ${MOIS.en[d.getUTCMonth()]} ${quantieme}`;
+  }
+  return `${JOURS.fr[d.getUTCDay()]} ${quantieme === 1 ? "1er" : quantieme} ${
+    MOIS.fr[d.getUTCMonth()]
   }`;
 }
 
@@ -204,8 +215,15 @@ export function formatUtcDayFr(at: number): string {
  * déclare lundi soir, en publie un troisième lundi tard et le déclare mardi
  * matin daté de lundi se voit refuser un mardi où il croit avoir deux créneaux
  * libres. Sans la date dans le message, le refus est incompréhensible et il
- * conclura que l'outil est cassé. La phase elle-même est fonction de `at` : les
- * trois branches la nomment.
+ * conclura que l'outil est cassé.
+ *
+ * 🚧 ENCORE EN FRANÇAIS, et c'est un reste ASSUMÉ jusqu'au lot A2. Ce texte part
+ * dans une `ConvexError`, donc depuis un runtime qui n'a ni requête ni langue :
+ * le rendre bilingue demande de le transformer en CODE + paramètres et de le
+ * résoudre côté client, ce qui est précisément l'objet de A2. En attendant, un
+ * clippeur anglophone voit son ÉCRAN en anglais et ce REFUS en français —
+ * l'invariant « l'écran affiche la même chaîne que le refus » est donc rompu
+ * temporairement, et il doit être rétabli dans le même commit que A2.
  */
 export function quotaRefusalMessage(
   handle: string,
@@ -213,16 +231,24 @@ export function quotaRefusalMessage(
   postsPerDay: number,
   at: number,
 ): string {
-  const jour = formatUtcDayFr(at);
+  const jour = formatUtcDay(at, "fr");
+  // i18n-exempt: message de ConvexError — devient un code ERR_* au lot A2 (cf en-tête)
+  const PHASE_FR: Record<AccountPhase, string> = {
+    chauffe: "chauffe",
+    warmup: "échauffement",
+    demo: "démo",
+    croisiere: "croisière",
+  };
   if (phase === null) {
+    // i18n-exempt: message de ConvexError — devient un code ERR_* au lot A2
     return `Le compte ${handle} n'était pas encore validé le ${jour} : aucune publication possible à cette date.`;
   }
   if (postsPerDay === 0) {
-    return `Le compte ${handle} est en phase de ${PHASE_LABELS[
-      phase
-    ].toLowerCase()} le ${jour} : aucune publication possible à cette date.`;
+    // i18n-exempt: message de ConvexError — devient un code ERR_* au lot A2
+    return `Le compte ${handle} est en phase de ${PHASE_FR[phase]} le ${jour} : aucune publication possible à cette date.`;
   }
+  // i18n-exempt: message de ConvexError — devient un code ERR_* au lot A2
   return `Quota atteint pour le ${jour} sur ${handle} : ${postsPerDay} publication${
     postsPerDay > 1 ? "s" : ""
-  } sur ${postsPerDay} en phase de ${PHASE_LABELS[phase].toLowerCase()}.`;
+  } sur ${postsPerDay} en phase de ${PHASE_FR[phase]}.`;
 }

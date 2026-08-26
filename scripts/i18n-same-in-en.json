@@ -2,6 +2,7 @@
   "_": "Cles dont la valeur EN est LEGITIMEMENT identique au FR : marques (PayPal), jargon deja anglais (CPM, Save rate), mots communs aux deux langues (Guide, Total). Toute autre egalite FR===EN fait echouer la CI. Cette liste ne doit contenir que des cas reels : une cle qui n'est plus identique doit en sortir.",
   "keys": [
     "auth.field.email",
+    "clip.phaseUnknown",
     "layout.metadata.title",
     "nav.item.analytics",
     "nav.item.assets",

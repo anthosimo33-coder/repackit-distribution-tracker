@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
   ACCOUNT_PHASES,
-  PHASE_LABELS,
+  PHASE_LABEL_KEYS,
   accountPhaseAt,
   dayKeyToUtcInstant,
   dayOfPhase,
-  formatUtcDayFr,
+  formatUtcDay,
   postsPerDayAt,
   quotaRefusalMessage,
   utcDayKey,
@@ -131,7 +131,7 @@ describe("journée UTC — l'unité du quota", () => {
 
 describe("messages et libellés", () => {
   it("chaque phase a un libellé FR", () => {
-    for (const p of ACCOUNT_PHASES) expect(PHASE_LABELS[p]).toBeTruthy();
+    for (const p of ACCOUNT_PHASES) expect(PHASE_LABEL_KEYS[p]).toBeTruthy();
   });
 
   it("le refus distingue non validé / chauffe / quota atteint", () => {
@@ -166,11 +166,11 @@ describe("messages et libellés", () => {
   });
 });
 
-describe("formatUtcDayFr — le libellé et le seau du quota parlent du même jour", () => {
+describe("formatUtcDay — le libellé et le seau du quota parlent du même jour", () => {
   it("rend le jour en français, sans dépendre de l'ICU du runtime", () => {
-    expect(formatUtcDayFr(LUNDI)).toBe("lundi 10 août");
-    expect(formatUtcDayFr(Date.UTC(2026, 0, 1, 9, 0))).toBe("jeudi 1er janvier");
-    expect(formatUtcDayFr(Date.UTC(2026, 11, 25, 23, 59))).toBe(
+    expect(formatUtcDay(LUNDI, "fr")).toBe("lundi 10 août");
+    expect(formatUtcDay(Date.UTC(2026, 0, 1, 9, 0), "fr")).toBe("jeudi 1er janvier");
+    expect(formatUtcDay(Date.UTC(2026, 11, 25, 23, 59), "fr")).toBe(
       "vendredi 25 décembre",
     );
   });
@@ -201,6 +201,20 @@ describe("formatUtcDayFr — le libellé et le seau du quota parlent du même jo
     // avec un compteur qui compte le 12.
     const minuitTrenteParisEnEte = Date.UTC(2026, 7, 12, 22, 30);
     expect(utcDayKey(minuitTrenteParisEnEte)).toBe("2026-08-12");
-    expect(formatUtcDayFr(minuitTrenteParisEnEte)).toBe("mercredi 12 août");
+    expect(formatUtcDay(minuitTrenteParisEnEte, "fr")).toBe("mercredi 12 août");
+  });
+
+  it("l'ordre des champs suit la LANGUE, pas seulement les mots", () => {
+    // « lundi 10 août » contre « Monday, August 10 » : le quantième passe
+    // APRÈS le mois en anglais US. Un simple dictionnaire de mois ne suffit
+    // pas — c'est la construction de la phrase qui change.
+    expect(formatUtcDay(LUNDI, "en")).toBe("Monday, August 10");
+    // L'ordinal « 1er » n'a pas d'équivalent courant en anglais US.
+    expect(formatUtcDay(Date.UTC(2026, 0, 1, 9, 0), "en")).toBe(
+      "Thursday, January 1",
+    );
+    // Langue absente ou inconnue ⇒ français, le défaut du produit.
+    expect(formatUtcDay(LUNDI, undefined)).toBe("lundi 10 août");
+    expect(formatUtcDay(LUNDI, "es")).toBe("lundi 10 août");
   });
 });

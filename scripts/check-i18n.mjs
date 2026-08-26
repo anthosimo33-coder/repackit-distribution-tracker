@@ -174,8 +174,16 @@ const STRICT_JSX = /(?<![=!<>-])>(?!=)\s*([^<>{}\n][^<>{}]*?)\s*</g;
  */
 const MULTILINE_JSX = /(?<![=!<>-])>(?!=)([^<>{}]*)</g;
 
-/** Un texte JSX ne contient ni `;` ni `=` ni guillemet : ça, c'est du code. */
-const LOOKS_LIKE_CODE = /[;="'`]/;
+/**
+ * Signature de CODE entre deux chevrons : une affectation, un guillemet, ou un
+ * point-virgule EN FIN DE LIGNE (terminateur d'instruction).
+ *
+ * ⚠️ Le point-virgule seul ne suffit pas : la ponctuation française l'utilise
+ * avec des espaces autour (« un admin la relit ; une fois validée… »), et le
+ * rejeter en bloc rendait invisible toute phrase qui en contient. Faux négatif
+ * trouvé sur ClipDetailScreen, après coup.
+ */
+const LOOKS_LIKE_CODE = /[="'`]|;\s*$/m;
 
 const STRICT_LITERAL = /(["'])((?:(?!\1)[^\\\n]|\\.)*)\1/g;
 
