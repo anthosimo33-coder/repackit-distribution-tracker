@@ -823,6 +823,21 @@ sens le plus **conservateur** pendant la traversée, et méritent ton avis.
 
 ### 11.7 Ce que la garde ne voit TOUJOURS pas — limites connues
 
+> **Une garde verte ne prouve pas qu'un écran est traduit.** Elle prouve
+> qu'aucun motif CONNU n'a été réintroduit. Les deux fois où du français est
+> réapparu à l'écran, c'est **l'e2e ou l'œil** qui l'ont vu — jamais la garde.
+>
+> **Contre-mesure, à appliquer et pas à ranger** : après TOUT lot touchant le
+> parcours créateur, passage **à l'œil** sur les écrans concernés **en locale
+> EN**. Pas un survol du diff — l'écran rendu.
+>
+> ```bash
+> document.cookie = "NEXT_LOCALE=en; path=/"; location.reload()
+> ```
+>
+> Le coût est de quelques minutes ; le coût de l'inverse est un créateur US qui
+> tombe sur du français et n'en dit rien.
+
 Le détecteur a menti trois fois. Cette liste dit où il est aveugle **par
 construction**, pour que la prochaine session ne reparte pas de « 0 chaîne » en
 croyant que c'est fini. Chaque ligne a été **vérifiée**, pas supposée : sonde
@@ -850,9 +865,38 @@ Les deux prédicats qui décident :
 
 | Motif | Statut |
 |---|---|
-| E-mails (`convex/emails.ts`) | hors clôture — le runtime Convex n'est pas importé côté client. Traduits en A4, mais **la garde ne les surveille pas** : une régression y passerait. |
 | Seeds, Telegram, tests, fixtures | exclus explicitement (`SKIP_FILE`, décision `ARBITRAGES-I18N.md` §7) |
 | `app/admin/**`, analytics | hors périmètre — l'admin reste en FR |
+
+#### ⚠️ Les e-mails — le seul point du parcours créateur que RIEN ne surveille
+
+C'est un **risque**, pas une note technique.
+
+Un e-mail est le **premier contact** d'un créateur US avec la plateforme —
+l'invitation arrive **avant sa première connexion**, donc avant tout écran, avant
+tout `NEXT_LOCALE`, avant toute chance de se rattraper. S'il arrive en français,
+le parcours est perdu au premier geste et la personne ne dira rien : elle ne
+reviendra pas.
+
+**État réel au 2026-08-27** : les **sept** catalogues (`INVITE`, `APPROVED`,
+`REJECTED`, `PAID`, `ASSIGNED`, `NUDGE`, `REMINDER`) ont bien leurs deux
+branches `fr` / `en`, avec du **vrai** anglais. Rien n'est cassé aujourd'hui.
+
+**Ce qui n'existe pas, c'est le filet.** `convex/emailMessages.ts` est hors de
+la clôture d'imports : le runtime Convex n'est jamais importé côté client
+(règle A6), donc le périmètre généré ne peut pas l'atteindre. Ajouter demain un
+huitième e-mail avec la seule branche `fr`, ou laisser une valeur `en` recopiée
+du français, **ne casse aucun test et n'allume aucune garde**.
+
+**L'option qu'on n'a PAS prise, et pourquoi.**
+
+| Option | Verdict |
+|---|---|
+| Étendre le périmètre du détecteur à `emailMessages.ts` | **Écartée, et il faut le dire clairement : ce serait une faute.** Le détecteur cherche du français qui aurait dû être extrait dans un catalogue. Or ce fichier **EST** le catalogue : son français y est légitime et cohabite avec son anglais. Le pointer dessus signalerait chaque valeur `fr:` — ~100 % de faux positifs. La garde deviendrait du bruit, et quelqu'un la désactiverait au bout de trois jours. |
+| Étendre les **règles de catalogue** (parité des clés, `en` ≠ `fr`, parité ICU) aux objets `Record<Locale, …>` de `emailMessages.ts` | **La bonne réponse — pas faite, faute de temps, pas d'obstacle.** C'est exactement ce que la garde applique déjà à `messages/*.json`. Le seul travail est la forme : lire des littéraux objet TypeScript au lieu de JSON. **Dette assumée, à reprendre en premier si un e-mail part en anglais bancal.** |
+
+**En attendant le filet** : toute PR qui touche `convex/emailMessages.ts` se
+relit branche `en` par branche `en`, à la main. C'est la seule barrière.
 
 #### Ce qu'aucune garde statique ne peut voir
 
@@ -863,10 +907,8 @@ Les deux prédicats qui décident :
 | **Clé i18n fautive dans une TABLE** (`useLabel`) | typée `string` : la clé s'affiche brute à l'exécution. C'est ce qui a fait lire `status.rush.deposited` à un talent — attrapé par l'e2e, jamais par la garde ni par tsc. |
 | **Valeur `en.json` qui n'est pas de l'anglais** | la garde B2 vérifie qu'elle DIFFÈRE du français, pas qu'elle soit anglaise. Une phrase reformulée en français y passerait. |
 
-**La conséquence pratique** : sur ce dépôt, une garde verte ne prouve pas qu'un
-écran est traduit. Elle prouve qu'aucun motif CONNU n'a été réintroduit. Les
-deux fois où du français est réapparu à l'écran, c'est **l'e2e ou l'œil** qui
-l'ont vu — jamais la garde.
+**La conséquence pratique** est en tête de section : elle s'y lit avant la
+liste, pas après — c'est la seule ligne de ce document qui change une habitude.
 
 ### 11.6 Le détecteur avait trois trous de plus — et le guide est de la donnée
 
