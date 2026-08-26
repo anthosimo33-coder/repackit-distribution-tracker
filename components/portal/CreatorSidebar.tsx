@@ -20,6 +20,7 @@ import { getCreatorTools } from "@/lib/creator-tools";
 import { isSnytchProject } from "@/lib/snytch-drive";
 import { resolveSidebarLinkIcon } from "@/lib/sidebar-link-icon";
 import { useTranslations } from "next-intl";
+import { useLabel } from "@/lib/use-label";
 
 /**
  * Sidebar DESKTOP du portail créateur (≥ md), réplique du pattern admin :
@@ -77,6 +78,7 @@ const VIDEOS_ITEM = {
 } as const;
 
 export function CreatorSidebar({ onSignOut }: { onSignOut: () => void }) {
+  const tLabel = useLabel();
   const t = useTranslations("portal");
   const pathname = usePathname();
   const { current } = useCreatorProject();
@@ -129,7 +131,7 @@ export function CreatorSidebar({ onSignOut }: { onSignOut: () => void }) {
                 <SidebarItem
                   key={tool.url}
                   icon={resolveSidebarLinkIcon(tool.icon)}
-                  label={tool.label}
+                  label={tLabel(tool.labelKey)}
                   href={tool.url}
                   isActive={false}
                   isCollapsed={false}

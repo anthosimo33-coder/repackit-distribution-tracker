@@ -102,6 +102,7 @@ export function AssignmentDetailSheet({
   row: AssignmentRow;
   now: number;
 }) {
+  const tLabel = useLabel();
   const setPostDate = useProjectMutation(api.assignments.setAssignmentPostDate);
   const setPostWindow = useProjectMutation(
     api.assignments.setAssignmentPostWindow,
@@ -374,7 +375,7 @@ export function AssignmentDetailSheet({
                         void saveWindow(actif ? undefined : p.window)
                       }
                     >
-                      {p.label.replace(/ \(.*\)/, "")}
+                      {tLabel(p.shortKey)}
                     </Button>
                   );
                 })}
@@ -566,7 +567,7 @@ function DetailRow({
 }
 
 function CalendarStatusPill({ status }: { status: CalendarStatus }) {
-  const label = useLabel();
+  const tLabel = useLabel();
   if (status === "none") {
     return <span className="text-slate-400">Non planifié</span>;
   }
@@ -579,13 +580,13 @@ function CalendarStatusPill({ status }: { status: CalendarStatus }) {
       )}
     >
       <meta.Icon className="size-3" />
-      {label(meta.labelKey)}
+      {tLabel(meta.labelKey)}
     </span>
   );
 }
 
 function ProductionStatusBadge({ status }: { status: AssignmentStatus }) {
-  const label = useLabel();
+  const tLabel = useLabel();
   const st = ASSIGNMENT_STATUS[status];
   return (
     <span
@@ -594,7 +595,7 @@ function ProductionStatusBadge({ status }: { status: AssignmentStatus }) {
         st.className,
       )}
     >
-      {label(st.labelKey)}
+      {tLabel(st.labelKey)}
     </span>
   );
 }

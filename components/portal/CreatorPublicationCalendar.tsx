@@ -59,7 +59,7 @@ export function CreatorPublicationCalendar({
   now: number;
   base: string;
 }) {
-  const label = useLabel();
+  const tLabel = useLabel();
   const [currentMonth, setCurrentMonth] = useState(() => new Date(now));
 
   const planned = useMemo(
@@ -171,8 +171,8 @@ export function CreatorPublicationCalendar({
                         href={portalHref(base, `/assignments/${row._id}`)}
                         title={
                           formatPostWindow(row.postWindow) !== null
-                            ? `${row.formatName} · ${label(meta.labelKey)} · entre ${formatPostWindow(row.postWindow)!.replace("-", " et ")}`
-                            : `${row.formatName} · ${label(meta.labelKey)}`
+                            ? `${row.formatName} · ${tLabel(meta.labelKey)} · entre ${formatPostWindow(row.postWindow)!.replace("-", " et ")}`
+                            : `${row.formatName} · ${tLabel(meta.labelKey)}`
                         }
                         className={cn(
                           "flex w-full items-center gap-1 rounded border px-1 py-0.5 text-left text-[10px] font-medium leading-tight transition-colors",
@@ -207,7 +207,7 @@ export function CreatorPublicationCalendar({
                 className="inline-flex items-center gap-1 text-[11px] text-slate-500"
               >
                 <meta.Icon className="size-3" />
-                {label(meta.labelKey)}
+                {tLabel(meta.labelKey)}
               </span>
             );
           })}

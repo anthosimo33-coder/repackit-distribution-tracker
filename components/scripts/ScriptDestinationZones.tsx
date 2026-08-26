@@ -9,6 +9,7 @@ import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { brickModeDisplay, type BrickMode } from "@/lib/script-mode";
 import { useTranslations } from "next-intl";
+import { useLabel } from "@/lib/use-label";
 
 /**
  * SNYTCH — rend un script monté en DEUX zones de DESTINATION explicites, pour
@@ -29,6 +30,7 @@ export function ScriptDestinationZones({
   videoBlocks: { text: string; mode: BrickMode }[];
   descriptionScript: string;
 }) {
+  const tLabel = useLabel();
   const t = useTranslations("portal");
   return (
     <div className="space-y-4">
@@ -52,7 +54,7 @@ export function ScriptDestinationZones({
                   data-mode={b.mode}
                 >
                   <span aria-hidden>{d.icon}</span>
-                  {d.label}
+                  {tLabel(d.labelKey)}
                 </p>
                 <SimpleMarkdown content={b.text} />
               </div>

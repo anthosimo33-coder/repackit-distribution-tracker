@@ -26,6 +26,7 @@
     "portal.profil.email",
     "portal.profil.method.paypal",
     "portal.profil.method.usdt",
+    "status.compte.shadowban",
     "tracker.quadrant.axisY",
     "tracker.quadrant.legendQualification.promo",
     "tracker.quadrant.name.scale",

@@ -12,14 +12,15 @@
  * comme les sidebarLinks admin — même rendu, mêmes icônes curatées.
  */
 export type CreatorTool = {
-  label: string;
+  /** Clé i18n du libellé — l'outil est rendu dans la langue du créateur. */
+  labelKey: string;
   url: string;
   icon?: string;
 };
 
 // Sous-titres : outil commun à Snytch et RepackIt (même éditeur).
 const SUBTITLES: CreatorTool = {
-  label: "Sous-titres",
+  labelKey: "tools.subtitles",
   url: "https://sous-titre-editeur.vercel.app/",
   icon: "subtitles",
 };
@@ -28,7 +29,7 @@ const TOOLS_BY_SLUG: Record<string, readonly CreatorTool[]> = {
   snytch: [
     SUBTITLES,
     {
-      label: "Carrousel Studio",
+      labelKey: "tools.carousel",
       url: "https://carrouselstudio.vercel.app/",
       icon: "carousel",
     },

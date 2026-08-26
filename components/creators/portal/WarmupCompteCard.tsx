@@ -21,6 +21,8 @@ import {
   type Plateforme,
 } from "@/lib/compte-status";
 import { warmupProgress, checkedToday, mustCheckToday } from "@/lib/warmup";
+import { useLabel } from "@/lib/use-label";
+import { useTranslations } from "next-intl";
 
 /**
  * P5 — carte d'un compte côté portail créateur. En warmup : mots-clés,
@@ -38,6 +40,8 @@ export function WarmupCompteCard({
   /** Admin view-as : masque les boutons d'action (check warmup, confirm bio). */
   readOnly?: boolean;
 }) {
+  const tLabel = useLabel();
+  const t = useTranslations("portal");
   const markCheck = useMutation(api.comptes.markWarmupCheck);
   const [submitting, setSubmitting] = useState(false);
 
@@ -101,7 +105,7 @@ export function WarmupCompteCard({
               : badge.className,
           )}
         >
-          {managed ? "Géré par l'équipe" : badge.label}
+          {managed ? t("dashboard.managedBadge") : tLabel(badge.labelKey, badge.params)}
         </span>
       </CardHeader>
 
@@ -216,7 +220,9 @@ export function WarmupCompteCard({
           </div>
         ) : hasBio ? null : (
           <p className="text-sm text-slate-500">
-            Compte {badge.label.toLowerCase()}. Rien à faire aujourd&apos;hui.
+            {t("comptes.nothingToday", {
+              status: tLabel(badge.inlineKey, badge.params),
+            })}
           </p>
         )}
           </>

@@ -48,6 +48,7 @@ import { WarmupGuideButton } from "@/components/warmup/WarmupGuideButton";
 import CompteDialog, { type Compte } from "@/components/comptes/CompteDialog";
 import { CompteAdminActions } from "@/components/comptes/CompteAdminActions";
 import { ComptesAValiderSection } from "@/components/comptes/ComptesAValiderSection";
+import { useLabel } from "@/lib/use-label";
 
 type StatusFilter = "all" | CompteStatus;
 
@@ -86,6 +87,7 @@ export default function ComptesPage() {
 }
 
 function ComptesPageInner() {
+  const tLabel = useLabel();
   const router = useRouter();
   const projectPath = useProjectPath();
   const searchParams = useSearchParams();
@@ -411,7 +413,7 @@ function ComptesPageInner() {
                             badge.className,
                           )}
                         >
-                          {badge.label}
+                          {tLabel(badge.labelKey, badge.params)}
                         </span>
                       </TableCell>
                       <TableCell>

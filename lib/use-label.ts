@@ -17,7 +17,14 @@ import { useTranslations } from "next-intl";
  * journalise). Les clés littérales écrites dans du JSX, elles, restent typées —
  * ce hook ne sert QU'aux tables.
  */
-export function useLabel(): (key: string) => string {
+export function useLabel(): (
+  key: string,
+  params?: Record<string, string | number>,
+) => string {
   const t = useTranslations();
-  return (key) => t(key as Parameters<typeof t>[0]);
+  // `params` sert les tables dont le libellé est interpolé — « Warmup J+2/7 »
+  // (lib/compte-status) ou « 3 vidéos publiées » (lib/progression). Les recoller
+  // à la main dans le module pur rendrait la phrase intraduisible.
+  return (key, params) =>
+    t(key as Parameters<typeof t>[0], params as never);
 }

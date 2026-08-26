@@ -233,7 +233,8 @@
     },
     "comptes": {
       "emptyReadOnly": "Ce créateur n'a pas encore déclaré de compte.",
-      "emptyCreator": "Déclare ton premier compte pour démarrer son warmup."
+      "emptyCreator": "Déclare ton premier compte pour démarrer son warmup.",
+      "nothingToday": "Compte {status}. Rien à faire aujourd'hui."
     },
     "calendarStatus": {},
     "fichiers": {
@@ -421,6 +422,73 @@
       "late": "En retard",
       "missed": "Manqué",
       "scheduled": "Prévu"
+    },
+    "compte": {
+      "warmup": "Warmup",
+      "actif": "Actif",
+      "shadowban": "Shadowban",
+      "archive": "Archivé",
+      "aValider": "À valider",
+      "warmupProgress": "Warmup J+{done}/{target}"
+    },
+    "rush": {
+      "deposited": "Déposé",
+      "assigned": "Validé",
+      "published": "Publié",
+      "rejected": "Refusé",
+      "expired": "Expiré"
+    },
+    "compteInline": {
+      "warmup": "warmup",
+      "warmupProgress": "warmup j+{done}/{target}",
+      "actif": "actif",
+      "shadowban": "shadowban",
+      "archive": "archivé",
+      "aValider": "à valider"
     }
+  },
+  "scriptMode": {
+    "option": {
+      "dire": "Dire à l'oral",
+      "afficher": "Afficher à l'écran",
+      "les_deux": "Les deux"
+    },
+    "hint": {
+      "dire": "À dire à l'oral",
+      "afficher": "À afficher en texte à l'écran",
+      "les_deux": "À dire ET afficher à l'écran"
+    }
+  },
+  "postWindow": {
+    "midi": "Midi (11h-13h)",
+    "apresmidi": "Après-midi (15h-17h)",
+    "soir": "Soir (21h-23h)",
+    "short": {
+      "midi": "Midi",
+      "apresmidi": "Après-midi",
+      "soir": "Soir"
+    }
+  },
+  "videoFilter": {
+    "all": "Toutes mes vidéos",
+    "pending": "En attente",
+    "approved": "Approuvé et en ligne",
+    "rejected": "Rejeté"
+  },
+  "tools": {
+    "subtitles": "Sous-titres",
+    "carousel": "Carrousel Studio"
+  },
+  "progression": {
+    "reward": "Récompense",
+    "firstVideo": "Première vidéo publiée",
+    "videosPublished": "{count} vidéos publiées",
+    "views100k": "100 k vues cumulées",
+    "views1m": "1 M de vues cumulées",
+    "viewsGeneric": "{count} vues cumulées",
+    "firstTier": "Premier palier débloqué",
+    "rewardsPlural": "récompenses",
+    "hintViews": "vues cumulées",
+    "hintRewards": "récompenses"
   }
 }

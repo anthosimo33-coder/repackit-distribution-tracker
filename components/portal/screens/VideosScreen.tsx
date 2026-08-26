@@ -13,6 +13,7 @@ import { formatMoney, formatViews } from "@/lib/format-rate";
 import { publishedAgo } from "@/lib/video-tracking";
 import { isSnytchProject } from "@/lib/snytch-drive";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useLabel } from "@/lib/use-label";
 import {
   CREATOR_VIDEO_FILTERS,
   countCreatorVideosByFilter,
@@ -299,6 +300,7 @@ function FilterChips({
   counts: Record<CreatorVideoFilterKey, number>;
   onChange: (key: CreatorVideoFilterKey) => void;
 }) {
+  const tLabel = useLabel();
   return (
     <div
       role="tablist"
@@ -322,7 +324,7 @@ function FilterChips({
                 : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
             )}
           >
-            {f.label}
+            {tLabel(f.labelKey)}
             <span
               className={cn(
                 "ml-1.5 tabular-nums",

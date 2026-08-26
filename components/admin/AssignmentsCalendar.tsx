@@ -122,7 +122,7 @@ export function AssignmentsCalendar({
   onOpen: (id: Id<"assignments">) => void;
   statusFilter?: CalendarStatusFilter;
 }) {
-  const label = useLabel();
+  const tLabel = useLabel();
   const [currentMonth, setCurrentMonth] = useState(() => new Date(now));
 
   // Rows planifiées (avec date de post) + leur statut calendrier.
@@ -217,7 +217,7 @@ export function AssignmentsCalendar({
 
   const rateAlert = stats.rate != null && stats.rate < ON_TIME_THRESHOLD;
   const statusLabel =
-    statusFilter === "all" ? null : label(CALENDAR_STATUS_META[statusFilter].labelKey);
+    statusFilter === "all" ? null : tLabel(CALENDAR_STATUS_META[statusFilter].labelKey);
 
   return (
     <div className="space-y-4">
@@ -427,7 +427,7 @@ function CalendarPost({
   status: CalendarStatusVisual;
   onOpen: (id: Id<"assignments">) => void;
 }) {
-  const label = useLabel();
+  const tLabel = useLabel();
   const meta = CALENDAR_STATUS_META[status];
   const managed = row.managedByAdmin === true;
   const Marker = managed ? Building2Icon : UserRoundIcon;
@@ -437,7 +437,7 @@ function CalendarPost({
     label: atHandle(t.accountHandle) ?? t.platform,
   }));
   const creneau = formatPostWindow(row.postWindow);
-  const title = `${row.creatorName} · ${rowLabel(row)} · ${label(meta.labelKey)}${
+  const title = `${row.creatorName} · ${rowLabel(row)} · ${tLabel(meta.labelKey)}${
     creneau !== null ? ` · créneau ${creneau}` : ""
   } · ${managed ? "compte géré (tu publies)" : "compte créatrice (elle publie)"}`;
 

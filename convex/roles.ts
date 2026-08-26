@@ -89,6 +89,7 @@ export function isPortalRole(role: string | null | undefined): role is PortalRol
 /** Libellés FR pour l'admin (aucun terme technique exposé à l'écran). */
 export const KIND_LABELS: Record<CreatorKind, { singular: string; plural: string }> =
   {
+    // i18n-exempt: libellés ADMIN (KIND_LABELS), jamais rendus dans un portail créateur
     partner: { singular: "Créateur partenaire", plural: "Créateurs partenaires" },
     talent: { singular: "Talent", plural: "Talents" },
     clipper: { singular: "Clippeur", plural: "Clippeurs" },

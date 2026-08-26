@@ -36,7 +36,7 @@ import { useLabel } from "@/lib/use-label";
  * exactement ce qui a de la valeur.
  */
 export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
-  const label = useLabel();
+  const tLabel = useLabel();
   const loc = useIntlLocale();
   const { projectId } = useClipperProject();
   const readOnly = useReadOnly();
@@ -109,7 +109,7 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
 
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant="outline" className={badge?.className}>
-          {badge ? label(badge.labelKey) : statut}
+          {badge ? tLabel(badge.labelKey) : statut}
         </Badge>
         {clip.dueDate !== undefined && (
           <span className="text-xs text-slate-500">

@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
 import { getCreatorTools } from "@/lib/creator-tools";
 import { resolveSidebarLinkIcon } from "@/lib/sidebar-link-icon";
+import { useLabel } from "@/lib/use-label";
 
 /**
  * Page « Outils » du portail créateur (cible de l'onglet Outils de la bottom
@@ -16,6 +17,7 @@ import { resolveSidebarLinkIcon } from "@/lib/sidebar-link-icon";
  * page gère proprement le cas vide (navigation directe vers /app/outils).
  */
 export default function OutilsPage() {
+  const tLabel = useLabel();
   const t = useTranslations("portal");
   const { current } = useCreatorProject();
   const tools = getCreatorTools(current.slug);
@@ -49,7 +51,7 @@ export default function OutilsPage() {
                     <Icon className="size-5" />
                   </span>
                   <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-900">
-                    {tool.label}
+                    {tLabel(tool.labelKey)}
                   </span>
                   <ExternalLinkIcon className="size-4 shrink-0 text-slate-400" />
                 </a>

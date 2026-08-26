@@ -143,7 +143,7 @@ export default function AssignmentsPage() {
 }
 
 function AssignmentsPageInner() {
-  const label = useLabel();
+  const tLabel = useLabel();
   const assignments = useProjectQuery(api.assignments.listAssignments, {});
   const projectSlug = useProject().project.slug;
   // Ancre temporelle stable au montage (rang d'urgence de l'ordre + filtre
@@ -758,7 +758,7 @@ function AssignmentsPageInner() {
                             st.className,
                           )}
                         >
-                          {label(st.labelKey)}
+                          {tLabel(st.labelKey)}
                         </span>
                       </TableCell>
                       <TableCell className="text-sm text-slate-500">

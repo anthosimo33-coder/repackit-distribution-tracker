@@ -299,7 +299,7 @@ function MesComptes() {
 }
 
 function MesClips() {
-  const label = useLabel();
+  const tLabel = useLabel();
   const loc = useIntlLocale();
   const { projectId } = useClipperProject();
   const clips = useMyClips(projectId);
@@ -332,7 +332,7 @@ function MesClips() {
                     <div className="min-w-0 flex-1 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge variant="outline" className={badge?.className}>
-                          {badge ? label(badge.labelKey) : c.status}
+                          {badge ? tLabel(badge.labelKey) : c.status}
                         </Badge>
                         {c.dueDate !== undefined && (
                           <span className="text-xs text-slate-500">

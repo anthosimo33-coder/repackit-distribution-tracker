@@ -233,7 +233,8 @@
     },
     "comptes": {
       "emptyReadOnly": "This creator hasn't declared an account yet.",
-      "emptyCreator": "Declare your first account to start its warm-up."
+      "emptyCreator": "Declare your first account to start its warm-up.",
+      "nothingToday": "Account {status}. Nothing to do today."
     },
     "calendarStatus": {},
     "fichiers": {
@@ -421,6 +422,73 @@
       "late": "Late",
       "missed": "Missed",
       "scheduled": "Scheduled"
+    },
+    "compte": {
+      "warmup": "Warm-up",
+      "actif": "Active",
+      "shadowban": "Shadowban",
+      "archive": "Archived",
+      "aValider": "To approve",
+      "warmupProgress": "Warm-up D+{done}/{target}"
+    },
+    "rush": {
+      "deposited": "Uploaded",
+      "assigned": "Approved",
+      "published": "Published",
+      "rejected": "Rejected",
+      "expired": "Expired"
+    },
+    "compteInline": {
+      "warmup": "in warm-up",
+      "warmupProgress": "in warm-up d+{done}/{target}",
+      "actif": "active",
+      "shadowban": "shadowbanned",
+      "archive": "archived",
+      "aValider": "awaiting approval"
     }
+  },
+  "scriptMode": {
+    "option": {
+      "dire": "Say out loud",
+      "afficher": "Show on screen",
+      "les_deux": "Both"
+    },
+    "hint": {
+      "dire": "To say out loud",
+      "afficher": "To show as on-screen text",
+      "les_deux": "To say AND show on screen"
+    }
+  },
+  "postWindow": {
+    "midi": "Midday (11am–1pm)",
+    "apresmidi": "Afternoon (3pm–5pm)",
+    "soir": "Evening (9pm–11pm)",
+    "short": {
+      "midi": "Midday",
+      "apresmidi": "Afternoon",
+      "soir": "Evening"
+    }
+  },
+  "videoFilter": {
+    "all": "All my videos",
+    "pending": "Pending",
+    "approved": "Approved and live",
+    "rejected": "Rejected"
+  },
+  "tools": {
+    "subtitles": "Subtitles",
+    "carousel": "Carousel Studio"
+  },
+  "progression": {
+    "reward": "Reward",
+    "firstVideo": "First video published",
+    "videosPublished": "{count} videos published",
+    "views100k": "100k total views",
+    "views1m": "1M total views",
+    "viewsGeneric": "{count} total views",
+    "firstTier": "First tier unlocked",
+    "rewardsPlural": "rewards",
+    "hintViews": "total views",
+    "hintRewards": "rewards"
   }
 }

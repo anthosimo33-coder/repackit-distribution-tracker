@@ -10,6 +10,7 @@ import { useMyProgression } from "@/components/portal/creator-data";
 import { rewardEmoji } from "@/lib/progression";
 import { formatMoney, formatViews } from "@/lib/format-rate";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useLabel } from "@/lib/use-label";
 
 /**
  * Overlay GLOBAL de célébration de palier — monté dans le shell créateur, donc
@@ -33,6 +34,7 @@ export function ProgressionCelebration({
 }: {
   projectId: Id<"projects">;
 }) {
+  const tLabel = useLabel();
   const loc = useIntlLocale();
   const va = useViewAs();
   // Devise de la paie créatrices ($ Snytch ; null → sans symbole) — le shell
@@ -103,7 +105,7 @@ export function ProgressionCelebration({
           <p className="text-xl font-semibold text-slate-900">
             {headline.kind === "cash"
               ? formatMoney(headline.amount ?? 0, payCurrency, loc)
-              : `${headline.emoji} ${headline.label}`}
+              : `${headline.emoji} ${headline.label ?? tLabel("progression.reward")}`}
           </p>
           <p className="mt-1 text-xs text-slate-500">
             {headline.kind === "cash"

@@ -47,18 +47,22 @@ export function parseServiceAccount(raw: string): ServiceAccount {
   try {
     json = JSON.parse(raw);
   } catch {
+    // i18n-exempt: erreur de CONFIGURATION serveur, lue par un développeur dans les logs
     throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON: JSON invalide.");
   }
   if (!json || typeof json !== "object") {
+    // i18n-exempt: erreur de CONFIGURATION serveur, lue par un développeur dans les logs
     throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON: objet JSON attendu.");
   }
   const o = json as Record<string, unknown>;
   const clientEmail = o.client_email;
   const privateKeyRaw = o.private_key;
   if (typeof clientEmail !== "string" || clientEmail.length === 0) {
+    // i18n-exempt: erreur de CONFIGURATION serveur, lue par un développeur dans les logs
     throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON: client_email manquant.");
   }
   if (typeof privateKeyRaw !== "string" || privateKeyRaw.length === 0) {
+    // i18n-exempt: erreur de CONFIGURATION serveur, lue par un développeur dans les logs
     throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON: private_key manquant.");
   }
   const tokenUri =
@@ -84,6 +88,7 @@ export function driveShortId(creatorId: string): string {
  */
 export function creatorFolderName(name: string, creatorId: string): string {
   const clean = name.replace(/\s+/g, " ").trim().slice(0, 60);
+  // i18n-exempt: nom de DOSSIER Google Drive (donnée persistée), pas de l'interface
   const display = clean.length > 0 ? clean : "Créateur";
   return `${display} — ${driveShortId(creatorId)}`;
 }

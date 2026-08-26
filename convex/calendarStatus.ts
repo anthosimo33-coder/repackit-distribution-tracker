@@ -107,9 +107,13 @@ export function calendarStatus(input: {
 }
 
 export const CALENDAR_STATUS_LABEL: Record<CalendarStatus, string> = {
+  // i18n-exempt: table jamais rendue — l'affichage passe par status.calendar.* (calendar-status-meta)
   on_time: "À l'heure",
+  // i18n-exempt: table jamais rendue — l'affichage passe par status.calendar.* (calendar-status-meta)
   late: "En retard",
+  // i18n-exempt: table jamais rendue — l'affichage passe par status.calendar.* (calendar-status-meta)
   missed: "Manqué",
+  // i18n-exempt: table jamais rendue — l'affichage passe par status.calendar.* (calendar-status-meta)
   scheduled: "Prévu",
   none: "—",
 };

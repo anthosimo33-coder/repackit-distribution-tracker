@@ -24,6 +24,7 @@ import { formatMoney, formatViews } from "@/lib/format-rate";
 import { formatDate } from "@/lib/format";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useLabel } from "@/lib/use-label";
 
 /**
  * Écran « Ma progression » (route POUSSÉE /app/progression, pas un onglet) —
@@ -86,6 +87,7 @@ type P = NonNullable<ReturnType<typeof buildProgression>>;
 
 /** Hero : vues cumulées → jauge vers le prochain palier (accent projet). */
 function Hero({ p, currency }: { p: P; currency?: string | null }) {
+  const tLabel = useLabel();
   const loc = useIntlLocale();
   const t = useTranslations("portal");
   const pct = Math.round(p.progressToNext * 100);
@@ -145,7 +147,7 @@ function Hero({ p, currency }: { p: P; currency?: string | null }) {
                 key={i}
                 className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary"
               >
-                {r.emoji} {r.label}
+                {r.emoji} {r.label ?? tLabel("progression.reward")}
               </span>
             ))}
           </div>
@@ -261,6 +263,7 @@ function LadderRow({
 
 /** Victoires (badges légers, dérivés à la lecture). */
 function VictoriesSection({ victories }: { victories: ProgressionVictory[] }) {
+  const tLabel = useLabel();
   return (
     <section className="space-y-2">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
@@ -294,7 +297,7 @@ function VictoriesSection({ victories }: { victories: ProgressionVictory[] }) {
                 v.achieved ? "text-slate-900" : "text-slate-400",
               )}
             >
-              {v.label}
+              {tLabel(v.labelKey, v.labelParams)}
             </span>
           </div>
         ))}
@@ -311,6 +314,7 @@ function RewardLabel({
   reward: ProgressionReward;
   currency?: string | null;
 }) {
+  const tLabel = useLabel();
   const loc = useIntlLocale();
   if (reward.kind === "cash") {
     return (
@@ -323,7 +327,7 @@ function RewardLabel({
   return (
     <>
       <span aria-hidden>{reward.emoji}</span>
-      {reward.label}
+      {reward.label ?? tLabel("progression.reward")}
     </>
   );
 }

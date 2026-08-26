@@ -15,6 +15,7 @@ import { ConvexError } from "convex/values";
  */
 export function convexErrorMessage(
   error: unknown,
+  // i18n-exempt: repli de DERNIER RECOURS des appels admin sans message ; le parcours créateur passe toujours un fallback traduit
   fallback = "Une erreur est survenue.",
 ): string {
   if (error instanceof ConvexError && typeof error.data === "string") {

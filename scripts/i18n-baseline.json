@@ -50,18 +50,6 @@
     "components/warmup/WarmupGuideAccordion.tsx",
     "components/warmup/WarmupGuideButton.tsx",
     "convex/accountPhase.ts",
-    "convex/calendarStatus.ts",
-    "convex/postWindow.ts",
-    "convex/roles.ts",
-    "convex/rushScriptEligibility.ts",
-    "convex/rushStatus.ts",
-    "i18n/locales.ts",
-    "lib/compte-status.ts",
-    "lib/convex-error.ts",
-    "lib/creator-tools.ts",
-    "lib/creator-video-filters.ts",
-    "lib/progression.ts",
-    "lib/script-mode.ts",
-    "lib/snytch-drive.ts"
+    "i18n/locales.ts"
   ]
 }

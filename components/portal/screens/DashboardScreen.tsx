@@ -688,6 +688,7 @@ function NextTierCard({
   base: string;
   currency?: string | null;
 }) {
+  const tLabel = useLabel();
   const loc = useIntlLocale();
   const raw = useMyProgression(projectId);
   const p = raw ? buildProgression(raw) : null;
@@ -713,7 +714,7 @@ function NextTierCard({
               <p className="truncate text-xs text-slate-500">
                 {reward.kind === "cash"
                   ? formatMoney(reward.amount, currency, loc)
-                  : `${reward.emoji} ${reward.label}`}
+                  : `${reward.emoji} ${reward.label ?? tLabel("progression.reward")}`}
               </p>
             </div>
             <ArrowRightIcon className="size-4 shrink-0 text-slate-400" />
@@ -783,7 +784,7 @@ function AssignmentItem({
   showFeedback?: boolean;
   managed?: boolean;
 }) {
-  const label = useLabel();
+  const tLabel = useLabel();
   const loc = useIntlLocale();
   const t = useTranslations("portal");
   // Compte géré : aucune urgence (elle n'agit pas), et un badge « géré par
@@ -823,7 +824,7 @@ function AssignmentItem({
                 URGENCY_BADGE[urg].className,
               )}
             >
-              {label(URGENCY_BADGE[urg].labelKey)}
+              {tLabel(URGENCY_BADGE[urg].labelKey)}
             </span>
           )}
           <span
@@ -834,7 +835,7 @@ function AssignmentItem({
                 : st.className,
             )}
           >
-            {managed ? t("dashboard.managedBadge") : label(st.labelKey)}
+            {managed ? t("dashboard.managedBadge") : tLabel(st.labelKey)}
           </span>
           <ArrowRightIcon className="size-4 text-slate-400" />
         </div>
