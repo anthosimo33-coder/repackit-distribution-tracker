@@ -40,6 +40,7 @@ export function WarmupCompteCard({
   /** Admin view-as : masque les boutons d'action (check warmup, confirm bio). */
   readOnly?: boolean;
 }) {
+  const tw = useTranslations("portal.warmupCard");
   const tLabel = useLabel();
   const t = useTranslations("portal");
   const markCheck = useMutation(api.comptes.markWarmupCheck);
@@ -74,9 +75,9 @@ export function WarmupCompteCard({
     setSubmitting(true);
     try {
       await markCheck({ projectId, id: compte._id });
-      toast.success("Check du jour validé ✓");
+      toast.success(tw("checkDone"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tw("error")));
     } finally {
       setSubmitting(false);
     }
@@ -115,13 +116,9 @@ export function WarmupCompteCard({
             data-testid="managed-account-notice"
             className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600"
           >
-            <p className="font-medium text-slate-800">
-              Compte géré par l&apos;équipe
-            </p>
+            <p className="font-medium text-slate-800">{tw("managedTitle")}</p>
             <p className="mt-0.5">
-              L&apos;équipe s&apos;occupe de ce compte (warmup, publication,
-              lien). Tu n&apos;as rien à cocher ni à publier ici — retrouve les
-              vidéos publiées et leurs performances dans « Mes vidéos ».
+              {tw("managedBody")}
             </p>
           </div>
         ) : (
@@ -144,17 +141,11 @@ export function WarmupCompteCard({
                   Jour {progress.day} / {progress.targetDays}
                 </span>
                 {warmupDone ? (
-                  <span className="text-xs font-medium text-blue-600">
-                    Warmup terminé — en attente de validation admin
-                  </span>
+                  <span className="text-xs font-medium text-blue-600">{tw("warmupDone")}</span>
                 ) : dueToday ? (
-                  <span className="text-xs font-semibold text-amber-600">
-                    À faire aujourd&apos;hui
-                  </span>
+                  <span className="text-xs font-semibold text-amber-600">{tw("todoToday")}</span>
                 ) : (
-                  <span className="text-xs font-medium text-emerald-600">
-                    Fait aujourd&apos;hui ✓
-                  </span>
+                  <span className="text-xs font-medium text-emerald-600">{tw("doneToday")}</span>
                 )}
               </div>
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
@@ -173,9 +164,7 @@ export function WarmupCompteCard({
           )}
 
           <div className="space-y-1.5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-              Mots-clés à rechercher
-            </p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{tw("keywords")}</p>
             {protocol && protocol.keywords.length > 0 ? (
               <div className="flex flex-wrap gap-1.5">
                 {protocol.keywords.map((k) => (
@@ -185,17 +174,13 @@ export function WarmupCompteCard({
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-slate-400">
-                En attente des mots-clés définis par l&apos;admin.
-              </p>
+              <p className="text-sm text-slate-400">{tw("keywordsWait")}</p>
             )}
           </div>
 
           {protocol && protocol.instructions.trim().length > 0 && (
             <div className="space-y-1.5">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                Instructions
-              </p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{tw("instructions")}</p>
               <SimpleMarkdown content={protocol.instructions} />
             </div>
           )}
@@ -214,7 +199,7 @@ export function WarmupCompteCard({
               ) : (
                 <CheckCircle2Icon className="mr-2 size-4" />
               )}
-              {doneToday ? "Warmup du jour fait ✓" : "Warmup du jour fait"}
+              {doneToday ? tw("todayDoneBtn") : tw("todayBtn")}
             </Button>
           )}
           </div>

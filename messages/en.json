@@ -208,7 +208,17 @@
       "title": "Video to recreate"
     },
     "progression": {
-      "nextTier": "Next tier"
+      "nextTier": "Next tier",
+      "allUnlocked": "All tiers unlocked 🎉",
+      "ladder": "Reward ladder",
+      "noTiers": "No reward tiers on this project yet.",
+      "unlocked": "Unlocked",
+      "inProgress": "In progress",
+      "victories": "Your wins",
+      "back": "Back",
+      "title": "My progress",
+      "empty": "Your progress will show up here as soon as you get your first views.",
+      "cumulViews": "Total views"
     },
     "script": {
       "copyDescription": "Copy the description"
@@ -234,7 +244,12 @@
     "comptes": {
       "emptyReadOnly": "This creator hasn't declared an account yet.",
       "emptyCreator": "Declare your first account to start its warm-up.",
-      "nothingToday": "Account {status}. Nothing to do today."
+      "nothingToday": "Account {status}. Nothing to do today.",
+      "declare": "Declare an account",
+      "createThese": "Create these accounts on your platforms:",
+      "title": "My accounts",
+      "subtitle": "Declare your accounts and follow their warm-up.",
+      "createExact": "Create exactly these handles — they have to match the accounts you declare afterwards."
     },
     "calendarStatus": {},
     "fichiers": {
@@ -305,7 +320,21 @@
         "subtitle": "Earned this month + next payout.",
         "paidIn": "{days, plural, one {Paid in # day (on {date})} other {Paid in # days (on {date})}}",
         "nextPayout": "Next payout on {date}"
-      }
+      },
+      "managedTitle": "Managed by the team",
+      "managedBody": "The team publishes these videos — open them to see the script. The post and its performance land in “My videos”.",
+      "onboardTitle": "To start receiving assignments",
+      "onboardBody": "Finish these steps to activate your account.",
+      "pendingTitle": "Your account is being reviewed",
+      "pendingBody": "Your scripts are coming: the team is approving your account, and your first assignments follow right after.",
+      "teamManagesTitle": "Your team manages your accounts",
+      "teamManagesBody": "There's nothing for you to set up. Find your videos and their performance in “My videos”.",
+      "allClearTitle": "All caught up",
+      "allClearBody": "Nothing to do right now. Check back from time to time: your new assignments and warm-ups will show up here.",
+      "warmupDoneToday": "Warm-up in progress — you're good for today ✓",
+      "warmupDailyHint": "Come back and check it off every day until the end: that's what gets your account ready to publish.",
+      "nextTier": "Next tier",
+      "seeDetail": "See details"
     },
     "profil": {
       "method": {
@@ -395,7 +424,15 @@
       "subtotal": "Pricing subtotal",
       "total": "Total",
       "dueThisCycle": "Due this cycle",
-      "dueForCycle": "Due for the current cycle ({range})"
+      "dueForCycle": "Due for the current cycle ({range})",
+      "seeProgress": "See my progress",
+      "liveDetail": "Breakdown (live)",
+      "pending": "Pending",
+      "title": "My payments",
+      "firstPayHint": "Your first payout starts after your first publication.",
+      "currentCycle": "Current cycle breakdown",
+      "noVideoCycle": "No video published in this cycle yet.",
+      "history": "History"
     },
     "videos": {
       "trackingActive": "Tracking active",
@@ -446,6 +483,20 @@
       "assets": "Assets to use",
       "download": "Download",
       "pay": "Pay"
+    },
+    "warmupCard": {
+      "checkDone": "Today's check is done ✓",
+      "error": "Something went wrong.",
+      "todayDoneBtn": "Today's warm-up done ✓",
+      "todayBtn": "Today's warm-up done",
+      "managedTitle": "Account managed by the team",
+      "managedBody": "The team takes care of this account (warm-up, publishing, link). Nothing for you to check off or publish here — find the published videos and their performance in “My videos”.",
+      "warmupDone": "Warm-up complete — waiting for admin approval",
+      "todoToday": "To do today",
+      "doneToday": "Done today ✓",
+      "keywords": "Keywords to search for",
+      "keywordsWait": "Waiting for the keywords the admin sets.",
+      "instructions": "Brief"
     }
   },
   "status": {
@@ -857,5 +908,26 @@
     "avoid": "Avoid",
     "examples": "Sample videos",
     "pay": "Pay"
+  },
+  "talent": {
+    "deposit": "Upload",
+    "myDeposits": "My uploads",
+    "examples": "Some examples",
+    "myVideos": "My videos",
+    "subtitle": "Film your takes and upload them here. We handle the rest.",
+    "roNotice": "Uploading takes is theirs to do — it isn't actionable from observation mode.",
+    "empty": "You haven't uploaded anything yet.",
+    "howToFilm": "How to film",
+    "briefNotReady": "Your brief isn't ready yet. Your contact will let you know."
+  },
+  "estimator": {
+    "views": "Estimated view count",
+    "base": "Base",
+    "viewBonus": "View bonus",
+    "bounties": "Tier bounties",
+    "total": "Estimated total",
+    "disclaimer": "Indicative estimate; payment is based on the actual views of the approved post.",
+    "baseFixed": "Base (flat per video)",
+    "cpm": "CPM (on your views)"
   }
 }

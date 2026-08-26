@@ -303,12 +303,9 @@ export default function DashboardScreen() {
                     <UsersIcon className="size-5" />
                   </span>
                   <div className="min-w-0">
-                    <CardTitle className="text-base">
-                      Gérées par l&apos;équipe
-                    </CardTitle>
+                    <CardTitle className="text-base">{t("dashboard.managedTitle")}</CardTitle>
                     <CardDescription>
-                      L&apos;équipe publie ces vidéos — ouvre-les pour voir le
-                      script. Le post et les perfs arrivent dans « Mes vidéos ».
+                      {t("dashboard.managedBody")}
                     </CardDescription>
                   </div>
                 </div>
@@ -377,12 +374,8 @@ function OnboardingChecklist({
             <ListChecksIcon className="size-5" />
           </span>
           <div className="min-w-0">
-            <CardTitle className="text-base">
-              Pour commencer à recevoir tes missions
-            </CardTitle>
-            <CardDescription>
-              Termine ces étapes pour activer ton compte.
-            </CardDescription>
+            <CardTitle className="text-base">{t("dashboard.onboardTitle")}</CardTitle>
+            <CardDescription>{t("dashboard.onboardBody")}</CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -443,13 +436,8 @@ function OnboardingChecklist({
           >
             <ClockIcon className="size-5 shrink-0 text-amber-600" />
             <div className="min-w-0 space-y-0.5">
-              <p className="text-sm font-medium text-amber-900">
-                Ton compte est en cours de validation
-              </p>
-              <p className="text-sm text-amber-800">
-                Tes scripts arrivent bientôt : l&apos;équipe valide ton compte,
-                tu recevras tes premières missions juste après.
-              </p>
+              <p className="text-sm font-medium text-amber-900">{t("dashboard.pendingTitle")}</p>
+              <p className="text-sm text-amber-800">{t("dashboard.pendingBody")}</p>
             </div>
           </div>
         ) : (
@@ -536,6 +524,7 @@ function ChecklistRow({
  * des assignments — pas de faux « tout à jour » forcé.
  */
 function ManagedByTeamNotice() {
+  const t = useTranslations("portal");
   return (
     <Card
       data-testid="managed-by-team-notice"
@@ -546,12 +535,9 @@ function ManagedByTeamNotice() {
           <UsersIcon className="size-5" />
         </span>
         <div className="min-w-0 space-y-0.5">
-          <p className="text-sm font-semibold text-slate-900">
-            Ton équipe gère tes comptes
-          </p>
+          <p className="text-sm font-semibold text-slate-900">{t("dashboard.teamManagesTitle")}</p>
           <p className="text-sm text-slate-500">
-            Tu n&apos;as rien à configurer. Retrouve tes vidéos et leurs
-            performances dans « Mes vidéos ».
+            {t("dashboard.teamManagesBody")}
           </p>
         </div>
       </CardContent>
@@ -561,16 +547,14 @@ function ManagedByTeamNotice() {
 
 /** État « tout à jour » : rien à faire dans aucune catégorie. */
 function AllClear() {
+  const t = useTranslations("portal");
   return (
     <Card data-testid="all-clear" className="border-emerald-200 bg-emerald-50/60">
       <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
         <PartyPopperIcon className="size-9 text-emerald-500" strokeWidth={1.5} />
-        <p className="text-base font-semibold text-emerald-900">
-          Tout est à jour
-        </p>
+        <p className="text-base font-semibold text-emerald-900">{t("dashboard.allClearTitle")}</p>
         <p className="text-sm text-emerald-700">
-          Rien à faire pour le moment. Repasse de temps en temps : tes nouvelles
-          missions et tes warmups apparaîtront ici.
+          {t("dashboard.allClearBody")}
         </p>
       </CardContent>
     </Card>
@@ -584,6 +568,7 @@ function AllClear() {
  * Renvoie vers « Mes comptes » où se fait le check. AFFICHAGE seul (lecture).
  */
 function WarmupOngoingReminder({ href }: { href: string }) {
+  const t = useTranslations("portal");
   return (
     <Link
       href={href}
@@ -593,11 +578,10 @@ function WarmupOngoingReminder({ href }: { href: string }) {
       <FlameIcon className="size-5 shrink-0 text-amber-600" />
       <div className="min-w-0 flex-1 space-y-0.5">
         <p className="text-sm font-medium text-amber-900">
-          Warmup en cours — c&apos;est bon pour aujourd&apos;hui&nbsp;✓
+          {t("dashboard.warmupDoneToday")}
         </p>
         <p className="text-sm text-amber-800">
-          Reviens le cocher chaque jour jusqu&apos;au bout : c&apos;est ce qui
-          rend ton compte prêt à publier.
+          {t("dashboard.warmupDailyHint")}
         </p>
       </div>
       <ArrowRightIcon className="size-4 shrink-0 text-amber-700" />
@@ -688,6 +672,7 @@ function NextTierCard({
   base: string;
   currency?: string | null;
 }) {
+  const t = useTranslations("portal");
   const tLabel = useLabel();
   const loc = useIntlLocale();
   const raw = useMyProgression(projectId);
@@ -708,9 +693,7 @@ function NextTierCard({
               <TrophyIcon className="size-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-slate-900">
-                Prochain palier
-              </p>
+              <p className="text-sm font-medium text-slate-900">{t("dashboard.nextTier")}</p>
               <p className="truncate text-xs text-slate-500">
                 {reward.kind === "cash"
                   ? formatMoney(reward.amount, currency, loc)
@@ -750,6 +733,7 @@ function AssignmentList({
   /** Comptes gérés : pas d'urgence, badge « géré par l'équipe » au lieu du statut. */
   managed?: boolean;
 }) {
+  const t = useTranslations("portal");
   const shown = items.slice(0, ITEM_CAP);
   const extra = items.length - shown.length;
   return (
@@ -936,8 +920,8 @@ function EarningsOverview({
   detailHref: string;
   currency?: string | null;
 }) {
-  const loc = useIntlLocale();
   const t = useTranslations("portal");
+  const loc = useIntlLocale();
   return (
     <Card>
       <CardHeader>
@@ -968,9 +952,7 @@ function EarningsOverview({
         <Link
           href={detailHref}
           className="inline-flex items-center gap-1 pt-1 text-sm font-medium text-slate-900 underline underline-offset-4 hover:text-slate-700"
-        >
-          Voir le détail
-          <ArrowRightIcon className="size-3.5" />
+        >{t("dashboard.seeDetail")}<ArrowRightIcon className="size-3.5" />
         </Link>
       </CardContent>
     </Card>

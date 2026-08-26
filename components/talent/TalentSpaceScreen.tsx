@@ -24,6 +24,7 @@ import { formatDate } from "@/lib/format";
 import { isPlaceholderExampleTitle } from "@/lib/talent-brief";
 import { cn } from "@/lib/utils";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useTranslations } from "next-intl";
 
 /**
  * ESPACE TALENT — un seul écran, et c'est tout ce qu'il y a.
@@ -79,6 +80,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 }
 
 export function TalentSpaceScreen() {
+  const tt = useTranslations("talent");
   const loc = useIntlLocale();
   const { projectId } = useTalentProject();
   const readOnly = useReadOnly();
@@ -116,12 +118,8 @@ export function TalentSpaceScreen() {
   return (
     <div className="mx-auto max-w-2xl space-y-8">
       <header className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-          Mes vidéos
-        </h1>
-        <p className="text-sm text-slate-500">
-          Filme tes prises, dépose-les ici. On s&apos;occupe du reste.
-        </p>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{tt("myVideos")}</h1>
+        <p className="text-sm text-slate-500">{tt("subtitle")}</p>
       </header>
 
       {/* ─── Dépôt ──────────────────────────────────────────────────────── */}
@@ -137,13 +135,10 @@ export function TalentSpaceScreen() {
         d'observation, et `confirmDeposit` refuse une session admin.
       */}
       <section className="space-y-2">
-        <SectionTitle>Déposer</SectionTitle>
+        <SectionTitle>{tt("deposit")}</SectionTitle>
         {readOnly ? (
           <Card>
-            <CardContent className="py-6 text-center text-sm text-slate-500">
-              Le dépôt de prises est à sa main — il n&apos;est pas actionnable
-              depuis l&apos;observation.
-            </CardContent>
+            <CardContent className="py-6 text-center text-sm text-slate-500">{tt("roNotice")}</CardContent>
           </Card>
         ) : (
           <DriveUploader
@@ -160,15 +155,13 @@ export function TalentSpaceScreen() {
 
       {/* ─── Mes dépôts ─────────────────────────────────────────────────── */}
       <section className="space-y-2">
-        <SectionTitle>Mes dépôts</SectionTitle>
+        <SectionTitle>{tt("myDeposits")}</SectionTitle>
         {rushes === undefined ? (
           <Skeleton className="h-24 w-full" />
         ) : rushes.length === 0 ? (
           <Card>
             <CardContent className="flex flex-col items-center gap-2 py-8 text-center text-sm text-slate-500">
-              <InboxIcon className="size-6 text-slate-300" />
-              Tu n&apos;as encore rien déposé.
-            </CardContent>
+              <InboxIcon className="size-6 text-slate-300" />{tt("empty")}</CardContent>
           </Card>
         ) : (
           <ul className="space-y-2">
@@ -223,9 +216,7 @@ export function TalentSpaceScreen() {
         <Collapsible.Trigger className="flex w-full items-center justify-between gap-2 rounded-md py-1 text-left hover:opacity-80">
           {/* Un <h2> ne peut pas vivre dans un <button> (contenu de flux dans
               du phrasé) : le titre est ici un <span> de même style. */}
-          <span className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-            Comment filmer
-          </span>
+          <span className="text-sm font-semibold uppercase tracking-wide text-slate-400">{tt("howToFilm")}</span>
           <ChevronDownIcon
             className={cn(
               "size-4 shrink-0 text-slate-400 transition-transform",
@@ -238,9 +229,7 @@ export function TalentSpaceScreen() {
             <Skeleton className="h-32 w-full" />
           ) : brief === null ? (
             <Card>
-              <CardContent className="py-8 text-center text-sm text-slate-500">
-                Ton brief n&apos;est pas encore prêt. Ton contact te préviendra.
-              </CardContent>
+              <CardContent className="py-8 text-center text-sm text-slate-500">{tt("briefNotReady")}</CardContent>
             </Card>
           ) : (
             <Card>
@@ -263,7 +252,7 @@ export function TalentSpaceScreen() {
       */}
       {examples.length > 0 && (
         <section className="space-y-2">
-          <SectionTitle>Des exemples</SectionTitle>
+          <SectionTitle>{tt("examples")}</SectionTitle>
           <div className="flex snap-x gap-3 overflow-x-auto pb-2">
             {examples.map((example, i) => (
               <div key={i} className="w-[200px] shrink-0 snap-start">

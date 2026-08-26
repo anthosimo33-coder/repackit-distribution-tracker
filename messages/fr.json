@@ -208,7 +208,17 @@
       "title": "Vidéo à reproduire"
     },
     "progression": {
-      "nextTier": "Prochain palier"
+      "nextTier": "Prochain palier",
+      "allUnlocked": "Tous les paliers sont débloqués 🎉",
+      "ladder": "Échelle des récompenses",
+      "noTiers": "Pas encore de paliers de récompense sur ce projet.",
+      "unlocked": "Débloqué",
+      "inProgress": "En cours",
+      "victories": "Tes victoires",
+      "back": "Retour",
+      "title": "Ma progression",
+      "empty": "Ta progression apparaîtra ici dès tes premières vues.",
+      "cumulViews": "Vues cumulées"
     },
     "script": {
       "copyDescription": "Copier la description"
@@ -234,7 +244,12 @@
     "comptes": {
       "emptyReadOnly": "Ce créateur n'a pas encore déclaré de compte.",
       "emptyCreator": "Déclare ton premier compte pour démarrer son warmup.",
-      "nothingToday": "Compte {status}. Rien à faire aujourd'hui."
+      "nothingToday": "Compte {status}. Rien à faire aujourd'hui.",
+      "declare": "Déclarer un compte",
+      "createThese": "Crée ces comptes sur tes réseaux :",
+      "title": "Mes comptes",
+      "subtitle": "Déclare tes comptes et suis leur warmup.",
+      "createExact": "Crée exactement ces @ — ils doivent correspondre aux comptes que tu déclares ensuite."
     },
     "calendarStatus": {},
     "fichiers": {
@@ -305,7 +320,21 @@
         "subtitle": "Gagné ce mois + prochaine paie.",
         "paidIn": "{days, plural, one {Payé dans # jour (le {date})} other {Payé dans # jours (le {date})}}",
         "nextPayout": "Prochaine paie le {date}"
-      }
+      },
+      "managedTitle": "Gérées par l'équipe",
+      "managedBody": "L'équipe publie ces vidéos — ouvre-les pour voir le script. Le post et les perfs arrivent dans « Mes vidéos ».",
+      "onboardTitle": "Pour commencer à recevoir tes missions",
+      "onboardBody": "Termine ces étapes pour activer ton compte.",
+      "pendingTitle": "Ton compte est en cours de validation",
+      "pendingBody": "Tes scripts arrivent bientôt : l'équipe valide ton compte, tu recevras tes premières missions juste après.",
+      "teamManagesTitle": "Ton équipe gère tes comptes",
+      "teamManagesBody": "Tu n'as rien à configurer. Retrouve tes vidéos et leurs performances dans « Mes vidéos ».",
+      "allClearTitle": "Tout est à jour",
+      "allClearBody": "Rien à faire pour le moment. Repasse de temps en temps : tes nouvelles missions et tes warmups apparaîtront ici.",
+      "warmupDoneToday": "Warmup en cours — c'est bon pour aujourd'hui ✓",
+      "warmupDailyHint": "Reviens le cocher chaque jour jusqu'au bout : c'est ce qui rend ton compte prêt à publier.",
+      "nextTier": "Prochain palier",
+      "seeDetail": "Voir le détail"
     },
     "profil": {
       "method": {
@@ -395,7 +424,15 @@
       "subtotal": "Sous-total pricing",
       "total": "Total",
       "dueThisCycle": "Dû ce cycle",
-      "dueForCycle": "Dû pour le cycle en cours ({range})"
+      "dueForCycle": "Dû pour le cycle en cours ({range})",
+      "seeProgress": "Voir ma progression",
+      "liveDetail": "Détail (temps réel)",
+      "pending": "En attente",
+      "title": "Mes paiements",
+      "firstPayHint": "Ta première paie démarrera après ta première publication.",
+      "currentCycle": "Détail du cycle en cours",
+      "noVideoCycle": "Aucune vidéo publiée sur ce cycle pour l'instant.",
+      "history": "Historique"
     },
     "videos": {
       "trackingActive": "Suivi actif",
@@ -446,6 +483,20 @@
       "assets": "Assets à utiliser",
       "download": "Télécharger",
       "pay": "Rémunération"
+    },
+    "warmupCard": {
+      "checkDone": "Check du jour validé ✓",
+      "error": "Une erreur est survenue.",
+      "todayDoneBtn": "Warmup du jour fait ✓",
+      "todayBtn": "Warmup du jour fait",
+      "managedTitle": "Compte géré par l'équipe",
+      "managedBody": "L'équipe s'occupe de ce compte (warmup, publication, lien). Tu n'as rien à cocher ni à publier ici — retrouve les vidéos publiées et leurs performances dans « Mes vidéos ».",
+      "warmupDone": "Warmup terminé — en attente de validation admin",
+      "todoToday": "À faire aujourd'hui",
+      "doneToday": "Fait aujourd'hui ✓",
+      "keywords": "Mots-clés à rechercher",
+      "keywordsWait": "En attente des mots-clés définis par l'admin.",
+      "instructions": "Instructions"
     }
   },
   "status": {
@@ -857,5 +908,26 @@
     "avoid": "À éviter",
     "examples": "Vidéos exemples",
     "pay": "Rémunération"
+  },
+  "talent": {
+    "deposit": "Déposer",
+    "myDeposits": "Mes dépôts",
+    "examples": "Des exemples",
+    "myVideos": "Mes vidéos",
+    "subtitle": "Filme tes prises, dépose-les ici. On s'occupe du reste.",
+    "roNotice": "Le dépôt de prises est à sa main — il n'est pas actionnable depuis l'observation.",
+    "empty": "Tu n'as encore rien déposé.",
+    "howToFilm": "Comment filmer",
+    "briefNotReady": "Ton brief n'est pas encore prêt. Ton contact te préviendra."
+  },
+  "estimator": {
+    "views": "Nombre de vues estimé",
+    "base": "Base",
+    "viewBonus": "Bonus aux vues",
+    "bounties": "Primes paliers",
+    "total": "Total estimé",
+    "disclaimer": "Estimation indicative ; le paiement se fait sur les vues réelles du post validé.",
+    "baseFixed": "Base (fixe par vidéo)",
+    "cpm": "CPM (sur tes vues)"
   }
 }

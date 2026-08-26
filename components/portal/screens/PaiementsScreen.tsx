@@ -44,6 +44,7 @@ function BonusTierPanel({
   projectId: Id<"projects">;
   currency?: string | null;
 }) {
+  const t = useTranslations("portal");
   const loc = useIntlLocale();
   const status = useMyBonusStatus(projectId);
   const base = usePortalBase();
@@ -94,7 +95,7 @@ function BonusTierPanel({
           </div>
         ) : (
           <p className="text-xs text-amber-800">
-            Tous les paliers sont débloqués 🎉
+            {t("progression.allUnlocked")}
           </p>
         )}
         {(status.cashUnlockedTotal > 0 || status.natureUnlocked.length > 0) && (
@@ -117,9 +118,7 @@ function BonusTierPanel({
         <Link
           href={portalHref(base, "/progression")}
           className="inline-flex items-center gap-1 pt-1 text-sm font-medium text-amber-900 underline underline-offset-4 hover:text-amber-700"
-        >
-          Voir ma progression
-          <ArrowRightIcon className="size-3.5" />
+        >{t("paiements.seeProgress")}<ArrowRightIcon className="size-3.5" />
         </Link>
       </CardContent>
     </Card>
@@ -174,8 +173,8 @@ function PricingBreakdown({
   b: Payment["pricingBreakdown"];
   currency?: string | null;
 }) {
-  const loc = useIntlLocale();
   const t = useTranslations("portal");
+  const loc = useIntlLocale();
   if (b.total <= 0 && b.perPricing.length === 0) return null;
   // Un cycle peut mélanger DEUX barèmes (un pricing édité en place laisse des
   // vidéos figées sur l'ancien) : on rend alors une ligne PAR barème, sinon le
@@ -183,9 +182,7 @@ function PricingBreakdown({
   const groupes = b.perPricing;
   return (
     <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-        Détail (temps réel)
-      </p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{t("paiements.liveDetail")}</p>
       {groupes.length === 0 ? (
         <Row label={t("paiements.fixe")} amount={b.fixedTotal} currency={currency} />
       ) : (
@@ -256,8 +253,8 @@ function Row({
 }
 
 function LineItems({ p, currency }: { p: Payment; currency?: string | null }) {
-  const loc = useIntlLocale();
   const t = useTranslations("portal");
+  const loc = useIntlLocale();
   return (
     <ul className="divide-y divide-slate-100">
       {p.lineItems.map((li, i) => (
@@ -283,6 +280,7 @@ function LineItems({ p, currency }: { p: Payment; currency?: string | null }) {
 }
 
 function PastPeriod({ p, currency }: { p: Payment; currency?: string | null }) {
+  const t = useTranslations("portal");
   const loc = useIntlLocale();
   const [open, setOpen] = useState(false);
   return (
@@ -307,9 +305,7 @@ function PastPeriod({ p, currency }: { p: Payment; currency?: string | null }) {
               Payé{p.paidAt ? ` le ${formatDate(p.paidAt, loc)}` : ""}
             </span>
           ) : (
-            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
-              En attente
-            </span>
+            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">{t("paiements.pending")}</span>
           )}
         </span>
         <span className="shrink-0 tabular-nums font-medium text-slate-900">
@@ -326,8 +322,8 @@ function PastPeriod({ p, currency }: { p: Payment; currency?: string | null }) {
 }
 
 export default function PaiementsScreen() {
-  const loc = useIntlLocale();
   const t = useTranslations("portal");
+  const loc = useIntlLocale();
   const { current: currentProject } = useCreatorProject();
   // Devise de la paie créatrices (projects.payCurrency, $ Snytch ; null → sans
   // symbole), passée aux sous-composants (un hook ne court qu'en corps de composant).
@@ -350,9 +346,7 @@ export default function PaiementsScreen() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-        Mes paiements
-      </h1>
+      <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t("paiements.title")}</h1>
 
       {/* QW3 — coordonnées de paiement manquantes alors que des gains sont dus. */}
       <PaymentInfoNudge projectId={currentProject.projectId} />
@@ -384,9 +378,7 @@ export default function PaiementsScreen() {
                     : `Prochaine paie le ${formatDate(nextTs, loc)}`}
                 </p>
               ) : (
-                <p className="text-sm text-slate-500">
-                  Ta première paie démarrera après ta première publication.
-                </p>
+                <p className="text-sm text-slate-500">{t("paiements.firstPayHint")}</p>
               )}
             </CardContent>
           </Card>
@@ -394,16 +386,12 @@ export default function PaiementsScreen() {
           {/* Détail — période en cours : aperçu pricing temps réel (nouveau
               modèle) + lineItems legacy éventuelles. */}
           <section className="space-y-2">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-              Détail du cycle en cours
-            </h2>
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">{t("paiements.currentCycle")}</h2>
             {!current ||
             (current.lineItems.length === 0 &&
               current.pricingBreakdown.total <= 0) ? (
               <Card>
-                <CardContent className="py-8 text-center text-sm text-slate-500">
-                  Aucune vidéo publiée sur ce cycle pour l&apos;instant.
-                </CardContent>
+                <CardContent className="py-8 text-center text-sm text-slate-500">{t("paiements.noVideoCycle")}</CardContent>
               </Card>
             ) : (
               <div className="space-y-2">
@@ -422,9 +410,7 @@ export default function PaiementsScreen() {
           {/* Historique des périodes passées (repliées) */}
           {past.length > 0 && (
             <section className="space-y-2">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-                Historique
-              </h2>
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">{t("paiements.history")}</h2>
               <div className="space-y-2">
                 {past.map((p) => (
                   <PastPeriod key={p.key} p={p} currency={payCurrency} />

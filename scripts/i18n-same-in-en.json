@@ -3,6 +3,7 @@
   "keys": [
     "auth.field.email",
     "clip.phaseUnknown",
+    "estimator.base",
     "format.brief",
     "layout.metadata.title",
     "nav.item.analytics",

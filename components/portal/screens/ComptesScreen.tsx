@@ -83,12 +83,8 @@ export default function ComptesScreen() {
     <div className="space-y-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-            Mes comptes
-          </h1>
-          <p className="text-sm text-slate-500">
-            Déclare tes comptes et suis leur warmup.
-          </p>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t("comptes.title")}</h1>
+          <p className="text-sm text-slate-500">{t("comptes.subtitle")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {/* Même guide warmup que l'admin (source unique : components/warmup),
@@ -97,9 +93,7 @@ export default function ComptesScreen() {
           <WarmupGuideButton />
           {!readOnly && projectId && (
             <Button onClick={() => setDeclareOpen(true)}>
-              <PlusIcon className="mr-2 size-4" />
-              Déclarer un compte
-            </Button>
+              <PlusIcon className="mr-2 size-4" />{t("comptes.declare")}</Button>
           )}
         </div>
       </header>
@@ -110,12 +104,9 @@ export default function ComptesScreen() {
         <Card>
           <CardContent className="space-y-3 py-4">
             <div className="space-y-0.5">
-              <p className="text-sm font-semibold text-slate-900">
-                Crée ces comptes sur tes réseaux :
-              </p>
+              <p className="text-sm font-semibold text-slate-900">{t("comptes.createThese")}</p>
               <p className="text-xs text-slate-500">
-                Crée exactement ces @ — ils doivent correspondre aux comptes que
-                tu déclares ensuite.
+                {t("comptes.createExact")}
               </p>
             </div>
             <ul className="space-y-2">
@@ -193,9 +184,7 @@ export default function ComptesScreen() {
             </p>
             {!readOnly && projectId && (
               <Button onClick={() => setDeclareOpen(true)}>
-                <PlusIcon className="mr-2 size-4" />
-                Déclarer un compte
-              </Button>
+                <PlusIcon className="mr-2 size-4" />{t("comptes.declare")}</Button>
             )}
           </CardContent>
         </Card>
