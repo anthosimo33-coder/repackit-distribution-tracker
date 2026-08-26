@@ -42,6 +42,7 @@ import { isAccountAvailable } from "./warmup";
 import { isSnytchProject } from "./projects";
 import { countOnHandle, ownerIsClipper, publicationsInRange } from "./clipQuota";
 import { representativePostedAt } from "./calendarStatus";
+import { ERR } from "./errorCodes";
 import {
   accountPhaseAt,
   postsPerDayAt,
@@ -2936,10 +2937,16 @@ function assertPublishedAtInRange(
     );
   }
   if (publishedAt < a.createdAt && !opts.allowBeforeCreation) {
-    throw new ConvexError(
-      `La date de publication (${formatDateTimeFr(publishedAt)}) précède la ` +
+    // Charge STRUCTURÉE : le client branche sur le CODE pour proposer la
+    // régularisation. Il branchait auparavant sur la formulation française du
+    // message, ce qui rendait toute traduction (ou reformulation) capable de
+    // casser le flux en silence.
+    throw new ConvexError({
+      code: ERR.PUBLISHED_AT_BEFORE_CREATION,
+      message:
+        `La date de publication (${formatDateTimeFr(publishedAt)}) précède la ` +
         `création de l'assignation (${formatDateTimeFr(a.createdAt)}).`,
-    );
+    });
   }
 }
 

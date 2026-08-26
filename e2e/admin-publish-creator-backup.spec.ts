@@ -200,7 +200,7 @@ test.describe("Admin publie EN SECOURS un compte de créatrice", () => {
         urls: [{ platform: "TikTok", url }],
         publishedAt: reallyPublishedAt,
       }),
-    ).rejects.toThrow(/précède la création/i);
+    ).rejects.toThrow(/ERR_PUBLISHED_AT_BEFORE_CREATION/);
 
     // 2. AVEC le drapeau → publié, et la date réelle est CONSERVÉE (pas réécrite
     //    en `now`, sinon la régularisation ne servirait à rien).

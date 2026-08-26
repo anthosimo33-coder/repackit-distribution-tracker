@@ -287,8 +287,10 @@ test.describe("Publication d'un clip — le serveur", () => {
     // ⚠️ Le clippeur n'a AUCUN moyen de franchir cette borne : `allowBackdate`
     // n'existe que sur le chemin admin (régularisation). Ici la date déclarée
     // pilote le comptage du quota (TD-020) — la relâcher fausserait le quota.
+    // Assertion par CODE et non par texte : le message peut être reformulé ou
+    // traduit sans que cette borne cesse d'être testée.
     await expect(publier(ts - 40 * JOUR)).rejects.toThrow(
-      /précède la création/i,
+      /ERR_PUBLISHED_AT_BEFORE_CREATION/,
     );
   });
 
