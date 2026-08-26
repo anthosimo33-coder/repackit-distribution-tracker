@@ -10,6 +10,7 @@ import { action, mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { roleForKind, type PortalRole } from "./roles";
+import { ERR, err } from "./errorCodes";
 
 /**
  * Remédiation sécurité — wrappers de gating pour TOUTES les fonctions
@@ -35,7 +36,7 @@ import { roleForKind, type PortalRole } from "./roles";
 async function requireUserId(ctx: QueryCtx | MutationCtx) {
   const userId = await getAuthUserId(ctx);
   if (userId === null) {
-    throw new ConvexError("Non authentifié.");
+    throw err(ERR.NOT_AUTHENTICATED, "Non authentifié.");
   }
   return userId;
 }
@@ -56,7 +57,7 @@ export async function requireProjectAccess(
 ) {
   const project = await ctx.db.get(projectId);
   if (project === null) {
-    throw new ConvexError("Projet introuvable.");
+    throw err(ERR.PROJECT_NOT_FOUND, "Projet introuvable.");
   }
   const user = await ctx.db.get(userId);
   if (user?.role === "superadmin") return;
@@ -67,7 +68,7 @@ export async function requireProjectAccess(
     )
     .first();
   if (membership === null) {
-    throw new ConvexError("Accès au projet refusé.");
+    throw err(ERR.PROJECT_ACCESS_DENIED, "Accès au projet refusé.");
   }
 }
 
@@ -86,7 +87,7 @@ export async function requireProjectAdmin(
 ) {
   const project = await ctx.db.get(projectId);
   if (project === null) {
-    throw new ConvexError("Projet introuvable.");
+    throw err(ERR.PROJECT_NOT_FOUND, "Projet introuvable.");
   }
   const user = await ctx.db.get(userId);
   if (user?.role === "superadmin") return;
@@ -97,10 +98,10 @@ export async function requireProjectAdmin(
     )
     .first();
   if (membership === null) {
-    throw new ConvexError("Accès au projet refusé.");
+    throw err(ERR.PROJECT_ACCESS_DENIED, "Accès au projet refusé.");
   }
   if (membership.role !== "admin") {
-    throw new ConvexError("Réservé aux administrateurs du projet.");
+    throw err(ERR.ADMIN_ONLY, "Réservé aux administrateurs du projet.");
   }
 }
 
@@ -132,7 +133,7 @@ export const authedAction = customAction(
   customCtx(async (ctx) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) {
-      throw new ConvexError("Non authentifié.");
+      throw err(ERR.NOT_AUTHENTICATED, "Non authentifié.");
     }
     return { userId };
   }),
@@ -265,7 +266,7 @@ async function requirePortalMember(
     )
     .first();
   if (membership === null || membership.role !== role) {
-    throw new ConvexError(PORTAL_REJECTION[role]);
+    throw err(ERR.PORTAL_ROLE_REJECTED, PORTAL_REJECTION[role], { role });
   }
   const fiches = await ctx.db
     .query("creators")
@@ -273,14 +274,14 @@ async function requirePortalMember(
     .collect();
   const creator = fiches.find((c) => c.projectId === projectId);
   if (creator === undefined) {
-    throw new ConvexError("Fiche créateur introuvable.");
+    throw err(ERR.CREATOR_RECORD_NOT_FOUND, "Fiche créateur introuvable.");
   }
   // Défense en profondeur : le membership et la fiche doivent s'accorder sur la
   // population. Un membership "clipper" pointant une fiche de talent (ou une fiche
   // dont le `kind` a été changé après coup) est un état incohérent — on refuse
   // plutôt que de servir les données de l'un sous le rôle de l'autre.
   if (roleForKind(creator.kind) !== role) {
-    throw new ConvexError(PORTAL_REJECTION[role]);
+    throw err(ERR.PORTAL_ROLE_REJECTED, PORTAL_REJECTION[role], { role });
   }
   return creator._id;
 }
@@ -403,7 +404,7 @@ export async function requireCreatorViewableByAdmin(
   await requireProjectAdmin(ctx, userId, projectId);
   const creator = await ctx.db.get(creatorId);
   if (creator === null || creator.projectId !== projectId) {
-    throw new ConvexError("Créateur introuvable dans ce projet.");
+    throw err(ERR.CREATOR_NOT_IN_THIS_PROJECT, "Créateur introuvable dans ce projet.");
   }
   return creator;
 }
@@ -483,7 +484,7 @@ function adminViewAsPopulationQuery(role: PortalRole) {
         // Message de la population VISÉE, pas de celle qu'on a trouvée : dire
         // « c'est un talent » à qui demandait un clippeur renseignerait sur la
         // fiche observée depuis une fonction qui vient de la refuser.
-        throw new ConvexError(PORTAL_REJECTION[role]);
+        throw err(ERR.PORTAL_ROLE_REJECTED, PORTAL_REJECTION[role], { role });
       }
       return { ctx: { userId, projectId, creatorId: creator._id }, args: {} };
     },

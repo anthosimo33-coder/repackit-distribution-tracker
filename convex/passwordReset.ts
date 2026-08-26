@@ -8,6 +8,7 @@ import {
 import { ConvexError, v } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { ERR, err } from "./errorCodes";
 
 /**
  * Reset mot de passe ADMIN — Voie B (lien à usage unique, sans email).
@@ -148,18 +149,18 @@ export const consumePasswordResetToken = internalMutation({
       .withIndex("by_token", (q) => q.eq("token", token))
       .first();
     if (!t || t.usedAt !== undefined || t.expiresAt < Date.now()) {
-      throw new ConvexError("Lien de réinitialisation invalide ou expiré.");
+      throw err(ERR.RESET_LINK_INVALID, "Lien de réinitialisation invalide ou expiré.");
     }
     const user = await ctx.db.get(t.userId);
     if (!user) {
-      throw new ConvexError("Lien de réinitialisation invalide ou expiré.");
+      throw err(ERR.RESET_LINK_INVALID, "Lien de réinitialisation invalide ou expiré.");
     }
     if (user.role === "superadmin") {
-      throw new ConvexError("Opération non autorisée.");
+      throw err(ERR.OPERATION_NOT_ALLOWED, "Opération non autorisée.");
     }
     const account = await passwordAccountFor(ctx, t.userId);
     if (account === null) {
-      throw new ConvexError("Ce compte n'a pas de mot de passe.");
+      throw err(ERR.ACCOUNT_HAS_NO_PASSWORD, "Ce compte n'a pas de mot de passe.");
     }
     await ctx.db.patch(t._id, { usedAt: Date.now() });
     return {
@@ -179,9 +180,7 @@ export const resetPasswordWithToken = action({
   args: { token: v.string(), newPassword: v.string() },
   handler: async (ctx, { token, newPassword }): Promise<{ ok: true }> => {
     if (newPassword.length < 8) {
-      throw new ConvexError(
-        "Le mot de passe doit faire au moins 8 caractères.",
-      );
+      throw err(ERR.PASSWORD_TOO_SHORT, "Le mot de passe doit faire au moins 8 caractères.");
     }
     const { providerAccountId, userId } = await ctx.runMutation(
       internal.passwordReset.consumePasswordResetToken,

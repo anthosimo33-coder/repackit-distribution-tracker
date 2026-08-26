@@ -16,7 +16,13 @@ export type ConvexErrorPayload = {
   code: string;
   /** Message serveur (français). Reste le repli d'affichage. */
   message: string;
+  /** Valeurs interpolées, pour que le client rende la phrase dans SA langue. */
+  params?: Record<string, string | number>;
 };
+
+export function convexErrorPayload(error: unknown): ConvexErrorPayload | null {
+  return payloadOf(error);
+}
 
 function payloadOf(error: unknown): ConvexErrorPayload | null {
   if (!(error instanceof ConvexError)) return null;

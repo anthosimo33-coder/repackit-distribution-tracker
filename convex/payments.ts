@@ -27,6 +27,7 @@ import { ConvexError, v } from "convex/values";
 import { internalMutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { ERR, err } from "./errorCodes";
 
 /**
  * P8 — Paiements (accrual). LOGIQUE D'ARGENT : chaque montant crédité est
@@ -845,19 +846,17 @@ export const markCyclePaid = adminMutation({
   handler: async (ctx, { creatorId, cycleIndex }) => {
     const creator = await ctx.db.get(creatorId);
     if (!creator || creator.projectId !== ctx.projectId) {
-      throw new ConvexError("Créateur introuvable.");
+      throw err(ERR.CREATOR_NOT_FOUND, "Créateur introuvable.");
     }
     // MÊME ancre que l'écran. Sans cette bascule, un talent s'affichait payable
     // et `markCyclePaid` jetait « n'a pas encore publié » — payable à l'écran,
     // impayable en pratique.
     const anchor = payAnchorOf(creator);
     if (anchor === undefined) {
-      throw new ConvexError(
-        "Aucun cycle : ce créateur n'a ni publication ni date d'activation.",
-      );
+      throw err(ERR.NO_PAY_CYCLE, "Aucun cycle : ce créateur n'a ni publication ni date d'activation.");
     }
     if (!Number.isInteger(cycleIndex) || cycleIndex < 0) {
-      throw new ConvexError("Cycle invalide.");
+      throw err(ERR.CYCLE_INVALID, "Cycle invalide.");
     }
     const w = cycleWindow(anchor, cycleIndex);
     const period = cyclePeriodKey(w.cycleStart);

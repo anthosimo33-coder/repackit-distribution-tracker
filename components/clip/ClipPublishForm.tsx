@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { convexErrorMessage } from "@/lib/convex-error";
+import { useConvexError } from "@/lib/use-convex-error";
 import { accountUrlCheck, type UrlPlateforme } from "@/lib/post-url-account";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
@@ -118,6 +118,7 @@ export function ClipPublishForm({
   clipId: Id<"assignments">;
   targets: ClipPublishTarget[];
 }) {
+  const showError = useConvexError();
   const tLabel = useLabel();
   const loc = useIntlLocale();
   const tc = useTranslations("clip");
@@ -236,7 +237,7 @@ export function ClipPublishForm({
       toast.success(tc("published"));
       setUrls({});
     } catch (e) {
-      toast.error(convexErrorMessage(e, tc("publishFailed")));
+      toast.error(showError(e, tc("publishFailed")));
     } finally {
       setBusy(false);
     }

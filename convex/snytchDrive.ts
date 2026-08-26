@@ -16,6 +16,7 @@ import { isFileDropEnabled } from "./fileDrop";
 import { ConvexError, v } from "convex/values";
 import type { ActionCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { ERR, err } from "./errorCodes";
 import {
   googleDriveConfig,
   createDriveFolder,
@@ -336,9 +337,7 @@ export async function openUploadSession(
     return { ok: true, uploadUrl };
   } catch (e) {
     console.error(`[snytch-drive] init upload échoué: ${errMsg(e)}`);
-    throw new ConvexError(
-      "Impossible de démarrer l'upload vers Drive. Réessaie.",
-    );
+    throw err(ERR.DRIVE_UPLOAD_START_FAILED, "Impossible de démarrer l'upload vers Drive. Réessaie.");
   }
 }
 
@@ -385,7 +384,7 @@ export const confirmUpload = creatorMutation({
   handler: async (ctx, args): Promise<{ ok: true }> => {
     const project = await ctx.db.get(ctx.projectId);
     if (!isFileDropEnabled(project)) {
-      throw new ConvexError("Dépôt de fichiers indisponible pour ce projet.");
+      throw err(ERR.DRIVE_UNAVAILABLE, "Dépôt de fichiers indisponible pour ce projet.");
     }
     const existing = await ctx.db
       .query("snytchDriveFiles")

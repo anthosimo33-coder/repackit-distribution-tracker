@@ -7,7 +7,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Loader2Icon, UploadIcon } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
+import { useConvexError } from "@/lib/use-convex-error";
 import { cn } from "@/lib/utils";
 import { useTranslations } from "next-intl";
 
@@ -40,6 +40,7 @@ export function VideoUploader({
   /** Intitulé de la zone de dépôt (admin = « exemple », créateur = « ta vidéo »). */
   title?: string;
 }) {
+  const showError = useConvexError();
   const tu = useTranslations("uploader");
   // Le défaut ne peut pas vivre dans la signature : `tu` est un hook, il n'est
   // appelable que dans le corps du composant.
@@ -97,7 +98,7 @@ export function VideoUploader({
       onUploaded({ storageId, mimeType: file.type, title });
       toast.success(tu("added"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tu("uploadError")));
+      toast.error(showError(e, tu("uploadError")));
     } finally {
       setUploading(false);
       setProgress(0);

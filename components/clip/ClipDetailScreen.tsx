@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { convexErrorMessage } from "@/lib/convex-error";
+import { useConvexError } from "@/lib/use-convex-error";
 import { ASSIGNMENT_STATUS, type AssignmentStatus } from "@/lib/assignment-status";
 import { formatDate } from "@/lib/format";
 import { useIntlLocale } from "@/lib/use-intl-locale";
@@ -37,6 +37,7 @@ import { useTranslations } from "next-intl";
  * exactement ce qui a de la valeur.
  */
 export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
+  const showError = useConvexError();
   const tc = useTranslations("clip");
   const tLabel = useLabel();
   const loc = useIntlLocale();
@@ -79,7 +80,7 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
     try {
       await start({ projectId, id: clipId });
     } catch (e) {
-      toast.error(convexErrorMessage(e, tc("startFailed")));
+      toast.error(showError(e, tc("startFailed")));
     }
   }
 
@@ -93,7 +94,7 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
       });
       toast.success(tc("sent"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tc("sendFailed")));
+      toast.error(showError(e, tc("sendFailed")));
     }
   }
 

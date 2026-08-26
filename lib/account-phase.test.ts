@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { ERR } from "../convex/errorCodes";
 import {
   ACCOUNT_PHASES,
   PHASE_LABEL_KEYS,
@@ -7,7 +8,7 @@ import {
   dayOfPhase,
   formatUtcDay,
   postsPerDayAt,
-  quotaRefusalMessage,
+  quotaRefusal,
   utcDayKey,
   utcDayRange,
 } from "../convex/accountPhase";
@@ -129,39 +130,51 @@ describe("journée UTC — l'unité du quota", () => {
   });
 });
 
+/** Charge utile d'un rejet structuré (le typage de ConvexError est générique). */
+function data(e: unknown) {
+  return (e as { data: { code: string; message: string; params?: Record<string, string | number> } })
+    .data;
+}
+
 describe("messages et libellés", () => {
   it("chaque phase a un libellé FR", () => {
     for (const p of ACCOUNT_PHASES) expect(PHASE_LABEL_KEYS[p]).toBeTruthy();
   });
 
   it("le refus distingue non validé / chauffe / quota atteint", () => {
-    expect(quotaRefusalMessage("@x", null, 0, LUNDI)).toMatch(
-      /pas encore validé/i,
+    // Le refus est désormais une charge STRUCTURÉE : on asserte le CODE, pas la
+    // phrase. Le message français reste dans la charge comme repli d'affichage.
+    expect(data(quotaRefusal("@x", null, 0, LUNDI)).code).toBe(
+      ERR.CLIP_QUOTA_NOT_VALIDATED,
     );
-    expect(quotaRefusalMessage("@x", "chauffe", 0, LUNDI)).toMatch(/chauffe/i);
-    const plein = quotaRefusalMessage("@x", "croisiere", 2, LUNDI);
-    expect(plein).toMatch(/quota atteint/i);
-    expect(plein).toContain("2 publications sur 2");
+    expect(data(quotaRefusal("@x", "chauffe", 0, LUNDI)).code).toBe(
+      ERR.CLIP_QUOTA_PHASE_ZERO,
+    );
+    const plein = data(quotaRefusal("@x", "croisiere", 2, LUNDI));
+    expect(plein.code).toBe(ERR.CLIP_QUOTA_REACHED);
+    expect(plein.message).toContain("2 publications sur 2");
   });
 
-  it("le message nomme TOUJOURS le compte fautif", () => {
+  it("le refus nomme TOUJOURS le compte fautif, en paramètre", () => {
     // Sans le handle, un clippeur à deux comptes ne sait pas lequel bloque.
+    // En paramètre et pas seulement dans la phrase : c'est ce qui permet au
+    // client de le rendre dans SA langue sans perdre l'information.
     for (const phase of [null, "chauffe", "croisiere"] as const) {
-      expect(quotaRefusalMessage("@monhandle", phase, 2, LUNDI)).toContain(
-        "@monhandle",
-      );
+      const d = data(quotaRefusal("@monhandle", phase, 2, LUNDI));
+      expect(d.params?.handle).toBe("@monhandle");
+      expect(d.message).toContain("@monhandle");
     }
   });
 
-  it("le message nomme TOUJOURS la date concernée", () => {
+  it("le refus nomme TOUJOURS la date concernée, en paramètre", () => {
     // Le scénario : deux posts déclarés lundi soir, un troisième publié lundi
     // tard et déclaré mardi matin daté de lundi. Le refus tombe un MARDI où le
     // clippeur croit avoir deux créneaux libres — sans la date, il conclut que
     // l'outil est cassé.
     for (const phase of [null, "chauffe", "croisiere"] as const) {
-      expect(quotaRefusalMessage("@x", phase, 2, LUNDI)).toContain(
-        "lundi 10 août",
-      );
+      const d = data(quotaRefusal("@x", phase, 2, LUNDI));
+      expect(d.params?.date).toBe("lundi 10 août");
+      expect(d.message).toContain("lundi 10 août");
     }
   });
 });

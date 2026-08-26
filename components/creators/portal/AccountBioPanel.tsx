@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { convexErrorMessage } from "@/lib/convex-error";
+import { useConvexError } from "@/lib/use-convex-error";
 import { useTranslations } from "next-intl";
 
 /**
@@ -34,6 +34,7 @@ export function AccountBioPanel({
   /** Admin view-as : masque le bouton de confirmation (lecture seule). */
   readOnly?: boolean;
 }) {
+  const showError = useConvexError();
   const tbio = useTranslations("portal.bio");
   const confirmApplied = useMutation(api.comptes.confirmAccountBioApplied);
   const [submitting, setSubmitting] = useState(false);
@@ -59,7 +60,7 @@ export function AccountBioPanel({
       await confirmApplied({ projectId, id: compte._id });
       toast.success(tbio("confirmed"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tbio("error")));
+      toast.error(showError(e, tbio("error")));
     } finally {
       setSubmitting(false);
     }

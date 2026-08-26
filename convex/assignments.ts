@@ -42,11 +42,11 @@ import { isAccountAvailable } from "./warmup";
 import { isSnytchProject } from "./projects";
 import { countOnHandle, ownerIsClipper, publicationsInRange } from "./clipQuota";
 import { representativePostedAt } from "./calendarStatus";
-import { ERR } from "./errorCodes";
+import { ERR, err } from "./errorCodes";
 import {
   accountPhaseAt,
   postsPerDayAt,
-  quotaRefusalMessage,
+  quotaRefusal,
   utcDayRange,
 } from "./accountPhase";
 import {
@@ -105,7 +105,7 @@ export async function validateTargets(
   targets: { platform: Plateforme; accountId: Id<"comptes"> }[],
 ): Promise<void> {
   if (targets.length < 1 || targets.length > 3) {
-    throw new ConvexError("Un assignment porte 1 à 3 cibles (plateformes).");
+    throw err(ERR.TARGETS_COUNT, "Un assignment porte 1 à 3 cibles (plateformes).");
   }
   // Gate STRICT pour Snytch : un compte n'est ciblable que s'il est "actif"
   // (validé admin). Hors Snytch : régime lenient historique (warmup terminé
@@ -114,9 +114,7 @@ export async function validateTargets(
   const seen = new Set<Plateforme>();
   for (const t of targets) {
     if (seen.has(t.platform)) {
-      throw new ConvexError(
-        `Une seule cible par plateforme (${t.platform} en double).`,
-      );
+      throw err(ERR.TARGET_PLATFORM_DUPLICATE, `Une seule cible par plateforme (${t.platform} en double).`, { platform: t.platform });
     }
     seen.add(t.platform);
     const compte = await ctx.db.get(t.accountId);
@@ -125,16 +123,16 @@ export async function validateTargets(
       compte.projectId !== projectId ||
       compte.creatorId !== creatorId
     ) {
-      throw new ConvexError("Compte cible introuvable pour ce créateur.");
+      throw err(ERR.TARGET_ACCOUNT_NOT_FOUND_FOR_CREATOR, "Compte cible introuvable pour ce créateur.");
     }
     if (compte.plateforme !== t.platform) {
-      throw new ConvexError(
-        `Le compte ${compte.handle} n'est pas un compte ${t.platform}.`,
-      );
+      throw err(ERR.ACCOUNT_WRONG_PLATFORM, `Le compte ${compte.handle} n'est pas un compte ${t.platform}.`, { handle: compte.handle, platform: t.platform });
     }
     if (!isAccountAvailable(compte, { strict })) {
-      throw new ConvexError(
+      throw err(
+        ERR.ACCOUNT_UNAVAILABLE,
         `Le compte ${compte.handle} n'est pas disponible (warmup en cours ou compte non validé).`,
+        { handle: compte.handle },
       );
     }
   }
@@ -166,12 +164,13 @@ export async function resolveManagedTargets(
       compte.projectId !== projectId ||
       compte.creatorId !== creatorId
     ) {
-      throw new ConvexError("Compte cible introuvable pour ce créateur.");
+      throw err(ERR.TARGET_ACCOUNT_NOT_FOUND_FOR_CREATOR, "Compte cible introuvable pour ce créateur.");
     }
     if (compte.managedByAdmin) managedCount++;
   }
   if (managedCount > 0 && managedCount < targets.length) {
-    throw new ConvexError(
+    throw err(
+      ERR.TARGETS_MIXED_OWNERSHIP,
       "Un assignment ne peut pas mélanger des comptes gérés par l'équipe et des comptes créateur.",
     );
   }
@@ -311,37 +310,37 @@ export const assignFormat = adminMutation({
   handler: async (ctx, args) => {
     const format = await ctx.db.get(args.formatId);
     if (!format || format.projectId !== ctx.projectId) {
-      throw new ConvexError("Format introuvable.");
+      throw err(ERR.FORMAT_NOT_FOUND, "Format introuvable.");
     }
     if (format.status === "archived") {
-      throw new ConvexError("Format archivé : réactive-le pour l'assigner.");
+      throw err(ERR.FORMAT_ARCHIVED, "Format archivé : réactive-le pour l'assigner.");
     }
     if (
       !Number.isInteger(args.postsPerCreator) ||
       args.postsPerCreator < 1 ||
       args.postsPerCreator > 50
     ) {
-      throw new ConvexError("Nombre de vidéos invalide (1–50).");
+      throw err(ERR.VIDEO_COUNT_INVALID, "Nombre de vidéos invalide (1–50).");
     }
     const creator = await ctx.db.get(args.creatorId);
     if (!creator || creator.projectId !== ctx.projectId) {
-      throw new ConvexError("Créateur introuvable dans le projet.");
+      throw err(ERR.CREATOR_NOT_IN_PROJECT, "Créateur introuvable dans le projet.");
     }
     if (
       creator.userId === undefined ||
       (creator.status !== "active" && creator.status !== "onboarding")
     ) {
-      throw new ConvexError(
-        `Créateur non assignable (${creator.name} : non onboardé ou inactif).`,
-      );
+      throw err(ERR.CREATOR_NOT_ASSIGNABLE, `Créateur non assignable (${creator.name} : non onboardé ou inactif).`, { name: creator.name });
     }
     await validateTargets(ctx, ctx.projectId, args.creatorId, args.targets);
     // Compat format/plateforme (non-custom) pour CHAQUE cible.
     if (format.type !== "custom") {
       for (const t of args.targets) {
         if (!isFormatAllowedOnPlatform(format.type, t.platform)) {
-          throw new ConvexError(
+          throw err(
+            ERR.FORMAT_PLATFORM_MISMATCH,
             `Le format « ${format.name} » (${format.type}) ne peut pas être publié sur ${t.platform}.`,
+            { name: format.name, type: format.type, platform: t.platform },
           );
         }
       }
@@ -410,7 +409,7 @@ export const setAssignmentOverlayText = adminMutation({
   handler: async (ctx, args) => {
     const a = await ctx.db.get(args.id);
     if (!a || a.projectId !== ctx.projectId) {
-      throw new ConvexError("Assignment introuvable.");
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
     await ctx.db.patch(args.id, {
       overlayText: normalizeOverlayText(args.overlayText),
@@ -434,7 +433,7 @@ export const setAssignmentInstructions = adminMutation({
   handler: async (ctx, args) => {
     const a = await ctx.db.get(args.id);
     if (!a || a.projectId !== ctx.projectId) {
-      throw new ConvexError("Assignment introuvable.");
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
     await ctx.db.patch(args.id, {
       instructions: normalizeInstructions(args.instructions),
@@ -457,7 +456,7 @@ export const setAssignmentPostDate = adminMutation({
   handler: async (ctx, args) => {
     const a = await ctx.db.get(args.id);
     if (!a || a.projectId !== ctx.projectId) {
-      throw new ConvexError("Assignment introuvable.");
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
     await ctx.db.patch(args.id, { postDate: args.postDate });
     return { ok: true };
@@ -488,7 +487,7 @@ export const setAssignmentPostWindow = adminMutation({
   handler: async (ctx, args) => {
     const a = await ctx.db.get(args.id);
     if (!a || a.projectId !== ctx.projectId) {
-      throw new ConvexError("Assignment introuvable.");
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
     if (args.postWindow !== undefined && !isValidPostWindow(args.postWindow)) {
       throw new ConvexError(
@@ -576,7 +575,7 @@ async function requireProjectAssignment(
 ): Promise<Doc<"assignments">> {
   const a = await ctx.db.get(id);
   if (!a || a.projectId !== projectId) {
-    throw new ConvexError("Assignment introuvable.");
+    throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
   }
   return a;
 }
@@ -661,7 +660,7 @@ export async function validateProjectFolderIds(
     seen.add(fid);
     const folder = await ctx.db.get(fid);
     if (!folder || folder.projectId !== projectId) {
-      throw new ConvexError("Dossier d'assets introuvable.");
+      throw err(ERR.ASSET_FOLDER_NOT_FOUND, "Dossier d'assets introuvable.");
     }
     valid.push(fid);
   }
@@ -752,7 +751,7 @@ export const cancelAssignment = adminMutation({
   handler: async (ctx, { id }) => {
     const a = await ctx.db.get(id);
     if (!a || a.projectId !== ctx.projectId) {
-      throw new ConvexError("Assignment introuvable.");
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
     if (a.status === "cancelled") return { ok: true, alreadyCancelled: true };
     if (!DELETABLE_STATUSES.has(a.status)) {
@@ -1072,9 +1071,7 @@ async function materializeTargetPublication(
   const isScript = a.scriptCombo !== undefined && a.formatId === undefined;
   if (isScript) {
     if (!a.scriptCombo || a.comboKey === undefined) {
-      throw new ConvexError(
-        "Combo de script manquant — matérialisation impossible.",
-      );
+      throw err(ERR.SCRIPT_COMBO_MISSING, "Combo de script manquant — matérialisation impossible.");
     }
     return await ctx.runMutation(internal.publications.createFromAssignment, {
       projectId,
@@ -1095,7 +1092,7 @@ async function materializeTargetPublication(
     });
   }
   const format = a.formatId ? await ctx.db.get(a.formatId) : null;
-  if (!format) throw new ConvexError("Format introuvable.");
+  if (!format) throw err(ERR.FORMAT_NOT_FOUND, "Format introuvable.");
   if (format.type === "custom") return null; // custom = pas de publication trackée.
   return await ctx.runMutation(internal.publications.createFromAssignment, {
     projectId,
@@ -1117,7 +1114,7 @@ export const reviewVideoApprove = adminMutation({
   handler: async (ctx, { id }) => {
     const a = await ctx.db.get(id);
     if (!a || a.projectId !== ctx.projectId) {
-      throw new ConvexError("Assignment introuvable.");
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
     if (a.status === "to_publish") return { ok: true, alreadyApproved: true };
     if (a.status !== "video_submitted") {
@@ -1147,7 +1144,7 @@ export const reviewVideoReject = adminMutation({
   handler: async (ctx, { id, feedback }) => {
     const a = await ctx.db.get(id);
     if (!a || a.projectId !== ctx.projectId) {
-      throw new ConvexError("Assignment introuvable.");
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
     if (a.status !== "video_submitted") {
       throw new ConvexError("Seules les vidéos en revue peuvent être refusées.");
@@ -1753,7 +1750,7 @@ export const computeViewBonus = adminMutation({
   handler: async (ctx, { id, views }) => {
     const a = await ctx.db.get(id);
     if (!a || a.projectId !== ctx.projectId) {
-      throw new ConvexError("Assignment introuvable.");
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
     if (a.status !== "published") {
       throw new ConvexError("Le bonus se calcule sur un assignment publié.");
@@ -2429,7 +2426,7 @@ async function requireOwnAssignment(
 ): Promise<Doc<"assignments">> {
   const a = await ctx.db.get(id);
   if (!a || a.creatorId !== creatorId) {
-    throw new ConvexError("Assignment introuvable.");
+    throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
   }
   return a;
 }
@@ -2440,7 +2437,7 @@ async function startAssignmentCore(
   a: Doc<"assignments">,
 ): Promise<void> {
   if (a.status !== "todo") {
-    throw new ConvexError("Cet assignment est déjà démarré.");
+    throw err(ERR.ASSIGNMENT_ALREADY_STARTED, "Cet assignment est déjà démarré.");
   }
   await ctx.db.patch(a._id, { status: "in_progress" });
 }
@@ -2492,7 +2489,7 @@ async function submitVideoCore(
       a.status !== "in_progress" &&
       a.status !== "video_rejected"
     ) {
-      throw new ConvexError("Soumission vidéo impossible dans cet état.");
+      throw err(ERR.VIDEO_SUBMIT_WRONG_STATE, "Soumission vidéo impossible dans cet état.");
     }
     // Remplacement : l'ancienne vidéo (refusée) est purgée du storage, et sa
     // copie Cloudflare Stream supprimée (best-effort, hygiène de coût).
@@ -2615,7 +2612,7 @@ async function assertClipperDailyQuota(
     const quota = postsPerDayAt(compte.validatedAt, at);
     if (quota === 0) {
       // Non validé, ou phase de chauffe : rien ne sort, inutile de compter.
-      throw new ConvexError(quotaRefusalMessage(compte.handle, phase, quota, at));
+      throw quotaRefusal(compte.handle, phase, quota, at);
     }
 
     // Chargées une seule fois pour toutes les cibles : elles partagent la même
@@ -2624,7 +2621,7 @@ async function assertClipperDailyQuota(
     // compteur de l'écran clippeur, pour qu'ils ne puissent pas se contredire.
     sameDay ??= await publicationsInRange(ctx, ctx.projectId, start, end);
     if (countOnHandle(sameDay, compte.handle) >= quota) {
-      throw new ConvexError(quotaRefusalMessage(compte.handle, phase, quota, at));
+      throw quotaRefusal(compte.handle, phase, quota, at);
     }
   }
 }
@@ -2660,13 +2657,11 @@ async function confirmPublicationCore(
   // L'admin en SECOURS (fromAnyStatus) court-circuite : le post existe déjà hors
   // app, coller le lien passe l'assignation directement en `published` (patch final).
   if (a.status !== "to_publish" && !opts.fromAnyStatus) {
-    throw new ConvexError(
-      "Publication possible seulement après validation de ta vidéo.",
-    );
+    throw err(ERR.PUBLISH_BEFORE_APPROVAL, "Publication possible seulement après validation de ta vidéo.");
   }
   const targets = a.targets ?? [];
   if (targets.length === 0) {
-    throw new ConvexError("Aucune cible sur cet assignment.");
+    throw err(ERR.ASSIGNMENT_NO_TARGET, "Aucune cible sur cet assignment.");
   }
 
   // Garde warmup au moment de publier (symétrique de validateTargets) : un
@@ -2683,8 +2678,10 @@ async function confirmPublicationCore(
       compte.status === "warmup" &&
       !isAccountAvailable(compte, { strict })
     ) {
-      throw new ConvexError(
+      throw err(
+        ERR.ACCOUNT_NOT_APPROVED_TO_PUBLISH,
         `Le compte ${compte.handle} n'est pas validé pour publier (échauffement en cours ou compte à revalider par l'admin).`,
+        { handle: compte.handle },
       );
     }
   }
@@ -2694,14 +2691,10 @@ async function confirmPublicationCore(
   for (const { platform, url } of urls) {
     const trimmed = url.trim();
     if (!/^https?:\/\/.+/i.test(trimmed)) {
-      throw new ConvexError(
-        `URL du post invalide pour ${platform} (lien http(s) attendu).`,
-      );
+      throw err(ERR.POST_URL_INVALID, `URL du post invalide pour ${platform} (lien http(s) attendu).`, { platform });
     }
     if (detectPlatform(trimmed) !== platform) {
-      throw new ConvexError(
-        `L'URL fournie pour ${platform} ne correspond pas à cette plateforme.`,
-      );
+      throw err(ERR.POST_URL_WRONG_PLATFORM, `L'URL fournie pour ${platform} ne correspond pas à cette plateforme.`, { platform });
     }
     urlByPlatform.set(platform, trimmed);
   }
@@ -2710,17 +2703,17 @@ async function confirmPublicationCore(
   const format = a.formatId ? await ctx.db.get(a.formatId) : null;
   for (const t of targets) {
     if (!urlByPlatform.has(t.platform)) {
-      throw new ConvexError(
-        `URL manquante pour ${t.platform} — toutes les plateformes sont obligatoires.`,
-      );
+      throw err(ERR.POST_URL_MISSING, `URL manquante pour ${t.platform} — toutes les plateformes sont obligatoires.`, { platform: t.platform });
     }
     if (
       format &&
       format.type !== "custom" &&
       !isFormatAllowedOnPlatform(format.type, t.platform)
     ) {
-      throw new ConvexError(
+      throw err(
+        ERR.FORMAT_PLATFORM_MISMATCH,
         `Le format « ${format.name} » (${format.type}) ne peut pas être publié sur ${t.platform}.`,
+        { name: format.name, type: format.type, platform: t.platform },
       );
     }
   }
@@ -2932,9 +2925,7 @@ function assertPublishedAtInRange(
 ): void {
   if (publishedAt === undefined) return;
   if (publishedAt > Date.now()) {
-    throw new ConvexError(
-      "La date de publication ne peut pas être dans le futur.",
-    );
+    throw err(ERR.PUBLISHED_AT_IN_FUTURE, "La date de publication ne peut pas être dans le futur.");
   }
   if (publishedAt < a.createdAt && !opts.allowBeforeCreation) {
     // Charge STRUCTURÉE : le client branche sur le CODE pour proposer la
@@ -2983,9 +2974,7 @@ export const confirmClipPublication = clipperMutation({
     // Défense en profondeur : un compte de clippeur n'est jamais tenu par
     // l'équipe, mais si ça arrivait c'est l'admin qui publierait.
     if (a.managedByAdmin) {
-      throw new ConvexError(
-        "Compte géré par l'équipe : la publication est gérée par l'admin.",
-      );
+      throw err(ERR.ACCOUNT_MANAGED_PUBLISH, "Compte géré par l'équipe : la publication est gérée par l'admin.");
     }
     assertPublishedAtInRange(publishedAt, a);
     return confirmPublicationCore(ctx, a, urls, {
@@ -3016,12 +3005,10 @@ export const confirmPublication = creatorMutation({
   }> => {
     const a = await ctx.db.get(id);
     if (!a || a.creatorId !== ctx.creatorId) {
-      throw new ConvexError("Assignment introuvable.");
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
     if (a.managedByAdmin) {
-      throw new ConvexError(
-        "Compte géré par l'équipe : la publication est gérée par l'admin.",
-      );
+      throw err(ERR.ACCOUNT_MANAGED_PUBLISH, "Compte géré par l'équipe : la publication est gérée par l'admin.");
     }
     return confirmPublicationCore(ctx, a, urls, { confirmedBy: "creator" });
   },
@@ -3064,7 +3051,7 @@ export const confirmPublicationAsAdmin = adminMutation({
   }> => {
     const a = await ctx.db.get(id);
     if (!a || a.projectId !== ctx.projectId) {
-      throw new ConvexError("Assignment introuvable.");
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
     // Remplace le gate managedByAdmin : chaque cible doit exister DANS le projet de
     // l'admin (ce que le flag portait implicitement) — vaut pour compte géré ET
@@ -3073,7 +3060,7 @@ export const confirmPublicationAsAdmin = adminMutation({
       if (!t.accountId) continue;
       const compte = await ctx.db.get(t.accountId);
       if (!compte || compte.projectId !== ctx.projectId) {
-        throw new ConvexError("Compte cible introuvable dans le projet.");
+        throw err(ERR.TARGET_ACCOUNT_NOT_IN_PROJECT, "Compte cible introuvable dans le projet.");
       }
     }
     // Date réelle bornée : ni dans le futur, ni avant la création de l'assignment

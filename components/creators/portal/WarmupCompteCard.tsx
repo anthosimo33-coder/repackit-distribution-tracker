@@ -11,7 +11,7 @@ import { PlatformBadge } from "@/components/VerdictBadge";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { CheckCircle2Icon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
+import { useConvexError } from "@/lib/use-convex-error";
 import { cn } from "@/lib/utils";
 import { AccountBioPanel } from "@/components/creators/portal/AccountBioPanel";
 import {
@@ -40,6 +40,7 @@ export function WarmupCompteCard({
   /** Admin view-as : masque les boutons d'action (check warmup, confirm bio). */
   readOnly?: boolean;
 }) {
+  const showError = useConvexError();
   const tw = useTranslations("portal.warmupCard");
   const tLabel = useLabel();
   const t = useTranslations("portal");
@@ -77,7 +78,7 @@ export function WarmupCompteCard({
       await markCheck({ projectId, id: compte._id });
       toast.success(tw("checkDone"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tw("error")));
+      toast.error(showError(e, tw("error")));
     } finally {
       setSubmitting(false);
     }

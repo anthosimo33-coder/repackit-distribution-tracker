@@ -1,4 +1,5 @@
 import { localeOrDefault } from "./locales";
+import { ERR, err } from "./errorCodes";
 /**
  * PHASE ET QUOTA d'un compte de CLIPPEUR — source unique de la règle.
  *
@@ -210,7 +211,7 @@ export function formatUtcDay(at: number, locale: unknown = "fr"): string {
 }
 
 /**
- * Motif de refus — lu par le clippeur.
+ * REFUS DE QUOTA — rejet structuré, lu par le clippeur ET par l'admin.
  *
  * ⚠️ NOMME LA DATE, toujours. Un clippeur qui publie deux posts lundi, les
  * déclare lundi soir, en publie un troisième lundi tard et le déclare mardi
@@ -218,42 +219,61 @@ export function formatUtcDay(at: number, locale: unknown = "fr"): string {
  * libres. Sans la date dans le message, le refus est incompréhensible et il
  * conclura que l'outil est cassé.
  *
- * 🚧 ENCORE EN FRANÇAIS, et c'est un reste ASSUMÉ jusqu'au lot A2. Ce texte part
- * dans une `ConvexError`, donc depuis un runtime qui n'a ni requête ni langue :
- * le rendre bilingue demande de le transformer en CODE + paramètres et de le
- * résoudre côté client, ce qui est précisément l'objet de A2. En attendant, un
- * clippeur anglophone voit son ÉCRAN en anglais et ce REFUS en français —
- * l'invariant « l'écran affiche la même chaîne que le refus » est donc rompu
- * temporairement, et il doit être rétabli dans le même commit que A2.
+ * Rend un `ConvexError` STRUCTURÉ plutôt qu'une phrase : le serveur ne connaît
+ * pas la langue de l'appelant, et ces trois refus sortent d'un cœur partagé.
+ * Le client rend `error.<code>` avec les paramètres, dans SA langue — ce qui
+ * rétablit l'invariant « l'écran affiche la même chaîne que le refus », qui
+ * était rompu depuis A3.
+ *
+ * Le message français reste dans la charge : repli d'affichage et trace lisible.
  */
-export function quotaRefusalMessage(
+export function quotaRefusal(
   handle: string,
   phase: AccountPhase | null,
   postsPerDay: number,
   at: number,
-): string {
+) {
+  // `date` porte le rendu FRANÇAIS, pour le message de repli. `at` porte
+  // l'instant BRUT : le client le reformate dans sa langue (« lundi 10 août »
+  // contre « Monday, August 10 »). Sans lui, une phrase anglaise afficherait
+  // une date française au milieu.
   const jour = formatUtcDay(at, "fr");
-  // i18n-exempt: message de ConvexError — devient un code ERR_* au lot A2 (cf en-tête)
   const PHASE_FR: Record<AccountPhase, string> = {
-    // i18n-exempt: message de ConvexError — devient un code ERR_* au lot A2
+    // i18n-exempt: repli FR de la charge d'erreur ; le client rend error.ERR_CLIP_QUOTA_* dans sa langue
     chauffe: "chauffe",
-    // i18n-exempt: message de ConvexError — devient un code ERR_* au lot A2
+    // i18n-exempt: repli FR de la charge d'erreur
     warmup: "échauffement",
-    // i18n-exempt: message de ConvexError — devient un code ERR_* au lot A2
+    // i18n-exempt: repli FR de la charge d'erreur
     demo: "démo",
-    // i18n-exempt: message de ConvexError — devient un code ERR_* au lot A2
+    // i18n-exempt: repli FR de la charge d'erreur
     croisiere: "croisière",
   };
   if (phase === null) {
-    // i18n-exempt: message de ConvexError — devient un code ERR_* au lot A2
-    return `Le compte ${handle} n'était pas encore validé le ${jour} : aucune publication possible à cette date.`;
+    return err(
+      ERR.CLIP_QUOTA_NOT_VALIDATED,
+      `Le compte ${handle} n'était pas encore validé le ${jour} : aucune publication possible à cette date.`,
+      { handle, date: jour, at },
+    );
   }
   if (postsPerDay === 0) {
-    // i18n-exempt: message de ConvexError — devient un code ERR_* au lot A2
-    return `Le compte ${handle} est en phase de ${PHASE_FR[phase]} le ${jour} : aucune publication possible à cette date.`;
+    return err(
+      ERR.CLIP_QUOTA_PHASE_ZERO,
+      `Le compte ${handle} est en phase de ${PHASE_FR[phase]} le ${jour} : aucune publication possible à cette date.`,
+      { handle, date: jour, at, phaseKey: PHASE_INLINE_KEYS[phase] },
+    );
   }
-  // i18n-exempt: message de ConvexError — devient un code ERR_* au lot A2
-  return `Quota atteint pour le ${jour} sur ${handle} : ${postsPerDay} publication${
-    postsPerDay > 1 ? "s" : ""
-  } sur ${postsPerDay} en phase de ${PHASE_FR[phase]}.`;
+  return err(
+    ERR.CLIP_QUOTA_REACHED,
+    `Quota atteint pour le ${jour} sur ${handle} : ${postsPerDay} publication${
+      postsPerDay > 1 ? "s" : ""
+    } sur ${postsPerDay} en phase de ${PHASE_FR[phase]}.`,
+    {
+      handle,
+      date: jour,
+      at,
+      count: postsPerDay,
+      max: postsPerDay,
+      phaseKey: PHASE_INLINE_KEYS[phase],
+    },
+  );
 }

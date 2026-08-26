@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/select";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
+import { useConvexError } from "@/lib/use-convex-error";
 import { useTranslations } from "next-intl";
 
 type Plateforme = "TikTok" | "Instagram" | "YouTube";
@@ -56,6 +56,7 @@ export function DeclareCompteDialog({
     instagram?: string;
   } | null;
 }) {
+  const showError = useConvexError();
   const td = useTranslations("portal.declare");
   const declareCompte = useMutation(api.comptes.declareCompte);
   const [plateforme, setPlateforme] = useState<Plateforme>("TikTok");
@@ -87,7 +88,7 @@ export function DeclareCompteDialog({
       reset();
       onOpenChange(false);
     } catch (err) {
-      toast.error(convexErrorMessage(err, td("error")));
+      toast.error(showError(err, td("error")));
       setSubmitting(false);
     }
   }

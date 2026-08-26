@@ -21,7 +21,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { convexErrorMessage } from "@/lib/convex-error";
+import { useConvexError } from "@/lib/use-convex-error";
 import { ASSIGNMENT_STATUS, type AssignmentStatus } from "@/lib/assignment-status";
 import { formatDate } from "@/lib/format";
 import { useIntlLocale } from "@/lib/use-intl-locale";
@@ -130,6 +130,7 @@ function EtatDuCompte({
 }
 
 function DeclarerCompte() {
+  const showError = useConvexError();
   const tc = useTranslations("clip");
   const { projectId } = useClipperProject();
   const declarer = useMutation(api.comptes.declareClipperCompte);
@@ -154,7 +155,7 @@ function DeclarerCompte() {
       setUrl("");
       setOuvert(false);
     } catch (err) {
-      toast.error(convexErrorMessage(err, tc("declareFailed")));
+      toast.error(showError(err, tc("declareFailed")));
     } finally {
       setBusy(false);
     }

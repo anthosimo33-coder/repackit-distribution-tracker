@@ -28,7 +28,7 @@ import {
   UsersIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
+import { useConvexError } from "@/lib/use-convex-error";
 import { detectInspirationType } from "@/lib/inspiration-url";
 import { useTranslations } from "next-intl";
 
@@ -74,6 +74,7 @@ export function AssignmentActions({
   /** Admin view-as : aucune action ; l'état du workflow est rendu en lecture. */
   readOnly?: boolean;
 }) {
+  const showError = useConvexError();
   const t = useTranslations("portal");
   const start = useMutation(api.assignments.startAssignment);
   const submitVideo = useMutation(api.assignments.submitVideo);
@@ -94,7 +95,7 @@ export function AssignmentActions({
       await start({ projectId, id: assignment._id });
       toast.success(t("assignment.started"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, t("assignment.startFailed")));
+      toast.error(showError(e, t("assignment.startFailed")));
     } finally {
       setBusy(false);
     }
@@ -112,7 +113,7 @@ export function AssignmentActions({
       setUploadOpen(false);
       toast.success(t("assignment.videoSent"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, t("assignment.videoSendFailed")));
+      toast.error(showError(e, t("assignment.videoSendFailed")));
     } finally {
       setBusy(false);
     }
@@ -143,7 +144,7 @@ export function AssignmentActions({
       toast.success(t("assignment.published"));
       setUrls({});
     } catch (err) {
-      toast.error(convexErrorMessage(err, t("assignment.publishFailed")));
+      toast.error(showError(err, t("assignment.publishFailed")));
     } finally {
       setBusy(false);
     }

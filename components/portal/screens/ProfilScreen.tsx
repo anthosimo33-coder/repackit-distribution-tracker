@@ -25,7 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
+import { useConvexError } from "@/lib/use-convex-error";
 import { Loader2Icon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { LanguageSelector } from "@/components/layout/LanguageSelector";
@@ -57,6 +57,7 @@ const DETAILS_PLACEHOLDER_KEY = {
  * qui n'a pas de membership creator).
  */
 export default function ProfilScreen() {
+  const showError = useConvexError();
   const t = useTranslations("portal");
   const projectId = useCreatorProjectId();
   const profile = useMyProfile(projectId);
@@ -88,7 +89,7 @@ export default function ProfilScreen() {
       });
       toast.success(t("profil.saved"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, t("profil.error")));
+      toast.error(showError(e, t("profil.error")));
     } finally {
       setBusy(false);
     }
