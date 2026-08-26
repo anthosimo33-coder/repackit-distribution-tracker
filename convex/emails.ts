@@ -16,7 +16,17 @@ import {
   sendEmail,
   type EmailConfig,
 } from "./emailApi";
-import { inviteEmailCopy } from "./emailMessages";
+import {
+  inviteEmailCopy,
+  approvedEmailCopy,
+  rejectedEmailCopy,
+  paidEmailCopy,
+  assignedEmailCopy,
+  nudgeEmailCopy,
+  reminderEmailCopy,
+  emailDate,
+  emailAmount,
+} from "./emailMessages";
 
 /**
  * Notifications EMAIL (Resend) — 5 événements : invitation créateur, vidéo
@@ -70,21 +80,10 @@ function warnDisabled(event: string): Outcome {
   return DISABLED;
 }
 
-/** Date FR courte et déterministe (UTC) — pas de dépendance à Intl/fuseau. */
-function formatDateFr(ms: number): string {
-  const d = new Date(ms);
-  const dd = String(d.getUTCDate()).padStart(2, "0");
-  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-  return `${dd}/${mm}/${d.getUTCFullYear()}`;
-}
-
-/** Montant en dollars, séparateur d'espace fine — cohérent avec l'app. */
-function formatAmount(n: number): string {
-  const rounded = Math.round(n * 100) / 100;
-  const [int, dec] = rounded.toFixed(2).split(".");
-  const spaced = int.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
-  return dec === "00" ? `${spaced} $` : `${spaced},${dec} $`;
-}
+// Date et montant vivent dans convex/emailMessages.ts (emailDate / emailAmount) :
+// leur MISE EN FORME dépend de la langue du destinataire, comme la copie. Les
+// versions locales, figées en français, ont été retirées avec le câblage des
+// six e-mails restants.
 
 /** Envoie + logge l'échec sans jamais jeter. */
 async function deliver(
@@ -255,19 +254,19 @@ export const sendVideoApproved = internalAction({
       return { ok: false, reason: "test-recipient" };
     }
     const url = `${cfg.appBaseUrl}/app/assignments/${assignmentId}`;
-    const subject = "Ta vidéo est validée ✅";
+    const copy = approvedEmailCopy(d.locale);
+    const subject = copy.subject;
     // Sans format nommé, on supprime le complément plutôt que d'écrire
     // « C'est bon pour ta mission » (cf missionLabel null).
-    const intro =
+    const missionStrong =
       d.missionLabel === null
-        ? "C'est bon, ta vidéo est validée."
-        : `C'est bon pour <strong>${escapeHtml(d.missionLabel)}</strong>, ta vidéo est validée.`;
+        ? null
+        : `<strong>${escapeHtml(d.missionLabel)}</strong>`;
     const html = renderEmail({
       title: subject,
       bodyHtml:
-        p(`Salut ${escapeHtml(d.name)},`) +
-        p(`${intro} Tu peux passer à la publication depuis ton espace.`),
-      cta: { label: "Voir la mission", url },
+        p(copy.greeting(escapeHtml(d.name))) + p(copy.body(missionStrong)),
+      cta: { label: copy.ctaLabel, url },
     });
     return deliver(cfg, "vidéo validée", d.email, subject, html);
   },
@@ -294,22 +293,21 @@ export const sendVideoRejected = internalAction({
         : `<blockquote style="margin:0 0 12px;padding:10px 14px;border-left:3px solid #cbd5e1;background:#f8fafc;color:#334155;white-space:pre-wrap">${escapeHtml(
             d.feedback,
           )}</blockquote>`;
-    // Aucun emoji sur cet email (consigne explicite).
-    const subject = "Petite correction sur ta vidéo";
-    const intro =
+    // Aucun emoji sur cet email (consigne explicite, tenue dans les deux langues).
+    const copy = rejectedEmailCopy(d.locale);
+    const subject = copy.subject;
+    const missionStrong =
       d.missionLabel === null
-        ? "J'ai regardé ta dernière vidéo"
-        : `J'ai regardé ta vidéo pour <strong>${escapeHtml(d.missionLabel)}</strong>`;
+        ? null
+        : `<strong>${escapeHtml(d.missionLabel)}</strong>`;
     const html = renderEmail({
       title: subject,
       bodyHtml:
-        p(`Salut ${escapeHtml(d.name)},`) +
-        p(`${intro}, il y a un ou deux trucs à ajuster avant de la publier :`) +
+        p(copy.greeting(escapeHtml(d.name))) +
+        p(copy.intro(missionStrong)) +
         feedbackBlock +
-        p(
-          "Rien de grave, tu corriges et tu re-soumets directement depuis ta mission.",
-        ),
-      cta: { label: "Corriger ma vidéo", url },
+        p(copy.closing),
+      cta: { label: copy.ctaLabel, url },
     });
     return deliver(cfg, "vidéo refusée", d.email, subject, html);
   },
@@ -340,18 +338,25 @@ export const sendPaymentPaid = internalAction({
     const url = `${cfg.appBaseUrl}/app/paiements`;
     // cycleEnd est exclusif côté modèle → dernier jour inclus = cycleEnd - 1 j.
     // « du X au Y » plutôt qu'un tiret (aucun tiret cadratin dans les contenus).
-    const period = `${formatDateFr(cycleStart)} au ${formatDateFr(cycleEnd - 86_400_000)}`;
-    const money = formatAmount(amount);
-    const subject = `${money} en route 💸`;
+    const copy = paidEmailCopy(c.locale);
+    const period = copy.period(
+      emailDate(cycleStart, c.locale),
+      emailDate(cycleEnd - 86_400_000, c.locale),
+    );
+    const money = emailAmount(amount, c.locale);
+    const subject = copy.subject(money);
     const html = renderEmail({
       title: subject,
       bodyHtml:
-        p(`Salut ${escapeHtml(c.name)},`) +
+        p(copy.greeting(escapeHtml(c.name))) +
         p(
-          `Ton cycle du <strong>${escapeHtml(period)}</strong> est payé : <strong>${escapeHtml(money)}</strong>.`,
+          copy.body(
+            `<strong>${escapeHtml(period)}</strong>`,
+            `<strong>${escapeHtml(money)}</strong>`,
+          ),
         ) +
-        p("Le détail vidéo par vidéo est dans ton espace."),
-      cta: { label: "Voir mes paiements", url },
+        p(copy.detail),
+      cta: { label: copy.ctaLabel, url },
     });
     return deliver(cfg, "paiement effectué", c.email, subject, html);
   },
@@ -378,26 +383,19 @@ export const sendAssignmentCreated = internalAction({
       return { ok: false, reason: "test-recipient" };
     }
     const url = `${cfg.appBaseUrl}/app/assignments/${assignmentId}`;
-    const many = count > 1;
-    const subject = many
-      ? `${count} nouvelles vidéos pour toi 🎬`
-      : "Nouvelle mission pour toi 🎬";
-    const what = many
-      ? `${count} nouvelles vidéos à produire`
-      : "une nouvelle vidéo à produire";
-    const on =
+    const copy = assignedEmailCopy(d.locale);
+    const subject = copy.subject(count);
+    const missionStrong =
       d.missionLabel === null
-        ? ""
-        : ` sur <strong>${escapeHtml(d.missionLabel)}</strong>`;
+        ? null
+        : `<strong>${escapeHtml(d.missionLabel)}</strong>`;
     const html = renderEmail({
       title: subject,
       bodyHtml:
-        p(`Salut ${escapeHtml(d.name)},`) +
-        p(`Tu as ${what}${on}.`) +
-        p(
-          `Le script, les consignes et l'échéance (${escapeHtml(formatDateFr(d.dueDate))}) sont dans ton espace.`,
-        ),
-      cta: { label: many ? "Voir mes missions" : "Voir ma mission", url },
+        p(copy.greeting(escapeHtml(d.name))) +
+        p(copy.body(count, missionStrong)) +
+        p(copy.schedule(escapeHtml(emailDate(d.dueDate, d.locale)))),
+      cta: { label: copy.ctaLabel(count), url },
     });
     return deliver(cfg, "nouvelle mission assignée", d.email, subject, html);
   },
@@ -424,28 +422,28 @@ export const sendManualNudge = internalAction({
       return { ok: false, reason: "test-recipient" };
     }
     const url = `${cfg.appBaseUrl}/app/assignments/${assignmentId}`;
+    const copy = nudgeEmailCopy(d.locale);
     const on =
       d.missionLabel === null
-        ? "ta mission"
+        ? copy.fallbackMission
         : `<strong>${escapeHtml(d.missionLabel)}</strong>`;
     const rejected = d.status === "video_rejected";
-    const subject = rejected ? "Tu as un retour à traiter" : "Où en es-tu ? 🙂";
+    const subject = copy.subject(rejected);
     const html = renderEmail({
       title: subject,
       bodyHtml: rejected
-        ? p(`Salut ${escapeHtml(d.name)},`) +
+        ? p(copy.greeting(escapeHtml(d.name))) +
+          p(copy.rejectedBody(on)) +
+          p(copy.rejectedClosing)
+        : p(copy.greeting(escapeHtml(d.name))) +
           p(
-            `J'ai laissé un retour sur ta vidéo pour ${on}, tu peux la corriger et la re-soumettre quand tu veux.`,
+            copy.pendingBody(
+              on,
+              `<strong>${escapeHtml(emailDate(d.dueDate, d.locale))}</strong>`,
+            ),
           ) +
-          p("Si quelque chose n'est pas clair, réponds-moi, on en parle.")
-        : p(`Salut ${escapeHtml(d.name)},`) +
-          p(
-            `Je fais un point sur ${on}, attendue pour le <strong>${escapeHtml(formatDateFr(d.dueDate))}</strong>.`,
-          ) +
-          p(
-            "Si tu as besoin de quoi que ce soit pour avancer ou de plus de temps, réponds-moi, on trouvera une solution.",
-          ),
-      cta: { label: rejected ? "Corriger ma vidéo" : "Ouvrir ma mission", url },
+          p(copy.pendingClosing),
+      cta: { label: copy.ctaLabel(rejected), url },
     });
     return deliver(cfg, "relance manuelle", d.email, subject, html);
   },
@@ -492,31 +490,32 @@ export const runDeadlineReminders = internalAction({
       }
       const late = t.dueDate < now;
       const url = `${cfg.appBaseUrl}/app/assignments/${t.assignmentId}`;
-      const dateFr = escapeHtml(formatDateFr(t.dueDate));
+      const copy = reminderEmailCopy(t.locale);
+      const dateStrong = `<strong>${escapeHtml(emailDate(t.dueDate, t.locale))}</strong>`;
       const missionStrong =
         t.missionLabel === null
           ? null
           : `<strong>${escapeHtml(t.missionLabel)}</strong>`;
-      const subject = late
-        ? "On attend ta vidéo 👀"
-        : "Ta mission arrive à échéance";
+      const subject = copy.subject(late);
       const html = renderEmail({
         title: subject,
         bodyHtml:
-          p(`Salut ${escapeHtml(t.name)},`) +
+          p(copy.greeting(escapeHtml(t.name))) +
           (late
             ? // Tête de phrase → majuscule sur le repli sans format nommé.
               p(
-                `${missionStrong ?? "Ta mission"} était attendue pour le <strong>${dateFr}</strong> et on ne l'a pas encore reçue.`,
-              ) +
-              p(
-                "Si tu as un souci ou besoin de plus de temps, réponds-moi directement, on trouvera une solution.",
-              )
+                copy.lateBody(
+                  missionStrong ?? copy.fallbackMissionLead,
+                  dateStrong,
+                ),
+              ) + p(copy.lateClosing)
             : p(
-                `Petit rappel : ${missionStrong ?? "ta mission"} est attendue pour le <strong>${dateFr}</strong>.`,
-              ) +
-              p("Tu peux déposer ta vidéo directement depuis ton espace.")),
-        cta: { label: "Ouvrir ma mission", url },
+                copy.upcomingBody(
+                  missionStrong ?? copy.fallbackMissionInline,
+                  dateStrong,
+                ),
+              ) + p(copy.upcomingClosing)),
+        cta: { label: copy.ctaLabel, url },
       });
       const res = await deliver(cfg, "rappel de deadline", t.email, subject, html);
       if (res.ok) {
