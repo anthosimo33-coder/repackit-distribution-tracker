@@ -15,7 +15,7 @@ verts après chaque lot.
 
 | | avant | après |
 |---|---:|---:|
-| Fichiers du périmètre extraits | 30/56 (liste dérivée) | **140/140** |
+| Fichiers du périmètre extraits | 30/56 (liste dérivée) | **146/146** |
 | Chaînes françaises dans le périmètre | ~325 | **0** |
 | Complétion du catalogue anglais | 33 % | **100 %** — 653 traduites + 38 identiques *légitimement*, 0 hors liste blanche (691 clés) |
 | Rejets Convex du parcours en français | 80 | **0** |
@@ -133,7 +133,7 @@ d'anglais US sur son parcours**. Traduire l'app entière n'est pas l'objectif.
 Le périmètre est la **clôture d'imports** des routes qu'une session authentifiée
 en rôle créateur peut atteindre, plus les e-mails qu'elle reçoit, les fonctions
 Convex qu'elle appelle et les valeurs de base qu'elle lit. Calcul mécanique
-depuis 24 entrées de route → **140 fichiers**.
+depuis 24 entrées de route → **146 fichiers** (140 au moment de l'audit ; six modules créés par le chantier ont rejoint la clôture depuis).
 
 « Créateur » désigne ici les **trois rôles de portail** — partenaire (`/app`),
 talent (`/talent`), clippeur (`/clip`) — plus les écrans **pré-session**.
@@ -700,7 +700,7 @@ premier cycle est intégralement anglais dès A9.
 | **A5** | formats US — dates, nombres, montants | ☑ |
 | **A10** | sélecteur de langue côté créateur | ☑ |
 | **A4** | les 6 e-mails restants | ☑ |
-| **A1** | 140/140 fichiers du périmètre extraits | ☑ |
+| **A1** | 146/146 fichiers du périmètre extraits | ☑ |
 | **A3** | `accountPhase` — phases, dates en toutes lettres | ☑ |
 | **A6** | pluriels concaténés → ICU | ☑ |
 | **A2** | 80 rejets Convex → codes `ERR_*` | ☑ |
@@ -712,9 +712,18 @@ traduites** et **38 identiques au français**, toutes sur la liste blanche
 explicite (`scripts/i18n-same-in-en.json`), **aucune hors liste**. Le catalogue
 est donc entièrement traité.
 
-**140/140 fichiers**, **0 occurrence** — comptage indépendant de la baseline,
+**146/146 fichiers**, **0 occurrence** — comptage indépendant de la baseline,
 avec le détecteur corrigé (multi-ligne JSX + point-virgule + `lib/` + `convex/`).
 tsc, build et 2 064 tests verts.
+
+⚠️ **Le périmètre est passé de 140 à 146 en fin de chantier**, et c'est la CI qui
+l'a signalé : `i18n-scope-gen.mjs --check` a refusé un
+`scripts/i18n-creator-scope.json` périmé. Six fichiers avaient rejoint la
+clôture d'imports sans que je régénère la liste — les cinq modules créés pendant
+le chantier (`use-label`, `use-intl-locale`, `intl-locale`, `use-convex-error`,
+`errorCodes`) et `LanguageSelector`, tiré dans le portail par A10. Ils sont
+propres, mais un scan annoncé « complet » sur une liste périmée ne l'était pas.
+C'est exactement ce que la garde de fraîcheur du périmètre existe pour attraper.
 
 ⚠️ Un chiffre de « 97,5 % / 17 clés françaises » a circulé en cours de chantier :
 il venait d'un script d'audit jetable dont la liste de termes acceptables était
@@ -900,7 +909,7 @@ avec ses paramètres. Il faut un compte de **clippeur** :
 node scripts/check-i18n.mjs
 ```
 
-Sortie attendue : `140/140 fichiers extraits`, `~0 chaînes`, catalogues alignés
+Sortie attendue : `146/146 fichiers extraits`, `~0 chaînes`, catalogues alignés
 et anglais traduit. La commande échoue si une chaîne française réapparaît dans le
 périmètre, si `en.json` recopie `fr.json` hors liste blanche, ou si une structure
 ICU diverge entre les deux catalogues.
