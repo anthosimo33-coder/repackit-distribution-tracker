@@ -821,6 +821,53 @@ sens le plus **conservateur** pendant la traversée, et méritent ton avis.
 | 3 | **Les ~55 specs e2e assertent des libellés français.** | Elles tournent en locale `fr`, qui est le défaut du produit : rien à changer. Les deux qui branchaient sur le TEXTE d'une erreur serveur ont été passées au **code** en A2. |
 | 4 | **La garde ne voit pas les phrases assemblées dans une expression `{}`.** | Limite connue et documentée : elle attrape les littéraux, pas les phrases reconstruites. Les 5 cas du périmètre ont été traités à la main en A6. |
 
+### 11.7 Ce que la garde ne voit TOUJOURS pas — limites connues
+
+Le détecteur a menti trois fois. Cette liste dit où il est aveugle **par
+construction**, pour que la prochaine session ne reparte pas de « 0 chaîne » en
+croyant que c'est fini. Chaque ligne a été **vérifiée**, pas supposée : sonde
+posée dans le périmètre, garde exécutée, résultat observé.
+
+Les deux prédicats qui décident :
+
+| | `isProse` (littéral NU) | `isDisplayText` (attribut, `label:`, texte JSX) |
+|---|---|---|
+| `"Publier"` — mot seul, capitale, sans accent | ❌ rejeté | ✓ accepté |
+| `"jours"` — mot seul, minuscule, sans accent | ❌ rejeté | ❌ rejeté |
+| `"deuxième"` — accent | ✓ | ✓ |
+| `"Mes comptes"` — espace + capitale | ✓ | ✓ |
+
+#### Angles morts vérifiés
+
+| # | Motif | Exemple | Pourquoi |
+|---:|---|---|---|
+| 1 | **Mot seul sans accent en littéral NU** | `const A = ["Publier", "Annuler"]` | `isProse` exige un accent, ou un espace ET une capitale. Un tableau de libellés courts passe entier. |
+| 2 | **Mot minuscule sans accent, partout** | `n > 1 ? "jours" : "jour"` | rejeté par les DEUX prédicats. C'est le pluriel concaténé, précisément ce que le lot A6 traquait à la main. |
+| 3 | **Fragment de concaténation d'un seul mot** | `"Aucun " + n + " compte"` | chaque littéral est jugé SÉPARÉMENT ; `"Aucun "` seul ne passe pas. Un fragment de deux mots, lui, est vu. |
+| 4 | **Template MULTI-LIGNE** | `` `Bienvenue\nsur la plateforme` `` | la passe template travaille ligne par ligne. |
+
+#### Ce qui est HORS PÉRIMÈTRE par décision (pas un trou)
+
+| Motif | Statut |
+|---|---|
+| E-mails (`convex/emails.ts`) | hors clôture — le runtime Convex n'est pas importé côté client. Traduits en A4, mais **la garde ne les surveille pas** : une régression y passerait. |
+| Seeds, Telegram, tests, fixtures | exclus explicitement (`SKIP_FILE`, décision `ARBITRAGES-I18N.md` §7) |
+| `app/admin/**`, analytics | hors périmètre — l'admin reste en FR |
+
+#### Ce qu'aucune garde statique ne peut voir
+
+| Motif | Pourquoi |
+|---|---|
+| **Texte en BASE** — `guideModules`, `lineItems[].label`, briefs, notes | la garde lit du code, pas des données |
+| **Texte dans une image ou un SVG** | aucun `<text>` aujourd'hui, mais rien ne l'empêche |
+| **Clé i18n fautive dans une TABLE** (`useLabel`) | typée `string` : la clé s'affiche brute à l'exécution. C'est ce qui a fait lire `status.rush.deposited` à un talent — attrapé par l'e2e, jamais par la garde ni par tsc. |
+| **Valeur `en.json` qui n'est pas de l'anglais** | la garde B2 vérifie qu'elle DIFFÈRE du français, pas qu'elle soit anglaise. Une phrase reformulée en français y passerait. |
+
+**La conséquence pratique** : sur ce dépôt, une garde verte ne prouve pas qu'un
+écran est traduit. Elle prouve qu'aucun motif CONNU n'a été réintroduit. Les
+deux fois où du français est réapparu à l'écran, c'est **l'e2e ou l'œil** qui
+l'ont vu — jamais la garde.
+
 ### 11.6 Le détecteur avait trois trous de plus — et le guide est de la donnée
 
 Testé à l'écran, le portail d'une créatrice EN montrait encore du français que
