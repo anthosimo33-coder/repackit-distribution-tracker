@@ -64,6 +64,10 @@ import {
   URGENCY_BADGE,
   type AssignmentStatus,
 } from "@/lib/assignment-status";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useLabel } from "@/lib/use-label";
+import { formatMoneyDate } from "@/lib/format";
 
 /**
  * Accueil du portail créateur — DASHBOARD ORIENTÉ ACTION, scopé au PROJET
@@ -89,14 +93,15 @@ const TYPE_LABELS: Record<string, string> = {
 
 const ITEM_CAP = 5;
 
-function formatDate(ts: number) {
-  return new Date(ts).toLocaleDateString("fr-FR", {
+function formatDate(ts: number, locale: string) {
+  return new Date(ts).toLocaleDateString(locale, {
     day: "2-digit",
     month: "short",
   });
 }
 
 export default function DashboardScreen() {
+  const t = useTranslations("portal");
   const { current } = useCreatorProject();
   const projectId = current.projectId;
   // Devise de la paie créatrices ($ Snytch ; null → sans symbole), threadée aux
@@ -221,8 +226,8 @@ export default function DashboardScreen() {
               tone="primary"
               count={toProduce.length}
               countTestId="produce-count"
-              title={`vidéo${toProduce.length > 1 ? "s" : ""} à produire`}
-              description="Tourne ta vidéo selon le brief, puis envoie ton MP4."
+              title={t("dashboard.produce.title", { count: toProduce.length })}
+              description={t("dashboard.produce.description")}
             >
               <AssignmentList items={toProduce} base={base} />
             </ActionBlock>
@@ -242,10 +247,10 @@ export default function DashboardScreen() {
               tone="amber"
               count={warmupDue}
               countTestId="warmup-count"
-              title={`warmup${warmupDue > 1 ? "s" : ""} à cocher aujourd'hui`}
-              description="Coche le check du jour pour faire avancer le warmup."
+              title={t("dashboard.warmup.title", { count: warmupDue })}
+              description={t("dashboard.warmup.description")}
             >
-              <BlockCta href={portalHref(base, "/comptes")} label="Cocher mes warmups" />
+              <BlockCta href={portalHref(base, "/comptes")} label={t("dashboard.warmup.cta")} />
             </ActionBlock>
           )}
 
@@ -266,8 +271,8 @@ export default function DashboardScreen() {
               tone="emerald"
               count={toPublish.length}
               countTestId="publish-count"
-              title={`vidéo${toPublish.length > 1 ? "s" : ""} à publier`}
-              description="Validée(s) — publie et colle l'URL pour déclencher ton paiement."
+              title={t("dashboard.publish.title", { count: toPublish.length })}
+              description={t("dashboard.publish.description")}
             >
               <AssignmentList items={toPublish} base={base} />
             </ActionBlock>
@@ -281,8 +286,8 @@ export default function DashboardScreen() {
               tone="rose"
               count={toRedo.length}
               countTestId="redo-count"
-              title={`vidéo${toRedo.length > 1 ? "s" : ""} à refaire`}
-              description="Refusée(s) par l'admin — corrige et re-soumets."
+              title={t("dashboard.redo.title", { count: toRedo.length })}
+              description={t("dashboard.redo.description")}
             >
               <AssignmentList items={toRedo} base={base} showFeedback />
             </ActionBlock>
@@ -299,12 +304,9 @@ export default function DashboardScreen() {
                     <UsersIcon className="size-5" />
                   </span>
                   <div className="min-w-0">
-                    <CardTitle className="text-base">
-                      Gérées par l&apos;équipe
-                    </CardTitle>
+                    <CardTitle className="text-base">{t("dashboard.managedTitle")}</CardTitle>
                     <CardDescription>
-                      L&apos;équipe publie ces vidéos — ouvre-les pour voir le
-                      script. Le post et les perfs arrivent dans « Mes vidéos ».
+                      {t("dashboard.managedBody")}
                     </CardDescription>
                   </div>
                 </div>
@@ -358,6 +360,7 @@ function OnboardingChecklist({
   onb: OnboardingDerived;
   base: string;
 }) {
+  const t = useTranslations("portal");
   const s = onb.steps;
   const best = onb.best;
   const comptesHref = portalHref(base, "/comptes");
@@ -372,12 +375,8 @@ function OnboardingChecklist({
             <ListChecksIcon className="size-5" />
           </span>
           <div className="min-w-0">
-            <CardTitle className="text-base">
-              Pour commencer à recevoir tes missions
-            </CardTitle>
-            <CardDescription>
-              Termine ces étapes pour activer ton compte.
-            </CardDescription>
+            <CardTitle className="text-base">{t("dashboard.onboardTitle")}</CardTitle>
+            <CardDescription>{t("dashboard.onboardBody")}</CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -385,32 +384,32 @@ function OnboardingChecklist({
         <ChecklistRow
           testId="step-declare"
           state={s.declare}
-          title="Déclare ton compte"
+          title={t("dashboard.step.declare.title")}
           detail={
             onb.hasDeclaredAccount
-              ? "Compte déclaré"
-              : "Ajoute ton @ TikTok / Instagram / YouTube."
+              ? t("dashboard.step.declare.done")
+              : t("dashboard.step.declare.todo")
           }
           cta={
             onb.hasDeclaredAccount
               ? undefined
-              : { href: comptesHref, label: "Déclarer mon compte" }
+              : { href: comptesHref, label: t("dashboard.step.declare.cta") }
           }
         />
         <ChecklistRow
           testId="step-warmup"
           state={s.warmup}
-          title="Fais ton warmup"
+          title={t("dashboard.step.warmup.title")}
           detail={
             s.warmup === "done"
-              ? "Warmup terminé"
+              ? t("dashboard.step.warmup.done")
               : best
-                ? `Jour ${best.checksDone}/${best.targetDays}`
-                : "Disponible après la déclaration de ton compte."
+                ? t("dashboard.step.warmup.progress", { done: best.checksDone, target: best.targetDays })
+                : t("dashboard.step.warmup.locked")
           }
           cta={
             best?.dueToday
-              ? { href: comptesHref, label: "Cocher le check du jour" }
+              ? { href: comptesHref, label: t("dashboard.step.warmup.cta") }
               : undefined
           }
         />
@@ -418,15 +417,15 @@ function OnboardingChecklist({
           <ChecklistRow
             testId="step-bio"
             state={s.bio}
-            title="Applique ta bio"
+            title={t("dashboard.step.bio.title")}
             detail={
               s.bio === "todo"
-                ? "Une bio t'a été fournie — copie-la sur ton profil."
-                : "Bio appliquée"
+                ? t("dashboard.step.bio.todo")
+                : t("dashboard.step.bio.done")
             }
             cta={
               s.bio === "todo"
-                ? { href: comptesHref, label: "Voir la bio" }
+                ? { href: comptesHref, label: t("dashboard.step.bio.cta") }
                 : undefined
             }
           />
@@ -438,24 +437,19 @@ function OnboardingChecklist({
           >
             <ClockIcon className="size-5 shrink-0 text-amber-600" />
             <div className="min-w-0 space-y-0.5">
-              <p className="text-sm font-medium text-amber-900">
-                Ton compte est en cours de validation
-              </p>
-              <p className="text-sm text-amber-800">
-                Tes scripts arrivent bientôt : l&apos;équipe valide ton compte,
-                tu recevras tes premières missions juste après.
-              </p>
+              <p className="text-sm font-medium text-amber-900">{t("dashboard.pendingTitle")}</p>
+              <p className="text-sm text-amber-800">{t("dashboard.pendingBody")}</p>
             </div>
           </div>
         ) : (
           <ChecklistRow
             testId="step-validation"
             state={s.validation}
-            title="Validation de ton compte"
+            title={t("dashboard.step.validation.title")}
             detail={
               s.validation === "done"
-                ? "Compte validé — tu peux recevoir des missions."
-                : "L'équipe valide ton compte une fois le warmup terminé."
+                ? t("dashboard.step.validation.done")
+                : t("dashboard.step.validation.todo")
             }
           />
         )}
@@ -531,6 +525,7 @@ function ChecklistRow({
  * des assignments — pas de faux « tout à jour » forcé.
  */
 function ManagedByTeamNotice() {
+  const t = useTranslations("portal");
   return (
     <Card
       data-testid="managed-by-team-notice"
@@ -541,12 +536,9 @@ function ManagedByTeamNotice() {
           <UsersIcon className="size-5" />
         </span>
         <div className="min-w-0 space-y-0.5">
-          <p className="text-sm font-semibold text-slate-900">
-            Ton équipe gère tes comptes
-          </p>
+          <p className="text-sm font-semibold text-slate-900">{t("dashboard.teamManagesTitle")}</p>
           <p className="text-sm text-slate-500">
-            Tu n&apos;as rien à configurer. Retrouve tes vidéos et leurs
-            performances dans « Mes vidéos ».
+            {t("dashboard.teamManagesBody")}
           </p>
         </div>
       </CardContent>
@@ -556,16 +548,14 @@ function ManagedByTeamNotice() {
 
 /** État « tout à jour » : rien à faire dans aucune catégorie. */
 function AllClear() {
+  const t = useTranslations("portal");
   return (
     <Card data-testid="all-clear" className="border-emerald-200 bg-emerald-50/60">
       <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
         <PartyPopperIcon className="size-9 text-emerald-500" strokeWidth={1.5} />
-        <p className="text-base font-semibold text-emerald-900">
-          Tout est à jour
-        </p>
+        <p className="text-base font-semibold text-emerald-900">{t("dashboard.allClearTitle")}</p>
         <p className="text-sm text-emerald-700">
-          Rien à faire pour le moment. Repasse de temps en temps : tes nouvelles
-          missions et tes warmups apparaîtront ici.
+          {t("dashboard.allClearBody")}
         </p>
       </CardContent>
     </Card>
@@ -579,6 +569,7 @@ function AllClear() {
  * Renvoie vers « Mes comptes » où se fait le check. AFFICHAGE seul (lecture).
  */
 function WarmupOngoingReminder({ href }: { href: string }) {
+  const t = useTranslations("portal");
   return (
     <Link
       href={href}
@@ -588,11 +579,10 @@ function WarmupOngoingReminder({ href }: { href: string }) {
       <FlameIcon className="size-5 shrink-0 text-amber-600" />
       <div className="min-w-0 flex-1 space-y-0.5">
         <p className="text-sm font-medium text-amber-900">
-          Warmup en cours — c&apos;est bon pour aujourd&apos;hui&nbsp;✓
+          {t("dashboard.warmupDoneToday")}
         </p>
         <p className="text-sm text-amber-800">
-          Reviens le cocher chaque jour jusqu&apos;au bout : c&apos;est ce qui
-          rend ton compte prêt à publier.
+          {t("dashboard.warmupDailyHint")}
         </p>
       </div>
       <ArrowRightIcon className="size-4 shrink-0 text-amber-700" />
@@ -683,6 +673,9 @@ function NextTierCard({
   base: string;
   currency?: string | null;
 }) {
+  const t = useTranslations("portal");
+  const tLabel = useLabel();
+  const loc = useIntlLocale();
   const raw = useMyProgression(projectId);
   const p = raw ? buildProgression(raw) : null;
   if (!p || !p.nextReward) return null;
@@ -701,13 +694,11 @@ function NextTierCard({
               <TrophyIcon className="size-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-slate-900">
-                Prochain palier
-              </p>
+              <p className="text-sm font-medium text-slate-900">{t("dashboard.nextTier")}</p>
               <p className="truncate text-xs text-slate-500">
                 {reward.kind === "cash"
-                  ? formatMoney(reward.amount, currency)
-                  : `${reward.emoji} ${reward.label}`}
+                  ? formatMoney(reward.amount, currency, loc)
+                  : `${reward.emoji} ${reward.label ?? tLabel("progression.reward")}`}
               </p>
             </div>
             <ArrowRightIcon className="size-4 shrink-0 text-slate-400" />
@@ -721,7 +712,7 @@ function NextTierCard({
           <p className="text-xs text-slate-500">
             Plus que{" "}
             <span className="font-semibold tabular-nums text-slate-700">
-              {formatViews(p.remainingViews)}
+              {formatViews(p.remainingViews, loc)}
             </span>{" "}
             vues.
           </p>
@@ -743,6 +734,7 @@ function AssignmentList({
   /** Comptes gérés : pas d'urgence, badge « géré par l'équipe » au lieu du statut. */
   managed?: boolean;
 }) {
+  const t = useTranslations("portal");
   const shown = items.slice(0, ITEM_CAP);
   const extra = items.length - shown.length;
   return (
@@ -777,6 +769,9 @@ function AssignmentItem({
   showFeedback?: boolean;
   managed?: boolean;
 }) {
+  const tLabel = useLabel();
+  const loc = useIntlLocale();
+  const t = useTranslations("portal");
   // Compte géré : aucune urgence (elle n'agit pas), et un badge « géré par
   // l'équipe » remplace le statut de workflow (« À publier » serait trompeur).
   const urg = managed
@@ -798,7 +793,7 @@ function AssignmentItem({
             )}
           </div>
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
-            <span className="text-slate-500">Échéance {formatDate(a.dueDate)}</span>
+            <span className="text-slate-500">Échéance {formatDate(a.dueDate, loc)}</span>
             {a.targets.length > 0 && (
               <span className="font-mono text-slate-400">
                 · {a.targets.map((t) => t.platform).join(" · ")}
@@ -814,7 +809,7 @@ function AssignmentItem({
                 URGENCY_BADGE[urg].className,
               )}
             >
-              {URGENCY_BADGE[urg].label}
+              {tLabel(URGENCY_BADGE[urg].labelKey)}
             </span>
           )}
           <span
@@ -825,7 +820,7 @@ function AssignmentItem({
                 : st.className,
             )}
           >
-            {managed ? "Géré par l'équipe" : st.label}
+            {managed ? t("dashboard.managedBadge") : tLabel(st.labelKey)}
           </span>
           <ArrowRightIcon className="size-4 text-slate-400" />
         </div>
@@ -866,6 +861,8 @@ function VideoStatsCard({
   base: string;
   currency?: string | null;
 }) {
+  const loc = useIntlLocale();
+  const t = useTranslations("portal");
   const stats = useMyVideoStats(projectId);
   if (!stats || stats.onlineCount === 0) return null;
   return (
@@ -873,21 +870,21 @@ function VideoStatsCard({
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <FilmIcon className="size-4 text-slate-400" />
-          Mes vidéos publiées
+          {t("dashboard.videos.title")}
         </CardTitle>
-        <CardDescription>Ton activité vidéo ce cycle.</CardDescription>
+        <CardDescription>{t("dashboard.videos.subtitle")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="grid grid-cols-3 gap-2">
-          <VideoStat label="En ligne" value={String(stats.onlineCount)} />
-          <VideoStat label="Vues" value={formatViews(stats.totalViews)} />
-          <VideoStat label="Gains" value={formatMoney(stats.totalGain, currency)} />
+          <VideoStat label={t("dashboard.videos.online")} value={String(stats.onlineCount)} />
+          <VideoStat label={t("dashboard.videos.views")} value={formatViews(stats.totalViews, loc)} />
+          <VideoStat label={t("dashboard.videos.gains")} value={formatMoney(stats.totalGain, currency, loc)} />
         </div>
         <Link
           href={portalHref(base, "/videos")}
           className="inline-flex items-center gap-1 text-sm font-medium text-slate-900 underline underline-offset-4 hover:text-slate-700"
         >
-          Voir le détail par vidéo
+          {t("dashboard.videos.detailLink")}
           <ArrowRightIcon className="size-3.5" />
         </Link>
       </CardContent>
@@ -924,14 +921,16 @@ function EarningsOverview({
   detailHref: string;
   currency?: string | null;
 }) {
+  const t = useTranslations("portal");
+  const loc = useIntlLocale();
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <WalletIcon className="size-4 text-slate-400" />
-          Mes gains
+          {t("dashboard.earnings.title")}
         </CardTitle>
-        <CardDescription>Gagné ce mois + prochaine paie.</CardDescription>
+        <CardDescription>{t("dashboard.earnings.subtitle")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-1">
         {loading ? (
@@ -941,22 +940,20 @@ function EarningsOverview({
             className="text-3xl font-semibold tabular-nums text-slate-900"
             data-testid="dashboard-due"
           >
-            {formatMoney(dueNow, currency)}
+            {formatMoney(dueNow, currency, loc)}
           </p>
         )}
         {nextPayoutTs !== null && payoutDays !== null && (
           <p className="text-xs text-slate-500">
             {dueNow > 0
-              ? `Payé dans ${payoutDays} jour${payoutDays > 1 ? "s" : ""} (le ${formatDate(nextPayoutTs)})`
-              : `Prochaine paie le ${formatDate(nextPayoutTs)}`}
+              ? t("dashboard.earnings.paidIn", { days: payoutDays, date: formatMoneyDate(nextPayoutTs, loc) })
+              : t("dashboard.earnings.nextPayout", { date: formatMoneyDate(nextPayoutTs, loc) })}
           </p>
         )}
         <Link
           href={detailHref}
           className="inline-flex items-center gap-1 pt-1 text-sm font-medium text-slate-900 underline underline-offset-4 hover:text-slate-700"
-        >
-          Voir le détail
-          <ArrowRightIcon className="size-3.5" />
+        >{t("dashboard.seeDetail")}<ArrowRightIcon className="size-3.5" />
         </Link>
       </CardContent>
     </Card>

@@ -1684,7 +1684,25 @@ export default defineSchema({
         // Optionnel : un palier de bonus CUMULÉ (bonus_tier) n'est lié à aucun
         // assignment précis (récompense créateur-niveau).
         assignmentId: v.optional(v.id("assignments")),
+        // PHRASE FIGÉE au paiement, en français. Historique : ne jamais la
+        // réécrire. Elle reste le REPLI d'affichage des lignes écrites avant
+        // `detail`.
         label: v.string(),
+        // Données STRUCTURÉES de la ligne, pour recomposer le libellé À
+        // L'AFFICHAGE, dans la langue du lecteur. Une créatrice US voyait
+        // « Fixe — 3 vidéos publiées » sur son écran de paie, et aucune
+        // extraction ne pouvait le corriger : c'est de la donnée, pas de
+        // l'interface. Optionnel → 0 migration ; absent ⇒ on rend `label`.
+        detail: v.optional(
+          v.object({
+            /** kind « fixed » : nombre de vidéos publiées du groupe. */
+            videoCount: v.optional(v.number()),
+            /** kind « cpm » : vues retenues pour le calcul. */
+            views: v.optional(v.number()),
+            /** kind « retainer » : index de cycle, 1-indexé à l'affichage. */
+            cycleIndex: v.optional(v.number()),
+          }),
+        ),
         amount: v.number(),
         // base/bonus = LEGACY (accrual à l'écriture ; bonus = bonus PAR VIDÉO v1).
         // fixed/cpm = pricing par vidéo, GELÉS au paiement. bonus_tier = palier

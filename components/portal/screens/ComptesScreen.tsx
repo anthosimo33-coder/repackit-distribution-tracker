@@ -19,6 +19,7 @@ import { WarmupCompteCard } from "@/components/creators/portal/WarmupCompteCard"
 import { WarmupGuideButton } from "@/components/warmup/WarmupGuideButton";
 import { getEffectiveStatus } from "@/lib/compte-status";
 import { mustCheckToday } from "@/lib/warmup";
+import { useTranslations } from "next-intl";
 
 /**
  * « Mes comptes » — écran RÉUTILISÉ par le portail créateur normal ET le mode
@@ -29,6 +30,7 @@ import { mustCheckToday } from "@/lib/warmup";
  * *AsAdmin scopé serveur en view-as).
  */
 export default function ComptesScreen() {
+  const t = useTranslations("portal");
   const projectId = useCreatorProjectId();
   const comptes = useMyComptes(projectId);
   const profile = useMyProfile(projectId);
@@ -81,12 +83,8 @@ export default function ComptesScreen() {
     <div className="space-y-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-            Mes comptes
-          </h1>
-          <p className="text-sm text-slate-500">
-            Déclare tes comptes et suis leur warmup.
-          </p>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t("comptes.title")}</h1>
+          <p className="text-sm text-slate-500">{t("comptes.subtitle")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {/* Même guide warmup que l'admin (source unique : components/warmup),
@@ -95,9 +93,7 @@ export default function ComptesScreen() {
           <WarmupGuideButton />
           {!readOnly && projectId && (
             <Button onClick={() => setDeclareOpen(true)}>
-              <PlusIcon className="mr-2 size-4" />
-              Déclarer un compte
-            </Button>
+              <PlusIcon className="mr-2 size-4" />{t("comptes.declare")}</Button>
           )}
         </div>
       </header>
@@ -108,12 +104,9 @@ export default function ComptesScreen() {
         <Card>
           <CardContent className="space-y-3 py-4">
             <div className="space-y-0.5">
-              <p className="text-sm font-semibold text-slate-900">
-                Crée ces comptes sur tes réseaux :
-              </p>
+              <p className="text-sm font-semibold text-slate-900">{t("comptes.createThese")}</p>
               <p className="text-xs text-slate-500">
-                Crée exactement ces @ — ils doivent correspondre aux comptes que
-                tu déclares ensuite.
+                {t("comptes.createExact")}
               </p>
             </div>
             <ul className="space-y-2">
@@ -137,9 +130,7 @@ export default function ComptesScreen() {
         >
           <FlameIcon className="size-5 shrink-0 text-amber-600" />
           <p className="text-sm font-medium text-amber-900">
-            Tu as {dueToday.length} warmup{dueToday.length > 1 ? "s" : ""} à
-            faire aujourd&apos;hui — coche
-            {dueToday.length > 1 ? "-les" : "-le"} ci-dessous.
+            {t("comptes.warmupDue", { count: dueToday.length })}
           </p>
         </div>
       )}
@@ -151,10 +142,7 @@ export default function ComptesScreen() {
         >
           <BellRingIcon className="size-5 shrink-0 text-amber-600" />
           <p className="text-sm font-medium text-amber-900">
-            {bioDue.length} bio{bioDue.length > 1 ? "s" : ""} à mettre à jour —
-            recopie{bioDue.length > 1 ? "-les" : "-la"} sur{" "}
-            {bioDue.length > 1 ? "tes comptes" : "ton compte"} puis confirme
-            ci-dessous.
+            {t("comptes.bioDue", { count: bioDue.length })}
           </p>
         </div>
       )}
@@ -186,14 +174,12 @@ export default function ComptesScreen() {
             <p className="text-sm text-slate-500">
               Aucun compte déclaré.{" "}
               {readOnly
-                ? "Ce créateur n'a pas encore déclaré de compte."
-                : "Déclare ton premier compte pour démarrer son warmup."}
+                ? t("comptes.emptyReadOnly")
+                : t("comptes.emptyCreator")}
             </p>
             {!readOnly && projectId && (
               <Button onClick={() => setDeclareOpen(true)}>
-                <PlusIcon className="mr-2 size-4" />
-                Déclarer un compte
-              </Button>
+                <PlusIcon className="mr-2 size-4" />{t("comptes.declare")}</Button>
             )}
           </CardContent>
         </Card>

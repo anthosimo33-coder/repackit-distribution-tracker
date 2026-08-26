@@ -75,6 +75,7 @@ function DialogContent({
           >
             <XIcon
             />
+            {/* i18n-exempt: libellé shadcn d'origine, déjà anglais et identique dans les deux langues */}
             <span className="sr-only">Close</span>
           </DialogPrimitive.Close>
         )}
@@ -113,6 +114,7 @@ function DialogFooter({
       {children}
       {showCloseButton && (
         <DialogPrimitive.Close render={<Button variant="outline" />}>
+          {/* i18n-exempt: libellé shadcn d'origine, déjà anglais et identique dans les deux langues */}
           Close
         </DialogPrimitive.Close>
       )}

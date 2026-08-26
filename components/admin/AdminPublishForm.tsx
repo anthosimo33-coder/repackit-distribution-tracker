@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
+import { convexErrorCode, convexErrorMessage } from "@/lib/convex-error";
+import { ERR } from "@/convex/errorCodes";
 import {
   accountUrlCheck,
   type UrlPlateforme,
@@ -138,7 +139,7 @@ export function AdminPublishForm({
       // Date antérieure à la création : ce n'est pas une saisie fautive, c'est une
       // RÉGULARISATION (post publié hors de l'app). On montre les deux horodatages
       // rendus par le serveur et on laisse l'admin trancher — jamais un mur.
-      if (/précède la\s+création/i.test(msg)) setBackdate(msg);
+      if (convexErrorCode(e) === ERR.PUBLISHED_AT_BEFORE_CREATION) setBackdate(msg);
       else toast.error(msg);
     } finally {
       setBusy(false);

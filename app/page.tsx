@@ -7,6 +7,7 @@ import { Loader2Icon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { projectPath } from "@/lib/project-path";
 import { portalPathForRole } from "@/lib/portal-path";
+import { useTranslations } from "next-intl";
 
 /**
  * Multi-tenant + rôles — `/` route par RÔLE (api.creators.getMyPortal) :
@@ -17,6 +18,7 @@ import { portalPathForRole } from "@/lib/portal-path";
  * Rendu sous <Authenticated> (AppShell), hors ProjectProvider : useQuery brut.
  */
 export default function RootRedirectPage() {
+  const tnp = useTranslations("portal.noProject");
   const router = useRouter();
   const portal = useQuery(api.creators.getMyPortal, {});
 
@@ -34,12 +36,9 @@ export default function RootRedirectPage() {
     return (
       <div className="flex h-screen items-center justify-center px-6 text-center">
         <div className="max-w-sm space-y-2">
-          <p className="text-sm font-medium text-slate-900">
-            Aucun projet accessible
-          </p>
+          <p className="text-sm font-medium text-slate-900">{tnp("title")}</p>
           <p className="text-sm text-slate-500">
-            Ton compte n&apos;est rattaché à aucun projet. Demande à un
-            administrateur de t&apos;ajouter à un projet.
+            {tnp("body")}
           </p>
         </div>
       </div>

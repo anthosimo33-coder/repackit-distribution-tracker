@@ -9,6 +9,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import type { PortalRole } from "@/convex/roles";
 import { projectPath } from "@/lib/project-path";
 import { portalPathForRole } from "@/lib/portal-path";
+import { useTranslations } from "next-intl";
 
 /**
  * GARDE DE RÔLE des trois portails (`/app` partenaire, `/talent`, `/clip`) —
@@ -89,16 +90,12 @@ export function PortalPending() {
 
 /** Compte sans projet ni rôle — message identique dans les trois portails. */
 export function PortalEmpty() {
+  const tns = useTranslations("portal.noSpace");
   return (
     <div className="flex h-screen items-center justify-center px-6 text-center">
       <div className="max-w-sm space-y-2">
-        <p className="text-sm font-medium text-slate-900">
-          Aucun espace disponible
-        </p>
-        <p className="text-sm text-slate-500">
-          Ton compte n&apos;est rattaché à aucun projet. Contacte un
-          administrateur.
-        </p>
+        <p className="text-sm font-medium text-slate-900">{tns("title")}</p>
+        <p className="text-sm text-slate-500">{tns("body")}</p>
       </div>
     </div>
   );

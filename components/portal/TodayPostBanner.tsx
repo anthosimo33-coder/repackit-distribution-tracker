@@ -11,6 +11,8 @@ import {
   isSameLocalDay,
   representativePostedAt,
 } from "@/lib/calendar-status";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 type BannerRow = {
   _id: Id<"assignments">;
@@ -22,8 +24,8 @@ type BannerRow = {
   publishedAt?: number | null;
 };
 
-function longDate(ts: number): string {
-  return new Date(ts).toLocaleDateString("fr-FR", {
+function longDate(ts: number, locale: string): string {
+  return new Date(ts).toLocaleDateString(locale, {
     weekday: "long",
     day: "2-digit",
     month: "long",
@@ -47,6 +49,8 @@ export function TodayPostBanner({
   now: number;
   base: string;
 }) {
+  const t = useTranslations("portal");
+  const loc = useIntlLocale();
   const mine = list.filter((a) => !a.managedByAdmin && a.postDate != null);
   if (mine.length === 0) return null;
 
@@ -70,7 +74,7 @@ export function TodayPostBanner({
         <CardContent className="p-4">
           <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-primary">
             <SendIcon className="size-4" />
-            Aujourd&apos;hui tu postes
+            {t("todayPost.title")}
           </div>
           <ul className="space-y-1.5">
             {today.map((a) => (
@@ -113,13 +117,13 @@ export function TodayPostBanner({
         </span>
         <div className="min-w-0 flex-1 text-sm">
           <p className="font-medium text-slate-900">
-            Rien à poster aujourd&apos;hui.
+            {t("todayPost.nothing")}
           </p>
           {next ? (
             <p className="text-slate-500">
               Prochain post{" "}
               <span className="font-medium capitalize">
-                {longDate(next.postDate!)}
+                {longDate(next.postDate!, loc)}
               </span>{" "}
               {formatPostWindow(next.postWindow) !== null
                 ? ` entre ${formatPostWindow(next.postWindow)!.replace("-", " et ")}`
@@ -127,13 +131,13 @@ export function TodayPostBanner({
               : {next.formatName}.
             </p>
           ) : (
-            <p className="text-slate-500">Aucun post planifié à venir.</p>
+            <p className="text-slate-500">{t("todayPost.empty")}</p>
           )}
         </div>
         {next && (
           <Link
             href={portalHref(base, `/assignments/${next._id}`)}
-            aria-label="Voir le prochain post"
+            aria-label={t("todayPost.seeNext")}
             className="shrink-0 text-primary"
           >
             <ArrowRightIcon className="size-4" />

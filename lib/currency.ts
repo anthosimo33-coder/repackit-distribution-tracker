@@ -14,10 +14,13 @@
  */
 
 /** Symbole d'une devise (« $ », « € ») via Intl ; "" si code absent/inconnu. */
-export function currencySymbol(currency?: string | null): string {
+export function currencySymbol(
+  currency?: string | null,
+  locale: string = "fr-FR",
+): string {
   if (!currency || currency.trim() === "") return "";
   try {
-    const parts = new Intl.NumberFormat("fr-FR", {
+    const parts = new Intl.NumberFormat(locale, {
       style: "currency",
       currency: currency.trim().toUpperCase(),
       currencyDisplay: "narrowSymbol",

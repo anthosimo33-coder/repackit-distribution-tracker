@@ -11,6 +11,7 @@ import {
 } from "@/components/portal/PortalRoleGate";
 import { Button } from "@/components/ui/button";
 import { TalentProjectProvider } from "@/components/talent/TalentProjectProvider";
+import { useTranslations } from "next-intl";
 
 /**
  * Shell du portail TALENT (/talent/*) — la personne qui tourne et dépose les
@@ -33,6 +34,7 @@ export default function TalentPortalLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const t = useTranslations("portal");
   const router = useRouter();
   const { signOut } = useAuthActions();
   const gate = usePortalGate("talent");
@@ -57,13 +59,13 @@ export default function TalentPortalLayout({
       <AccentStyle accent={accent} />
       <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-white px-4">
         <span className="truncate text-sm font-medium text-slate-900">
-          {gate.creatorName ?? "Mon espace"}
+          {gate.creatorName ?? t("mySpace")}
         </span>
         <Button
           variant="ghost"
           size="icon-sm"
           onClick={handleSignOut}
-          aria-label="Se déconnecter"
+          aria-label={t("sidebar.logout")}
           className="shrink-0 text-slate-600 hover:text-slate-900"
         >
           <LogOutIcon className="size-5" />

@@ -30,6 +30,8 @@ import {
   type CalendarStatusVisual,
 } from "@/components/calendar/calendar-status-meta";
 import { portalHref } from "@/lib/view-as";
+import { useLabel } from "@/lib/use-label";
+import { useTranslations } from "next-intl";
 
 const WEEKDAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
@@ -58,6 +60,8 @@ export function CreatorPublicationCalendar({
   now: number;
   base: string;
 }) {
+  const tcal = useTranslations("portal.calendar");
+  const tLabel = useLabel();
   const [currentMonth, setCurrentMonth] = useState(() => new Date(now));
 
   const planned = useMemo(
@@ -100,12 +104,12 @@ export function CreatorPublicationCalendar({
     <Card data-testid="creator-publication-calendar">
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="text-base">Mon calendrier de publication</CardTitle>
+          <CardTitle className="text-base">{tcal("title")}</CardTitle>
           <div className="flex items-center gap-1">
             <Button
               variant="ghost"
               size="icon-sm"
-              aria-label="Mois précédent"
+              aria-label={tcal("prevMonth")}
               onClick={() => setCurrentMonth((m) => subMonths(m, 1))}
             >
               <ChevronLeftIcon className="size-4" />
@@ -117,7 +121,7 @@ export function CreatorPublicationCalendar({
             <Button
               variant="ghost"
               size="icon-sm"
-              aria-label="Mois suivant"
+              aria-label={tcal("nextMonth")}
               onClick={() => setCurrentMonth((m) => addMonths(m, 1))}
             >
               <ChevronRightIcon className="size-4" />
@@ -169,8 +173,8 @@ export function CreatorPublicationCalendar({
                         href={portalHref(base, `/assignments/${row._id}`)}
                         title={
                           formatPostWindow(row.postWindow) !== null
-                            ? `${row.formatName} · ${meta.label} · entre ${formatPostWindow(row.postWindow)!.replace("-", " et ")}`
-                            : `${row.formatName} · ${meta.label}`
+                            ? `${row.formatName} · ${tLabel(meta.labelKey)} · entre ${formatPostWindow(row.postWindow)!.replace("-", " et ")}`
+                            : `${row.formatName} · ${tLabel(meta.labelKey)}`
                         }
                         className={cn(
                           "flex w-full items-center gap-1 rounded border px-1 py-0.5 text-left text-[10px] font-medium leading-tight transition-colors",
@@ -205,7 +209,7 @@ export function CreatorPublicationCalendar({
                 className="inline-flex items-center gap-1 text-[11px] text-slate-500"
               >
                 <meta.Icon className="size-3" />
-                {meta.label}
+                {tLabel(meta.labelKey)}
               </span>
             );
           })}

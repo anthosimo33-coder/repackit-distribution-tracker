@@ -11,6 +11,7 @@ import { CheckIcon, XIcon } from "lucide-react";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { VideoExample, type FormatExample } from "./VideoExample";
 import { rateSummary, type RateModel } from "@/lib/format-rate";
+import { useTranslations } from "next-intl";
 
 /**
  * P6/P7 — rendu du brief d'un format TEL QUE LE CRÉATEUR LE VERRA. Composant
@@ -50,6 +51,7 @@ export function FormatBriefPreview({
    *  current.payCurrency). Absente → montants sans symbole. */
   currency?: string | null;
 }) {
+  const tf = useTranslations("format");
   const rate = rateSummary(format.rateModel, currency);
   return (
     <div className="space-y-6">
@@ -65,7 +67,7 @@ export function FormatBriefPreview({
       {format.brief.trim().length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Brief</CardTitle>
+            <CardTitle className="text-base">{tf("brief")}</CardTitle>
           </CardHeader>
           <CardContent>
             <SimpleMarkdown content={format.brief} />
@@ -76,7 +78,7 @@ export function FormatBriefPreview({
       {format.hooks.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Hooks à utiliser</CardTitle>
+            <CardTitle className="text-base">{tf("hooks")}</CardTitle>
           </CardHeader>
           <CardContent>
             <ul className="space-y-2">
@@ -99,8 +101,7 @@ export function FormatBriefPreview({
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base text-emerald-700">
-                <CheckIcon className="size-4" /> À faire
-              </CardTitle>
+                <CheckIcon className="size-4" />{tf("todo")}</CardTitle>
             </CardHeader>
             <CardContent>
               <ul className="space-y-1.5 text-sm text-slate-700">
@@ -119,8 +120,7 @@ export function FormatBriefPreview({
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base text-rose-700">
-                <XIcon className="size-4" /> À éviter
-              </CardTitle>
+                <XIcon className="size-4" />{tf("avoid")}</CardTitle>
             </CardHeader>
             <CardContent>
               <ul className="space-y-1.5 text-sm text-slate-700">
@@ -142,7 +142,7 @@ export function FormatBriefPreview({
       {format.exampleVideos.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Vidéos exemples</CardTitle>
+            <CardTitle className="text-base">{tf("examples")}</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
             {format.exampleVideos.map((ex, i) => (
@@ -155,7 +155,7 @@ export function FormatBriefPreview({
       {showRate && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Rémunération</CardTitle>
+            <CardTitle className="text-base">{tf("pay")}</CardTitle>
           </CardHeader>
           <CardContent>
             <ul className="space-y-1 text-sm text-slate-800">

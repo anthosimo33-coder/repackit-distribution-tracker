@@ -98,6 +98,7 @@ function extrait(content: string, max = 60): string {
 const KIND_LABEL: Record<string, string> = {
   hook: "accroche",
   flux: "corps",
+  // i18n-exempt: motif de refus ADMIN (assignation de script) — jamais rendu dans un portail créateur
   cta: "appel à l'action",
 };
 
@@ -113,7 +114,9 @@ export function describeIneligibleBrick(brick: EligibilityBrick): string {
   const kind = KIND_LABEL[brick.kind] ?? brick.kind;
   const cause =
     brick.mode === undefined || brick.mode === null || brick.mode === ""
+      // i18n-exempt: motif de refus ADMIN (assignation de script) — jamais rendu dans un portail créateur
       ? "son mode n'est pas renseigné"
+      // i18n-exempt: motif de refus ADMIN (assignation de script) — jamais rendu dans un portail créateur
       : `elle est réglée sur « ${mode === "dire" ? "Dire à l'oral" : "Les deux"} »`;
   return `L'${kind} « ${extrait(brick.content)} » ne peut pas servir sur un rush : ${cause}. Les rushes sont muets — passe-la sur « Afficher à l'écran ».`;
 }
@@ -127,6 +130,7 @@ export function describeNoEligibleCombo(
 ): string {
   const actives = ineligible.filter((b) => b.active);
   if (actives.length === 0) {
+    // i18n-exempt: motif de refus ADMIN (assignation de script) — jamais rendu dans un portail créateur
     return "Aucun script assignable : cette campagne n'a pas d'accroche et de corps actifs.";
   }
   const head = actives.slice(0, 3).map((b) => describeIneligibleBrick(b));

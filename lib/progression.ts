@@ -21,7 +21,10 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 /** Récompense d'un palier, prête à l'affichage. `item` = physique (jamais $). */
 export type ProgressionReward =
   | { kind: "cash"; amount: number; emoji: string }
-  | { kind: "item"; label: string; emoji: string };
+  // `label` porte la DONNÉE saisie par l'admin (tier.libelle) — jamais traduite.
+  // `null` = aucune saisie : c'est à l'affichage de poser le repli
+  // `progression.reward`, dans la langue du lecteur.
+  | { kind: "item"; label: string | null; emoji: string };
 
 /** Un unlock PERSISTÉ (brut serveur) — récompense figée au déblocage. */
 export type ProgressionUnlock = {
@@ -45,8 +48,13 @@ export type LadderEntry = {
 export type ProgressionVictory = {
   id: string;
   emoji: string;
-  label: string;
-  hint: string;
+  /** Clé i18n du libellé, résolue à l'affichage (lib/use-label). */
+  labelKey: string;
+  labelParams?: Record<string, string | number>;
+  /** Compteur BRUT (« 3/10 ») : des chiffres, aucune langue. */
+  hint?: string;
+  /** ...ou une clé i18n quand l'indice est une phrase. */
+  hintKey?: string;
   achieved: boolean;
 };
 
@@ -73,7 +81,7 @@ export type ProgressionView = {
   /** Total $ des paliers CASH débloqués (persistés). Affichage seulement. */
   cashUnlockedTotal: number;
   /** Récompenses PHYSIQUES débloquées (jamais des dollars). */
-  itemsUnlocked: { label: string; emoji: string; unlockedAt: number }[];
+  itemsUnlocked: { label: string | null; emoji: string; unlockedAt: number }[];
   victories: ProgressionVictory[];
 };
 
@@ -112,7 +120,7 @@ export function rewardOf(tier: {
   if (tier.rewardType === "cash") {
     return { kind: "cash", amount: round2(tier.montant ?? 0), emoji: CASH_EMOJI };
   }
-  const label = (tier.libelle ?? "").trim() || "Récompense";
+  const label = (tier.libelle ?? "").trim() || null;
   return { kind: "item", label, emoji: rewardEmoji(tier.libelle) };
 }
 
@@ -146,7 +154,9 @@ export function computeVictories(input: {
     out.push({
       id: `posts-${m}`,
       emoji: postEmojis[m] ?? "🎬",
-      label: m === 1 ? "Première vidéo publiée" : `${m} vidéos publiées`,
+      labelKey:
+        m === 1 ? "progression.firstVideo" : "progression.videosPublished",
+      labelParams: { count: m },
       hint: `${publishedPostsCount}/${m}`,
       achieved: publishedPostsCount >= m,
     });
@@ -156,16 +166,17 @@ export function computeVictories(input: {
     100_000: "🔥",
     1_000_000: "🚀",
   };
-  const viewLabels: Record<number, string> = {
-    100_000: "100 k vues cumulées",
-    1_000_000: "1 M de vues cumulées",
+  const viewLabelKeys: Record<number, string> = {
+    100_000: "progression.views100k",
+    1_000_000: "progression.views1m",
   };
   for (const m of VIEW_MILESTONES) {
     out.push({
       id: `views-${m}`,
       emoji: viewEmojis[m] ?? "🔥",
-      label: viewLabels[m] ?? `${m} vues`,
-      hint: "vues cumulées",
+      labelKey: viewLabelKeys[m] ?? "progression.viewsGeneric",
+      labelParams: { count: m },
+      hintKey: "progression.hintViews",
       achieved: cumulViews >= m,
     });
   }
@@ -173,8 +184,8 @@ export function computeVictories(input: {
   out.push({
     id: "tier-1",
     emoji: "🏆",
-    label: "Premier palier débloqué",
-    hint: "récompenses",
+    labelKey: "progression.firstTier",
+    hintKey: "progression.hintRewards",
     achieved: tiersUnlocked >= 1,
   });
   return out;
@@ -225,7 +236,7 @@ export function buildProgression(input: ProgressionInput): ProgressionView {
   const itemsUnlocked = input.unlocks
     .filter((u) => u.rewardType === "nature")
     .map((u) => ({
-      label: (u.libelle ?? "").trim() || "Récompense",
+      label: (u.libelle ?? "").trim() || null,
       emoji: rewardEmoji(u.libelle),
       unlockedAt: u.unlockedAt,
     }))

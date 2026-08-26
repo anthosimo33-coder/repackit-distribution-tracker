@@ -27,6 +27,7 @@ import { ConvexError, v } from "convex/values";
 import { internalMutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { ERR, err } from "./errorCodes";
 
 /**
  * P8 — Paiements (accrual). LOGIQUE D'ARGENT : chaque montant crédité est
@@ -43,7 +44,10 @@ import type { Doc, Id } from "./_generated/dataModel";
 type LineItem = {
   // Optionnel : un palier bonus cumulé (bonus_tier) n'a pas d'assignment.
   assignmentId?: Id<"assignments">;
+  /** Phrase FIGÉE au paiement (français). Repli d'affichage, jamais réécrite. */
   label: string;
+  /** Données structurées — le libellé est recomposé à l'affichage (cf schema). */
+  detail?: { videoCount?: number; views?: number; cycleIndex?: number };
   amount: number;
   // base/bonus = LEGACY ; fixed/cpm + bonus_tier = pricing GELÉ au paiement ;
   // clip = montant fixe par clip (clippeur) ; retainer = forfait de cycle
@@ -282,6 +286,7 @@ export function retainerLineFor(
   if (typeof montant !== "number" || montant <= 0) return null;
   return {
     label: `Forfait — cycle ${cycleIndex + 1}`,
+    detail: { cycleIndex: cycleIndex + 1 },
     amount: round2(montant),
     kind: "retainer",
   };
@@ -384,6 +389,7 @@ async function frozenPricingLineItems(
     out.push({
       assignmentId: rep?.assignmentId as Id<"assignments"> | undefined,
       label: `Fixe — ${g.videoCount} vidéo${g.videoCount > 1 ? "s" : ""} publiée${g.videoCount > 1 ? "s" : ""}`,
+      detail: { videoCount: g.videoCount },
       amount: g.fixed,
       kind: "fixed",
     });
@@ -393,6 +399,7 @@ async function frozenPricingLineItems(
       out.push({
         assignmentId: a.assignmentId as Id<"assignments">,
         label: `CPM — ${a.totalViews} vues`,
+        detail: { views: a.totalViews },
         amount: a.cpm,
         kind: "cpm",
       });
@@ -475,6 +482,7 @@ function frozenLineItemsFromBreakdown(b: PricingBreakdown): LineItem[] {
       // unique — la ligne « Fixe » de l'un aurait pointé une vidéo de l'autre.
       assignmentId: g.firstAssignmentId as Id<"assignments"> | undefined,
       label: `Fixe — ${g.videoCount} vidéo${g.videoCount > 1 ? "s" : ""} publiée${g.videoCount > 1 ? "s" : ""}`,
+      detail: { videoCount: g.videoCount },
       amount: g.fixed,
       kind: "fixed",
     });
@@ -484,6 +492,7 @@ function frozenLineItemsFromBreakdown(b: PricingBreakdown): LineItem[] {
       out.push({
         assignmentId: a.assignmentId as Id<"assignments">,
         label: `CPM — ${a.totalViews} vues`,
+        detail: { views: a.totalViews },
         amount: a.cpm,
         kind: "cpm",
       });
@@ -845,19 +854,17 @@ export const markCyclePaid = adminMutation({
   handler: async (ctx, { creatorId, cycleIndex }) => {
     const creator = await ctx.db.get(creatorId);
     if (!creator || creator.projectId !== ctx.projectId) {
-      throw new ConvexError("Créateur introuvable.");
+      throw err(ERR.CREATOR_NOT_FOUND, "Créateur introuvable.");
     }
     // MÊME ancre que l'écran. Sans cette bascule, un talent s'affichait payable
     // et `markCyclePaid` jetait « n'a pas encore publié » — payable à l'écran,
     // impayable en pratique.
     const anchor = payAnchorOf(creator);
     if (anchor === undefined) {
-      throw new ConvexError(
-        "Aucun cycle : ce créateur n'a ni publication ni date d'activation.",
-      );
+      throw err(ERR.NO_PAY_CYCLE, "Aucun cycle : ce créateur n'a ni publication ni date d'activation.");
     }
     if (!Number.isInteger(cycleIndex) || cycleIndex < 0) {
-      throw new ConvexError("Cycle invalide.");
+      throw err(ERR.CYCLE_INVALID, "Cycle invalide.");
     }
     const w = cycleWindow(anchor, cycleIndex);
     const period = cyclePeriodKey(w.cycleStart);

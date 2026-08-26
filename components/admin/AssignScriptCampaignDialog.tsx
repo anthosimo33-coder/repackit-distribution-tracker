@@ -40,6 +40,7 @@ import { convexErrorMessage } from "@/lib/convex-error";
 import { Loader2Icon, VideoIcon } from "lucide-react";
 import { SCRIPT_TIERS, tierLabel } from "@/lib/script-tier";
 import { AssignmentPlanningCalendar } from "@/components/admin/AssignmentPlanningCalendar";
+import { useLabel } from "@/lib/use-label";
 import {
   ChosenComboPicker,
   EMPTY_CHOSEN,
@@ -131,6 +132,7 @@ export function AssignScriptCampaignDialog({
     postDate: number;
   };
 }) {
+  const tLabel = useLabel();
   const creators = useProjectQuery(
     api.assignments.listAssignableCreators,
     open ? {} : "skip",
@@ -1079,7 +1081,7 @@ export function AssignScriptCampaignDialog({
                     className="h-7 text-xs"
                     onClick={() => setPlage(actif ? null : p.window)}
                   >
-                    {p.label}
+                    {tLabel(p.labelKey)}
                   </Button>
                 );
               })}

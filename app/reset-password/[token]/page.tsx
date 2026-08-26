@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useState } from "react";
+import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAction, useQuery } from "convex/react";
@@ -35,6 +36,7 @@ export default function ResetPasswordPage({
 }: {
   params: Promise<{ token: string }>;
 }) {
+  const t = useTranslations("auth");
   const { token } = use(params);
   const router = useRouter();
   const preview = useQuery(api.passwordReset.getPasswordResetPreview, { token });
@@ -51,11 +53,11 @@ export default function ResetPasswordPage({
     if (preview?.status !== "valid") return;
     setError(null);
     if (password.length < 8) {
-      setError("Le mot de passe doit faire au moins 8 caractères.");
+      setError(t("reset.tooShort"));
       return;
     }
     if (password !== confirm) {
-      setError("Les deux mots de passe ne correspondent pas.");
+      setError(t("reset.mismatch"));
       return;
     }
     setSubmitting(true);
@@ -68,7 +70,7 @@ export default function ResetPasswordPage({
       setError(
         err instanceof ConvexError && typeof err.data === "string"
           ? err.data
-          : "Réinitialisation impossible. Demande un nouveau lien à ton administrateur.",
+          : t("reset.failed"),
       );
       setSubmitting(false);
     }
@@ -86,10 +88,10 @@ export default function ResetPasswordPage({
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <CheckCircle2Icon className="size-5 text-emerald-600" />
-                Mot de passe réinitialisé
+                {t("reset.doneTitle")}
               </CardTitle>
               <CardDescription>
-                Tu peux maintenant te connecter avec ton nouveau mot de passe.
+                {t("reset.doneBody")}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -97,25 +99,22 @@ export default function ResetPasswordPage({
                 href="/login"
                 className={buttonVariants({ className: "w-full" })}
               >
-                Se connecter
+                {t("login.submitSignIn")}
               </Link>
             </CardContent>
           </>
         ) : preview.status === "invalid" ? (
           <>
             <CardHeader>
-              <CardTitle>Lien invalide</CardTitle>
-              <CardDescription>
-                Ce lien de réinitialisation est invalide ou expiré. Demande un
-                nouveau lien à ton administrateur.
-              </CardDescription>
+              <CardTitle>{t("reset.invalidTitle")}</CardTitle>
+              <CardDescription>{t("reset.invalidBody")}</CardDescription>
             </CardHeader>
             <CardContent>
               <Link
                 href="/login"
                 className={buttonVariants({ className: "w-full" })}
               >
-                Se connecter
+                {t("login.submitSignIn")}
               </Link>
             </CardContent>
           </>
@@ -124,18 +123,18 @@ export default function ResetPasswordPage({
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <BrandMark size={32} />
-                Réinitialise ton mot de passe
+                {t("reset.title")}
               </CardTitle>
               <CardDescription>
                 {preview.projectName
-                  ? `Choisis un nouveau mot de passe pour ${preview.projectName}.`
-                  : "Choisis un nouveau mot de passe."}
+                  ? t("reset.promptForProject", { project: preview.projectName })
+                  : t("reset.prompt")}
               </CardDescription>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="password">Nouveau mot de passe</Label>
+                  <Label htmlFor="password">{t("reset.newPassword")}</Label>
                   <Input
                     id="password"
                     type="password"
@@ -147,7 +146,7 @@ export default function ResetPasswordPage({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="confirm">Confirmer le mot de passe</Label>
+                  <Label htmlFor="confirm">{t("reset.confirmPassword")}</Label>
                   <Input
                     id="confirm"
                     type="password"
@@ -165,7 +164,7 @@ export default function ResetPasswordPage({
                 )}
                 <Button type="submit" className="w-full" disabled={submitting}>
                   {submitting && <Loader2Icon className="size-4 animate-spin" />}
-                  Réinitialiser le mot de passe
+                  {t("reset.submit")}
                 </Button>
               </form>
             </CardContent>

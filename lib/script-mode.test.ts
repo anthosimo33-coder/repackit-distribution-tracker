@@ -24,24 +24,24 @@ describe("brickModeDisplay — libellé + icône (lève l'ambiguïté)", () => {
   it("dire → 🗣️ À dire à l'oral", () => {
     expect(brickModeDisplay("dire")).toEqual({
       icon: "🗣️",
-      label: "À dire à l'oral",
+      labelKey: "scriptMode.hint.dire",
     });
   });
   it("afficher → 💬 À afficher en texte à l'écran", () => {
     expect(brickModeDisplay("afficher")).toEqual({
       icon: "💬",
-      label: "À afficher en texte à l'écran",
+      labelKey: "scriptMode.hint.afficher",
     });
   });
   it("les_deux → 🗣️💬 À dire ET afficher à l'écran", () => {
     expect(brickModeDisplay("les_deux")).toEqual({
       icon: "🗣️💬",
-      label: "À dire ET afficher à l'écran",
+      labelKey: "scriptMode.hint.les_deux",
     });
   });
   it("les 3 modes ont un display distinct et non vide", () => {
     const modes: BrickMode[] = ["dire", "afficher", "les_deux"];
-    const labels = modes.map((m) => brickModeDisplay(m).label);
+    const labels = modes.map((m) => brickModeDisplay(m).labelKey);
     expect(new Set(labels).size).toBe(3);
     for (const l of labels) expect(l.length).toBeGreaterThan(0);
   });

@@ -79,6 +79,7 @@ import { COOLDOWN_DAYS } from "@/lib/scriptCombos";
 import { campaignNameMatches, LAB_CAMPAIGN_NAME } from "@/convex/graduation";
 import { AssignScriptCampaignDialog } from "@/components/admin/AssignScriptCampaignDialog";
 import type { FunctionReturnType } from "convex/server";
+import { useLabel } from "@/lib/use-label";
 
 type CampaignDetail = NonNullable<
   FunctionReturnType<typeof api.scripts.getCampaign>
@@ -401,6 +402,7 @@ function BrickRow({
   /** Disponibilité pour la créatrice sélectionnée ; absent = aucune sélection. */
   availability?: HookAvailability;
 }) {
+  const tLabel = useLabel();
   const update = useProjectMutation(api.scripts.updateBrick);
   const remove = useProjectMutation(api.scripts.deleteBrick);
   // Mode (zone vidéo) : Snytch + hook/flux uniquement. Indicateur en un coup
@@ -495,8 +497,8 @@ function BrickRow({
         {showMode && (
           <span
             className="mt-0.5 shrink-0 text-base leading-none"
-            title={modeDisplay.label}
-            aria-label={modeDisplay.label}
+            title={tLabel(modeDisplay.labelKey)}
+            aria-label={tLabel(modeDisplay.labelKey)}
             data-testid="brick-mode-indicator"
           >
             {modeDisplay.icon}
@@ -549,6 +551,7 @@ function BrickDialog({
   kind: ScriptKind;
   brick: Brick | null;
 }) {
+  const tLabel = useLabel();
   const create = useProjectMutation(api.scripts.createBrick);
   const update = useProjectMutation(api.scripts.updateBrick);
   const isEdit = brick !== null;
@@ -694,14 +697,14 @@ function BrickDialog({
                   {/* Sans enfants, le déclencheur rend la valeur brute
                       (« les_deux ») au lieu du libellé (« Les deux »). */}
                   <SelectValue>
-                    {BRICK_MODE_OPTIONS.find((o) => o.value === mode)?.label ??
+                    {tLabel(BRICK_MODE_OPTIONS.find((o) => o.value === mode)?.labelKey ?? "") ||
                       mode}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {BRICK_MODE_OPTIONS.map((o) => (
                     <SelectItem key={o.value} value={o.value}>
-                      {o.label}
+                      {tLabel(o.labelKey)}
                     </SelectItem>
                   ))}
                 </SelectContent>

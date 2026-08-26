@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader2Icon } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { streamIframeUrl } from "@/lib/cloudflare-stream";
 
 /**
@@ -22,13 +23,15 @@ export function StreamPlayer({
   status: "processing" | "ready" | "error";
   title?: string;
 }) {
+  const tsp = useTranslations("stream");
+  const t = useTranslations("portal");
   if (status === "ready") {
     return (
       <figure className="space-y-1.5">
         <div className="overflow-hidden rounded-lg border border-slate-200 bg-black">
           <iframe
             src={streamIframeUrl(uid)}
-            title={title || "Vidéo soumise (Cloudflare Stream)"}
+            title={title || t("stream.submitted")}
             allow="accelerometer; gyroscope; encrypted-media; picture-in-picture;"
             allowFullScreen
             className="aspect-video w-full"
@@ -50,8 +53,7 @@ export function StreamPlayer({
     >
       <Loader2Icon className="size-6 animate-spin text-slate-400" />
       <p>
-        Transcoding en cours — la vidéo sera bientôt visionnable ici (le lecteur
-        apparaît automatiquement).
+        {tsp("transcoding")}
       </p>
     </div>
   );

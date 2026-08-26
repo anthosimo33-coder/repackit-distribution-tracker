@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useState } from "react";
+import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
@@ -37,6 +38,7 @@ export default function ProjectLoginPage({
 }: {
   params: Promise<{ projectSlug: string }>;
 }) {
+  const t = useTranslations("auth");
   const { projectSlug } = use(params);
   const router = useRouter();
   const { signIn } = useAuthActions();
@@ -61,7 +63,7 @@ export default function ProjectLoginPage({
       setError(
         err instanceof ConvexError && typeof err.data === "string"
           ? err.data
-          : "Identifiants invalides.",
+          : t("login.badCredentials"),
       );
       setSubmitting(false);
     }
@@ -80,15 +82,12 @@ export default function ProjectLoginPage({
       <div className="flex min-h-screen items-center justify-center px-4">
         <Card className="w-full max-w-sm">
           <CardHeader>
-            <CardTitle>Projet introuvable</CardTitle>
-            <CardDescription>
-              Aucun projet ne correspond à ce lien. Vérifie l&apos;adresse ou
-              connecte-toi sur la page générale.
-            </CardDescription>
+            <CardTitle>{t("login.projectNotFound")}</CardTitle>
+            <CardDescription>{t("login.projectNotFoundBody")}</CardDescription>
           </CardHeader>
           <CardContent>
             <Link href="/login" className={"text-sm text-primary underline-offset-2 hover:underline"}>
-              Aller à la connexion
+              {t("login.goToGeneralLogin")}
             </Link>
           </CardContent>
         </Card>
@@ -119,7 +118,7 @@ export default function ProjectLoginPage({
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">{t("field.email")}</Label>
               <Input
                 id="email"
                 type="email"
@@ -130,7 +129,7 @@ export default function ProjectLoginPage({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="password">Mot de passe</Label>
+              <Label htmlFor="password">{t("field.password")}</Label>
               <Input
                 id="password"
                 type="password"
@@ -148,7 +147,7 @@ export default function ProjectLoginPage({
             )}
             <Button type="submit" className="w-full" disabled={submitting}>
               {submitting && <Loader2Icon className="size-4 animate-spin" />}
-              Se connecter
+              {t("login.submitSignIn")}
             </Button>
           </form>
         </CardContent>

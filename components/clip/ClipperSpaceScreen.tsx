@@ -21,13 +21,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { convexErrorMessage } from "@/lib/convex-error";
+import { useConvexError } from "@/lib/use-convex-error";
 import { ASSIGNMENT_STATUS, type AssignmentStatus } from "@/lib/assignment-status";
 import { formatDate } from "@/lib/format";
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useLabel } from "@/lib/use-label";
+import { useTranslations } from "next-intl";
 import {
-  PHASE_LABELS,
+  PHASE_INLINE_KEYS,
   accountPhaseAt,
-  formatUtcDayFr,
+  formatUtcDay,
   postsPerDayAt,
   utcDayKey,
 } from "@/convex/accountPhase";
@@ -78,6 +81,9 @@ function EtatDuCompte({
    */
   at: number;
 }) {
+  const tLabel = useLabel();
+  const loc = useIntlLocale();
+  const tc = useTranslations("clip");
   if (refusedReason !== null) {
     return (
       <p className="text-xs text-rose-700">
@@ -87,10 +93,7 @@ function EtatDuCompte({
   }
   if (validatedAt === null) {
     return (
-      <p className="text-xs text-slate-500">
-        En attente de validation — rien ne peut sortir tant qu&apos;un admin ne
-        l&apos;a pas validé.
-      </p>
+      <p className="text-xs text-slate-500">{tc("awaitingApproval")}</p>
     );
   }
   const phase = accountPhaseAt(validatedAt, at);
@@ -99,25 +102,27 @@ function EtatDuCompte({
   return (
     <div className="space-y-0.5">
       <p className="text-xs text-slate-600">
-        Phase de {phase ? PHASE_LABELS[phase].toLowerCase() : "—"}
+        {tc("phaseLine", {
+          phase: phase ? tLabel(PHASE_INLINE_KEYS[phase]) : tc("phaseUnknown"),
+        })}
         {quota === 0
-          ? " — aucune publication à cette étape."
-          : ` — ${postsAujourdhui} publication${
-              postsAujourdhui > 1 ? "s" : ""
-            } sur ${quota} pour le ${formatUtcDayFr(at)}.`}
+          ? tc("quotaNoneAtPhase")
+          : tc("quotaUsed", {
+              count: postsAujourdhui,
+              quota,
+              date: formatUtcDay(at, loc.startsWith("fr") ? "fr" : "en"),
+            })}
       </p>
       {quota > 0 && (
         <p className="text-xs font-medium text-slate-900">
           {reste === 0
-            ? "Quota du jour atteint."
-            : `${reste} publication${reste > 1 ? "s" : ""} possible${
-                reste > 1 ? "s" : ""
-              } aujourd'hui.`}
+            ? tc("quotaReached")
+            : tc("quotaLeft", { count: reste })}
         </p>
       )}
       {!publiable && quota > 0 && (
         <p className="text-xs text-amber-700">
-          Ce compte n&apos;est pas encore activé par l&apos;admin.
+          {tc("accountNotActivated")}
         </p>
       )}
     </div>
@@ -125,6 +130,8 @@ function EtatDuCompte({
 }
 
 function DeclarerCompte() {
+  const showError = useConvexError();
+  const tc = useTranslations("clip");
   const { projectId } = useClipperProject();
   const declarer = useMutation(api.comptes.declareClipperCompte);
   const [ouvert, setOuvert] = useState(false);
@@ -143,12 +150,12 @@ function DeclarerCompte() {
         handle,
         ...(url.trim() ? { url: url.trim() } : {}),
       });
-      toast.success("Compte déclaré — un admin doit le valider avant publication.");
+      toast.success(tc("accountDeclared"));
       setHandle("");
       setUrl("");
       setOuvert(false);
     } catch (err) {
-      toast.error(convexErrorMessage(err, "Échec de la déclaration"));
+      toast.error(showError(err, tc("declareFailed")));
     } finally {
       setBusy(false);
     }
@@ -158,7 +165,7 @@ function DeclarerCompte() {
     return (
       <Button variant="outline" size="sm" onClick={() => setOuvert(true)}>
         <PlusIcon className="mr-2 size-4" />
-        Déclarer un compte
+        {tc("declareAccount")}
       </Button>
     );
   }
@@ -169,7 +176,7 @@ function DeclarerCompte() {
         <form onSubmit={onSubmit} className="space-y-3">
           <div className="space-y-1">
             <Label htmlFor="clip-plateforme" className="text-xs">
-              Plateforme
+              {tc("platform")}
             </Label>
             <select
               id="clip-plateforme"
@@ -186,7 +193,7 @@ function DeclarerCompte() {
           </div>
           <div className="space-y-1">
             <Label htmlFor="clip-handle" className="text-xs">
-              Pseudo du compte
+              {tc("handle")}
             </Label>
             <Input
               id="clip-handle"
@@ -196,13 +203,12 @@ function DeclarerCompte() {
               required
             />
             <p className="text-xs text-slate-500">
-              Évite d&apos;y mettre le nom du produit ou celui d&apos;un talent :
-              un pseudo qui annonce la marque ne peut plus accrocher.
+              {tc("handleHint")}
             </p>
           </div>
           <div className="space-y-1">
             <Label htmlFor="clip-url" className="text-xs">
-              Lien du profil (facultatif)
+              {tc("profileUrl")}
             </Label>
             <Input
               id="clip-url"
@@ -214,7 +220,7 @@ function DeclarerCompte() {
           <div className="flex gap-2">
             <Button type="submit" size="sm" disabled={busy}>
               {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-              Déclarer
+              {tc("declare")}
             </Button>
             <Button
               type="button"
@@ -222,7 +228,7 @@ function DeclarerCompte() {
               size="sm"
               onClick={() => setOuvert(false)}
             >
-              Annuler
+              {tc("cancel")}
             </Button>
           </div>
         </form>
@@ -232,6 +238,7 @@ function DeclarerCompte() {
 }
 
 function MesComptes() {
+  const tc = useTranslations("clip");
   const { projectId } = useClipperProject();
   const readOnly = useReadOnly();
   const comptes = useClipperComptes(projectId);
@@ -255,7 +262,7 @@ function MesComptes() {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
-        <SectionTitle>Mes comptes</SectionTitle>
+        <SectionTitle>{tc("myAccounts")}</SectionTitle>
         {/* Déclarer un compte est un geste du clippeur : absent en observation,
             pas grisé (le serveur refuse déjà `declareClipperCompte` à un admin). */}
         {readOnly ? null : <DeclarerCompte />}
@@ -263,8 +270,7 @@ function MesComptes() {
       {comptes.length === 0 ? (
         <Card>
           <CardContent className="py-6 text-center text-sm text-slate-500">
-            Aucun compte déclaré. Déclare celui sur lequel tu vas publier — un
-            admin le validera, puis il chauffera trois jours.
+            {tc("noAccount")}
           </CardContent>
         </Card>
       ) : (
@@ -297,6 +303,9 @@ function MesComptes() {
 }
 
 function MesClips() {
+  const tc = useTranslations("clip");
+  const tLabel = useLabel();
+  const loc = useIntlLocale();
   const { projectId } = useClipperProject();
   const clips = useMyClips(projectId);
   const base = useClipperBase();
@@ -305,12 +314,11 @@ function MesClips() {
 
   return (
     <div className="space-y-3">
-      <SectionTitle>Mes clips</SectionTitle>
+      <SectionTitle>{tc("myClips")}</SectionTitle>
       {clips.length === 0 ? (
         <Card>
           <CardContent className="py-6 text-center text-sm text-slate-500">
-            Rien à monter pour l&apos;instant. Les clips arrivent quand un admin
-            associe un script à un rush de tes talents.
+            {tc("noClips")}
           </CardContent>
         </Card>
       ) : (
@@ -328,17 +336,17 @@ function MesClips() {
                     <div className="min-w-0 flex-1 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge variant="outline" className={badge?.className}>
-                          {badge?.label ?? c.status}
+                          {badge ? tLabel(badge.labelKey) : c.status}
                         </Badge>
                         {c.dueDate !== undefined && (
                           <span className="text-xs text-slate-500">
-                            à rendre le {formatDate(c.dueDate)}
+                            à rendre le {formatDate(c.dueDate, loc)}
                           </span>
                         )}
                       </div>
                       <p className="truncate text-sm text-slate-600">
                         {c.targets.length === 0
-                          ? "Aucune cible"
+                          ? tc("noTargetShort")
                           : c.targets
                               .map((t) =>
                                 t.accountHandle

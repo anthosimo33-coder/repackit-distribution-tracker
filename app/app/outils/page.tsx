@@ -1,9 +1,11 @@
 "use client";
 
 import { ExternalLinkIcon } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
 import { getCreatorTools } from "@/lib/creator-tools";
 import { resolveSidebarLinkIcon } from "@/lib/sidebar-link-icon";
+import { useLabel } from "@/lib/use-label";
 
 /**
  * Page « Outils » du portail créateur (cible de l'onglet Outils de la bottom
@@ -15,22 +17,22 @@ import { resolveSidebarLinkIcon } from "@/lib/sidebar-link-icon";
  * page gère proprement le cas vide (navigation directe vers /app/outils).
  */
 export default function OutilsPage() {
+  const t = useTranslations("portal");
+  const tLabel = useLabel();
   const { current } = useCreatorProject();
   const tools = getCreatorTools(current.slug);
 
   return (
     <div className="mx-auto max-w-lg space-y-4">
       <header className="space-y-1">
-        <h1 className="text-xl font-semibold text-slate-900">Outils</h1>
+        <h1 className="text-xl font-semibold text-slate-900">{t("tools.title")}</h1>
         <p className="text-sm text-slate-500">
           Les outils de {current.name}, à ouvrir dans un nouvel onglet.
         </p>
       </header>
 
       {tools.length === 0 ? (
-        <p className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-500">
-          Aucun outil disponible pour ce projet.
-        </p>
+        <p className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-500">{t("tools.empty")}</p>
       ) : (
         <ul className="space-y-2">
           {tools.map((tool) => {
@@ -47,7 +49,7 @@ export default function OutilsPage() {
                     <Icon className="size-5" />
                   </span>
                   <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-900">
-                    {tool.label}
+                    {tLabel(tool.labelKey)}
                   </span>
                   <ExternalLinkIcon className="size-4 shrink-0 text-slate-400" />
                 </a>

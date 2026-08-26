@@ -77,18 +77,25 @@ export function formatMoney(
   }).format(n);
 }
 
-/** Vues compactes : 1500 → « 1,5 k », 2_000_000 → « 2 M ». */
-export function formatViews(n: number): string {
-  if (n >= 1_000_000) return `${trimZero(n / 1_000_000)} M`;
-  if (n >= 1_000) return `${trimZero(n / 1_000)} k`;
+/**
+ * Vues compactes : 1500 → « 1,5 k » en français, « 1.5k » en anglais.
+ *
+ * Le séparateur décimal suit la langue, et l'espace avant le suffixe disparaît
+ * en anglais (« 1.5k », pas « 1.5 k »).
+ */
+export function formatViews(
+  n: number,
+  locale: string = FORMAT_LOCALE_DEFAULT,
+): string {
+  const sep = locale.startsWith("fr") ? " " : "";
+  if (n >= 1_000_000) return `${trimZero(n / 1_000_000, locale)}${sep}M`;
+  if (n >= 1_000) return `${trimZero(n / 1_000, locale)}${sep}k`;
   return String(n);
 }
 
-function trimZero(n: number): string {
-  return n
-    .toFixed(1)
-    .replace(/\.0$/, "")
-    .replace(".", ",");
+function trimZero(n: number, locale: string): string {
+  const s = n.toFixed(1).replace(/\.0$/, "");
+  return locale.startsWith("fr") ? s.replace(".", ",") : s;
 }
 
 /**

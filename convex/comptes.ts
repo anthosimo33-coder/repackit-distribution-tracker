@@ -32,6 +32,7 @@ import { countryValidator } from "./countries";
 import { v, ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { ERR, err } from "./errorCodes";
 
 const statusValidator = v.union(
   v.literal("warmup"),
@@ -228,7 +229,7 @@ export const getCompteUsage = adminQuery({
   handler: async (ctx, { id }) => {
     const compte = await ctx.db.get(id);
     if (!compte || compte.projectId !== ctx.projectId) {
-      throw new ConvexError("Compte introuvable.");
+      throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     return compteUsage(ctx, ctx.projectId, compte);
   },
@@ -378,7 +379,7 @@ export const createCompte = adminMutation({
     }
     const status: CompteStatus = args.status ?? "actif";
     if (status === "warmup" && args.warmupStartedAt === undefined) {
-      throw new ConvexError("Date de début warmup requise.");
+      throw err(ERR.WARMUP_START_REQUIRED, "Date de début warmup requise.");
     }
     if (status !== "warmup" && args.warmupStartedAt !== undefined) {
       throw new ConvexError(
@@ -456,7 +457,7 @@ export const updateCompte = adminMutation({
     const { id } = args;
     const compte = await ctx.db.get(id);
     if (!compte || compte.projectId !== ctx.projectId) {
-      throw new ConvexError("Compte introuvable.");
+      throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     // Rattachement RÉSULTANT (après application des args) : la garde « géré ⇒
     // créatrice » est évaluée sur l'ÉTAT CIBLE, pas sur l'état courant — sinon
@@ -464,7 +465,7 @@ export const updateCompte = adminMutation({
     if (args.creatorId !== undefined && args.creatorId !== null) {
       const creator = await ctx.db.get(args.creatorId);
       if (!creator || creator.projectId !== ctx.projectId) {
-        throw new ConvexError("Créateur introuvable dans le projet.");
+        throw err(ERR.CREATOR_NOT_IN_PROJECT, "Créateur introuvable dans le projet.");
       }
     }
     const nextCreatorId =
@@ -474,9 +475,7 @@ export const updateCompte = adminMutation({
     const nextManagedByAdmin =
       args.managedByAdmin ?? compte.managedByAdmin ?? false;
     if (nextManagedByAdmin && nextCreatorId === undefined) {
-      throw new ConvexError(
-        "Un compte géré par l'équipe doit être rattaché à une créatrice.",
-      );
+      throw err(ERR.MANAGED_ACCOUNT_NEEDS_CREATOR, "Un compte géré par l'équipe doit être rattaché à une créatrice.");
     }
 
     // Garde-fou rename (scopé projet) : publications.compte = handle string.
@@ -488,12 +487,14 @@ export const updateCompte = adminMutation({
         .collect();
       const used = pubs.filter((p) => p.compte === compte.handle);
       if (used.length > 0) {
-        throw new ConvexError(
+        throw err(
+          ERR.ACCOUNT_RENAME_LOCKED,
           `Impossible de renommer ce compte : ${used.length} publication${
             used.length > 1 ? "s" : ""
           } l'utilise${
             used.length > 1 ? "nt" : ""
           }. Renommer le handle créerait des publications orphelines.`,
+          { count: used.length },
         );
       }
     }
@@ -526,7 +527,8 @@ export const updateCompte = adminMutation({
     if (args.plateforme !== undefined && args.plateforme !== compte.plateforme) {
       const usage = await compteUsage(ctx, ctx.projectId, compte);
       if (usage.inUse) {
-        throw new ConvexError(
+        throw err(
+          ERR.ACCOUNT_PLATFORM_LOCKED,
           "Impossible de changer la plateforme d'un compte déjà utilisé — archive-le et le créateur en déclare un nouveau.",
         );
       }
@@ -538,9 +540,7 @@ export const updateCompte = adminMutation({
         )
         .collect();
       if (samePlatform.some((c) => c._id !== id && c.handle === finalHandle)) {
-        throw new ConvexError(
-          `Le compte ${finalHandle} existe déjà sur ${args.plateforme}.`,
-        );
+        throw err(ERR.ACCOUNT_ALREADY_EXISTS, `Le compte ${finalHandle} existe déjà sur ${args.plateforme}.`, { handle: finalHandle, platform: args.plateforme });
       }
       update.plateforme = args.plateforme;
       const proto = compte.warmupProtocol;
@@ -573,7 +573,7 @@ export const updateCompte = adminMutation({
             ? args.warmupStartedAt
             : compte.warmupStartedAt;
         if (start === undefined || start === null) {
-          throw new ConvexError("Date de début warmup requise.");
+          throw err(ERR.WARMUP_START_REQUIRED, "Date de début warmup requise.");
         }
         update.warmupStartedAt = start;
       } else {
@@ -611,12 +611,18 @@ export const deleteCompte = adminMutation({
   handler: async (ctx, args) => {
     const compte = await ctx.db.get(args.id);
     if (!compte || compte.projectId !== ctx.projectId) {
-      throw new ConvexError("Compte introuvable.");
+      throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     const usage = await compteUsage(ctx, ctx.projectId, compte);
     if (usage.inUse) {
-      throw new ConvexError(
+      throw err(
+        ERR.ACCOUNT_IN_USE,
         `Ce compte est utilisé (${usage.assignments} assignment(s), ${usage.publications} publication(s), ${usage.payments} ligne(s) de paiement) — tu ne peux pas le supprimer, archive-le plutôt.`,
+        {
+          assignments: usage.assignments,
+          publications: usage.publications,
+          payments: usage.payments,
+        },
       );
     }
     await ctx.db.delete(args.id);
@@ -634,7 +640,7 @@ export const archiveCompte = adminMutation({
   handler: async (ctx, { id }) => {
     const compte = await ctx.db.get(id);
     if (!compte || compte.projectId !== ctx.projectId) {
-      throw new ConvexError("Compte introuvable.");
+      throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     await ctx.db.patch(id, {
       status: "archived",
@@ -732,7 +738,7 @@ export const refuseCompte = adminMutation({
   handler: async (ctx, { id, reason }) => {
     const compte = await ctx.db.get(id);
     if (!compte || compte.projectId !== ctx.projectId) {
-      throw new ConvexError("Compte introuvable.");
+      throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     const motif = reason.trim();
     if (motif.length === 0) {
@@ -759,7 +765,7 @@ export const unarchiveCompte = adminMutation({
   handler: async (ctx, { id }) => {
     const compte = await ctx.db.get(id);
     if (!compte || compte.projectId !== ctx.projectId) {
-      throw new ConvexError("Compte introuvable.");
+      throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     if (effectiveStatus(compte) !== "archived") return { ok: true };
     await ctx.db.patch(id, {
@@ -796,7 +802,7 @@ export const restartWarmup = adminMutation({
   handler: async (ctx, { id }) => {
     const compte = await ctx.db.get(id);
     if (!compte || compte.projectId !== ctx.projectId) {
-      throw new ConvexError("Compte introuvable.");
+      throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     const now = Date.now();
     const proto = compte.warmupProtocol;
@@ -851,7 +857,7 @@ export const updateWarmupProtocol = adminMutation({
   handler: async (ctx, args) => {
     const compte = await ctx.db.get(args.id);
     if (!compte || compte.projectId !== ctx.projectId) {
-      throw new ConvexError("Compte introuvable.");
+      throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     const current = compte.warmupProtocol ?? {
       keywords: [],
@@ -957,7 +963,7 @@ export const setAccountBio = adminMutation({
   handler: async (ctx, { id, bio }) => {
     const compte = await ctx.db.get(id);
     if (!compte || compte.projectId !== ctx.projectId) {
-      throw new ConvexError("Compte introuvable.");
+      throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     const patch = computeBioPatch(compte, bio, Date.now());
     if (patch !== null) await ctx.db.patch(id, patch);
@@ -979,10 +985,10 @@ export const confirmAccountBioApplied = creatorMutation({
       compte.projectId !== ctx.projectId ||
       compte.creatorId !== ctx.creatorId
     ) {
-      throw new ConvexError("Compte introuvable.");
+      throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     if (compte.bioToApply === undefined || compte.bioStatus === undefined) {
-      throw new ConvexError("Aucune bio à appliquer sur ce compte.");
+      throw err(ERR.NO_BIO_TO_APPLY, "Aucune bio à appliquer sur ce compte.");
     }
     if (compte.bioStatus === "applied") return; // idempotent
     await ctx.db.patch(id, { bioStatus: "applied", bioAppliedAt: Date.now() });
@@ -1079,7 +1085,7 @@ async function declareCompteCore(
 ): Promise<Id<"comptes">> {
   const handle = normalizeHandle(args.handle);
   if (!handle || handle === "@") {
-    throw new ConvexError("Handle requis.");
+    throw err(ERR.HANDLE_REQUIRED, "Handle requis.");
   }
   const samePlatform = await ctx.db
     .query("comptes")
@@ -1088,9 +1094,7 @@ async function declareCompteCore(
     )
     .collect();
   if (samePlatform.some((c) => c.handle === handle)) {
-    throw new ConvexError(
-      `Le compte ${handle} existe déjà sur ${args.plateforme}.`,
-    );
+    throw err(ERR.ACCOUNT_ALREADY_EXISTS, `Le compte ${handle} existe déjà sur ${args.plateforme}.`, { handle, platform: args.plateforme });
   }
   const now = Date.now();
   return await ctx.db.insert("comptes", {
@@ -1213,7 +1217,7 @@ export const declareManagedCompte = adminMutation({
   handler: async (ctx, args) => {
     const creator = await ctx.db.get(args.creatorId);
     if (!creator || creator.projectId !== ctx.projectId) {
-      throw new ConvexError("Créateur introuvable dans le projet.");
+      throw err(ERR.CREATOR_NOT_IN_PROJECT, "Créateur introuvable dans le projet.");
     }
     return declareCompteCore(ctx, ctx.projectId, args, {
       // Appartenance : la créatrice ciblée (comme declareCompte pose ctx.creatorId).
@@ -1236,7 +1240,7 @@ async function applyWarmupCheck(
   compte: Doc<"comptes">,
 ): Promise<{ totalChecks: number }> {
   if (effectiveStatus(compte) !== "warmup") {
-    throw new ConvexError("Ce compte n'est plus en warmup.");
+    throw err(ERR.ACCOUNT_NOT_IN_WARMUP, "Ce compte n'est plus en warmup.");
   }
   const now = Date.now();
   const protocol = compte.warmupProtocol ?? {
@@ -1249,12 +1253,10 @@ async function applyWarmupCheck(
   if (
     isWarmupComplete({ plateforme: compte.plateforme, warmupProtocol: protocol })
   ) {
-    throw new ConvexError(
-      "Warmup déjà terminé — en attente de validation admin.",
-    );
+    throw err(ERR.WARMUP_ALREADY_DONE, "Warmup déjà terminé — en attente de validation admin.");
   }
   if (checkedToday(protocol.dailyChecks, now)) {
-    throw new ConvexError("Le check du jour est déjà fait.");
+    throw err(ERR.WARMUP_CHECK_ALREADY_DONE, "Le check du jour est déjà fait.");
   }
   const dailyChecks = [...protocol.dailyChecks, todayKey(now)];
   await ctx.db.patch(compte._id, {
@@ -1277,12 +1279,10 @@ export const markWarmupCheck = creatorMutation({
       compte.projectId !== ctx.projectId ||
       compte.creatorId !== ctx.creatorId
     ) {
-      throw new ConvexError("Compte introuvable.");
+      throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     if (compte.managedByAdmin) {
-      throw new ConvexError(
-        "Compte géré par l'équipe : le warmup est coché par l'admin.",
-      );
+      throw err(ERR.ACCOUNT_MANAGED_WARMUP, "Compte géré par l'équipe : le warmup est coché par l'admin.");
     }
     return applyWarmupCheck(ctx, compte);
   },
@@ -1300,12 +1300,10 @@ export const markWarmupCheckAsAdmin = adminMutation({
   handler: async (ctx, args) => {
     const compte = await ctx.db.get(args.id);
     if (!compte || compte.projectId !== ctx.projectId) {
-      throw new ConvexError("Compte introuvable.");
+      throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     if (!compte.managedByAdmin) {
-      throw new ConvexError(
-        "Ce compte n'est pas géré par l'équipe (le créateur coche son warmup).",
-      );
+      throw err(ERR.ACCOUNT_NOT_MANAGED, "Ce compte n'est pas géré par l'équipe (le créateur coche son warmup).");
     }
     return applyWarmupCheck(ctx, compte);
   },
@@ -1516,7 +1514,7 @@ export const e2eSetWarmupChecks = e2eMutation({
   args: { id: v.id("comptes"), dailyChecks: v.array(v.string()) },
   handler: async (ctx, { id, dailyChecks }) => {
     const compte = await ctx.db.get(id);
-    if (!compte) throw new ConvexError("Compte introuvable.");
+    if (!compte) throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     const protocol = compte.warmupProtocol ?? {
       keywords: [],
       instructions: "",

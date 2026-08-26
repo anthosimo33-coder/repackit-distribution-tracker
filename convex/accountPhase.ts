@@ -1,3 +1,5 @@
+import { localeOrDefault } from "./locales";
+import { ERR, err } from "./errorCodes";
 /**
  * PHASE ET QUOTA d'un compte de CLIPPEUR — source unique de la règle.
  *
@@ -52,12 +54,27 @@ const PHASE_TABLE: ReadonlyArray<{
   { phase: "croisiere", fromDay: 14, postsPerDay: 2 },
 ];
 
-/** Libellés FR (écran clippeur). Aucun terme technique exposé. */
-export const PHASE_LABELS: Record<AccountPhase, string> = {
-  chauffe: "Chauffe",
-  warmup: "Échauffement",
-  demo: "Démo",
-  croisiere: "Croisière",
+/**
+ * CLÉS des libellés de phase (écran clippeur). Aucun terme technique exposé.
+ *
+ * Deux tables, et ce n'est pas de la redondance : `PHASE_LABEL_KEYS` sert en
+ * TÊTE (« Chauffe »), `PHASE_INLINE_KEYS` sert INCRUSTÉ dans une phrase
+ * (« en phase de chauffe »). Le code faisait `.toLowerCase()` sur le libellé —
+ * faux dès qu'on traduit : l'anglais ne minusculise pas ses noms de la même
+ * façon, et l'ordre des mots change. Cf I18N-TEXTE-AUSSI-DONNEE.md, famille B.
+ */
+export const PHASE_LABEL_KEYS: Record<AccountPhase, string> = {
+  chauffe: "phase.label.chauffe",
+  warmup: "phase.label.warmup",
+  demo: "phase.label.demo",
+  croisiere: "phase.label.croisiere",
+};
+
+export const PHASE_INLINE_KEYS: Record<AccountPhase, string> = {
+  chauffe: "phase.inline.chauffe",
+  warmup: "phase.inline.warmup",
+  demo: "phase.inline.demo",
+  croisiere: "phase.inline.croisiere",
 };
 
 /**
@@ -147,30 +164,18 @@ export function utcDayRange(at: number): { start: number; end: number } {
   return { start, end: start + DAY_MS };
 }
 
-const JOURS_FR = [
-  "dimanche",
-  "lundi",
-  "mardi",
-  "mercredi",
-  "jeudi",
-  "vendredi",
-  "samedi",
-] as const;
+const JOURS = {
+  // i18n-exempt: table de données FR — la table EN est juste à côté, formatUtcDay choisit
+  fr: ["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"],
+  en: ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"],
+} as const;
 
-const MOIS_FR = [
-  "janvier",
-  "février",
-  "mars",
-  "avril",
-  "mai",
-  "juin",
-  "juillet",
-  "août",
-  "septembre",
-  "octobre",
-  "novembre",
-  "décembre",
-] as const;
+const MOIS = {
+  // i18n-exempt: table de données FR — la table EN est juste à côté, formatUtcDay choisit
+  fr: ["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"],
+  en: ["January","February","March","April","May","June","July","August",
+       "September","October","November","December"],
+} as const;
 
 /**
  * Journée UTC en toutes lettres — « lundi 10 août ».
@@ -189,40 +194,86 @@ const MOIS_FR = [
  *
  * Exporté : l'écran clippeur affiche la MÊME chaîne que celle du refus.
  */
-export function formatUtcDayFr(at: number): string {
+export function formatUtcDay(at: number, locale: unknown = "fr"): string {
+  const l = localeOrDefault(locale);
   const d = new Date(at);
   const quantieme = d.getUTCDate();
-  return `${JOURS_FR[d.getUTCDay()]} ${quantieme === 1 ? "1er" : quantieme} ${
-    MOIS_FR[d.getUTCMonth()]
+  // L'ORDRE DES MOTS change avec la langue, pas seulement les mots :
+  //   fr → « lundi 10 août »        (jour quantième mois)
+  //   en → « Monday, August 10 »    (jour, mois quantième)
+  // Et l'ordinal « 1er » n'a pas d'équivalent en anglais US courant.
+  if (l === "en") {
+    return `${JOURS.en[d.getUTCDay()]}, ${MOIS.en[d.getUTCMonth()]} ${quantieme}`;
+  }
+  return `${JOURS.fr[d.getUTCDay()]} ${quantieme === 1 ? "1er" : quantieme} ${
+    MOIS.fr[d.getUTCMonth()]
   }`;
 }
 
 /**
- * Motif de refus — lu par le clippeur.
+ * REFUS DE QUOTA — rejet structuré, lu par le clippeur ET par l'admin.
  *
  * ⚠️ NOMME LA DATE, toujours. Un clippeur qui publie deux posts lundi, les
  * déclare lundi soir, en publie un troisième lundi tard et le déclare mardi
  * matin daté de lundi se voit refuser un mardi où il croit avoir deux créneaux
  * libres. Sans la date dans le message, le refus est incompréhensible et il
- * conclura que l'outil est cassé. La phase elle-même est fonction de `at` : les
- * trois branches la nomment.
+ * conclura que l'outil est cassé.
+ *
+ * Rend un `ConvexError` STRUCTURÉ plutôt qu'une phrase : le serveur ne connaît
+ * pas la langue de l'appelant, et ces trois refus sortent d'un cœur partagé.
+ * Le client rend `error.<code>` avec les paramètres, dans SA langue — ce qui
+ * rétablit l'invariant « l'écran affiche la même chaîne que le refus », qui
+ * était rompu depuis A3.
+ *
+ * Le message français reste dans la charge : repli d'affichage et trace lisible.
  */
-export function quotaRefusalMessage(
+export function quotaRefusal(
   handle: string,
   phase: AccountPhase | null,
   postsPerDay: number,
   at: number,
-): string {
-  const jour = formatUtcDayFr(at);
+) {
+  // `date` porte le rendu FRANÇAIS, pour le message de repli. `at` porte
+  // l'instant BRUT : le client le reformate dans sa langue (« lundi 10 août »
+  // contre « Monday, August 10 »). Sans lui, une phrase anglaise afficherait
+  // une date française au milieu.
+  const jour = formatUtcDay(at, "fr");
+  const PHASE_FR: Record<AccountPhase, string> = {
+    // i18n-exempt: repli FR de la charge d'erreur ; le client rend error.ERR_CLIP_QUOTA_* dans sa langue
+    chauffe: "chauffe",
+    // i18n-exempt: repli FR de la charge d'erreur
+    warmup: "échauffement",
+    // i18n-exempt: repli FR de la charge d'erreur
+    demo: "démo",
+    // i18n-exempt: repli FR de la charge d'erreur
+    croisiere: "croisière",
+  };
   if (phase === null) {
-    return `Le compte ${handle} n'était pas encore validé le ${jour} : aucune publication possible à cette date.`;
+    return err(
+      ERR.CLIP_QUOTA_NOT_VALIDATED,
+      `Le compte ${handle} n'était pas encore validé le ${jour} : aucune publication possible à cette date.`,
+      { handle, date: jour, at },
+    );
   }
   if (postsPerDay === 0) {
-    return `Le compte ${handle} est en phase de ${PHASE_LABELS[
-      phase
-    ].toLowerCase()} le ${jour} : aucune publication possible à cette date.`;
+    return err(
+      ERR.CLIP_QUOTA_PHASE_ZERO,
+      `Le compte ${handle} est en phase de ${PHASE_FR[phase]} le ${jour} : aucune publication possible à cette date.`,
+      { handle, date: jour, at, phaseKey: PHASE_INLINE_KEYS[phase] },
+    );
   }
-  return `Quota atteint pour le ${jour} sur ${handle} : ${postsPerDay} publication${
-    postsPerDay > 1 ? "s" : ""
-  } sur ${postsPerDay} en phase de ${PHASE_LABELS[phase].toLowerCase()}.`;
+  return err(
+    ERR.CLIP_QUOTA_REACHED,
+    `Quota atteint pour le ${jour} sur ${handle} : ${postsPerDay} publication${
+      postsPerDay > 1 ? "s" : ""
+    } sur ${postsPerDay} en phase de ${PHASE_FR[phase]}.`,
+    {
+      handle,
+      date: jour,
+      at,
+      count: postsPerDay,
+      max: postsPerDay,
+      phaseKey: PHASE_INLINE_KEYS[phase],
+    },
+  );
 }

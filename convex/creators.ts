@@ -26,6 +26,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { normalizeCreatorLocale } from "./locales";
+import { convexErrorText } from "./errorCodes";
 
 /**
  * P1 Créateurs — gestion des créateurs côté admin + onboarding par lien
@@ -1155,7 +1156,7 @@ export const e2eAssertAdminAccess = e2eMutation({
     } catch (e) {
       return {
         allowed: false,
-        error: e instanceof ConvexError ? String(e.data) : "error",
+        error: convexErrorText(e),
       };
     }
   },
@@ -1191,7 +1192,7 @@ export const e2eAssertViewAsAccess = e2eMutation({
     } catch (e) {
       return {
         allowed: false,
-        error: e instanceof ConvexError ? String(e.data) : "error",
+        error: convexErrorText(e),
       };
     }
   },

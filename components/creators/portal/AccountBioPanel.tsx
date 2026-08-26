@@ -14,7 +14,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { convexErrorMessage } from "@/lib/convex-error";
+import { useConvexError } from "@/lib/use-convex-error";
+import { useTranslations } from "next-intl";
 
 /**
  * P5 — bloc « Bio à mettre » d'un compte côté portail créateur. Affiche la bio à
@@ -33,6 +34,8 @@ export function AccountBioPanel({
   /** Admin view-as : masque le bouton de confirmation (lecture seule). */
   readOnly?: boolean;
 }) {
+  const showError = useConvexError();
+  const tbio = useTranslations("portal.bio");
   const confirmApplied = useMutation(api.comptes.confirmAccountBioApplied);
   const [submitting, setSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -55,9 +58,9 @@ export function AccountBioPanel({
     setSubmitting(true);
     try {
       await confirmApplied({ projectId, id: compte._id });
-      toast.success("Bio confirmée ✓");
+      toast.success(tbio("confirmed"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(showError(e, tbio("error")));
     } finally {
       setSubmitting(false);
     }
@@ -79,14 +82,10 @@ export function AccountBioPanel({
             data-testid="bio-pending-badge"
             className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700"
           >
-            <BellRingIcon className="size-3.5" />
-            Bio à mettre à jour
-          </span>
+            <BellRingIcon className="size-3.5" />{tbio("toUpdate")}</span>
         ) : (
           <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700">
-            <CheckCircle2Icon className="size-3.5" />
-            Bio actuelle à maintenir
-          </span>
+            <CheckCircle2Icon className="size-3.5" />{tbio("toKeep")}</span>
         )}
         <Button
           type="button"
@@ -94,7 +93,7 @@ export function AccountBioPanel({
           size="sm"
           className="h-7 shrink-0"
           onClick={copy}
-          aria-label="Copier la bio"
+          aria-label={tbio("copy")}
         >
           {copied ? (
             <CheckIcon className="mr-1.5 size-3.5 text-emerald-600" />

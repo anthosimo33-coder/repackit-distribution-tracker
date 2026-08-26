@@ -24,12 +24,18 @@ export interface PostWindow {
 /** Créneaux du process, proposés en un clic dans la modale d'assignation. */
 export const POST_WINDOW_PRESETS: {
   id: string;
-  label: string;
+  labelKey: string;
+  /**
+   * Libellé COURT, sans la plage horaire. Une clé dédiée plutôt qu'un
+   * `.replace(/ \(.*\)/, "")` sur le libellé complet : découper une chaîne
+   * traduite à la parenthèse marche par chance, pas par construction.
+   */
+  shortKey: string;
   window: PostWindow;
 }[] = [
-  { id: "midi", label: "Midi (11h-13h)", window: { startMin: 11 * 60, endMin: 13 * 60 } },
-  { id: "apresmidi", label: "Après-midi (15h-17h)", window: { startMin: 15 * 60, endMin: 17 * 60 } },
-  { id: "soir", label: "Soir (21h-23h)", window: { startMin: 21 * 60, endMin: 23 * 60 } },
+  { id: "midi", labelKey: "postWindow.midi", shortKey: "postWindow.short.midi", window: { startMin: 11 * 60, endMin: 13 * 60 } },
+  { id: "apresmidi", labelKey: "postWindow.apresmidi", shortKey: "postWindow.short.apresmidi", window: { startMin: 15 * 60, endMin: 17 * 60 } },
+  { id: "soir", labelKey: "postWindow.soir", shortKey: "postWindow.short.soir", window: { startMin: 21 * 60, endMin: 23 * 60 } },
 ];
 
 /**

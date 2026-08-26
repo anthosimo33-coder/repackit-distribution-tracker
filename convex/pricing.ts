@@ -11,6 +11,7 @@ import { periodOf } from "./payments";
 import { cycleIndexOf, cyclePeriodKey, cycleWindow } from "./payCycle";
 import { isRemunerated, type RemunerationFlags } from "./remunerate";
 import { isBonusTierPost, isPromoPost } from "./viewCounters";
+import { ERR, err } from "./errorCodes";
 
 /**
  * Pricing v2 — barèmes + MOTEUR de paie (réplique serveur).
@@ -811,10 +812,10 @@ export async function buildPricingSnapshot(
 ): Promise<PricingSnapshot> {
   const pricing = await ctx.db.get(pricingId);
   if (!pricing || pricing.projectId !== projectId) {
-    throw new ConvexError("Pricing introuvable dans le projet.");
+    throw err(ERR.PRICING_NOT_IN_PROJECT, "Pricing introuvable dans le projet.");
   }
   if (pricing.status !== "active") {
-    throw new ConvexError("Pricing archivé : réactive-le pour l'attribuer.");
+    throw err(ERR.PRICING_ARCHIVED, "Pricing archivé : réactive-le pour l'attribuer.");
   }
   return {
     pricingId: pricing._id,
@@ -1188,7 +1189,7 @@ export const setDefaultBonusPricing = adminMutation({
     if (pricingId !== null) {
       const pricing = await ctx.db.get(pricingId);
       if (!pricing || pricing.projectId !== ctx.projectId) {
-        throw new ConvexError("Pricing introuvable dans le projet.");
+        throw err(ERR.PRICING_NOT_IN_PROJECT, "Pricing introuvable dans le projet.");
       }
     }
     await ctx.db.patch(ctx.projectId, {

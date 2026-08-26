@@ -94,7 +94,7 @@ test.describe("Créateurs — garde rôle serveur", () => {
     });
 
     expect(asCreator.allowed).toBe(false);
-    expect(asCreator.error).toMatch(/administrateur/i);
+    expect(asCreator.error).toMatch(/ERR_ADMIN_ONLY/);
     expect(asAdmin.allowed).toBe(true);
 
     await convex.mutation(api.projects.e2eDeleteProject, {

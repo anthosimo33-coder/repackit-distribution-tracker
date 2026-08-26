@@ -12,6 +12,7 @@ import { isPortalRole } from "./roles";
 import { ConvexError, v } from "convex/values";
 import type { QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { convexErrorText } from "./errorCodes";
 
 /**
  * P2 Multi-tenant — résolution du projet courant.
@@ -604,7 +605,7 @@ export const e2eAssertAccess = e2eMutation({
     } catch (e) {
       return {
         allowed: false,
-        error: e instanceof ConvexError ? String(e.data) : "error",
+        error: convexErrorText(e),
       };
     }
   },

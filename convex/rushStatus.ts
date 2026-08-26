@@ -67,16 +67,16 @@ export function purgesBinary(status: RushStatus): boolean {
 }
 
 /**
- * Libellés servis AU TALENT. « Validé » et non « Retenu » : le premier décrit ce
+ * CLÉS des libellés servis AU TALENT (le rendu passe par lib/use-label). « Validé » et non « Retenu » : le premier décrit ce
  * qu'elle vit, le second ce que fait le système. Aucun de ces libellés ne laisse
  * deviner qu'il existe des scripts, des comptes ou des clippeurs.
  */
 export const TALENT_STATUS_LABELS: Record<RushStatus, string> = {
-  deposited: "Déposé",
-  assigned: "Validé",
-  published: "Publié",
-  rejected: "Refusé",
-  expired: "Expiré",
+  deposited: "status.rush.deposited",
+  assigned: "status.rush.assigned",
+  published: "status.rush.published",
+  rejected: "status.rush.rejected",
+  expired: "status.rush.expired",
 };
 
 /**

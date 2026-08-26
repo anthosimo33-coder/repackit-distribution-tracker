@@ -8,6 +8,8 @@ import {
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { brickModeDisplay, type BrickMode } from "@/lib/script-mode";
+import { useTranslations } from "next-intl";
+import { useLabel } from "@/lib/use-label";
 
 /**
  * SNYTCH — rend un script monté en DEUX zones de DESTINATION explicites, pour
@@ -28,17 +30,16 @@ export function ScriptDestinationZones({
   videoBlocks: { text: string; mode: BrickMode }[];
   descriptionScript: string;
 }) {
+  const t = useTranslations("portal.script");
+  const tLabel = useLabel();
   return (
     <div className="space-y-4">
       {/* ZONE 1 — dans la vidéo (hook + flux), un bloc PAR BRIQUE avec son mode. */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <span aria-hidden>🎬</span> Dans la vidéo
-          </CardTitle>
-          <CardDescription>
-            Chaque partie précise si c&apos;est à dire, à afficher, ou les deux.
-          </CardDescription>
+            <span aria-hidden>🎬</span>{t("inVideo")}</CardTitle>
+          <CardDescription>{t("inVideoHint")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {videoBlocks.map((b, i) => {
@@ -50,7 +51,7 @@ export function ScriptDestinationZones({
                   data-mode={b.mode}
                 >
                   <span aria-hidden>{d.icon}</span>
-                  {d.label}
+                  {tLabel(d.labelKey)}
                 </p>
                 <SimpleMarkdown content={b.text} />
               </div>
@@ -63,17 +64,14 @@ export function ScriptDestinationZones({
       <Card className="bg-emerald-50/50 ring-emerald-500/30">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <span aria-hidden>📝</span> En description
-          </CardTitle>
-          <CardDescription>
-            Copie-colle ça en légende de ton post (hashtags inclus).
-          </CardDescription>
+            <span aria-hidden>📝</span>{t("inDescription")}</CardTitle>
+          <CardDescription>{t("inDescriptionHint")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <SimpleMarkdown content={descriptionScript} />
           <CopyButton
             text={descriptionScript}
-            label="Copier la description"
+            label={t("copyDescription")}
             className="h-11 w-full text-base sm:h-9 sm:w-auto sm:text-sm"
           />
         </CardContent>

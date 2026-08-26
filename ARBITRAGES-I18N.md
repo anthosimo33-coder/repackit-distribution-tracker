@@ -66,8 +66,11 @@ la refuser en base coupleraient le schéma à la liste des langues livrées.
 - Convention **stricte** : `module.composant.element`
   (`nav.item.dashboard`, `settings.language.label`).
 - **Interdiction absolue** de clés générées depuis le texte français.
-- `en.json` = **exactement les mêmes clés**, valeurs **françaises copiées telles
-  quelles**. La traduction est **hors scope**.
+- `en.json` = **exactement les mêmes clés**. ~~Valeurs françaises copiées telles
+  quelles, traduction hors scope.~~ **LEVÉ le 2026-08-25 (D1)** : `en.json` porte
+  de VRAIES traductions, et une garde CI refuse désormais toute valeur anglaise
+  identique au français hors liste blanche (`scripts/i18n-same-in-en.json`).
+  Voir `I18N_STATUS.md`.
 - **Clés typées** : `global.d.ts` dérive le type de `messages/fr.json`, qui est la
   source. Une faute de frappe dans `t()` est une **erreur TypeScript**.
 - Pluriels et interpolations via **ICU MessageFormat**, jamais par concaténation.
@@ -227,7 +230,31 @@ Cas rencontrés :
   « la rupture ne casse rien donc l'assertion est faible », alors que la rupture
   n'avait simplement jamais été appliquée.
 
-## 11. Découpage — 7 PRs
+## 10 ter. Une clé appartient à UN namespace — jamais de réutilisation
+
+**Ne JAMAIS réutiliser une clé existante sans avoir vérifié sa valeur exacte
+dans `fr.json`.**
+
+Un texte identique dans deux namespaces = **deux clés**, valeurs dupliquées.
+La duplication coûte moins cher qu'une régression silencieuse.
+
+**Cas réel, PR 2b lot 2** : `nav.item.guide` réutilisée pour le lien « Guide »
+du portail créateur. Cette clé vaut « **Comment ça marche** » — c'est le libellé
+de la sidebar *admin*. Le nom accessible du lien a changé, et
+`e2e/creator-portal-nav.spec.ts` est tombé sur
+`getByRole("link", { name: "Guide" })`.
+
+Ce n'est pas un accident isolé : sur des centaines d'extractions, le réflexe
+« cette chaîne existe déjà quelque part » se répète. Deux clés `nav.item.guide`
+= « Comment ça marche » et `portal.nav.guide` = « Guide » coexistent désormais,
+et c'est le comportement voulu.
+
+## 11. Découpage — 7 PRs *(PÉRIMÉ)*
+
+> ⚠️ **Ce tableau ne décrit plus le chantier.** Il annonçait notamment « la
+> frontière Convex doit précéder les écrans » — l'inverse de ce qui a été fait.
+> Le découpage réellement exécuté, et le périmètre qui le cadre, sont dans
+> `I18N_STATUS.md` §6 et §10.
 
 Ordre imposé par les **dépendances**, pas par le volume.
 

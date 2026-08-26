@@ -34,7 +34,18 @@ export function getEffectiveWarmupDuration(c: {
 }
 
 export interface StatusConfig {
-  label: string;
+  /** Clé i18n, pas un libellé : cette table est rendue en FR et en EN. */
+  labelKey: string;
+  /**
+   * Variante MINUSCULE, pour les phrases où le statut est incrusté
+   * (« Compte actif. Rien à faire… »). Une clé distincte, jamais un
+   * `.toLowerCase()` sur le libellé : la casse anglaise ne suit pas les mêmes
+   * règles, et l'ordre des mots change (« Phase de warm-up » / « Warm-up
+   * phase »). Cf I18N-TEXTE-AUSSI-DONNEE.md, famille B.
+   */
+  inlineKey: string;
+  /** Paramètres d'interpolation (warmup en cours : jour fait / cible). */
+  params?: Record<string, string | number>;
   /**
    * Classes Tailwind du badge (border/bg/text), cohérentes avec les badges
    * inline préexistants de /comptes. Décision #10 :
@@ -45,19 +56,23 @@ export interface StatusConfig {
 
 export const STATUS_CONFIG: Record<CompteStatus, StatusConfig> = {
   warmup: {
-    label: "Warmup",
+    labelKey: "status.compte.warmup",
+    inlineKey: "status.compteInline.warmup",
     className: "border-amber-200 bg-amber-50 text-amber-700",
   },
   actif: {
-    label: "Actif",
+    labelKey: "status.compte.actif",
+    inlineKey: "status.compteInline.actif",
     className: "border-emerald-200 bg-emerald-50 text-emerald-700",
   },
   shadowban: {
-    label: "Shadowban",
+    labelKey: "status.compte.shadowban",
+    inlineKey: "status.compteInline.shadowban",
     className: "border-rose-200 bg-rose-50 text-rose-700",
   },
   archived: {
-    label: "Archivé",
+    labelKey: "status.compte.archive",
+    inlineKey: "status.compteInline.archive",
     className: "border-slate-200 bg-slate-50 text-slate-500",
   },
 };
@@ -67,7 +82,8 @@ export const STATUS_CONFIG: Record<CompteStatus, StatusConfig> = {
  * passer le compte en actif). Distinct de l'amber du warmup en cours.
  */
 export const WARMUP_DONE_CONFIG: StatusConfig = {
-  label: "À valider",
+  labelKey: "status.compte.aValider",
+    inlineKey: "status.compteInline.aValider",
   className: "border-blue-200 bg-blue-50 text-blue-700",
 };
 
@@ -130,7 +146,9 @@ export function getStatusBadge(c: {
       return WARMUP_DONE_CONFIG;
     }
     return {
-      label: `Warmup J+${done}/${target}`,
+      labelKey: "status.compte.warmupProgress",
+      inlineKey: "status.compteInline.warmupProgress",
+      params: { done, target },
       className: STATUS_CONFIG.warmup.className,
     };
   }

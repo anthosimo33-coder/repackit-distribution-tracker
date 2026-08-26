@@ -6,6 +6,8 @@ import {
   type PricingSnapshot,
 } from "@/lib/pricing-engine";
 import { formatMoney, formatViews } from "@/lib/format-rate";
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useTranslations } from "next-intl";
 
 /**
  * Estimation de rému d'une mission relevant du MODÈLE PRICING v2 (mission de
@@ -26,6 +28,8 @@ export function PricingEstimator({
   snapshot: PricingSnapshot;
   currency?: string | null;
 }) {
+  const te = useTranslations("estimator");
+  const loc = useIntlLocale();
   const [idx, setIdx] = useState(3); // 10k par défaut
   const views = STEPS[idx];
   const e = estimateMissionEarnings(snapshot, views);
@@ -34,10 +38,10 @@ export function PricingEstimator({
     <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
       <div className="flex items-baseline justify-between">
         <span className="text-sm font-medium text-slate-700">
-          Estimation pour {formatViews(views)} vues
+          Estimation pour {formatViews(views, loc)} vues
         </span>
         <span className="text-2xl font-semibold tabular-nums text-slate-900">
-          {formatMoney(e.total, currency)}
+          {formatMoney(e.total, currency, loc)}
         </span>
       </div>
       <input
@@ -48,29 +52,28 @@ export function PricingEstimator({
         value={idx}
         onChange={(ev) => setIdx(Number(ev.target.value))}
         className="h-6 w-full cursor-pointer accent-primary"
-        aria-label="Nombre de vues estimé"
+        aria-label={te("views")}
       />
       <ul className="space-y-1 text-sm text-slate-600">
         <li className="flex justify-between">
-          <span>Base (fixe par vidéo)</span>
-          <span className="tabular-nums">{formatMoney(e.fixed, currency)}</span>
+          <span>{te("baseFixed")}</span>
+          <span className="tabular-nums">{formatMoney(e.fixed, currency, loc)}</span>
         </li>
         {snapshot.tauxCPM > 0 && (
           <li className="flex justify-between">
-            <span>CPM (sur tes vues)</span>
-            <span className="tabular-nums">{formatMoney(e.cpm, currency)}</span>
+            <span>{te("cpm")}</span>
+            <span className="tabular-nums">{formatMoney(e.cpm, currency, loc)}</span>
           </li>
         )}
         <li className="flex justify-between border-t border-slate-100 pt-1 font-semibold text-slate-900">
-          <span>Total estimé</span>
+          <span>{te("total")}</span>
           <span className="tabular-nums" data-testid="earnings-total">
-            {formatMoney(e.total, currency)}
+            {formatMoney(e.total, currency, loc)}
           </span>
         </li>
       </ul>
       <p className="text-xs text-slate-400">
-        Estimation indicative ; le paiement se fait sur les vues réelles du post
-        validé.
+        {te("disclaimer")}
       </p>
     </div>
   );

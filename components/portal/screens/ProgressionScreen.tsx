@@ -22,6 +22,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { formatMoney, formatViews } from "@/lib/format-rate";
 import { formatDate } from "@/lib/format";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useLabel } from "@/lib/use-label";
 
 /**
  * Écran « Ma progression » (route POUSSÉE /app/progression, pas un onglet) —
@@ -31,6 +34,7 @@ import { formatDate } from "@/lib/format";
  * mutation) → identique en view-as, seules les données sont scopées.
  */
 export default function ProgressionScreen() {
+  const t = useTranslations("portal");
   const { current } = useCreatorProject();
   // Devise de la paie créatrices ($ Snytch ; null → sans symbole), threadée aux
   // sous-composants (Hero, échelle) qui rendent des montants cash.
@@ -45,14 +49,10 @@ export default function ProgressionScreen() {
         href={base}
         className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900"
       >
-        <ArrowLeftIcon className="size-4" />
-        Retour
-      </Link>
+        <ArrowLeftIcon className="size-4" />{t("progression.back")}</Link>
 
       <header className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-          Ma progression
-        </h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t("progression.title")}</h1>
         <p className="text-sm text-slate-500">
           Tes vues cumulées débloquent les récompenses de {current.name}.
         </p>
@@ -65,9 +65,7 @@ export default function ProgressionScreen() {
         </div>
       ) : p === null ? (
         <Card>
-          <CardContent className="py-8 text-center text-sm text-slate-500">
-            Ta progression apparaîtra ici dès tes premières vues.
-          </CardContent>
+          <CardContent className="py-8 text-center text-sm text-slate-500">{t("progression.empty")}</CardContent>
         </Card>
       ) : (
         <>
@@ -84,26 +82,27 @@ type P = NonNullable<ReturnType<typeof buildProgression>>;
 
 /** Hero : vues cumulées → jauge vers le prochain palier (accent projet). */
 function Hero({ p, currency }: { p: P; currency?: string | null }) {
+  const t = useTranslations("portal");
+  const tLabel = useLabel();
+  const loc = useIntlLocale();
   const pct = Math.round(p.progressToNext * 100);
   return (
     <Card className="border-primary/30 bg-primary/5">
       <CardContent className="space-y-4 py-6">
         <div className="space-y-0.5 text-center">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Vues cumulées
-          </p>
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t("progression.cumulViews")}</p>
           <p
             className="text-4xl font-semibold tabular-nums text-slate-900"
             data-testid="progression-cumul"
           >
-            {formatViews(p.cumulViews)}
+            {formatViews(p.cumulViews, loc)}
           </p>
         </div>
 
         {p.nextReward ? (
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2 text-sm">
-              <span className="text-slate-500">Prochain palier</span>
+              <span className="text-slate-500">{t("progression.nextTier")}</span>
               <span className="flex items-center gap-1.5 font-semibold text-slate-900">
                 <RewardLabel reward={p.nextReward} currency={currency} />
               </span>
@@ -118,22 +117,20 @@ function Hero({ p, currency }: { p: P; currency?: string | null }) {
             <p className="text-xs text-slate-500">
               Plus que{" "}
               <span className="font-semibold tabular-nums text-slate-700">
-                {formatViews(p.remainingViews)}
+                {formatViews(p.remainingViews, loc)}
               </span>{" "}
               vues.
             </p>
           </div>
         ) : (
-          <p className="text-center text-sm font-medium text-primary">
-            Tous les paliers sont débloqués 🎉
-          </p>
+          <p className="text-center text-sm font-medium text-primary">{t("progression.allUnlocked")}</p>
         )}
 
         {(p.cashUnlockedTotal > 0 || p.itemsUnlocked.length > 0) && (
           <div className="flex flex-wrap justify-center gap-1.5 border-t border-primary/15 pt-3">
             {p.cashUnlockedTotal > 0 && (
               <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
-                + {formatMoney(p.cashUnlockedTotal, currency)} débloqués
+                + {formatMoney(p.cashUnlockedTotal, currency, loc)} débloqués
               </span>
             )}
             {p.itemsUnlocked.map((r, i) => (
@@ -141,7 +138,7 @@ function Hero({ p, currency }: { p: P; currency?: string | null }) {
                 key={i}
                 className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary"
               >
-                {r.emoji} {r.label}
+                {r.emoji} {r.label ?? tLabel("progression.reward")}
               </span>
             ))}
           </div>
@@ -159,16 +156,13 @@ function LadderSection({
   ladder: LadderEntry[];
   currency?: string | null;
 }) {
+  const t = useTranslations("portal");
   return (
     <section className="space-y-2">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-        Échelle des récompenses
-      </h2>
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">{t("progression.ladder")}</h2>
       {ladder.length === 0 ? (
         <Card>
-          <CardContent className="py-8 text-center text-sm text-slate-500">
-            Pas encore de paliers de récompense sur ce projet.
-          </CardContent>
+          <CardContent className="py-8 text-center text-sm text-slate-500">{t("progression.noTiers")}</CardContent>
         </Card>
       ) : (
         <Card>
@@ -202,6 +196,8 @@ function LadderRow({
   current: boolean;
   currency?: string | null;
 }) {
+  const t = useTranslations("portal");
+  const loc = useIntlLocale();
   const Icon = entry.unlocked
     ? CircleCheckIcon
     : current
@@ -235,20 +231,16 @@ function LadderRow({
           <RewardLabel reward={entry.reward} currency={currency} />
         </p>
         <p className="text-xs text-slate-400">
-          {formatViews(entry.threshold)} vues
+          {formatViews(entry.threshold, loc)} vues
           {entry.unlocked && entry.unlockedAt
-            ? ` · débloqué le ${formatDate(entry.unlockedAt)}`
+            ? ` · débloqué le ${formatDate(entry.unlockedAt, loc)}`
             : ""}
         </p>
       </div>
       {entry.unlocked ? (
-        <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
-          Débloqué
-        </span>
+        <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">{t("progression.unlocked")}</span>
       ) : current ? (
-        <span className="shrink-0 rounded-full border border-primary/30 px-2 py-0.5 text-xs font-semibold text-primary">
-          En cours
-        </span>
+        <span className="shrink-0 rounded-full border border-primary/30 px-2 py-0.5 text-xs font-semibold text-primary">{t("progression.inProgress")}</span>
       ) : null}
     </div>
   );
@@ -256,11 +248,11 @@ function LadderRow({
 
 /** Victoires (badges légers, dérivés à la lecture). */
 function VictoriesSection({ victories }: { victories: ProgressionVictory[] }) {
+  const t = useTranslations("portal");
+  const tLabel = useLabel();
   return (
     <section className="space-y-2">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-        Tes victoires
-      </h2>
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">{t("progression.victories")}</h2>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {victories.map((v) => (
           <div
@@ -289,7 +281,7 @@ function VictoriesSection({ victories }: { victories: ProgressionVictory[] }) {
                 v.achieved ? "text-slate-900" : "text-slate-400",
               )}
             >
-              {v.label}
+              {tLabel(v.labelKey, v.labelParams)}
             </span>
           </div>
         ))}
@@ -306,18 +298,20 @@ function RewardLabel({
   reward: ProgressionReward;
   currency?: string | null;
 }) {
+  const tLabel = useLabel();
+  const loc = useIntlLocale();
   if (reward.kind === "cash") {
     return (
       <>
         <TrophyIcon className="size-3.5 text-primary" aria-hidden />
-        {formatMoney(reward.amount, currency)}
+        {formatMoney(reward.amount, currency, loc)}
       </>
     );
   }
   return (
     <>
       <span aria-hidden>{reward.emoji}</span>
-      {reward.label}
+      {reward.label ?? tLabel("progression.reward")}
     </>
   );
 }

@@ -12,6 +12,9 @@ import { cn } from "@/lib/utils";
 import { formatMoney, formatViews } from "@/lib/format-rate";
 import { publishedAgo } from "@/lib/video-tracking";
 import { isSnytchProject } from "@/lib/snytch-drive";
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useLabel } from "@/lib/use-label";
+import { useTranslations } from "next-intl";
 import {
   CREATOR_VIDEO_FILTERS,
   countCreatorVideosByFilter,
@@ -77,15 +80,14 @@ const CHIP_BASE =
 
 /** Suivi vues des vidéos EN LIGNE (published/paid). */
 function TrackingChip({ status }: { status: "active" | "pending" }) {
+  const tv = useTranslations("portal.videos");
   if (status === "active") {
     return (
       <span
         data-testid="tracking-active"
         className={cn(CHIP_BASE, "border-emerald-200 bg-emerald-50 text-emerald-700")}
       >
-        <CircleCheckIcon className="size-3.5" />
-        Suivi actif
-      </span>
+        <CircleCheckIcon className="size-3.5" />{tv("trackingActive")}</span>
     );
   }
   return (
@@ -93,23 +95,20 @@ function TrackingChip({ status }: { status: "active" | "pending" }) {
       data-testid="tracking-pending"
       className={cn(CHIP_BASE, "border-amber-200 bg-amber-50 text-amber-700")}
     >
-      <ClockIcon className="size-3.5" />
-      Vues en cours de calcul
-    </span>
+      <ClockIcon className="size-3.5" />{tv("viewsComputing")}</span>
   );
 }
 
 /** Badge de cycle de vie AVANT « en ligne réellement suivie » (attente/rejet/à publier). */
 function StatusChip({ status }: { status: Video["status"] }) {
+  const tv = useTranslations("portal.videos");
   if (status === "video_submitted") {
     return (
       <span
         data-testid="status-pending"
         className={cn(CHIP_BASE, "border-amber-200 bg-amber-50 text-amber-700")}
       >
-        <ClockIcon className="size-3.5" />
-        En attente de validation
-      </span>
+        <ClockIcon className="size-3.5" />{tv("awaitingApproval")}</span>
     );
   }
   if (status === "video_rejected") {
@@ -118,9 +117,7 @@ function StatusChip({ status }: { status: Video["status"] }) {
         data-testid="status-rejected"
         className={cn(CHIP_BASE, "border-red-200 bg-red-50 text-red-700")}
       >
-        <CircleXIcon className="size-3.5" />
-        Rejeté
-      </span>
+        <CircleXIcon className="size-3.5" />{tv("rejected")}</span>
     );
   }
   // to_publish
@@ -129,36 +126,34 @@ function StatusChip({ status }: { status: Video["status"] }) {
       data-testid="status-to-publish"
       className={cn(CHIP_BASE, "border-sky-200 bg-sky-50 text-sky-700")}
     >
-      <RocketIcon className="size-3.5" />
-      Approuvé, à publier
-    </span>
+      <RocketIcon className="size-3.5" />{tv("approvedToPublish")}</span>
   );
 }
 
 /** Bloc Vues + Gain — vidéos EN LIGNE uniquement (published/paid). */
 function OnlineMetrics({ v, currency }: { v: Video; currency?: string | null }) {
+  const tv = useTranslations("portal.videos");
+  const loc = useIntlLocale();
   return (
     <div className="flex items-end justify-between gap-3">
       <div>
-        <p className="text-xs text-slate-400">Vues</p>
+        <p className="text-xs text-slate-400">{tv("views")}</p>
         <p className="text-lg font-semibold tabular-nums text-slate-900">
-          {v.views === null ? "—" : formatViews(v.views)}
+          {v.views === null ? "—" : formatViews(v.views, loc)}
         </p>
       </div>
       <div className="text-right">
-        <p className="text-xs text-slate-400">Gain</p>
+        <p className="text-xs text-slate-400">{tv("gain")}</p>
         <p
           className={cn(
             "text-lg font-semibold tabular-nums",
             v.capped ? "text-emerald-600" : "text-slate-900",
           )}
         >
-          {v.gain === null ? "—" : formatMoney(v.gain, currency)}
+          {v.gain === null ? "—" : formatMoney(v.gain, currency, loc)}
         </p>
         {v.capped && (
-          <span className="text-[0.65rem] font-semibold uppercase tracking-wide text-emerald-600">
-            gain max
-          </span>
+          <span className="text-[0.65rem] font-semibold uppercase tracking-wide text-emerald-600">{tv("maxGain")}</span>
         )}
       </div>
     </div>
@@ -174,6 +169,7 @@ function VideoRow({
   now: number;
   currency?: string | null;
 }) {
+  const tv = useTranslations("portal.videos");
   const isOnline = v.status === "published" || v.status === "paid";
   return (
     <Card data-testid="video-row" data-status={v.status}>
@@ -207,9 +203,7 @@ function VideoRow({
                   "border-emerald-200 bg-emerald-50 text-emerald-700",
                 )}
               >
-                <BadgeCheckIcon className="size-3.5" />
-                Payé
-              </span>
+                <BadgeCheckIcon className="size-3.5" />{tv("paid")}</span>
             )}
             {v.managedByAdmin && (
               <span
@@ -219,9 +213,7 @@ function VideoRow({
                   "border-slate-300 bg-slate-100 text-slate-600",
                 )}
               >
-                <UsersIcon className="size-3.5" />
-                Géré par l&apos;équipe
-              </span>
+                <UsersIcon className="size-3.5" />{tv("managedByTeam")}</span>
             )}
           </div>
           {isOnline && v.trackingStatus !== null ? (
@@ -236,28 +228,17 @@ function VideoRow({
         ) : v.status === "video_rejected" ? (
           v.rejectionReason ? (
             <div className="rounded-md border border-red-100 bg-red-50/60 px-3 py-2">
-              <p className="text-xs font-semibold text-red-700">
-                Raison du rejet
-              </p>
+              <p className="text-xs font-semibold text-red-700">{tv("rejectionReason")}</p>
               <p className="mt-0.5 text-sm text-slate-700">{v.rejectionReason}</p>
             </div>
           ) : (
-            <p className="text-sm text-slate-500">
-              Ta vidéo a été refusée. Retrouve la mission pour la soumettre à
-              nouveau.
-            </p>
+            <p className="text-sm text-slate-500">{tv("rejectedHint")}</p>
           )
         ) : v.status === "to_publish" ? (
           v.managedByAdmin ? (
-            <p className="text-sm text-slate-500">
-              L&apos;équipe publie cette vidéo — elle apparaîtra ici en ligne
-              (vues + gain) dès qu&apos;elle est postée.
-            </p>
+            <p className="text-sm text-slate-500">{tv("teamPublishes")}</p>
           ) : (
-            <p className="text-sm text-slate-500">
-              Validée ! Publie-la sur la plateforme depuis ta mission pour lancer
-              le suivi des vues et le gain.
-            </p>
+            <p className="text-sm text-slate-500">{tv("approvedHint")}</p>
           )
         ) : (
           // video_submitted
@@ -274,11 +255,10 @@ function VideoRow({
 }
 
 function Notice({ body }: { body: string }) {
+  const tv = useTranslations("portal.videos");
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-        Mes vidéos
-      </h1>
+      <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{tv("title")}</h1>
       <Card>
         <CardContent className="py-8 text-center text-sm text-slate-500">
           {body}
@@ -297,10 +277,12 @@ function FilterChips({
   counts: Record<CreatorVideoFilterKey, number>;
   onChange: (key: CreatorVideoFilterKey) => void;
 }) {
+  const tv = useTranslations("portal.videos");
+  const tLabel = useLabel();
   return (
     <div
       role="tablist"
-      aria-label="Filtrer mes vidéos par statut"
+      aria-label={tv("filterAria")}
       className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1"
     >
       {CREATOR_VIDEO_FILTERS.map((f) => {
@@ -320,7 +302,7 @@ function FilterChips({
                 : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
             )}
           >
-            {f.label}
+            {tLabel(f.labelKey)}
             <span
               className={cn(
                 "ml-1.5 tabular-nums",
@@ -337,6 +319,7 @@ function FilterChips({
 }
 
 export default function VideosScreen() {
+  const tv = useTranslations("portal.videos");
   const { current } = useCreatorProject();
   // Devise de la paie créatrices ($ Snytch ; null → sans symbole), threadée à la
   // ligne vidéo qui rend le gain.
@@ -358,26 +341,19 @@ export default function VideosScreen() {
 
   // Défense en profondeur : la nav ne pointe ici que pour Snytch.
   if (!isSnytchProject(current.slug)) {
-    return <Notice body="Le suivi des vidéos n'est pas disponible pour ce projet." />;
+    return <Notice body={tv("unavailable")} />;
   }
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <header className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-          Mes vidéos
-        </h1>
-        <p className="text-sm text-slate-500">
-          Le suivi de tes vidéos, de la soumission à la mise en ligne.
-        </p>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{tv("title")}</h1>
+        <p className="text-sm text-slate-500">{tv("subtitle")}</p>
       </header>
 
       {/* Décalage vues (limite scraper) — jamais présenté comme temps réel exact. */}
       <p className="flex items-start gap-1.5 text-xs text-slate-400">
-        <InfoIcon className="mt-0.5 size-3.5 shrink-0" />
-        Vues mises à jour régulièrement — un léger décalage avec la plateforme est
-        normal (ce n&apos;est pas du temps réel exact).
-      </p>
+        <InfoIcon className="mt-0.5 size-3.5 shrink-0" />{tv("viewsDelayHint")}</p>
 
       {videos === undefined ? (
         <div className="space-y-3">
@@ -389,13 +365,8 @@ export default function VideosScreen() {
         <Card data-testid="videos-empty">
           <CardContent className="space-y-2 py-10 text-center">
             <FilmIcon className="mx-auto size-8 text-slate-300" strokeWidth={1.5} />
-            <p className="text-sm font-medium text-slate-600">
-              Aucune vidéo pour l&apos;instant
-            </p>
-            <p className="text-sm text-slate-400">
-              Dès que tu soumets une vidéo, elle apparaît ici avec son statut, puis
-              son suivi (vues + gain) une fois en ligne.
-            </p>
+            <p className="text-sm font-medium text-slate-600">{tv("emptyTitle")}</p>
+            <p className="text-sm text-slate-400">{tv("emptyBody")}</p>
           </CardContent>
         </Card>
       ) : (
@@ -403,9 +374,7 @@ export default function VideosScreen() {
           <FilterChips active={filter} counts={counts} onChange={setFilter} />
           {filtered.length === 0 ? (
             <Card data-testid="videos-filter-empty">
-              <CardContent className="py-8 text-center text-sm text-slate-400">
-                Aucune vidéo dans ce filtre.
-              </CardContent>
+              <CardContent className="py-8 text-center text-sm text-slate-400">{tv("emptyFilter")}</CardContent>
             </Card>
           ) : (
             filtered.map((v) => (

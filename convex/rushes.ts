@@ -21,6 +21,7 @@ import { canTransition, isRushExpired, RUSH_STATUSES } from "./rushStatus";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { ERR, err } from "./errorCodes";
 
 /**
  * RUSHES — le dépôt du TALENT.
@@ -121,10 +122,10 @@ export const confirmDeposit = talentMutation({
   handler: async (ctx, args): Promise<{ ok: true; rushId: Id<"rushes"> }> => {
     const project = await ctx.db.get(ctx.projectId);
     if (!isFileDropEnabled(project)) {
-      throw new ConvexError("Dépôt indisponible pour ce projet.");
+      throw err(ERR.DEPOSIT_UNAVAILABLE, "Dépôt indisponible pour ce projet.");
     }
     if (args.driveFileId.length === 0) {
-      throw new ConvexError("Référence de fichier manquante.");
+      throw err(ERR.FILE_REF_MISSING, "Référence de fichier manquante.");
     }
 
     const mine = await ctx.db

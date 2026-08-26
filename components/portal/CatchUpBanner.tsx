@@ -8,6 +8,8 @@ import { formatDate } from "@/lib/format";
 import { isToCatchUp, sortBySchedule } from "@/lib/creator-schedule";
 import { formatPostWindow } from "@/convex/postWindow";
 import { representativePostedAt } from "@/lib/calendar-status";
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useTranslations } from "next-intl";
 
 /**
  * « À RATTRAPER » — les publications dont la date est passée sans que rien ne
@@ -45,6 +47,8 @@ export function CatchUpBanner({
   now: number;
   base: string;
 }) {
+  const tcu = useTranslations("portal.catchUp");
+  const loc = useIntlLocale();
   // Comptes gérés exclus : la créatrice n'y publie pas, l'équipe s'en charge —
   // lui réclamer un rattrapage qu'elle ne peut pas faire serait absurde.
   const retards = sortBySchedule(
@@ -72,8 +76,7 @@ export function CatchUpBanner({
     >
       <CardContent className="p-4">
         <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-rose-700">
-          <AlertTriangleIcon className="size-4" />À rattraper
-          <span className="rounded-full border border-rose-300 bg-rose-100 px-1.5 text-xs font-medium">
+          <AlertTriangleIcon className="size-4" />{tcu("title")}<span className="rounded-full border border-rose-300 bg-rose-100 px-1.5 text-xs font-medium">
             {retards.length}
           </span>
         </div>
@@ -94,7 +97,7 @@ export function CatchUpBanner({
                         depuis quand ça traîne. La plage n'est rendue que si elle
                         existe (assignations d'avant le champ : rien d'affiché). */}
                     <span className="block text-xs text-rose-700">
-                      Prévu le {formatDate(a.postDate!)}
+                      Prévu le {formatDate(a.postDate!, loc)}
                       {plage !== null ? ` (${plage})` : ""} — à publier dès que
                       possible
                     </span>

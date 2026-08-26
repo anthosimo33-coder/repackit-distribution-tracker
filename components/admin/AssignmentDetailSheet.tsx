@@ -67,6 +67,7 @@ import { dayStartMs } from "@/components/admin/AssignmentPlanningCalendar";
 import { countryFlag } from "@/lib/countries";
 import { canDeleteAssignment } from "@/lib/assignment-delete";
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
+import { useLabel } from "@/lib/use-label";
 
 /** Row LIVE de listAssignments (dérivée côté page → réactive : statut/pub à jour). */
 type AssignmentRow =
@@ -101,6 +102,7 @@ export function AssignmentDetailSheet({
   row: AssignmentRow;
   now: number;
 }) {
+  const tLabel = useLabel();
   const setPostDate = useProjectMutation(api.assignments.setAssignmentPostDate);
   const setPostWindow = useProjectMutation(
     api.assignments.setAssignmentPostWindow,
@@ -373,7 +375,7 @@ export function AssignmentDetailSheet({
                         void saveWindow(actif ? undefined : p.window)
                       }
                     >
-                      {p.label.replace(/ \(.*\)/, "")}
+                      {tLabel(p.shortKey)}
                     </Button>
                   );
                 })}
@@ -565,6 +567,7 @@ function DetailRow({
 }
 
 function CalendarStatusPill({ status }: { status: CalendarStatus }) {
+  const tLabel = useLabel();
   if (status === "none") {
     return <span className="text-slate-400">Non planifié</span>;
   }
@@ -577,12 +580,13 @@ function CalendarStatusPill({ status }: { status: CalendarStatus }) {
       )}
     >
       <meta.Icon className="size-3" />
-      {meta.label}
+      {tLabel(meta.labelKey)}
     </span>
   );
 }
 
 function ProductionStatusBadge({ status }: { status: AssignmentStatus }) {
+  const tLabel = useLabel();
   const st = ASSIGNMENT_STATUS[status];
   return (
     <span
@@ -591,7 +595,7 @@ function ProductionStatusBadge({ status }: { status: AssignmentStatus }) {
         st.className,
       )}
     >
-      {st.label}
+      {tLabel(st.labelKey)}
     </span>
   );
 }
