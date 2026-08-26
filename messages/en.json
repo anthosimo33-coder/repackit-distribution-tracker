@@ -235,12 +235,7 @@
       "emptyReadOnly": "This creator hasn't declared an account yet.",
       "emptyCreator": "Declare your first account to start its warm-up."
     },
-    "calendarStatus": {
-      "onTime": "On time",
-      "late": "Late",
-      "missed": "Missed",
-      "scheduled": "Scheduled"
-    },
+    "calendarStatus": {},
     "fichiers": {
       "kind": {
         "video": "Video",
@@ -400,6 +395,32 @@
       "total": "Total",
       "dueThisCycle": "Due this cycle",
       "dueForCycle": "Due for the current cycle ({range})"
+    }
+  },
+  "status": {
+    "assignment": {
+      "todo": "To do",
+      "in_progress": "In progress",
+      "video_submitted": "Video in review",
+      "video_rejected": "Video to redo",
+      "to_publish": "To publish",
+      "published": "Published",
+      "paid": "Paid",
+      "cancelled": "Dropped",
+      "submitted": "Submitted",
+      "validated": "Approved",
+      "rejected": "Rejected"
+    },
+    "urgency": {
+      "overdue": "Overdue",
+      "soon": "< 48h",
+      "ok": "On track"
+    },
+    "calendar": {
+      "on_time": "On time",
+      "late": "Late",
+      "missed": "Missed",
+      "scheduled": "Scheduled"
     }
   }
 }

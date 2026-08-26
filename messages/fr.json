@@ -235,12 +235,7 @@
       "emptyReadOnly": "Ce créateur n'a pas encore déclaré de compte.",
       "emptyCreator": "Déclare ton premier compte pour démarrer son warmup."
     },
-    "calendarStatus": {
-      "onTime": "À l'heure",
-      "late": "En retard",
-      "missed": "Manqué",
-      "scheduled": "Prévu"
-    },
+    "calendarStatus": {},
     "fichiers": {
       "kind": {
         "video": "Vidéo",
@@ -400,6 +395,32 @@
       "total": "Total",
       "dueThisCycle": "Dû ce cycle",
       "dueForCycle": "Dû pour le cycle en cours ({range})"
+    }
+  },
+  "status": {
+    "assignment": {
+      "todo": "À faire",
+      "in_progress": "En cours",
+      "video_submitted": "Vidéo en revue",
+      "video_rejected": "Vidéo à refaire",
+      "to_publish": "À publier",
+      "published": "Publié",
+      "paid": "Payé",
+      "cancelled": "Abandonné",
+      "submitted": "Soumis",
+      "validated": "Validé",
+      "rejected": "Rejeté"
+    },
+    "urgency": {
+      "overdue": "En retard",
+      "soon": "< 48 h",
+      "ok": "Dans les temps"
+    },
+    "calendar": {
+      "on_time": "À l'heure",
+      "late": "En retard",
+      "missed": "Manqué",
+      "scheduled": "Prévu"
     }
   }
 }

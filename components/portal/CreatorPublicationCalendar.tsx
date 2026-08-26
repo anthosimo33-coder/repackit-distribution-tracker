@@ -30,6 +30,7 @@ import {
   type CalendarStatusVisual,
 } from "@/components/calendar/calendar-status-meta";
 import { portalHref } from "@/lib/view-as";
+import { useLabel } from "@/lib/use-label";
 
 const WEEKDAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
@@ -58,6 +59,7 @@ export function CreatorPublicationCalendar({
   now: number;
   base: string;
 }) {
+  const label = useLabel();
   const [currentMonth, setCurrentMonth] = useState(() => new Date(now));
 
   const planned = useMemo(
@@ -169,8 +171,8 @@ export function CreatorPublicationCalendar({
                         href={portalHref(base, `/assignments/${row._id}`)}
                         title={
                           formatPostWindow(row.postWindow) !== null
-                            ? `${row.formatName} · ${meta.label} · entre ${formatPostWindow(row.postWindow)!.replace("-", " et ")}`
-                            : `${row.formatName} · ${meta.label}`
+                            ? `${row.formatName} · ${label(meta.labelKey)} · entre ${formatPostWindow(row.postWindow)!.replace("-", " et ")}`
+                            : `${row.formatName} · ${label(meta.labelKey)}`
                         }
                         className={cn(
                           "flex w-full items-center gap-1 rounded border px-1 py-0.5 text-left text-[10px] font-medium leading-tight transition-colors",
@@ -205,7 +207,7 @@ export function CreatorPublicationCalendar({
                 className="inline-flex items-center gap-1 text-[11px] text-slate-500"
               >
                 <meta.Icon className="size-3" />
-                {meta.label}
+                {label(meta.labelKey)}
               </span>
             );
           })}

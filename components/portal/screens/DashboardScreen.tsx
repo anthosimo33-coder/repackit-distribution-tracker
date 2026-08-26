@@ -66,6 +66,7 @@ import {
 } from "@/lib/assignment-status";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useLabel } from "@/lib/use-label";
 
 /**
  * Accueil du portail créateur — DASHBOARD ORIENTÉ ACTION, scopé au PROJET
@@ -782,6 +783,7 @@ function AssignmentItem({
   showFeedback?: boolean;
   managed?: boolean;
 }) {
+  const label = useLabel();
   const loc = useIntlLocale();
   const t = useTranslations("portal");
   // Compte géré : aucune urgence (elle n'agit pas), et un badge « géré par
@@ -821,7 +823,7 @@ function AssignmentItem({
                 URGENCY_BADGE[urg].className,
               )}
             >
-              {URGENCY_BADGE[urg].label}
+              {label(URGENCY_BADGE[urg].labelKey)}
             </span>
           )}
           <span
@@ -832,7 +834,7 @@ function AssignmentItem({
                 : st.className,
             )}
           >
-            {managed ? t("dashboard.managedBadge") : st.label}
+            {managed ? t("dashboard.managedBadge") : label(st.labelKey)}
           </span>
           <ArrowRightIcon className="size-4 text-slate-400" />
         </div>

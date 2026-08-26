@@ -25,6 +25,7 @@ import { convexErrorMessage } from "@/lib/convex-error";
 import { ASSIGNMENT_STATUS, type AssignmentStatus } from "@/lib/assignment-status";
 import { formatDate } from "@/lib/format";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useLabel } from "@/lib/use-label";
 import {
   PHASE_LABELS,
   accountPhaseAt,
@@ -298,6 +299,7 @@ function MesComptes() {
 }
 
 function MesClips() {
+  const label = useLabel();
   const loc = useIntlLocale();
   const { projectId } = useClipperProject();
   const clips = useMyClips(projectId);
@@ -330,7 +332,7 @@ function MesClips() {
                     <div className="min-w-0 flex-1 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge variant="outline" className={badge?.className}>
-                          {badge?.label ?? c.status}
+                          {badge ? label(badge.labelKey) : c.status}
                         </Badge>
                         {c.dueDate !== undefined && (
                           <span className="text-xs text-slate-500">

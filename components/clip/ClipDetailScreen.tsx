@@ -22,6 +22,7 @@ import { convexErrorMessage } from "@/lib/convex-error";
 import { ASSIGNMENT_STATUS, type AssignmentStatus } from "@/lib/assignment-status";
 import { formatDate } from "@/lib/format";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useLabel } from "@/lib/use-label";
 
 /**
  * FICHE D'UN CLIP — le script à monter, les consignes, le dépôt du montage, et
@@ -35,6 +36,7 @@ import { useIntlLocale } from "@/lib/use-intl-locale";
  * exactement ce qui a de la valeur.
  */
 export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
+  const label = useLabel();
   const loc = useIntlLocale();
   const { projectId } = useClipperProject();
   const readOnly = useReadOnly();
@@ -107,7 +109,7 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
 
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant="outline" className={badge?.className}>
-          {badge?.label ?? statut}
+          {badge ? label(badge.labelKey) : statut}
         </Badge>
         {clip.dueDate !== undefined && (
           <span className="text-xs text-slate-500">

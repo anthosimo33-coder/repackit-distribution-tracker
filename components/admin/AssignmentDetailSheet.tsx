@@ -67,6 +67,7 @@ import { dayStartMs } from "@/components/admin/AssignmentPlanningCalendar";
 import { countryFlag } from "@/lib/countries";
 import { canDeleteAssignment } from "@/lib/assignment-delete";
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
+import { useLabel } from "@/lib/use-label";
 
 /** Row LIVE de listAssignments (dérivée côté page → réactive : statut/pub à jour). */
 type AssignmentRow =
@@ -565,6 +566,7 @@ function DetailRow({
 }
 
 function CalendarStatusPill({ status }: { status: CalendarStatus }) {
+  const label = useLabel();
   if (status === "none") {
     return <span className="text-slate-400">Non planifié</span>;
   }
@@ -577,12 +579,13 @@ function CalendarStatusPill({ status }: { status: CalendarStatus }) {
       )}
     >
       <meta.Icon className="size-3" />
-      {meta.label}
+      {label(meta.labelKey)}
     </span>
   );
 }
 
 function ProductionStatusBadge({ status }: { status: AssignmentStatus }) {
+  const label = useLabel();
   const st = ASSIGNMENT_STATUS[status];
   return (
     <span
@@ -591,7 +594,7 @@ function ProductionStatusBadge({ status }: { status: AssignmentStatus }) {
         st.className,
       )}
     >
-      {st.label}
+      {label(st.labelKey)}
     </span>
   );
 }

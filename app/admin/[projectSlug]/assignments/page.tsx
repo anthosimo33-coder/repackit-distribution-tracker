@@ -81,6 +81,7 @@ import {
 } from "@/lib/assignment-campaign-filter";
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
 import { canDeleteAssignment } from "@/lib/assignment-delete";
+import { useLabel } from "@/lib/use-label";
 import {
   assignmentGroupKey,
   interleaveByGroup,
@@ -142,6 +143,7 @@ export default function AssignmentsPage() {
 }
 
 function AssignmentsPageInner() {
+  const label = useLabel();
   const assignments = useProjectQuery(api.assignments.listAssignments, {});
   const projectSlug = useProject().project.slug;
   // Ancre temporelle stable au montage (rang d'urgence de l'ordre + filtre
@@ -756,7 +758,7 @@ function AssignmentsPageInner() {
                             st.className,
                           )}
                         >
-                          {st.label}
+                          {label(st.labelKey)}
                         </span>
                       </TableCell>
                       <TableCell className="text-sm text-slate-500">
