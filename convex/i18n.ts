@@ -1,5 +1,6 @@
 import { v } from "convex/values";
-import { authedQuery, authedMutation } from "./functions";
+import { authedQuery, authedMutation, requireCreatorViewableByAdmin } from "./functions";
+import { getProjectBySlug } from "./projects";
 
 /**
  * LANGUE D'INTERFACE — lecture et écriture de la préférence de l'utilisateur.
@@ -64,5 +65,56 @@ export const setMyLocale = authedMutation({
   handler: async (ctx, { locale }) => {
     await ctx.db.patch(ctx.userId, { locale });
     return { locale };
+  },
+});
+
+/**
+ * Langue de la personne OBSERVÉE, pour le mode admin « voir son espace ».
+ *
+ * POURQUOI UNE QUERY SÉPARÉE. `getMyLocale` rend la langue de l'APPELANT, et
+ * c'est exactement le problème qu'elle ne peut pas résoudre ici : en
+ * observation, l'appelant est l'admin. La preview rendait donc dans la langue de
+ * l'admin — un espace créé en anglais s'affichait en français, avec des dates et
+ * des montants au format français. Or cette preview n'existe que pour montrer ce
+ * que la personne voit ; rendue dans une autre langue, elle ne montre plus rien.
+ *
+ * MÊME ORDRE que la chaîne normale, restreint à ce qu'un tiers peut lire :
+ *   1. `users.locale`    — la préférence du compte, si le compte existe ;
+ *   2. `creators.locale` — la langue posée par l'admin sur la fiche ;
+ *   3. `null`            — l'appelant tranche (« fr », le défaut du produit).
+ *
+ * Les maillons cookie et `Accept-Language` n'ont AUCUN sens ici : ce sont ceux
+ * du navigateur de l'admin, pas ceux de la personne observée. Les inclure
+ * ramènerait le défaut qu'on corrige.
+ *
+ * Le compte peut ne pas exister (fiche invitée, jamais activée) : `creators.locale`
+ * est alors le seul porteur, et c'est le cas nominal juste après l'invitation.
+ *
+ * Gate : `adminViewAsQuery` — identité, rôle admin du projet, fiche ∈ projet.
+ */
+export const getCreatorLocale = authedQuery({
+  args: { projectSlug: v.string(), creatorId: v.id("creators") },
+  handler: async (ctx, { projectSlug, creatorId }): Promise<{ locale: string | null }> => {
+    // Gate posée à la main plutôt que via `adminViewAsQuery` : ce wrapper prend
+    // un `projectId`, or le layout ne connaît que le SLUG de l'URL. Résoudre le
+    // projet côté client demanderait une query publique qui rende l'id — on
+    // préfère un aller-retour de moins et une surface publique inchangée. La
+    // garde exécutée est la MÊME (identité, rôle admin du projet, fiche ∈ projet).
+    const project = await getProjectBySlug(ctx, projectSlug);
+    if (project === null) return { locale: null };
+    const creator = await requireCreatorViewableByAdmin(
+      ctx,
+      ctx.userId,
+      project._id,
+      creatorId,
+    );
+    if (creator.userId) {
+      const user = await ctx.db.get(creator.userId);
+      if (user?.locale && user.locale.trim() !== "") {
+        return { locale: user.locale };
+      }
+    }
+    const fiche = creator.locale;
+    return { locale: fiche && fiche.trim() !== "" ? fiche : null };
   },
 });
