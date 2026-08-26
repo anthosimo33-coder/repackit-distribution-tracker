@@ -816,9 +816,43 @@ sens le plus **conservateur** pendant la traversée, et méritent ton avis.
 | # | Dette | Pourquoi elle est acceptable |
 |---:|---|---|
 | 1 | **Migration des anciens libellés de paie** — les `lineItems` écrits avant A9 n'ont pas de `detail` et restent affichés en français. | **Non chiffrée, non planifiée, sur ta décision.** Tes créateurs US sont nouveaux : leur premier cycle est intégralement anglais. Réécrire le passé reviendrait à falsifier un grand livre. |
+| 5 | **Écriture croisée `creators.locale` → `users.locale`, non faite.** `updateCreator` n'écrit que la fiche. Dès que `users.locale` est posé, la fiche ne pilote plus l'espace du créateur. Deux séquences y mènent : passer une fiche de EN à FR sur un compte activé (la normalisation SUPPRIME `creators.locale`, `users.locale` reste `"en"`), ou un créateur qui choisit sa langue dans son Profil puis un admin qui change la fiche. | **Vérifié en prod le 2026-08-26 : 0 divergence** sur 14 fiches liées à un compte. Le mécanisme n'a jamais mordu — `/join` recopie déjà `creators.locale` sur `users.locale` (`convex/auth.ts:140`), donc les deux restent alignés tant que personne n'intervient après coup. Le corriger demanderait de n'écrire QUE sur changement réel (le formulaire renvoie la langue à chaque save, une modification de téléphone écraserait sinon le choix du créateur) et une migration du stock. **Décision : ne pas coder, garder en dette.** |
 | 2 | **~2 588 chaînes admin/analytics restent en français.** | C'est le périmètre, pas un reste. La garde les ignore explicitement (`A7` marqué hors scope). |
 | 3 | **Les ~55 specs e2e assertent des libellés français.** | Elles tournent en locale `fr`, qui est le défaut du produit : rien à changer. Les deux qui branchaient sur le TEXTE d'une erreur serveur ont été passées au **code** en A2. |
 | 4 | **La garde ne voit pas les phrases assemblées dans une expression `{}`.** | Limite connue et documentée : elle attrape les littéraux, pas les phrases reconstruites. Les 5 cas du périmètre ont été traités à la main en A6. |
+
+### 11.5 La preview « Voir son espace » rendait dans la langue de l'admin
+
+**Corrigé après coup** (branche `fix/view-as-locale-createur`).
+
+Le provider next-intl racine monte les messages de l'APPELANT. En observation,
+l'appelant est l'admin : la preview d'un espace anglophone s'affichait donc en
+français — et pas seulement les mots. `useIntlLocale` lit `useLocale()`, donc les
+dates et les montants suivaient aussi : `1 234,56` et `03/09/26` là où la
+créatrice voit `15.00` et `09/03/2026`.
+
+Une preview qui existe pour montrer ce que la personne voit ne montrait plus
+rien. Ce n'était pas un défaut de traduction mais de **périmètre d'application**
+de la chaîne de résolution — elle-même reste juste, et n'a pas été touchée.
+
+Un `NextIntlClientProvider` IMBRIQUÉ, alimenté par la langue de la personne
+observée (`users.locale` → `creators.locale` → `fr`, résolue serveur avant le
+premier rendu), enveloppe la nav et le contenu. Le **bandeau reste dehors** : il
+s'adresse à l'admin, pas à l'observée.
+
+**Le sélecteur de langue de l'admin n'est pas rendu en observation**, donc il n'y
+a rien à désactiver : il vit dans `Sidebar`, montée par `SidebarLayout`, lui-même
+monté par le SEUL layout `/admin/[projectSlug]`. La route view-as est sa SŒUR et
+ne l'hérite pas. Une assertion e2e garde ce fait — avec son contrôle positif, le
+même locator devant trouver le sélecteur sur une page admin normale.
+
+Deux conséquences qu'il fallait tenir :
+- les hooks `useTranslations` doivent être appelés **sous** le provider, donc les
+  deux navs sont devenues des composants — appelés dans le corps du shell, elles
+  auraient continué à rendre la langue de l'admin ;
+- la nav réutilise les clés `portal.sidebar.*` / `portal.bottomNav.*` du portail
+  réel. C'est le MÊME élément d'interface : les deux navs ne peuvent pas diverger
+  sans que la preview cesse de montrer ce qu'elle prétend.
 
 ### 11.4 Ce que la traversée a corrigé au passage
 

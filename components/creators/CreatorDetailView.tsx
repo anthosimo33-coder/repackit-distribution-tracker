@@ -477,8 +477,9 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
                 </SelectContent>
               </Select>
               <p className="text-xs text-slate-500">
-                Langue des e-mails et de son espace. Une fois son compte créé,
-                sa propre préférence (Profil) prend le dessus.
+                Langue des e-mails, de son espace, et de l&apos;aperçu « Voir son
+                espace ». Une fois son compte créé, sa propre préférence (Profil)
+                prend le dessus.
               </p>
             </div>
           </div>

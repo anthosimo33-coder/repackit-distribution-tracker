@@ -23,6 +23,10 @@ import { useActionable, useWarmupDue } from "@/components/portal/creator-data";
 import { TalentProjectProvider } from "@/components/talent/TalentProjectProvider";
 import { ClipperProjectProvider } from "@/components/clip/ClipperProjectProvider";
 import { portalHref } from "@/lib/view-as";
+import { ViewAsLocale } from "@/components/portal/ViewAsLocale";
+import { useTranslations } from "next-intl";
+import type { AbstractIntlMessages } from "next-intl";
+import type { Locale } from "@/i18n/locales";
 import { cn } from "@/lib/utils";
 
 /**
@@ -50,40 +54,56 @@ import { cn } from "@/lib/utils";
  */
 type NavItem = {
   sub: string;
-  label: string;
-  shortLabel: string;
+  /**
+   * Clés du portail RÉEL, réutilisées telles quelles : cette nav est la réplique
+   * read-only de `CreatorSidebar` / `CreatorBottomNav`, c'est le MÊME élément
+   * d'interface. Ce n'est pas la réutilisation opportuniste que la doctrine
+   * interdit — les deux navs ne peuvent pas diverger sans que la preview cesse
+   * de montrer ce qu'elle prétend montrer.
+   */
+  labelKey: string;
+  shortLabelKey: string;
   icon: LucideIcon;
   exact: boolean;
   badge?: "actionable" | "warmupDue";
 };
 
 const NAV: NavItem[] = [
-  { sub: "/", label: "Tableau de bord", shortLabel: "Accueil", icon: HomeIcon, exact: true, badge: "actionable" },
-  { sub: "/comptes", label: "Mes comptes", shortLabel: "Comptes", icon: AtSignIcon, exact: false, badge: "warmupDue" },
-  { sub: "/paiements", label: "Mes paiements", shortLabel: "Gains", icon: WalletIcon, exact: false },
-  { sub: "/profil", label: "Profil", shortLabel: "Profil", icon: UserIcon, exact: false },
-  { sub: "/guide", label: "Comment ça marche", shortLabel: "Guide", icon: HelpCircleIcon, exact: false },
+  { sub: "/", labelKey: "sidebar.dashboard", shortLabelKey: "bottomNav.home", icon: HomeIcon, exact: true, badge: "actionable" },
+  { sub: "/comptes", labelKey: "sidebar.comptes", shortLabelKey: "bottomNav.comptes", icon: AtSignIcon, exact: false, badge: "warmupDue" },
+  { sub: "/paiements", labelKey: "sidebar.paiements", shortLabelKey: "bottomNav.gains", icon: WalletIcon, exact: false },
+  { sub: "/profil", labelKey: "sidebar.profil", shortLabelKey: "bottomNav.profil", icon: UserIcon, exact: false },
+  { sub: "/guide", labelKey: "sidebar.guide", shortLabelKey: "bottomNav.guide", icon: HelpCircleIcon, exact: false },
 ];
 
 /** Suivi vidéos — Snytch uniquement, inséré après « Mes paiements » (lecture seule). */
 const VIDEOS_NAV: NavItem = {
   sub: "/videos",
-  label: "Mes vidéos",
-  shortLabel: "Vidéos",
+  labelKey: "sidebar.videos",
+  shortLabelKey: "bottomNav.videos",
   icon: FilmIcon,
   exact: false,
 };
 
 /** Aiguillage sur la population observée. Hors mode vue → coque partenaire. */
-export function ViewAsShell({ children }: { children: React.ReactNode }) {
+type ShellProps = {
+  children: React.ReactNode;
+  /** Langue de la personne OBSERVÉE, résolue côté serveur (cf le layout). */
+  locale: Locale;
+  /** Catalogue correspondant, monté autour de la nav et du contenu. */
+  messages: AbstractIntlMessages;
+};
+
+export function ViewAsShell({ children, locale, messages }: ShellProps) {
   const viewAs = useViewAs();
+  const inner = { locale, messages };
   switch (viewAs?.creatorKind) {
     case "talent":
-      return <TalentViewShell>{children}</TalentViewShell>;
+      return <TalentViewShell {...inner}>{children}</TalentViewShell>;
     case "clipper":
-      return <ClipperViewShell>{children}</ClipperViewShell>;
+      return <ClipperViewShell {...inner}>{children}</ClipperViewShell>;
     default:
-      return <PartnerViewShell>{children}</PartnerViewShell>;
+      return <PartnerViewShell {...inner}>{children}</PartnerViewShell>;
   }
 }
 
@@ -160,9 +180,13 @@ function ScreenOutsideSpace({ base }: { base: string }) {
  *  c'est exactement la forme de leurs portails réels (/talent, /clip). */
 function BarePortalShell({
   accent,
+  locale,
+  messages,
   children,
 }: {
   accent: string;
+  locale: Locale;
+  messages: AbstractIntlMessages;
   children: React.ReactNode;
 }) {
   return (
@@ -171,12 +195,15 @@ function BarePortalShell({
       style={{ "--primary": accent, "--ring": accent } as React.CSSProperties}
     >
       <AccentStyle accent={accent} />
+      {/* Bandeau HORS du provider : il s'adresse à l'admin qui observe. */}
       <ViewAsBanner />
-      <main className="overflow-x-hidden">
-        <div className="container mx-auto px-4 py-6 sm:px-6 sm:py-8">
-          {children}
-        </div>
-      </main>
+      <ViewAsLocale locale={locale} messages={messages}>
+        <main className="overflow-x-hidden">
+          <div className="container mx-auto px-4 py-6 sm:px-6 sm:py-8">
+            {children}
+          </div>
+        </main>
+      </ViewAsLocale>
     </div>
   );
 }
@@ -193,7 +220,7 @@ function useSubPath(base: string): string {
  * TALENT — un seul écran, comme /talent. Tout autre sous-chemin est hors de son
  * espace (il n'a ni comptes, ni paiements, ni progression).
  */
-function TalentViewShell({ children }: { children: React.ReactNode }) {
+function TalentViewShell({ children, locale, messages }: ShellProps) {
   const { current } = useCreatorProject();
   const viewAs = useViewAs();
   const base = viewAs?.basePath ?? "/app";
@@ -201,7 +228,7 @@ function TalentViewShell({ children }: { children: React.ReactNode }) {
   const accent = current.accentColor || "#FF5200";
 
   return (
-    <BarePortalShell accent={accent}>
+    <BarePortalShell accent={accent} locale={locale} messages={messages}>
       {sub === "" ? (
         <TalentProjectProvider projectId={current.projectId}>
           {children}
@@ -217,7 +244,7 @@ function TalentViewShell({ children }: { children: React.ReactNode }) {
  * CLIPPEUR — l'espace (racine) et la fiche d'un clip, comme /clip et
  * /clip/clips/[id]. Rien d'autre.
  */
-function ClipperViewShell({ children }: { children: React.ReactNode }) {
+function ClipperViewShell({ children, locale, messages }: ShellProps) {
   const { current } = useCreatorProject();
   const viewAs = useViewAs();
   const base = viewAs?.basePath ?? "/app";
@@ -226,7 +253,7 @@ function ClipperViewShell({ children }: { children: React.ReactNode }) {
   const known = sub === "" || sub.startsWith("/clips/");
 
   return (
-    <BarePortalShell accent={accent}>
+    <BarePortalShell accent={accent} locale={locale} messages={messages}>
       {known ? (
         <ClipperProjectProvider projectId={current.projectId}>
           {children}
@@ -238,8 +265,95 @@ function ClipperViewShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * Les deux navs vivent dans des composants SÉPARÉS, et ce n'est pas cosmétique :
+ * `useTranslations` rend la langue du provider le plus proche AU MOMENT où le
+ * hook s'exécute. Appelé dans le corps de `PartnerViewShell`, il serait au-dessus
+ * de `ViewAsLocale` et rendrait donc la langue de l'ADMIN — exactement le défaut
+ * qu'on corrige. Monté dessous, il rend celle de la personne observée.
+ */
+type NavRenderProps = {
+  items: NavItem[];
+  base: string;
+  isActive: (item: NavItem) => boolean;
+  badgeCount: { actionable: number; warmupDue: number };
+};
+
+function SideNav({ items, base, isActive, badgeCount }: NavRenderProps) {
+  const t = useTranslations("portal");
+  // Les clés de la table sont des `string` : une table de données ne peut pas se
+  // typer contre le catalogue sans importer next-intl. Même compromis, documenté,
+  // que `lib/use-label` — une clé fautive se voit à l'exécution, pas à la compilation.
+  const k = (key: string) => t(key as Parameters<typeof t>[0]);
+  return (
+    <nav
+      aria-label={t("sidebar.aria")}
+      className="flex-1 space-y-1 overflow-y-auto px-3 py-4"
+    >
+      {items.map((it) => (
+        <SidebarItem
+          key={it.sub}
+          icon={it.icon}
+          label={k(it.labelKey)}
+          href={portalHref(base, it.sub)}
+          isActive={isActive(it)}
+          isCollapsed={false}
+          badge={it.badge ? badgeCount[it.badge] : undefined}
+        />
+      ))}
+    </nav>
+  );
+}
+
+function BottomNav({ items, base, isActive, badgeCount }: NavRenderProps) {
+  const t = useTranslations("portal");
+  const k = (key: string) => t(key as Parameters<typeof t>[0]);
+  return (
+    <nav
+      aria-label={t("bottomNav.aria")}
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 backdrop-blur supports-backdrop-filter:bg-white/80 md:hidden"
+      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+    >
+      <ul
+        className={cn(
+          "mx-auto grid max-w-lg",
+          items.length === 6 ? "grid-cols-6" : "grid-cols-5",
+        )}
+      >
+        {items.map((it) => {
+          const active = isActive(it);
+          const Icon = it.icon;
+          const count = it.badge ? badgeCount[it.badge] : 0;
+          return (
+            <li key={it.sub}>
+              <Link
+                href={portalHref(base, it.sub)}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "relative flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors",
+                  active ? "text-primary" : "text-slate-500 hover:text-slate-900",
+                )}
+              >
+                <span className="relative">
+                  <Icon className="size-6" strokeWidth={active ? 2.4 : 2} />
+                  {count > 0 && (
+                    <span className="absolute -right-2 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold leading-none text-primary-foreground">
+                      {count}
+                    </span>
+                  )}
+                </span>
+                {k(it.shortLabelKey)}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
+}
+
 /** PARTENAIRE — la coque historique (sidebar desktop / bottom nav mobile). */
-function PartnerViewShell({ children }: { children: React.ReactNode }) {
+function PartnerViewShell({ children, locale, messages }: ShellProps) {
   const pathname = usePathname();
   const { current } = useCreatorProject();
   const viewAs = useViewAs();
@@ -269,9 +383,11 @@ function PartnerViewShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-slate-50" style={accentVars}>
       <AccentStyle accent={accent} />
 
-      {/* BANDEAU DE MODE — persistant, en tête de tous les écrans du mode vue. */}
+      {/* BANDEAU DE MODE — persistant, et HORS du provider de langue : il
+          s'adresse à l'admin qui observe, pas à la personne observée. */}
       <ViewAsBanner />
 
+      <ViewAsLocale locale={locale} messages={messages}>
       <div className="md:flex">
         {/* Sidebar DESKTOP (≥ md) — réplique read-only de CreatorSidebar. */}
         <aside className="hidden h-[calc(100vh-49px)] w-60 shrink-0 flex-col border-r border-slate-200 bg-white md:sticky md:top-[49px] md:flex">
@@ -280,22 +396,12 @@ function PartnerViewShell({ children }: { children: React.ReactNode }) {
               {current.name}
             </span>
           </div>
-          <nav
-            aria-label="Navigation vue créateur"
-            className="flex-1 space-y-1 overflow-y-auto px-3 py-4"
-          >
-            {navItems.map((it) => (
-              <SidebarItem
-                key={it.sub}
-                icon={it.icon}
-                label={it.label}
-                href={portalHref(base, it.sub)}
-                isActive={isActive(it)}
-                isCollapsed={false}
-                badge={it.badge ? badgeCount[it.badge] : undefined}
-              />
-            ))}
-          </nav>
+          <SideNav
+            items={navItems}
+            base={base}
+            isActive={isActive}
+            badgeCount={badgeCount}
+          />
         </aside>
 
         <main className="flex-1 overflow-x-hidden">
@@ -306,46 +412,13 @@ function PartnerViewShell({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Bottom tab bar MOBILE (< md) — réplique read-only de CreatorBottomNav. */}
-      <nav
-        aria-label="Navigation vue créateur"
-        className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 backdrop-blur supports-backdrop-filter:bg-white/80 md:hidden"
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
-      >
-        <ul
-          className={cn(
-            "mx-auto grid max-w-lg",
-            navItems.length === 6 ? "grid-cols-6" : "grid-cols-5",
-          )}
-        >
-          {navItems.map((it) => {
-            const active = isActive(it);
-            const Icon = it.icon;
-            const count = it.badge ? badgeCount[it.badge] : 0;
-            return (
-              <li key={it.sub}>
-                <Link
-                  href={portalHref(base, it.sub)}
-                  aria-current={active ? "page" : undefined}
-                  className={cn(
-                    "relative flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors",
-                    active ? "text-primary" : "text-slate-500 hover:text-slate-900",
-                  )}
-                >
-                  <span className="relative">
-                    <Icon className="size-6" strokeWidth={active ? 2.4 : 2} />
-                    {count > 0 && (
-                      <span className="absolute -right-2 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold leading-none text-primary-foreground">
-                        {count}
-                      </span>
-                    )}
-                  </span>
-                  {it.shortLabel}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      </nav>
+      <BottomNav
+        items={navItems}
+        base={base}
+        isActive={isActive}
+        badgeCount={badgeCount}
+      />
+      </ViewAsLocale>
     </div>
   );
 }

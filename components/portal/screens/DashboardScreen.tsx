@@ -734,7 +734,6 @@ function AssignmentList({
   /** Comptes gérés : pas d'urgence, badge « géré par l'équipe » au lieu du statut. */
   managed?: boolean;
 }) {
-  const t = useTranslations("portal");
   const shown = items.slice(0, ITEM_CAP);
   const extra = items.length - shown.length;
   return (
