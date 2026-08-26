@@ -28,6 +28,7 @@ import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { Loader2Icon } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { LanguageSelector } from "@/components/layout/LanguageSelector";
 
 type PaymentMethod = "sepa" | "paypal" | "usdt" | "autre";
 
@@ -60,6 +61,7 @@ export default function ProfilScreen() {
   const projectId = useCreatorProjectId();
   const profile = useMyProfile(projectId);
   const readOnly = useReadOnly();
+  const tSettings = useTranslations("settings.language");
   const updateProfile = useMutation(api.creators.updateMyProfile);
 
   // Valeurs éditées (null = pas encore touché → on affiche la valeur serveur).
@@ -200,6 +202,30 @@ export default function ProfilScreen() {
               )}
             </CardContent>
           </Card>
+
+          {/*
+            Langue de l'interface. Le sélecteur n'existait QUE dans la sidebar
+            admin : un créateur subissait la langue posée par l'admin à
+            l'invitation, sans pouvoir la corriger — un créateur US invité par
+            erreur en français restait bloqué en français.
+
+            Masqué en lecture seule (view-as) : la mutation écrit sur
+            `users.locale` de L'APPELANT, donc sur le compte de l'admin
+            observateur. Le bouton changerait la langue de l'admin tout en
+            paraissant agir sur celle de la créatrice observée.
+          */}
+          {!readOnly && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  {tSettings("label")}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <LanguageSelector />
+              </CardContent>
+            </Card>
+          )}
         </>
       )}
     </div>
