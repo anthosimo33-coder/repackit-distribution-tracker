@@ -66,8 +66,11 @@ la refuser en base coupleraient le schéma à la liste des langues livrées.
 - Convention **stricte** : `module.composant.element`
   (`nav.item.dashboard`, `settings.language.label`).
 - **Interdiction absolue** de clés générées depuis le texte français.
-- `en.json` = **exactement les mêmes clés**, valeurs **françaises copiées telles
-  quelles**. La traduction est **hors scope**.
+- `en.json` = **exactement les mêmes clés**. ~~Valeurs françaises copiées telles
+  quelles, traduction hors scope.~~ **LEVÉ le 2026-08-25 (D1)** : `en.json` porte
+  de VRAIES traductions, et une garde CI refuse désormais toute valeur anglaise
+  identique au français hors liste blanche (`scripts/i18n-same-in-en.json`).
+  Voir `I18N_STATUS.md`.
 - **Clés typées** : `global.d.ts` dérive le type de `messages/fr.json`, qui est la
   source. Une faute de frappe dans `t()` est une **erreur TypeScript**.
 - Pluriels et interpolations via **ICU MessageFormat**, jamais par concaténation.
@@ -246,7 +249,12 @@ Ce n'est pas un accident isolé : sur des centaines d'extractions, le réflexe
 = « Comment ça marche » et `portal.nav.guide` = « Guide » coexistent désormais,
 et c'est le comportement voulu.
 
-## 11. Découpage — 7 PRs
+## 11. Découpage — 7 PRs *(PÉRIMÉ)*
+
+> ⚠️ **Ce tableau ne décrit plus le chantier.** Il annonçait notamment « la
+> frontière Convex doit précéder les écrans » — l'inverse de ce qui a été fait.
+> Le découpage réellement exécuté, et le périmètre qui le cadre, sont dans
+> `I18N_STATUS.md` §6 et §10.
 
 Ordre imposé par les **dépendances**, pas par le volume.
 

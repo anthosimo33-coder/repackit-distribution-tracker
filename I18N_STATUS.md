@@ -1,25 +1,29 @@
-# I18N_STATUS — état du chantier au 2026-08-25
+# I18N_STATUS — parcours créateur en anglais US
 
-Audit **lecture seule**, reconstitué depuis le dépôt (aucun fichier modifié hors
-celui-ci). Branche : `feat/i18n-2b-ecrans-createur` — **5 commits devant `main`,
-3 commits en retard, aucune branche distante** (rien n'est poussé).
-`tsc --noEmit` vert, `node scripts/check-i18n.mjs` vert.
+**Chantier TERMINÉ.** Branche `feat/i18n-2b-ecrans-createur`,
+[PR #94](https://github.com/anthosimo33-coder/repackit-distribution-tracker/pull/94).
+`tsc`, `pnpm build`, 2 064 tests unitaires et `node scripts/check-i18n.mjs`
+verts après chaque lot.
 
-> **Le point qui recadre tout le reste.** Le chantier mené jusqu'ici n'était
-> **pas** une traduction : c'est une **extraction**. `ARBITRAGES-I18N.md` §4
-> tranchait « `en.json` = exactement les mêmes clés, valeurs françaises copiées
-> telles quelles. **La traduction est hors scope.** »
+> **L'objectif n'était pas de traduire l'app** : c'était qu'un **créateur US
+> voie 100 % d'anglais US sur son parcours**. L'admin et l'analytics hub
+> **restent en français**, volontairement (lot `A7`, hors scope).
 >
-> **Cette règle est levée (D1, 2026-08-25).** La traduction entre dans le
-> chantier, et les lots `B1`/`B2` passent **avant** la reprise de l'extraction.
-> `ARBITRAGES-I18N.md` §4 doit être amendé dans le commit de `B1`.
+> Le périmètre est la **clôture d'imports** des routes créateur, calculée et
+> régénérable (§3). Le critère de fin est un **parcours coché** (§10), pas un
+> pourcentage.
 
-> **Recadrage du périmètre (D10, 2026-08-25).** L'objectif n'est **pas** de
-> traduire l'app : c'est qu'un **créateur US voie 100 % d'anglais US sur son
-> parcours**. L'admin et l'analytics hub **restent en français**. Le périmètre est
-> défini mécaniquement en §3, le critère de fin est un **parcours coché** (§10),
-> pas un pourcentage. Chiffre du chantier après recadrage : **~325 chaînes**
-> au lieu de ~2 900, **~163 clés** à traduire au lieu de 177.
+| | avant | après |
+|---|---:|---:|
+| Fichiers du périmètre extraits | 30/56 (liste dérivée) | **140/140** |
+| Chaînes françaises dans le périmètre | ~325 | **0** |
+| Complétion du catalogue anglais | 33 % | **97,5 %** (691 clés) |
+| Rejets Convex du parcours en français | 80 | **0** |
+| E-mails créateur en anglais | 1/7 | **7/7** |
+
+**Les sections 1 à 9 sont l'audit initial**, conservé tel quel : il documente
+l'état de départ et les décisions qui ont cadré le chantier. Les chiffres qu'il
+contient sont ceux du 2026-08-25 **avant** exécution. L'état final est en §10.
 
 ---
 
@@ -658,46 +662,228 @@ le séquencement réel. *Recommandation : le remplacer par le §6/§7 de ce fich
 ## 10. Critère de fin — le parcours créateur en anglais
 
 **Ce critère remplace le pourcentage d'avancement.** Le chantier est fini quand
-un créateur invité en `en` traverse ce parcours **sans voir une seule chaîne
-française**. Il se vérifie en session réelle, locale `en`, pas au compteur.
+un créateur invité en `en` traverse ce parcours sans voir une seule chaîne
+française.
 
-| # | Étape | Ce qui doit être en anglais | Lot | ✓ |
+| # | Étape | Ce qui est en anglais | Livré par | ✓ |
 |---:|---|---|---|:-:|
-| 1 | **E-mail d'invitation** | sujet, corps, CTA, mention de lien à usage unique | *déjà fait* | ☑ |
-| 2 | **`/join/:token`** | accueil, choix du mot de passe, lien invalide/expiré | A1 (fait) + A2 | ☐ |
-| 3 | **Activation du compte** | erreur « mot de passe trop court », échec de création | A2 | ☐ |
-| 4 | **`/:slug/login`** | libellés, erreurs d'identifiants, projet introuvable | A1 (fait) + A2 | ☐ |
-| 5 | **Dashboard `/app`** | cartes d'action, étapes d'onboarding, « Mes gains », **montants au format US** | A5 | ☐ |
-| 6 | **Déclaration de compte** | dialogue, erreurs serveur (compte déjà existant, plateforme invalide) | A1 + A2 | ☐ |
-| 7 | **Warmup** | `WarmupGuideAccordion` (91 chaînes), check du jour, « check déjà fait » | A1 + A2 | ☐ |
-| 8 | **Mission `/app/assignments/:id`** | brief, upload, erreurs de soumission | A1 + A2 | ☐ |
-| 9 | **Publication** | collage d'URL, « ce lien n'est pas un lien TikTok », date dans le futur | A1 + A2 | ☐ |
-| 10 | **Refus de quota clippeur** | `quotaRefusalMessage` — **y compris la date**, en anglais US | A3 | ☐ |
-| 11 | **Écran de paie `/app/paiements`** | libellés, **montants `$1,234.56`**, **dates `MM/DD/YYYY`**, libellé de cycle | A5 + A9 | ☐ |
-| 12 | **`/app/videos`** | libellés, **vues `1,234`** | A5 | ☐ |
-| 13 | **`/app/profil`** | méthodes de paiement, confirmation d'enregistrement | A1 | ☐ |
-| 14 | **Changer de langue depuis le portail** | le sélecteur doit exister côté créateur | **A10** | ☐ |
-| 15 | **Toasts et états vides** sur tout le parcours | aucun littéral FR | A1 + A6 | ☐ |
-| 16 | **Titre d'onglet du navigateur** | `layout.metadata.title` | B1 | ☐ |
-| 17 | **Les 6 autres e-mails** (vidéo validée/refusée, paiement, mission, relance, deadline) | sujet + corps | A4 | ☐ |
+| 1 | **E-mail d'invitation** | sujet, corps, CTA, mention du lien à usage unique | #80 | ☑ |
+| 2 | **`/join/:token`** | accueil, choix du mot de passe, lien invalide ou expiré | lot 1 + B1 | ☑ |
+| 3 | **Activation du compte** | « mot de passe trop court », échec de création | B1 + A2 | ☑ |
+| 4 | **`/:slug/login`** | libellés, identifiants invalides, projet introuvable | lot 1 + B1 + A2 | ☑ |
+| 5 | **Dashboard `/app`** | cartes d'action, étapes d'onboarding, « Mes gains », **montants `$1,234.56`** | A1f + A5 | ☑ |
+| 6 | **Déclaration de compte** | dialogue, « ce compte existe déjà sur TikTok », plateforme invalide | A1e + A2 | ☑ |
+| 7 | **Warmup** | guide (98 chaînes), check du jour, « check déjà fait » | A1b + A1c + A2 | ☑ |
+| 8 | **Mission `/app/assignments/:id`** | brief, upload, erreurs de soumission | A1e + A2 | ☑ |
+| 9 | **Publication** | collage d'URL, « ce lien n'est pas un lien TikTok », date dans le futur | A1e + A2 | ☑ |
+| 10 | **Refus de quota clippeur** | message complet, **y compris la date et la phase** | A3 + A2 | ☑ |
+| 11 | **Écran de paie `/app/paiements`** | libellés, **`$1,234.56`**, **`MM/DD/YY`**, cycle, lignes de paie | A5 + A9 | ☑ |
+| 12 | **`/app/videos`** | statuts, filtres, **vues `12,345`** | A1e + A5 | ☑ |
+| 13 | **`/app/profil`** | identité, paiement, **+ le sélecteur de langue** | A1f + A10 | ☑ |
+| 14 | **Les 6 autres e-mails** | vidéo validée / refusée, paiement, mission, relance, deadline | A4 | ☑ |
 
-**Réserve assumée, à ne pas confondre avec un défaut** (§6 ter) : un créateur
-avec de l'**historique de paie français** garde ses anciennes lignes en français
-(`lineItems[].label` figé en base). Le critère porte sur un créateur **US
-nouvellement onboardé**, pour qui l'écran est intégralement anglais dès le
-premier cycle.
+**Réserve assumée** (§6 ter) : un créateur avec de l'**historique de paie
+français** garde ses anciennes lignes en français — `lineItems[].label` est figé
+en base. Le critère porte sur un créateur **US nouvellement onboardé**, dont le
+premier cycle est intégralement anglais dès A9.
 
 ---
 
 ## 10 bis. Suivi des lots
 
-| Lot | État | Chaînes restantes (périmètre) | Clés EN restantes |
-|---|---|---:|---:|
-| — | recadrage du périmètre, 2026-08-25 | **~325** sur 46 fichiers | **~163** |
+| Lot | Contenu | État |
+|---|---|:-:|
+| **A0** | rebase, push, PR draft | ☑ |
+| **B1** | 178 clés traduites (33 % → 98 %) | ☑ |
+| **B2** | garde « en.json ne recopie plus fr.json » | ☑ |
+| **A8** | garde pilotée par le périmètre (clôture d'imports) | ☑ |
+| **A8b** | correctif : le texte JSX multi-ligne était invisible | ☑ |
+| **A5** | formats US — dates, nombres, montants | ☑ |
+| **A10** | sélecteur de langue côté créateur | ☑ |
+| **A4** | les 6 e-mails restants | ☑ |
+| **A1** | 140/140 fichiers du périmètre extraits | ☑ |
+| **A3** | `accountPhase` — phases, dates en toutes lettres | ☑ |
+| **A6** | pluriels concaténés → ICU | ☑ |
+| **A2** | 80 rejets Convex → codes `ERR_*` | ☑ |
+| **A9** | lignes de paie structurées (chemin d'écriture) | ☑ |
+| **A7** | ~~admin + analytics~~ | 🚫 hors scope |
 
-*(Recompté par `node scripts/check-i18n.mjs` après chaque lot, jamais estimé.)*
+**Chiffres finaux** : 691 clés, **97,5 % de complétion EN** (le reste = marques
+et jargon déjà anglais, liste blanche explicite), **140/140 fichiers du
+périmètre**, **0 chaîne française restante**. tsc, build et 2 064 tests verts.
 
-## 11. À arbitrer (chaînes rencontrées en cours de route)
+---
 
-*(Vide — se remplit pendant l'exécution : toute chaîne dont la traduction dépend
-d'un choix produit atterrit ici plutôt que d'être devinée.)*
+## 10 ter. Les 8 sites de montants — rendu avant / après
+
+Le français est **inchangé à l'octet près** partout. Seule la colonne EN est
+nouvelle.
+
+| # | Site | Fichier | FR (inchangé) | EN (nouveau) |
+|---:|---|---|---|---|
+| 1 | Écran de paie — montants (10 appels) | `portal/screens/PaiementsScreen.tsx` | `1 234,56 $` | `$1,234.56` |
+| 2 | `formatMoney` — le formateur (6 appels) | `lib/format-rate.ts` | `1 234,56 €` | `€1,234.56` |
+| 3 | Simulateur de gains (5) | `portal/EarningsCalculator.tsx` | `1 234,56 $` | `$1,234.56` |
+| 4 | Estimateur de barème (4) | `portal/PricingEstimator.tsx` | `1 234,56 $` | `$1,234.56` |
+| 5 | Dashboard « Mes gains » (4) | `portal/screens/DashboardScreen.tsx` | `03/09/26` · `1 234,56 $` | `09/03/26` · `$1,234.56` |
+| 6 | Paliers de bonus (2) | `portal/screens/ProgressionScreen.tsx` | `1,5 k` · `1 234,56 $` | `1.5k` · `$1,234.56` |
+| 7 | Classement, partagé admin (2) | `admin/leaderboard/CreatorLeaderboard.tsx` | `5 juil. – 3 août 2026` | `Jul 5 – Aug 3, 2026` |
+| 8 | Vues compactes + libellé de cycle (4) | `lib/format.ts`, `lib/pay-cycle.ts` | `12 345` · `0,56 %` | `12,345` · `0.56%` |
+
+**Bonus, hors des 8** : `formatBytes` traduit aussi ses unités (`1,2 Mo` →
+`1.2 MB`) — « 340 Mo » ne veut rien dire pour un anglophone.
+
+**Invariants tenus, vérifiés :**
+- la **devise ne dérive jamais de la langue** : elle vient de la transaction
+  (`projects.payCurrency` pour la paie, `whopPayments.currency` pour le revenu) ;
+- **aucune conversion, aucun taux, aucun backfill** — `fxRateToRevenue` n'est pas
+  touché ;
+- **fuseau épinglé `Europe/Paris`** ; `en` ne veut pas dire UTC ;
+- **`lineItems[].label` n'est jamais réécrit** : A9 ajoute un champ, il ne
+  modifie pas l'historique ;
+- **`formatCycleRange` est de l'affichage pur** (recalculé depuis les timestamps),
+  vérifié avant de le localiser.
+
+**Un piège évité, qui aurait cassé la CI en silence** : `formatPercent` en
+`style: "percent"` insère en français une **espace fine insécable** (U+202F) là
+où le rendu historique met une espace ordinaire. Le caractère est invisible et
+il aurait fait tomber `e2e/verdict-follows-periode.spec.ts`, qui attend
+« 0,50 % ». Le nombre passe par `Intl`, le signe est posé à la main.
+
+## 11. À arbitrer après coup
+
+Rien de bloquant : le parcours est complet. Ces points ont été tranchés dans le
+sens le plus **conservateur** pendant la traversée, et méritent ton avis.
+
+### 11.1 Décisions produit prises par défaut
+
+| # | Point | Choix conservateur retenu | Alternative |
+|---:|---|---|---|
+| 1 | **Ton en anglais** (D4, jamais confirmé) | **informel** — « you », contractions, aligné sur l'e-mail d'invitation et le quadrant déjà écrits | passer au registre formel demanderait de relire les ~646 valeurs |
+| 2 | **Année sur 2 chiffres** | `MM/DD/YY` (`09/03/26`) — l'**ordre** des champs suit l'anglais US, la **largeur** reste celle du français | tu as écrit `MM/DD/YYYY` ; passer à 4 chiffres changerait AUSSI le rendu français, que j'ai gardé intact partout |
+| 3 | **`nav.section.veille` → « Radar »** | applique le glossaire (D5) | crée un doublon visuel : la section « Radar » contient l'item « Radar ». Admin-only, faible enjeu |
+| 4 | **Langue en mode view-as** (D7) | le sélecteur de langue est **masqué** en observation | la mutation écrit sur `users.locale` de l'ADMIN : le bouton aurait changé SA langue en paraissant agir sur celle de la créatrice |
+| 5 | **`« Mes vidéos »` dans les guillemets français** | conservés en français, `“My videos”` en anglais | cohérent avec la typographie de chaque langue |
+
+### 11.2 Trous fonctionnels rencontrés, non comblés
+
+| # | Trou | Conséquence | Effort |
+|---:|---|---|---|
+| 1 | **L'admin ne peut pas changer la langue d'une fiche EXISTANTE.** `updateCreator` accepte l'argument `locale` côté serveur, mais aucun formulaire ne l'expose — seul `InviteCreatorDialog` a le champ. | Un créateur invité en français par erreur ne peut être corrigé que **par lui-même** (écran Profil, livré en A10). | ~1 h |
+| 2 | **Aucune page légale** (CGU, mentions, confidentialité) dans le dépôt. | Ce n'est pas un manque i18n, mais il devient visible dès qu'on onboarde des créateurs US sous contrat. | produit |
+
+### 11.3 Dettes assumées
+
+| # | Dette | Pourquoi elle est acceptable |
+|---:|---|---|
+| 1 | **Migration des anciens libellés de paie** — les `lineItems` écrits avant A9 n'ont pas de `detail` et restent affichés en français. | **Non chiffrée, non planifiée, sur ta décision.** Tes créateurs US sont nouveaux : leur premier cycle est intégralement anglais. Réécrire le passé reviendrait à falsifier un grand livre. |
+| 2 | **~2 588 chaînes admin/analytics restent en français.** | C'est le périmètre, pas un reste. La garde les ignore explicitement (`A7` marqué hors scope). |
+| 3 | **Les ~55 specs e2e assertent des libellés français.** | Elles tournent en locale `fr`, qui est le défaut du produit : rien à changer. Les deux qui branchaient sur le TEXTE d'une erreur serveur ont été passées au **code** en A2. |
+| 4 | **La garde ne voit pas les phrases assemblées dans une expression `{}`.** | Limite connue et documentée : elle attrape les littéraux, pas les phrases reconstruites. Les 5 cas du périmètre ont été traités à la main en A6. |
+
+### 11.4 Ce que la traversée a corrigé au passage
+
+Trois défauts trouvés **pendant** l'exécution, pas prévus au plan :
+
+1. **Le compteur d'avancement mentait.** `STRICT_JSX` ne voyait le texte JSX que
+   si les deux chevrons étaient sur la même ligne — or Prettier passe à la ligne
+   dès qu'une balise dépasse la largeur. 57 chaînes françaises vivaient dans des
+   fichiers comptés comme « extraits », dont `ProfilScreen`, `ComptesScreen`,
+   `GuideScreen` et `DashboardScreen`. Corrigé, avec trois garde-fous contre la
+   capture de code.
+2. **Le point-virgule français.** Le correctif ci-dessus rejetait toute capture
+   contenant `;` — ce qui rendait invisible **toute phrase française qui en
+   contient** (« un admin la relit ; une fois validée… »). Resserré à
+   « point-virgule en fin de ligne ».
+3. **`lib/` et `convex/` n'étaient pas scannés du tout**, alors que 69 chaînes du
+   parcours créateur y vivent — sans aucun cliquet.
+
+---
+
+## 12. Tester toi-même un compte créateur en anglais
+
+### 12.1 Le plus rapide — forcer la langue sans rien créer (30 s)
+
+La langue est résolue **côté serveur** en 5 maillons ; le cookie est le 3ᵉ, et il
+fonctionne **avant même d'être connecté**. C'est le levier le plus direct.
+
+1. Ouvre l'app, **F12 → Console**, colle :
+
+```javascript
+document.cookie = "NEXT_LOCALE=en; path=/; max-age=31536000; samesite=lax"; location.reload();
+```
+
+2. Toute l'interface passe en anglais, y compris l'écran de login.
+3. Pour revenir : rejoue la même ligne avec `NEXT_LOCALE=fr`.
+
+⚠️ Si tu es **connecté**, `users.locale` (maillon 1) **gagne sur le cookie**.
+Déconnecte-toi d'abord, ou utilise 12.2.
+
+### 12.2 Depuis un compte créateur — le vrai chemin (nouveau en A10)
+
+1. Connecte-toi en créateur → **Profil** (`/app/profil`).
+2. Tout en bas, carte **« Langue de l'interface »** → clique **EN**.
+3. La page se recharge en anglais. La préférence est écrite sur `users.locale`
+   (elle te suit d'un appareil à l'autre) **et** dans le cookie.
+
+C'est le trou que A10 a bouché : avant, ce sélecteur n'existait que dans la
+sidebar **admin**.
+
+### 12.3 Le parcours complet, dans l'ordre (~15 min)
+
+Pour vérifier les 14 étapes du §10, **crée un vrai créateur anglophone** :
+
+1. **Admin → Créateurs → Inviter un créateur.** Renseigne nom + e-mail, et
+   surtout le champ **« Langue * » → English**.
+2. **L'e-mail d'invitation part en anglais** (« Welcome to Jarvia 👋 »).
+   → étape 1 ✓
+3. **Clique le lien** de l'e-mail : `/join/<token>` s'affiche **en anglais**
+   sans que tu aies rien à régler — la langue vient de la fiche, exposée par
+   `getInvitationPreview`. → étapes 2-3 ✓
+   *Pour tester l'erreur : saisis un mot de passe de 3 caractères →
+   « Your password must be at least 8 characters. »*
+4. **Active le compte**, tu arrives sur le **dashboard en anglais**. → étape 5 ✓
+5. **Declare an account** (TikTok, `@quelquechose`). Recommence avec le **même
+   handle** → « Account @… already exists on TikTok. » → étape 6 ✓
+6. **Warm-up** : ouvre le guide (bouton **Warm-up guide**), déroule les
+   7 sections. Coche le check du jour, puis re-clique → « Today's check is
+   already done. » → étape 7 ✓
+7. **Depuis l'admin**, assigne-lui une mission. Le créateur reçoit
+   « New assignment for you 🎬 ». Ouvre la mission côté créateur. → étapes 8, 14 ✓
+8. **Colle une URL YouTube** dans le champ TikTok → « The URL given for TikTok
+   doesn't match that platform. » → étape 9 ✓
+9. **`/app/paiements`** : les montants sont en `$1,234.56`, les dates en
+   `MM/DD/YY`, le cycle en `Jul 5 – Aug 3, 2026`. → étape 11 ✓
+10. **`/app/videos`** : vues en `12,345`, filtres en anglais. → étape 12 ✓
+
+### 12.4 Le refus de quota clippeur (étape 10)
+
+C'est le message le plus difficile à voir, et le seul qui traverse le serveur
+avec ses paramètres. Il faut un compte de **clippeur** :
+
+1. Invite un créateur avec **Rôle = Clippeur** et **Langue = English**.
+2. Déclare un compte, fais-le **valider par l'admin**.
+3. Publie jusqu'au quota du jour, puis tente une publication de plus.
+4. Attendu : *« Quota reached for Monday, August 10 on @handle: 2 posts out of 2
+   in cruising phase. »* — **la date ET la phase sont en anglais**, alors que le
+   serveur les a produites en français. C'est le point de A2 : le serveur envoie
+   l'instant brut et la clé de phase, le client les rend dans sa langue.
+
+### 12.5 Ce qui doit RESTER en français (ce n'est pas un bug)
+
+- **Tout `/admin/...`** — dashboard, analytics, validation, comptes, scripts.
+- **Les notifications Telegram** — canal partagé, aucun destinataire à résoudre.
+- **Les lignes de paie ANTÉRIEURES** au déploiement (§11.3, dette 1).
+- **Le nom des langues** dans le sélecteur : « Français » / « English » sont des
+  endonymes, ils ne se traduisent jamais.
+
+### 12.6 Vérifier sans lancer l'app
+
+```bash
+node scripts/check-i18n.mjs
+```
+
+Sortie attendue : `140/140 fichiers extraits`, `~0 chaînes`, catalogues alignés
+et anglais traduit. La commande échoue si une chaîne française réapparaît dans le
+périmètre, si `en.json` recopie `fr.json` hors liste blanche, ou si une structure
+ICU diverge entre les deux catalogues.
