@@ -17,7 +17,7 @@ verts après chaque lot.
 |---|---:|---:|
 | Fichiers du périmètre extraits | 30/56 (liste dérivée) | **140/140** |
 | Chaînes françaises dans le périmètre | ~325 | **0** |
-| Complétion du catalogue anglais | 33 % | **97,5 %** (691 clés) |
+| Complétion du catalogue anglais | 33 % | **100 %** — 653 traduites + 38 identiques *légitimement*, 0 hors liste blanche (691 clés) |
 | Rejets Convex du parcours en français | 80 | **0** |
 | E-mails créateur en anglais | 1/7 | **7/7** |
 
@@ -634,11 +634,10 @@ un montant est signalé avant application** (les 8 sites sont listés en §6 bis
 
 ### Restant à trancher
 
-**D4 — Ton en anglais : informel, comme le tutoiement FR ?** *(non répondu)*
-Le FR tutoie systématiquement ; les deux passages EN existants sont informels
-(« you », contractions). *Je pars sur l'informel* — c'est le seul choix cohérent
-avec le corpus existant — mais ce n'est pas confirmé, et ça mérite une ligne dans
-`ARBITRAGES-I18N.md` pour ne pas se re-décider à chaque session.
+**D4 — Ton en anglais : INFORMEL. ✅ TRANCHÉ (2026-08-26)**
+« you », contractions, registre direct — le pendant du tutoiement français.
+Confirmé définitivement : c'est le ton des 653 valeurs livrées, et il ne se
+rediscute plus.
 
 **D6 — Contenu en base : jusqu'où ?** La doctrine (mapping à l'affichage, jamais
 de renommage) couvre `angleTonal`, `statut`, `interval`, `VerdictBadge`.
@@ -708,9 +707,19 @@ premier cycle est intégralement anglais dès A9.
 | **A9** | lignes de paie structurées (chemin d'écriture) | ☑ |
 | **A7** | ~~admin + analytics~~ | 🚫 hors scope |
 
-**Chiffres finaux** : 691 clés, **97,5 % de complétion EN** (le reste = marques
-et jargon déjà anglais, liste blanche explicite), **140/140 fichiers du
-périmètre**, **0 chaîne française restante**. tsc, build et 2 064 tests verts.
+**Chiffres finaux, re-vérifiés au scan complet** : 691 clés — **653 réellement
+traduites** et **38 identiques au français**, toutes sur la liste blanche
+explicite (`scripts/i18n-same-in-en.json`), **aucune hors liste**. Le catalogue
+est donc entièrement traité.
+
+**140/140 fichiers**, **0 occurrence** — comptage indépendant de la baseline,
+avec le détecteur corrigé (multi-ligne JSX + point-virgule + `lib/` + `convex/`).
+tsc, build et 2 064 tests verts.
+
+⚠️ Un chiffre de « 97,5 % / 17 clés françaises » a circulé en cours de chantier :
+il venait d'un script d'audit jetable dont la liste de termes acceptables était
+codée en dur et périmée. Le nombre qui fait foi est celui de la garde, qui lit
+la liste blanche du dépôt.
 
 ---
 
@@ -721,17 +730,25 @@ nouvelle.
 
 | # | Site | Fichier | FR (inchangé) | EN (nouveau) |
 |---:|---|---|---|---|
-| 1 | Écran de paie — montants (10 appels) | `portal/screens/PaiementsScreen.tsx` | `1 234,56 $` | `$1,234.56` |
+| 1 | Écran de paie — montants (10) + dates (3) | `portal/screens/PaiementsScreen.tsx` | `1 234,56 $` · `03/09/26` | `$1,234.56` · **`09/03/2026`** |
 | 2 | `formatMoney` — le formateur (6 appels) | `lib/format-rate.ts` | `1 234,56 €` | `€1,234.56` |
 | 3 | Simulateur de gains (5) | `portal/EarningsCalculator.tsx` | `1 234,56 $` | `$1,234.56` |
 | 4 | Estimateur de barème (4) | `portal/PricingEstimator.tsx` | `1 234,56 $` | `$1,234.56` |
-| 5 | Dashboard « Mes gains » (4) | `portal/screens/DashboardScreen.tsx` | `03/09/26` · `1 234,56 $` | `09/03/26` · `$1,234.56` |
+| 5 | Dashboard « Mes gains » (4) | `portal/screens/DashboardScreen.tsx` | `03/09/26` · `1 234,56 $` | **`09/03/2026`** · `$1,234.56` |
 | 6 | Paliers de bonus (2) | `portal/screens/ProgressionScreen.tsx` | `1,5 k` · `1 234,56 $` | `1.5k` · `$1,234.56` |
 | 7 | Classement, partagé admin (2) | `admin/leaderboard/CreatorLeaderboard.tsx` | `5 juil. – 3 août 2026` | `Jul 5 – Aug 3, 2026` |
 | 8 | Vues compactes + libellé de cycle (4) | `lib/format.ts`, `lib/pay-cycle.ts` | `12 345` · `0,56 %` | `12,345` · `0.56%` |
 
 **Bonus, hors des 8** : `formatBytes` traduit aussi ses unités (`1,2 Mo` →
 `1.2 MB`) — « 340 Mo » ne veut rien dire pour un anglophone.
+
+**Année sur 4 chiffres, mais seulement là où il y a de l'argent.** `formatMoneyDate`
+rend `09/03/2026` en anglais sur l'écran de paie et sur « Mes gains », `09/03/26`
+partout ailleurs. `09/03/26` reste ambigu pour qui n'a pas encore intégré que
+l'ordre des champs a changé, et sur un écran qui annonce un versement une date
+non ambiguë vaut plus que deux caractères de largeur. Le **français garde
+2 chiffres des deux côtés** : son ordre n'a jamais bougé, il ne gagne rien à
+s'allonger.
 
 **Invariants tenus, vérifiés :**
 - la **devise ne dérive jamais de la langue** : elle vient de la transaction
@@ -759,8 +776,8 @@ sens le plus **conservateur** pendant la traversée, et méritent ton avis.
 
 | # | Point | Choix conservateur retenu | Alternative |
 |---:|---|---|---|
-| 1 | **Ton en anglais** (D4, jamais confirmé) | **informel** — « you », contractions, aligné sur l'e-mail d'invitation et le quadrant déjà écrits | passer au registre formel demanderait de relire les ~646 valeurs |
-| 2 | **Année sur 2 chiffres** | `MM/DD/YY` (`09/03/26`) — l'**ordre** des champs suit l'anglais US, la **largeur** reste celle du français | tu as écrit `MM/DD/YYYY` ; passer à 4 chiffres changerait AUSSI le rendu français, que j'ai gardé intact partout |
+| 1 | ~~**Ton en anglais**~~ | ✅ **TRANCHÉ** : informel, définitivement (D4) | — |
+| 2 | ~~**Année sur 2 chiffres**~~ | ✅ **TRANCHÉ** : `MM/DD/YYYY` sur l'écran de paie et « Mes gains », `MM/DD/YY` partout ailleurs. Le français garde 2 chiffres des deux côtés — son ordre n'a jamais bougé, il ne gagne rien à s'allonger | — |
 | 3 | **`nav.section.veille` → « Radar »** | applique le glossaire (D5) | crée un doublon visuel : la section « Radar » contient l'item « Radar ». Admin-only, faible enjeu |
 | 4 | **Langue en mode view-as** (D7) | le sélecteur de langue est **masqué** en observation | la mutation écrit sur `users.locale` de l'ADMIN : le bouton aurait changé SA langue en paraissant agir sur celle de la créatrice |
 | 5 | **`« Mes vidéos »` dans les guillemets français** | conservés en français, `“My videos”` en anglais | cohérent avec la typographie de chaque langue |
@@ -769,7 +786,7 @@ sens le plus **conservateur** pendant la traversée, et méritent ton avis.
 
 | # | Trou | Conséquence | Effort |
 |---:|---|---|---|
-| 1 | **L'admin ne peut pas changer la langue d'une fiche EXISTANTE.** `updateCreator` accepte l'argument `locale` côté serveur, mais aucun formulaire ne l'expose — seul `InviteCreatorDialog` a le champ. | Un créateur invité en français par erreur ne peut être corrigé que **par lui-même** (écran Profil, livré en A10). | ~1 h |
+| 1 | ~~L'admin ne peut pas changer la langue d'une fiche existante~~ | ✅ **COMBLÉ** : champ « Langue » ajouté à la fiche créateur (`CreatorDetailView`), à côté de Statut. C'est le filet si une invitation part dans la mauvaise langue. | — |
 | 2 | **Aucune page légale** (CGU, mentions, confidentialité) dans le dépôt. | Ce n'est pas un manque i18n, mais il devient visible dès qu'on onboarde des créateurs US sous contrat. | produit |
 
 ### 11.3 Dettes assumées

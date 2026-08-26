@@ -12,7 +12,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format-rate";
-import { formatDate } from "@/lib/format";
+import { formatMoneyDate } from "@/lib/format";
 import { formatCycleRange } from "@/lib/pay-cycle";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { ArrowRightIcon, ChevronRightIcon } from "lucide-react";
@@ -336,7 +336,7 @@ function PastPeriod({ p, currency }: { p: Payment; currency?: string | null }) {
           </span>
           {p.status === "paid" ? (
             <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-              Payé{p.paidAt ? ` le ${formatDate(p.paidAt, loc)}` : ""}
+              Payé{p.paidAt ? ` le ${formatMoneyDate(p.paidAt, loc)}` : ""}
             </span>
           ) : (
             <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">{t("paiements.pending")}</span>
@@ -410,10 +410,10 @@ export default function PaiementsScreen() {
                   {dueNow > 0
                     ? t("paiements.paidIn", {
                         days,
-                        date: formatDate(nextTs, loc),
+                        date: formatMoneyDate(nextTs, loc),
                       })
                     : t("paiements.nextPayout", {
-                        date: formatDate(nextTs, loc),
+                        date: formatMoneyDate(nextTs, loc),
                       })}
                 </p>
               ) : (

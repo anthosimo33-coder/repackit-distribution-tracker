@@ -68,6 +68,13 @@ import {
 import { CopyableLink } from "./CopyableLink";
 import { CreatorComptesSection } from "./CreatorComptesSection";
 import { DeleteCreatorDialog } from "./DeleteCreatorDialog";
+import {
+  LOCALES,
+  LOCALE_LABELS,
+  DEFAULT_LOCALE,
+  normalizeLocale,
+  type Locale,
+} from "@/i18n/locales";
 
 type Creator = NonNullable<FunctionReturnType<typeof api.creators.getCreator>>;
 
@@ -100,6 +107,12 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
     creator.paymentDetails ?? "",
   );
   const [adminNotes, setAdminNotes] = useState(creator.adminNotes ?? "");
+  // Langue de la fiche. `undefined` en base = français implicite (on ne stocke
+  // que la DIVERGENCE, cf normalizeCreatorLocale) — le <Select> affiche donc le
+  // défaut du produit, et n'écrit que si l'admin choisit autre chose.
+  const [locale, setLocale] = useState<Locale>(
+    normalizeLocale(creator.locale) ?? DEFAULT_LOCALE,
+  );
   const [refSlug, setRefSlug] = useState(creator.refSlug ?? "");
   // Tarif de la personne — un seul des deux selon sa population (cf bloc JSX).
   const [population, setPopulation] = useState<string>(kind);
@@ -166,6 +179,7 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
             : (paymentMethod as PaymentMethod),
         paymentDetails,
         adminNotes,
+        locale,
         // Vide = retirer la ref → la créatrice repasse « pas de ref
         // configurée » dans la section conversion, jamais à zéro.
         refSlug: refSlug.trim() === "" ? null : refSlug,
@@ -433,6 +447,39 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            {/*
+              Langue de la fiche — le FILET quand une invitation est partie dans
+              la mauvaise langue. `updateCreator` acceptait déjà l'argument ;
+              aucun formulaire ne l'exposait, si bien qu'un créateur invité en
+              français par erreur ne pouvait être corrigé que par lui-même.
+
+              Elle sert AVANT que le compte existe (l'e-mail d'invitation part
+              quand `creators.userId` est encore undefined). Une fois le compte
+              créé, `users.locale` fait foi : changer la fiche ici ne réécrit
+              donc pas la préférence d'un créateur qui a déjà choisi la sienne.
+            */}
+            <div className="space-y-1.5">
+              <Label htmlFor="creator-locale">Langue</Label>
+              <Select
+                value={locale}
+                onValueChange={(v) => v && setLocale(v as Locale)}
+              >
+                <SelectTrigger id="creator-locale" aria-label="Langue">
+                  <SelectValue>{LOCALE_LABELS[locale]}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {LOCALES.map((l) => (
+                    <SelectItem key={l} value={l}>
+                      {LOCALE_LABELS[l]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-slate-500">
+                Langue des e-mails et de son espace. Une fois son compte créé,
+                sa propre préférence (Profil) prend le dessus.
+              </p>
             </div>
           </div>
         </CardContent>

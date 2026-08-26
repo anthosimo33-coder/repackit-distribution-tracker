@@ -67,6 +67,7 @@ import {
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { useLabel } from "@/lib/use-label";
+import { formatMoneyDate } from "@/lib/format";
 
 /**
  * Accueil du portail créateur — DASHBOARD ORIENTÉ ACTION, scopé au PROJET
@@ -945,8 +946,8 @@ function EarningsOverview({
         {nextPayoutTs !== null && payoutDays !== null && (
           <p className="text-xs text-slate-500">
             {dueNow > 0
-              ? t("dashboard.earnings.paidIn", { days: payoutDays, date: formatDate(nextPayoutTs, loc) })
-              : t("dashboard.earnings.nextPayout", { date: formatDate(nextPayoutTs, loc) })}
+              ? t("dashboard.earnings.paidIn", { days: payoutDays, date: formatMoneyDate(nextPayoutTs, loc) })
+              : t("dashboard.earnings.nextPayout", { date: formatMoneyDate(nextPayoutTs, loc) })}
           </p>
         )}
         <Link

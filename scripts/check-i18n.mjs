@@ -528,10 +528,12 @@ if (failed) process.exit(1);
 // sous-compte massivement (labels courts non accentués, valeurs de propriété
 // d'objet, tables de libellés). Le compteur de chaînes reste affiché, en ordre
 // de grandeur seulement.
-const remaining = findings.reduce(
-  (s, f) => (BASELINE.has(f.file) ? s + 1 : s),
-  0,
-);
+// `findings.length` DIRECTEMENT, et pas un décompte filtré par la baseline :
+// arrivé ici, toute occurrence hors baseline a déjà fait sortir en 1, donc les
+// deux nombres coïncident — sauf quand la baseline est VIDE, où le filtre
+// rendait 0 quoi qu'il arrive. Le compteur affirmait alors « 0 chaîne » sans
+// rien avoir vérifié.
+const remaining = findings.length;
 console.log(
   `✓ i18n — ${frKeys.size} clés, catalogues alignés, anglais traduit, aucune régression.\n` +
     `  Périmètre créateur : ${SCOPE.length - BASELINE.size}/${SCOPE.length} fichiers extraits.\n` +

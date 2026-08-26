@@ -60,3 +60,26 @@ export function formatDate(
     year: "2-digit",
   });
 }
+
+/**
+ * Date d'un écran qui affiche de l'ARGENT — paie et gains.
+ *
+ * Année sur QUATRE chiffres en anglais, deux en français. Ce n'est pas une
+ * incohérence : `09/03/26` reste ambigu pour un lecteur qui n'a pas encore
+ * intégré que l'ordre des champs a changé, et sur un écran où l'on annonce un
+ * versement, une date non ambiguë vaut plus que deux caractères de largeur.
+ * Le français, lui, ne gagne rien à s'allonger — son ordre n'a jamais bougé —
+ * et le garder inchangé préserve l'invariant tenu sur tout le chantier.
+ *
+ * Partout ailleurs, `formatDate` (2 chiffres des deux côtés) reste la règle.
+ */
+export function formatMoneyDate(
+  timestamp: number,
+  locale: string = FORMAT_LOCALE_DEFAULT,
+): string {
+  return new Date(timestamp).toLocaleDateString(locale, {
+    day: "2-digit",
+    month: "2-digit",
+    year: locale.startsWith("fr") ? "2-digit" : "numeric",
+  });
+}
