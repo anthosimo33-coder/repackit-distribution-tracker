@@ -16,6 +16,7 @@ import { PricingEstimator } from "@/components/portal/PricingEstimator";
 import { AssignmentActions } from "@/components/portal/AssignmentActions";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { ScriptDestinationZones } from "@/components/scripts/ScriptDestinationZones";
+import { useTranslations } from "next-intl";
 
 /**
  * Fiche détail d'une mission — écran RÉUTILISÉ par le portail créateur normal ET
@@ -32,6 +33,7 @@ export default function AssignmentDetailScreen({
 }: {
   assignmentId: Id<"assignments">;
 }) {
+  const ta = useTranslations("portal.assignmentDetail");
   const projectId = useCreatorProjectId();
   // Devise de la paie créatrices ($ Snytch ; null → sans symbole), passée aux
   // estimateurs de rému (feuilles sans contexte).
@@ -46,17 +48,13 @@ export default function AssignmentDetailScreen({
         href={base}
         className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-900"
       >
-        <ArrowLeftIcon className="size-4" />
-        Retour au tableau de bord
-      </Link>
+        <ArrowLeftIcon className="size-4" />{ta("backToDashboard")}</Link>
 
       {data === undefined ? (
         <Skeleton className="h-96 w-full" />
       ) : data === null ? (
         <Card>
-          <CardContent className="py-12 text-center text-sm text-slate-500">
-            Cet assignment est introuvable.
-          </CardContent>
+          <CardContent className="py-12 text-center text-sm text-slate-500">{ta("notFound")}</CardContent>
         </Card>
       ) : (
         <div className="space-y-6">
@@ -76,7 +74,7 @@ export default function AssignmentDetailScreen({
 
           {data.targets.length > 0 && (
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500">
-              <span>{data.targets.length > 1 ? "Cibles :" : "Cible :"}</span>
+              <span>{data.targets.length > 1 ? ta("targets") : ta("target")}</span>
               {data.targets.map((t) => (
                 <span key={t.platform} className="font-mono text-slate-700">
                   {t.platform}
@@ -91,7 +89,7 @@ export default function AssignmentDetailScreen({
           <Card>
             <CardHeader>
               <CardTitle className="text-base">
-                {readOnly ? "Avancement" : "Ta soumission"}
+                {readOnly ? "Avancement" : ta("mySubmission")}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -113,14 +111,11 @@ export default function AssignmentDetailScreen({
           {data.assignment.overlayText && (
             <div className="rounded-lg border border-amber-300 bg-amber-50 p-4">
               <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-700">
-                <span aria-hidden>📌</span> À incruster en haut de la vidéo
-              </div>
+                <span aria-hidden>📌</span>{ta("overlayTop")}</div>
               <p className="mt-1.5 text-base font-medium break-words text-amber-950">
                 « {data.assignment.overlayText} »
               </p>
-              <p className="mt-1 text-xs text-amber-700/90">
-                Texte à afficher en overlay permanent à l&apos;écran (pas à lire).
-              </p>
+              <p className="mt-1 text-xs text-amber-700/90">{ta("overlayHint")}</p>
             </div>
           )}
 
@@ -139,7 +134,7 @@ export default function AssignmentDetailScreen({
             ) : (
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">Vidéo à tourner</CardTitle>
+                  <CardTitle className="text-base">{ta("videoToShoot")}</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <SimpleMarkdown content={data.assembledScript} />
@@ -154,9 +149,7 @@ export default function AssignmentDetailScreen({
             />
           ) : (
             <Card>
-              <CardContent className="py-8 text-center text-sm text-slate-500">
-                Le brief de ce format n&apos;est plus disponible.
-              </CardContent>
+              <CardContent className="py-8 text-center text-sm text-slate-500">{ta("briefGone")}</CardContent>
             </Card>
           )}
 
@@ -169,9 +162,7 @@ export default function AssignmentDetailScreen({
             <Card className="border-indigo-200 bg-indigo-50/50">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base text-indigo-900">
-                  <ClipboardListIcon className="size-4 text-indigo-500" />
-                  Instructions
-                </CardTitle>
+                  <ClipboardListIcon className="size-4 text-indigo-500" />{ta("instructions")}</CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="whitespace-pre-wrap break-words text-sm text-indigo-950">
@@ -187,9 +178,7 @@ export default function AssignmentDetailScreen({
             data.assignment.modelVideos.length > 0 && (
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">
-                    Vidéos à reproduire
-                  </CardTitle>
+                  <CardTitle className="text-base">{ta("modelVideos")}</CardTitle>
                 </CardHeader>
                 <CardContent className="grid gap-4 sm:grid-cols-2">
                   {data.assignment.modelVideos.map((mv) => (
@@ -208,7 +197,7 @@ export default function AssignmentDetailScreen({
           {data.assets && data.assets.folders.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Assets à utiliser</CardTitle>
+                <CardTitle className="text-base">{ta("assets")}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 {data.assets.folders.map((folder) => (
@@ -247,9 +236,7 @@ export default function AssignmentDetailScreen({
                               rel="noopener noreferrer"
                               className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-slate-200 px-2 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
                             >
-                              <DownloadIcon className="size-3.5" />
-                              Télécharger
-                            </a>
+                              <DownloadIcon className="size-3.5" />{ta("download")}</a>
                           )}
                         </div>
                       ))}
@@ -266,7 +253,7 @@ export default function AssignmentDetailScreen({
               - mission de format → rateSnapshot réel (modèle legacy, inchangé). */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Rémunération</CardTitle>
+              <CardTitle className="text-base">{ta("pay")}</CardTitle>
             </CardHeader>
             <CardContent>
               {data.assignment.pricingSnapshot ? (

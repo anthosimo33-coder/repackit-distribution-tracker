@@ -9,6 +9,7 @@ import { Loader2Icon, UploadIcon } from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
 
 const MAX_SIZE_BYTES = 300 * 1024 * 1024; // 300 MB
 const ACCEPTED_TYPES = ["video/mp4", "video/quicktime", "video/webm"];
@@ -32,13 +33,17 @@ export type UploadedVideo = {
 export function VideoUploader({
   onUploaded,
   disabled,
-  title = "Glisse une vidéo exemple ici",
+  title,
 }: {
   onUploaded: (v: UploadedVideo) => void;
   disabled?: boolean;
   /** Intitulé de la zone de dépôt (admin = « exemple », créateur = « ta vidéo »). */
   title?: string;
 }) {
+  const tu = useTranslations("uploader");
+  // Le défaut ne peut pas vivre dans la signature : `tu` est un hook, il n'est
+  // appelable que dans le corps du composant.
+  const dropTitle = title ?? tu("dropExample");
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [dragOver, setDragOver] = useState(false);
@@ -63,24 +68,24 @@ export function VideoUploader({
             };
             resolve(storageId);
           } catch {
-            reject(new Error("Réponse d'upload invalide."));
+            reject(new Error(tu("badResponse")));
           }
         } else {
           reject(new Error(`Upload échoué (HTTP ${xhr.status}).`));
         }
       };
-      xhr.onerror = () => reject(new Error("Upload interrompu (réseau)."));
+      xhr.onerror = () => reject(new Error(tu("interrupted")));
       xhr.send(file);
     });
   }
 
   async function handleFile(file: File) {
     if (!ACCEPTED_TYPES.includes(file.type)) {
-      toast.error("Format vidéo invalide. Utilise MP4, MOV ou WebM.");
+      toast.error(tu("badFormat"));
       return;
     }
     if (file.size > MAX_SIZE_BYTES) {
-      toast.error("Vidéo trop lourde (≤ 300 Mo).");
+      toast.error(tu("tooHeavy"));
       return;
     }
     setUploading(true);
@@ -90,9 +95,9 @@ export function VideoUploader({
       const storageId = await uploadWithProgress(uploadUrl, file);
       const title = file.name.replace(/\.[^.]+$/, "");
       onUploaded({ storageId, mimeType: file.type, title });
-      toast.success("Vidéo ajoutée");
+      toast.success(tu("added"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Erreur lors de l'upload"));
+      toast.error(convexErrorMessage(e, tu("uploadError")));
     } finally {
       setUploading(false);
       setProgress(0);
@@ -152,8 +157,8 @@ export function VideoUploader({
         <>
           <UploadIcon className="size-6 text-slate-400" />
           <div>
-            <p className="text-sm font-medium text-slate-700">{title}</p>
-            <p className="text-xs text-slate-500">MP4, MOV ou WebM — 300 Mo max</p>
+            <p className="text-sm font-medium text-slate-700">{dropTitle}</p>
+            <p className="text-xs text-slate-500">{tu("constraints")}</p>
           </div>
           <Button
             type="button"
@@ -161,9 +166,7 @@ export function VideoUploader({
             disabled={disabled}
             onClick={() => inputRef.current?.click()}
             className="h-11 w-full text-base sm:h-8 sm:w-auto sm:text-sm"
-          >
-            Parcourir
-          </Button>
+          >{tu("browse")}</Button>
         </>
       )}
       <input
@@ -173,7 +176,7 @@ export function VideoUploader({
         className="hidden"
         onChange={handleInputChange}
         disabled={disabled || uploading}
-        aria-label="Sélectionner une vidéo"
+        aria-label={tu("selectVideo")}
       />
     </div>
   );

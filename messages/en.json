@@ -396,6 +396,56 @@
       "total": "Total",
       "dueThisCycle": "Due this cycle",
       "dueForCycle": "Due for the current cycle ({range})"
+    },
+    "videos": {
+      "trackingActive": "Tracking active",
+      "viewsComputing": "Views being computed",
+      "awaitingApproval": "Waiting for approval",
+      "rejected": "Rejected",
+      "approvedToPublish": "Approved, ready to publish",
+      "views": "Views",
+      "gain": "Earnings",
+      "maxGain": "max earnings",
+      "paid": "Paid",
+      "managedByTeam": "Managed by the team",
+      "rejectionReason": "Reason for rejection",
+      "rejectedHint": "Your video was rejected. Go back to the assignment to submit it again.",
+      "teamPublishes": "The team publishes this video — it will show up here as live (views + earnings) as soon as it's posted.",
+      "approvedHint": "Approved! Publish it on the platform from your assignment to start tracking views and earnings.",
+      "title": "My videos",
+      "subtitle": "Tracking your videos, from submission to going live.",
+      "viewsDelayHint": "Views are refreshed regularly — a small gap with the platform is normal (this is not exact real time).",
+      "filterAria": "Filter my videos by status",
+      "emptyTitle": "No videos yet",
+      "emptyBody": "As soon as you submit a video, it shows up here with its status, then its tracking (views + earnings) once it's live.",
+      "emptyFilter": "No videos in this filter.",
+      "unavailable": "Video tracking isn't available for this project."
+    },
+    "declare": {
+      "declared": "Account declared — warm-up started",
+      "error": "Something went wrong.",
+      "title": "Declare an account",
+      "subtitle": "The warm-up starts as soon as you declare it.",
+      "platform": "Platform",
+      "handle": "Handle *",
+      "url": "Account URL",
+      "cancel": "Cancel"
+    },
+    "assignmentDetail": {
+      "backToDashboard": "Back to the dashboard",
+      "notFound": "This assignment can't be found.",
+      "targets": "Targets:",
+      "target": "Target:",
+      "mySubmission": "Your submission",
+      "overlayTop": "To overlay at the top of the video",
+      "overlayHint": "Text to keep on screen as a permanent overlay (not to be read out).",
+      "videoToShoot": "Video to shoot",
+      "briefGone": "This format's brief is no longer available.",
+      "instructions": "Brief",
+      "modelVideos": "Videos to recreate",
+      "assets": "Assets to use",
+      "download": "Download",
+      "pay": "Pay"
     }
   },
   "status": {
@@ -787,5 +837,25 @@
       "demo": "demo",
       "croisiere": "cruising"
     }
+  },
+  "uploader": {
+    "dropExample": "Drop a sample video here",
+    "badResponse": "Invalid upload response.",
+    "interrupted": "Upload interrupted (network).",
+    "badFormat": "Invalid video format. Use MP4, MOV or WebM.",
+    "tooHeavy": "Video too large (300 MB max).",
+    "added": "Video added",
+    "uploadError": "Upload failed",
+    "constraints": "MP4, MOV or WebM — 300 MB max",
+    "browse": "Browse",
+    "selectVideo": "Select a video"
+  },
+  "format": {
+    "brief": "Brief",
+    "hooks": "Hooks to use",
+    "todo": "Do",
+    "avoid": "Avoid",
+    "examples": "Sample videos",
+    "pay": "Pay"
   }
 }

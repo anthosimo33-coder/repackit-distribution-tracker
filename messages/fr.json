@@ -396,6 +396,56 @@
       "total": "Total",
       "dueThisCycle": "Dû ce cycle",
       "dueForCycle": "Dû pour le cycle en cours ({range})"
+    },
+    "videos": {
+      "trackingActive": "Suivi actif",
+      "viewsComputing": "Vues en cours de calcul",
+      "awaitingApproval": "En attente de validation",
+      "rejected": "Rejeté",
+      "approvedToPublish": "Approuvé, à publier",
+      "views": "Vues",
+      "gain": "Gain",
+      "maxGain": "gain max",
+      "paid": "Payé",
+      "managedByTeam": "Géré par l'équipe",
+      "rejectionReason": "Raison du rejet",
+      "rejectedHint": "Ta vidéo a été refusée. Retrouve la mission pour la soumettre à nouveau.",
+      "teamPublishes": "L'équipe publie cette vidéo — elle apparaîtra ici en ligne (vues + gain) dès qu'elle est postée.",
+      "approvedHint": "Validée ! Publie-la sur la plateforme depuis ta mission pour lancer le suivi des vues et le gain.",
+      "title": "Mes vidéos",
+      "subtitle": "Le suivi de tes vidéos, de la soumission à la mise en ligne.",
+      "viewsDelayHint": "Vues mises à jour régulièrement — un léger décalage avec la plateforme est normal (ce n'est pas du temps réel exact).",
+      "filterAria": "Filtrer mes vidéos par statut",
+      "emptyTitle": "Aucune vidéo pour l'instant",
+      "emptyBody": "Dès que tu soumets une vidéo, elle apparaît ici avec son statut, puis son suivi (vues + gain) une fois en ligne.",
+      "emptyFilter": "Aucune vidéo dans ce filtre.",
+      "unavailable": "Le suivi des vidéos n'est pas disponible pour ce projet."
+    },
+    "declare": {
+      "declared": "Compte déclaré — warmup démarré",
+      "error": "Une erreur est survenue.",
+      "title": "Déclarer un compte",
+      "subtitle": "Le warmup démarre dès la déclaration.",
+      "platform": "Plateforme",
+      "handle": "Handle *",
+      "url": "URL du compte",
+      "cancel": "Annuler"
+    },
+    "assignmentDetail": {
+      "backToDashboard": "Retour au tableau de bord",
+      "notFound": "Cet assignment est introuvable.",
+      "targets": "Cibles :",
+      "target": "Cible :",
+      "mySubmission": "Ta soumission",
+      "overlayTop": "À incruster en haut de la vidéo",
+      "overlayHint": "Texte à afficher en overlay permanent à l'écran (pas à lire).",
+      "videoToShoot": "Vidéo à tourner",
+      "briefGone": "Le brief de ce format n'est plus disponible.",
+      "instructions": "Instructions",
+      "modelVideos": "Vidéos à reproduire",
+      "assets": "Assets à utiliser",
+      "download": "Télécharger",
+      "pay": "Rémunération"
     }
   },
   "status": {
@@ -787,5 +837,25 @@
       "demo": "démo",
       "croisiere": "croisière"
     }
+  },
+  "uploader": {
+    "dropExample": "Glisse une vidéo exemple ici",
+    "badResponse": "Réponse d'upload invalide.",
+    "interrupted": "Upload interrompu (réseau).",
+    "badFormat": "Format vidéo invalide. Utilise MP4, MOV ou WebM.",
+    "tooHeavy": "Vidéo trop lourde (≤ 300 Mo).",
+    "added": "Vidéo ajoutée",
+    "uploadError": "Erreur lors de l'upload",
+    "constraints": "MP4, MOV ou WebM — 300 Mo max",
+    "browse": "Parcourir",
+    "selectVideo": "Sélectionner une vidéo"
+  },
+  "format": {
+    "brief": "Brief",
+    "hooks": "Hooks à utiliser",
+    "todo": "À faire",
+    "avoid": "À éviter",
+    "examples": "Vidéos exemples",
+    "pay": "Rémunération"
   }
 }

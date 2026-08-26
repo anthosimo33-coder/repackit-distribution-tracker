@@ -25,6 +25,7 @@ import {
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { useTranslations } from "next-intl";
 
 type Plateforme = "TikTok" | "Instagram" | "YouTube";
 
@@ -55,6 +56,7 @@ export function DeclareCompteDialog({
     instagram?: string;
   } | null;
 }) {
+  const td = useTranslations("portal.declare");
   const declareCompte = useMutation(api.comptes.declareCompte);
   const [plateforme, setPlateforme] = useState<Plateforme>("TikTok");
   const [handle, setHandle] = useState("");
@@ -81,11 +83,11 @@ export function DeclareCompteDialog({
         handle: handle.trim(),
         url: url.trim() || undefined,
       });
-      toast.success("Compte déclaré — warmup démarré");
+      toast.success(td("declared"));
       reset();
       onOpenChange(false);
     } catch (err) {
-      toast.error(convexErrorMessage(err, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(err, td("error")));
       setSubmitting(false);
     }
   }
@@ -100,19 +102,17 @@ export function DeclareCompteDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Déclarer un compte</DialogTitle>
-          <DialogDescription>
-            Le warmup démarre dès la déclaration.
-          </DialogDescription>
+          <DialogTitle>{td("title")}</DialogTitle>
+          <DialogDescription>{td("subtitle")}</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1.5">
-            <Label>Plateforme</Label>
+            <Label>{td("platform")}</Label>
             <Select
               value={plateforme}
               onValueChange={(v) => v && setPlateforme(v as Plateforme)}
             >
-              <SelectTrigger aria-label="Plateforme">
+              <SelectTrigger aria-label={td("platform")}>
                 <SelectValue>{plateforme}</SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -126,7 +126,7 @@ export function DeclareCompteDialog({
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="declare-handle">Handle *</Label>
+            <Label htmlFor="declare-handle">{td("handle")}</Label>
             <Input
               id="declare-handle"
               placeholder="@mon_compte"
@@ -145,7 +145,7 @@ export function DeclareCompteDialog({
             )}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="declare-url">URL du compte</Label>
+            <Label htmlFor="declare-url">{td("url")}</Label>
             <Input
               id="declare-url"
               type="url"
@@ -160,9 +160,7 @@ export function DeclareCompteDialog({
               variant="outline"
               onClick={() => onOpenChange(false)}
               disabled={submitting}
-            >
-              Annuler
-            </Button>
+            >{td("cancel")}</Button>
             <Button type="submit" disabled={submitting}>
               {submitting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
               Déclarer
