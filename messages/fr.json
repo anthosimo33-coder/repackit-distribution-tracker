@@ -490,5 +490,227 @@
     "rewardsPlural": "récompenses",
     "hintViews": "vues cumulées",
     "hintRewards": "récompenses"
+  },
+  "warmupGuide": {
+    "section": {
+      "common": "Règles communes (les 3 plateformes)",
+      "tiktok": "TikTok — {days} jours",
+      "instagram": "Instagram — {days} jours",
+      "youtube": "YouTube Shorts — {days} jours",
+      "checks": "Vérifications post-warmup",
+      "reset": "Si warmup raté — protocole reset",
+      "dont": "Les trucs à PAS faire"
+    },
+    "igPhasesTitle": "Chauffe par phases (J1 → J14) — aucun post",
+    "youtubeIntro": "YouTube est bien plus permissif. Le compte est tied à ton Google account existant, donc moins de méfiance.",
+    "cleanTitle": "Signaux ✅ compte clean",
+    "failedTitle": "Signaux 🚨 warmup raté ou shadowban",
+    "table": {
+      "platform": "Plateforme",
+      "signal": "Signal",
+      "target": "Cible"
+    },
+    "allThree": "Les 3",
+    "commonRules": [
+      "**Email dédié par compte**, pas d'alias `+`",
+      "**App mobile native uniquement** pendant warmup + 10 premiers posts (pas de web, pas d'API/scheduler)",
+      "**Pas de VPN**, géo-cohérence stricte (device + SIM + IP même pays)",
+      "**Profil minimal les premiers jours** : pas de bio commerciale, pas de lien externe agressif",
+      "Engagement **exclusivement dans la niche cible** dès J1"
+    ],
+    "tiktokBlocks": [
+      {
+        "subtitle": "Phase de chauffe (J1 → J7) — aucun post",
+        "items": [
+          "**Recherches quotidiennes avec TES mots-clés** dans la barre de recherche",
+          "20-30 min/jour de scroll FYP dans ta niche",
+          "Watch time complet sur les vidéos de ta niche (pas de scroll rapide)",
+          "10-20 likes/jour, 2-3 commentaires authentiques (pas \"🔥\")",
+          "5-10 follows/jour max sur des comptes de ta niche",
+          "Compléter bio + photo de profil pendant cette phase"
+        ]
+      },
+      {
+        "subtitle": "Premier post — J8 (lendemain de la chauffe)",
+        "items": [
+          "**Aucun post avant J8** : la chauffe dure 7 jours pleins"
+        ]
+      },
+      {
+        "subtitle": "Montée en cadence (après le 1er post)",
+        "items": [
+          "1 post/jour pendant 7-10 jours avant d'augmenter la cadence"
+        ]
+      }
+    ],
+    "igSetup": [
+      {
+        "subtitle": "Setup",
+        "items": [
+          "Créer le compte → profil vide au démarrage",
+          "Compléter bio + photo de profil + 1 highlight pendant la chauffe"
+        ]
+      }
+    ],
+    "igPhases": [
+      {
+        "subtitle": "J1 à J3 — observation pure",
+        "items": [
+          "**Recherches quotidiennes avec TES mots-clés**",
+          "15-20 min scroll feed + Stories",
+          "5-10 likes/jour",
+          "**Zéro follow, zéro commentaire**"
+        ]
+      },
+      {
+        "subtitle": "J4 à J10 — engagement léger",
+        "items": [
+          "Recherches quotidiennes avec tes mots-clés",
+          "5-10 follows/jour niche",
+          "15-20 likes/jour",
+          "2-3 commentaires authentiques",
+          "Like et **enregistrement** de Reels de ta niche"
+        ]
+      },
+      {
+        "subtitle": "J11 à J14 — activité normale",
+        "items": [
+          "15-25 likes/jour, 5-10 commentaires",
+          "Saves sur posts pertinents (signal fort)",
+          "Premières Stories possibles à partir de J14-15"
+        ]
+      }
+    ],
+    "igPremier": [
+      {
+        "subtitle": "Premier Reel — J15 (lendemain de la chauffe)",
+        "items": [
+          "**Aucun Reel avant J15** : la chauffe dure 14 jours pleins"
+        ]
+      },
+      {
+        "subtitle": "Montée en cadence (après le 1er Reel)",
+        "items": [
+          "Montée progressive vers une activité normale"
+        ]
+      }
+    ],
+    "youtubeBlocks": [
+      {
+        "subtitle": "Setup de la chaîne",
+        "items": [
+          "Bannière, photo de profil, description de chaîne, À propos complet",
+          "Créer 1 playlist (même vide)",
+          "Lier les réseaux sociaux dans la description"
+        ]
+      },
+      {
+        "subtitle": "Phase de chauffe (J1 → J7) — aucun post",
+        "items": [
+          "**Recherches quotidiennes avec TES mots-clés**",
+          "Visionnage de 5-10 Shorts/jour dans ta niche",
+          "1-2 vidéos longues/jour dans ta niche (signal fort pour YT)",
+          "Likes + 2-3 commentaires authentiques",
+          "10-20 abonnements à des chaînes pertinentes"
+        ]
+      },
+      {
+        "subtitle": "Premier Short — J8 (lendemain de la chauffe)",
+        "items": [
+          "**Aucun Short avant J8** : la chauffe dure 7 jours pleins",
+          "Ensuite, 1 Short/jour, idéalement à la même heure"
+        ]
+      }
+    ],
+    "cleanSignals": [
+      {
+        "platform": "TikTok",
+        "signal": "Vues 1er post à H+6",
+        "target": "200-500+"
+      },
+      {
+        "platform": "TikTok",
+        "signal": "Source trafic FYP (Analytics → Reach)",
+        "target": ">30%, idéalement >50%"
+      },
+      {
+        "platform": "Instagram",
+        "signal": "Vues Reel à H+24",
+        "target": "200-1000+"
+      },
+      {
+        "platform": "Instagram",
+        "signal": "Non-followers reach",
+        "target": ">40%"
+      },
+      {
+        "platform": "YouTube",
+        "signal": "Vues Short à H+48",
+        "target": "100-500+"
+      },
+      {
+        "platform": "YouTube",
+        "signal": "Source \"Shorts feed\" présente",
+        "target": "Oui"
+      },
+      {
+        "platform": "@allThree",
+        "signal": "Test hashtag unique",
+        "target": "Vidéo trouvable depuis autre compte"
+      },
+      {
+        "platform": "@allThree",
+        "signal": "Ton feed perso est devenu niché",
+        "target": "Oui"
+      }
+    ],
+    "failedSignals": [
+      "Vues bloquées 0-50 ou exactement 200 répété",
+      "FYP / Reels feed / Shorts feed traffic = 0% en Analytics",
+      "Vidéo \"Stuck Processing\" >2h",
+      "Pop-up \"Action blocked\" sur Instagram",
+      "Posts visibles uniquement par tes followers existants",
+      "Notification \"Ineligible for FYP\" (TikTok)",
+      "Drop de 70%+ vs moyenne 28 jours"
+    ],
+    "resetSteps": [
+      "**Stop poster immédiatement** (clé absolue)",
+      "Supprimer les vidéos à <50 vues (signal négatif permanent)",
+      "Pause 5-7 jours **active** : scroll niche 20-30 min/jour, zéro post",
+      "Reposter UNE vidéo, observer",
+      "Si toujours 0 vues → abandonner le compte, en créer un neuf"
+    ],
+    "dontBlocks": [
+      {
+        "subtitle": "Pendant warmup",
+        "items": [
+          "Poster avant la fin du warmup",
+          "Suivre 50+ comptes le premier jour",
+          "Commentaires génériques (\"nice\", \"🔥\") en masse",
+          "Engagement hors-niche (confuse l'algo sur ta classification)",
+          "Modifier la bio/PP tous les jours",
+          "Switch entre VPN / IPs différentes"
+        ]
+      },
+      {
+        "subtitle": "Au lancement post-warmup",
+        "items": [
+          "Balancer 3 vidéos d'un coup",
+          "Utiliser un scheduler/API pour les 10 premiers posts",
+          "Hashtags douteux ou bannis (toujours vérifier dans la barre de recherche)",
+          "Engagement bait (\"like si tu es d'accord\", \"follow pour la partie 2\") — flag direct en 2026",
+          "Musique copyrightée sur compte business",
+          "Cross-poster le **même fichier vidéo** sur plusieurs comptes (fingerprint fichier détecté)"
+        ]
+      },
+      {
+        "subtitle": "En continu",
+        "items": [
+          "Arrêter de scroller la plateforme une fois en mode poster (l'algo track ta consommation aussi)",
+          "Spam-poster suite à un succès (passer de 1/jour à 10/jour = flag)",
+          "Switcher entre comptes toutes les 10 min"
+        ]
+      }
+    ]
   }
 }

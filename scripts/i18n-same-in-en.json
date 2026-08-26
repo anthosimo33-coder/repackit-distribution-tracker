@@ -33,6 +33,7 @@
     "tracker.quadrant.qualification.label",
     "tracker.quadrant.tooltip.distribution",
     "tracker.quadrant.tooltip.saveRate",
-    "tracker.quadrant.tooltip.saves"
+    "tracker.quadrant.tooltip.saves",
+    "warmupGuide.table.signal"
   ]
 }

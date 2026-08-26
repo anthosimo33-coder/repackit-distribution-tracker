@@ -47,7 +47,6 @@
     "components/ui/badge.tsx",
     "components/ui/dialog.tsx",
     "components/ui/sheet.tsx",
-    "components/warmup/WarmupGuideAccordion.tsx",
     "components/warmup/WarmupGuideButton.tsx",
     "convex/accountPhase.ts",
     "i18n/locales.ts"
