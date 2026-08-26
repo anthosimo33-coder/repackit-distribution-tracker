@@ -840,6 +840,12 @@ observée (`users.locale` → `creators.locale` → `fr`, résolue serveur avant
 premier rendu), enveloppe la nav et le contenu. Le **bandeau reste dehors** : il
 s'adresse à l'admin, pas à l'observée.
 
+**Le sélecteur de langue de l'admin n'est pas rendu en observation**, donc il n'y
+a rien à désactiver : il vit dans `Sidebar`, montée par `SidebarLayout`, lui-même
+monté par le SEUL layout `/admin/[projectSlug]`. La route view-as est sa SŒUR et
+ne l'hérite pas. Une assertion e2e garde ce fait — avec son contrôle positif, le
+même locator devant trouver le sélecteur sur une page admin normale.
+
 Deux conséquences qu'il fallait tenir :
 - les hooks `useTranslations` doivent être appelés **sous** le provider, donc les
   deux navs sont devenues des composants — appelés dans le corps du shell, elles

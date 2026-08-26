@@ -1,4 +1,9 @@
-import { test, expect, E2E_PROJECT_SLUG } from "./fixtures/auth-fixture";
+import {
+  test,
+  expect,
+  adminPath,
+  E2E_PROJECT_SLUG,
+} from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { availableTarget } from "./helpers/targets";
 import { viewAsBase } from "../lib/view-as";
@@ -126,6 +131,27 @@ test.describe("View-as — la preview parle la langue de la personne observée",
     const due = page.getByTestId("due-now");
     await expect(due).toContainText("15.00", { timeout: 20_000 });
     await expect(due).not.toContainText("15,00");
+
+    // ── Le sélecteur de langue de l'ADMIN n'est PAS rendu en observation ─────
+    // Il vit dans `Sidebar`, montée par `SidebarLayout`, lui-même monté par le
+    // SEUL layout `/admin/[projectSlug]`. La route view-as est sa SŒUR et ne
+    // l'hérite pas — il n'y a donc rien à désactiver.
+    //
+    // L'assertion garde ce fait plutôt que la lecture qui l'a établi : le jour
+    // où quelqu'un monterait la sidebar admin dans l'arbre view-as, l'admin
+    // pourrait rebasculer la preview dans SA langue d'un clic, et le défaut
+    // qu'on vient de corriger reviendrait par la porte de service.
+    const langSelector = page.getByRole("group", {
+      name: /changer la langue|change the interface language/i,
+    });
+    await expect(langSelector).toHaveCount(0);
+
+    // CONTRÔLE POSITIF, obligatoire : sans lui, l'assertion d'absence ci-dessus
+    // passerait aussi si le sélecteur n'était trouvable NULLE PART — un test vert
+    // qui ne prouve rien. On vérifie donc que le MÊME locator le trouve sur une
+    // page admin normale.
+    await page.goto(adminPath("/dashboard"));
+    await expect(langSelector.first()).toBeVisible({ timeout: 20_000 });
   });
 
   test("fiche invitée NON activée : la preview suit la langue de la FICHE", async ({
