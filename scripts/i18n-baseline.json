@@ -1,4 +1,33 @@
 {
   "_": "Fichiers DU PERIMETRE CREATEUR pas encore extraits. La liste ne peut que RETRECIR : un fichier qui n'a plus de litteral doit en sortir (la CI le reclame). Un fichier ABSENT de scripts/i18n-creator-scope.json n'est pas ici parce qu'il serait propre, mais parce qu'il est HORS PERIMETRE : l'admin et l'analytics restent en francais, volontairement.",
-  "files": []
+  "files": [
+    "app/[projectSlug]/login/page.tsx",
+    "app/app/outils/page.tsx",
+    "components/VideoUploader.tsx",
+    "components/clip/ClipDetailScreen.tsx",
+    "components/clip/ClipPublishForm.tsx",
+    "components/clip/ClipperSpaceScreen.tsx",
+    "components/creators/portal/DeclareCompteDialog.tsx",
+    "components/creators/portal/WarmupCompteCard.tsx",
+    "components/portal/AssignmentActions.tsx",
+    "components/portal/CatchUpBanner.tsx",
+    "components/portal/DriveUploader.tsx",
+    "components/portal/EarningsCalculator.tsx",
+    "components/portal/ModelVideoEmbed.tsx",
+    "components/portal/PaymentInfoNudge.tsx",
+    "components/portal/PricingEstimator.tsx",
+    "components/portal/ProgressionCelebration.tsx",
+    "components/portal/TodayPostBanner.tsx",
+    "components/portal/screens/ComptesScreen.tsx",
+    "components/portal/screens/DashboardScreen.tsx",
+    "components/portal/screens/PaiementsScreen.tsx",
+    "components/portal/screens/ProfilScreen.tsx",
+    "components/portal/screens/ProgressionScreen.tsx",
+    "components/portal/screens/VideosScreen.tsx",
+    "components/project/ProjectProvider.tsx",
+    "convex/accountPhase.ts",
+    "convex/postWindow.ts",
+    "convex/rushScriptEligibility.ts",
+    "lib/format-rate.ts"
+  ]
 }
