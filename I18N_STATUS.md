@@ -725,6 +725,19 @@ le chantier (`use-label`, `use-intl-locale`, `intl-locale`, `use-convex-error`,
 propres, mais un scan annoncé « complet » sur une liste périmée ne l'était pas.
 C'est exactement ce que la garde de fraîcheur du périmètre existe pour attraper.
 
+### Les 38 clés identiques, ventilées
+
+Elles vivent toutes dans `scripts/i18n-same-in-en.json` ; **aucune n'est hors
+liste** (la CI échouerait). 15 + 11 + 7 + 4 + 1 = **38**.
+
+| Catégorie | n | Exemples |
+|---|---:|---|
+| Mots communs aux deux langues | **15** | `Email` ×2, `Base` ×2, `Guide` ×2, `Brief`, `Handle *`, `Photo`, `Bonus`, `Clip`, `CPM`, `Total`, `Shadowban`, `Signal` |
+| Items de nav déjà anglais | **11** | `Dashboard`, `Analytics`, `Assets`, `Assignments`, `Pricings`, `Radar`, `Rushes`, `Scripts`, `Inspirations`, `Notifications`, `Validation` |
+| Jargon tracker (admin) | **7** | `Saves`, `Save rate`, `Distribution`, `Scale`, `Promo`, `Qualification`, `Intent — save rate` |
+| Marques et formats | **4** | `PayPal`, `USDT (crypto)`, `IBAN, email, wallet…`, `Jarvis Creator Studio` |
+| Signe typographique | **1** | `—` (phase inconnue) |
+
 ⚠️ Un chiffre de « 97,5 % / 17 clés françaises » a circulé en cours de chantier :
 il venait d'un script d'audit jetable dont la liste de termes acceptables était
 codée en dur et périmée. Le nombre qui fait foi est celui de la garde, qui lit
