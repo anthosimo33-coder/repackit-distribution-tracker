@@ -30,19 +30,16 @@ export function ScriptDestinationZones({
   videoBlocks: { text: string; mode: BrickMode }[];
   descriptionScript: string;
 }) {
+  const t = useTranslations("portal.script");
   const tLabel = useLabel();
-  const t = useTranslations("portal");
   return (
     <div className="space-y-4">
       {/* ZONE 1 — dans la vidéo (hook + flux), un bloc PAR BRIQUE avec son mode. */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <span aria-hidden>🎬</span> Dans la vidéo
-          </CardTitle>
-          <CardDescription>
-            Chaque partie précise si c&apos;est à dire, à afficher, ou les deux.
-          </CardDescription>
+            <span aria-hidden>🎬</span>{t("inVideo")}</CardTitle>
+          <CardDescription>{t("inVideoHint")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {videoBlocks.map((b, i) => {
@@ -67,17 +64,14 @@ export function ScriptDestinationZones({
       <Card className="bg-emerald-50/50 ring-emerald-500/30">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <span aria-hidden>📝</span> En description
-          </CardTitle>
-          <CardDescription>
-            Copie-colle ça en légende de ton post (hashtags inclus).
-          </CardDescription>
+            <span aria-hidden>📝</span>{t("inDescription")}</CardTitle>
+          <CardDescription>{t("inDescriptionHint")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <SimpleMarkdown content={descriptionScript} />
           <CopyButton
             text={descriptionScript}
-            label={t("script.copyDescription")}
+            label={t("copyDescription")}
             className="h-11 w-full text-base sm:h-9 sm:w-auto sm:text-sm"
           />
         </CardContent>

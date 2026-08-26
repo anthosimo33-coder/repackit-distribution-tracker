@@ -184,7 +184,9 @@
       "invalidBody": "This reset link is invalid or has expired. Ask your administrator for a new link.",
       "title": "Reset your password",
       "promptForProject": "Choose a new password for {project}.",
-      "submit": "Reset password"
+      "submit": "Reset password",
+      "doneTitle": "Password reset",
+      "doneBody": "You can now sign in with your new password."
     },
     "field": {
       "email": "Email",
@@ -193,10 +195,12 @@
   },
   "portal": {
     "notFound": {
-      "body": "This page doesn't exist."
+      "body": "This page doesn't exist.",
+      "backDashboard": "Back to the dashboard"
     },
     "tools": {
-      "title": "Tools"
+      "title": "Tools",
+      "empty": "No tools available for this project."
     },
     "verdict": {
       "pending": "Pending"
@@ -221,7 +225,11 @@
       "cumulViews": "Total views"
     },
     "script": {
-      "copyDescription": "Copy the description"
+      "copyDescription": "Copy the description",
+      "inVideo": "In the video",
+      "inVideoHint": "Each part says whether to say it, show it, or both.",
+      "inDescription": "In the description",
+      "inDescriptionHint": "Copy and paste this as your post caption (hashtags included)."
     },
     "copy": {
       "copy": "Copy",
@@ -239,7 +247,9 @@
     },
     "todayPost": {
       "empty": "No upcoming post scheduled.",
-      "seeNext": "See the next post"
+      "seeNext": "See the next post",
+      "title": "Today you're posting",
+      "nothing": "Nothing to post today."
     },
     "comptes": {
       "emptyReadOnly": "This creator hasn't declared an account yet.",
@@ -359,7 +369,11 @@
       "methodLabel": "Payment method",
       "methodPlaceholder": "Choose…",
       "detailsLabel": "Payment details",
-      "detailsPlaceholder": "IBAN, email, wallet…"
+      "detailsPlaceholder": "IBAN, email, wallet…",
+      "title": "Profile",
+      "notFound": "Profile not found.",
+      "identityHint": "Your name and email are managed by the team. To change them, get in touch with an administrator.",
+      "paymentHint": "Tell us how to pay you. These details are visible to the admin who runs the transfers."
     },
     "assignment": {
       "started": "You're on — happy shooting!",
@@ -384,7 +398,12 @@
       "dropHere": "Drop your video here",
       "validatedPublish": "{count, plural, one {Your video is approved — publish it on your account, then paste the URL below.} other {Your video is approved — publish it on each platform, then paste the URLs below.}}",
       "publishOn": "Publish on {platform}",
-      "wrongLink": "This isn't a {platform} link."
+      "wrongLink": "This isn't a {platform} link.",
+      "managedBadge2": "Managed by the team",
+      "shootHint": "Shoot your video from the brief, then send it for approval.",
+      "submitMine": "Submit my video",
+      "sentAwaiting": "Video sent — waiting for the admin to approve it.",
+      "resubmit": "Submit another video"
     },
     "sidebar": {
       "dashboard": "Dashboard",
@@ -497,7 +516,49 @@
       "keywords": "Keywords to search for",
       "keywordsWait": "Waiting for the keywords the admin sets.",
       "instructions": "Brief"
-    }
+    },
+    "celebration": {
+      "reward": "Reward",
+      "tierUnlocked": "Tier unlocked",
+      "tierUnlockedBang": "Tier unlocked!",
+      "addedToPay": "Added to your next payout.",
+      "weContactYou": "We'll get in touch to hand it over.",
+      "great": "Awesome 🎉"
+    },
+    "guide": {
+      "title": "How it works",
+      "subtitle": "The guide to your creator space.",
+      "soonTitle": "The guide is coming soon",
+      "soonBody": "The content for your space is being prepared."
+    },
+    "calendar": {
+      "title": "My publishing calendar",
+      "prevMonth": "Previous month",
+      "nextMonth": "Next month"
+    },
+    "bio": {
+      "confirmed": "Bio confirmed ✓",
+      "error": "Something went wrong.",
+      "toUpdate": "Bio to update",
+      "toKeep": "Current bio to keep",
+      "copy": "Copy the bio"
+    },
+    "noProject": {
+      "title": "No project available",
+      "body": "Your account isn't linked to any project. Ask an administrator to add you to one."
+    },
+    "noSpace": {
+      "title": "No space available",
+      "body": "Your account isn't linked to any project. Get in touch with an administrator.",
+      "notLinked": "No project linked to your account. Get in touch with an administrator."
+    },
+    "catchUp": {
+      "title": "To catch up"
+    },
+    "nudge": {
+      "addPaymentInfo": "Add your payment details"
+    },
+    "mySpace": "My space"
   },
   "status": {
     "assignment": {
@@ -812,7 +873,10 @@
           "Switching between accounts every 10 minutes"
         ]
       }
-    ]
+    ],
+    "button": "Warm-up guide",
+    "dialogTitle": "Warm-up guide — TikTok, Instagram, YouTube",
+    "dialogDesc": "Platform-by-platform warm-up procedure, readable without leaving the tracker."
   },
   "clip": {
     "notFound": "This clip can't be found.",
@@ -929,5 +993,39 @@
     "disclaimer": "Indicative estimate; payment is based on the actual views of the approved post.",
     "baseFixed": "Base (flat per video)",
     "cpm": "CPM (on your views)"
+  },
+  "videoExample": {
+    "unavailable": "Video unavailable",
+    "codecHint": "Format this browser can't read (likely an iPhone .mov HEVC) — re-encode to MP4 H.264.",
+    "seeYouTube": "Watch on YouTube",
+    "youtubeEx": "YouTube example",
+    "seeVideo": "Watch the video",
+    "tiktokEx": "TikTok example",
+    "seeInstagram": "Watch on Instagram"
+  },
+  "drive": {
+    "badResponse": "Invalid Drive response (missing id).",
+    "notEnabled": "File uploads aren't enabled yet. Let your administrator know.",
+    "unavailable": "File uploads unavailable for this project.",
+    "uploadFailed": "Upload failed.",
+    "sending": "Files being uploaded",
+    "sent": "Sent",
+    "retry": "Retry"
+  },
+  "leaderboard": {
+    "me": "You",
+    "cycleTitle": "Cycle leaderboard",
+    "cycleSubtitle": "Each creator's earnings for the current cycle (personal 30-day window, anchored on their first post).",
+    "publishFirst": "Publish your first post to enter the leaderboard.",
+    "noneYet": "No creator has published yet this cycle."
+  },
+  "project": {
+    "notFound": "Project not found",
+    "denied": "Access denied",
+    "deniedBody": "Your account doesn't have access to this project. Ask an administrator to add you.",
+    "backHome": "Back to home"
+  },
+  "stream": {
+    "transcoding": "Transcoding in progress — the video will be viewable here shortly (the player appears automatically)."
   }
 }

@@ -11,6 +11,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { WarmupGuideAccordion } from "./WarmupGuideAccordion";
+import { useTranslations } from "next-intl";
 
 /**
  * Bouton « Guide warmup » du header /comptes. Ouvre un Sheet latéral contenant
@@ -22,14 +23,13 @@ import { WarmupGuideAccordion } from "./WarmupGuideAccordion";
  * hauteur). Cohérent avec le pattern modal du repo.
  */
 export function WarmupGuideButton() {
+  const twg = useTranslations("warmupGuide");
   return (
     <Sheet>
       <SheetTrigger
         render={
           <Button variant="outline">
-            <BookOpenIcon className="mr-2 size-4" />
-            Guide warmup
-          </Button>
+            <BookOpenIcon className="mr-2 size-4" />{twg("button")}</Button>
         }
       />
       <SheetContent
@@ -37,11 +37,8 @@ export function WarmupGuideButton() {
         className="w-full gap-0 p-0 data-[side=right]:sm:max-w-lg"
       >
         <SheetHeader className="border-b border-slate-100 p-4">
-          <SheetTitle>Guide warmup — TikTok, Instagram, YouTube</SheetTitle>
-          <SheetDescription>
-            Procédure de chauffe par plateforme, consultable sans quitter le
-            tracker.
-          </SheetDescription>
+          <SheetTitle>{twg("dialogTitle")}</SheetTitle>
+          <SheetDescription>{twg("dialogDesc")}</SheetDescription>
         </SheetHeader>
         <div className="flex-1 overflow-y-auto p-4">
           <WarmupGuideAccordion />

@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { GuideMarkdown } from "@/components/ui/GuideMarkdown";
 import { BookOpenIcon, ChevronDownIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
 
 /**
  * « Comment ça marche » — écran RÉUTILISÉ par le portail créateur normal ET le
@@ -24,6 +25,7 @@ import { cn } from "@/lib/utils";
  * view-as (creator-data) : même rendu en mode « voir l'espace d'un créateur ».
  */
 export default function GuideScreen() {
+  const tg = useTranslations("portal.guide");
   const projectId = useCreatorProjectId();
   const modules = useMyGuideModules(projectId);
   const legacy = useMyGuide(projectId);
@@ -42,12 +44,8 @@ export default function GuideScreen() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <header className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-          Comment ça marche
-        </h1>
-        <p className="text-sm text-slate-500">
-          Le guide de ton espace créateur.
-        </p>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{tg("title")}</h1>
+        <p className="text-sm text-slate-500">{tg("subtitle")}</p>
       </header>
 
       {modules === undefined ? (
@@ -111,12 +109,8 @@ export default function GuideScreen() {
         <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-slate-200 bg-slate-50/50 px-6 py-16 text-center">
           <BookOpenIcon className="size-12 text-slate-300" strokeWidth={1.5} />
           <div className="space-y-1">
-            <p className="text-base font-medium text-slate-900">
-              Le guide arrive bientôt
-            </p>
-            <p className="text-sm text-slate-500">
-              Le contenu de ton espace est en cours de préparation.
-            </p>
+            <p className="text-base font-medium text-slate-900">{tg("soonTitle")}</p>
+            <p className="text-sm text-slate-500">{tg("soonBody")}</p>
           </div>
         </div>
       )}

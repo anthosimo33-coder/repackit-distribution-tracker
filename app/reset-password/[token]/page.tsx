@@ -88,10 +88,10 @@ export default function ResetPasswordPage({
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <CheckCircle2Icon className="size-5 text-emerald-600" />
-                Mot de passe réinitialisé
+                {t("reset.doneTitle")}
               </CardTitle>
               <CardDescription>
-                Tu peux maintenant te connecter avec ton nouveau mot de passe.
+                {t("reset.doneBody")}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -99,7 +99,7 @@ export default function ResetPasswordPage({
                 href="/login"
                 className={buttonVariants({ className: "w-full" })}
               >
-                Se connecter
+                {t("login.submitSignIn")}
               </Link>
             </CardContent>
           </>
@@ -114,7 +114,7 @@ export default function ResetPasswordPage({
                 href="/login"
                 className={buttonVariants({ className: "w-full" })}
               >
-                Se connecter
+                {t("login.submitSignIn")}
               </Link>
             </CardContent>
           </>

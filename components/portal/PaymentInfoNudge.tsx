@@ -10,6 +10,7 @@ import { useMyProfile, useMyPayments } from "@/components/portal/creator-data";
 import { usePortalBase } from "@/components/portal/ViewAsContext";
 import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useTranslations } from "next-intl";
 
 /**
  * QW3 — bandeau d'action « coordonnées de paiement manquantes ». S'affiche
@@ -23,6 +24,7 @@ import { useIntlLocale } from "@/lib/use-intl-locale";
  * Renvoie vers /app/profil (section coordonnées de paiement).
  */
 export function PaymentInfoNudge({ projectId }: { projectId: Id<"projects"> }) {
+  const tn = useTranslations("portal.nudge");
   const loc = useIntlLocale();
   const profile = useMyProfile(projectId);
   const payments = useMyPayments(projectId);
@@ -42,9 +44,7 @@ export function PaymentInfoNudge({ projectId }: { projectId: Id<"projects"> }) {
         <WalletIcon className="size-5" />
       </span>
       <div className="min-w-0 flex-1 space-y-0.5">
-        <p className="text-sm font-semibold text-amber-900">
-          Ajoute tes coordonnées de paiement
-        </p>
+        <p className="text-sm font-semibold text-amber-900">{tn("addPaymentInfo")}</p>
         <p className="text-sm text-amber-800">
           Sans elles, on ne peut pas te verser tes{" "}
           {formatMoney(amountOwed(payments), payCurrency, loc)}.

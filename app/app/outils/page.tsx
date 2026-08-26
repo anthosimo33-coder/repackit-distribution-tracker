@@ -17,8 +17,8 @@ import { useLabel } from "@/lib/use-label";
  * page gère proprement le cas vide (navigation directe vers /app/outils).
  */
 export default function OutilsPage() {
-  const tLabel = useLabel();
   const t = useTranslations("portal");
+  const tLabel = useLabel();
   const { current } = useCreatorProject();
   const tools = getCreatorTools(current.slug);
 
@@ -32,9 +32,7 @@ export default function OutilsPage() {
       </header>
 
       {tools.length === 0 ? (
-        <p className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-500">
-          Aucun outil disponible pour ce projet.
-        </p>
+        <p className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-500">{t("tools.empty")}</p>
       ) : (
         <ul className="space-y-2">
           {tools.map((tool) => {

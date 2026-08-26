@@ -99,7 +99,7 @@ export default function ProfilScreen() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-        Profil
+        {t("profil.title")}
       </h1>
 
       {loading ? (
@@ -107,7 +107,7 @@ export default function ProfilScreen() {
       ) : profile === null ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-slate-500">
-            Profil introuvable.
+            {t("profil.notFound")}
           </CardContent>
         </Card>
       ) : (
@@ -117,8 +117,7 @@ export default function ProfilScreen() {
             <CardHeader>
               <CardTitle className="text-base">{t("profil.identityTitle")}</CardTitle>
               <CardDescription>
-                Nom et email sont gérés par l&apos;équipe. Pour les changer,
-                contacte un administrateur.
+                {t("profil.identityHint")}
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-2">
@@ -138,8 +137,7 @@ export default function ProfilScreen() {
             <CardHeader>
               <CardTitle className="text-base">{t("profil.paymentTitle")}</CardTitle>
               <CardDescription>
-                Indique comment te payer. Ces infos sont visibles par l&apos;admin
-                qui exécute les virements.
+                {t("profil.paymentHint")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -164,7 +162,7 @@ export default function ProfilScreen() {
                     <SelectValue placeholder={t("profil.methodPlaceholder")}>
                       {method
                         ? t(METHODS.find((m) => m.value === method)!.labelKey)
-                        : "Choisir…"}
+                        : t("profil.methodPlaceholder")}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>

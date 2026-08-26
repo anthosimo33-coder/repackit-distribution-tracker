@@ -124,7 +124,7 @@ export function CreatorSidebar({ onSignOut }: { onSignOut: () => void }) {
         {tools.length > 0 && (
           <div>
             <div className="mb-1 px-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Outils
+              {t("tools.title")}
             </div>
             <div className="space-y-1">
               {tools.map((tool) => (

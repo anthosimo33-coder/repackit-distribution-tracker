@@ -72,6 +72,7 @@ function SheetContent({
           >
             <XIcon
             />
+            // i18n-exempt: libellé shadcn d'origine, déjà anglais et identique dans les deux langues
             <span className="sr-only">Close</span>
           </SheetPrimitive.Close>
         )}

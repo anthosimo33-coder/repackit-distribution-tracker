@@ -164,13 +164,14 @@ export function utcDayRange(at: number): { start: number; end: number } {
 }
 
 const JOURS = {
+  // i18n-exempt: table de données FR — la table EN est juste à côté, formatUtcDay choisit
   fr: ["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"],
   en: ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"],
 } as const;
 
 const MOIS = {
-  fr: ["janvier","février","mars","avril","mai","juin","juillet","août",
-       "septembre","octobre","novembre","décembre"],
+  // i18n-exempt: table de données FR — la table EN est juste à côté, formatUtcDay choisit
+  fr: ["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"],
   en: ["January","February","March","April","May","June","July","August",
        "September","October","November","December"],
 } as const;
@@ -234,9 +235,13 @@ export function quotaRefusalMessage(
   const jour = formatUtcDay(at, "fr");
   // i18n-exempt: message de ConvexError — devient un code ERR_* au lot A2 (cf en-tête)
   const PHASE_FR: Record<AccountPhase, string> = {
+    // i18n-exempt: message de ConvexError — devient un code ERR_* au lot A2
     chauffe: "chauffe",
+    // i18n-exempt: message de ConvexError — devient un code ERR_* au lot A2
     warmup: "échauffement",
+    // i18n-exempt: message de ConvexError — devient un code ERR_* au lot A2
     demo: "démo",
+    // i18n-exempt: message de ConvexError — devient un code ERR_* au lot A2
     croisiere: "croisière",
   };
   if (phase === null) {

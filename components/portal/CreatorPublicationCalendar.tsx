@@ -31,6 +31,7 @@ import {
 } from "@/components/calendar/calendar-status-meta";
 import { portalHref } from "@/lib/view-as";
 import { useLabel } from "@/lib/use-label";
+import { useTranslations } from "next-intl";
 
 const WEEKDAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
@@ -59,6 +60,7 @@ export function CreatorPublicationCalendar({
   now: number;
   base: string;
 }) {
+  const tcal = useTranslations("portal.calendar");
   const tLabel = useLabel();
   const [currentMonth, setCurrentMonth] = useState(() => new Date(now));
 
@@ -102,12 +104,12 @@ export function CreatorPublicationCalendar({
     <Card data-testid="creator-publication-calendar">
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="text-base">Mon calendrier de publication</CardTitle>
+          <CardTitle className="text-base">{tcal("title")}</CardTitle>
           <div className="flex items-center gap-1">
             <Button
               variant="ghost"
               size="icon-sm"
-              aria-label="Mois précédent"
+              aria-label={tcal("prevMonth")}
               onClick={() => setCurrentMonth((m) => subMonths(m, 1))}
             >
               <ChevronLeftIcon className="size-4" />
@@ -119,7 +121,7 @@ export function CreatorPublicationCalendar({
             <Button
               variant="ghost"
               size="icon-sm"
-              aria-label="Mois suivant"
+              aria-label={tcal("nextMonth")}
               onClick={() => setCurrentMonth((m) => addMonths(m, 1))}
             >
               <ChevronRightIcon className="size-4" />

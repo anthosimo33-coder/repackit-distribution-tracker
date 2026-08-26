@@ -186,9 +186,7 @@ export function AssignmentActions({
         <div className="flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-600">
           <UsersIcon className="mt-0.5 size-4 shrink-0 text-slate-400" />
           <span>
-            <span className="font-medium text-slate-800">
-              Géré par l&apos;équipe
-            </span>{" "}
+            <span className="font-medium text-slate-800">{t("assignment.managedBadge2")}</span>{" "}
             — l&apos;équipe publie ce contenu. Tu n&apos;as rien à soumettre ni à
             publier ; le post et ses performances apparaîtront dans « Mes
             vidéos ».
@@ -313,17 +311,13 @@ export function AssignmentActions({
   if (s === "in_progress") {
     return (
       <div className="space-y-2">
-        <p className="text-sm text-slate-600">
-          Tourne ta vidéo selon le brief, puis envoie-la pour validation.
-        </p>
+        <p className="text-sm text-slate-600">{t("assignment.shootHint")}</p>
         <Button
           onClick={() => setUploadOpen(true)}
           disabled={busy}
           className={ACTION_BTN}
         >
-          <UploadIcon className="mr-2 size-4" />
-          Soumettre ma vidéo
-        </Button>
+          <UploadIcon className="mr-2 size-4" />{t("assignment.submitMine")}</Button>
         {uploadModal}
       </div>
     );
@@ -334,9 +328,7 @@ export function AssignmentActions({
     return (
       <div className="space-y-3">
         <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
-          <ClockIcon className="size-4 shrink-0" />
-          Vidéo envoyée — en attente de validation par l&apos;admin.
-        </div>
+          <ClockIcon className="size-4 shrink-0" />{t("assignment.sentAwaiting")}</div>
         {myVideoPreview}
       </div>
     );
@@ -358,9 +350,7 @@ export function AssignmentActions({
           disabled={busy}
           className={ACTION_BTN}
         >
-          <UploadIcon className="mr-2 size-4" />
-          Re-soumettre une vidéo
-        </Button>
+          <UploadIcon className="mr-2 size-4" />{t("assignment.resubmit")}</Button>
         {uploadModal}
       </div>
     );
@@ -466,6 +456,7 @@ function ReadOnlyState({
   tone: "slate" | "amber" | "emerald";
   label: string;
 }) {
+  const t = useTranslations("portal.assignment");
   return (
     <div
       data-testid="assignment-readonly-state"

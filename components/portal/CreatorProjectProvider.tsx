@@ -11,6 +11,7 @@ import { useQuery } from "convex/react";
 import { Loader2Icon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useTranslations } from "next-intl";
 
 /**
  * Multi-projets créateur — contexte du PROJET COURANT côté portail /app.
@@ -55,6 +56,7 @@ export const CreatorProjectContext =
 const STORAGE_KEY = "creator-current-project";
 
 export function CreatorProjectProvider({ children }: { children: ReactNode }) {
+  const tns = useTranslations("portal.noSpace");
   const projects = useQuery(api.creators.getMyCreatorProjects, {});
   const [selectedId, setSelectedId] = useState<Id<"projects"> | null>(null);
 
@@ -79,9 +81,7 @@ export function CreatorProjectProvider({ children }: { children: ReactNode }) {
     // un rôle creator). Garde-fou défensif.
     return (
       <div className="flex h-screen items-center justify-center px-6 text-center">
-        <p className="max-w-sm text-sm text-slate-500">
-          Aucun projet rattaché à ton compte. Contacte un administrateur.
-        </p>
+        <p className="max-w-sm text-sm text-slate-500">{tns("notLinked")}</p>
       </div>
     );
   }

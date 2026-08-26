@@ -23,6 +23,7 @@ export function StreamPlayer({
   status: "processing" | "ready" | "error";
   title?: string;
 }) {
+  const tsp = useTranslations("stream");
   const t = useTranslations("portal");
   if (status === "ready") {
     return (
@@ -52,8 +53,7 @@ export function StreamPlayer({
     >
       <Loader2Icon className="size-6 animate-spin text-slate-400" />
       <p>
-        Transcoding en cours — la vidéo sera bientôt visionnable ici (le lecteur
-        apparaît automatiquement).
+        {tsp("transcoding")}
       </p>
     </div>
   );

@@ -25,6 +25,7 @@ import { normalizeLocale, type Locale } from "@/convex/locales";
 
 /** Nom de la langue DANS cette langue (jamais traduit : c'est un endonyme). */
 export const LOCALE_LABELS: Record<Locale, string> = {
+  // i18n-exempt: ENDONYME : le nom d'une langue s'écrit dans cette langue, jamais traduit
   fr: "Français",
   en: "English",
 };

@@ -16,6 +16,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { projectPath } from "@/lib/project-path";
 import { portalPathForRole } from "@/lib/portal-path";
+import { useTranslations } from "next-intl";
 
 /**
  * P3 Multi-tenant — contexte du projet courant, DÉRIVÉ DU SEGMENT D'URL
@@ -63,6 +64,7 @@ export function ProjectProvider({
   slug: string;
   children: ReactNode;
 }) {
+  const tp = useTranslations("project");
   const result = useQuery(api.projects.getProjectForCurrentUser, { slug });
 
   if (result === undefined) {
@@ -72,7 +74,7 @@ export function ProjectProvider({
   if (result.status === "not_found") {
     return (
       <ProjectGateMessage
-        title="Projet introuvable"
+        title={tp("notFound")}
         body={`Aucun projet « ${slug} » n'existe.`}
       />
     );
@@ -81,8 +83,8 @@ export function ProjectProvider({
   if (result.status === "forbidden") {
     return (
       <ProjectGateMessage
-        title="Accès refusé"
-        body="Ton compte n'a pas accès à ce projet. Demande à un administrateur de t'y ajouter."
+        title={tp("denied")}
+        body={tp("deniedBody")}
       />
     );
   }
@@ -106,6 +108,7 @@ export function ProjectProvider({
 export function useProject(): ProjectContextValue {
   const ctx = useContext(ProjectContext);
   if (!ctx) {
+    // i18n-exempt: erreur de DÉVELOPPEMENT (contrat de montage React), jamais rendue à un utilisateur
     throw new Error("useProject must be used within ProjectProvider");
   }
   return ctx;
@@ -147,6 +150,7 @@ function FullPageLoader() {
 }
 
 function ProjectGateMessage({ title, body }: { title: string; body: string }) {
+  const tp = useTranslations("project");
   return (
     <div className="flex h-screen items-center justify-center px-6 text-center">
       <div className="max-w-sm space-y-3">
@@ -155,9 +159,7 @@ function ProjectGateMessage({ title, body }: { title: string; body: string }) {
         <Link
           href="/"
           className="inline-block text-sm font-medium text-slate-900 underline underline-offset-4 hover:text-slate-700"
-        >
-          Retour à l&apos;accueil
-        </Link>
+        >{tp("backHome")}</Link>
       </div>
     </div>
   );

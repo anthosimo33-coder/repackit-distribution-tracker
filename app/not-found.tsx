@@ -2,6 +2,7 @@ import Link from "next/link";
 import { useTranslations } from "next-intl";
 
 export default function NotFound() {
+  const tnf = useTranslations("portal.notFound");
   const t = useTranslations("portal");
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 text-center">
@@ -10,9 +11,7 @@ export default function NotFound() {
       <Link
         href="/"
         className="text-sm font-medium text-slate-900 underline underline-offset-4 hover:text-slate-700"
-      >
-        Retour au Dashboard
-      </Link>
+      >{tnf("backDashboard")}</Link>
     </div>
   );
 }

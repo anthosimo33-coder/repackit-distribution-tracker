@@ -11,6 +11,7 @@ import { rewardEmoji } from "@/lib/progression";
 import { formatMoney, formatViews } from "@/lib/format-rate";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { useLabel } from "@/lib/use-label";
+import { useTranslations } from "next-intl";
 
 /**
  * Overlay GLOBAL de célébration de palier — monté dans le shell créateur, donc
@@ -34,6 +35,7 @@ export function ProgressionCelebration({
 }: {
   projectId: Id<"projects">;
 }) {
+  const tcel = useTranslations("portal.celebration");
   const tLabel = useLabel();
   const loc = useIntlLocale();
   const va = useViewAs();
@@ -63,7 +65,7 @@ export function ProgressionCelebration({
             }
           : {
               kind: "item",
-              label: (u.libelle ?? "").trim() || "Récompense",
+              label: (u.libelle ?? "").trim() || tcel("reward"),
               emoji: rewardEmoji(u.libelle),
               seuilVues: u.seuilVues,
             },
@@ -84,7 +86,7 @@ export function ProgressionCelebration({
       className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 p-4"
       role="dialog"
       aria-modal="true"
-      aria-label="Palier débloqué"
+      aria-label={tcel("tierUnlocked")}
       onClick={() => setOpen(false)}
     >
       <div
@@ -94,9 +96,7 @@ export function ProgressionCelebration({
         <div className="text-5xl" aria-hidden>
           {headline.emoji}
         </div>
-        <p className="mt-3 text-lg font-semibold text-slate-900">
-          Palier débloqué !
-        </p>
+        <p className="mt-3 text-lg font-semibold text-slate-900">{tcel("tierUnlockedBang")}</p>
         <p className="mt-1 text-sm text-slate-500">
           Tu as atteint {formatViews(headline.seuilVues, loc)} vues cumulées.
         </p>
@@ -109,8 +109,8 @@ export function ProgressionCelebration({
           </p>
           <p className="mt-1 text-xs text-slate-500">
             {headline.kind === "cash"
-              ? "Ajouté à ton prochain paiement."
-              : "On te contacte pour te la remettre."}
+              ? tcel("addedToPay")
+              : tcel("weContactYou")}
           </p>
         </div>
 
@@ -125,9 +125,7 @@ export function ProgressionCelebration({
           type="button"
           onClick={() => setOpen(false)}
           className="mt-5 flex h-11 w-full items-center justify-center rounded-md bg-primary text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
-        >
-          Génial 🎉
-        </button>
+        >{tcel("great")}</button>
       </div>
     </div>
   );

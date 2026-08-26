@@ -184,7 +184,9 @@
       "invalidBody": "Ce lien de réinitialisation est invalide ou expiré. Demande un nouveau lien à ton administrateur.",
       "title": "Réinitialise ton mot de passe",
       "promptForProject": "Choisis un nouveau mot de passe pour {project}.",
-      "submit": "Réinitialiser le mot de passe"
+      "submit": "Réinitialiser le mot de passe",
+      "doneTitle": "Mot de passe réinitialisé",
+      "doneBody": "Tu peux maintenant te connecter avec ton nouveau mot de passe."
     },
     "field": {
       "email": "Email",
@@ -193,10 +195,12 @@
   },
   "portal": {
     "notFound": {
-      "body": "Cette page n'existe pas."
+      "body": "Cette page n'existe pas.",
+      "backDashboard": "Retour au Dashboard"
     },
     "tools": {
-      "title": "Outils"
+      "title": "Outils",
+      "empty": "Aucun outil disponible pour ce projet."
     },
     "verdict": {
       "pending": "En attente"
@@ -221,7 +225,11 @@
       "cumulViews": "Vues cumulées"
     },
     "script": {
-      "copyDescription": "Copier la description"
+      "copyDescription": "Copier la description",
+      "inVideo": "Dans la vidéo",
+      "inVideoHint": "Chaque partie précise si c'est à dire, à afficher, ou les deux.",
+      "inDescription": "En description",
+      "inDescriptionHint": "Copie-colle ça en légende de ton post (hashtags inclus)."
     },
     "copy": {
       "copy": "Copier",
@@ -239,7 +247,9 @@
     },
     "todayPost": {
       "empty": "Aucun post planifié à venir.",
-      "seeNext": "Voir le prochain post"
+      "seeNext": "Voir le prochain post",
+      "title": "Aujourd'hui tu postes",
+      "nothing": "Rien à poster aujourd'hui."
     },
     "comptes": {
       "emptyReadOnly": "Ce créateur n'a pas encore déclaré de compte.",
@@ -359,7 +369,11 @@
       "methodLabel": "Méthode de paiement",
       "methodPlaceholder": "Choisir…",
       "detailsLabel": "Coordonnées de paiement",
-      "detailsPlaceholder": "IBAN, email, wallet…"
+      "detailsPlaceholder": "IBAN, email, wallet…",
+      "title": "Profil",
+      "notFound": "Profil introuvable.",
+      "identityHint": "Nom et email sont gérés par l'équipe. Pour les changer, contacte un administrateur.",
+      "paymentHint": "Indique comment te payer. Ces infos sont visibles par l'admin qui exécute les virements."
     },
     "assignment": {
       "started": "C'est parti — bon tournage !",
@@ -384,7 +398,12 @@
       "dropHere": "Glisse ta vidéo ici",
       "validatedPublish": "{count, plural, one {Ta vidéo est validée — publie-la sur ton compte, puis colle l'URL ci-dessous.} other {Ta vidéo est validée — publie-la sur chaque plateforme, puis colle les URLs ci-dessous.}}",
       "publishOn": "Publie sur {platform}",
-      "wrongLink": "Ce lien n'est pas un lien {platform}."
+      "wrongLink": "Ce lien n'est pas un lien {platform}.",
+      "managedBadge2": "Géré par l'équipe",
+      "shootHint": "Tourne ta vidéo selon le brief, puis envoie-la pour validation.",
+      "submitMine": "Soumettre ma vidéo",
+      "sentAwaiting": "Vidéo envoyée — en attente de validation par l'admin.",
+      "resubmit": "Re-soumettre une vidéo"
     },
     "sidebar": {
       "dashboard": "Tableau de bord",
@@ -497,7 +516,49 @@
       "keywords": "Mots-clés à rechercher",
       "keywordsWait": "En attente des mots-clés définis par l'admin.",
       "instructions": "Instructions"
-    }
+    },
+    "celebration": {
+      "reward": "Récompense",
+      "tierUnlocked": "Palier débloqué",
+      "tierUnlockedBang": "Palier débloqué !",
+      "addedToPay": "Ajouté à ton prochain paiement.",
+      "weContactYou": "On te contacte pour te la remettre.",
+      "great": "Génial 🎉"
+    },
+    "guide": {
+      "title": "Comment ça marche",
+      "subtitle": "Le guide de ton espace créateur.",
+      "soonTitle": "Le guide arrive bientôt",
+      "soonBody": "Le contenu de ton espace est en cours de préparation."
+    },
+    "calendar": {
+      "title": "Mon calendrier de publication",
+      "prevMonth": "Mois précédent",
+      "nextMonth": "Mois suivant"
+    },
+    "bio": {
+      "confirmed": "Bio confirmée ✓",
+      "error": "Une erreur est survenue.",
+      "toUpdate": "Bio à mettre à jour",
+      "toKeep": "Bio actuelle à maintenir",
+      "copy": "Copier la bio"
+    },
+    "noProject": {
+      "title": "Aucun projet accessible",
+      "body": "Ton compte n'est rattaché à aucun projet. Demande à un administrateur de t'ajouter à un projet."
+    },
+    "noSpace": {
+      "title": "Aucun espace disponible",
+      "body": "Ton compte n'est rattaché à aucun projet. Contacte un administrateur.",
+      "notLinked": "Aucun projet rattaché à ton compte. Contacte un administrateur."
+    },
+    "catchUp": {
+      "title": "À rattraper"
+    },
+    "nudge": {
+      "addPaymentInfo": "Ajoute tes coordonnées de paiement"
+    },
+    "mySpace": "Mon espace"
   },
   "status": {
     "assignment": {
@@ -812,7 +873,10 @@
           "Switcher entre comptes toutes les 10 min"
         ]
       }
-    ]
+    ],
+    "button": "Guide warmup",
+    "dialogTitle": "Guide warmup — TikTok, Instagram, YouTube",
+    "dialogDesc": "Procédure de chauffe par plateforme, consultable sans quitter le tracker."
   },
   "clip": {
     "notFound": "Ce clip est introuvable.",
@@ -929,5 +993,39 @@
     "disclaimer": "Estimation indicative ; le paiement se fait sur les vues réelles du post validé.",
     "baseFixed": "Base (fixe par vidéo)",
     "cpm": "CPM (sur tes vues)"
+  },
+  "videoExample": {
+    "unavailable": "Vidéo indisponible",
+    "codecHint": "Format non lisible par ce navigateur (probable .mov HEVC iPhone) — réencoder en mp4 H.264.",
+    "seeYouTube": "Voir sur YouTube",
+    "youtubeEx": "Exemple YouTube",
+    "seeVideo": "Voir la vidéo",
+    "tiktokEx": "Exemple TikTok",
+    "seeInstagram": "Voir sur Instagram"
+  },
+  "drive": {
+    "badResponse": "Réponse Drive invalide (id manquant).",
+    "notEnabled": "Le dépôt de fichiers n'est pas encore activé. Préviens l'administrateur.",
+    "unavailable": "Dépôt de fichiers indisponible pour ce projet.",
+    "uploadFailed": "Échec de l'upload.",
+    "sending": "Fichiers en cours d'envoi",
+    "sent": "Envoyé",
+    "retry": "Réessayer"
+  },
+  "leaderboard": {
+    "me": "Toi",
+    "cycleTitle": "Classement du cycle",
+    "cycleSubtitle": "Gains du cycle en cours de chaque créateur (fenêtre J+30 personnelle, ancrée sur son premier post).",
+    "publishFirst": "Publie ton premier post pour entrer au classement.",
+    "noneYet": "Aucune créatrice n'a encore publié ce cycle."
+  },
+  "project": {
+    "notFound": "Projet introuvable",
+    "denied": "Accès refusé",
+    "deniedBody": "Ton compte n'a pas accès à ce projet. Demande à un administrateur de t'y ajouter.",
+    "backHome": "Retour à l'accueil"
+  },
+  "stream": {
+    "transcoding": "Transcoding en cours — la vidéo sera bientôt visionnable ici (le lecteur apparaît automatiquement)."
   }
 }

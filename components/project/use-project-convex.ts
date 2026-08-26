@@ -17,6 +17,7 @@ import { useProjectId } from "./ProjectProvider";
  * NE PAS utiliser pour les fonctions non scopées (api.projects.getCurrentProject,
  * api.storage.*) : garder useQuery/useMutation bruts pour celles-là.
  */
+// i18n-exempt: faux positif du détecteur : générique TypeScript, pas du texte
 type WithoutProject<T> = Omit<T, "projectId">;
 
 export function useProjectQuery<Query extends FunctionReference<"query">>(
