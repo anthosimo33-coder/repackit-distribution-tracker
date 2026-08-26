@@ -154,6 +154,29 @@ const STRICT_JSX = /(?<![=!<>-])>(?!=)\s*([^<>{}\n][^<>{}]*?)\s*</g;
  * minimale comprise) qui écarte les courts — un littéral consommé ne peut plus
  * servir de borne à un appariement fantôme.
  */
+/**
+ * TEXTE JSX RÉPARTI SUR PLUSIEURS LIGNES — le trou qui rendait le compteur faux.
+ *
+ * `STRICT_JSX` s'applique LIGNE PAR LIGNE : il ne voit `>Texte<` que si les deux
+ * chevrons sont sur la même ligne. Or Prettier passe systématiquement à la ligne
+ * dès qu'une balise dépasse la largeur :
+ *
+ *     <h1 className="...">
+ *       Profil
+ *     </h1>
+ *
+ * « Profil » n'était donc vu par RIEN, et le fichier ressortait « extrait ».
+ * `ProfilScreen.tsx` était hors baseline avec cinq chaînes françaises dedans.
+ *
+ * Ce motif tourne sur le fichier ENTIER (commentaires déjà retirés) : `[^<>{}]`
+ * accepte les sauts de ligne. Les garde-fous ci-dessous évitent de capturer du
+ * CODE entre deux chevrons sans rapport (`Array<string> = [];` … `<div`).
+ */
+const MULTILINE_JSX = /(?<![=!<>-])>(?!=)([^<>{}]*)</g;
+
+/** Un texte JSX ne contient ni `;` ni `=` ni guillemet : ça, c'est du code. */
+const LOOKS_LIKE_CODE = /[;="'`]/;
+
 const STRICT_LITERAL = /(["'])((?:(?!\1)[^\\\n]|\\.)*)\1/g;
 
 /** Lignes où un littéral n'est jamais de la copie : classes, imports, chemins. */
@@ -204,6 +227,9 @@ for (const rel of SCOPE) {
   if (!/\.tsx?$/.test(rel) || SKIP_FILE.test(rel)) continue;
   const file = join(ROOT, rel);
   const lines = readFileSync(file, "utf8").split("\n");
+  // Lignes débarrassées de leurs commentaires, réalignées sur la numérotation
+  // d'origine : c'est le support de la passe multi-ligne, après la boucle.
+  const cleanLines = new Array(lines.length).fill("");
   let inBlockComment = false;
   lines.forEach((line, i) => {
     // Exemption : le marqueur lui-même, et la ligne qu'il couvre.
@@ -242,6 +268,7 @@ for (const rel of SCOPE) {
     }
     code = code.replace(/\/\/.*$/, "");
     if (code.trim() === "") return;
+    cleanLines[i] = code;
 
     // `rel` vient du périmètre, pas d'un parcours de dossier : c'est déjà le
     // chemin relatif à la racine, tel qu'il figure dans la baseline.
@@ -275,6 +302,38 @@ for (const rel of SCOPE) {
       });
     }
   });
+
+  // ── Passe MULTI-LIGNE : le texte JSX que la passe par ligne ne peut pas voir ──
+  // `.tsx` UNIQUEMENT : dans un `.ts`, les chevrons sont des génériques
+  // (`Record<string, Id<"creators">>`), et l'espace entre deux d'entre eux est
+  // du code — « , id: Id » sortait de `creator-data.ts` à ce titre.
+  if (!rel.endsWith(".tsx")) continue;
+  const joined = cleanLines.join("\n");
+  MULTILINE_JSX.lastIndex = 0;
+  let mm;
+  while ((mm = MULTILINE_JSX.exec(joined)) !== null) {
+    const raw = mm[1];
+    const text = raw.trim();
+    if (text === "" || LOOKS_LIKE_CODE.test(raw)) continue;
+    // Une prose JSX tient en quelques lignes ; au-delà, on a sauté par-dessus du
+    // code sans rapport et la capture n'a plus de sens.
+    if ((raw.match(/\n/g) || []).length > 4) continue;
+    // Le texte peut être coupé par Prettier : on le recolle pour le lire, mais
+    // on le signale à la ligne où il COMMENCE.
+    const flat = text.replace(/\s+/g, " ");
+    // Une phrase commence par une lettre, un chiffre ou un ouvrant de citation.
+    // Un fragment de code capté entre deux chevrons commence par de la
+    // ponctuation — `) : done ? (` (ternaire JSX) et `, id: Id` sortaient ainsi.
+    if (!/^[\p{L}\p{N}«—]/u.test(flat)) continue;
+    if (!isDisplayText(flat)) continue;
+    const start = mm.index + mm[0].indexOf(raw);
+    const line = joined.slice(0, start).split("\n").length;
+    findings.push({
+      file: rel,
+      line,
+      text: flat.length > 70 ? `${flat.slice(0, 70)}…` : flat,
+    });
+  }
 }
 
 // ─── Parité des catalogues ───────────────────────────────────────────────────
