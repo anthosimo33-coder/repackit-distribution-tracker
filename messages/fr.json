@@ -455,7 +455,13 @@
       "noVideoCycle": "Aucune vidéo publiée sur ce cycle pour l'instant.",
       "history": "Historique",
       "paidIn": "{days, plural, one {Payé dans # jour (le {date})} other {Payé dans # jours (le {date})}}",
-      "nextPayout": "Prochaine paie le {date}"
+      "nextPayout": "Prochaine paie le {date}",
+      "line": {
+        "fixed": "{count, plural, one {Fixe — # vidéo publiée} other {Fixe — # vidéos publiées}}",
+        "cpm": "CPM — {views} vues",
+        "bonusTier": "Bonus paliers (cumul de vues)",
+        "retainer": "Forfait — cycle {cycle}"
+      }
     },
     "videos": {
       "trackingActive": "Suivi actif",

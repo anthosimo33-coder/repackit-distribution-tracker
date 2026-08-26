@@ -252,7 +252,41 @@ function Row({
   );
 }
 
+/**
+ * Libellé d'une ligne de paie.
+ *
+ * `label` est une phrase FIGÉE en base au moment du paiement, en français :
+ * « Fixe — 3 vidéos publiées ». Aucune extraction ne peut la traduire — c'est
+ * de la donnée, pas de l'interface. Les lignes écrites depuis A9 portent en
+ * plus un `detail` STRUCTURÉ, et c'est lui qu'on rend quand il est là.
+ *
+ * ⚠️ REPLI SUR `label` : les paiements ANTÉRIEURS n'ont pas de `detail` et
+ * restent affichés en français. C'est assumé — un créateur US nouvellement
+ * onboardé n'a pas d'historique, et réécrire le passé serait falsifier un
+ * grand livre. Cf I18N_STATUS.md, dette « migration des libellés de paie ».
+ */
+function useLineLabel() {
+  const t = useTranslations("portal.paiements.line");
+  return (li: Payment["lineItems"][number]) => {
+    const d = li.detail;
+    if (d) {
+      if (li.kind === "fixed" && d.videoCount !== undefined) {
+        return t("fixed", { count: d.videoCount });
+      }
+      if (li.kind === "cpm" && d.views !== undefined) {
+        return t("cpm", { views: d.views });
+      }
+      if (li.kind === "retainer" && d.cycleIndex !== undefined) {
+        return t("retainer", { cycle: d.cycleIndex });
+      }
+    }
+    if (li.kind === "bonus_tier") return t("bonusTier");
+    return li.label;
+  };
+}
+
 function LineItems({ p, currency }: { p: Payment; currency?: string | null }) {
+  const lineLabel = useLineLabel();
   const t = useTranslations("portal");
   const loc = useIntlLocale();
   return (
@@ -264,7 +298,7 @@ function LineItems({ p, currency }: { p: Payment; currency?: string | null }) {
         >
           <span className="flex min-w-0 items-center gap-2">
             <KindTag kind={li.kind} />
-            <span className="truncate text-slate-700">{li.label}</span>
+            <span className="truncate text-slate-700">{lineLabel(li)}</span>
           </span>
           <span className="shrink-0 tabular-nums text-slate-900">
             {formatMoney(li.amount, currency, loc)}
