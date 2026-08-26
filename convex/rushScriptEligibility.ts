@@ -118,6 +118,7 @@ export function describeIneligibleBrick(brick: EligibilityBrick): string {
       ? "son mode n'est pas renseigné"
       // i18n-exempt: motif de refus ADMIN (assignation de script) — jamais rendu dans un portail créateur
       : `elle est réglée sur « ${mode === "dire" ? "Dire à l'oral" : "Les deux"} »`;
+  // i18n-exempt: motif de refus ADMIN (assignation de script) — jamais rendu dans un portail créateur
   return `L'${kind} « ${extrait(brick.content)} » ne peut pas servir sur un rush : ${cause}. Les rushes sont muets — passe-la sur « Afficher à l'écran ».`;
 }
 

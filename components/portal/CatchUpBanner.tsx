@@ -97,9 +97,14 @@ export function CatchUpBanner({
                         depuis quand ça traîne. La plage n'est rendue que si elle
                         existe (assignations d'avant le champ : rien d'affiché). */}
                     <span className="block text-xs text-rose-700">
-                      Prévu le {formatDate(a.postDate!, loc)}
-                      {plage !== null ? ` (${plage})` : ""} — à publier dès que
-                      possible
+                      {plage !== null
+                        ? tcu("plannedOnWindow", {
+                            date: formatDate(a.postDate!, loc),
+                            window: plage,
+                          })
+                        : tcu("plannedOn", {
+                            date: formatDate(a.postDate!, loc),
+                          })}
                     </span>
                   </span>
                   <ArrowRightIcon className="size-4 shrink-0 text-rose-600" />

@@ -17,7 +17,7 @@ verts après chaque lot.
 |---|---:|---:|
 | Fichiers du périmètre extraits | 30/56 (liste dérivée) | **146/146** |
 | Chaînes françaises dans le périmètre | ~325 | **0** |
-| Complétion du catalogue anglais | 33 % | **100 %** — 653 traduites + 38 identiques *légitimement*, 0 hors liste blanche (691 clés) |
+| Complétion du catalogue anglais | 33 % | **100 %** — 0 hors liste blanche (744 clés) |
 | Rejets Convex du parcours en français | 80 | **0** |
 | E-mails créateur en anglais | 1/7 | **7/7** |
 
@@ -820,6 +820,39 @@ sens le plus **conservateur** pendant la traversée, et méritent ton avis.
 | 2 | **~2 588 chaînes admin/analytics restent en français.** | C'est le périmètre, pas un reste. La garde les ignore explicitement (`A7` marqué hors scope). |
 | 3 | **Les ~55 specs e2e assertent des libellés français.** | Elles tournent en locale `fr`, qui est le défaut du produit : rien à changer. Les deux qui branchaient sur le TEXTE d'une erreur serveur ont été passées au **code** en A2. |
 | 4 | **La garde ne voit pas les phrases assemblées dans une expression `{}`.** | Limite connue et documentée : elle attrape les littéraux, pas les phrases reconstruites. Les 5 cas du périmètre ont été traités à la main en A6. |
+
+### 11.6 Le détecteur avait trois trous de plus — et le guide est de la donnée
+
+Testé à l'écran, le portail d'une créatrice EN montrait encore du français que
+la garde ne voyait pas. Diagnostic avant correctif : le périmètre était bon, les
+fichiers concernés étaient tous dans les 146. C'est le DÉTECTEUR qui était aveugle.
+
+| Trou | Motif | Pourquoi |
+|---|---|---|
+| **1** | texte JSX voisin d'une interpolation — `Bonjour{name}`, `{fmt(x)} vues cumulées` | la capture `>[^<>{}]*<` EXCLUAIT les accolades ; c'est la forme **dominante** du dépôt |
+| **2** | prose ouvrant par un emoji — `🏆 Paliers de récompense` | mon propre garde-fou anti-fragment, trop strict |
+| **3** | littéraux template — `` `Upload échoué (HTTP ${s}).` `` | `STRICT_LITERAL` n'appariait que `"` et `'` |
+
+**54 chaînes** rendues visibles, extraites en clés ICU **complètes** — jamais des
+fragments recollés : `Plus que {views} vues avant {reward}.` et non
+« Plus que » + valeur + « vues avant ». Un fragment recollé donne une phrase
+anglaise à syntaxe française.
+
+**Faux positifs mesurés, pas supposés** : autoriser les accolades a d'abord donné
+65 détections dont **10 fausses (15 %)**. Un filtre de jetons de code les
+élimine — 54 détections, **0 fausse**, revues une par une. Une garde qui crie à
+tort finit désactivée.
+
+Les primitives du détecteur vivent maintenant dans `scripts/i18n-detect.mjs`,
+avec **11 tests** — dont la contre-épreuve que le desserrage du trou 2 n'a pas
+rouvert la porte aux fragments qu'il écartait à raison.
+
+**Le guide « How it works » n'est PAS un lot d'extraction.** Son contenu vit dans
+la table `guideModules` : 11 modules, 16 060 caractères de Markdown, écrits et
+édités par l'admin, scopés par projet. C'est de la DONNÉE, au même titre que
+`payments.lineItems[].label`. Décision prise : **un jeu de modules par langue**
+(champ `locale`, repli FR), livré comme lot séparé — repli et bandeau
+« disponible en français seulement » d'abord, rédaction ensuite.
 
 ### 11.5 La preview « Voir son espace » rendait dans la langue de l'admin
 

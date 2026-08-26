@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { formatMoney, formatViews, rateSummary, moneyColumnHeader } from "./format-rate";
+import fr from "../messages/fr.json";
+import en from "../messages/en.json";
 
 // Intl fr-FR insère une espace fine insécable (U+202F, parfois U+00A0) avant $ ;
 // on normalise pour comparer (la NBSP reste côté UI — typographie FR correcte).
@@ -39,20 +41,48 @@ describe("formatViews", () => {
   });
 });
 
+/**
+ * `rateSummary` rend désormais des ENTRÉES STRUCTURÉES (clé + paramètres), plus
+ * des phrases françaises : le brief d'une créatrice anglophone affichait sa
+ * grille de paie en français. On vérifie donc la phrase RENDUE, dans les DEUX
+ * langues — un test qui n'assertait que le français laisserait passer une clé
+ * absente du catalogue anglais.
+ */
+function render(lines: ReturnType<typeof rateSummary>, cat: unknown): string[] {
+  return lines.map((l) => {
+    const tpl = l.key
+      .split(".")
+      .reduce<unknown>((acc, k) => (acc as Record<string, unknown>)?.[k], cat) as string;
+    return norm(
+      tpl.replace(/\{(\w+)\}/g, (_, k) => String(l.params[k] ?? `{${k}}`)),
+    );
+  });
+}
+
 describe("rateSummary", () => {
   // La grille est de la PAIE créatrices : devise = payCurrency (dollars pour Snytch).
-  it("base seule, en dollars", () => {
-    expect(normLines(rateSummary({ basePerPost: 50 }, "usd"))).toEqual([
-      "50,00 $ par post",
-    ]);
+  it("base seule, en dollars — dans les deux langues", () => {
+    const l = rateSummary({ basePerPost: 50 }, "usd");
+    expect(render(l, fr.format)).toEqual(["50,00 $ par post"]);
+    expect(render(l, en.format)).toEqual(["50,00 $ per post"]);
   });
+
+  it("la LANGUE pilote la mise en forme du montant, jamais la devise", () => {
+    // Le dollar reste le dollar ; seuls les séparateurs et la position bougent.
+    expect(render(rateSummary({ basePerPost: 1234.5 }, "usd", "fr-FR"), fr.format))
+      .toEqual(["1 234,50 $ par post"]);
+    expect(render(rateSummary({ basePerPost: 1234.5 }, "usd", "en-US"), en.format))
+      .toEqual(["$1,234.50 per post"]);
+  });
+
   it("sans devise fournie → montant sans symbole", () => {
-    expect(normLines(rateSummary({ basePerPost: 50 }))).toEqual([
+    expect(render(rateSummary({ basePerPost: 50 }), fr.format)).toEqual([
       "50,00 par post",
     ]);
   });
+
   it("base + bonus vues + primes triées", () => {
-    const lines = normLines(
+    const lines = render(
       rateSummary(
         {
           basePerPost: 50,
@@ -64,6 +94,7 @@ describe("rateSummary", () => {
         },
         "usd",
       ),
+      fr.format,
     );
     expect(lines[0]).toBe("50,00 $ par post");
     expect(lines[1]).toBe("+ 2,00 $ / 1 000 vues");
@@ -71,10 +102,11 @@ describe("rateSummary", () => {
     expect(lines[2]).toContain("100 k vues");
     expect(lines[3]).toContain("1 M vues");
   });
+
   it("ignore un bonus aux vues nul", () => {
-    expect(normLines(rateSummary({ basePerPost: 10, viewBonusPer1k: 0 }, "usd"))).toEqual([
-      "10,00 $ par post",
-    ]);
+    expect(
+      render(rateSummary({ basePerPost: 10, viewBonusPer1k: 0 }, "usd"), fr.format),
+    ).toEqual(["10,00 $ par post"]);
   });
 });
 

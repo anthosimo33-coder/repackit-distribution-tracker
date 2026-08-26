@@ -138,7 +138,7 @@ export function DeclareCompteDialog({
             />
             {expected && (
               <p className="text-xs text-slate-500">
-                @ attendu :{" "}
+                {td("expectedHandle")}{" "}
                 <span className="font-mono font-medium text-slate-700">
                   {expected}
                 </span>
@@ -164,7 +164,7 @@ export function DeclareCompteDialog({
             >{td("cancel")}</Button>
             <Button type="submit" disabled={submitting}>
               {submitting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-              Déclarer
+              {td("submit")}
             </Button>
           </DialogFooter>
         </form>

@@ -12,6 +12,7 @@ import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { VideoExample, type FormatExample } from "./VideoExample";
 import { rateSummary, type RateModel } from "@/lib/format-rate";
 import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * P6/P7 — rendu du brief d'un format TEL QUE LE CRÉATEUR LE VERRA. Composant
@@ -52,7 +53,8 @@ export function FormatBriefPreview({
   currency?: string | null;
 }) {
   const tf = useTranslations("format");
-  const rate = rateSummary(format.rateModel, currency);
+  const loc = useIntlLocale();
+  const rate = rateSummary(format.rateModel, currency, loc);
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
@@ -164,7 +166,7 @@ export function FormatBriefPreview({
                   key={i}
                   className={i === 0 ? "font-semibold text-slate-900" : ""}
                 >
-                  {line}
+                  {tf(line.key as Parameters<typeof tf>[0], line.params)}
                 </li>
               ))}
             </ul>

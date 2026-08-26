@@ -171,7 +171,8 @@
       "signupFailed": "Création de compte impossible (mot de passe trop court — 8 caractères minimum — ou compte déjà existant).",
       "projectNotFound": "Projet introuvable",
       "projectNotFoundBody": "Aucun projet ne correspond à ce lien. Vérifie l'adresse ou connecte-toi sur la page générale.",
-      "goToGeneralLogin": "Aller à la connexion"
+      "goToGeneralLogin": "Aller à la connexion",
+      "subtitleProject": "Connecte-toi à ton espace {project}."
     },
     "reset": {
       "invalidTitle": "Lien invalide",
@@ -200,7 +201,8 @@
     },
     "tools": {
       "title": "Outils",
-      "empty": "Aucun outil disponible pour ce projet."
+      "empty": "Aucun outil disponible pour ce projet.",
+      "subtitle": "Les outils de {project}, à ouvrir dans un nouvel onglet."
     },
     "verdict": {
       "pending": "En attente"
@@ -209,7 +211,8 @@
       "submitted": "Vidéo soumise (Cloudflare Stream)"
     },
     "modelVideo": {
-      "title": "Vidéo à reproduire"
+      "title": "Vidéo à reproduire",
+      "playAria": "Lire la vidéo {title}"
     },
     "progression": {
       "nextTier": "Prochain palier",
@@ -222,7 +225,11 @@
       "back": "Retour",
       "title": "Ma progression",
       "empty": "Ta progression apparaîtra ici dès tes premières vues.",
-      "cumulViews": "Vues cumulées"
+      "cumulViews": "Vues cumulées",
+      "viewsToGo": "{count, plural, one {Plus que {views} vue.} other {Plus que {views} vues.}}",
+      "subtitle": "Tes vues cumulées débloquent les récompenses de {project}.",
+      "thresholdViews": "{views} vues",
+      "unlockedOn": " · débloqué le {date}"
     },
     "script": {
       "copyDescription": "Copier la description",
@@ -249,7 +256,9 @@
       "empty": "Aucun post planifié à venir.",
       "seeNext": "Voir le prochain post",
       "title": "Aujourd'hui tu postes",
-      "nothing": "Rien à poster aujourd'hui."
+      "nothing": "Rien à poster aujourd'hui.",
+      "next": "Prochain post {date} : {format}.",
+      "nextWindow": "Prochain post {date} entre {window} : {format}."
     },
     "comptes": {
       "emptyReadOnly": "Ce créateur n'a pas encore déclaré de compte.",
@@ -261,7 +270,8 @@
       "subtitle": "Déclare tes comptes et suis leur warmup.",
       "createExact": "Crée exactement ces @ — ils doivent correspondre aux comptes que tu déclares ensuite.",
       "warmupDue": "{count, plural, one {Tu as # warmup à faire aujourd'hui — coche-le ci-dessous.} other {Tu as # warmups à faire aujourd'hui — coche-les ci-dessous.}}",
-      "bioDue": "{count, plural, one {# bio à mettre à jour — recopie-la sur ton compte puis confirme ci-dessous.} other {# bios à mettre à jour — recopie-les sur tes comptes puis confirme ci-dessous.}}"
+      "bioDue": "{count, plural, one {# bio à mettre à jour — recopie-la sur ton compte puis confirme ci-dessous.} other {# bios à mettre à jour — recopie-les sur tes comptes puis confirme ci-dessous.}}",
+      "noneDeclared": "Aucun compte déclaré."
     },
     "calendarStatus": {},
     "fichiers": {
@@ -346,7 +356,11 @@
       "warmupDoneToday": "Warmup en cours — c'est bon pour aujourd'hui ✓",
       "warmupDailyHint": "Reviens le cocher chaque jour jusqu'au bout : c'est ce qui rend ton compte prêt à publier.",
       "nextTier": "Prochain palier",
-      "seeDetail": "Voir le détail"
+      "seeDetail": "Voir le détail",
+      "greeting": "Bonjour",
+      "greetingNamed": "Bonjour {name}",
+      "subtitle": "Ce que tu as à faire pour {project}.",
+      "dueOn": "Échéance {date}"
     },
     "profil": {
       "method": {
@@ -375,7 +389,8 @@
       "title": "Profil",
       "notFound": "Profil introuvable.",
       "identityHint": "Nom et email sont gérés par l'équipe. Pour les changer, contacte un administrateur.",
-      "paymentHint": "Indique comment te payer. Ces infos sont visibles par l'admin qui exécute les virements."
+      "paymentHint": "Indique comment te payer. Ces infos sont visibles par l'admin qui exécute les virements.",
+      "save": "Enregistrer"
     },
     "assignment": {
       "started": "C'est parti — bon tournage !",
@@ -405,7 +420,10 @@
       "shootHint": "Tourne ta vidéo selon le brief, puis envoie-la pour validation.",
       "submitMine": "Soumettre ma vidéo",
       "sentAwaiting": "Vidéo envoyée — en attente de validation par l'admin.",
-      "resubmit": "Re-soumettre une vidéo"
+      "resubmit": "Re-soumettre une vidéo",
+      "urlWrongPlatform": "L'URL pour {platform} ne correspond pas à cette plateforme.",
+      "managedNotice": "— l'équipe publie ce contenu. Tu n'as rien à soumettre ni à publier ; le post et ses performances apparaîtront dans « Mes vidéos ».",
+      "seePostOn": "Voir le post {platform}"
     },
     "sidebar": {
       "dashboard": "Tableau de bord",
@@ -460,8 +478,17 @@
         "fixed": "{count, plural, one {Fixe — # vidéo publiée} other {Fixe — # vidéos publiées}}",
         "cpm": "CPM — {views} vues",
         "bonusTier": "Bonus paliers (cumul de vues)",
-        "retainer": "Forfait — cycle {cycle}"
-      }
+        "retainer": "Forfait — cycle {cycle}",
+        "fixedGroup": "Fixe — {done}/{target} vidéos publiées",
+        "outOf": "sur {amount}",
+        "tierBonus": "Bonus palier {views} vues"
+      },
+      "tiersTitle": "🏆 Paliers de récompense",
+      "cumulViews": "{views} vues cumulées",
+      "viewsBefore": "{count, plural, one {Plus que {views} vue avant {reward}.} other {Plus que {views} vues avant {reward}.}}",
+      "paidLabel": "Payé",
+      "paidOn": "Payé le {date}",
+      "rewardFallback": "Récompense"
     },
     "videos": {
       "trackingActive": "Suivi actif",
@@ -485,7 +512,9 @@
       "emptyTitle": "Aucune vidéo pour l'instant",
       "emptyBody": "Dès que tu soumets une vidéo, elle apparaît ici avec son statut, puis son suivi (vues + gain) une fois en ligne.",
       "emptyFilter": "Aucune vidéo dans ce filtre.",
-      "unavailable": "Le suivi des vidéos n'est pas disponible pour ce projet."
+      "unavailable": "Le suivi des vidéos n'est pas disponible pour ce projet.",
+      "publishedAgo": "Publié {ago}",
+      "submittedWaiting": "Vidéo soumise — en attente de la validation de l'équipe."
     },
     "declare": {
       "declared": "Compte déclaré — warmup démarré",
@@ -495,7 +524,9 @@
       "platform": "Plateforme",
       "handle": "Handle *",
       "url": "URL du compte",
-      "cancel": "Annuler"
+      "cancel": "Annuler",
+      "expectedHandle": "@ attendu :",
+      "submit": "Déclarer"
     },
     "assignmentDetail": {
       "backToDashboard": "Retour au tableau de bord",
@@ -525,7 +556,8 @@
       "doneToday": "Fait aujourd'hui ✓",
       "keywords": "Mots-clés à rechercher",
       "keywordsWait": "En attente des mots-clés définis par l'admin.",
-      "instructions": "Instructions"
+      "instructions": "Instructions",
+      "dayOf": "Jour {day} / {target}"
     },
     "celebration": {
       "reward": "Récompense",
@@ -534,7 +566,8 @@
       "addedToPay": "Ajouté à ton prochain paiement.",
       "weContactYou": "On te contacte pour te la remettre.",
       "great": "Génial 🎉",
-      "extraRewards": "{count, plural, one {+# autre récompense débloquée.} other {+# autres récompenses débloquées.}}"
+      "extraRewards": "{count, plural, one {+# autre récompense débloquée.} other {+# autres récompenses débloquées.}}",
+      "reached": "Tu as atteint {views} vues cumulées."
     },
     "guide": {
       "title": "Comment ça marche",
@@ -564,10 +597,13 @@
       "notLinked": "Aucun projet rattaché à ton compte. Contacte un administrateur."
     },
     "catchUp": {
-      "title": "À rattraper"
+      "title": "À rattraper",
+      "plannedOn": "Prévu le {date} — à publier dès que possible",
+      "plannedOnWindow": "Prévu le {date} ({window}) — à publier dès que possible"
     },
     "nudge": {
-      "addPaymentInfo": "Ajoute tes coordonnées de paiement"
+      "addPaymentInfo": "Ajoute tes coordonnées de paiement",
+      "cantPay": "Sans elles, on ne peut pas te verser tes {amount}."
     },
     "mySpace": "Mon espace"
   },
@@ -948,7 +984,13 @@
     "forDate": "Pour le {date}",
     "counterPhaseZero": "en phase de {phase} ce jour-là — la publication sera refusée",
     "counterQuota": "{count, plural, one {# publication sur {max} ce jour-là} other {# publications sur {max} ce jour-là}}",
-    "counterQuotaFull": "{count, plural, one {# publication sur {max} ce jour-là — quota atteint} other {# publications sur {max} ce jour-là — quota atteint}}"
+    "counterQuotaFull": "{count, plural, one {# publication sur {max} ce jour-là — quota atteint} other {# publications sur {max} ce jour-là — quota atteint}}",
+    "dueOn": "à rendre le {date}",
+    "missingLinks": "Il manque le lien pour {platforms}.",
+    "accountMatch": "✓ Compte cohérent (@{handle})",
+    "accountMismatch": "⚠️ Ce lien pointe vers @{detected}, pas {expected}.",
+    "expectedAccount": "le compte attendu",
+    "accountRefused": "Compte refusé — {reason}"
   },
   "phase": {
     "label": {
@@ -974,7 +1016,9 @@
     "uploadError": "Erreur lors de l'upload",
     "constraints": "MP4, MOV ou WebM — 300 Mo max",
     "browse": "Parcourir",
-    "selectVideo": "Sélectionner une vidéo"
+    "selectVideo": "Sélectionner une vidéo",
+    "httpFailed": "Upload échoué (HTTP {status}).",
+    "progress": "Upload {percent} %"
   },
   "format": {
     "brief": "Brief",
@@ -982,7 +1026,12 @@
     "todo": "À faire",
     "avoid": "À éviter",
     "examples": "Vidéos exemples",
-    "pay": "Rémunération"
+    "pay": "Rémunération",
+    "rate": {
+      "base": "{amount} par post",
+      "viewBonus": "+ {amount} / 1 000 vues",
+      "bounty": "Prime {amount} à {views} vues"
+    }
   },
   "talent": {
     "deposit": "Déposer",
@@ -1003,7 +1052,8 @@
     "total": "Total estimé",
     "disclaimer": "Estimation indicative ; le paiement se fait sur les vues réelles du post validé.",
     "baseFixed": "Base (fixe par vidéo)",
-    "cpm": "CPM (sur tes vues)"
+    "cpm": "CPM (sur tes vues)",
+    "forViews": "Estimation pour {views} vues"
   },
   "videoExample": {
     "unavailable": "Vidéo indisponible",
@@ -1021,7 +1071,11 @@
     "uploadFailed": "Échec de l'upload.",
     "sending": "Fichiers en cours d'envoi",
     "sent": "Envoyé",
-    "retry": "Réessayer"
+    "retry": "Réessayer",
+    "httpInterrupted": "Upload interrompu (HTTP {status}).",
+    "httpRefused": "Drive a refusé l'upload (HTTP {status}).",
+    "fileSent": "{name} envoyé",
+    "progress": "Envoi {percent} %"
   },
   "leaderboard": {
     "me": "Toi",
@@ -1034,7 +1088,8 @@
     "notFound": "Projet introuvable",
     "denied": "Accès refusé",
     "deniedBody": "Ton compte n'a pas accès à ce projet. Demande à un administrateur de t'y ajouter.",
-    "backHome": "Retour à l'accueil"
+    "backHome": "Retour à l'accueil",
+    "noneNamed": "Aucun projet « {slug} » n'existe."
   },
   "stream": {
     "transcoding": "Transcoding en cours — la vidéo sera bientôt visionnable ici (le lecteur apparaît automatiquement)."

@@ -27,7 +27,7 @@ export default function OutilsPage() {
       <header className="space-y-1">
         <h1 className="text-xl font-semibold text-slate-900">{t("tools.title")}</h1>
         <p className="text-sm text-slate-500">
-          Les outils de {current.name}, à ouvrir dans un nouvel onglet.
+          {t("tools.subtitle", { project: current.name })}
         </p>
       </header>
 

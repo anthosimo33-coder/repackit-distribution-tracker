@@ -99,22 +99,51 @@ function trimZero(n: number, locale: string): string {
 }
 
 /**
- * Lignes lisibles de la grille (base, bonus aux vues, primes triées par seuil).
- * Sert l'aperçu créateur ET la liste admin. La grille est de la PAIE créatrices :
- * `currency` = projects.payCurrency (dollars pour Snytch), absente → sans symbole.
+ * Lignes de la grille (base, bonus aux vues, primes triées par seuil), en
+ * ENTRÉES STRUCTURÉES et non en phrases.
+ *
+ * Elles étaient assemblées ici en français (« 15,00 $ par post »), dans un
+ * module pur qui ne connaît pas la langue du lecteur — le brief d'une créatrice
+ * anglophone affichait donc sa grille de paie en français. Chaque entrée porte
+ * sa clé et ses paramètres ; c'est l'écran qui compose la phrase.
+ *
+ * La grille est de la PAIE créatrices : `currency` = projects.payCurrency
+ * (dollars pour Snytch), absente → montants sans symbole. La `locale` ne pilote
+ * que la MISE EN FORME, jamais la devise.
  */
-export function rateSummary(rate: RateModel, currency?: string | null): string[] {
-  const lines = [`${formatMoney(rate.basePerPost, currency)} par post`];
+export type RateLine = {
+  key: string;
+  params: Record<string, string | number>;
+};
+
+export function rateSummary(
+  rate: RateModel,
+  currency?: string | null,
+  locale: string = FORMAT_LOCALE_DEFAULT,
+): RateLine[] {
+  const lines: RateLine[] = [
+    {
+      key: "rate.base",
+      params: { amount: formatMoney(rate.basePerPost, currency, locale) },
+    },
+  ];
   if (rate.viewBonusPer1k && rate.viewBonusPer1k > 0) {
-    lines.push(`+ ${formatMoney(rate.viewBonusPer1k, currency)} / 1 000 vues`);
+    lines.push({
+      key: "rate.viewBonus",
+      params: { amount: formatMoney(rate.viewBonusPer1k, currency, locale) },
+    });
   }
   const bounties = [...(rate.bounties ?? [])].sort(
     (a, b) => a.thresholdViews - b.thresholdViews,
   );
   for (const b of bounties) {
-    lines.push(
-      `Prime ${formatMoney(b.amount, currency)} à ${formatViews(b.thresholdViews)} vues`,
-    );
+    lines.push({
+      key: "rate.bounty",
+      params: {
+        amount: formatMoney(b.amount, currency, locale),
+        views: formatViews(b.thresholdViews, locale),
+      },
+    });
   }
   return lines;
 }

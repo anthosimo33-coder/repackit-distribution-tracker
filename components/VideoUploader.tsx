@@ -72,7 +72,7 @@ export function VideoUploader({
             reject(new Error(tu("badResponse")));
           }
         } else {
-          reject(new Error(`Upload échoué (HTTP ${xhr.status}).`));
+          reject(new Error(tu("httpFailed", { status: xhr.status })));
         }
       };
       xhr.onerror = () => reject(new Error(tu("interrupted")));
@@ -139,7 +139,7 @@ export function VideoUploader({
         <div className="w-full max-w-xs space-y-2">
           <div className="flex items-center justify-center gap-2 text-sm text-slate-500">
             <Loader2Icon className="size-4 animate-spin" />
-            Upload {progress}%
+            {tu("progress", { percent: progress })}
           </div>
           <div
             className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100"

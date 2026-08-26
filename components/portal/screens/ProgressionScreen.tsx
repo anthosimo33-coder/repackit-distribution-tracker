@@ -54,7 +54,7 @@ export default function ProgressionScreen() {
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t("progression.title")}</h1>
         <p className="text-sm text-slate-500">
-          Tes vues cumulées débloquent les récompenses de {current.name}.
+          {t("progression.subtitle", { project: current.name })}
         </p>
       </header>
 
@@ -115,11 +115,10 @@ function Hero({ p, currency }: { p: P; currency?: string | null }) {
               />
             </div>
             <p className="text-xs text-slate-500">
-              Plus que{" "}
-              <span className="font-semibold tabular-nums text-slate-700">
-                {formatViews(p.remainingViews, loc)}
-              </span>{" "}
-              vues.
+              {t("progression.viewsToGo", {
+                count: p.remainingViews,
+                views: formatViews(p.remainingViews, loc),
+              })}
             </p>
           </div>
         ) : (
@@ -231,9 +230,13 @@ function LadderRow({
           <RewardLabel reward={entry.reward} currency={currency} />
         </p>
         <p className="text-xs text-slate-400">
-          {formatViews(entry.threshold, loc)} vues
+          {t("progression.thresholdViews", {
+            views: formatViews(entry.threshold, loc),
+          })}
           {entry.unlocked && entry.unlockedAt
-            ? ` · débloqué le ${formatDate(entry.unlockedAt, loc)}`
+            ? t("progression.unlockedOn", {
+                date: formatDate(entry.unlockedAt, loc),
+              })
             : ""}
         </p>
       </div>

@@ -112,7 +112,7 @@ export default function ProjectLoginPage({
             {branding.name}
           </CardTitle>
           <CardDescription>
-            Connecte-toi à ton espace {branding.name}.
+            {t("login.subtitleProject", { project: branding.name })}
           </CardDescription>
         </CardHeader>
         <CardContent>

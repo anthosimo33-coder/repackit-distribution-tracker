@@ -75,7 +75,7 @@ export function ProjectProvider({
     return (
       <ProjectGateMessage
         title={tp("notFound")}
-        body={`Aucun projet « ${slug} » n'existe.`}
+        body={tp("noneNamed", { slug })}
       />
     );
   }

@@ -172,7 +172,7 @@ export default function ComptesScreen() {
               strokeWidth={1.5}
             />
             <p className="text-sm text-slate-500">
-              Aucun compte déclaré.{" "}
+              {t("comptes.noneDeclared")}{" "}
               {readOnly
                 ? t("comptes.emptyReadOnly")
                 : t("comptes.emptyCreator")}

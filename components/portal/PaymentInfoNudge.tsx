@@ -46,8 +46,9 @@ export function PaymentInfoNudge({ projectId }: { projectId: Id<"projects"> }) {
       <div className="min-w-0 flex-1 space-y-0.5">
         <p className="text-sm font-semibold text-amber-900">{tn("addPaymentInfo")}</p>
         <p className="text-sm text-amber-800">
-          Sans elles, on ne peut pas te verser tes{" "}
-          {formatMoney(amountOwed(payments), payCurrency, loc)}.
+          {tn("cantPay", {
+            amount: formatMoney(amountOwed(payments), payCurrency, loc),
+          })}
         </p>
       </div>
       <ArrowRightIcon className="size-4 shrink-0 text-amber-700" />
