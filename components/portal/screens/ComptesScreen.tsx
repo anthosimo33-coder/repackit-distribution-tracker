@@ -130,9 +130,7 @@ export default function ComptesScreen() {
         >
           <FlameIcon className="size-5 shrink-0 text-amber-600" />
           <p className="text-sm font-medium text-amber-900">
-            Tu as {dueToday.length} warmup{dueToday.length > 1 ? "s" : ""} à
-            faire aujourd&apos;hui — coche
-            {dueToday.length > 1 ? "-les" : "-le"} ci-dessous.
+            {t("comptes.warmupDue", { count: dueToday.length })}
           </p>
         </div>
       )}
@@ -144,10 +142,7 @@ export default function ComptesScreen() {
         >
           <BellRingIcon className="size-5 shrink-0 text-amber-600" />
           <p className="text-sm font-medium text-amber-900">
-            {bioDue.length} bio{bioDue.length > 1 ? "s" : ""} à mettre à jour —
-            recopie{bioDue.length > 1 ? "-les" : "-la"} sur{" "}
-            {bioDue.length > 1 ? "tes comptes" : "ton compte"} puis confirme
-            ci-dessous.
+            {t("comptes.bioDue", { count: bioDue.length })}
           </p>
         </div>
       )}

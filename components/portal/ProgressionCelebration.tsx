@@ -116,8 +116,7 @@ export function ProgressionCelebration({
 
         {extra > 0 && (
           <p className="mt-2 text-xs text-slate-400">
-            +{extra} autre{extra > 1 ? "s" : ""} récompense
-            {extra > 1 ? "s" : ""} débloquée{extra > 1 ? "s" : ""}.
+            {tcel("extraRewards", { count: extra })}
           </p>
         )}
 

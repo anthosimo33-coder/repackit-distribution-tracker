@@ -259,7 +259,9 @@
       "createThese": "Crée ces comptes sur tes réseaux :",
       "title": "Mes comptes",
       "subtitle": "Déclare tes comptes et suis leur warmup.",
-      "createExact": "Crée exactement ces @ — ils doivent correspondre aux comptes que tu déclares ensuite."
+      "createExact": "Crée exactement ces @ — ils doivent correspondre aux comptes que tu déclares ensuite.",
+      "warmupDue": "{count, plural, one {Tu as # warmup à faire aujourd'hui — coche-le ci-dessous.} other {Tu as # warmups à faire aujourd'hui — coche-les ci-dessous.}}",
+      "bioDue": "{count, plural, one {# bio à mettre à jour — recopie-la sur ton compte puis confirme ci-dessous.} other {# bios à mettre à jour — recopie-les sur tes comptes puis confirme ci-dessous.}}"
     },
     "calendarStatus": {},
     "fichiers": {
@@ -451,7 +453,9 @@
       "firstPayHint": "Ta première paie démarrera après ta première publication.",
       "currentCycle": "Détail du cycle en cours",
       "noVideoCycle": "Aucune vidéo publiée sur ce cycle pour l'instant.",
-      "history": "Historique"
+      "history": "Historique",
+      "paidIn": "{days, plural, one {Payé dans # jour (le {date})} other {Payé dans # jours (le {date})}}",
+      "nextPayout": "Prochaine paie le {date}"
     },
     "videos": {
       "trackingActive": "Suivi actif",
@@ -523,7 +527,8 @@
       "tierUnlockedBang": "Palier débloqué !",
       "addedToPay": "Ajouté à ton prochain paiement.",
       "weContactYou": "On te contacte pour te la remettre.",
-      "great": "Génial 🎉"
+      "great": "Génial 🎉",
+      "extraRewards": "{count, plural, one {+# autre récompense débloquée.} other {+# autres récompenses débloquées.}}"
     },
     "guide": {
       "title": "Comment ça marche",

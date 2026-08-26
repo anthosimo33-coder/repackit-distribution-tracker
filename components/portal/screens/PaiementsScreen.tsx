@@ -374,8 +374,13 @@ export default function PaiementsScreen() {
               {nextTs !== null && days !== null ? (
                 <p className="text-sm text-slate-500">
                   {dueNow > 0
-                    ? `Payé dans ${days} jour${days > 1 ? "s" : ""} (le ${formatDate(nextTs, loc)})`
-                    : `Prochaine paie le ${formatDate(nextTs, loc)}`}
+                    ? t("paiements.paidIn", {
+                        days,
+                        date: formatDate(nextTs, loc),
+                      })
+                    : t("paiements.nextPayout", {
+                        date: formatDate(nextTs, loc),
+                      })}
                 </p>
               ) : (
                 <p className="text-sm text-slate-500">{t("paiements.firstPayHint")}</p>

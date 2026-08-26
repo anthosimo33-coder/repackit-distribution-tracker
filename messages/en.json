@@ -259,7 +259,9 @@
       "createThese": "Create these accounts on your platforms:",
       "title": "My accounts",
       "subtitle": "Declare your accounts and follow their warm-up.",
-      "createExact": "Create exactly these handles — they have to match the accounts you declare afterwards."
+      "createExact": "Create exactly these handles — they have to match the accounts you declare afterwards.",
+      "warmupDue": "{count, plural, one {You have # warm-up to do today — check it off below.} other {You have # warm-ups to do today — check them off below.}}",
+      "bioDue": "{count, plural, one {# bio to update — copy it to your account, then confirm below.} other {# bios to update — copy them to your accounts, then confirm below.}}"
     },
     "calendarStatus": {},
     "fichiers": {
@@ -451,7 +453,9 @@
       "firstPayHint": "Your first payout starts after your first publication.",
       "currentCycle": "Current cycle breakdown",
       "noVideoCycle": "No video published in this cycle yet.",
-      "history": "History"
+      "history": "History",
+      "paidIn": "{days, plural, one {Paid in # day (on {date})} other {Paid in # days (on {date})}}",
+      "nextPayout": "Next payout on {date}"
     },
     "videos": {
       "trackingActive": "Tracking active",
@@ -523,7 +527,8 @@
       "tierUnlockedBang": "Tier unlocked!",
       "addedToPay": "Added to your next payout.",
       "weContactYou": "We'll get in touch to hand it over.",
-      "great": "Awesome 🎉"
+      "great": "Awesome 🎉",
+      "extraRewards": "{count, plural, one {+# more reward unlocked.} other {+# more rewards unlocked.}}"
     },
     "guide": {
       "title": "How it works",
