@@ -3,6 +3,7 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { buildPricingSnapshot, type PricingSnapshot } from "./pricing";
 import type { MutationCtx } from "./_generated/server";
+import { convexErrorText } from "./errorCodes";
 
 /**
  * MIGRATION PONCTUELLE — re-tamponner `pricingSnapshot` sur les assignations
@@ -181,7 +182,7 @@ export const restampPricingSnapshots = internalMutation({
         skipped.push({
           assignmentId: a._id,
           status: a.status,
-          reason: `barème illisible : ${e instanceof ConvexError ? String(e.data) : String(e)}`,
+          reason: `barème illisible : ${e instanceof ConvexError ? convexErrorText(e) : String(e)}`,
         });
         continue;
       }

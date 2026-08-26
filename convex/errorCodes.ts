@@ -117,3 +117,26 @@ export function err(
     params === undefined ? { code, message } : { code, message, params },
   );
 }
+
+/**
+ * Message LISIBLE d'une erreur, pour les harnais e2e et les rapports de
+ * migration.
+ *
+ * Une `ConvexError` transporte désormais soit une chaîne (forme historique),
+ * soit une charge STRUCTURÉE `{ code, message }` (cf convex/errorCodes.ts).
+ * `String(e.data)` rendait « [object Object] » sur la seconde — ce qui a fait
+ * tomber cinq specs e2e d'un coup, toutes en assertant du texte français.
+ */
+export function convexErrorText(e: unknown): string {
+  if (!(e instanceof ConvexError)) return "error";
+  const d = e.data;
+  if (d !== null && typeof d === "object" && "message" in d) {
+    const p = d as { code?: unknown; message?: unknown };
+    // Le CODE est concaténé : une assertion e2e peut alors porter sur lui
+    // plutôt que sur la formulation, qui elle peut être traduite.
+    return typeof p.code === "string"
+      ? `${p.code} ${String(p.message)}`
+      : String(p.message);
+  }
+  return String(d);
+}

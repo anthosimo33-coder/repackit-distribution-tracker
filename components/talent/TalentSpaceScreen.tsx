@@ -25,6 +25,7 @@ import { isPlaceholderExampleTitle } from "@/lib/talent-brief";
 import { cn } from "@/lib/utils";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { useTranslations } from "next-intl";
+import { useLabel } from "@/lib/use-label";
 
 /**
  * ESPACE TALENT — un seul écran, et c'est tout ce qu'il y a.
@@ -81,6 +82,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 export function TalentSpaceScreen() {
   const tt = useTranslations("talent");
+  const tLabel = useLabel();
   const loc = useIntlLocale();
   const { projectId } = useTalentProject();
   const readOnly = useReadOnly();
@@ -182,7 +184,7 @@ export function TalentSpaceScreen() {
                       variant={STATUS_VARIANT[rush.status]}
                       className="shrink-0"
                     >
-                      {TALENT_STATUS_LABELS[rush.status]}
+                      {tLabel(TALENT_STATUS_LABELS[rush.status])}
                     </Badge>
                   </div>
                   <p className="text-xs text-slate-400">

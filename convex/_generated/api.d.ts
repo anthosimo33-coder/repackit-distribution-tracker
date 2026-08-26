@@ -45,6 +45,7 @@ import type * as demoSeed from "../demoSeed.js";
 import type * as emailApi from "../emailApi.js";
 import type * as emailMessages from "../emailMessages.js";
 import type * as emails from "../emails.js";
+import type * as errorCodes from "../errorCodes.js";
 import type * as fileDrop from "../fileDrop.js";
 import type * as filterPresets from "../filterPresets.js";
 import type * as folders from "../folders.js";
@@ -174,6 +175,7 @@ declare const fullApi: ApiFromModules<{
   emailApi: typeof emailApi;
   emailMessages: typeof emailMessages;
   emails: typeof emails;
+  errorCodes: typeof errorCodes;
   fileDrop: typeof fileDrop;
   filterPresets: typeof filterPresets;
   folders: typeof folders;
