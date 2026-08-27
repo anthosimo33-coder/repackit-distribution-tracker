@@ -647,3 +647,67 @@ export const auditBonusTiers = internalQuery({
     return { creatrices: lignes.length, incoherents, lignes };
   },
 });
+
+/**
+ * LOT B (i18n du guide) — rend EXPLICITE la langue des modules « Comment ça
+ * marche » écrits avant le champ `locale` : ils sont français, ils le disent.
+ *
+ * ISO-AFFICHAGE, par construction : `moduleLocale` traite déjà une `locale`
+ * absente comme du français (convex/guideModuleLocale.ts), donc écrire « fr »
+ * rend exactement la même chose à chaque lecteur, avant comme après. Ce que la
+ * migration change, c'est la LISIBILITÉ de la base : après elle, un module sans
+ * langue est un module créé par un chemin qui a oublié de la poser, pas un
+ * vestige — et l'éditeur admin range chaque module dans le bon jeu sans avoir à
+ * inférer quoi que ce soit.
+ *
+ * On ne stocke PAS que la divergence ici, contrairement à `creators.locale` :
+ * la langue d'un module n'est pas une préférence qui s'écarte d'un défaut, c'est
+ * un attribut du CONTENU. Un jeu français et un jeu anglais sont deux citoyens
+ * de même rang ; l'absence de valeur ne veut rien dire d'utile.
+ *
+ * IDEMPOTENTE : ne touche QUE les modules dont la langue est absente ou vide.
+ * Un module déjà rangé en « en » n'est jamais réécrit.
+ *
+ * dryRun par défaut — la liste rendue est EXACTEMENT ce qui sera écrit :
+ *   ./node_modules/.bin/convex run migrations:setGuideModuleLocaleFr '{}' [--prod]
+ *   ./node_modules/.bin/convex run migrations:setGuideModuleLocaleFr '{"commit":true}' [--prod]
+ */
+export const setGuideModuleLocaleFr = internalMutation({
+  args: { commit: v.optional(v.boolean()) },
+  handler: async (ctx, { commit }) => {
+    const dryRun = commit !== true;
+    const all = await ctx.db.query("guideModules").collect();
+    const missing = all.filter(
+      (m) => m.locale === undefined || m.locale.trim() === "",
+    );
+
+    // Slug du projet plutôt que son id : la sortie est faite pour être RELUE
+    // par un humain avant l'exécution, pas corrélée à la main.
+    const slugs = new Map<Id<"projects">, string>();
+    for (const m of missing) {
+      if (!slugs.has(m.projectId)) {
+        const p = await ctx.db.get(m.projectId);
+        slugs.set(m.projectId, p?.slug ?? "(projet supprimé)");
+      }
+    }
+
+    if (!dryRun) {
+      for (const m of missing) await ctx.db.patch(m._id, { locale: "fr" });
+    }
+
+    return {
+      dryRun,
+      totalModules: all.length,
+      alreadySet: all.length - missing.length,
+      willWrite: missing.map((m) => ({
+        projet: slugs.get(m.projectId),
+        titre: m.title,
+        order: m.order,
+        status: m.status,
+        localeAvant: m.locale ?? null,
+        localeApres: "fr",
+      })),
+      patched: dryRun ? 0 : missing.length,
+    };
+  },
+});
