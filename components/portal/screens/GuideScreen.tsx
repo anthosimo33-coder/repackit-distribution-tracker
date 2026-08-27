@@ -27,7 +27,8 @@ import { useTranslations } from "next-intl";
 export default function GuideScreen() {
   const tg = useTranslations("portal.guide");
   const projectId = useCreatorProjectId();
-  const modules = useMyGuideModules(projectId);
+  const guide = useMyGuideModules(projectId);
+  const modules = guide?.modules;
   const legacy = useMyGuide(projectId);
 
   // État d'ouverture LOCAL (session d'affichage), tous repliés au départ.

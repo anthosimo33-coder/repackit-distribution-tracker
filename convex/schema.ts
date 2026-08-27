@@ -1582,6 +1582,18 @@ export default defineSchema({
     contentMarkdown: v.string(),
     order: v.number(),
     status: v.union(v.literal("published"), v.literal("draft")),
+    // Langue du module — UN JEU DE MODULES PAR LANGUE (cf
+    // convex/guideModuleLocale.ts), pas de champs bilingues par module : le
+    // guide est de la DONNÉE éditée par l'admin, un module ne peut pas être « à
+    // moitié traduit ». La lecture sert le jeu de la langue du lecteur et se
+    // replie sur le français, jamais l'inverse.
+    //
+    // `optional` + `v.string()` (pas une union de littéraux) : même parti pris
+    // que `users.locale` / `creators.locale` — la liste des langues livrées vit
+    // dans convex/locales.ts, la coupler au schéma obligerait une migration à
+    // chaque langue ajoutée. Absente ⇒ français (état des modules antérieurs au
+    // champ ; `migrations:setGuideModuleLocaleFr` les rend explicites).
+    locale: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_project", ["projectId"]),
