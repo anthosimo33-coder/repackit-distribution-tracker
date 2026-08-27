@@ -3,6 +3,7 @@
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useLocale } from "next-intl";
 import { useViewAs } from "./ViewAsContext";
 
 /**
@@ -234,17 +235,27 @@ export function useMyGuide(projectId: Id<"projects">) {
   return va ? asAdmin : mine;
 }
 
-/** Modules « Comment ça marche » v2 (published, triés par order). View-as →
- *  listModulesAsAdmin (adminViewAsQuery, même contenu que le créateur). */
+/** Modules « Comment ça marche » v2 (published, triés par order) DANS LA LANGUE
+ *  RENDUE. View-as → listModulesAsAdmin (adminViewAsQuery, même contenu que le
+ *  créateur).
+ *
+ *  La langue passée est celle du provider next-intl COURANT — donc, en mode
+ *  « voir l'espace d'un créateur », celle de la personne observée (provider
+ *  imbriqué) et non celle de l'admin. C'est la même valeur qui a choisi tous les
+ *  autres mots de l'écran : le guide ne peut pas diverger du reste de la page.
+ *
+ *  Le serveur rend `servedLocale` à côté de `requestedLocale` — c'est l'écran
+ *  qui décide quoi en faire (cf GuideScreen : le bandeau de repli). */
 export function useMyGuideModules(projectId: Id<"projects">) {
   const va = useViewAs();
+  const locale = useLocale();
   const mine = useQuery(
     api.guideModules.listMyModules,
-    va ? "skip" : { projectId },
+    va ? "skip" : { projectId, locale },
   );
   const asAdmin = useQuery(
     api.guideModules.listModulesAsAdmin,
-    va ? { projectId, creatorId: va.creatorId } : "skip",
+    va ? { projectId, creatorId: va.creatorId, locale } : "skip",
   );
   return va ? asAdmin : mine;
 }

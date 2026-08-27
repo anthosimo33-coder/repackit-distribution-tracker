@@ -573,7 +573,8 @@
       "title": "How it works",
       "subtitle": "The guide to your creator space.",
       "soonTitle": "The guide is coming soon",
-      "soonBody": "The content for your space is being prepared."
+      "soonBody": "The content for your space is being prepared.",
+      "fallbackNotice": "This guide is only available in French for now."
     },
     "calendar": {
       "title": "My publishing calendar",

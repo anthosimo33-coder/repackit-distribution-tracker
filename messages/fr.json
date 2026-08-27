@@ -573,7 +573,8 @@
       "title": "Comment ça marche",
       "subtitle": "Le guide de ton espace créateur.",
       "soonTitle": "Le guide arrive bientôt",
-      "soonBody": "Le contenu de ton espace est en cours de préparation."
+      "soonBody": "Le contenu de ton espace est en cours de préparation.",
+      "fallbackNotice": "Ce guide n’est disponible qu’en français pour le moment."
     },
     "calendar": {
       "title": "Mon calendrier de publication",
