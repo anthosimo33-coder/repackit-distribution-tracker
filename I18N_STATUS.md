@@ -1018,6 +1018,62 @@ dans l'éditeur admin pour relecture module par module. Les passages où la
 réalité diffère pour un créateur US (plateformes, fuseaux, mode de paiement) ne
 sont pas traduits en aveugle : ils sont signalés avec une version adaptée.
 
+### 11.9 LOT B ÉTAPE 2 — les 11 modules en anglais US
+
+**Le chantier du guide est CLOS.** Étape 1 = la mécanique (§11.8), étape 2 = la
+rédaction. 15 400 caractères, 11 modules : 5 sur `repackit`, 6 sur `snytch`,
+même ordre que le français, `status: "published"`, `locale: "en"`.
+
+**Le contenu vit dans le dépôt** (`convex/guideModulesEn.ts`), pas collé à la
+main dans l'éditeur admin. 16 000 caractères saisis à la main ne se relisent pas
+en diff, ne se rejouent pas sur un autre déploiement, et se perdent.
+`migrations:seedGuideModulesEn` les pose — la même mutation, idempotente par
+(projet, locale « en », titre), sur le dev comme sur la prod.
+
+**Le français n'est pas touché, par construction** : la mutation n'INSÈRE que
+des lignes `locale: "en"`, il n'existe aucun chemin de code qui atteigne un
+module français. Elle rend `modulesNonAnglaisAvant` pour que ce soit chiffré et
+non affirmé — 11 avant, 11 après.
+
+**Publié d'entrée, pas en brouillon** : dès le premier module anglais publié, une
+lectrice EN cesse de voir le français (§11.8). Poser la moitié du jeu en
+brouillon donnerait un guide anglais à trous.
+
+#### Les six passages qui ne sont PAS une traduction
+
+Traduire mot à mot y donnerait des instructions FAUSSES, pas de l'anglais.
+Chacun porte un commentaire `ADAPTÉ —` dans le fichier.
+
+| # | Où | Ce qui diffère pour une créatrice US |
+|---|---|---|
+| 1 | *How you get paid*, ×2 | Le profil propose SEPA / PayPal / USDT / Autre, et **SEPA suppose un IBAN européen**. Les méthodes utilisables sont nommées, SEPA écartée. La devise ne bouge pas : `payCurrency` vaut déjà `usd` sur les deux projets. |
+| 2 | *Warmup*, ×2 | « Moi uniquement » est un LIBELLÉ d'interface : TikTok l'affiche **Only me**, Instagram n'a pas d'équivalent (on y archive). |
+| 3 | *Creator payment terms* | « Le mois » = mois CALENDAIRE (paiement le 10) et les échéances sont en **heure de Paris** (fuseau épinglé). **Aucun chiffre d'écart** n'est donné : la France et les US ne changent pas d'heure aux mêmes dates, « 9 heures » serait faux plusieurs semaines par an. |
+| 4 | *How you get paid*, Snytch | Le FR se contredit (« fixe + variable » puis « deux parties »). **Arbitrage produit, tranché par le user** : le fixe reste POSSIBLE. Ne pas « corriger » en regardant `pricings` (montantFixe = 0 chez Snytch) — un barème n'est pas un contrat signé. |
+| 5 | *Welcome*, RepackIt | L'étape 5 est hors de la liste numérotée côté FR (le « 5. » manque). Rendue au format des quatre autres. |
+
+#### Vérifié par le VRAI chemin serveur, sur les deux projets
+
+Session créatrice réelle, `listMyModules` — pas une inspection de données :
+
+| | lecteur EN | lecteur FR |
+|---|---|---|
+| `repackit` | `servedLocale=en`, **pas de bandeau**, 5 modules | `servedLocale=fr`, pas de bandeau, 5 modules |
+| `snytch` | `servedLocale=en`, **pas de bandeau**, 6 modules | `servedLocale=fr`, pas de bandeau, 6 modules |
+
+L'absence de bandeau n'est pas constatée à l'œil : la condition du bandeau EST
+`servedLocale !== requestedLocale` (§11.8), donc `servedLocale === "en"` la
+réfute.
+
+#### Défauts du FR relevés, NON corrigés ici
+
+À reprendre dans une PR dédiée, après celle-ci : fautes de frappe (« peut
+varié », doubles espaces), titre « Conditions de paiements des createurs » sans
+accent, puces perdues sur plusieurs blocs (« Pour être payé », « Qualité »), et
+l'incohérence de plateformes chez Snytch — module 0 : « TikTok et Instagram » ;
+modules 2 et 3 : « TikTok, Instagram et YouTube ». Laquelle fait foi est une
+question produit, pas une faute de frappe.
+
 ### 11.5 La preview « Voir son espace » rendait dans la langue de l'admin
 
 **Corrigé après coup** (branche `fix/view-as-locale-createur`).
