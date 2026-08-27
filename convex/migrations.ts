@@ -11,6 +11,8 @@ import {
   syncBonusUnlocks,
 } from "./pricing";
 import { periodOf } from "./payments";
+import { GUIDE_MODULES_EN } from "./guideModulesEn";
+import { moduleLocale } from "./guideModuleLocale";
 
 const DEFAULT_ACCENT = "#FF5200";
 const DEFAULT_PAYOUT_DAY = 5;
@@ -708,6 +710,100 @@ export const setGuideModuleLocaleFr = internalMutation({
         localeApres: "fr",
       })),
       patched: dryRun ? 0 : missing.length,
+    };
+  },
+});
+
+
+/**
+ * LOT B (i18n du guide), ÉTAPE 2 — pose le JEU ANGLAIS des modules
+ * « Comment ça marche » (`convex/guideModulesEn.ts`), projet par projet.
+ *
+ * SANS TOUCHER AU FRANÇAIS, par construction : la mutation n'insère que des
+ * lignes `locale: "en"` et ne lit les modules existants que pour savoir
+ * lesquels existent déjà. Aucun `patch`, aucun `delete` sur un module français
+ * — il n'y a pas de chemin de code qui puisse en atteindre un.
+ *
+ * IDEMPOTENTE par (projet, locale « en », titre) : relancer ne crée pas de
+ * doublon et ne réécrit pas un module anglais déjà posé, même s'il a été édité
+ * dans l'éditeur admin depuis. C'est délibéré — une relecture humaine ne doit
+ * pas pouvoir être écrasée par une relance de migration.
+ *
+ * Le jour où le guide bascule, il bascule POUR DE BON : dès le premier module
+ * anglais publié, une lectrice EN cesse de voir le français et le bandeau
+ * disparaît (convex/guideModuleLocale.ts). D'où `status: "published"` d'entrée
+ * — poser la moitié du jeu en brouillon donnerait un guide anglais à trous.
+ *
+ * dryRun par défaut ; la liste rendue est EXACTEMENT ce qui sera écrit :
+ *   ./scripts/convex-prod.sh run migrations:seedGuideModulesEn '{}'
+ *   ./scripts/convex-prod.sh run migrations:seedGuideModulesEn '{"commit":true}'
+ */
+export const seedGuideModulesEn = internalMutation({
+  args: { commit: v.optional(v.boolean()) },
+  handler: async (ctx, { commit }) => {
+    const dryRun = commit !== true;
+    const willInsert: {
+      projet: string;
+      order: number;
+      titre: string;
+      caracteres: number;
+    }[] = [];
+    const dejaPresents: { projet: string; titre: string }[] = [];
+    const projetsIntrouvables: string[] = [];
+    let frIntacts = 0;
+
+    for (const [slug, seeds] of Object.entries(GUIDE_MODULES_EN)) {
+      const project = await getProjectBySlug(ctx, slug);
+      if (project === null) {
+        projetsIntrouvables.push(slug);
+        continue;
+      }
+      const existing = await ctx.db
+        .query("guideModules")
+        .withIndex("by_project", (q) => q.eq("projectId", project._id))
+        .collect();
+      frIntacts += existing.filter((m) => moduleLocale(m) !== "en").length;
+      const titresEn = new Set(
+        existing.filter((m) => moduleLocale(m) === "en").map((m) => m.title),
+      );
+
+      for (const seed of seeds) {
+        if (titresEn.has(seed.title)) {
+          dejaPresents.push({ projet: slug, titre: seed.title });
+          continue;
+        }
+        willInsert.push({
+          projet: slug,
+          order: seed.order,
+          titre: seed.title,
+          caracteres: seed.contentMarkdown.length,
+        });
+        if (!dryRun) {
+          const now = Date.now();
+          await ctx.db.insert("guideModules", {
+            projectId: project._id,
+            title: seed.title,
+            contentMarkdown: seed.contentMarkdown,
+            order: seed.order,
+            status: "published",
+            locale: "en",
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+      }
+    }
+
+    return {
+      dryRun,
+      // Compté, pas affirmé : le nombre de modules NON anglais avant écriture.
+      // Il doit être identique avant et après — c'est la preuve chiffrée que le
+      // jeu français n'a pas bougé.
+      modulesNonAnglaisAvant: frIntacts,
+      dejaPresents,
+      projetsIntrouvables,
+      willInsert,
+      inserted: dryRun ? 0 : willInsert.length,
     };
   },
 });
