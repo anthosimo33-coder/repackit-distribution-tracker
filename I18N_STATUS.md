@@ -943,6 +943,81 @@ la table `guideModules` : 11 modules, 16 060 caractères de Markdown, écrits et
 (champ `locale`, repli FR), livré comme lot séparé — repli et bandeau
 « disponible en français seulement » d'abord, rédaction ensuite.
 
+### 11.8 LOT B — le guide « Comment ça marche » bilingue (étape 1 : la mécanique)
+
+**Étape 1 livrée : la mécanique, sans une ligne de contenu anglais.** La
+rédaction des 11 modules est l'étape 2, sur feu vert explicite.
+
+Le guide est de la **DONNÉE** (table `guideModules`), pas des chaînes extraites :
+la garde i18n ne peut rien en dire, et un module ne peut pas être « à moitié
+traduit ». Le modèle retenu — décision de §11.6 — est donc **un jeu de modules
+par langue** (champ `locale`), sélectionné à la lecture, **jamais** des champs
+bilingues par module.
+
+| Pièce | Où |
+|---|---|
+| Choix du jeu + repli (module PUR, 10 tests) | `convex/guideModuleLocale.ts`, `lib/guide-module-locale.test.ts` |
+| Lecture filtrée, écriture, ordre par jeu | `convex/guideModules.ts` |
+| Bandeau de repli | `components/portal/screens/GuideScreen.tsx` |
+| Éditeur admin, un bloc par langue | `components/guides/GuideModulesManager.tsx` |
+| Migration `locale = fr` | `migrations:setGuideModuleLocaleFr` |
+| Les trois cas de lecture | `e2e/guide-modules-locale.spec.ts` |
+
+**Le repli va TOUJOURS vers le français, jamais l'inverse.** Un lecteur anglais
+sans jeu anglais lit le français ; un lecteur français ne se voit **jamais**
+servir de l'anglais faute de mieux, même quand le jeu anglais existe. C'est
+l'asymétrie voulue : « fr » est le défaut du produit, pas un pis-aller.
+
+**Le signal du repli est un écart, pas un drapeau.** La lecture rend
+`servedLocale` à côté de `requestedLocale` ; leur inégalité déclenche le
+bandeau, et redevient fausse **toute seule** dès qu'un module existe dans la
+langue demandée. Personne n'a de case à décocher le jour de la traduction — un
+e2e le prouve sur une page **ouverte**, en créant le module anglais pendant que
+la page est affichée.
+
+**La langue vient de l'ÉCRAN, pas d'une relecture serveur.** La résolution
+complète tient en cinq maillons (§1) dont trois n'existent que côté Next.
+Servir le guide sur une résolution plus courte que celle qui a choisi tous les
+autres mots de la page donnerait l'incohérence exacte qu'on veut éviter : un
+écran anglais avec un guide français « parce que le compte n'a pas de
+préférence ». En observation, c'est donc la langue de la personne **observée**
+(provider imbriqué de §11.5) qui décide.
+
+**Le bandeau ne surplombe que du français RÉEL.** Au-dessus de l'état vide
+(« The guide is coming soon », déjà anglais) il annoncerait un guide français
+qui n'existe pas. Le guide mono-bloc legacy, lui, est bien du français : il
+compte.
+
+**Chaque jeu a son ordre.** Création, changement de langue et réordonnancement
+se font entre pairs de même langue. Sans ce filtre, « monter » un module anglais
+irait échanger son rang avec un module français : un clic sans effet visible, et
+un guide français réordonné dans le dos de l'admin.
+
+**L'éditeur admin GROUPE au lieu de filtrer** — deux blocs affichés en même
+temps. Le seul moyen de voir d'un coup d'œil ce qui manque en anglais, c'est
+d'avoir les deux sous les yeux ; un sélecteur aurait caché la moitié de l'état à
+celui qui traduit. L'admin reste en français (lot A7 inchangé).
+
+**Ce que la migration écrit** (`dryRun` par défaut, la liste rendue EST ce qui
+sera écrit) : les **11 modules** de prod — 5 sur `repackit`, 6 sur `snytch`,
+tous `published`, tous sans `locale` — prennent `locale = "fr"`.
+**Iso-affichage par construction** : `moduleLocale` traite déjà une locale
+absente comme du français. Ce qui change, c'est la lisibilité de la base — après
+elle, un module sans langue est un module créé par un chemin qui a oublié de la
+poser, pas un vestige. Idempotente.
+
+**La garde ne bronche pas, et c'est attendu** : elle lit du code, pas des
+données (§11.7). Le seul texte ajouté au parcours créateur est le bandeau, passé
+par le catalogue — `portal.guide.fallbackNotice`, 745 clés, catalogues alignés.
+Sa valeur FR est aujourd'hui **inatteignable** (le repli va toujours vers le
+français, un lecteur FR ne le déclenche jamais) mais la parité des deux
+catalogues est une règle de la garde, et une 3ᵉ langue la rendrait vivante.
+
+**Reste à faire — étape 2** : la traduction des 11 modules en anglais US, créés
+dans l'éditeur admin pour relecture module par module. Les passages où la
+réalité diffère pour un créateur US (plateformes, fuseaux, mode de paiement) ne
+sont pas traduits en aveugle : ils sont signalés avec une version adaptée.
+
 ### 11.5 La preview « Voir son espace » rendait dans la langue de l'admin
 
 **Corrigé après coup** (branche `fix/view-as-locale-createur`).
