@@ -6,7 +6,7 @@ import { useMyGuide, useMyGuideModules } from "@/components/portal/creator-data"
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { GuideMarkdown } from "@/components/ui/GuideMarkdown";
-import { BookOpenIcon, ChevronDownIcon } from "lucide-react";
+import { BookOpenIcon, ChevronDownIcon, LanguagesIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTranslations } from "next-intl";
 
@@ -23,6 +23,11 @@ import { useTranslations } from "next-intl";
  * mono-bloc (projectGuide, via useMyGuide) → le contenu existant n'est jamais
  * perdu et la page n'est jamais vide. Les deux hooks gèrent l'indirection
  * view-as (creator-data) : même rendu en mode « voir l'espace d'un créateur ».
+ *
+ * BILINGUE — le serveur sert le jeu de modules de la langue du lecteur et se
+ * replie sur le français (cf convex/guideModuleLocale.ts). Quand le repli a
+ * lieu, un BANDEAU le dit, dans la langue du lecteur. Il disparaît de lui-même
+ * le jour où un module existe dans sa langue : rien à lever à la main.
  */
 export default function GuideScreen() {
   const tg = useTranslations("portal.guide");
@@ -30,6 +35,17 @@ export default function GuideScreen() {
   const guide = useMyGuideModules(projectId);
   const modules = guide?.modules;
   const legacy = useMyGuide(projectId);
+
+  // REPLI : la langue servie n'est pas celle demandée — il n'y a pas de jeu
+  // dans la langue du lecteur. Le bandeau ne s'affiche QUE s'il surplombe du
+  // contenu français réel : au-dessus de l'état vide (« le guide arrive
+  // bientôt », déjà rendu en anglais) il annoncerait un guide français qui
+  // n'existe pas. Le legacy mono-bloc, lui, EST du français : il compte.
+  const fellBack =
+    guide !== undefined && guide.servedLocale !== guide.requestedLocale;
+  const hasFrenchContent =
+    (modules !== undefined && modules.length > 0) ||
+    (legacy !== undefined && legacy.content.trim().length > 0);
 
   // État d'ouverture LOCAL (session d'affichage), tous repliés au départ.
   // Set = ouverture indépendante (déplier un module n'en referme aucun autre).
@@ -48,6 +64,16 @@ export default function GuideScreen() {
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{tg("title")}</h1>
         <p className="text-sm text-slate-500">{tg("subtitle")}</p>
       </header>
+
+      {fellBack && hasFrenchContent && (
+        <p
+          role="status"
+          className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600"
+        >
+          <LanguagesIcon aria-hidden className="size-4 shrink-0 text-slate-400" />
+          {tg("fallbackNotice")}
+        </p>
+      )}
 
       {modules === undefined ? (
         <div className="space-y-3">
