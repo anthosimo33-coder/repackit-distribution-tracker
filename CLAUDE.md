@@ -11,6 +11,26 @@
 - Suite e2e complète en local seulement si le chantier touche l'infra
   de test elle-même (fixtures, auth e2e, helpers).
 
+## Convex — la cible se lit dans la commande, jamais dans l'environnement
+
+`convex deploy` **est** la commande de production : « By default, this deploys
+to your prod deployment ». `CONVEX_DEPLOYMENT` pointe le dev et n'y change rien,
+et `eval "$(./scripts/convex-local.sh env)"` non plus — seul `--env-file` redirige.
+
+- Backend e2e **local** : `./scripts/convex-local.sh deploy`.
+- **Production** : c'est le travail de Vercel, au merge d'une PR. Pour une
+  migration, `./scripts/convex-prod.sh run <fn> ['<json>']`, qui affiche la
+  cible et exige qu'on recopie le nom du déploiement.
+- **Jamais** de code volontairement cassé déployé où que ce soit : une
+  contre-épreuve de test (voir la règle « une assertion doit avoir été vue
+  rouge ») se joue en local, et on restaure depuis une copie faite AVANT.
+
+Ces deux interdits sont tenus par un hook `PreToolUse` (`.claude/settings.json`
+→ `scripts/convex-guard.mjs`, testé par `scripts/convex-guard.test.mjs`) : la
+commande est refusée avant exécution, avec le remplacement à taper. Les lectures
+prod (`convex data`, `convex export`) restent libres — un garde qui crie sur des
+commandes inoffensives finit désactivé.
+
 ## Rollout (flux PR auto-merge — fin de session sans attendre la CI)
 - On NE pousse JAMAIS sur `main` en direct. Flux :
   1. Travailler sur une branche, la pousser.

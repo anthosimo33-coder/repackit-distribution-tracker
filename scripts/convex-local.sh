@@ -17,9 +17,17 @@
 # USAGE
 #   ./scripts/convex-local.sh start     # démarre + provisionne (idempotent)
 #   ./scripts/convex-local.sh reset     # base VIERGE puis start
+#   ./scripts/convex-local.sh deploy    # REdéploie les fonctions sur le local
 #   ./scripts/convex-local.sh stop
 #   ./scripts/convex-local.sh env       # exports pour les tests → eval "$(…)"
 #   ./scripts/convex-local.sh status
+#
+# ⚠️  `deploy` existe pour une raison précise : sans lui, il n'y avait AUCUN
+# chemin court pour repousser des fonctions modifiées sur le backend local, et
+# on finissait par improviser un `npx convex deploy` — qui part en PRODUCTION
+# (« By default, this deploys to your prod deployment »). C'est exactement
+# l'incident du 2026-08-27. Le garde scripts/convex-guard.mjs refuse désormais
+# cette forme ; cette sous-commande est ce qu'il faut taper à la place.
 #
 # Puis :
 #   eval "$(./scripts/convex-local.sh env)" && pnpm test:e2e
@@ -228,11 +236,20 @@ status() {
   fi
 }
 
+# Repousse les fonctions sur le backend LOCAL. Suppose qu'il tourne déjà :
+# `start` provisionne, `deploy` ne fait que republier le code.
+deploy_local() {
+  [ -f "$ENV_FILE" ] || die "backend local non provisionné — lance d'abord : $0 start"
+  log "Déploiement des fonctions sur le backend LOCAL ($BACKEND_URL)"
+  npx convex deploy --env-file "$ENV_FILE" -y
+}
+
 case "${1:-}" in
   start)  start ;;
   stop)   stop ;;
   reset)  reset ;;
+  deploy) deploy_local ;;
   env)    print_env ;;
   status) status ;;
-  *) die "Usage : $0 {start|stop|reset|env|status}" ;;
+  *) die "Usage : $0 {start|stop|reset|deploy|env|status}" ;;
 esac
