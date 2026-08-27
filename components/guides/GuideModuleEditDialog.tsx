@@ -1,6 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import {
+  LOCALES,
+  LOCALE_LABELS,
+  DEFAULT_LOCALE,
+  normalizeLocale,
+  type Locale,
+} from "@/i18n/locales";
 import { useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -17,6 +24,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { GuideMarkdown } from "@/components/ui/GuideMarkdown";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
@@ -30,24 +44,33 @@ export type GuideModuleDraft = {
   title: string;
   contentMarkdown: string;
   status: "published" | "draft";
+  /** Absente sur les modules écrits avant le champ ⇒ français. */
+  locale?: string;
 };
 
 /**
  * Dialog création/édition d'un module « Comment ça marche ». Éditeur markdown
  * (textarea) + APERÇU live du rendu créateur (GuideMarkdown) côte à côte
- * (empilé en mobile). Toggle published/draft. Le pattern wrapper + form interne
- * keyé permet d'initialiser useState depuis initialModule sans useEffect.
+ * (empilé en mobile). Toggle published/draft, sélecteur de LANGUE. Le pattern
+ * wrapper + form interne keyé permet d'initialiser useState depuis
+ * initialModule sans useEffect.
+ *
+ * `initialLocale` n'est lu qu'en CRÉATION : le bouton « Nouveau module anglais »
+ * ouvre le dialog déjà réglé sur l'anglais, personne n'a à y penser. En édition,
+ * c'est la langue du module qui gagne — toujours.
  */
 export function GuideModuleEditDialog({
   open,
   onOpenChange,
   mode,
   initialModule,
+  initialLocale = DEFAULT_LOCALE,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   mode: "create" | "edit";
   initialModule: GuideModuleDraft | null;
+  initialLocale?: Locale;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -56,6 +79,7 @@ export function GuideModuleEditDialog({
           key={initialModule?._id ?? "create"}
           mode={mode}
           initialModule={initialModule}
+          initialLocale={initialLocale}
           onClose={() => onOpenChange(false)}
         />
       </DialogContent>
@@ -69,10 +93,12 @@ const MARKDOWN_HINT =
 function GuideModuleEditForm({
   mode,
   initialModule,
+  initialLocale,
   onClose,
 }: {
   mode: "create" | "edit";
   initialModule: GuideModuleDraft | null;
+  initialLocale: Locale;
   onClose: () => void;
 }) {
   const isEdit = mode === "edit";
@@ -80,6 +106,11 @@ function GuideModuleEditForm({
   const [content, setContent] = useState(initialModule?.contentMarkdown ?? "");
   const [published, setPublished] = useState(
     initialModule ? initialModule.status === "published" : true,
+  );
+  const [locale, setLocale] = useState<Locale>(
+    initialModule
+      ? (normalizeLocale(initialModule.locale) ?? DEFAULT_LOCALE)
+      : initialLocale,
   );
   const [submitting, setSubmitting] = useState(false);
 
@@ -104,10 +135,16 @@ function GuideModuleEditForm({
           title: trimmed,
           contentMarkdown: content,
           status,
+          locale,
         });
         toast.success("Module mis à jour");
       } else {
-        await createModule({ title: trimmed, contentMarkdown: content, status });
+        await createModule({
+          title: trimmed,
+          contentMarkdown: content,
+          status,
+          locale,
+        });
         toast.success("Module créé");
       }
       onClose();
@@ -170,6 +207,32 @@ function GuideModuleEditForm({
             )}
           </div>
         </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label>Langue *</Label>
+        <Select
+          value={locale}
+          onValueChange={(v) => v !== null && setLocale(v as Locale)}
+        >
+          <SelectTrigger aria-label="Langue" className="w-full sm:w-64">
+            <SelectValue>{LOCALE_LABELS[locale]}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {LOCALES.map((l) => (
+              <SelectItem key={l} value={l}>
+                {LOCALE_LABELS[l]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-slate-500">
+          Chaque langue a son propre jeu de modules. Ce module n&apos;apparaît
+          que dans le guide {LOCALE_LABELS[locale]}
+          {isEdit
+            ? " — le changer le déplace en fin de l'autre jeu."
+            : ", et ne touche à rien dans l'autre."}
+        </p>
       </div>
 
       <div className="flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50/50 px-3 py-2">
