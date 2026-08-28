@@ -1128,3 +1128,40 @@ export const fuseWarmupGuide = internalMutation({
     };
   },
 });
+
+/**
+ * AUDIT du slot warmup — combien de modules le portent, par projet et par
+ * langue. Doit valoir 0 ou 1 partout.
+ *
+ * Le transfert (convex/guideModules.updateModule) rend l'invariant vrai à
+ * l'ÉCRITURE ; cet audit le vérifie sur les DONNÉES, y compris celles écrites
+ * avant qu'il existe. `violations` non vide = deux modules se disputent le
+ * bouton, et le serveur en sert un au hasard de l'ordre.
+ *   ./scripts/convex-prod.sh run migrations:auditWarmupSlot '{}'
+ */
+export const auditWarmupSlot = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const projects = await ctx.db.query("projects").collect();
+    const lignes: { projet: string; locale: string; porteurs: string[] }[] = [];
+    for (const p of projects) {
+      const modules = await ctx.db
+        .query("guideModules")
+        .withIndex("by_project", (q) => q.eq("projectId", p._id))
+        .collect();
+      for (const locale of ["fr", "en"]) {
+        const porteurs = modules
+          .filter((m) => m.slot === "warmup" && moduleLocale(m) === locale)
+          .map((m) => m.title);
+        if (porteurs.length > 0) {
+          lignes.push({ projet: p.slug, locale, porteurs });
+        }
+      }
+    }
+    return {
+      lignes,
+      violations: lignes.filter((l) => l.porteurs.length > 1),
+      ok: lignes.every((l) => l.porteurs.length === 1),
+    };
+  },
+});

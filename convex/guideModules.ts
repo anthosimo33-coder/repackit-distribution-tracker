@@ -29,6 +29,17 @@ import { moduleLocale, selectModulesForLocale } from "./guideModuleLocale";
  * son rang avec un module français que le lecteur ne verra jamais à côté.
  */
 
+/**
+ * Le seul `slot` livré : le module que le bouton de l'écran comptes ouvre.
+ *
+ * UN SEUL module par (projet, langue) peut le porter, et c'est garanti par
+ * TRANSFERT : l'attribuer à un module le retire de celui qui l'avait. Sans
+ * cette garantie, deux modules pourraient le porter et le serveur servirait le
+ * premier par `order` — une bascule silencieuse, sans erreur ni test rouge, le
+ * jour où quelqu'un réordonne le guide.
+ */
+export const WARMUP_SLOT = "warmup";
+
 const TITLE_MAX = 120;
 const CONTENT_MAX = 50_000;
 
@@ -224,6 +235,8 @@ export const updateModule = adminMutation({
     contentMarkdown: v.optional(v.string()),
     status: v.optional(v.union(v.literal("published"), v.literal("draft"))),
     locale: v.optional(v.string()),
+    /** `true` désigne CE module comme le guide warmup ; `false` le libère. */
+    isWarmupGuide: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db.get(args.id);
@@ -252,9 +265,40 @@ export const updateModule = adminMutation({
             : Math.max(...target.map((m) => m.order)) + 1;
       }
     }
+    if (args.isWarmupGuide !== undefined) {
+      if (args.isWarmupGuide) {
+        // TRANSFERT, pas simple attribution : on retire le slot à tout autre
+        // module de la MÊME langue dans ce projet. C'est ce qui rend deux
+        // porteurs impossibles — pas une convention, une écriture.
+        const cible = (patch.locale as Locale | undefined) ?? moduleLocale(existing);
+        const freres = await ctx.db
+          .query("guideModules")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect();
+        for (const m of freres) {
+          if (m._id === args.id) continue;
+          if (m.slot !== WARMUP_SLOT) continue;
+          if (moduleLocale(m) !== cible) continue;
+          await ctx.db.patch(m._id, { slot: undefined, updatedAt: Date.now() });
+        }
+        patch.slot = WARMUP_SLOT;
+      } else {
+        patch.slot = undefined;
+      }
+    }
     await ctx.db.patch(args.id, patch);
   },
 });
+
+/**
+ * CONTRÔLE BRUYANT — combien de modules portent le slot warmup, par projet et
+ * par langue. Doit valoir 0 ou 1 partout.
+ *
+ * Le transfert rend l'invariant vrai à l'écriture ; ceci le vérifie sur les
+ * données, y compris celles écrites avant qu'il existe. Rendu par une query
+ * INTERNE, pas par un écran : c'est un audit d'exploitation.
+ *   ./scripts/convex-prod.sh run migrations:auditWarmupSlot '{}'
+ */
 
 /** Suppression (scope projet vérifié). */
 export const deleteModule = adminMutation({
