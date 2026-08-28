@@ -12,7 +12,6 @@ import {
   BanIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { WARMUP_DURATION_BY_PLATFORM } from "@/lib/compte-status";
 import { useTranslations } from "next-intl";
 
 /**
@@ -21,8 +20,20 @@ import { useTranslations } from "next-intl";
  * data-arrays (markdown léger : **gras** + `code`) rendues en JSX structuré via
  * renderInline (pas de dangerouslySetInnerHTML) ; accordéon maison (useState)
  * plutôt qu'un composant shadcn absent du repo (preset base-nova/base-ui n'a
- * pas d'accordion). Les durées des titres dérivent de WARMUP_DURATION_BY_PLATFORM
- * (source unique, alignée sur le décompte du tracker).
+ * pas d'accordion).
+ *
+ * PAS DE DURÉE CHIFFRÉE DANS LES TITRES, et c'est un correctif, pas un oubli.
+ * Ce guide est GLOBAL — aucun projectId ne l'atteint — alors que la durée de
+ * warmup varie par projet ET par compte (`comptes.warmupProtocol.targetDays`
+ * surcharge le défaut plateforme). Un titre « TikTok — 7 jours » était donc
+ * FAUX pour tout un projet à la fois : il annonçait 7 à des créatrices dont le
+ * tracker décomptait 3. Les titres ne nomment plus que la plateforme, et un
+ * avertissement renvoie au décompte du tracker, qui est la seule source vraie.
+ *
+ * Le corps des sections garde ses jalons (J1→J7, J8…) : c'est le PROTOCOLE par
+ * défaut, présenté comme tel par l'avertissement. Les rendre variables
+ * demanderait de connaître le compte, donc de sortir ce guide du global —
+ * c'est le chantier « par projet », pas ce correctif.
  */
 
 // ─── Rendu inline markdown léger (**gras** + `code`) ─────────────────────────
@@ -139,6 +150,14 @@ export function WarmupGuideAccordion() {
 
   return (
     <div className="space-y-2">
+      {/* Les deux limites de ce guide, dites AVANT qu'on le lise : il est
+          global, donc il ne peut connaître ni la durée ni les plateformes de
+          celui qui le lit. Les taire reviendrait à les affirmer. */}
+      <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-3 text-xs leading-relaxed text-amber-900">
+        <p>{renderInline(t("trackerNotice"))}</p>
+        <p>{renderInline(t("platformScope"))}</p>
+      </div>
+
       <Section
         icon={<ShieldAlertIcon className="size-4" />}
         title={t("section.common")}
@@ -148,18 +167,14 @@ export function WarmupGuideAccordion() {
 
       <Section
         icon={<Music2Icon className="size-4" />}
-        title={t("section.tiktok", {
-          days: WARMUP_DURATION_BY_PLATFORM.TikTok,
-        })}
+        title={t("section.tiktok")}
       >
         <SubSections blocks={raw<SubBlock[]>("tiktokBlocks")} />
       </Section>
 
       <Section
         icon={<CameraIcon className="size-4" />}
-        title={t("section.instagram", {
-          days: WARMUP_DURATION_BY_PLATFORM.Instagram,
-        })}
+        title={t("section.instagram")}
       >
         <div className="space-y-3">
           <SubSections blocks={raw<SubBlock[]>("igSetup")} />
@@ -175,9 +190,7 @@ export function WarmupGuideAccordion() {
 
       <Section
         icon={<PlayIcon className="size-4" />}
-        title={t("section.youtube", {
-          days: WARMUP_DURATION_BY_PLATFORM.YouTube,
-        })}
+        title={t("section.youtube")}
       >
         <div className="space-y-3">
           <p>{t("youtubeIntro")}</p>

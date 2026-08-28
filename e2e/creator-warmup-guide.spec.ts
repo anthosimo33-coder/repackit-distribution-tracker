@@ -46,7 +46,7 @@ test.describe("Guide warmup — portail créateur", () => {
     // Ouvrir le guide warmup.
     await page.getByRole("button", { name: /guide warmup/i }).click();
     await expect(
-      page.getByText("Guide warmup — TikTok, Instagram, YouTube"),
+      page.getByText("Guide warmup — par plateforme"),
     ).toBeVisible();
 
     // Les 7 sections (triggers repliables) — identiques au guide admin.
@@ -55,13 +55,13 @@ test.describe("Guide warmup — portail créateur", () => {
       guide.getByRole("button", { name: /Règles communes/i }),
     ).toBeVisible();
     await expect(
-      guide.getByRole("button", { name: /TikTok — 7 jours/i }),
+      guide.getByRole("button", { name: /^TikTok$/ }),
     ).toBeVisible();
     await expect(
-      guide.getByRole("button", { name: /Instagram — 14 jours/i }),
+      guide.getByRole("button", { name: /^Instagram$/ }),
     ).toBeVisible();
     await expect(
-      guide.getByRole("button", { name: /YouTube Shorts — 7 jours/i }),
+      guide.getByRole("button", { name: /^YouTube Shorts$/ }),
     ).toBeVisible();
     await expect(
       guide.getByRole("button", { name: /Vérifications post-warmup/i }),
@@ -73,10 +73,36 @@ test.describe("Guide warmup — portail créateur", () => {
       guide.getByRole("button", { name: /à PAS faire/i }),
     ).toBeVisible();
 
+    // Les DEUX limites du guide sont dites d'entrée : il est global, donc il ne
+    // connaît ni la durée ni les plateformes de qui le lit. Les taire
+    // reviendrait à les affirmer — c'est ce qui affichait « TikTok — 7 jours »
+    // à des créatrices dont le tracker décomptait 3.
+    await expect(
+      guide.getByText(/durée qui fait foi pour un compte donné/i),
+    ).toBeVisible();
+    await expect(
+      guide.getByText(/si une plateforme n'y figure pas/i),
+    ).toBeVisible();
+
+    // Aucune durée chiffrée dans les TITRES de section (contrôle d'ABSENCE ;
+    // son contrôle de présence est juste au-dessus : les mêmes titres, nus,
+    // sont bien trouvés).
+    await expect(
+      guide.getByRole("button", { name: /\d+\s*jours?/i }),
+    ).toHaveCount(0);
+
     // Replié par défaut → contenu TikTok caché, puis expand → visible.
     await expect(page.getByText(/avant d'augmenter la cadence/i)).toBeHidden();
-    await guide.getByRole("button", { name: /TikTok — 7 jours/i }).click();
+    await guide.getByRole("button", { name: /^TikTok$/ }).click();
     await expect(page.getByText(/avant d'augmenter la cadence/i)).toBeVisible();
+
+    // L'étape « supprimer les vidéos à <50 vues » a été RETIRÉE du protocole de
+    // reset : elle disait l'inverse du module warm-up du guide, qui interdit de
+    // supprimer. Contrôle de présence apparié : le protocole existe toujours et
+    // sa 1re étape est bien là.
+    await guide.getByRole("button", { name: /protocole reset/i }).click();
+    await expect(page.getByText(/Stop poster imm/i)).toBeVisible();
+    await expect(page.getByText(/50 vues/i)).toHaveCount(0);
 
     // Lecture seule (structurelle) : le guide est un composant statique,
     // identique pour tous les rôles — il n'expose aucun champ de saisie ni
@@ -93,7 +119,7 @@ test.describe("Guide warmup — portail créateur", () => {
     // Fermer.
     await page.keyboard.press("Escape");
     await expect(
-      page.getByText("Guide warmup — TikTok, Instagram, YouTube"),
+      page.getByText("Guide warmup — par plateforme"),
     ).toBeHidden();
 
     await ctx.close();

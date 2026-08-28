@@ -703,14 +703,16 @@
   },
   "warmupGuide": {
     "section": {
-      "common": "Common rules (all 3 platforms)",
-      "tiktok": "TikTok — {days} days",
-      "instagram": "Instagram — {days} days",
-      "youtube": "YouTube Shorts — {days} days",
+      "common": "Common rules (all platforms)",
+      "tiktok": "TikTok",
+      "instagram": "Instagram",
+      "youtube": "YouTube Shorts",
       "checks": "Post-warm-up checks",
       "reset": "If the warm-up failed — reset protocol",
       "dont": "What NOT to do"
     },
+    "trackerNotice": "The durations and phases described here are the **default protocol**. The duration that counts for any given account is the one its countdown shows in the tracker: that's what your progress follows, and the admin can set it account by account.",
+    "platformScope": "Not every platform is part of every program. **Go by the accounts you're asked to create**: if a platform isn't among them, its section doesn't apply to you.",
     "igPhasesTitle": "Warm-up in phases (D1 → D14) — no posting",
     "youtubeIntro": "YouTube is far more permissive. The account is tied to your existing Google account, so there's less suspicion.",
     "cleanTitle": "Signals ✅ clean account",
@@ -720,7 +722,7 @@
       "signal": "Signal",
       "target": "Target"
     },
-    "allThree": "All 3",
+    "allThree": "All",
     "commonRules": [
       "**A dedicated email per account**, no `+` aliases",
       "**Native mobile app only** during the warm-up and your first 10 posts (no web, no API/scheduler)",
@@ -885,7 +887,6 @@
     ],
     "resetSteps": [
       "**Stop posting immediately** (this is the one that matters)",
-      "Delete videos under 50 views (a permanent negative signal)",
       "Take an **active** 5–7 day break: scroll your niche 20–30 min/day, post nothing",
       "Repost ONE video and watch what happens",
       "Still 0 views → drop the account and create a fresh one"
@@ -923,7 +924,7 @@
       }
     ],
     "button": "Warm-up guide",
-    "dialogTitle": "Warm-up guide — TikTok, Instagram, YouTube",
+    "dialogTitle": "Warm-up guide — by platform",
     "dialogDesc": "Platform-by-platform warm-up procedure, readable without leaving the tracker."
   },
   "clip": {
