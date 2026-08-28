@@ -34,6 +34,7 @@ import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { creatorStatusBadge } from "@/lib/creator-status";
 import { cn } from "@/lib/utils";
+import { LOCALES, LOCALE_LABELS, type Locale } from "@/i18n/locales";
 import {
   CREATOR_KINDS,
   resolveCreatorKind,
@@ -75,6 +76,7 @@ export default function CreateursPage() {
   // Filtre de population. `null` = toutes — le compte par population est autant
   // l'information que le filtre lui-même.
   const [filtre, setFiltre] = useState<CreatorKind | null>(null);
+  const [filtreLangue, setFiltreLangue] = useState<Locale | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{
     id: Id<"creators">;
     name: string;
@@ -82,7 +84,22 @@ export default function CreateursPage() {
 
   // Comptes par population, calculés sur la liste COMPLÈTE : ils ne bougent pas
   // quand on filtre — sinon le filtre effacerait l'information qu'il donne.
-  const parPopulation = (creators ?? []).reduce<Record<string, number>>(
+  // DEUX AXES INDÉPENDANTS : population et langue se combinent (« Partenaire +
+  // English »). Un seul état les rendrait exclusifs.
+  const tousLesCreateurs = creators ?? [];
+  const parKind = (c: (typeof tousLesCreateurs)[number]) =>
+    filtre === null || resolveCreatorKind(c.kind) === filtre;
+  const parLangue = (c: (typeof tousLesCreateurs)[number]) =>
+    filtreLangue === null || c.locale === filtreLangue;
+  const visibles = tousLesCreateurs.filter((c) => parKind(c) && parLangue(c));
+
+  // COMPTEURS CROISÉS : chaque axe compte sur la liste déjà filtrée par
+  // L'AUTRE. Sans ça, la pastille « English » annoncerait 6 alors qu'un clic
+  // sur « Partenaire » n'en donne que 2 — un compteur qui ment sur ce qu'il
+  // va produire est pire que pas de compteur.
+  const pourKind = tousLesCreateurs.filter(parLangue);
+  const pourLangue = tousLesCreateurs.filter(parKind);
+  const parPopulation = pourKind.reduce<Partial<Record<CreatorKind, number>>>(
     (acc, c) => {
       const k = resolveCreatorKind(c.kind);
       acc[k] = (acc[k] ?? 0) + 1;
@@ -90,9 +107,10 @@ export default function CreateursPage() {
     },
     {},
   );
-  const visibles = (creators ?? []).filter(
-    (c) => filtre === null || resolveCreatorKind(c.kind) === filtre,
-  );
+  const parLangueCount = pourLangue.reduce<Record<string, number>>((acc, c) => {
+    acc[c.locale] = (acc[c.locale] ?? 0) + 1;
+    return acc;
+  }, {});
 
   async function copyLink(token: string) {
     try {
@@ -148,7 +166,7 @@ export default function CreateursPage() {
           {[null, ...CREATOR_KINDS].map((k) => {
             const actif = filtre === k;
             const n =
-              k === null ? creators.length : (parPopulation[k] ?? 0);
+              k === null ? pourKind.length : (parPopulation[k] ?? 0);
             return (
               <button
                 key={k ?? "tous"}
@@ -168,6 +186,33 @@ export default function CreateursPage() {
             );
           })}
         </div>
+
+        {/* Seconde barre — la LANGUE, axe indépendant de la population. Les
+            endonymes ne sont jamais traduits (LOCALE_LABELS). */}
+        <div className="flex flex-wrap items-center gap-2">
+          {[null, ...LOCALES].map((l) => {
+            const actif = filtreLangue === l;
+            const n = l === null ? pourLangue.length : (parLangueCount[l] ?? 0);
+            return (
+              <button
+                key={l ?? "toutes"}
+                type="button"
+                onClick={() => setFiltreLangue(l)}
+                aria-pressed={actif}
+                className={cn(
+                  "rounded-full border px-3 py-1 text-sm transition-colors",
+                  actif
+                    ? "border-primary bg-primary/10 font-medium text-primary"
+                    : "border-slate-200 text-slate-600 hover:bg-slate-50",
+                )}
+              >
+                {l === null ? "Toutes langues" : LOCALE_LABELS[l]}
+                <span className="ml-1.5 tabular-nums text-slate-400">{n}</span>
+              </button>
+            );
+          })}
+        </div>
+
         <Card>
           <CardContent className="overflow-x-auto p-0">
             <Table>
@@ -176,6 +221,7 @@ export default function CreateursPage() {
                   <TableHead>Nom</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Population</TableHead>
+                  <TableHead>Langue</TableHead>
                   <TableHead>Statut</TableHead>
                   <TableHead>Ajouté le</TableHead>
                   <TableHead className="w-12" />
@@ -207,6 +253,12 @@ export default function CreateursPage() {
                         >
                           {pop.label}
                         </span>
+                      </TableCell>
+                      {/* Langue RÉSOLUE (users.locale → creators.locale → fr),
+                          servie par le serveur. Sans cette colonne, on filtre à
+                          l'aveugle : rien ne dirait que le filtre a raison. */}
+                      <TableCell className="text-sm text-slate-600">
+                        {LOCALE_LABELS[c.locale as Locale] ?? c.locale}
                       </TableCell>
                       <TableCell>
                         <span

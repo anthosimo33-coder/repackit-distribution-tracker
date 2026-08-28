@@ -22,8 +22,13 @@ describe("REFUS — un récapitulatif tronqué masque les échecs", () => {
 });
 
 describe("PASSAGE — ce qui ne tronque pas la fin", () => {
-  it("grep sur la ligne de récapitulatif", () => {
-    allow('npx playwright test 2>&1 | grep -E "^  [0-9]+ (passed|failed|skipped)"');
+  it("le script dédié — le remplacement recommandé", () => {
+    allow("pnpm test:e2e:summary");
+    allow("pnpm test:e2e:summary e2e/createurs-filtre-langue.spec.ts");
+    allow("./scripts/e2e-summary.sh");
+  });
+  it("grep reste libre : il ne coupe pas la fin", () => {
+    allow('npx playwright test 2>&1 | grep -E "[0-9]+ (passed|failed)"');
   });
   it("redirection seule, relue par grep", () => {
     allow("npx playwright test > /tmp/e2e.log 2>&1");
