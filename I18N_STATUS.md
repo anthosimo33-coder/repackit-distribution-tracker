@@ -1065,14 +1065,36 @@ L'absence de bandeau n'est pas constatée à l'œil : la condition du bandeau ES
 `servedLocale !== requestedLocale` (§11.8), donc `servedLocale === "en"` la
 réfute.
 
-#### Défauts du FR relevés, NON corrigés ici
+#### Défauts du FR — corrigés depuis, en §11.10
 
-À reprendre dans une PR dédiée, après celle-ci : fautes de frappe (« peut
-varié », doubles espaces), titre « Conditions de paiements des createurs » sans
-accent, puces perdues sur plusieurs blocs (« Pour être payé », « Qualité »), et
-l'incohérence de plateformes chez Snytch — module 0 : « TikTok et Instagram » ;
-modules 2 et 3 : « TikTok, Instagram et YouTube ». Laquelle fait foi est une
-question produit, pas une faute de frappe.
+### 11.10 Les coquilles du guide FRANÇAIS — et pourquoi c'est une migration
+
+Le guide vit **en base**. Corriger une coquille, ce n'est donc pas éditer un
+fichier : c'est patcher une ligne de `guideModules`. Les 11 retouches sont
+écrites en donnée (`convex/guideFrFixes.ts`), revues en diff, et appliquées par
+`migrations:fixFrenchGuideTypos`.
+
+| Famille | Ce qui est corrigé |
+|---|---|
+| Coquilles | « peut varié » → « peut varier » + double espace (snytch/1) ; titre « Conditions de paiements des createurs » → « Conditions de paiement des créateurs » (snytch/4) |
+| **Plateformes** | Snytch = **TikTok et Instagram**, jamais YouTube. Les modules 2 et 3 le listaient, le module 0 non. **Arbitrage user du 2026-08-28 : le module 0 fait foi.** Corrigé côté FR par la migration, côté EN dans `guideModulesEn.ts` |
+| Puces et numérotation perdues | 7 blocs qui s'affichaient collés en un paragraphe : conditions de paiement, consignes de profil (×2), blocs Qualité et Soumission (×2), et l'étape 5 de RepackIt hors de sa liste numérotée |
+
+**TROIS GARDES, parce qu'un remplacement aveugle sur du texte rédigé par un
+humain corromprait un contenu que personne ne relit ligne à ligne** :
+
+1. le module doit porter le titre attendu à ce (projet, order) — garde contre un
+   réordonnancement entre le relevé et l'exécution ;
+2. il doit être **français** : une retouche ne peut pas atteindre le jeu anglais,
+   même si un titre coïncidait ;
+3. l'ancre doit apparaître **exactement une fois**. Zéro ⇒ déjà corrigé.
+   Plusieurs ⇒ ambigu, on refuse. Dans les deux cas on le DIT, on ne devine pas.
+
+Les trois ont été vues refuser pour de vrai, sur le contenu réel de la prod
+rejoué en local : titre falsifié → « titre inattendu » ; ancre `Étape` →
+« ancre trouvée 5 fois » ; et après le commit, les 11 retouches basculent en
+« déjà faites » sans jamais rien remplacer au hasard. Le jeu anglais semé à côté
+ne bouge pas d'un caractère.
 
 ### 11.5 La preview « Voir son espace » rendait dans la langue de l'admin
 
