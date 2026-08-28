@@ -28,7 +28,12 @@ export type WarmupGuideSeed = { fr: string; en: string };
 /** Titre du module, par langue — il porte le `slot` "warmup". */
 export const WARMUP_MODULE_TITLE = {
   fr: "Warmup & éviter le shadowban",
-  en: "Warm-up & avoiding shadowbans",
+  // ⚠️ Le titre EXACT posé par `seedGuideModulesEn` — « Warmup », pas
+  // « Warm-up ». L'ancre de la migration est ce titre : une faute d'un trait
+  // d'union suffit à la faire échouer. Elle a d'ailleurs échoué ainsi au
+  // premier dry-run, et REFUSÉ d'écrire plutôt que de deviner — c'est ce
+  // refus qui a rendu l'erreur visible.
+  en: "Warmup & avoiding shadowbans",
 } as const;
 
 export const WARMUP_GUIDE_BY_PROJECT: Record<string, WarmupGuideSeed> = {
