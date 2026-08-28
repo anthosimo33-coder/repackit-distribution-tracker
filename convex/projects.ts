@@ -9,6 +9,7 @@ import {
 } from "./functions";
 import { internalMutation } from "./_generated/server";
 import { isPortalRole } from "./roles";
+import { warmupTargetDaysOf } from "./warmup";
 import { ConvexError, v } from "convex/values";
 import type { QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -719,5 +720,78 @@ export const e2eDeleteProject = e2eMutation({
     for (const m of memberships) await ctx.db.delete(m._id);
     await ctx.db.delete(project._id);
     return { deleted: true };
+  },
+});
+
+
+/**
+ * DURÉE DE WARMUP DU PROJET — lecture et écriture par l'admin.
+ *
+ * Une plateforme à `null` n'est PAS définie par ce projet : elle retombe sur le
+ * dernier recours (`warmupTargetDaysOf`). C'est la différence entre « Snytch
+ * chauffe 3 jours sur TikTok » et « Snytch ne fait pas de YouTube » — deux faits
+ * distincts, qu'un simple nombre ne saurait pas dire.
+ *
+ * Le barème NE TOUCHE PAS aux warmups en cours : la durée est figée sur
+ * `comptes.warmupProtocol.targetDays` au démarrage. Changer ce réglage n'a
+ * d'effet que sur les chauffes à venir — c'est dit à l'écran, pour qu'on ne
+ * l'attende pas en vain.
+ */
+export const getWarmupSettings = adminQuery({
+  args: {},
+  handler: async (
+    ctx,
+  ): Promise<{
+    defined: { tiktok: number | null; instagram: number | null; youtube: number | null };
+    effective: { tiktok: number; instagram: number; youtube: number };
+  }> => {
+    const project = await ctx.db.get(ctx.projectId);
+    const d = project?.warmupTargetDays ?? {};
+    return {
+      defined: {
+        tiktok: d.tiktok ?? null,
+        instagram: d.instagram ?? null,
+        youtube: d.youtube ?? null,
+      },
+      effective: warmupTargetDaysOf(project ?? {}),
+    };
+  },
+});
+
+const WARMUP_DAYS_MIN = 1;
+const WARMUP_DAYS_MAX = 60;
+
+export const setWarmupSettings = adminMutation({
+  args: {
+    tiktok: v.union(v.number(), v.null()),
+    instagram: v.union(v.number(), v.null()),
+    youtube: v.union(v.number(), v.null()),
+  },
+  handler: async (ctx, args): Promise<{ updated: true }> => {
+    const clean = (v2: number | null, label: string): number | undefined => {
+      if (v2 === null) return undefined;
+      if (!Number.isInteger(v2) || v2 < WARMUP_DAYS_MIN || v2 > WARMUP_DAYS_MAX) {
+        throw new ConvexError(
+          `Durée ${label} invalide : un entier entre ${WARMUP_DAYS_MIN} et ${WARMUP_DAYS_MAX} jours.`,
+        );
+      }
+      return v2;
+    };
+    const next = {
+      tiktok: clean(args.tiktok, "TikTok"),
+      instagram: clean(args.instagram, "Instagram"),
+      youtube: clean(args.youtube, "YouTube"),
+    };
+    // Les trois vides ⇒ on retire le champ : le projet cesse de définir un
+    // barème, plutôt que d'en stocker un vide qui voudrait dire la même chose
+    // avec une ligne de plus en base.
+    const aucune =
+      next.tiktok === undefined &&
+      next.instagram === undefined &&
+      next.youtube === undefined;
+    await ctx.db.patch(ctx.projectId, {
+      warmupTargetDays: aucune ? undefined : next,
+    });
+    return { updated: true };
   },
 });
