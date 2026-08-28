@@ -9,7 +9,7 @@ test.describe("Guide warmup intégré", () => {
     // Ouvrir le guide.
     await page.getByRole("button", { name: /guide warmup/i }).click();
     await expect(
-      page.getByText("Guide warmup — TikTok, Instagram, YouTube"),
+      page.getByText("Guide warmup — par plateforme"),
     ).toBeVisible();
 
     // Les 7 sections sont présentes (triggers repliables).
@@ -17,13 +17,13 @@ test.describe("Guide warmup intégré", () => {
       page.getByRole("button", { name: /Règles communes/i }),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: /TikTok — 7 jours/i }),
+      page.getByRole("button", { name: /^TikTok$/ }),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: /Instagram — 14 jours/i }),
+      page.getByRole("button", { name: /^Instagram$/ }),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: /YouTube Shorts — 7 jours/i }),
+      page.getByRole("button", { name: /^YouTube Shorts$/ }),
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: /Vérifications post-warmup/i }),
@@ -35,17 +35,26 @@ test.describe("Guide warmup intégré", () => {
       page.getByRole("button", { name: /à PAS faire/i }),
     ).toBeVisible();
 
+    // Côté ADMIN aussi, le guide dit ses deux limites d'entrée : il est global,
+    // il ne connaît ni la durée ni les plateformes de qui le lit.
+    await expect(
+      page.getByText(/durée qui fait foi pour un compte donné/i),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/si une plateforme n'y figure pas/i),
+    ).toBeVisible();
+
     // Replié par défaut : le contenu TikTok est caché.
     await expect(page.getByText(/avant d'augmenter la cadence/i)).toBeHidden();
 
     // Expand TikTok → contenu visible.
-    await page.getByRole("button", { name: /TikTok — 7 jours/i }).click();
+    await page.getByRole("button", { name: /^TikTok$/ }).click();
     await expect(page.getByText(/avant d'augmenter la cadence/i)).toBeVisible();
 
     // Fermer le Sheet.
     await page.keyboard.press("Escape");
     await expect(
-      page.getByText("Guide warmup — TikTok, Instagram, YouTube"),
+      page.getByText("Guide warmup — par plateforme"),
     ).toBeHidden();
   });
 });
