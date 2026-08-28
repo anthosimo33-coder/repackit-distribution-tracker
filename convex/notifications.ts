@@ -49,7 +49,11 @@ import {
   isChauffeSansTalent,
   joursAvantSortieDeChauffe,
 } from "./clipperReadiness";
-import { effectiveTargetDays, warmupTargetDaysOf } from "./warmup";
+import {
+  effectiveTargetDays,
+  warmupTargetDaysOf,
+  isWarmupComplete,
+} from "./warmup";
 import { cyclePaymentsForCreator } from "./payments";
 import {
   DIGEST_LOOKBACK_MS,
@@ -1008,14 +1012,19 @@ export const collectDigest = internalQuery({
     // partagent la population : un compte appartient à un partenaire OU à un
     // clippeur, jamais aux deux signaux.
     const warmupLate: { handle: string; missedDays: number }[] = [];
+    // Chauffe TERMINÉE, en attente de validation admin. Sous le gate strict
+    // (#98) ces comptes ne publient pas tant que l'admin ne les repasse pas en
+    // actif : chaque jour de délai annule un jour de chauffe gagné.
+    const warmupReady: { handle: string; creatorName: string }[] = [];
     const chauffeSansTalent: {
       handle: string;
       clipperName: string;
       joursRestants: number;
     }[] = [];
     const veutWarmup = isEventEnabled(enabled, "digest_warmup_late");
+    const veutReady = isEventEnabled(enabled, "digest_warmup_ready");
     const veutChauffe = isEventEnabled(enabled, "digest_clipper_sans_talent");
-    if (veutWarmup || veutChauffe) {
+    if (veutWarmup || veutChauffe || veutReady) {
       const [comptes, creators] = await Promise.all([
         ctx.db
           .query("comptes")
@@ -1067,13 +1076,30 @@ export const collectDigest = internalQuery({
           continue;
         }
 
-        if (!veutWarmup) continue;
+        // Pas de `continue` sur veutWarmup ici : la section « terminés » lit la
+        // même boucle et peut être activée seule. Le filtre par section se fait
+        // juste avant chaque `push`.
         const shape = {
           effectiveStatus: effectiveStatus(c),
           warmupStartedAt: c.warmupStartedAt,
           dailyChecks: c.warmupProtocol?.dailyChecks ?? [],
           targetDays: effectiveTargetDays(c, warmupDays),
         };
+        if (
+          veutReady &&
+          isWarmupComplete(
+            { plateforme: c.plateforme, warmupProtocol: c.warmupProtocol },
+            warmupDays,
+          )
+        ) {
+          warmupReady.push({
+            handle: c.handle,
+            creatorName:
+              (c.creatorId ? creatorMap.get(c.creatorId)?.name : null) ??
+              "sans créateur",
+          });
+        }
+        if (!veutWarmup) continue;
         const missed = warmupMissedDays(shape, now);
         if (missed > 0) warmupLate.push({ handle: c.handle, missedDays: missed });
       }
@@ -1109,6 +1135,7 @@ export const collectDigest = internalQuery({
         overdueMissions,
         payCycles,
         warmupLate: warmupLate.slice(0, DIGEST_SECTION_LIMIT),
+        warmupReady: warmupReady.slice(0, DIGEST_SECTION_LIMIT),
         chauffeSansTalent: chauffeSansTalent.slice(0, DIGEST_SECTION_LIMIT),
         retryableRenewalFailures: retryableRenewalFailures.slice(
           0,

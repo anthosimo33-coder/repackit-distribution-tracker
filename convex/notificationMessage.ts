@@ -617,6 +617,16 @@ export interface DigestSections {
   payCycles: { creatorName: string }[];
   warmupLate: { handle: string; missedDays: number }[];
   /**
+   * Comptes dont la chauffe est TERMINÉE et qui attendent une validation admin.
+   *
+   * Signalés parce qu'ils sont dans un angle mort : le compte a fini, la
+   * créatrice ne peut rien faire de plus, et rien ne pousse l'information —
+   * seul un badge dans une liste la portait. Sous le gate strict (#98) le
+   * compte n'est pas publiable tant que l'admin ne l'a pas repassé en actif,
+   * donc chaque jour de délai annule un jour de chauffe gagné.
+   */
+  warmupReady: { handle: string; creatorName: string }[];
+  /**
    * Échecs de renouvellement que Whop VA relancer, survenus dans la journée.
    * Contrepartie de l'arbitrage « immédiat seulement si non relançable » : ils
    * ne disparaissent pas, ils changent de canal. Rattachés à la bascule
@@ -642,6 +652,7 @@ export function buildDigestMessage(params: {
     overdueMissions,
     payCycles,
     warmupLate,
+    warmupReady,
     retryableRenewalFailures,
     chauffeSansTalent,
   } = sections;
@@ -649,6 +660,7 @@ export function buildDigestMessage(params: {
     overdueMissions.length === 0 &&
     payCycles.length === 0 &&
     warmupLate.length === 0 &&
+    warmupReady.length === 0 &&
     retryableRenewalFailures.length === 0 &&
     chauffeSansTalent.length === 0
   ) {
@@ -692,6 +704,19 @@ export function buildDigestMessage(params: {
             (w) =>
               `${w.handle} (${w.missedDays} ${plural(w.missedDays, "jour")} ${plural(w.missedDays, "manqué")})`,
           ),
+        ),
+    );
+  }
+
+  if (warmupReady.length > 0) {
+    const n = warmupReady.length;
+    // Placé APRÈS les retards : « en retard » appelle une relance de la
+    // créatrice, « terminé » appelle une action de l'admin. Deux gestes
+    // différents, deux blocs distincts.
+    blocks.push(
+      `✅ <b>${n} ${plural(n, "warmup")} ${plural(n, "terminé")} — à valider</b>\n` +
+        bulletList(
+          warmupReady.map((w) => `${w.handle} (${w.creatorName})`),
         ),
     );
   }
