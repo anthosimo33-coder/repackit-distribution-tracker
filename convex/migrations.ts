@@ -13,6 +13,7 @@ import {
 import { periodOf } from "./payments";
 import { GUIDE_MODULES_EN } from "./guideModulesEn";
 import { moduleLocale } from "./guideModuleLocale";
+import { warmupTargetDaysOf, defaultTargetDays } from "./warmup";
 import { GUIDE_FR_FIXES } from "./guideFrFixes";
 
 const DEFAULT_ACCENT = "#FF5200";
@@ -239,10 +240,10 @@ export const backfillSnytchWarmupDoneToActif = internalMutation({
       const status = c.status ?? (c.actif === false ? "archived" : "actif");
       return (
         status === "warmup" &&
-        isWarmupComplete({
-          plateforme: c.plateforme,
-          warmupProtocol: c.warmupProtocol,
-        })
+        isWarmupComplete(
+          { plateforme: c.plateforme, warmupProtocol: c.warmupProtocol },
+          warmupTargetDaysOf(project),
+        )
       );
     });
 
@@ -915,6 +916,119 @@ export const fixFrenchGuideTypos = internalMutation({
       dejaFaites,
       refusees,
       patched: dryRun ? 0 : appliquees.length,
+    };
+  },
+});
+
+/**
+ * DURÉE DE WARMUP PAR PROJET — pose le barème de chaque projet, puis REBASE les
+ * warmups EN COURS dessus.
+ *
+ * POURQUOI DEUX TEMPS. La durée est FIGÉE sur `comptes.warmupProtocol.targetDays`
+ * au démarrage du warmup : poser le barème du projet ne débloque personne, les
+ * comptes déjà lancés gardent leur cible. Sans le rebasage, les créatrices
+ * Snytch continueraient d'attendre 7 et 14 jours pour une règle qui dit 3.
+ *
+ * PERSONNE NE SAUTE D'ÉTAPE. La complétion se compte en CHECKS RÉELLEMENT POSÉS,
+ * pas en jours calendaires, et un check par jour au maximum : un compte à 2
+ * checks rebasé sur 3 a encore un check à poser, il ne bascule pas « terminé »
+ * d'un coup. C'est vérifié dans la sortie (`termineImmediatement`).
+ *
+ * NE TOUCHE QUE LES PROJETS NOMMÉS. `thea-app` et ses comptes ne bougent pas.
+ *
+ * IDEMPOTENTE : un projet déjà au bon barème et un compte déjà à la bonne cible
+ * ne sont pas réécrits.
+ *
+ * dryRun par défaut ; la sortie EST ce qui sera écrit :
+ *   ./scripts/convex-prod.sh run migrations:setWarmupTargetDaysPerProject '{}'
+ *   ./scripts/convex-prod.sh run migrations:setWarmupTargetDaysPerProject '{"commit":true}'
+ */
+const WARMUP_DAYS_BY_PROJECT: Record<
+  string,
+  { tiktok: number; instagram: number; youtube: number }
+> = {
+  // Règle produit : Snytch chauffe 3 jours, TikTok comme Instagram.
+  snytch: { tiktok: 3, instagram: 3, youtube: 3 },
+  // Explicite plutôt qu'implicite : RepackIt ne doit pas dépendre d'un barème
+  // global qu'un autre projet pourrait faire bouger — c'est exactement ce qui
+  // est arrivé le 2026-06-23.
+  repackit: { tiktok: 7, instagram: 14, youtube: 7 },
+};
+
+export const setWarmupTargetDaysPerProject = internalMutation({
+  args: { commit: v.optional(v.boolean()) },
+  handler: async (ctx, { commit }) => {
+    const dryRun = commit !== true;
+    const projets: {
+      slug: string;
+      avant: unknown;
+      apres: unknown;
+      deja: boolean;
+    }[] = [];
+    const comptes: {
+      projet: string;
+      handle: string;
+      plateforme: string;
+      checks: number;
+      cibleAvant: number;
+      cibleApres: number;
+      resteApres: number;
+      termineImmediatement: boolean;
+    }[] = [];
+
+    for (const [slug, days] of Object.entries(WARMUP_DAYS_BY_PROJECT)) {
+      const project = await getProjectBySlug(ctx, slug);
+      if (project === null) continue;
+      const avant = project.warmupTargetDays ?? null;
+      const deja =
+        avant !== null &&
+        avant.tiktok === days.tiktok &&
+        avant.instagram === days.instagram &&
+        avant.youtube === days.youtube;
+      projets.push({ slug, avant, apres: days, deja });
+      if (!dryRun && !deja) {
+        await ctx.db.patch(project._id, { warmupTargetDays: days });
+      }
+
+      // Rebasage des warmups EN COURS de ce projet.
+      const rows = await ctx.db
+        .query("comptes")
+        .withIndex("by_project", (q) => q.eq("projectId", project._id))
+        .collect();
+      for (const c of rows) {
+        if (c.status !== "warmup" || !c.warmupProtocol) continue;
+        const cibleApres = defaultTargetDays(c.plateforme, days);
+        if (c.warmupProtocol.targetDays === cibleApres) continue;
+        const checks = c.warmupProtocol.dailyChecks.length;
+        comptes.push({
+          projet: slug,
+          handle: c.handle,
+          plateforme: c.plateforme,
+          checks,
+          cibleAvant: c.warmupProtocol.targetDays,
+          cibleApres,
+          resteApres: Math.max(0, cibleApres - checks),
+          termineImmediatement: checks >= cibleApres,
+        });
+        if (!dryRun) {
+          await ctx.db.patch(c._id, {
+            warmupProtocol: { ...c.warmupProtocol, targetDays: cibleApres },
+          });
+        }
+      }
+    }
+
+    return {
+      dryRun,
+      projets,
+      comptesRebases: comptes,
+      // Doit rester 0 : personne ne doit basculer « terminé » par la migration.
+      termineImmediatement: comptes.filter((c) => c.termineImmediatement).length,
+      joursDAttenteSupprimes: comptes.reduce(
+        (n, c) => n + (c.cibleAvant - c.cibleApres),
+        0,
+      ),
+      patched: dryRun ? 0 : projets.filter((p) => !p.deja).length + comptes.length,
     };
   },
 });

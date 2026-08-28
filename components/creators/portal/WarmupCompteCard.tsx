@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import type { FunctionReturnType } from "convex/server";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -35,7 +36,7 @@ export function WarmupCompteCard({
   projectId,
   readOnly = false,
 }: {
-  compte: Doc<"comptes">;
+  compte: FunctionReturnType<typeof api.comptes.listMyComptes>[number];
   projectId: Id<"projects">;
   /** Admin view-as : masque les boutons d'action (check warmup, confirm bio). */
   readOnly?: boolean;
@@ -56,17 +57,18 @@ export function WarmupCompteCard({
   const isWarmup = status === "warmup";
   const protocol = compte.warmupProtocol;
   const dailyChecks = protocol?.dailyChecks ?? [];
-  const targetDays = getEffectiveWarmupDuration({
-    plateforme: compte.plateforme as Plateforme,
-    warmupProtocol: protocol,
-  });
+  // Durée RÉSOLUE PAR LE SERVEUR (barème du projet + surcharge du compte).
+  // On la LIT, on ne la recalcule pas : un calcul ici redeviendrait une
+  // seconde source de vérité, divergente le jour où le barème change.
+  const targetDays = compte.targetDays;
   const progress =
     isWarmup && compte.warmupStartedAt !== undefined
       ? warmupProgress(dailyChecks.length, targetDays)
       : null;
   const doneToday = checkedToday(dailyChecks);
   // Warmup à faire/rattraper aujourd'hui (non terminé ET pas coché aujourd'hui).
-  const dueToday = isWarmup && mustCheckToday(compte);
+  // Servi par le serveur, comme la durée : aucun calcul de warmup côté écran.
+  const dueToday = isWarmup && compte.dueToday;
   const warmupDone = progress?.complete ?? false;
   // Bio à mettre (indépendante du warmup) : présente ssi l'admin l'a définie.
   const hasBio = !!compte.bioToApply;

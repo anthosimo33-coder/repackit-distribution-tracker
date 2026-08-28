@@ -68,9 +68,7 @@ export default function ComptesScreen() {
   // Comptes gérés exclus (l'équipe coche leur warmup).
   const dueToday = (comptes ?? []).filter(
     (c) =>
-      !c.managedByAdmin &&
-      getEffectiveStatus(c) === "warmup" &&
-      mustCheckToday(c),
+      !c.managedByAdmin && getEffectiveStatus(c) === "warmup" && c.dueToday,
   );
 
   // Notif in-app : comptes dont l'admin a (re)défini la bio → à (re)appliquer.

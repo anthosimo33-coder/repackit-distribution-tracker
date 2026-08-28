@@ -59,6 +59,14 @@ export type Compte = Doc<"comptes"> & {
   // Fourni par listComptes ; absent ailleurs (page détail) → plateforme reste
   // non modifiable par prudence.
   inUse?: boolean;
+  /**
+   * Durée de warmup RÉSOLUE PAR LE SERVEUR (barème du projet + surcharge du
+   * compte) et warmup terminé. Servis par `listComptes` : les écrans les
+   * LISENT, ils ne les recalculent pas — un calcul client redeviendrait une
+   * seconde source de vérité, divergente au premier changement de barème.
+   */
+  targetDays: number;
+  warmupDone: boolean;
 };
 
 const STATUS_OPTIONS: { value: CompteStatus; label: string; dot: string }[] = [

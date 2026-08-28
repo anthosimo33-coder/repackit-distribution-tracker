@@ -18,20 +18,45 @@
  */
 
 /**
- * Durée de warmup (jours) par plateforme. Clés en minuscules (canonique).
- * TikTok/YouTube portés à 7 (était 3) ; Instagram reste 14. La durée est FIGÉE
- * sur warmupProtocol.targetDays au DÉMARRAGE du warmup (declareCompte /
- * createCompte / restartWarmup), donc changer ce barème n'affecte QUE les
- * nouveaux warmups — les warmups en cours conservent leur targetDays figé.
+ * Barème de DERNIER RECOURS, quand un projet n'a pas fixé le sien.
+ *
+ * ⚠️ Ce n'est PLUS « le barème de l'app ». La durée de warmup est une règle
+ * PRODUIT qui diffère d'un projet à l'autre : Snytch chauffe 3 jours sur TikTok
+ * comme sur Instagram, RepackIt 7/14/7. Le 2026-06-23, le commit d1265cb a porté
+ * TikTok et YouTube de 3 à 7 pour TOUT LE MONDE — une décision RepackIt qui a
+ * silencieusement changé la règle de Snytch, et fait attendre ses créatrices
+ * quatre jours de trop par compte pendant deux mois. C'est ce que le champ
+ * `projects.warmupTargetDays` empêche de reproduire.
+ *
+ * La durée reste FIGÉE sur warmupProtocol.targetDays au DÉMARRAGE du warmup :
+ * changer un barème n'affecte que les warmups À VENIR, jamais ceux en cours.
  */
-export const WARMUP_TARGET_DAYS = {
+export const WARMUP_TARGET_DAYS_FALLBACK = {
   youtube: 7,
   tiktok: 7,
   instagram: 14,
 } as const;
 
-export type WarmupPlatformKey = keyof typeof WARMUP_TARGET_DAYS;
+export type WarmupPlatformKey = keyof typeof WARMUP_TARGET_DAYS_FALLBACK;
 export type Plateforme = "TikTok" | "Instagram" | "YouTube";
+
+/** Barème d'un projet : les trois plateformes, en jours. */
+export type WarmupTargetDays = Record<WarmupPlatformKey, number>;
+
+/**
+ * Barème EFFECTIF d'un projet : le sien s'il en a un, le dernier recours sinon.
+ * Unique porte d'entrée vers le défaut — c'est ce qui rend l'oubli impossible.
+ */
+export function warmupTargetDaysOf(project: {
+  warmupTargetDays?: Partial<WarmupTargetDays> | null;
+}): WarmupTargetDays {
+  const p = project.warmupTargetDays ?? {};
+  return {
+    tiktok: p.tiktok ?? WARMUP_TARGET_DAYS_FALLBACK.tiktok,
+    instagram: p.instagram ?? WARMUP_TARGET_DAYS_FALLBACK.instagram,
+    youtube: p.youtube ?? WARMUP_TARGET_DAYS_FALLBACK.youtube,
+  };
+}
 
 const DAY_MS = 86_400_000;
 
@@ -47,9 +72,20 @@ export function platformKey(plateforme: Plateforme): WarmupPlatformKey {
   }
 }
 
-/** Durée par défaut (jours) pour la plateforme — pré-remplit targetDays. */
-export function defaultTargetDays(plateforme: Plateforme): number {
-  return WARMUP_TARGET_DAYS[platformKey(plateforme)];
+/**
+ * Durée par défaut (jours) pour la plateforme DANS CE PROJET — pré-remplit
+ * targetDays au démarrage d'un warmup.
+ *
+ * ⚠️ `days` est OBLIGATOIRE, et c'est le cœur du correctif. Avec un paramètre
+ * optionnel replié sur un barème global, un site d'écriture oublié aurait
+ * continué à figer 7 EN SILENCE : pas d'erreur, pas de test rouge, juste des
+ * créatrices qui attendent. Obligatoire, un oubli casse le typecheck.
+ */
+export function defaultTargetDays(
+  plateforme: Plateforme,
+  days: WarmupTargetDays,
+): number {
+  return days[platformKey(plateforme)];
 }
 
 /**
@@ -139,11 +175,22 @@ export interface WarmupCompteLike {
 }
 
 /**
- * Durée de warmup EFFECTIVE : surcharge admin (warmupProtocol.targetDays) sinon
- * barème plateforme. Source unique des durées — lib/compte-status délègue ici.
+ * Durée de warmup EFFECTIVE d'un compte.
+ *
+ * La valeur FIGÉE au démarrage (`warmupProtocol.targetDays`) fait foi : c'est
+ * elle que le décompte suit, et changer le barème d'un projet ne doit pas
+ * déplacer la cible d'un warmup déjà commencé.
+ *
+ * `days` ne sert donc QUE de repli, pour un compte sans protocole — un cas que
+ * les cinq chemins d'écriture rendent impossible en warmup. Il est malgré tout
+ * OBLIGATOIRE : c'est ce qui interdit à un appelant de retomber en douce sur un
+ * barème global qui n'est pas celui de son projet.
  */
-export function effectiveTargetDays(c: WarmupCompteLike): number {
-  return c.warmupProtocol?.targetDays ?? defaultTargetDays(c.plateforme);
+export function effectiveTargetDays(
+  c: WarmupCompteLike,
+  days: WarmupTargetDays,
+): number {
+  return c.warmupProtocol?.targetDays ?? defaultTargetDays(c.plateforme, days);
 }
 
 /** Nb de checks distincts réellement posés = PROGRESSION réelle du warmup. */
@@ -156,8 +203,11 @@ export function checksCompleted(c: WarmupCompteLike): number {
  * PUR et indépendant du calendrier : rater un jour ne le fait jamais basculer à
  * true. Réutilisé par le chantier C (multi-plateforme).
  */
-export function isWarmupComplete(c: WarmupCompteLike): boolean {
-  return checksCompleted(c) >= effectiveTargetDays(c);
+export function isWarmupComplete(
+  c: WarmupCompteLike,
+  days: WarmupTargetDays,
+): boolean {
+  return checksCompleted(c) >= effectiveTargetDays(c, days);
 }
 
 /**
@@ -173,11 +223,12 @@ export function isWarmupComplete(c: WarmupCompteLike): boolean {
  */
 export function isAccountAvailable(
   c: WarmupCompteLike & { status?: CompteStatusLike; actif?: boolean },
+  days: WarmupTargetDays,
   opts?: { strict?: boolean },
 ): boolean {
   const status = c.status ?? (c.actif === false ? "archived" : "actif");
   if (status === "actif") return true;
-  if (status === "warmup") return opts?.strict ? false : isWarmupComplete(c);
+  if (status === "warmup") return opts?.strict ? false : isWarmupComplete(c, days);
   return false;
 }
 
@@ -188,8 +239,9 @@ export function isAccountAvailable(
  */
 export function mustCheckToday(
   c: WarmupCompteLike,
+  days: WarmupTargetDays,
   now: number = Date.now(),
 ): boolean {
-  if (isWarmupComplete(c)) return false;
+  if (isWarmupComplete(c, days)) return false;
   return !checkedToday(c.warmupProtocol?.dailyChecks ?? [], now);
 }

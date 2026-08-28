@@ -1096,6 +1096,36 @@ rejoué en local : titre falsifié → « titre inattendu » ; ancre `Étape` �
 « déjà faites » sans jamais rien remplacer au hasard. Le jeu anglais semé à côté
 ne bouge pas d'un caractère.
 
+### 11.11 La durée de warmup était une constante globale — c'était une règle produit
+
+**Hors i18n, mais consigné ici** parce que la fusion du guide warmup (§11.12) en
+dépend : un guide qui annonce une durée doit annoncer la bonne.
+
+Le 2026-06-23, le commit `d1265cb` a porté TikTok et YouTube de 3 à 7 jours
+**pour toute l'app**. C'était une décision RepackIt ; elle a changé la règle de
+Snytch en silence, et fait attendre ses créatrices **quatre jours de trop par
+compte pendant deux mois**. Snytch chauffe 3 jours, TikTok comme Instagram.
+
+`projects.warmupTargetDays` porte désormais le barème de chaque projet.
+`WARMUP_TARGET_DAYS` devient `WARMUP_TARGET_DAYS_FALLBACK` — un dernier recours,
+plus « le barème de l'app ».
+
+**LE PARAMÈTRE EST OBLIGATOIRE, et c'est tout le correctif.** Avec un défaut
+replié sur un global, un chemin d'écriture oublié aurait continué à figer 7 EN
+SILENCE : pas d'erreur, pas de test rouge, juste des créatrices qui attendent.
+Un `grep` avait trouvé **8** sites ; le typecheck en a sorti **57**, dont trois
+dans `convex/assignments.ts` qui décident si un compte peut recevoir une
+publication.
+
+**Une seule source de vérité.** Le serveur RÉSOUT la durée (`targetDays`,
+`warmupDone`, `dueToday`) et la sert ; les écrans la LISENT. Les six composants
+qui la recalculaient ne le font plus — un calcul client redevenait une seconde
+vérité, divergente au premier changement de barème.
+
+**Le gate de publication n'est PAS la durée.** Chez Snytch (`strict`, #98), un
+compte en warmup n'est jamais publiable, même warmup terminé : il faut qu'un
+admin le repasse en `actif`. La durée ne l'ouvre pas.
+
 ### 11.5 La preview « Voir son espace » rendait dans la langue de l'admin
 
 **Corrigé après coup** (branche `fix/view-as-locale-createur`).

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  WARMUP_DURATION_BY_PLATFORM,
+  WARMUP_DURATION_FALLBACK,
   getWarmupDuration,
   isSelectableForPublication,
   getEffectiveStatus,
@@ -12,10 +12,11 @@ import {
 /** n checks distincts (dates factices, seul le compte importe pour la complétion). */
 const checks = (n: number) => Array.from({ length: n }, (_, i) => `d${i}`);
 
-describe("WARMUP_DURATION_BY_PLATFORM", () => {
-  // Barème unifié sur lib/warmup : TikTok/YouTube portés à 7 (était 3).
+describe("WARMUP_DURATION_FALLBACK", () => {
+  // Barème de DERNIER RECOURS, pas « le barème de l'app » : chaque projet a le
+  // sien (projects.warmupTargetDays). Snytch vaut 3/3, pas ces valeurs.
   it("TikTok=7, Instagram=14, YouTube=7", () => {
-    expect(WARMUP_DURATION_BY_PLATFORM).toEqual({
+    expect(WARMUP_DURATION_FALLBACK).toEqual({
       TikTok: 7,
       Instagram: 14,
       YouTube: 7,

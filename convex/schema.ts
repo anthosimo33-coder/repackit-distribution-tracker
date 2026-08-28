@@ -95,6 +95,24 @@ export default defineSchema({
     //
     // NB : la nav du portail PARTENAIRE (« Mes fichiers ») reste gatée sur le
     // slug côté client — le chantier talent ne change rien à l'écran partenaire.
+    // Durée de warmup DU PROJET, par plateforme (jours). Absent ⇒ barème de
+    // dernier recours (lib/warmup.WARMUP_TARGET_DAYS_FALLBACK).
+    //
+    // POURQUOI PAR PROJET. C'est une règle PRODUIT, pas une constante technique :
+    // Snytch chauffe 3 jours sur TikTok comme sur Instagram, RepackIt 7/14/7. Le
+    // 2026-06-23 (d1265cb), porter TikTok de 3 à 7 « pour l'app » a changé la
+    // règle de Snytch en silence et fait attendre ses créatrices quatre jours de
+    // trop par compte pendant deux mois.
+    //
+    // La durée reste FIGÉE sur comptes.warmupProtocol.targetDays au démarrage :
+    // modifier ce barème n'affecte QUE les warmups à venir.
+    warmupTargetDays: v.optional(
+      v.object({
+        tiktok: v.number(),
+        instagram: v.number(),
+        youtube: v.number(),
+      }),
+    ),
     fileDropEnabled: v.optional(v.boolean()),
     // ─── BRIEF PERMANENT du talent — quel format lui sert de consigne ─────────
     // Le talent n'a pas d'assignation : son brief est PERMANENT, le même à chaque

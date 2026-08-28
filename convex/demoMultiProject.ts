@@ -5,7 +5,7 @@ import type { Id } from "./_generated/dataModel";
 import { getOrCreatePayment, periodOf } from "./payments";
 import { buildPricingSnapshot, syncBonusUnlocks } from "./pricing";
 import { recomputeLatestMetrics } from "./metricSnapshots";
-import { defaultTargetDays } from "./warmup";
+import { defaultTargetDays, warmupTargetDaysOf } from "./warmup";
 import {
   deleteStorageBestEffort,
   purgePublicationImage,
@@ -261,7 +261,10 @@ async function seedProject(
     creatorId,
     url: `https://www.youtube.com/@antho_${sfx}_yt`,
   });
-  const ttDays = defaultTargetDays("TikTok");
+  // Le seed démo suit le barème DU PROJET qu'il peuple : un jeu de démo
+  // figé sur un défaut global mentirait sur le produit qu'il illustre.
+  const demoDays = warmupTargetDaysOf((await ctx.db.get(projectId)) ?? {});
+  const ttDays = defaultTargetDays("TikTok", demoDays);
   const cDone = await ctx.db.insert("comptes", {
     projectId,
     handle: `@antho_${sfx}_tt`,
@@ -295,7 +298,7 @@ async function seedProject(
     warmupProtocol: {
       keywords: ["repack", "growth", "niche"],
       instructions: `${MP} Engage 15 min/jour sur la niche.`,
-      targetDays: defaultTargetDays("Instagram"),
+      targetDays: defaultTargetDays("Instagram", demoDays),
       dailyChecks: [ymd(now)],
       updatedAt: now,
     },

@@ -4,7 +4,12 @@
  * compte-status.test.ts). Les fonctions temporelles acceptent un paramètre
  * `now` (défaut Date.now()) pour des tests déterministes.
  */
-import { WARMUP_TARGET_DAYS, isWarmupComplete } from "./warmup";
+import {
+  warmupTargetDaysOf,
+  isWarmupComplete,
+  effectiveTargetDays,
+  type WarmupTargetDays,
+} from "./warmup";
 
 export type CompteStatus = "warmup" | "actif" | "shadowban" | "archived";
 export type Plateforme = "TikTok" | "Instagram" | "YouTube";
@@ -15,22 +20,32 @@ export type Plateforme = "TikTok" | "Instagram" | "YouTube";
  * (J+X/N) en dérive directement. Un compte peut surcharger sa durée via
  * warmupProtocol.targetDays (cf getEffectiveWarmupDuration).
  */
-export const WARMUP_DURATION_BY_PLATFORM: Record<Plateforme, number> = {
-  TikTok: WARMUP_TARGET_DAYS.tiktok,
-  Instagram: WARMUP_TARGET_DAYS.instagram,
-  YouTube: WARMUP_TARGET_DAYS.youtube,
-};
+/**
+ * Barème de DERNIER RECOURS, sous forme capitalisée. Ce n'est PAS « le barème
+ * de l'app » : chaque projet a le sien (`projects.warmupTargetDays`). Ne l'employer
+ * que là où aucun projet n'est atteignable, et jamais pour figer un warmup.
+ */
+export const WARMUP_DURATION_FALLBACK: Record<Plateforme, number> = (() => {
+  const d = warmupTargetDaysOf({});
+  return { TikTok: d.tiktok, Instagram: d.instagram, YouTube: d.youtube };
+})();
 
 /**
  * Durée de warmup EFFECTIVE d'un compte : surcharge admin
  * (warmupProtocol.targetDays) sinon défaut plateforme. À utiliser partout où le
  * décompte doit refléter le protocole réel du compte (badge, carte, colonne).
  */
-export function getEffectiveWarmupDuration(c: {
-  plateforme: Plateforme;
-  warmupProtocol?: { targetDays?: number } | null;
-}): number {
-  return c.warmupProtocol?.targetDays ?? WARMUP_DURATION_BY_PLATFORM[c.plateforme];
+export function getEffectiveWarmupDuration(
+  c: {
+    plateforme: Plateforme;
+    warmupProtocol?: { targetDays?: number } | null;
+  },
+  days: WarmupTargetDays = warmupTargetDaysOf({}),
+): number {
+  return effectiveTargetDays(
+    { plateforme: c.plateforme, warmupProtocol: c.warmupProtocol ?? undefined },
+    days,
+  );
 }
 
 export interface StatusConfig {
@@ -88,7 +103,7 @@ export const WARMUP_DONE_CONFIG: StatusConfig = {
 };
 
 export function getWarmupDuration(plateforme: Plateforme): number {
-  return WARMUP_DURATION_BY_PLATFORM[plateforme];
+  return WARMUP_DURATION_FALLBACK[plateforme];
 }
 
 export function isSelectableForPublication(status: CompteStatus): boolean {
@@ -107,7 +122,10 @@ export function isWarmupCompleteForCompte(c: {
   warmupProtocol?: { targetDays?: number; dailyChecks?: string[] } | null;
 }): boolean {
   if (c.warmupStartedAt === undefined) return false;
-  return isWarmupComplete(c);
+  return isWarmupComplete(
+    { plateforme: c.plateforme, warmupProtocol: c.warmupProtocol ?? undefined },
+    warmupTargetDaysOf({}),
+  );
 }
 
 /**

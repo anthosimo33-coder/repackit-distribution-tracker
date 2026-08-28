@@ -9,7 +9,7 @@ import type { WithoutSystemFields } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { REPACKIT_SLUG } from "./projects";
 import { accrueBaseLineItem, upsertBonusLineItem, periodOf } from "./payments";
-import { defaultTargetDays } from "./warmup";
+import { defaultTargetDays, warmupTargetDaysOf } from "./warmup";
 import {
   deleteStorageBestEffort,
   purgePublicationImage,
@@ -208,6 +208,9 @@ export const seedDemoCreator = internalMutation({
       );
     }
     const projectId = project._id;
+    // Barème DU PROJET : un seed démo figé sur un défaut global mentirait sur
+    // le produit qu'il illustre.
+    const demoDays = warmupTargetDaysOf(project);
     const now = Date.now();
 
     // ── Idempotence : un seul créateur démo (clé = email). ───────────────────
@@ -309,7 +312,7 @@ export const seedDemoCreator = internalMutation({
       warmupProtocol: {
         keywords: ["repackit", "carrousel", "faceless"],
         instructions: `${DEMO_MARKER} Like 10 vidéos, commente 3, 15 min de scroll par jour.`,
-        targetDays: defaultTargetDays("TikTok"),
+        targetDays: defaultTargetDays("TikTok", demoDays),
         dailyChecks: [ymd(now - 2 * DAY), ymd(now - 1 * DAY), ymd(now)],
         updatedAt: now,
       },
@@ -340,7 +343,7 @@ export const seedDemoCreator = internalMutation({
       warmupProtocol: {
         keywords: ["repackit", "shorts", "faceless"],
         instructions: `${DEMO_MARKER} Regarde 10 Shorts, like 5, commente 2 par jour.`,
-        targetDays: defaultTargetDays("YouTube"),
+        targetDays: defaultTargetDays("YouTube", demoDays),
         dailyChecks: [ymd(now)],
         updatedAt: now,
       },
@@ -361,7 +364,7 @@ export const seedDemoCreator = internalMutation({
       warmupProtocol: {
         keywords: ["repack", "ugc", "growth"],
         instructions: `${DEMO_MARKER} Engage 15 min/jour sur la niche.`,
-        targetDays: defaultTargetDays("Instagram"),
+        targetDays: defaultTargetDays("Instagram", demoDays),
         dailyChecks: [ymd(now - 4 * DAY), ymd(now - 3 * DAY)],
         updatedAt: now,
       },

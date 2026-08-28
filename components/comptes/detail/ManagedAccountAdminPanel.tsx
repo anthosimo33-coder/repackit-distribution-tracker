@@ -35,10 +35,9 @@ export function ManagedAccountAdminPanel({ compte }: { compte: Compte }) {
   const status = getEffectiveStatus(compte);
   const isWarmup = status === "warmup";
   const dailyChecks = compte.warmupProtocol?.dailyChecks ?? [];
-  const targetDays = getEffectiveWarmupDuration({
-    plateforme: compte.plateforme as Plateforme,
-    warmupProtocol: compte.warmupProtocol,
-  });
+  // Durée SERVIE par le serveur (barème du projet + surcharge du compte).
+  // Aucun recalcul côté écran : ce serait une seconde source de vérité.
+  const targetDays = compte.targetDays;
   const progress = isWarmup ? warmupProgress(dailyChecks.length, targetDays) : null;
   const doneToday = checkedToday(dailyChecks);
   const warmupDone = isWarmupCompleteForCompte(compte);

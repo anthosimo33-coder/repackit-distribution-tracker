@@ -35,10 +35,9 @@ export function WarmupProtocolSection({ compte }: { compte: Compte }) {
   const [instructions, setInstructions] = useState(
     protocol?.instructions ?? "",
   );
-  const targetDefault = getEffectiveWarmupDuration({
-    plateforme: compte.plateforme as Plateforme,
-    warmupProtocol: protocol,
-  });
+  // Durée SERVIE par le serveur (barème du projet + surcharge du compte).
+  // Aucun recalcul côté écran : ce serait une seconde source de vérité.
+  const targetDefault = compte.targetDays;
   const [targetDays, setTargetDays] = useState(String(targetDefault));
   const [saving, setSaving] = useState(false);
   const [activating, setActivating] = useState(false);
