@@ -180,6 +180,17 @@ export function ActionDashboard() {
           ),
     );
 
+    // Carte 2 bis — warmups TERMINÉS qui attendent une validation admin. Sous
+    // le gate strict (#98) ces comptes ne publient pas tant qu'ils ne sont pas
+    // repassés en « actif » : chaque jour de délai annule un jour de chauffe
+    // gagné, et jusqu'ici seul un badge dans la liste le signalait.
+    //
+    // `warmupDone` est SERVI par le serveur (listComptes) — on ne le recalcule
+    // pas ici, pour la même raison que la durée.
+    const warmupReady = comptes.filter(
+      (c) => getEffectiveStatus(c) === "warmup" && c.warmupDone,
+    );
+
     // Carte 3 — total DÛ = tous les cycles non payés (même ensemble que le
     // total de /paiements, les deux lisent listPayments).
     const dueTotal = payments
@@ -196,6 +207,7 @@ export function ActionDashboard() {
     return {
       submitted,
       warmupLate,
+      warmupReady,
       dueTotal,
       deadlines7,
       totalCreators: creators.length,
@@ -204,7 +216,8 @@ export function ActionDashboard() {
 
   if (loading || data === null) return <ActionSkeleton />;
 
-  const { submitted, warmupLate, dueTotal, deadlines7, totalCreators } = data;
+  const { submitted, warmupLate, warmupReady, dueTotal, deadlines7, totalCreators } =
+    data;
 
   // État vide : ni créateur ni soumission → message d'accueil (pas des cartes à
   // zéro qui semblent cassées).
@@ -255,6 +268,14 @@ export function ActionDashboard() {
           value={String(warmupLate.length)}
           hint="comptes avec jours manqués"
           warn={warmupLate.length > 0}
+        />
+        <ActionCard
+          href={projectPath("/comptes")}
+          icon={CheckCircle2Icon}
+          label="Warmups à valider"
+          value={String(warmupReady.length)}
+          hint="chauffe finie, en attente"
+          accent={warmupReady.length > 0}
         />
         <ActionCard
           href={projectPath("/paiements")}

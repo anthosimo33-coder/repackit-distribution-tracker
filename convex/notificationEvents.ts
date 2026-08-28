@@ -25,6 +25,7 @@ export type NotificationEventKey =
   | "sync_failures"
   | "whop_dispute"
   | "whop_renewal_failed"
+  | "digest_warmup_ready"
   | "digest_overdue_missions"
   | "digest_pay_cycles"
   | "digest_warmup_late"
@@ -107,6 +108,12 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
     kind: "digest",
     label: "Cycles de paiement dus",
     hint: "Section du digest quotidien. Nombre uniquement, jamais de montant.",
+  },
+  {
+    key: "digest_warmup_ready",
+    kind: "digest",
+    label: "Warmups terminés, en attente de validation",
+    hint: "Section du digest quotidien. Un compte qui a fini sa chauffe n'est PAS publiable tant qu'un admin ne l'a pas repassé en actif : sans ce rappel, le délai de validation annule le gain de la chauffe.",
   },
   {
     key: "digest_warmup_late",

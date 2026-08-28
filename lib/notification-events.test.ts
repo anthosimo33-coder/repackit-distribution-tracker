@@ -12,7 +12,7 @@ import {
 import * as convexEvents from "../convex/notificationEvents";
 
 describe("catalogue — forme et contenu", () => {
-  it("expose les 14 événements du catalogue", () => {
+  it("expose les 15 événements du catalogue", () => {
     expect(NOTIFICATION_EVENT_KEYS).toEqual([
       "video_submitted",
       "video_resubmitted",
@@ -24,6 +24,7 @@ describe("catalogue — forme et contenu", () => {
       "whop_renewal_failed",
       "digest_overdue_missions",
       "digest_pay_cycles",
+      "digest_warmup_ready",
       "digest_warmup_late",
       "digest_clipper_sans_talent",
       "evening_unpublished",
@@ -31,7 +32,7 @@ describe("catalogue — forme et contenu", () => {
     ]);
   });
 
-  it("9 immédiats, 4 digest, 1 planifié — le classement arbitré", () => {
+  it("9 immédiats, 5 digest, 1 planifié — le classement arbitré", () => {
     const immediate = NOTIFICATION_EVENTS.filter((e) => e.kind === "immediate");
     const digest = NOTIFICATION_EVENTS.filter((e) => e.kind === "digest");
     expect(immediate.map((e) => e.key)).toEqual([
@@ -48,8 +49,12 @@ describe("catalogue — forme et contenu", () => {
       "sync_failures",
     ]);
     expect(digest.map((e) => e.key)).toEqual([
+      // « Terminé, à valider » est un DIGEST et pas un immédiat : neuf comptes
+      // peuvent franchir la ligne le même jour, et neuf messages d'affilée
+      // feraient couper le canal.
       "digest_overdue_missions",
       "digest_pay_cycles",
+      "digest_warmup_ready",
       "digest_warmup_late",
       "digest_clipper_sans_talent",
     ]);

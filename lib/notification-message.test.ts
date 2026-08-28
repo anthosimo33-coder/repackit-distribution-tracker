@@ -462,6 +462,7 @@ describe("buildRenewalFailedMessage", () => {
 const EMPTY: DigestSections = {
   overdueMissions: [],
   payCycles: [],
+  warmupReady: [],
   warmupLate: [],
   retryableRenewalFailures: [],
   chauffeSansTalent: [],
@@ -569,6 +570,7 @@ describe("buildDigestMessage", () => {
           { creatorName: "Léa", missionLabel: "Hook Volume", daysLate: 1 },
         ],
         payCycles: [{ creatorName: "Kelly" }, { creatorName: "Léa" }],
+        warmupReady: [],
         warmupLate: [{ handle: "@kelly.repack", missedDays: 3 }],
         retryableRenewalFailures: [],
         chauffeSansTalent: [],
@@ -610,6 +612,7 @@ function everyMessage(): string[] {
       { creatorName: "Kelly", missionLabel: "Campagne Été", daysLate: 2 },
     ],
     payCycles: [{ creatorName: "Kelly" }, { creatorName: "Léa" }],
+    warmupReady: [],
     warmupLate: [{ handle: "@kelly.repack", missedDays: 3 }],
     retryableRenewalFailures: [{ memberName: "marc_d" }],
     chauffeSansTalent: [
@@ -937,4 +940,63 @@ describe("le SOURCE des constructeurs ne touche ni la paie ni les emails", () =>
       expect(src).not.toMatch(re);
     });
   }
+});
+
+describe("digest — warmups terminés en attente de validation", () => {
+  const base: DigestSections = {
+    overdueMissions: [],
+    payCycles: [],
+    warmupLate: [],
+    warmupReady: [],
+    retryableRenewalFailures: [],
+    chauffeSansTalent: [],
+  };
+  const build = (sections: DigestSections) =>
+    buildDigestMessage({
+      projectName: "Snytch",
+      sections,
+      appBaseUrl: "https://app.test",
+      projectSlug: "snytch",
+    });
+
+  it("une section VIDE ne déclenche rien de plus qu'avant", () => {
+    // Contrôle apparié de l'assertion suivante : si le digest partait quand la
+    // section est vide, le test « ✅ apparaît » ne prouverait rien.
+    expect(build(base)).toBeNull();
+  });
+
+  it("un warmup terminé suffit à envoyer le digest, avec le handle et la créatrice", () => {
+    const msg = build({
+      ...base,
+      warmupReady: [{ handle: "@ladidi_secretacc", creatorName: "Ladidi / Sam" }],
+    });
+    expect(msg).not.toBeNull();
+    expect(msg).toContain("1 warmup terminé — à valider");
+    expect(msg).toContain("@ladidi_secretacc");
+    expect(msg).toContain("Ladidi / Sam");
+  });
+
+  it("le pluriel suit le nombre", () => {
+    const msg = build({
+      ...base,
+      warmupReady: [
+        { handle: "@a", creatorName: "A" },
+        { handle: "@b", creatorName: "B" },
+      ],
+    });
+    expect(msg).toContain("2 warmups terminés — à valider");
+  });
+
+  it("« en retard » et « terminé » sont DEUX blocs distincts", () => {
+    // Ils appellent deux gestes différents : relancer la créatrice d'un côté,
+    // valider le compte de l'autre. Les mélanger rendrait le digest inutile.
+    const msg = build({
+      ...base,
+      warmupLate: [{ handle: "@late", missedDays: 2 }],
+      warmupReady: [{ handle: "@ready", creatorName: "R" }],
+    })!;
+    expect(msg).toContain("en warmup en retard");
+    expect(msg).toContain("terminé — à valider");
+    expect(msg.indexOf("en retard")).toBeLessThan(msg.indexOf("à valider"));
+  });
 });
