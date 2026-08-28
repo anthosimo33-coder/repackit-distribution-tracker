@@ -106,11 +106,15 @@ export default defineSchema({
     //
     // La durée reste FIGÉE sur comptes.warmupProtocol.targetDays au démarrage :
     // modifier ce barème n'affecte QUE les warmups à venir.
+    // Chaque plateforme est FACULTATIVE : un projet ne définit que celles de
+    // son périmètre. Snytch ne fait pas de YouTube — lui donner une valeur
+    // serait affirmer une règle qui n'existe pas. Une plateforme non définie
+    // retombe, champ par champ, sur le dernier recours.
     warmupTargetDays: v.optional(
       v.object({
-        tiktok: v.number(),
-        instagram: v.number(),
-        youtube: v.number(),
+        tiktok: v.optional(v.number()),
+        instagram: v.optional(v.number()),
+        youtube: v.optional(v.number()),
       }),
     ),
     fileDropEnabled: v.optional(v.boolean()),

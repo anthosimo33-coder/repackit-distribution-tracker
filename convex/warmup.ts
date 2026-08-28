@@ -25,11 +25,23 @@ export type WarmupTargetDays = {
   youtube: number;
 };
 
-/** Barème effectif d'un projet — unique porte d'entrée vers le défaut. */
+/**
+ * Barème effectif d'un projet — unique porte d'entrée vers le défaut.
+ *
+ * Repli CHAMP PAR CHAMP : un projet ne définit que les plateformes de son
+ * périmètre (Snytch ne fait pas de YouTube), les autres retombent sur le
+ * dernier recours. Donner une valeur à une plateforme hors périmètre
+ * affirmerait une règle qui n'existe pas.
+ */
 export function warmupTargetDaysOf(project: {
-  warmupTargetDays?: { tiktok: number; instagram: number; youtube: number } | null;
+  warmupTargetDays?: Partial<WarmupTargetDays> | null;
 }): WarmupTargetDays {
-  return project.warmupTargetDays ?? { ...WARMUP_TARGET_DAYS_FALLBACK };
+  const p = project.warmupTargetDays ?? {};
+  return {
+    tiktok: p.tiktok ?? WARMUP_TARGET_DAYS_FALLBACK.tiktok,
+    instagram: p.instagram ?? WARMUP_TARGET_DAYS_FALLBACK.instagram,
+    youtube: p.youtube ?? WARMUP_TARGET_DAYS_FALLBACK.youtube,
+  };
 }
 
 /**

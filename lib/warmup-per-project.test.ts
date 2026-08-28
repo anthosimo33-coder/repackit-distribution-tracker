@@ -106,3 +106,22 @@ describe("Publication — SNYTCH (gate strict #98) : la durée n'ouvre RIEN", ()
     ).toBe(true);
   });
 });
+
+describe("Un projet ne définit QUE ses plateformes", () => {
+  it("SNYTCH ne définit pas YouTube — il retombe sur le dernier recours", () => {
+    // Hors périmètre Snytch : lui donner une valeur affirmerait une règle qui
+    // n'existe pas. Le repli est CHAMP PAR CHAMP.
+    const d = warmupTargetDaysOf({ warmupTargetDays: { tiktok: 3, instagram: 3 } });
+    expect(d.tiktok).toBe(3);
+    expect(d.instagram).toBe(3);
+    expect(d.youtube).toBe(WARMUP_TARGET_DAYS_FALLBACK.youtube);
+    expect(d.youtube).not.toBe(3);
+  });
+
+  it("un barème partiel ne contamine pas les autres plateformes", () => {
+    const d = warmupTargetDaysOf({ warmupTargetDays: { instagram: 5 } });
+    expect(d.instagram).toBe(5);
+    expect(d.tiktok).toBe(WARMUP_TARGET_DAYS_FALLBACK.tiktok);
+    expect(d.youtube).toBe(WARMUP_TARGET_DAYS_FALLBACK.youtube);
+  });
+});

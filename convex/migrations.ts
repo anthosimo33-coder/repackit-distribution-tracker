@@ -945,10 +945,12 @@ export const fixFrenchGuideTypos = internalMutation({
  */
 const WARMUP_DAYS_BY_PROJECT: Record<
   string,
-  { tiktok: number; instagram: number; youtube: number }
+  { tiktok?: number; instagram?: number; youtube?: number }
 > = {
-  // Règle produit : Snytch chauffe 3 jours, TikTok comme Instagram.
-  snytch: { tiktok: 3, instagram: 3, youtube: 3 },
+  // Règle produit : Snytch chauffe 3 jours, TikTok comme Instagram. YouTube
+  // n'est PAS défini — il est hors périmètre Snytch, et lui donner une valeur
+  // affirmerait une règle qui n'existe pas.
+  snytch: { tiktok: 3, instagram: 3 },
   // Explicite plutôt qu'implicite : RepackIt ne doit pas dépendre d'un barème
   // global qu'un autre projet pourrait faire bouger — c'est exactement ce qui
   // est arrivé le 2026-06-23.
@@ -985,6 +987,8 @@ export const setWarmupTargetDaysPerProject = internalMutation({
         avant.tiktok === days.tiktok &&
         avant.instagram === days.instagram &&
         avant.youtube === days.youtube;
+      // Le rebasage lit le barème RÉSOLU (repli champ par champ), pas la
+      // déclaration brute : un compte YouTube chez Snytch prendrait 7.
       projets.push({ slug, avant, apres: days, deja });
       if (!dryRun && !deja) {
         await ctx.db.patch(project._id, { warmupTargetDays: days });
@@ -997,7 +1001,10 @@ export const setWarmupTargetDaysPerProject = internalMutation({
         .collect();
       for (const c of rows) {
         if (c.status !== "warmup" || !c.warmupProtocol) continue;
-        const cibleApres = defaultTargetDays(c.plateforme, days);
+        const cibleApres = defaultTargetDays(
+          c.plateforme,
+          warmupTargetDaysOf({ warmupTargetDays: days }),
+        );
         if (c.warmupProtocol.targetDays === cibleApres) continue;
         const checks = c.warmupProtocol.dailyChecks.length;
         comptes.push({
