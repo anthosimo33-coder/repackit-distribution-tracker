@@ -88,7 +88,7 @@ export default function ComptesScreen() {
           {/* Même guide warmup que l'admin (source unique : components/warmup),
               en lecture seule. Toujours visible — consultable même sans compte
               déclaré et indépendant du chargement de projectId. */}
-          <WarmupGuideButton />
+          {projectId && <WarmupGuideButton projectId={projectId} />}
           {!readOnly && projectId && (
             <Button onClick={() => setDeclareOpen(true)}>
               <PlusIcon className="mr-2 size-4" />{t("comptes.declare")}</Button>

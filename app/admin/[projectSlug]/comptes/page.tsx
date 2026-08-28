@@ -4,7 +4,7 @@ import { Suspense, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useProjectQuery } from "@/components/project/use-project-convex";
-import { useProjectPath } from "@/components/project/ProjectProvider";
+import { useProjectPath, useProjectId } from "@/components/project/ProjectProvider";
 import { api } from "@/convex/_generated/api";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -91,6 +91,7 @@ function ComptesPageInner() {
   const tLabel = useLabel();
   const router = useRouter();
   const projectPath = useProjectPath();
+  const projectId = useProjectId();
   const searchParams = useSearchParams();
   const comptes = useProjectQuery(api.comptes.listComptes, {});
   const [addOpen, setAddOpen] = useState(false);
@@ -291,7 +292,7 @@ function ComptesPageInner() {
               ))}
             </SelectContent>
           </Select>
-          <WarmupGuideButton />
+          <WarmupGuideButton projectId={projectId} admin />
           <WarmupSettingsButton />
           <Button variant="outline" onClick={() => navigate("personnes")}>
             <UsersIcon className="mr-2 size-4" />

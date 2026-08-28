@@ -324,3 +324,69 @@ export const cleanupTestGuideModules = e2eMutation({
     return { deleted };
   },
 });
+
+
+// ─── Le module warm-up, adressé par son SLOT ─────────────────────────────────
+
+/**
+ * Module marqué `slot: "warmup"`, dans la langue du lecteur (repli FR comme le
+ * reste du guide). Sert le bouton « Guide warmup » de l'écran comptes : le
+ * protocole se lit sans quitter le tracker, et il n'existe plus qu'en un seul
+ * exemplaire — c'est toute la fusion.
+ *
+ * Adressé par SLOT et non par titre : le titre appartient à l'admin, qui peut
+ * le renommer sans savoir qu'un écran en dépend.
+ */
+async function warmupModuleFor(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  requestedLocale: Locale,
+) {
+  const modules = await ctx.db
+    .query("guideModules")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+  const published = modules.filter(
+    (m) => m.status === "published" && m.slot === "warmup",
+  );
+  const { modules: selected, servedLocale } = selectModulesForLocale(
+    published,
+    requestedLocale,
+  );
+  const m = selected.sort(byOrder)[0];
+  return {
+    requestedLocale,
+    servedLocale,
+    module: m
+      ? { _id: m._id, title: m.title, contentMarkdown: m.contentMarkdown }
+      : null,
+  };
+}
+
+/** Lecture créateur (portail). */
+export const getMyWarmupModule = creatorQuery({
+  args: { locale: v.optional(v.string()) },
+  handler: async (ctx, args) =>
+    warmupModuleFor(ctx, ctx.projectId, readerLocale(args.locale)),
+});
+
+/** Lecture ADMIN — même contenu, depuis l'écran comptes interne. */
+export const getWarmupModuleForAdmin = adminQuery({
+  args: { locale: v.optional(v.string()) },
+  handler: async (ctx, args) =>
+    warmupModuleFor(ctx, ctx.projectId, readerLocale(args.locale)),
+});
+
+/**
+ * e2e — marque un module comme étant CELUI du warmup. En production c'est la
+ * migration `fuseWarmupGuide` qui pose le slot ; l'éditeur admin ne l'expose
+ * pas encore (un seul module par projet doit le porter, et rien ne l'impose
+ * côté écran aujourd'hui — cf « À arbitrer »).
+ */
+export const e2eSetModuleSlot = e2eMutation({
+  args: { id: v.id("guideModules"), slot: v.string() },
+  handler: async (ctx, { id, slot }) => {
+    await ctx.db.patch(id, { slot, updatedAt: Date.now() });
+    return { slot };
+  },
+});

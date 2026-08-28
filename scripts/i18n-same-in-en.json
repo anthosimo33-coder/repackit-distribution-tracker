@@ -37,10 +37,6 @@
     "tracker.quadrant.qualification.label",
     "tracker.quadrant.tooltip.distribution",
     "tracker.quadrant.tooltip.saveRate",
-    "tracker.quadrant.tooltip.saves",
-    "warmupGuide.section.instagram",
-    "warmupGuide.section.tiktok",
-    "warmupGuide.section.youtube",
-    "warmupGuide.table.signal"
+    "tracker.quadrant.tooltip.saves"
   ]
 }
