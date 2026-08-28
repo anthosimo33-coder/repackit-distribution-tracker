@@ -94,7 +94,6 @@
     "components/ui/skeleton.tsx",
     "components/ui/sonner.tsx",
     "components/ui/tooltip.tsx",
-    "components/warmup/WarmupGuideAccordion.tsx",
     "components/warmup/WarmupGuideButton.tsx",
     "convex/accountPhase.ts",
     "convex/apifyItem.ts",

@@ -124,6 +124,7 @@ import type * as trackerData from "../trackerData.js";
 import type * as viewCounters from "../viewCounters.js";
 import type * as viewsDaily from "../viewsDaily.js";
 import type * as warmup from "../warmup.js";
+import type * as warmupGuideFused from "../warmupGuideFused.js";
 import type * as warmupMode from "../warmupMode.js";
 import type * as whopApi from "../whopApi.js";
 import type * as whopNotifyTriggers from "../whopNotifyTriggers.js";
@@ -257,6 +258,7 @@ declare const fullApi: ApiFromModules<{
   viewCounters: typeof viewCounters;
   viewsDaily: typeof viewsDaily;
   warmup: typeof warmup;
+  warmupGuideFused: typeof warmupGuideFused;
   warmupMode: typeof warmupMode;
   whopApi: typeof whopApi;
   whopNotifyTriggers: typeof whopNotifyTriggers;

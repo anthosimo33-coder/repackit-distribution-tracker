@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/auth-fixture";
-import { createE2eClient } from "./helpers/authed-client";
+import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
 
@@ -9,14 +9,16 @@ const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
 const convex = createE2eClient(convexUrl);
 
+const MARKER = "[E2E_TEST]";
+
 /**
- * Chantier guide warmup créateur : le créateur accède, depuis son portail
- * (/app/comptes), au MÊME guide warmup que l'admin (source unique
- * components/warmup) — les 7 sections, en LECTURE SEULE. Indépendant des
- * comptes (consultable même sans compte déclaré).
+ * Le créateur accède, depuis son portail (/app/comptes), au MÊME guide warmup
+ * que l'admin — désormais le MODULE du guide, adressé par son slot, et non plus
+ * un second document en catalogue. Lecture seule, et consultable même sans
+ * compte déclaré.
  */
 test.describe("Guide warmup — portail créateur", () => {
-  test("ouvre le guide depuis /app/comptes, 7 sections, lecture seule", async ({
+  test("ouvre le module warmup depuis /app/comptes, rendu, lecture seule", async ({
     browser,
   }) => {
     test.setTimeout(90_000);
@@ -26,6 +28,19 @@ test.describe("Guide warmup — portail créateur", () => {
     const password = "creator-warmup-12345";
 
     // Invitation (admin) → token, puis onboarding créateur en nav privée.
+    const TITRE = `${MARKER} Warmup portail ${ts}`;
+    const moduleId = await convex.mutation(api.guideModules.createModule, {
+      title: TITRE,
+      contentMarkdown:
+        "## Les règles communes\n\n- Un e-mail **dédié** par compte.",
+      status: "published",
+    });
+    await convex.mutation(api.guideModules.e2eSetModuleSlot, {
+      secret: E2E_SECRET,
+      id: moduleId,
+      slot: "warmup",
+    });
+
     const { token } = await convex.mutation(api.creators.inviteCreator, {
       name,
       email,
@@ -43,72 +58,19 @@ test.describe("Guide warmup — portail créateur", () => {
     await page.getByRole("link", { name: "Mes comptes", exact: true }).click();
     await page.waitForURL("**/app/comptes", { timeout: 15_000 });
 
-    // Ouvrir le guide warmup.
+    // Ouvrir le guide warmup — il rend désormais le MODULE du guide.
     await page.getByRole("button", { name: /guide warmup/i }).click();
-    await expect(
-      page.getByText("Guide warmup — par plateforme"),
-    ).toBeVisible();
-
-    // Les 7 sections (triggers repliables) — identiques au guide admin.
     const guide = page.getByRole("dialog");
-    await expect(
-      guide.getByRole("button", { name: /Règles communes/i }),
-    ).toBeVisible();
-    await expect(
-      guide.getByRole("button", { name: /^TikTok$/ }),
-    ).toBeVisible();
-    await expect(
-      guide.getByRole("button", { name: /^Instagram$/ }),
-    ).toBeVisible();
-    await expect(
-      guide.getByRole("button", { name: /^YouTube Shorts$/ }),
-    ).toBeVisible();
-    await expect(
-      guide.getByRole("button", { name: /Vérifications post-warmup/i }),
-    ).toBeVisible();
-    await expect(
-      guide.getByRole("button", { name: /protocole reset/i }),
-    ).toBeVisible();
-    await expect(
-      guide.getByRole("button", { name: /à PAS faire/i }),
-    ).toBeVisible();
+    await expect(guide).toBeVisible();
+    await expect(guide.getByText(TITRE)).toBeVisible({ timeout: 10_000 });
 
-    // Les DEUX limites du guide sont dites d'entrée : il est global, donc il ne
-    // connaît ni la durée ni les plateformes de qui le lit. Les taire
-    // reviendrait à les affirmer — c'est ce qui affichait « TikTok — 7 jours »
-    // à des créatrices dont le tracker décomptait 3.
+    // Le markdown est RENDU (titre de section, gras), pas affiché brut.
     await expect(
-      guide.getByText(/durée qui fait foi pour un compte donné/i),
+      guide.getByRole("heading", { name: /les règles communes/i }),
     ).toBeVisible();
-    await expect(
-      guide.getByText(/si une plateforme n'y figure pas/i),
-    ).toBeVisible();
+    await expect(guide.locator("strong", { hasText: "dédié" })).toBeVisible();
 
-    // Aucune durée chiffrée dans les TITRES de section (contrôle d'ABSENCE ;
-    // son contrôle de présence est juste au-dessus : les mêmes titres, nus,
-    // sont bien trouvés).
-    await expect(
-      guide.getByRole("button", { name: /\d+\s*jours?/i }),
-    ).toHaveCount(0);
-
-    // Replié par défaut → contenu TikTok caché, puis expand → visible.
-    await expect(page.getByText(/avant d'augmenter la cadence/i)).toBeHidden();
-    await guide.getByRole("button", { name: /^TikTok$/ }).click();
-    await expect(page.getByText(/avant d'augmenter la cadence/i)).toBeVisible();
-
-    // L'étape « supprimer les vidéos à <50 vues » a été RETIRÉE du protocole de
-    // reset : elle disait l'inverse du module warm-up du guide, qui interdit de
-    // supprimer. Contrôle de présence apparié : le protocole existe toujours et
-    // sa 1re étape est bien là.
-    await guide.getByRole("button", { name: /protocole reset/i }).click();
-    await expect(page.getByText(/Stop poster imm/i)).toBeVisible();
-    await expect(page.getByText(/50 vues/i)).toHaveCount(0);
-
-    // Lecture seule (structurelle) : le guide est un composant statique,
-    // identique pour tous les rôles — il n'expose aucun champ de saisie ni
-    // action d'édition. L'isolation de rôle créateur/admin est, elle, couverte
-    // par creator-role-guard.spec.ts ; ici on verrouille l'invariant « zéro UI
-    // d'édition dans le guide » comme garde-fou si une édition y était ajoutée.
+    // Lecture seule : aucun champ, aucune action d'édition dans le panneau.
     await expect(guide.getByRole("textbox")).toHaveCount(0);
     await expect(
       guide.getByRole("button", {

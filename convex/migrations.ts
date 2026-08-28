@@ -14,6 +14,10 @@ import { periodOf } from "./payments";
 import { GUIDE_MODULES_EN } from "./guideModulesEn";
 import { moduleLocale } from "./guideModuleLocale";
 import { warmupTargetDaysOf, defaultTargetDays } from "./warmup";
+import {
+  WARMUP_GUIDE_BY_PROJECT,
+  WARMUP_MODULE_TITLE,
+} from "./warmupGuideFused";
 import { GUIDE_FR_FIXES } from "./guideFrFixes";
 
 const DEFAULT_ACCENT = "#FF5200";
@@ -1036,6 +1040,91 @@ export const setWarmupTargetDaysPerProject = internalMutation({
         0,
       ),
       patched: dryRun ? 0 : projets.filter((p) => !p.deja).length + comptes.length,
+    };
+  },
+});
+
+/**
+ * FUSION DU GUIDE WARMUP — verse le protocole de la modale dans le module
+ * « Warmup » du guide, par projet et par langue, et le marque `slot: "warmup"`.
+ *
+ * REMPLACE le contenu des modules warm-up existants (FR et EN) plutôt que d'en
+ * créer de nouveaux : le but est de SUPPRIMER la double source, pas d'en ajouter
+ * une troisième. C'est la seule migration du chantier qui écrase du contenu
+ * rédigé — d'où l'ancrage par `slot` puis par titre connu, et le refus net si
+ * le module visé est introuvable.
+ *
+ * IDEMPOTENTE : un module déjà au bon contenu n'est pas réécrit.
+ *
+ * dryRun par défaut :
+ *   ./scripts/convex-prod.sh run migrations:fuseWarmupGuide '{}'
+ *   ./scripts/convex-prod.sh run migrations:fuseWarmupGuide '{"commit":true}'
+ */
+export const fuseWarmupGuide = internalMutation({
+  args: { commit: v.optional(v.boolean()) },
+  handler: async (ctx, { commit }) => {
+    const dryRun = commit !== true;
+    const maj: {
+      projet: string;
+      locale: string;
+      titre: string;
+      carAvant: number;
+      carApres: number;
+      slotAvant: string | null;
+    }[] = [];
+    const introuvables: { projet: string; locale: string }[] = [];
+    const dejaFaits: { projet: string; locale: string }[] = [];
+
+    for (const [slug, seed] of Object.entries(WARMUP_GUIDE_BY_PROJECT)) {
+      const project = await getProjectBySlug(ctx, slug);
+      if (project === null) continue;
+      const modules = await ctx.db
+        .query("guideModules")
+        .withIndex("by_project", (q) => q.eq("projectId", project._id))
+        .collect();
+
+      for (const locale of ["fr", "en"] as const) {
+        const dansLaLangue = modules.filter((m) => moduleLocale(m) === locale);
+        // Ancrage : le slot d'abord (stable), le titre connu ensuite (premier
+        // passage, avant que le slot n'existe).
+        const cible =
+          dansLaLangue.find((m) => m.slot === "warmup") ??
+          dansLaLangue.find((m) => m.title === WARMUP_MODULE_TITLE[locale]);
+        if (cible === undefined) {
+          introuvables.push({ projet: slug, locale });
+          continue;
+        }
+        const contenu = seed[locale];
+        if (cible.contentMarkdown === contenu && cible.slot === "warmup") {
+          dejaFaits.push({ projet: slug, locale });
+          continue;
+        }
+        maj.push({
+          projet: slug,
+          locale,
+          titre: cible.title,
+          carAvant: cible.contentMarkdown.length,
+          carApres: contenu.length,
+          slotAvant: cible.slot ?? null,
+        });
+        if (!dryRun) {
+          await ctx.db.patch(cible._id, {
+            contentMarkdown: contenu,
+            slot: "warmup",
+            updatedAt: Date.now(),
+          });
+        }
+      }
+    }
+
+    return {
+      dryRun,
+      misAJour: maj,
+      dejaFaits,
+      // Doit rester vide : un module warm-up introuvable veut dire que le guide
+      // a été réorganisé, et qu'il faut regarder avant d'écrire.
+      introuvables,
+      patched: dryRun ? 0 : maj.length,
     };
   },
 });

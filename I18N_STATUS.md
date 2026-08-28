@@ -1126,6 +1126,48 @@ vérité, divergente au premier changement de barème.
 compte en warmup n'est jamais publiable, même warmup terminé : il faut qu'un
 admin le repasse en `actif`. La durée ne l'ouvre pas.
 
+### 11.12 La fusion du guide warmup — une source au lieu de deux
+
+Deux documents décrivaient le même sujet, pour le même lecteur, avec la même
+autorité : le module « Warmup » du guide (résumé, en base, par projet) et la
+modale `warmupGuide` (protocole, en catalogue, GLOBALE). Ils se sont contredits
+sur **trois points** en quelques mois — durée, plateformes, et l'ordre de
+supprimer ou non une vidéo qui flope. Ce n'était pas un accident : rien ne
+forçait à les mettre à jour ensemble.
+
+**Il n'en reste qu'un.** Le protocole vit dans `guideModules`, par projet, en
+base, dans les deux langues. Le bouton de l'écran comptes l'ouvre sans quitter
+le tracker — c'est ce qu'on garde du panneau.
+
+**Adressé par SLOT, pas par titre.** `guideModules.slot = "warmup"` : le titre
+appartient à l'admin, qui peut le renommer sans savoir qu'un écran en dépend.
+
+**AUCUN NOMBRE DE JOURS dans le texte**, et c'est une contrainte, pas un oubli :
+la durée vit dans le code (§11.11) et s'affiche dans le tracker. L'écrire dans
+le module la dupliquerait en base, où elle divergerait au premier changement de
+barème. Les phases sont donc décrites en **proportions** — « au début », « sur
+la fin » — ce qui les rend justes à 3 jours comme à 14.
+
+**Ce qu'on perd, assumé** : les 7 sections repliables deviennent un document
+qu'on parcourt, et la table des signaux une liste à puces (le parser du guide ne
+connaît pas les tableaux). La préversion l'a montré avant de décider.
+
+**Le catalogue `warmupGuide` passe de 123 feuilles à 5** — il ne reste que le
+chrome du panneau (bouton, titre, description, bandeau de repli, état vide). Le
+contenu est de la donnée, il a rejoint la base.
+
+#### Les passages ADAPTÉS du jeu anglais
+
+Comme pour le reste du guide, ce ne sont pas des traductions :
+
+| Passage | Pourquoi |
+|---|---|
+| « Moi uniquement » | Libellé d'interface : TikTok affiche **Only me**, Instagram n'a pas d'équivalent (on y archive). |
+| Les jalons de phase | Le français disait « J1 → J7 » ; l'anglais dit « through the whole warm-up », « early on », « toward the end ». Traduire les jours aurait réintroduit la durée en base. |
+| « le lendemain du dernier check » | « the day after your last check » — la règle est le NOMBRE de checks, pas le calendrier. Rendu explicite dans les deux langues. |
+| Plateformes | Snytch n'a pas de section YouTube et lit « Both platforms » là où RepackIt lit « All 3 platforms ». |
+| Le franglais de `youtubeIntro` | Le FR disait « le compte est **tied** à ton **Google account** » — corrigé en « rattaché à ton compte Google ». |
+
 ### 11.5 La preview « Voir son espace » rendait dans la langue de l'admin
 
 **Corrigé après coup** (branche `fix/view-as-locale-createur`).

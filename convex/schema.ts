@@ -1616,6 +1616,13 @@ export default defineSchema({
     // chaque langue ajoutée. Absente ⇒ français (état des modules antérieurs au
     // champ ; `migrations:setGuideModuleLocaleFr` les rend explicites).
     locale: v.optional(v.string()),
+    // Marqueur de RÔLE d'un module, pour les rares cas où l'app doit en
+    // désigner un précisément. Aujourd'hui un seul : "warmup", que le bouton
+    // de l'écran comptes ouvre sans quitter le tracker.
+    //
+    // Un marqueur plutôt qu'une recherche par titre : le titre appartient à
+    // l'admin, qui peut le renommer sans savoir qu'un écran en dépend.
+    slot: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_project", ["projectId"]),
