@@ -7,10 +7,11 @@
  * importé par convex/comptes.ts.
  */
 
-// TikTok/YouTube portés à 7 (était 3) ; Instagram reste 14. Réplique de
-// lib/warmup.WARMUP_TARGET_DAYS (A6). Durée figée au démarrage du warmup →
-// changement non rétroactif sur les warmups en cours.
-export const WARMUP_TARGET_DAYS = {
+// Réplique de lib/warmup (A6). Barème de DERNIER RECOURS : la durée de warmup
+// est une règle PRODUIT par projet (projects.warmupTargetDays), pas une
+// constante de l'app. Durée figée au démarrage du warmup → changement non
+// rétroactif sur les warmups en cours.
+export const WARMUP_TARGET_DAYS_FALLBACK = {
   youtube: 7,
   tiktok: 7,
   instagram: 14,
@@ -18,14 +19,48 @@ export const WARMUP_TARGET_DAYS = {
 
 type Plateforme = "TikTok" | "Instagram" | "YouTube";
 
-export function defaultTargetDays(plateforme: Plateforme): number {
+export type WarmupTargetDays = {
+  tiktok: number;
+  instagram: number;
+  youtube: number;
+};
+
+/**
+ * Barème effectif d'un projet — unique porte d'entrée vers le défaut.
+ *
+ * Repli CHAMP PAR CHAMP : un projet ne définit que les plateformes de son
+ * périmètre (Snytch ne fait pas de YouTube), les autres retombent sur le
+ * dernier recours. Donner une valeur à une plateforme hors périmètre
+ * affirmerait une règle qui n'existe pas.
+ */
+export function warmupTargetDaysOf(project: {
+  warmupTargetDays?: Partial<WarmupTargetDays> | null;
+}): WarmupTargetDays {
+  const p = project.warmupTargetDays ?? {};
+  return {
+    tiktok: p.tiktok ?? WARMUP_TARGET_DAYS_FALLBACK.tiktok,
+    instagram: p.instagram ?? WARMUP_TARGET_DAYS_FALLBACK.instagram,
+    youtube: p.youtube ?? WARMUP_TARGET_DAYS_FALLBACK.youtube,
+  };
+}
+
+/**
+ * Durée par défaut de la plateforme DANS CE PROJET.
+ *
+ * ⚠️ `days` est OBLIGATOIRE : un site d'écriture oublié doit casser le
+ * typecheck, pas figer 7 en silence (cf lib/warmup, même contrat).
+ */
+export function defaultTargetDays(
+  plateforme: Plateforme,
+  days: WarmupTargetDays,
+): number {
   switch (plateforme) {
     case "TikTok":
-      return WARMUP_TARGET_DAYS.tiktok;
+      return days.tiktok;
     case "Instagram":
-      return WARMUP_TARGET_DAYS.instagram;
+      return days.instagram;
     case "YouTube":
-      return WARMUP_TARGET_DAYS.youtube;
+      return days.youtube;
   }
 }
 
@@ -72,8 +107,11 @@ type WarmupCompteLike = {
 };
 
 /** Durée effective : surcharge protocole sinon barème plateforme. */
-export function effectiveTargetDays(c: WarmupCompteLike): number {
-  return c.warmupProtocol?.targetDays ?? defaultTargetDays(c.plateforme);
+export function effectiveTargetDays(
+  c: WarmupCompteLike,
+  days: WarmupTargetDays,
+): number {
+  return c.warmupProtocol?.targetDays ?? defaultTargetDays(c.plateforme, days);
 }
 
 /** Nb de checks distincts réellement posés. */
@@ -82,13 +120,20 @@ export function checksCompleted(c: WarmupCompteLike): number {
 }
 
 /** Warmup terminé = N checks réels atteints (≠ calendaire). */
-export function isWarmupComplete(c: WarmupCompteLike): boolean {
-  return checksCompleted(c) >= effectiveTargetDays(c);
+export function isWarmupComplete(
+  c: WarmupCompteLike,
+  days: WarmupTargetDays,
+): boolean {
+  return checksCompleted(c) >= effectiveTargetDays(c, days);
 }
 
 /** Check dû aujourd'hui : warmup non terminé ET pas coché aujourd'hui (UTC). */
-export function mustCheckToday(c: WarmupCompteLike, now: number): boolean {
-  if (isWarmupComplete(c)) return false;
+export function mustCheckToday(
+  c: WarmupCompteLike,
+  days: WarmupTargetDays,
+  now: number,
+): boolean {
+  if (isWarmupComplete(c, days)) return false;
   return !checkedToday(c.warmupProtocol?.dailyChecks ?? [], now);
 }
 
@@ -109,10 +154,12 @@ type CompteStatusLike = "warmup" | "actif" | "shadowban" | "archived";
  */
 export function isAccountAvailable(
   c: WarmupCompteLike & { status?: CompteStatusLike; actif?: boolean },
+  days: WarmupTargetDays,
   opts?: { strict?: boolean },
 ): boolean {
   const status = c.status ?? (c.actif === false ? "archived" : "actif");
   if (status === "actif") return true;
-  if (status === "warmup") return opts?.strict ? false : isWarmupComplete(c);
+  if (status === "warmup")
+    return opts?.strict ? false : isWarmupComplete(c, days);
   return false;
 }

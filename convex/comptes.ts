@@ -13,6 +13,8 @@ import {
 } from "./functions";
 import {
   defaultTargetDays,
+  warmupTargetDaysOf,
+  type WarmupTargetDays,
   todayKey,
   checkedToday,
   isWarmupComplete,
@@ -20,6 +22,18 @@ import {
   isAccountAvailable,
   effectiveTargetDays,
 } from "./warmup";
+
+/**
+ * Barème de warmup DU PROJET. Unique manière d'obtenir une durée par défaut
+ * côté serveur : `defaultTargetDays` exige ce barème, donc aucun chemin
+ * d'écriture ne peut figer 7 en silence pour un projet qui chauffe 3 jours.
+ */
+async function warmupDaysFor(
+  ctx: { db: { get: (id: Id<"projects">) => Promise<{ warmupTargetDays?: { tiktok: number; instagram: number; youtube: number } } | null> } },
+  projectId: Id<"projects">,
+): Promise<WarmupTargetDays> {
+  return warmupTargetDaysOf((await ctx.db.get(projectId)) ?? {});
+}
 import { isSnytchProject } from "./projects";
 import { resolveCreatorKind } from "./roles";
 import { auditCompteHandle } from "./handleHygiene";
@@ -285,11 +299,22 @@ export const listComptes = adminQuery({
       }
     }
     const usedHandles = new Set(pubs.map((p) => p.compte));
+    // SOURCE UNIQUE de la durée : elle est résolue ICI (barème du projet +
+    // surcharge du compte) et servie telle quelle. Les écrans la LISENT, ils ne
+    // la recalculent pas — un second calcul côté client redeviendrait une
+    // seconde vérité, exactement ce que ce chantier supprime.
+    const days = await warmupDaysFor(ctx, ctx.projectId);
     return sorted.map((c) => {
       const p = c.personneId ? personneMap.get(c.personneId) : null;
       const creator = c.creatorId ? creatorMap.get(c.creatorId) : null;
+      const warmupLike = {
+        plateforme: c.plateforme,
+        warmupProtocol: c.warmupProtocol,
+      };
       return {
         ...c,
+        targetDays: effectiveTargetDays(warmupLike, days),
+        warmupDone: isWarmupComplete(warmupLike, days),
         personne: p ? { prenom: p.prenom, nom: p.nom } : null,
         creator: creator ? { name: creator.name } : null,
         perf: perfMap.get(c.handle) ?? EMPTY_PERF,
@@ -328,12 +353,14 @@ export const listCreatorAvailableComptes = adminQuery({
     const estClippeur =
       owner !== null && resolveCreatorKind(owner.kind) === "clipper";
     const now = Date.now();
+    // Barème du projet, résolu UNE fois pour toute la liste.
+    const days = await warmupDaysFor(ctx, ctx.projectId);
     return comptes
       .map((c) => ({
         _id: c._id,
         handle: c.handle,
         plateforme: c.plateforme,
-        available: isAccountAvailable(c, { strict }),
+        available: isAccountAvailable(c, days, { strict }),
         /** Phase du compte, ou `null` hors population clippeur. */
         phase: estClippeur ? phaseOfClipperAccount(c.validatedAt, now) : null,
         /** Quota de posts du jour — 0 = la publication sera refusée. */
@@ -365,6 +392,8 @@ export const createCompte = adminMutation({
     targetCountry: v.optional(countryValidator),
   },
   handler: async (ctx, args) => {
+    // Barème de warmup DU PROJET — `defaultTargetDays` l'exige.
+    const days = await warmupDaysFor(ctx, ctx.projectId);
     // Dedup (handle, plateforme) DANS le projet (by_project_plateforme).
     const samePlatform = await ctx.db
       .query("comptes")
@@ -404,7 +433,7 @@ export const createCompte = adminMutation({
           ? {
               keywords: [],
               instructions: "",
-              targetDays: defaultTargetDays(args.plateforme),
+              targetDays: defaultTargetDays(args.plateforme, days),
               dailyChecks: [],
               updatedAt: now,
             }
@@ -454,6 +483,8 @@ export const updateCompte = adminMutation({
     targetCountry: v.optional(v.union(countryValidator, v.null())),
   },
   handler: async (ctx, args) => {
+    // Barème de warmup DU PROJET — `defaultTargetDays` l'exige.
+    const days = await warmupDaysFor(ctx, ctx.projectId);
     const { id } = args;
     const compte = await ctx.db.get(id);
     if (!compte || compte.projectId !== ctx.projectId) {
@@ -547,7 +578,7 @@ export const updateCompte = adminMutation({
       update.warmupProtocol = {
         keywords: proto?.keywords ?? [],
         instructions: proto?.instructions ?? "",
-        targetDays: defaultTargetDays(args.plateforme),
+        targetDays: defaultTargetDays(args.plateforme, days),
         dailyChecks: [],
         updatedAt: Date.now(),
       };
@@ -800,13 +831,15 @@ export const unarchiveCompte = adminMutation({
 export const restartWarmup = adminMutation({
   args: { id: v.id("comptes") },
   handler: async (ctx, { id }) => {
+    // Barème de warmup DU PROJET — `defaultTargetDays` l'exige.
+    const days = await warmupDaysFor(ctx, ctx.projectId);
     const compte = await ctx.db.get(id);
     if (!compte || compte.projectId !== ctx.projectId) {
       throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     const now = Date.now();
     const proto = compte.warmupProtocol;
-    const targetDays = defaultTargetDays(compte.plateforme);
+    const targetDays = defaultTargetDays(compte.plateforme, days);
     await ctx.db.patch(id, {
       status: "warmup",
       // Legacy synchronisé (TD-017) : un compte en warmup n'est pas "actif".
@@ -855,6 +888,8 @@ export const updateWarmupProtocol = adminMutation({
     targetDays: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    // Barème de warmup DU PROJET — `defaultTargetDays` l'exige.
+    const days = await warmupDaysFor(ctx, ctx.projectId);
     const compte = await ctx.db.get(args.id);
     if (!compte || compte.projectId !== ctx.projectId) {
       throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
@@ -862,7 +897,7 @@ export const updateWarmupProtocol = adminMutation({
     const current = compte.warmupProtocol ?? {
       keywords: [],
       instructions: "",
-      targetDays: defaultTargetDays(compte.plateforme),
+      targetDays: defaultTargetDays(compte.plateforme, days),
       dailyChecks: [],
       updatedAt: Date.now(),
     };
@@ -1014,31 +1049,57 @@ async function comptesForCreator(
       q.eq("projectId", projectId).eq("creatorId", creatorId),
     )
     .collect();
-  return comptes.sort((a, b) =>
-    a.handle.localeCompare(b.handle, "fr", { sensitivity: "base" }),
-  );
+  // Durée RÉSOLUE côté serveur (cf listComptes) : le portail la lit, il ne la
+  // recalcule pas.
+  const days = await warmupDaysFor(ctx, projectId);
+  const now = Date.now();
+  return comptes
+    .sort((a, b) => a.handle.localeCompare(b.handle, "fr", { sensitivity: "base" }))
+    .map((c) => {
+      const warmupLike = {
+        plateforme: c.plateforme,
+        warmupProtocol: c.warmupProtocol,
+      };
+      return {
+        ...c,
+        targetDays: effectiveTargetDays(warmupLike, days),
+        warmupDone: isWarmupComplete(warmupLike, days),
+        // Check dû aujourd'hui : servi lui aussi, pour la même raison — le
+        // portail affichait « à cocher » sur un calcul client parallèle.
+        dueToday:
+          effectiveStatus(c) === "warmup" &&
+          mustCheckToday(warmupLike, days, now),
+      };
+    });
 }
 
 // Comptes GÉRÉS exclus : c'est l'équipe qui coche leur warmup, jamais la
 // créatrice → ils ne doivent JAMAIS peser dans ses compteurs / notifs à faire.
-function warmupDueCount(comptes: Doc<"comptes">[], now: number) {
+function warmupDueCount(
+  comptes: Doc<"comptes">[],
+  days: WarmupTargetDays,
+  now: number,
+) {
   return comptes.filter(
     (c) =>
       !c.managedByAdmin &&
       effectiveStatus(c) === "warmup" &&
-      mustCheckToday(c, now),
+      mustCheckToday(c, days, now),
   ).length;
 }
 
-function warmupInProgressCount(comptes: Doc<"comptes">[]) {
+function warmupInProgressCount(
+  comptes: Doc<"comptes">[],
+  days: WarmupTargetDays,
+) {
   return comptes.filter(
     (c) =>
       !c.managedByAdmin &&
       effectiveStatus(c) === "warmup" &&
-      !isWarmupComplete({
-        plateforme: c.plateforme,
-        warmupProtocol: c.warmupProtocol,
-      }),
+      !isWarmupComplete(
+        { plateforme: c.plateforme, warmupProtocol: c.warmupProtocol },
+        days,
+      ),
   ).length;
 }
 
@@ -1111,7 +1172,10 @@ async function declareCompteCore(
     warmupProtocol: {
       keywords: [],
       instructions: "",
-      targetDays: defaultTargetDays(args.plateforme),
+      targetDays: defaultTargetDays(
+        args.plateforme,
+        await warmupDaysFor(ctx, projectId),
+      ),
       dailyChecks: [],
       updatedAt: now,
     },
@@ -1168,6 +1232,7 @@ async function clipperComptesFor(
   ctx: QueryCtx,
   projectId: Id<"projects">,
   clipperId: Id<"creators">,
+  days: WarmupTargetDays,
 ) {
   const strict = await isSnytchProject(ctx, projectId);
   const comptes = await comptesForCreator(ctx, projectId, clipperId);
@@ -1180,7 +1245,7 @@ async function clipperComptesFor(
     /** L'ancre de phase — absente tant que l'admin n'a pas validé. */
     validatedAt: c.validatedAt ?? null,
     /** Publiable au sens du gate strict #98 (statut, pas quota du jour). */
-    publiable: isAccountAvailable(c, { strict }),
+    publiable: isAccountAvailable(c, days, { strict }),
     refusedAt: c.refusedAt ?? null,
     refusedReason: c.refusedReason ?? null,
   }));
@@ -1189,13 +1254,25 @@ async function clipperComptesFor(
 /** SES comptes (filtre serveur par ctx.creatorId, jamais par un argument). */
 export const listMyClipperComptes = clipperQuery({
   args: {},
-  handler: async (ctx) => clipperComptesFor(ctx, ctx.projectId, ctx.creatorId),
+  handler: async (ctx) =>
+    clipperComptesFor(
+      ctx,
+      ctx.projectId,
+      ctx.creatorId,
+      await warmupDaysFor(ctx, ctx.projectId),
+    ),
 });
 
 /** ADMIN observation — comptes du clippeur ciblé (lecture seule, scopé projet). */
 export const listClipperComptesAsAdmin = adminViewAsClipperQuery({
   args: {},
-  handler: async (ctx) => clipperComptesFor(ctx, ctx.projectId, ctx.creatorId),
+  handler: async (ctx) =>
+    clipperComptesFor(
+      ctx,
+      ctx.projectId,
+      ctx.creatorId,
+      await warmupDaysFor(ctx, ctx.projectId),
+    ),
 });
 
 /**
@@ -1238,6 +1315,7 @@ export const declareManagedCompte = adminMutation({
 async function applyWarmupCheck(
   ctx: MutationCtx,
   compte: Doc<"comptes">,
+  days: WarmupTargetDays,
 ): Promise<{ totalChecks: number }> {
   if (effectiveStatus(compte) !== "warmup") {
     throw err(ERR.ACCOUNT_NOT_IN_WARMUP, "Ce compte n'est plus en warmup.");
@@ -1246,12 +1324,15 @@ async function applyWarmupCheck(
   const protocol = compte.warmupProtocol ?? {
     keywords: [],
     instructions: "",
-    targetDays: defaultTargetDays(compte.plateforme),
+    targetDays: defaultTargetDays(compte.plateforme, days),
     dailyChecks: [],
     updatedAt: now,
   };
   if (
-    isWarmupComplete({ plateforme: compte.plateforme, warmupProtocol: protocol })
+    isWarmupComplete(
+      { plateforme: compte.plateforme, warmupProtocol: protocol },
+      days,
+    )
   ) {
     throw err(ERR.WARMUP_ALREADY_DONE, "Warmup déjà terminé — en attente de validation admin.");
   }
@@ -1284,7 +1365,11 @@ export const markWarmupCheck = creatorMutation({
     if (compte.managedByAdmin) {
       throw err(ERR.ACCOUNT_MANAGED_WARMUP, "Compte géré par l'équipe : le warmup est coché par l'admin.");
     }
-    return applyWarmupCheck(ctx, compte);
+    return applyWarmupCheck(
+      ctx,
+      compte,
+      await warmupDaysFor(ctx, compte.projectId),
+    );
   },
 });
 
@@ -1305,7 +1390,11 @@ export const markWarmupCheckAsAdmin = adminMutation({
     if (!compte.managedByAdmin) {
       throw err(ERR.ACCOUNT_NOT_MANAGED, "Ce compte n'est pas géré par l'équipe (le créateur coche son warmup).");
     }
-    return applyWarmupCheck(ctx, compte);
+    return applyWarmupCheck(
+      ctx,
+      compte,
+      await warmupDaysFor(ctx, compte.projectId),
+    );
   },
 });
 
@@ -1319,7 +1408,11 @@ export const countMyWarmupDue = creatorQuery({
   args: {},
   handler: async (ctx) => {
     const comptes = await comptesForCreator(ctx, ctx.projectId, ctx.creatorId);
-    return warmupDueCount(comptes, Date.now());
+    return warmupDueCount(
+      comptes,
+      await warmupDaysFor(ctx, ctx.projectId),
+      Date.now(),
+    );
   },
 });
 
@@ -1328,7 +1421,11 @@ export const countWarmupDueAsAdmin = adminViewAsQuery({
   args: {},
   handler: async (ctx) => {
     const comptes = await comptesForCreator(ctx, ctx.projectId, ctx.creatorId);
-    return warmupDueCount(comptes, Date.now());
+    return warmupDueCount(
+      comptes,
+      await warmupDaysFor(ctx, ctx.projectId),
+      Date.now(),
+    );
   },
 });
 
@@ -1344,7 +1441,10 @@ export const countMyWarmupInProgress = creatorQuery({
   args: {},
   handler: async (ctx) => {
     const comptes = await comptesForCreator(ctx, ctx.projectId, ctx.creatorId);
-    return warmupInProgressCount(comptes);
+    return warmupInProgressCount(
+      comptes,
+      await warmupDaysFor(ctx, ctx.projectId),
+    );
   },
 });
 
@@ -1353,7 +1453,10 @@ export const countWarmupInProgressAsAdmin = adminViewAsQuery({
   args: {},
   handler: async (ctx) => {
     const comptes = await comptesForCreator(ctx, ctx.projectId, ctx.creatorId);
-    return warmupInProgressCount(comptes);
+    return warmupInProgressCount(
+      comptes,
+      await warmupDaysFor(ctx, ctx.projectId),
+    );
   },
 });
 
@@ -1386,6 +1489,7 @@ async function onboardingStateForCreator(
   ctx: QueryCtx,
   projectId: Id<"projects">,
   creatorId: Id<"creators">,
+  days: WarmupTargetDays,
   now: number,
 ): Promise<OnboardingStatePayload> {
   // Feature Snytch-only : hors Snytch on ne charge même pas les comptes.
@@ -1413,9 +1517,10 @@ async function onboardingStateForCreator(
       plateforme: c.plateforme,
       status,
       checksDone: c.warmupProtocol?.dailyChecks?.length ?? 0,
-      targetDays: effectiveTargetDays(warmupLike),
-      warmupDone: isWarmupComplete(warmupLike),
-      dueToday: status === "warmup" && mustCheckToday(warmupLike, now),
+      targetDays: effectiveTargetDays(warmupLike, days),
+      warmupDone: isWarmupComplete(warmupLike, days),
+      dueToday:
+        status === "warmup" && mustCheckToday(warmupLike, days, now),
       bio: (c.bioStatus ?? "none") as "none" | "to_apply" | "applied",
     };
   });
@@ -1426,14 +1531,26 @@ async function onboardingStateForCreator(
 export const getMyOnboardingState = creatorQuery({
   args: {},
   handler: async (ctx) =>
-    onboardingStateForCreator(ctx, ctx.projectId, ctx.creatorId, Date.now()),
+    onboardingStateForCreator(
+      ctx,
+      ctx.projectId,
+      ctx.creatorId,
+      await warmupDaysFor(ctx, ctx.projectId),
+      Date.now(),
+    ),
 });
 
 /** ADMIN view-as — état d'onboarding du créateur ciblé (lecture seule). */
 export const getOnboardingStateAsAdmin = adminViewAsQuery({
   args: {},
   handler: async (ctx) =>
-    onboardingStateForCreator(ctx, ctx.projectId, ctx.creatorId, Date.now()),
+    onboardingStateForCreator(
+      ctx,
+      ctx.projectId,
+      ctx.creatorId,
+      await warmupDaysFor(ctx, ctx.projectId),
+      Date.now(),
+    ),
 });
 
 /**
@@ -1515,10 +1632,13 @@ export const e2eSetWarmupChecks = e2eMutation({
   handler: async (ctx, { id, dailyChecks }) => {
     const compte = await ctx.db.get(id);
     if (!compte) throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
+    // Même barème que la prod : le chemin e2e ne doit pas figer un défaut
+    // global, sinon un test vert ne prouverait rien du comportement réel.
+    const days = await warmupDaysFor(ctx, compte.projectId);
     const protocol = compte.warmupProtocol ?? {
       keywords: [],
       instructions: "",
-      targetDays: defaultTargetDays(compte.plateforme),
+      targetDays: defaultTargetDays(compte.plateforme, days),
       dailyChecks: [],
       updatedAt: Date.now(),
     };
@@ -1563,5 +1683,25 @@ export const e2eSeedAvailableCompte = e2eMutation({
       actif: true,
       creatorId,
     });
+  },
+});
+
+/**
+ * e2e — pose le barème de warmup d'un projet. L'éditeur admin arrive au lot
+ * suivant ; en attendant, les tests doivent pouvoir exercer un projet qui
+ * chauffe 3 jours, sans quoi ils ne prouveraient rien du comportement réel.
+ */
+export const e2eSetProjectWarmupDays = e2eMutation({
+  args: {
+    projectId: v.id("projects"),
+    tiktok: v.number(),
+    instagram: v.number(),
+    youtube: v.number(),
+  },
+  handler: async (ctx, { projectId, tiktok, instagram, youtube }) => {
+    await ctx.db.patch(projectId, {
+      warmupTargetDays: { tiktok, instagram, youtube },
+    });
+    return { tiktok, instagram, youtube };
   },
 });

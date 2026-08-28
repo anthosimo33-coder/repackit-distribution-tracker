@@ -174,7 +174,7 @@ export function ActionDashboard() {
               effectiveStatus: getEffectiveStatus(c),
               warmupStartedAt: c.warmupStartedAt,
               dailyChecks: c.warmupProtocol?.dailyChecks ?? [],
-              targetDays: getEffectiveWarmupDuration(c),
+              targetDays: c.targetDays,
             },
             now,
           ),

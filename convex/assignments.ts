@@ -38,7 +38,7 @@ import {
   syncBonusUnlocks,
 } from "./pricing";
 import { markRushPublishedForAssignment } from "./rushes";
-import { isAccountAvailable } from "./warmup";
+import { isAccountAvailable, warmupTargetDaysOf } from "./warmup";
 import { isSnytchProject } from "./projects";
 import { countOnHandle, ownerIsClipper, publicationsInRange } from "./clipQuota";
 import { representativePostedAt } from "./calendarStatus";
@@ -128,7 +128,13 @@ export async function validateTargets(
     if (compte.plateforme !== t.platform) {
       throw err(ERR.ACCOUNT_WRONG_PLATFORM, `Le compte ${compte.handle} n'est pas un compte ${t.platform}.`, { handle: compte.handle, platform: t.platform });
     }
-    if (!isAccountAvailable(compte, { strict })) {
+    if (
+      !isAccountAvailable(
+        compte,
+        warmupTargetDaysOf((await ctx.db.get(projectId)) ?? {}),
+        { strict },
+      )
+    ) {
       throw err(
         ERR.ACCOUNT_UNAVAILABLE,
         `Le compte ${compte.handle} n'est pas disponible (warmup en cours ou compte non validé).`,
@@ -218,6 +224,9 @@ export const listAssignableCreatorsWithAccounts = adminQuery({
   args: {},
   handler: async (ctx) => {
     const strict = await isSnytchProject(ctx, ctx.projectId);
+    // Barème du projet, résolu une fois : la disponibilité d'un compte pour
+    // publication en dépend, et c'est le gate le plus lourd de conséquence.
+    const days = warmupTargetDaysOf((await ctx.db.get(ctx.projectId)) ?? {});
     const creators = await ctx.db
       .query("creators")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
@@ -242,7 +251,7 @@ export const listAssignableCreatorsWithAccounts = adminQuery({
         name: c.name,
         status: c.status,
         accounts: comptes
-          .filter((a) => isAccountAvailable(a, { strict }))
+          .filter((a) => isAccountAvailable(a, days, { strict }))
           .map((a) => ({
             _id: a._id,
             handle: a.handle,
@@ -2676,7 +2685,11 @@ async function confirmPublicationCore(
     if (
       compte &&
       compte.status === "warmup" &&
-      !isAccountAvailable(compte, { strict })
+      !isAccountAvailable(
+        compte,
+        warmupTargetDaysOf((await ctx.db.get(ctx.projectId)) ?? {}),
+        { strict },
+      )
     ) {
       throw err(
         ERR.ACCOUNT_NOT_APPROVED_TO_PUBLISH,

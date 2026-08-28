@@ -364,10 +364,8 @@ function ComptesPageInner() {
                 {rows.map((c) => {
                   const badge = getStatusBadge(c);
                   const isWarmup = getEffectiveStatus(c) === "warmup";
-                  const target = getEffectiveWarmupDuration({
-                    plateforme: c.plateforme as Plateforme,
-                    warmupProtocol: c.warmupProtocol,
-                  });
+                  // Durée servie par le serveur — jamais recalculée ici.
+                  const target = c.targetDays;
                   const progress =
                     isWarmup && c.warmupStartedAt !== undefined
                       ? warmupProgress(

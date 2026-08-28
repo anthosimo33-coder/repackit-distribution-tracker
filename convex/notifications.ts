@@ -49,7 +49,7 @@ import {
   isChauffeSansTalent,
   joursAvantSortieDeChauffe,
 } from "./clipperReadiness";
-import { effectiveTargetDays } from "./warmup";
+import { effectiveTargetDays, warmupTargetDaysOf } from "./warmup";
 import { cyclePaymentsForCreator } from "./payments";
 import {
   DIGEST_LOOKBACK_MS,
@@ -1027,6 +1027,11 @@ export const collectDigest = internalQuery({
           .collect(),
       ]);
       const creatorMap = new Map(creators.map((c) => [c._id, c]));
+      // Barème de warmup DU PROJET — le digest annonce des retards, il doit
+      // les compter contre la bonne cible.
+      const warmupDays = warmupTargetDaysOf(
+        (await ctx.db.get(projectId)) ?? {},
+      );
       // Talents appariés PAR clippeur — le dénominateur du signal de chauffe.
       const talentsParClippeur = new Map<string, number>();
       for (const c of creators) {
@@ -1067,7 +1072,7 @@ export const collectDigest = internalQuery({
           effectiveStatus: effectiveStatus(c),
           warmupStartedAt: c.warmupStartedAt,
           dailyChecks: c.warmupProtocol?.dailyChecks ?? [],
-          targetDays: effectiveTargetDays(c),
+          targetDays: effectiveTargetDays(c, warmupDays),
         };
         const missed = warmupMissedDays(shape, now);
         if (missed > 0) warmupLate.push({ handle: c.handle, missedDays: missed });

@@ -77,10 +77,7 @@ export function CreatorComptesSection({
                 isWarmup && c.warmupStartedAt !== undefined
                   ? warmupProgress(
                       c.warmupProtocol?.dailyChecks?.length ?? 0,
-                      getEffectiveWarmupDuration({
-                        plateforme: c.plateforme as Plateforme,
-                        warmupProtocol: c.warmupProtocol,
-                      }),
+                      c.targetDays,
                     )
                   : null;
               return (
