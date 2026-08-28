@@ -1168,6 +1168,45 @@ Comme pour le reste du guide, ce ne sont pas des traductions :
 | Plateformes | Snytch n'a pas de section YouTube et lit « Both platforms » là où RepackIt lit « All 3 platforms ». |
 | Le franglais de `youtubeIntro` | Le FR disait « le compte est **tied** à ton **Google account** » — corrigé en « rattaché à ton compte Google ». |
 
+### 11.13 La fusion a tué l'écran observé — et le correctif a tué l'écran admin
+
+**Régression de production**, corrigée le 2026-08-28. Consignée ici parce que
+c'est le prix payé par §11.12, et que le mécanisme se reproduira.
+
+`WarmupGuideButton` appelait `getMyWarmupModule` EN DIRECT — une `creatorQuery`.
+En observation l'appelant est l'**admin** : la garde de rôle rejetait, et
+l'exception non rattrapée tuait la page. « This page couldn't load », l'écran du
+navigateur, pas une erreur applicative.
+
+**Le créateur n'était pas affecté.** Sa page marchait ; seul l'outil
+d'observation était mort, et pour TOUT créateur observé — l'absence de compte
+déclaré n'y était pour rien.
+
+**Le correctif a cassé l'écran admin, en miroir.** Un hook React ne peut pas être
+appelé conditionnellement : `/admin/:slug/comptes` exécutait quand même la
+creatorQuery. Onze specs rouges, rattrapées par la suite complète — pas par ma
+relecture.
+
+#### Ce que ça apprend, et qui vaut au-delà du warmup
+
+**L'indirection de `creator-data.ts` n'est pas une convention, c'est la barrière.**
+Tout écran RÉUTILISÉ entre le portail et l'observation doit y passer. Celui-là
+avait été écrit sans, et c'est exactement le défaut qu'elle existe pour empêcher.
+
+**Une spec de QUERY ne prouve rien sur le MONTAGE.** La spec view-as existante
+testait `listComptesAsAdmin` côté serveur ; un échec de montage client lui est
+invisible. Le nouveau balayage NAVIGUE, sur les deux côtés, en trois couches —
+`pageerror`, le titre attendu de chaque écran, et un élément propre à l'écran.
+La troisième est la seule qui attrape une dégradation PARTIELLE : en `next dev`
+React récupère, la page garde son titre et le sous-arbre fautif rend le vide.
+En CI (`next start`) l'arbre entier meurt — le symptôme dépend du mode.
+
+**Le piège du `tail` était déjà écrit, et n'a rien empêché.** J'ai lu « 2
+échecs » là où il y en avait onze. `scripts/e2e-output-guard.mjs` refuse
+désormais toute commande qui lance Playwright et passe par `head`/`tail`, y
+compris la forme `> fichier 2>&1 ; tail -4 fichier`. Deuxième hook `PreToolUse`,
+à côté du garde Convex — même raisonnement : une note ne protège de rien.
+
 ### 11.5 La preview « Voir son espace » rendait dans la langue de l'admin
 
 **Corrigé après coup** (branche `fix/view-as-locale-createur`).

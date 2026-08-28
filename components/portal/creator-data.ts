@@ -259,3 +259,43 @@ export function useMyGuideModules(projectId: Id<"projects">) {
   );
   return va ? asAdmin : mine;
 }
+
+
+/**
+ * Module warm-up du guide (celui qu'ouvre le bouton de l'écran comptes).
+ *
+ * ⚠️ POURQUOI CE HOOK EXISTE. Le bouton appelait `getMyWarmupModule` en direct.
+ * C'est une `creatorQuery` : en observation, l'appelant est l'ADMIN, la garde de
+ * rôle rejetait, et l'exception non rattrapée tuait la page entière — écran mort
+ * du navigateur, pas une erreur applicative. Tous les autres écrans réutilisés
+ * passent par ce fichier ; celui-là avait été écrit sans, et c'est exactement le
+ * défaut que cette indirection existe pour empêcher.
+ *
+ * Le guide est PER-PROJET : les deux variantes servent le même contenu, seul le
+ * gate diffère (créateur du projet / admin du projet).
+ */
+export function useMyWarmupModule(
+  projectId: Id<"projects">,
+  locale: string,
+  /**
+   * `false` sur les écrans INTERNES, qui ont leur propre query admin.
+   *
+   * ⚠️ Un hook ne peut pas être appelé conditionnellement : sans ce drapeau,
+   * l'écran admin exécutait quand même la creatorQuery et la faisait rejeter —
+   * le MÊME défaut qu'en observation, en miroir. Les deux queries sont donc
+   * `"skip"` quand le hook est désactivé.
+   */
+  enabled = true,
+) {
+  const va = useViewAs();
+  const mine = useQuery(
+    api.guideModules.getMyWarmupModule,
+    enabled && !va ? { projectId, locale } : "skip",
+  );
+  const asAdmin = useQuery(
+    api.guideModules.getWarmupModuleForAdmin,
+    enabled && va ? { projectId, locale } : "skip",
+  );
+  if (!enabled) return undefined;
+  return va ? asAdmin : mine;
+}

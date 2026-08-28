@@ -4,6 +4,7 @@ import { BookOpenIcon } from "lucide-react";
 import { useQuery } from "convex/react";
 import { useLocale, useTranslations } from "next-intl";
 import { api } from "@/convex/_generated/api";
+import { useMyWarmupModule } from "@/components/portal/creator-data";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -33,6 +34,11 @@ import {
  * Ce qu'on perd, et c'est assumé : les 7 sections repliables. Le module est un
  * document markdown qu'on parcourt. La table des signaux devient une liste à
  * puces — le parser du guide ne connaît pas les tableaux.
+ *
+ * ⚠️ `admin` désigne l'écran INTERNE, pas « qui regarde ». Sur le portail —
+ * y compris quand un admin l'observe — c'est `useMyWarmupModule` qui tranche,
+ * comme tous les autres écrans réutilisés. Appeler la creatorQuery en direct
+ * faisait rejeter la garde de rôle en observation et tuait la page.
  */
 export function WarmupGuideButton({
   projectId,
@@ -44,12 +50,15 @@ export function WarmupGuideButton({
 }) {
   const twg = useTranslations("warmupGuide");
   const locale = useLocale();
-  const data = useQuery(
-    admin
-      ? api.guideModules.getWarmupModuleForAdmin
-      : api.guideModules.getMyWarmupModule,
-    { projectId, locale },
+  // Écran interne (/admin/:slug/comptes) : query admin, directe.
+  const forAdmin = useQuery(
+    api.guideModules.getWarmupModuleForAdmin,
+    admin ? { projectId, locale } : "skip",
   );
+  // Portail : l'indirection view-as choisit la bonne query. L'appeler en direct
+  // ferait rejeter la garde de rôle quand un admin observe, et tuerait la page.
+  const forPortal = useMyWarmupModule(projectId, locale, !admin);
+  const data = admin ? forAdmin : forPortal;
 
   return (
     <Sheet>
