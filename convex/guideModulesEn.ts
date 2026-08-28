@@ -173,7 +173,13 @@ Follow these and you're golden. We're in this together: you make good content, y
   },
 ];
 
-/** Jeu anglais du projet `snytch` — 6 modules, même ordre que le français. */
+/** Jeu anglais du projet `snytch` — 6 modules, même ordre que le français.
+ *
+ * PLATEFORMES : TikTok et Instagram, jamais YouTube. Le français des modules 2
+ * et 3 listait YouTube ; c'était une erreur, tranchée par le user le
+ * 2026-08-28 — le module 0 fait foi (« TikTok et Instagram selon ton deal »).
+ * Le français est corrigé par `migrations:fixFrenchGuideTypos`, l'anglais ici.
+ * Ne pas réintroduire YouTube en recopiant le jeu RepackIt, où il est légitime. */
 export const SNYTCH_EN: GuideModuleSeed[] = [
   {
     order: 0,
@@ -242,7 +248,7 @@ Add your payout details in your profile as soon as you start earning — otherwi
 
 **Step 1 — Create brand-new accounts**
 
-Create fresh accounts on TikTok, Instagram and YouTube (depending on what you're asked for). Start from blank accounts, not an existing personal one.
+Create fresh accounts on TikTok and Instagram (depending on what you're asked for). Start from blank accounts, not an existing personal one.
 
 **Step 2 — Use the right handle (@)**
 
@@ -272,7 +278,7 @@ Accounts ready and declared? **Don't post yet.** Head to the warmup module.`,
     title: "Warmup & avoiding shadowbans",
     contentMarkdown: `This is the most important step if you want your videos to be seen. Even with the best videos in the world, if your account isn't warmed up properly the algorithm won't push them. Worse: you can get shadowbanned, and your views stay stuck at zero.
 
-**Applies to every platform (TikTok, Instagram, YouTube).**
+**Applies to every platform (TikTok, Instagram).**
 
 **Step 1 — Don't rush it**
 

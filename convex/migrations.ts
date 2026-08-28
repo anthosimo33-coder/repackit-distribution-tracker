@@ -13,6 +13,7 @@ import {
 import { periodOf } from "./payments";
 import { GUIDE_MODULES_EN } from "./guideModulesEn";
 import { moduleLocale } from "./guideModuleLocale";
+import { GUIDE_FR_FIXES } from "./guideFrFixes";
 
 const DEFAULT_ACCENT = "#FF5200";
 const DEFAULT_PAYOUT_DAY = 5;
@@ -804,6 +805,116 @@ export const seedGuideModulesEn = internalMutation({
       projetsIntrouvables,
       willInsert,
       inserted: dryRun ? 0 : willInsert.length,
+    };
+  },
+});
+
+
+/**
+ * CORRECTION DU GUIDE FRANÇAIS — coquilles, puces perdues, plateformes.
+ *
+ * Le guide vit en BASE : corriger une coquille, c'est patcher une ligne, pas
+ * éditer un fichier. Les retouches sont listées dans `convex/guideFrFixes.ts`,
+ * revues en diff ; celle-ci les applique.
+ *
+ * TROIS GARDES, parce qu'un remplacement aveugle sur du texte rédigé par un
+ * humain — qui a pu bouger entre le relevé et l'exécution — corromprait un
+ * contenu que personne ne relit ligne à ligne :
+ *   1. le module doit exister à ce (projet, order) ET porter `expectTitle` ;
+ *   2. il doit être FRANÇAIS (`moduleLocale` ≠ « en ») — une retouche ne peut
+ *      pas atteindre le jeu anglais, même si un titre coïncidait ;
+ *   3. `find` doit apparaître EXACTEMENT UNE FOIS. Zéro : déjà corrigé, ou le
+ *      texte a changé. Plusieurs : l'ancre est ambiguë. Dans les deux cas on
+ *      REFUSE et on le dit, plutôt que de deviner.
+ *
+ * IDEMPOTENTE par le compte à zéro : une retouche déjà appliquée ne trouve plus
+ * son ancre et est rangée en `dejaFaites`, pas en échec.
+ *
+ * dryRun par défaut, avec l'AVANT et l'APRÈS de chaque retouche :
+ *   ./scripts/convex-prod.sh run migrations:fixFrenchGuideTypos '{}'
+ *   ./scripts/convex-prod.sh run migrations:fixFrenchGuideTypos '{"commit":true}'
+ */
+export const fixFrenchGuideTypos = internalMutation({
+  args: { commit: v.optional(v.boolean()) },
+  handler: async (ctx, { commit }) => {
+    const dryRun = commit !== true;
+    const appliquees: {
+      projet: string;
+      order: number;
+      champ: string;
+      pourquoi: string;
+      avant: string;
+      apres: string;
+    }[] = [];
+    const dejaFaites: { projet: string; order: number; pourquoi: string }[] = [];
+    const refusees: { projet: string; order: number; pourquoi: string; motif: string }[] = [];
+
+    // Le contenu courant PAR MODULE, pour enchaîner deux retouches sur le même
+    // texte (snytch/5 en a deux) sans que la seconde travaille sur une version
+    // périmée.
+    const courant = new Map<string, { title: string; content: string }>();
+
+    for (const fix of GUIDE_FR_FIXES) {
+      const project = await getProjectBySlug(ctx, fix.slug);
+      if (project === null) {
+        refusees.push({ projet: fix.slug, order: fix.order, pourquoi: fix.why, motif: "projet introuvable" });
+        continue;
+      }
+      const modules = await ctx.db
+        .query("guideModules")
+        .withIndex("by_project", (q) => q.eq("projectId", project._id))
+        .collect();
+      const cible = modules.find(
+        (m) => m.order === fix.order && moduleLocale(m) !== "en",
+      );
+      if (cible === undefined) {
+        refusees.push({ projet: fix.slug, order: fix.order, pourquoi: fix.why, motif: "aucun module français à cet order" });
+        continue;
+      }
+      const cle = String(cible._id);
+      if (!courant.has(cle)) {
+        courant.set(cle, { title: cible.title, content: cible.contentMarkdown });
+      }
+      const etat = courant.get(cle)!;
+      if (etat.title !== fix.expectTitle && fix.field !== "title") {
+        refusees.push({ projet: fix.slug, order: fix.order, pourquoi: fix.why, motif: `titre inattendu : ${etat.title}` });
+        continue;
+      }
+      const source = fix.field === "title" ? etat.title : etat.content;
+      const occurrences = source.split(fix.find).length - 1;
+      if (occurrences === 0) {
+        dejaFaites.push({ projet: fix.slug, order: fix.order, pourquoi: fix.why });
+        continue;
+      }
+      if (occurrences > 1) {
+        refusees.push({ projet: fix.slug, order: fix.order, pourquoi: fix.why, motif: `ancre trouvée ${occurrences} fois` });
+        continue;
+      }
+      const remplace = source.replace(fix.find, fix.replace);
+      if (fix.field === "title") etat.title = remplace;
+      else etat.content = remplace;
+      appliquees.push({
+        projet: fix.slug,
+        order: fix.order,
+        champ: fix.field,
+        pourquoi: fix.why,
+        avant: fix.find,
+        apres: fix.replace,
+      });
+      if (!dryRun) {
+        await ctx.db.patch(cible._id, {
+          ...(fix.field === "title" ? { title: etat.title } : { contentMarkdown: etat.content }),
+          updatedAt: Date.now(),
+        });
+      }
+    }
+
+    return {
+      dryRun,
+      appliquees,
+      dejaFaites,
+      refusees,
+      patched: dryRun ? 0 : appliquees.length,
     };
   },
 });
