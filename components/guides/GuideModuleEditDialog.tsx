@@ -46,6 +46,8 @@ export type GuideModuleDraft = {
   status: "published" | "draft";
   /** Absente sur les modules écrits avant le champ ⇒ français. */
   locale?: string;
+  /** `"warmup"` = ce module est celui qu'ouvre le bouton de l'écran comptes. */
+  slot?: string;
 };
 
 /**
@@ -107,6 +109,7 @@ function GuideModuleEditForm({
   const [published, setPublished] = useState(
     initialModule ? initialModule.status === "published" : true,
   );
+  const [isWarmup, setIsWarmup] = useState(initialModule?.slot === "warmup");
   const [locale, setLocale] = useState<Locale>(
     initialModule
       ? (normalizeLocale(initialModule.locale) ?? DEFAULT_LOCALE)
@@ -136,6 +139,7 @@ function GuideModuleEditForm({
           contentMarkdown: content,
           status,
           locale,
+          isWarmupGuide: isWarmup,
         });
         toast.success("Module mis à jour");
       } else {
@@ -234,6 +238,26 @@ function GuideModuleEditForm({
             : ", et ne touche à rien dans l'autre."}
         </p>
       </div>
+
+      {isEdit && (
+        <div className="flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50/50 px-3 py-2">
+          <Switch
+            id="module-warmup"
+            checked={isWarmup}
+            onCheckedChange={setIsWarmup}
+          />
+          <div className="space-y-0.5">
+            <Label htmlFor="module-warmup" className="cursor-pointer">
+              C&apos;est le guide warmup
+            </Label>
+            <p className="text-xs text-slate-500">
+              Le bouton « Guide warmup » de l&apos;écran comptes ouvre ce
+              module. <strong>Un seul par langue</strong> : l&apos;activer ici
+              le retire du module qui le portait.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50/50 px-3 py-2">
         <Switch

@@ -222,6 +222,14 @@ export function GuideModulesManager() {
                             {m.title}
                           </p>
                         </div>
+                        {m.slot === "warmup" && (
+                          <Badge
+                            variant="outline"
+                            className="border-amber-300 bg-amber-50 text-amber-800"
+                          >
+                            Guide warmup
+                          </Badge>
+                        )}
                         <Badge
                           variant={
                             m.status === "published" ? "default" : "secondary"
@@ -241,6 +249,7 @@ export function GuideModulesManager() {
                                 contentMarkdown: m.contentMarkdown,
                                 status: m.status,
                                 locale: m.locale,
+                                slot: m.slot,
                               })
                             }
                           >

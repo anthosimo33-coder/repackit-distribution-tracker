@@ -59,6 +59,52 @@ test.describe("Guide warmup — fusionné dans le module du guide", () => {
     ).toHaveCount(0);
   });
 
+  test("UNICITÉ — attribuer le slot le RETIRE au module qui le portait", async () => {
+    const ts = Date.now();
+    const mk = async (t: string) =>
+      convex.mutation(api.guideModules.createModule, {
+        title: `${MARKER} ${t} ${ts}`,
+        contentMarkdown: `Contenu ${t}.`,
+        status: "published",
+      });
+    const a = await mk("A");
+    const b = await mk("B");
+
+    await convex.mutation(api.guideModules.updateModule, {
+      id: a,
+      isWarmupGuide: true,
+    });
+    expect(
+      (await convex.query(api.guideModules.getWarmupModuleForAdmin, {})).module
+        ?.contentMarkdown,
+    ).toBe("Contenu A.");
+
+    // Le donner à B doit le RETIRER à A — sinon deux modules le portent et le
+    // serveur en sert un au hasard de l'ordre, sans erreur ni test rouge.
+    await convex.mutation(api.guideModules.updateModule, {
+      id: b,
+      isWarmupGuide: true,
+    });
+    const apres = await convex.query(api.guideModules.listModulesForAdmin, {});
+    const porteurs = apres.filter(
+      (m) => m.slot === "warmup" && m.title.includes(`${ts}`),
+    );
+    expect(porteurs.map((m) => m.title)).toEqual([`${MARKER} B ${ts}`]);
+    expect(
+      (await convex.query(api.guideModules.getWarmupModuleForAdmin, {})).module
+        ?.contentMarkdown,
+    ).toBe("Contenu B.");
+
+    // Et on peut le libérer.
+    await convex.mutation(api.guideModules.updateModule, {
+      id: b,
+      isWarmupGuide: false,
+    });
+    expect(
+      (await convex.query(api.guideModules.getWarmupModuleForAdmin, {})).module,
+    ).toBeNull();
+  });
+
   test("serveur — le module est adressé par SLOT, pas par titre", async () => {
     const ts = Date.now();
     // Un module publié SANS slot ne doit pas être servi, même s'il parle de warmup.
