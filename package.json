@@ -9,6 +9,7 @@
     "lint": "eslint && node scripts/i18n-scope-gen.mjs --check && node scripts/check-i18n.mjs",
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
+    "test:e2e:summary": "./scripts/e2e-summary.sh",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "playwright test --debug",
     "check:i18n": "node scripts/i18n-scope-gen.mjs --check && node scripts/check-i18n.mjs"

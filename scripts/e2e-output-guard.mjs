@@ -18,8 +18,13 @@
  * CE QUI PASSE : `grep` (il ne coupe pas la fin), une redirection vers un
  * fichier sans le tronquer ensuite, et tout `head`/`tail` sans Playwright.
  *
- * Le remplacement à taper est dans le message : filtrer la LIGNE DE
- * RÉCAPITULATIF entière plutôt que les dernières lignes.
+ * DEUXIÈME DÉTENTE, découverte en écrivant ce garde : Playwright préfixe ses
+ * lignes de récapitulatif d'échappements ANSI (`ESC[1A ESC[2K`). Un grep ancré
+ * en début de ligne rate donc « N failed » et ne voit que la dernière ligne —
+ * j'ai annoncé un run vert qui contenait un échec, avec le motif que ce garde
+ * recommandait lui-même. Le remplacement est désormais un SCRIPT
+ * (`pnpm test:e2e:summary`), pas une commande à recomposer de mémoire : la même
+ * leçon que le déploiement Convex, supprimer la raison d'improviser.
  */
 
 /** La commande lance-t-elle réellement la suite ? */
@@ -35,20 +40,22 @@ export function truncates(line) {
 }
 
 const DENY = [
-  "Lire un récapitulatif Playwright tronqué par `head`/`tail` masque les échecs.",
+  "Lire un récapitulatif Playwright à la main masque les échecs — deux fois.",
   "",
-  "  C'est le piège déjà consigné dans le dépôt : « 2 failed » lu à la place de",
-  "  « 11 failed », parce que la fin du résumé tenait sur plus de lignes que le",
-  "  `tail` n'en montrait.",
+  "  1. `head`/`tail` ne montrent qu'un bout : un « 1 failed » placé AVANT la",
+  "     ligne « N passed » disparaît. C'est ce qui a fait lire « 2 échecs » là",
+  "     où il y en avait onze.",
+  "  2. Playwright préfixe ses lignes de résumé d'échappements ANSI, donc un",
+  "     grep ancré en début de ligne rate « N failed » et ne voit que la",
+  "     dernière ligne — un run rouge y ressemble à un run vert.",
   "",
-  "À la place, filtre la LIGNE DE RÉCAPITULATIF, jamais les dernières lignes :",
+  "Utilise la commande qui fait les deux correctement :",
   "",
-  '  npx playwright test 2>&1 | grep -E "^  [0-9]+ (passed|failed|skipped|flaky)"',
+  "  pnpm test:e2e:summary            # toute la suite",
+  "  pnpm test:e2e:summary e2e/x.spec.ts",
   "",
-  "Pour garder la sortie complète et la relire ensuite :",
-  "",
-  "  npx playwright test > /tmp/e2e.log 2>&1",
-  '  grep -E "^  [0-9]+ (passed|failed|skipped|flaky)" /tmp/e2e.log',
+  "Elle rend TOUTES les lignes du récapitulatif, propage le code de sortie de",
+  "Playwright, et garde la sortie complète dans /tmp/e2e-last.log.",
 ].join("\n");
 
 export function inspectCommand(line) {

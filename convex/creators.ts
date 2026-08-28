@@ -10,6 +10,7 @@ import {
   requireCreatorViewableByAdmin,
   requireProjectAdmin,
 } from "./functions";
+import { resolveCreatorLocale } from "./i18n";
 import { getProjectBySlug, REPACKIT_SLUG } from "./projects";
 import {
   isPortalRole,
@@ -25,7 +26,7 @@ import { normalizeRef } from "./conversionAttribution";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { normalizeCreatorLocale } from "./locales";
+import { normalizeCreatorLocale, localeOrDefault} from "./locales";
 import { convexErrorText } from "./errorCodes";
 
 /**
@@ -106,7 +107,26 @@ export const listCreators = adminQuery({
         const inv = await activeInvitation(ctx, c._id);
         if (inv) invitation = { token: inv.token, expiresAt: inv.expiresAt };
       }
-      rows.push({ ...c, invitation });
+      // Langue RÉSOLUE — celle qui est réellement servie au créateur, pas celle
+      // de la fiche. Deux raisons de la calculer ICI plutôt qu'à l'écran :
+      //
+      //  1. `users.locale` fait foi dès que le compte existe, et cette table
+      //     n'est pas exposée au client ;
+      //  2. le FRANÇAIS N'EST PAS STOCKÉ — `normalizeCreatorLocale("fr")` rend
+      //     `undefined`, donc `creators.locale` vaut « en » ou rien. Un filtre
+      //     qui comparerait la valeur brute devrait traiter l'ABSENCE comme du
+      //     français, et se tromperait le jour où une créatrice bascule en
+      //     français depuis son profil : `setMyLocale` écrit alors « fr »
+      //     EXPLICITEMENT sur `users.locale`. En rendant une langue concrète,
+      //     l'écran compare une valeur, jamais une absence.
+      //
+      // `resolveCreatorLocale` est le cœur PARTAGÉ avec `getCreatorLocale`
+      // (convex/i18n.ts) : les deux ne peuvent pas diverger.
+      rows.push({
+        ...c,
+        invitation,
+        locale: localeOrDefault(await resolveCreatorLocale(ctx, c)),
+      });
     }
     return rows.sort((a, b) => b.createdAt - a.createdAt);
   },

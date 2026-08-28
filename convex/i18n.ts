@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { authedQuery, authedMutation, requireCreatorViewableByAdmin } from "./functions";
 import { getProjectBySlug } from "./projects";
+import type { Id } from "./_generated/dataModel";
 
 /**
  * LANGUE D'INTERFACE — lecture et écriture de la préférence de l'utilisateur.
@@ -92,6 +93,36 @@ export const setMyLocale = authedMutation({
  *
  * Gate : `adminViewAsQuery` — identité, rôle admin du projet, fiche ∈ projet.
  */
+
+/**
+ * LANGUE D'UN CRÉATEUR, telle qu'elle lui est RÉELLEMENT servie — cœur partagé.
+ *
+ * Ordre, identique à la chaîne de i18n/request.ts restreinte à ce qu'un tiers
+ * peut lire : `users.locale` (le compte fait foi), puis `creators.locale` (posé
+ * par l'admin à l'invitation), puis `null` — l'appelant tranche.
+ *
+ * ⚠️ EXTRAIT EN HELPER, et c'est le point : `getCreatorLocale` (fiche
+ * individuelle, preview view-as) et `listCreators` (l'écran createurs, qui
+ * filtre par langue) doivent rendre la MÊME réponse. Deux implémentations
+ * auraient divergé — et la divergence se serait vue comme un filtre qui ment,
+ * pas comme un bug.
+ *
+ * RIEN N'EST NORMALISÉ ICI : la valeur brute est rendue telle quelle, comme
+ * avant. C'est `localeOrDefault` / `normalizeLocale` qui décident, chez
+ * l'appelant, ce que « fr » veut dire.
+ */
+export async function resolveCreatorLocale(
+  ctx: { db: { get: (id: Id<"users">) => Promise<{ locale?: string } | null> } },
+  creator: { userId?: Id<"users">; locale?: string },
+): Promise<string | null> {
+  if (creator.userId) {
+    const user = await ctx.db.get(creator.userId);
+    if (user?.locale && user.locale.trim() !== "") return user.locale;
+  }
+  const fiche = creator.locale;
+  return fiche && fiche.trim() !== "" ? fiche : null;
+}
+
 export const getCreatorLocale = authedQuery({
   args: { projectSlug: v.string(), creatorId: v.id("creators") },
   handler: async (ctx, { projectSlug, creatorId }): Promise<{ locale: string | null }> => {
@@ -108,13 +139,6 @@ export const getCreatorLocale = authedQuery({
       project._id,
       creatorId,
     );
-    if (creator.userId) {
-      const user = await ctx.db.get(creator.userId);
-      if (user?.locale && user.locale.trim() !== "") {
-        return { locale: user.locale };
-      }
-    }
-    const fiche = creator.locale;
-    return { locale: fiche && fiche.trim() !== "" ? fiche : null };
+    return { locale: await resolveCreatorLocale(ctx, creator) };
   },
 });
