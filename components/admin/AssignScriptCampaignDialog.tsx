@@ -1172,6 +1172,15 @@ export function AssignScriptCampaignDialog({
                   </Button>
                 )}
               </div>
+              {/* Fenêtre EFFECTIVE du projet, telle que le serveur vient de
+                  l'appliquer au tirage ci-dessous (elle est rendue par la même
+                  query). Sans elle, « cooldown » ne dit pas de combien, et le
+                  réglage se règle à l'aveugle. */}
+              <p className="text-xs text-slate-500" data-testid="apercu-cooldown">
+                {apercu.cooldownDays === 0
+                  ? "Cooldown désactivé sur ce projet — seule l’unicité à vie s’applique."
+                  : `Cooldown du projet : ${apercu.cooldownDays} jour${apercu.cooldownDays > 1 ? "s" : ""}.`}
+              </p>
               {apercu.shortage && (
                 <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs font-medium text-amber-800">
                   ⚠️ Le stock ne couvre pas les {videosNum} vidéos demandées :

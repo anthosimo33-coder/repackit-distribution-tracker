@@ -11,9 +11,15 @@ import {
   isHookAvailable,
   type HookUsage,
 } from "../convex/hookAvailability";
-import { COOLDOWN_DAYS } from "./scriptCombos";
 
 const DAY = 86_400_000;
+/**
+ * Fenêtre EXPLICITE (4 j) et non le défaut produit : ces cas vérifient l'ORDRE
+ * des deux règles (unicité d'abord, cooldown ensuite) et la borne stricte, pas
+ * la durée retenue par le projet. Les écarts choisis plus bas (2 j, 3 j) n'ont
+ * de sens que dans une fenêtre plus large qu'eux.
+ */
+const COOLDOWN_DAYS = 4;
 const COOLDOWN_MS = COOLDOWN_DAYS * DAY;
 /** Date visée : 20/08/2026, comme une assignation programmée pour dans 3 jours. */
 const CIBLE = Date.UTC(2026, 7, 20, 22, 0);

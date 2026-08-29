@@ -118,6 +118,26 @@ export default defineSchema({
       }),
     ),
     fileDropEnabled: v.optional(v.boolean()),
+    // ─── COOLDOWN de combo de script, en jours (règle ÉDITORIALE du projet) ───
+    // Un comboKey programmé (ou publié) à moins de N jours d'une date visée n'est
+    // pas réattribuable à cette date, quel que soit le compte ou la créatrice.
+    // Absent ⇒ dernier recours (convex/comboCooldown.COMBO_COOLDOWN_DAYS_FALLBACK
+    // = 1 jour). `0` est une valeur DÉFINIE : elle désactive le cooldown — d'où
+    // la lecture par `comboCooldownDaysOf` et jamais par `?? FALLBACK` en place.
+    //
+    // MÊME NATURE que `warmupTargetDays` ci-dessus : une règle produit qui se
+    // règle à l'usage, sans PR, et qui n'a pas à être la même d'un projet à
+    // l'autre. Édité par projects.setComboCooldownDays (adminMutation, écran
+    // /scripts).
+    //
+    // ⚠️ NE TOUCHE PAS à l'unicité à vie (combo × créatrice × plateforme), qui
+    // vit dans lib/script-combo-uniqueness et n'a aucun réglage : les deux
+    // protections se cumulent. Mettre 0 ici ne réautorise jamais le même script
+    // deux fois chez la même créatrice.
+    //
+    // N'agit que sur les tirages À VENIR : un combo déjà attribué est figé sur
+    // son assignation et n'est jamais rejugé.
+    comboCooldownDays: v.optional(v.number()),
     // ─── BRIEF PERMANENT du talent — quel format lui sert de consigne ─────────
     // Le talent n'a pas d'assignation : son brief est PERMANENT, le même à chaque
     // dépôt (« voilà comment on filme un hook chez nous »). Plutôt qu'un champ

@@ -45,6 +45,7 @@ import {
   ClapperboardIcon,
   Loader2Icon,
 } from "lucide-react";
+import { ComboCooldownSettingsButton } from "@/components/scripts/ComboCooldownSettingsButton";
 import type { FunctionReturnType } from "convex/server";
 
 type Campaign = FunctionReturnType<typeof api.scripts.listCampaigns>[number];
@@ -66,10 +67,13 @@ export default function ScriptsPage() {
             Campagnes combinatoires : hook + flux + cta.
           </p>
         </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <PlusIcon className="mr-2 size-4" />
-          Nouvelle campagne
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <ComboCooldownSettingsButton />
+          <Button onClick={() => setCreateOpen(true)}>
+            <PlusIcon className="mr-2 size-4" />
+            Nouvelle campagne
+          </Button>
+        </div>
       </header>
 
       {campaigns === undefined ? (

@@ -27,6 +27,7 @@ import type * as clipperAssignmentFields from "../clipperAssignmentFields.js";
 import type * as clipperReadiness from "../clipperReadiness.js";
 import type * as cloudflareStream from "../cloudflareStream.js";
 import type * as cloudflareStreamApi from "../cloudflareStreamApi.js";
+import type * as comboCooldown from "../comboCooldown.js";
 import type * as comptes from "../comptes.js";
 import type * as conversionAttribution from "../conversionAttribution.js";
 import type * as conversionSync from "../conversionSync.js";
@@ -162,6 +163,7 @@ declare const fullApi: ApiFromModules<{
   clipperReadiness: typeof clipperReadiness;
   cloudflareStream: typeof cloudflareStream;
   cloudflareStreamApi: typeof cloudflareStreamApi;
+  comboCooldown: typeof comboCooldown;
   comptes: typeof comptes;
   conversionAttribution: typeof conversionAttribution;
   conversionSync: typeof conversionSync;
