@@ -20,6 +20,7 @@ import {
   LayoutDashboardIcon,
   LogOutIcon,
   RadarIcon,
+  TrophyIcon,
   UserPlusIcon,
   Users2Icon,
   WalletIcon,
@@ -119,6 +120,15 @@ export function Sidebar({
       icon: ClipboardListIcon,
       label: t("item.assignments"),
       ...item(projectPath("/assignments")),
+    },
+    {
+      // DÉFIS — opérations exceptionnelles. Placés dans PILOTAGE (à côté des
+      // assignations) et non dans CONTENU : un défi se pilote au jour le jour
+      // (qui participe, qui a franchi, qui a gagné), il ne se range pas avec les
+      // ressources de production.
+      icon: TrophyIcon,
+      label: t("item.defis"),
+      ...item(projectPath("/defis")),
     },
     {
       icon: CoinsIcon,

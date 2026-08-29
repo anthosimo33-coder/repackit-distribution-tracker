@@ -99,7 +99,14 @@ type ServerCombo = {
   assembledScript: string;
 };
 
-function assembleNoLabels(p: {
+/**
+ * Montage d'un combo, labels OFF — RÉPLIQUE de lib/scriptAssembly.assembleScript
+ * (règle A6). EXPORTÉ pour que `convex/challenges.ts` monte le script d'un défi
+ * avec exactement la même fonction : une seconde copie divergerait au premier
+ * ajustement de mise en forme, et les créatrices liraient deux textes différents
+ * pour le même combo.
+ */
+export function assembleNoLabels(p: {
   hook: string;
   flux: string;
   cta: string;
