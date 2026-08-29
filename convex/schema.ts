@@ -2505,6 +2505,39 @@ export default defineSchema({
     createdAt: v.number(),
     /** Horodatage de l'ouverture (draft → active) : borne basse du score. */
     openedAt: v.optional(v.number()),
+    /**
+     * Clôture MANUELLE par l'admin. Distinct de `deadline` : un défi peut être
+     * clos AVANT son échéance. La fin RÉELLE est donc le premier des deux qui
+     * arrive — c'est cette date qui ouvre la fenêtre de 7 jours pendant laquelle
+     * la créatrice continue de voir le résultat.
+     */
+    closedAt: v.optional(v.number()),
+    /**
+     * CLASSEMENT D'ARRIVÉE — figé une seule fois, quand le défi se termine.
+     *
+     * ⚠️ Sans ce gel, le « classement final » continuerait de bouger après la
+     * fin : les vues d'un post montent encore pendant des semaines, et une
+     * créatrice pourrait remonter d'une place trois jours après la clôture. Un
+     * classement d'arrivée qui change n'est pas un classement d'arrivée.
+     *
+     * Écrit par l'évaluation nocturne (ou la clôture manuelle) au premier
+     * passage où le défi est terminé, puis JAMAIS réécrit. Absent = défi encore
+     * en cours, l'écran rend le classement vivant.
+     */
+    finalRanking: v.optional(
+      v.array(
+        v.object({
+          creatorId: v.id("creators"),
+          name: v.string(),
+          score: v.number(),
+          videoCount: v.number(),
+          rank: v.number(),
+          crossed: v.boolean(),
+        }),
+      ),
+    ),
+    /** Instant du gel du classement d'arrivée. */
+    finalRankingAt: v.optional(v.number()),
   })
     .index("by_project", ["projectId"])
     .index("by_project_status", ["projectId", "status"]),

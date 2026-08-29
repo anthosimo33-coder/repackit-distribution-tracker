@@ -672,7 +672,9 @@
       "overNoWinner": "Over — nobody cleared the bar. Nothing is paid out.",
       "overOthersWon": "Over — {count, plural, =1 {1 winner} other {# winners}}.",
       "othersWon": "{count, plural, =1 {1 place taken} other {# places taken}} — some are still open.",
-      "syncLineOver": "Last check: {date} at {time}"
+      "syncLineOver": "Last check: {date} at {time}",
+      "finalRanking": "Final standings",
+      "leaderboardLive": "Leaderboard"
     }
   },
   "status": {
