@@ -133,6 +133,9 @@ const KIND_TAG = {
   // Chantier pricing talent/clippeur — quatre modèles, quatre étiquettes.
   clip: { labelKey: "paiements.kind.clip", className: "bg-violet-50 text-violet-600" },
   retainer: { labelKey: "paiements.kind.retainer", className: "bg-teal-50 text-teal-600" },
+  // Prime de défi — une COULEUR À ELLE. Reprendre l'ambre des paliers ferait
+  // lire deux natures de gain comme une seule dans le relevé.
+  challenge: { labelKey: "paiements.kind.challenge", className: "bg-rose-50 text-rose-600" },
 } as const;
 
 function KindTag({
@@ -145,7 +148,8 @@ function KindTag({
     | "cpm"
     | "bonus_tier"
     | "clip"
-    | "retainer";
+    | "retainer"
+    | "challenge";
 }) {
   const tag = KIND_TAG[kind] ?? KIND_TAG.base;
   const tt = useTranslations("portal");
@@ -284,6 +288,12 @@ function useLineLabel() {
       }
       if (li.kind === "retainer" && d.cycleIndex !== undefined) {
         return t("retainer", { cycle: d.cycleIndex });
+      }
+      // Le NOM du défi vient de la donnée gelée ; la phrase se compose dans SA
+      // langue. `label` (français, figé au paiement) reste le repli des lignes
+      // écrites avant ce champ.
+      if (li.kind === "challenge" && d.challengeName !== undefined) {
+        return t("challenge", { name: d.challengeName });
       }
     }
     if (li.kind === "bonus_tier") return t("bonusTier");

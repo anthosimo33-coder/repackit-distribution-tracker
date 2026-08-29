@@ -47,12 +47,26 @@ type LineItem = {
   /** Phrase FIGÉE au paiement (français). Repli d'affichage, jamais réécrite. */
   label: string;
   /** Données structurées — le libellé est recomposé à l'affichage (cf schema). */
-  detail?: { videoCount?: number; views?: number; cycleIndex?: number };
+  detail?: {
+    videoCount?: number;
+    views?: number;
+    cycleIndex?: number;
+    challengeName?: string;
+  };
   amount: number;
   // base/bonus = LEGACY ; fixed/cpm + bonus_tier = pricing GELÉ au paiement ;
   // clip = montant fixe par clip (clippeur) ; retainer = forfait de cycle
-  // (talent). Quatre modèles de rémunération, quatre kinds — cf schema.
-  kind: "base" | "bonus" | "fixed" | "cpm" | "bonus_tier" | "clip" | "retainer";
+  // (talent) ; challenge = prime d'une victoire de défi, UNE LIGNE PAR VICTOIRE.
+  // Cinq modèles de rémunération, cinq kinds — cf schema.
+  kind:
+    | "base"
+    | "bonus"
+    | "fixed"
+    | "cpm"
+    | "bonus_tier"
+    | "clip"
+    | "retainer"
+    | "challenge";
   // Chantier C — plateforme du post pour les lineItems "base" (paiement PAR
   // POST : N bases/assignment, 1 par cible). Absent sur les bonus (1/assignment)
   // et les bases legacy (mono-compte).
@@ -413,7 +427,34 @@ async function frozenPricingLineItems(
       kind: "bonus_tier",
     });
   }
+  out.push(...challengeLineItems(breakdown));
   return out;
+}
+
+/**
+ * Lignes de PRIME DE DÉFI — UNE PAR VICTOIRE, jamais une ligne agrégée.
+ *
+ * C'est l'écart délibéré avec `bonus_tier` juste au-dessus : sa ligne unique a
+ * rendu le détail par palier irrécupérable, ce qui oblige `unlockIsFrozen` à
+ * deviner par fenêtre si un palier est déjà payé. Ici la ligne nomme son défi,
+ * si bien que le grand livre reste lisible et l'annulation vérifiable — la
+ * garde de `cancelChallengeWin` peut s'appuyer sur un fait, pas sur un
+ * intervalle.
+ *
+ * ⚠️ Le NOM est figé dans `detail.challengeName` : renommer un défi ensuite ne
+ * réécrit pas une feuille de paie émise. `label` reste la phrase française de
+ * repli (convention du dépôt), le libellé traduit se recompose autour de
+ * `detail` dans la langue de la lectrice.
+ */
+function challengeLineItems(breakdown: PricingBreakdown): LineItem[] {
+  return breakdown.challengeWins
+    .filter((w) => w.montant > 0)
+    .map((w) => ({
+      label: `Prime de défi — ${w.challengeName}`,
+      detail: { challengeName: w.challengeName },
+      amount: w.montant,
+      kind: "challenge" as const,
+    }));
 }
 
 /** Breakdown pricing dérivé de lineItems GELÉES (période payée). */
@@ -426,6 +467,19 @@ function frozenBreakdownOf(p: Doc<"payments">): PricingBreakdown {
   const cpmTotal = sumKind("cpm");
   // bonus_tier = bonus de PALIER cash (v2), DISJOINT du "bonus" legacy par vidéo.
   const bonusTierCashTotal = sumKind("bonus_tier");
+  const challengeTotal = sumKind("challenge");
+  // Gelé, mais PAS PERDU : chaque prime a sa propre ligne, on reconstitue donc
+  // le détail à l'identique — contrairement aux paliers, dont la ligne agrégée
+  // ne se décompose plus. `winId` n'est pas dans la ligne gelée (il n'y sert à
+  // rien : la prime est versée, plus rien ne s'y rattache) ; le NOM, si, parce
+  // que c'est lui qu'on lit.
+  const challengeWins = p.lineItems
+    .filter((li) => li.kind === "challenge")
+    .map((li) => ({
+      winId: "",
+      challengeName: li.detail?.challengeName ?? li.label,
+      montant: li.amount,
+    }));
   return {
     fixedTotal,
     cpmTotal,
@@ -433,7 +487,9 @@ function frozenBreakdownOf(p: Doc<"payments">): PricingBreakdown {
     // Gelé : lineItem bonus_tier AGRÉGÉE → pas de détail par palier récupérable.
     // La vue retombe sur la ligne agrégée (bonusTierCashTotal).
     bonusTierCashUnlocks: [],
-    total: round2(fixedTotal + cpmTotal + bonusTierCashTotal),
+    challengeTotal,
+    challengeWins,
+    total: round2(fixedTotal + cpmTotal + bonusTierCashTotal + challengeTotal),
     perPricing: [],
     perAssignment: [],
   };
@@ -505,6 +561,7 @@ function frozenLineItemsFromBreakdown(b: PricingBreakdown): LineItem[] {
       kind: "bonus_tier",
     });
   }
+  out.push(...challengeLineItems(b));
   return out;
 }
 

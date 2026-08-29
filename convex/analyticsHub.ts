@@ -8,6 +8,7 @@ import {
   computeLivePricingBreakdown,
   creatorCumulViews,
   effectiveBonusPricing,
+  challengeNatureRewardsDue,
   natureRewardsDue,
   promoVideoCost,
   type PricingBreakdown,
@@ -449,7 +450,14 @@ export const getAttribution = adminQuery({
     // cash. Elles entrent dans le coût COMPLET du moteur et nulle part ailleurs —
     // ce n'est pas un coût par client. Sans coût réel renseigné, une récompense
     // est comptée comme MANQUANTE plutôt qu'à 0 (un 0 se lirait « gratuit »).
-    const natureEntries = await natureRewardsDue(ctx, ctx.projectId);
+    // Les primes de DÉFI en nature s'ajoutent aux paliers en nature : même
+    // nature de dépense (un objet qu'on doit livrer), même traitement. Les
+    // séparer en deux compteurs ferait deux fois le même raisonnement, et le
+    // coût complet doit être complet.
+    const natureEntries = [
+      ...(await natureRewardsDue(ctx, ctx.projectId)),
+      ...(await challengeNatureRewardsDue(ctx, ctx.projectId)),
+    ];
     const natureDue = round2(
       natureEntries.reduce((s, n) => s + (n.coutReel ?? 0), 0),
     );

@@ -81,6 +81,7 @@ const KIND_LABEL: Record<string, string> = {
   fixed: "Fixe",
   cpm: "CPM",
   bonus_tier: "Palier",
+  challenge: "Prime de défi",
 };
 const KIND_BADGE: Record<string, string> = {
   base: "bg-slate-200 text-slate-600",
@@ -88,6 +89,9 @@ const KIND_BADGE: Record<string, string> = {
   fixed: "bg-emerald-50 text-emerald-600",
   cpm: "bg-sky-50 text-sky-600",
   bonus_tier: "bg-amber-50 text-amber-600",
+  // Couleur PROPRE : reprendre l'ambre des paliers ferait lire deux natures de
+  // gain comme une seule dans le grand livre.
+  challenge: "bg-rose-50 text-rose-600",
 };
 
 function BreakdownLine({

@@ -473,6 +473,42 @@ export interface NatureDueEntry {
  * DUE mais non chiffrable. L'appelant l'exclut du total ET le signale — un coût
  * manquant qui disparaîtrait en silence ferait lire le total comme complet.
  */
+/**
+ * Récompenses en NATURE dues au titre d'une VICTOIRE DE DÉFI.
+ *
+ * Même contrat que `natureRewardsDue` (paliers) : une prime en nature ne crédite
+ * AUCUN euro à la créatrice — elle ne passe pas par `totalDue` — mais elle nous
+ * COÛTE, et ce coût doit entrer dans le coût complet du moteur. Sans ça, un défi
+ * récompensé par un iPhone serait une dépense réelle invisible du calcul de
+ * marge.
+ *
+ * Une victoire ANNULÉE ne coûte plus rien : l'objet n'est pas dû. Une prime sans
+ * `coutReel` renseigné est rendue avec `null` — DUE mais non chiffrable ;
+ * l'appelant l'exclut du total ET le signale, exactement comme pour les paliers.
+ * Un 0 se lirait « gratuit ».
+ */
+export async function challengeNatureRewardsDue(
+  ctx: QueryCtx | MutationCtx,
+  projectId: Id<"projects">,
+): Promise<NatureDueEntry[]> {
+  const wins = await ctx.db
+    .query("challengeWins")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+  return wins
+    .filter((w) => w.reward.type === "nature" && w.cancelledAt === undefined)
+    .map((w) => ({
+      creatorId: w.creatorId,
+      // `seuilVues` n'a pas de sens pour un défi : on porte le score AU MOMENT
+      // de la victoire, qui joue le même rôle (« gagné à tant de vues »).
+      seuilVues: w.scoreAtWin,
+      libelle: w.reward.libelle ?? null,
+      coutReel:
+        typeof w.reward.coutReel === "number" ? w.reward.coutReel : null,
+      unlockedAt: w.wonAt,
+    }));
+}
+
 export async function natureRewardsDue(
   ctx: QueryCtx | MutationCtx,
   projectId: Id<"projects">,
@@ -651,6 +687,71 @@ export interface PricingBreakdown extends MonthlyPayout {
    *  somme = bonusTierCashTotal, `total` inchangé). Vide sur un breakdown gelé
    *  (lineItems agrégées) → la vue retombe sur la ligne agrégée. */
   bonusTierCashUnlocks: { seuilVues: number; montant: number }[];
+  /** Primes CASH des victoires de défi attribuées à cette période (persistées). */
+  challengeTotal: number;
+  /**
+   * DÉTAIL par victoire — UNE ENTRÉE PAR PRIME, jamais agrégée.
+   *
+   * C'est la différence délibérée avec `bonusTierCashUnlocks`, dont la ligne
+   * gelée est agrégée et dont le commentaire d'origine reconnaît qu'« aucun
+   * détail par palier n'est récupérable » : `unlockIsFrozen` doit alors
+   * raisonner par FENÊTRE pour deviner si un palier est déjà payé. Ici chaque
+   * prime porte son défi et son id de victoire, donc l'annulation reste
+   * vérifiable ligne à ligne.
+   */
+  challengeWins: {
+    winId: string;
+    challengeName: string;
+    montant: number;
+  }[];
+}
+
+/**
+ * Primes CASH des victoires de défi d'un créateur, fenêtrées par un prédicat
+ * fourni (mois calendaire OU cycle J+30 — les deux modes de paie coexistent).
+ *
+ * ── Guard B, repris tel quel de `bonusUnlocks` ──────────────────────────────
+ * Le cash d'une période vient UNIQUEMENT des victoires PERSISTÉES : on ne
+ * réévalue JAMAIS un score au moment de payer. Le score a pu bouger depuis (une
+ * vidéo retirée du défi, une autre créatrice passée devant) ; la prime, elle,
+ * est due sur ce qui a été acté. C'est la même raison qui a fait écarter la
+ * ré-évaluation live des paliers.
+ *
+ * ── Les victoires ANNULÉES sortent, sans disparaître ────────────────────────
+ * `cancelledAt` défini ⇒ la prime n'est plus due, donc plus sommée ici. La row
+ * reste en base avec son motif : le grand livre garde la trace de ce qui a été
+ * annulé et pourquoi. Une suppression aurait effacé la question.
+ */
+async function challengeCashWins(
+  ctx: QueryCtx | MutationCtx,
+  projectId: Id<"projects">,
+  creatorId: Id<"creators">,
+  inWindow: (win: Doc<"challengeWins">) => boolean,
+): Promise<PricingBreakdown["challengeWins"]> {
+  const wins = (
+    await ctx.db
+      .query("challengeWins")
+      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+      .collect()
+  ).filter(
+    (w) =>
+      w.projectId === projectId &&
+      w.reward.type === "cash" &&
+      w.cancelledAt === undefined &&
+      inWindow(w),
+  );
+  const out: PricingBreakdown["challengeWins"] = [];
+  for (const w of wins) {
+    const challenge = await ctx.db.get(w.challengeId);
+    out.push({
+      winId: w._id,
+      // Nom LU au moment du calcul et FIGÉ au gel : renommer un défi ensuite ne
+      // réécrit pas une feuille de paie déjà émise.
+      challengeName: challenge?.name ?? "Défi",
+      montant: w.reward.amount ?? 0,
+    });
+  }
+  return out.sort((a, b) => a.challengeName.localeCompare(b.challengeName, "fr"));
 }
 
 /**
@@ -717,11 +818,26 @@ export async function computeLivePricingBreakdown(
   const bonusTierCashUnlocks = cashUnlocks
     .map((u) => ({ seuilVues: u.seuilVues, montant: u.montant ?? 0 }))
     .sort((a, b) => a.seuilVues - b.seuilVues);
+  // PRIMES DE DÉFI — fenêtrées sur `attributionPeriod`, comme les paliers.
+  const challengeWins = await challengeCashWins(
+    ctx,
+    projectId,
+    creatorId,
+    (w) => w.attributionPeriod === period,
+  );
+  const challengeTotal = round2(
+    challengeWins.reduce((s, w) => s + w.montant, 0),
+  );
   return {
     ...base,
     bonusTierCashTotal,
     bonusTierCashUnlocks,
-    total: round2(base.total + bonusTierCashTotal),
+    challengeTotal,
+    challengeWins,
+    // ⚠️ La prime S'AJOUTE, elle ne remplace rien : `base.total` (fixe + CPM)
+    // est intouché. C'est ce que garantit le barème dédié à fixe nul — les
+    // vidéos de défi forment leur propre groupe de paie.
+    total: round2(base.total + bonusTierCashTotal + challengeTotal),
   };
 }
 
@@ -792,11 +908,28 @@ export async function computeCyclePricingBreakdown(
   const bonusTierCashUnlocks = cashUnlocks
     .map((u) => ({ seuilVues: u.seuilVues, montant: u.montant ?? 0 }))
     .sort((a, b) => a.seuilVues - b.seuilVues);
+  // PRIMES DE DÉFI — fenêtrées sur le CYCLE de la VICTOIRE (`wonAt`), comme les
+  // paliers le sont sur `unlockedAt`. La prime est due au moment où la victoire
+  // est actée, pas à la deadline du défi : un défi qui court à cheval sur deux
+  // cycles paie dans celui où la barre a été franchie, et une prime ne se perd
+  // pas parce qu'un cycle s'est clos entre-temps.
+  const challengeWins = await challengeCashWins(
+    ctx,
+    projectId,
+    creatorId,
+    (w) => cycleIndexOf(firstPostAt, w.wonAt) === cycleIndex,
+  );
+  const challengeTotal = round2(
+    challengeWins.reduce((s, w) => s + w.montant, 0),
+  );
   return {
     ...base,
     bonusTierCashTotal,
     bonusTierCashUnlocks,
-    total: round2(base.total + bonusTierCashTotal),
+    challengeTotal,
+    challengeWins,
+    // ⚠️ S'AJOUTE (cf. computeLivePricingBreakdown) : fixe et CPM intouchés.
+    total: round2(base.total + bonusTierCashTotal + challengeTotal),
   };
 }
 
