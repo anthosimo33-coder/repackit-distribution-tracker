@@ -65,6 +65,14 @@ export async function cleanupTestData() {
       "payments",
       () => client.mutation(api.payments.cleanupTestPayments, { secret }),
     ],
+    // DÉFIS avant les assignments : une assignation de défi porte `challengeId`,
+    // et le nettoyage du défi lit ses assignations pour décider. L'inverse
+    // laisserait des défis orphelins d'un run à l'autre, et le classement du run
+    // suivant compterait des participantes fantômes.
+    [
+      "challenges",
+      () => client.mutation(api.challenges.cleanupTestChallenges, { secret }),
+    ],
     // Assignments AVANT formats/creators (les référencent). Cascade aussi la
     // publication matérialisée + ses snapshots (notes="" → hors cleanupTestPublications).
     [
