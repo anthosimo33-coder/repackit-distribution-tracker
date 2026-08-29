@@ -1043,6 +1043,26 @@ export const previewChallengeWinners = adminQuery({
 
 // ─── Nettoyage e2e ───────────────────────────────────────────────────────────
 
+/**
+ * E2E — repositionne la deadline d'un défi, y compris DANS LE PASSÉ.
+ *
+ * La mutation de production refuse de raccourcir la deadline d'un défi ouvert,
+ * et c'est une règle qu'on tient à garder. Il faut donc un moyen de faire
+ * VOYAGER LE TEMPS pour vérifier ce qui se passe une fois la deadline franchie —
+ * autrement ce comportement ne serait jamais exercé.
+ *
+ * ⚠️ Ce raccourci ne court-circuite AUCUNE des règles testées : c'est bien
+ * `newWinnersAt` qui décide, avec la vraie deadline lue en base. Le helper
+ * déplace l'horloge, pas la logique.
+ */
+export const e2eSetChallengeDeadline = e2eMutation({
+  args: { id: v.id("challenges"), deadline: v.number() },
+  handler: async (ctx, { id, deadline }): Promise<{ ok: true }> => {
+    await ctx.db.patch(id, { deadline });
+    return { ok: true };
+  },
+});
+
 export const cleanupTestChallenges = e2eMutation({
   args: {},
   handler: async (ctx): Promise<{ deleted: number }> => {
