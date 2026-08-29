@@ -27,6 +27,10 @@ import {
   emailDate,
   emailAmount,
 } from "./emailMessages";
+import {
+  buildReminderEmail,
+  groupRemindersByRecipient,
+} from "./reminderGrouping";
 
 /**
  * Notifications EMAIL (Resend) — 5 événements : invitation créateur, vidéo
@@ -483,55 +487,51 @@ export const runDeadlineReminders = internalAction({
     let sent = 0;
     let skipped = 0;
     let failed = 0;
-    for (const t of targets.slice(0, REMINDER_MAX_PER_RUN)) {
-      if (isNonNotifiableRecipient(t.email, t.name)) {
-        skipped++;
+    // GROUPAGE par destinataire AVANT de borner : la borne compte des E-MAILS,
+    // pas des missions. La borner sur les missions couperait un lot en deux et
+    // renverrait le reste le lendemain — soit exactement le second e-mail qu'on
+    // cherche à supprimer.
+    const groups = groupRemindersByRecipient(targets, now).slice(
+      0,
+      REMINDER_MAX_PER_RUN,
+    );
+    for (const g of groups) {
+      if (isNonNotifiableRecipient(g.email, g.name)) {
+        skipped += g.items.length;
         continue;
       }
-      const late = t.dueDate < now;
-      const url = `${cfg.appBaseUrl}/app/assignments/${t.assignmentId}`;
-      const copy = reminderEmailCopy(t.locale);
-      const dateStrong = `<strong>${escapeHtml(emailDate(t.dueDate, t.locale))}</strong>`;
-      const missionStrong =
-        t.missionLabel === null
-          ? null
-          : `<strong>${escapeHtml(t.missionLabel)}</strong>`;
-      const subject = copy.subject(late);
+      const mail = buildReminderEmail(
+        g,
+        now,
+        reminderEmailCopy(g.locale),
+        cfg.appBaseUrl,
+      );
+      const subject = mail.subject;
       const html = renderEmail({
         title: subject,
-        bodyHtml:
-          p(copy.greeting(escapeHtml(t.name))) +
-          (late
-            ? // Tête de phrase → majuscule sur le repli sans format nommé.
-              p(
-                copy.lateBody(
-                  missionStrong ?? copy.fallbackMissionLead,
-                  dateStrong,
-                ),
-              ) + p(copy.lateClosing)
-            : p(
-                copy.upcomingBody(
-                  missionStrong ?? copy.fallbackMissionInline,
-                  dateStrong,
-                ),
-              ) + p(copy.upcomingClosing)),
-        cta: { label: copy.ctaLabel, url },
+        bodyHtml: mail.bodyHtml,
+        cta: { label: mail.ctaLabel, url: mail.ctaUrl },
       });
-      const res = await deliver(cfg, "rappel de deadline", t.email, subject, html);
+      const res = await deliver(cfg, "rappel de deadline", g.email, subject, html);
       if (res.ok) {
-        await ctx.runMutation(internal.emails.markDeadlineReminderSent, {
-          assignmentId: t.assignmentId,
-          at: now,
-        });
-        sent++;
+        // Le marqueur reste PAR MISSION : c'est lui qui garantit qu'une mission
+        // ne relance qu'une fois. Un envoi groupé les marque TOUTES — sinon les
+        // missions non marquées repartiraient dans un second message demain.
+        for (const t of g.items) {
+          await ctx.runMutation(internal.emails.markDeadlineReminderSent, {
+            assignmentId: t.assignmentId,
+            at: now,
+          });
+        }
+        sent += g.items.length;
       } else {
-        failed++;
+        failed += g.items.length;
       }
     }
     if (targets.length > 0) {
       console.info(
-        `[emails] rappels deadline : ${sent} envoyé(s), ${skipped} ignoré(s), ${failed} échec(s) ` +
-          `sur ${targets.length} candidat(s).`,
+        `[emails] rappels deadline : ${groups.length} message(s) pour ${sent} mission(s) relancée(s), ` +
+          `${skipped} ignorée(s), ${failed} en échec, sur ${targets.length} candidate(s).`,
       );
     }
     return {
