@@ -25,9 +25,16 @@ export function PayCurrencyWarning({
     >
       <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" />
       <div>
-        <strong>Devise de paie non réglée.</strong> Les montants de paie s&apos;affichent
-        sans symbole tant que <code>payCurrency</code> n&apos;est pas défini sur le
-        projet (mutation <code>projects:setProjectCurrencyBySlug</code>).
+        {/* ⚠️ `{" "}` EXPLICITES : l'espace qui suit une balise inline placée en
+            fin de ligne est mangé au transpile. La bannière affichait « Devise
+            de paie non réglée.Les montants » et « payCurrencyn'est pas défini ».
+            Vu à l'œil sur une capture de l'écran Paiements — l'espace EST dans
+            le source, il ne survit pas au JSX. */}
+        <strong>Devise de paie non réglée.</strong>{" "}
+        Les montants de paie s&apos;affichent sans symbole tant que{" "}
+        <code>payCurrency</code>{" "}
+        n&apos;est pas défini sur le projet (mutation{" "}
+        <code>projects:setProjectCurrencyBySlug</code>).
       </div>
     </div>
   );

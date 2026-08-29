@@ -93,6 +93,21 @@ export function CreateChallengeDialog({
   const [deadline, setDeadline] = useState(() => toDateInput(midnightPlus(14)));
   const [pricingId, setPricingId] = useState<string>("");
   const [saving, setSaving] = useState(false);
+  // ⚠️ `items` sur chaque Select : sans lui, base-ui affiche la VALEUR BRUTE
+  // dans le champ fermé (« cumulative », « first », « cash ») et ne rend le
+  // libellé que dans le menu ouvert. L'écran parlait donc anglais une fois
+  // refermé. Un objet valeur → libellé suffit ; les <SelectItem> gardent le
+  // même texte, il n'y a pas deux sources.
+  const modeItems = {
+    cumulative: "Cumulé — la somme de ses vidéos du défi",
+    single: "Une seule vidéo doit atteindre la barre",
+  };
+  const rewardItems = { cash: "Monétaire", nature: "En nature" };
+  const winnerItems = {
+    first: "La première",
+    topN: "Les N premières",
+    all: "Toutes celles qui franchissent",
+  };
   // Ancre temporelle STABLE au montage : `Date.now()` au render est impur
   // (react-hooks/purity), et la validation d'une deadline n'a pas besoin de la
   // seconde exacte.
@@ -216,6 +231,7 @@ export function CreateChallengeDialog({
             <div className="grid min-w-0 gap-1.5">
               <Label>Mode</Label>
               <Select
+                items={modeItems}
                 value={mode}
                 onValueChange={(v) => setMode((v ?? "cumulative") as "cumulative" | "single")}
               >
@@ -224,11 +240,9 @@ export function CreateChallengeDialog({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="cumulative">
-                    Cumulé — la somme de ses vidéos du défi
+                    {modeItems.cumulative}
                   </SelectItem>
-                  <SelectItem value="single">
-                    Une seule vidéo doit atteindre la barre
-                  </SelectItem>
+                  <SelectItem value="single">{modeItems.single}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -238,6 +252,7 @@ export function CreateChallengeDialog({
             <div className="grid min-w-0 gap-1.5">
               <Label>Récompense</Label>
               <Select
+                items={rewardItems}
                 value={rewardType}
                 onValueChange={(v) => setRewardType((v ?? "cash") as "cash" | "nature")}
               >
@@ -245,14 +260,15 @@ export function CreateChallengeDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="cash">Monétaire</SelectItem>
-                  <SelectItem value="nature">En nature</SelectItem>
+                  <SelectItem value="cash">{rewardItems.cash}</SelectItem>
+                  <SelectItem value="nature">{rewardItems.nature}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="grid min-w-0 gap-1.5">
               <Label>Gagnantes</Label>
               <Select
+                items={winnerItems}
                 value={winnerKind}
                 onValueChange={(v) =>
                   setWinnerKind((v ?? "first") as "first" | "topN" | "all")
@@ -262,11 +278,9 @@ export function CreateChallengeDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="first">La première</SelectItem>
-                  <SelectItem value="topN">Les N premières</SelectItem>
-                  <SelectItem value="all">
-                    Toutes celles qui franchissent
-                  </SelectItem>
+                  <SelectItem value="first">{winnerItems.first}</SelectItem>
+                  <SelectItem value="topN">{winnerItems.topN}</SelectItem>
+                  <SelectItem value="all">{winnerItems.all}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -341,7 +355,9 @@ export function CreateChallengeDialog({
                 La récompense est <strong>par gagnante</strong>, jamais partagée.
                 {winnerKind === "all"
                   ? " Avec « toutes celles qui franchissent », le total n'a pas de plafond connu d'avance."
-                  : " Renseigne le coût réel pour chiffrer l'engagement."}
+                  : rewardType === "cash"
+                    ? " Renseigne le montant pour chiffrer l'engagement."
+                    : " Renseigne le coût réel pour chiffrer l'engagement."}
               </>
             )}
           </p>
@@ -362,7 +378,16 @@ export function CreateChallengeDialog({
             </div>
             <div className="grid min-w-0 gap-1.5">
               <Label>Barème des vidéos du défi</Label>
-              <Select value={pricingId} onValueChange={(v) => setPricingId(v ?? "")}>
+              <Select
+                items={Object.fromEntries(
+                  (pricings ?? []).map((p) => [
+                    p._id,
+                    `${p.name} — ${formatMoney(p.tauxCPM, payCurrency)}/1000 vues`,
+                  ]),
+                )}
+                value={pricingId}
+                onValueChange={(v) => setPricingId(v ?? "")}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Choisir un barème…" />
                 </SelectTrigger>
@@ -375,9 +400,14 @@ export function CreateChallengeDialog({
                 </SelectContent>
               </Select>
               <p className="text-xs text-slate-400">
-                Seuls les barèmes à <strong>fixe nul</strong> sont proposés : les
-                vidéos d&apos;un défi sont payées au CPM (plus la prime), pour
-                qu&apos;elles ne consomment pas le budget fixe des vidéos
+                {/* ⚠️ `{" "}` EXPLICITE : l'espace qui suit une balise inline
+                    est mangé au transpile — la page affichait « fixe nulsont
+                    proposés », vu à l'œil sur une capture, pas à la relecture
+                    (l'espace EST dans le source). */}
+                Seuls les barèmes à <strong>fixe nul</strong>{" "}
+                sont proposés : les vidéos d&apos;un défi sont payées au CPM
+                (plus la prime),
+                pour qu&apos;elles ne consomment pas le budget fixe des vidéos
                 normales.
               </p>
               {pricings !== undefined && pricings.length === 0 && (

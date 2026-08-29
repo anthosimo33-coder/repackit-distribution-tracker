@@ -488,7 +488,8 @@
         "fixedGroup": "Fixe — {done}/{target} vidéos publiées",
         "outOf": "sur {amount}",
         "tierBonus": "Bonus palier {views} vues",
-        "challenge": "Prime de défi — {name}"
+        "challenge": "Prime de défi — {name}",
+        "challengeWin": "Prime de défi — {name}"
       },
       "tiersTitle": "🏆 Paliers de récompense",
       "cumulViews": "{views} vues cumulées",

@@ -189,7 +189,13 @@ function PricingBreakdown({
       {groupes.length === 0 ? (
         <Row label={t("paiements.fixe")} amount={b.fixedTotal} currency={currency} />
       ) : (
-        groupes.map((g) => (
+        groupes
+          // ⚠️ Un barème à budget fixe NUL — celui des DÉFIS — produirait une
+          // ligne « Fixe — 3/1 vidéos publiées sur 0,00 → 0,00 » : un zéro qui
+          // n'apprend rien et qui laisse croire à un manque à gagner. On ne
+          // montre le fixe que là où il existe.
+          .filter((g) => g.montantFixe > 0 || g.fixed > 0)
+          .map((g) => (
           <Row
             key={`${g.pricingId}:${g.montantFixe}:${g.nbVideosCible}`}
             label={t("paiements.line.fixedGroup", {
@@ -227,6 +233,19 @@ function PricingBreakdown({
             currency={currency}
           />
         ))}
+      {/* ⚠️ LA PRIME DE DÉFI, une ligne PAR VICTOIRE. Sans elle, le sous-total
+          contenait la prime sans qu'aucune ligne ne la nomme : la créatrice
+          voyait « 195,08 de CPM » puis « 395,08 de sous-total » et l'addition
+          ne tombait pas juste. Constaté à l'œil sur une capture, pas au
+          typage. */}
+      {b.challengeWins.map((w, i) => (
+        <Row
+          key={`${w.winId}:${i}`}
+          label={t("paiements.line.challengeWin", { name: w.challengeName })}
+          amount={w.montant}
+          currency={currency}
+        />
+      ))}
       <div className="flex items-center justify-between border-t border-slate-100 pt-2 text-sm font-semibold">
         <span>{t("paiements.subtotal")}</span>
         <span className="tabular-nums" data-testid="pricing-total">

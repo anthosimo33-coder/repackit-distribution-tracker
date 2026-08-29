@@ -81,6 +81,14 @@ export function ChallengeMaterialCard({
   );
   const bricks = campaign?.bricks ?? [];
   const of = (kind: string) => bricks.filter((b) => b.kind === kind);
+  // ⚠️ `items` (valeur → libellé) sur chaque Select : sans lui, base-ui affiche
+  // la VALEUR BRUTE dans le champ fermé — ici des ids Convex. L'admin voyait
+  // « md7f3k9x2q1p… » à la place du nom de sa campagne.
+  const labelsOf = (kind: string) =>
+    Object.fromEntries(of(kind).map((b) => [b._id as string, b.label]));
+  const campaignItems = Object.fromEntries(
+    (campaigns ?? []).map((c) => [c._id as string, c.name]),
+  );
 
   const canSave =
     !saving &&
@@ -117,14 +125,16 @@ export function ChallengeMaterialCard({
         <CardTitle className="text-base">Matériel de production</CardTitle>
         <CardDescription>
           Le script que TOUTES les participantes reçoivent. Plusieurs hooks sont
-          servis en rotation : la 1<sup>re</sup> vidéo d&apos;une créatrice prend
-          le 1<sup>er</sup> hook, sa 2<sup>e</sup> le suivant.
+          servis en rotation : la 1<sup>re</sup>{" "}
+          vidéo d&apos;une créatrice prend le 1<sup>er</sup>{" "}
+          hook, sa 2<sup>e</sup> le suivant.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid min-w-0 gap-1.5">
           <Label>Campagne</Label>
           <Select
+            items={campaignItems}
             value={campaignId}
             onValueChange={(v) => {
               setCampaignId(v ?? "");
@@ -194,7 +204,11 @@ export function ChallengeMaterialCard({
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="grid min-w-0 gap-1.5">
                 <Label>Flux</Label>
-                <Select value={fluxId} onValueChange={(v) => setFluxId(v ?? "")}>
+                <Select
+                  items={labelsOf("flux")}
+                  value={fluxId}
+                  onValueChange={(v) => setFluxId(v ?? "")}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Choisir…" />
                   </SelectTrigger>
@@ -209,7 +223,11 @@ export function ChallengeMaterialCard({
               </div>
               <div className="grid min-w-0 gap-1.5">
                 <Label>Description (cta)</Label>
-                <Select value={ctaId} onValueChange={(v) => setCtaId(v ?? "")}>
+                <Select
+                  items={labelsOf("cta")}
+                  value={ctaId}
+                  onValueChange={(v) => setCtaId(v ?? "")}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Choisir…" />
                   </SelectTrigger>
