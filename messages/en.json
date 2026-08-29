@@ -488,7 +488,8 @@
         "fixedGroup": "Flat — {done}/{target} videos published",
         "outOf": "out of {amount}",
         "tierBonus": "{views}-view tier bonus",
-        "challenge": "Challenge prize — {name}"
+        "challenge": "Challenge prize — {name}",
+        "challengeWin": "Challenge prize — {name}"
       },
       "tiersTitle": "🏆 Reward tiers",
       "cumulViews": "{views} total views",
