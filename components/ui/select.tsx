@@ -57,28 +57,44 @@ function SelectTrigger({
 }
 
 /**
- * ⚠️ DEUX RÉGLAGES qui étaient faux, et qui ne se voient qu'à l'œil.
+ * ⚠️ QUATRE RÉGLAGES qui étaient faux, et qui ne se voient qu'À L'ŒIL — aucun
+ * test ne les attrape. Diagnostiqués en lisant les STYLES CALCULÉS du DOM,
+ * après plusieurs tentatives à l'aveugle qui n'avaient rien corrigé.
  *
- * 1. `min-w-(--anchor-width)` et non `w-(--anchor-width)`. Contraindre le menu à
- *    la largeur du CHAMP coupait les options en plein milieu d'un mot
- *    (« Cumulé — la somm/e », « Createurs US — 1,50 $/10 ») : les items sont en
- *    `whitespace-nowrap` et le popup en `overflow-x-hidden`, donc le texte
- *    passait sous le bord sans rien pour le signaler. Le menu part désormais de
- *    la largeur du champ et GRANDIT jusqu'à son contenu, borné à 28rem et à la
- *    largeur de l'écran pour ne pas déborder sur mobile.
+ * 1. LARGEUR. `w-(--anchor-width)` contraignait le menu à la largeur du CHAMP
+ *    et coupait les options en plein milieu d'un mot (« Cumulé — la somm/e »).
+ *    Le menu s'ajuste désormais à son contenu, borné à 28rem et à la largeur de
+ *    l'écran. Surtout : PAS de `w-max` — avec lui la boîte est bien plafonnée,
+ *    mais ses ENFANTS restent dimensionnés sur le contenu maximal, donc ils
+ *    débordent la boîte et se font couper par `overflow-x-hidden`.
  *
- * 2. `alignItemWithTrigger` par défaut à FALSE. À `true`, base-ui superpose le
- *    popup AU champ (comportement « menu natif iOS ») : le menu recouvrait le
- *    label et les champs voisins. Un menu déroulant s'ouvre sous son champ.
- *    Reste surchargeable au cas par cas par les appelants qui voudraient
- *    l'ancien comportement.
+ * 2. RETOUR À LA LIGNE. Deux causes se cumulaient, et corriger la première
+ *    seule ne suffisait pas : `whitespace-nowrap` interdisait le retour, ET
+ *    `shrink-0` empêchait le texte de rétrécir — un enfant flex qui ne peut pas
+ *    rétrécir garde sa largeur intrinsèque et DÉBORDE, qu'il ait le droit de
+ *    wrapper ou non. D'où `min-w-0 flex-1 whitespace-normal` sur l'`ItemText`.
+ *
+ * 3. ALIGNEMENT. `align: "center"` centrait le menu sur son champ : tant qu'il
+ *    faisait la largeur du champ ça passait inaperçu, mais dès qu'il s'élargit
+ *    (cf. 1) il déborde des DEUX côtés et ne s'aligne sur rien. Un menu
+ *    déroulant part du bord GAUCHE de son champ.
+ *
+ * 4. SUPERPOSITION. `alignItemWithTrigger` à `true` fait poser le popup PAR
+ *    DESSUS le champ (comportement « menu natif iOS ») : il recouvrait le label
+ *    et les champs voisins. Reste surchargeable au cas par cas.
+ *
+ * ⚠️ `min-w-(--anchor-width)` et `min-w-36` sont EN CONFLIT — Tailwind n'en
+ * garde qu'un, et c'est `min-w-36` qui gagne. Le menu n'a donc pas de plancher à
+ * la largeur du champ ; en pratique il s'élargit au contenu, ce qui couvre le
+ * cas utile. À reprendre le jour où un menu paraîtra trop étroit sous un champ
+ * large — la classe est laissée là pour que la question reste visible.
  */
 function SelectContent({
   className,
   children,
   side = "bottom",
   sideOffset = 4,
-  align = "center",
+  align = "start",
   alignOffset = 0,
   alignItemWithTrigger = false,
   ...props
