@@ -274,6 +274,20 @@ export interface ReminderCopy {
   /** Repli EN MILIEU DE PHRASE : minuscule (« rappel : ta mission est… »). */
   fallbackMissionInline: string;
   ctaLabel: string;
+
+  // ─── Variante GROUPÉE : plusieurs missions dans UN message ─────────────────
+  // Un lot d'assignation partage une échéance, donc ses N missions deviennent
+  // éligibles le même jour. Sans ces libellés, c'était N e-mails identiques.
+  // La formulation change selon qu'il y a du retard ou non : « on attend » et
+  // « petit rappel » ne se disent pas dans le même ton.
+  /** Objet du message groupé. `lateCount` > 0 ⇒ ton de relance. */
+  groupSubject: (count: number, lateCount: number) => string;
+  /** Phrase d'introduction, avant la liste des missions. */
+  groupIntro: (count: number, lateCount: number) => string;
+  /** Marqueur accolé à une ligne dont l'échéance est dépassée. */
+  groupLateTag: string;
+  groupClosing: string;
+  groupCtaLabel: string;
 }
 
 const REMINDER: Record<Locale, ReminderCopy> = {
@@ -290,6 +304,18 @@ const REMINDER: Record<Locale, ReminderCopy> = {
     fallbackMissionLead: "Ta mission",
     fallbackMissionInline: "ta mission",
     ctaLabel: "Ouvrir ma mission",
+    groupSubject: (n, late) =>
+      late > 0
+        ? `On attend ${late > 1 ? `${late} vidéos` : "une vidéo"} 👀`
+        : `${n} missions arrivent à échéance`,
+    groupIntro: (n, late) =>
+      late > 0
+        ? `Tu as <strong>${n} missions</strong> en cours, dont <strong>${late}</strong> dont l'échéance est déjà passée :`
+        : `Petit rappel : <strong>${n} missions</strong> arrivent à échéance.`,
+    groupLateTag: "en retard",
+    groupClosing:
+      "Tu peux déposer tes vidéos directement depuis ton espace. Si tu as un souci ou besoin de plus de temps, réponds-moi.",
+    groupCtaLabel: "Voir mes missions",
   },
   en: {
     subject: (late) =>
@@ -303,6 +329,18 @@ const REMINDER: Record<Locale, ReminderCopy> = {
     fallbackMissionLead: "Your assignment",
     fallbackMissionInline: "your assignment",
     ctaLabel: "Open my assignment",
+    groupSubject: (n, late) =>
+      late > 0
+        ? `We're waiting on ${late > 1 ? `${late} videos` : "a video"} 👀`
+        : `${n} assignments are due soon`,
+    groupIntro: (n, late) =>
+      late > 0
+        ? `You have <strong>${n} assignments</strong> open, <strong>${late}</strong> of them already past due:`
+        : `Quick reminder: <strong>${n} assignments</strong> are coming due.`,
+    groupLateTag: "past due",
+    groupClosing:
+      "You can upload your videos straight from your space. If something is in the way or you need more time, just reply to me.",
+    groupCtaLabel: "See my assignments",
   },
 };
 
