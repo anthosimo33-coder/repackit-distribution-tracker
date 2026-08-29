@@ -7,6 +7,7 @@ import {
   FilmIcon,
   HelpCircleIcon,
   HomeIcon,
+  ListChecksIcon,
   LogOutIcon,
   UserIcon,
   WalletIcon,
@@ -45,6 +46,9 @@ type NavItem = {
 // les clés de messages sont typées depuis messages/fr.json.
 const NAV_ITEMS = [
   { href: "/app", labelKey: "sidebar.dashboard", icon: HomeIcon, exact: true },
+  // « Mes missions » : la liste sans plafond, juste sous le tableau de bord (qui,
+  // lui, n'en montre que les 5 premières par bloc).
+  { href: "/app/missions", labelKey: "sidebar.missions", icon: ListChecksIcon, exact: false },
   { href: "/app/comptes", labelKey: "sidebar.comptes", icon: AtSignIcon, exact: false },
   {
     href: "/app/paiements",
@@ -86,8 +90,18 @@ export function CreatorSidebar({ onSignOut }: { onSignOut: () => void }) {
   const tools = getCreatorTools(current.slug);
   // « Mes fichiers » + « Mes vidéos » réservés à Snytch (les autres projets n'ont
   // ni Drive ni suivi vidéos exposé).
+  // Découpage par NOM d'item et non par index nu : l'insertion Snytch se faisait
+  // sur `slice(0, 2)` / `slice(2)`, si bien qu'ajouter une entrée en amont
+  // envoyait « Mes fichiers » avant « Mes comptes » sans que rien ne le signale.
+  const afterComptes =
+    NAV_ITEMS.findIndex((it) => it.href === "/app/comptes") + 1;
   const navItems = isSnytchProject(current.slug)
-    ? [...NAV_ITEMS.slice(0, 2), FICHIERS_ITEM, VIDEOS_ITEM, ...NAV_ITEMS.slice(2)]
+    ? [
+        ...NAV_ITEMS.slice(0, afterComptes),
+        FICHIERS_ITEM,
+        VIDEOS_ITEM,
+        ...NAV_ITEMS.slice(afterComptes),
+      ]
     : NAV_ITEMS;
 
   return (

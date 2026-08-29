@@ -427,6 +427,7 @@
     },
     "sidebar": {
       "dashboard": "Dashboard",
+      "missions": "My missions",
       "comptes": "My accounts",
       "paiements": "My payments",
       "profil": "Profile",
@@ -438,6 +439,7 @@
     },
     "bottomNav": {
       "home": "Home",
+      "missions": "Missions",
       "comptes": "Accounts",
       "gains": "Earnings",
       "profil": "Profile",
@@ -601,6 +603,27 @@
       "title": "To catch up",
       "plannedOn": "Planned for {date} — publish it as soon as you can",
       "plannedOnWindow": "Planned for {date} ({window}) — publish it as soon as you can"
+    },
+    "missions": {
+      "title": "My missions",
+      "subtitle": "Everything left to do, day by day.",
+      "seeAll": "+{count} more — see all my missions",
+      "count": "{count, plural, =1 {# mission} other {# missions}}",
+      "empty": "No missions in progress. You're all caught up.",
+      "emptyManaged": "Nothing to shoot right now — the team publishes on your accounts.",
+      "group": {
+        "catchup": "To catch up",
+        "today": "Today",
+        "tomorrow": "Tomorrow",
+        "upcoming": "Coming up",
+        "later": "Later",
+        "undated": "No publication date",
+        "managed": "Handled by the team"
+      },
+      "groupHint": {
+        "catchup": "The planned day has passed and nothing is published yet.",
+        "undated": "No publication date has been planned — shoot them whenever you like."
+      }
     },
     "nudge": {
       "addPaymentInfo": "Add your payment details",

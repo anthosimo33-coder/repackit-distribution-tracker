@@ -63,6 +63,7 @@ test.describe("Espace observé — toutes les pages montent", () => {
     // `getByRole("heading")` nu, lui, se contenterait de n'importe quoi.
     const routes = [
       { chemin: "", nom: "dashboard", titre: /^Bonjour/ },
+      { chemin: "/missions", nom: "missions", titre: /^Mes missions$/ },
       { chemin: "/comptes", nom: "comptes", titre: /^Mes comptes$/ },
       { chemin: "/guide", nom: "guide", titre: /^Comment ça marche$/ },
       { chemin: "/videos", nom: "videos", titre: /^Mes vidéos$/ },

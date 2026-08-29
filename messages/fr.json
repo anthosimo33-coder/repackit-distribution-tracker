@@ -427,6 +427,7 @@
     },
     "sidebar": {
       "dashboard": "Tableau de bord",
+      "missions": "Mes missions",
       "comptes": "Mes comptes",
       "paiements": "Mes paiements",
       "profil": "Profil",
@@ -438,6 +439,7 @@
     },
     "bottomNav": {
       "home": "Accueil",
+      "missions": "Missions",
       "comptes": "Comptes",
       "gains": "Gains",
       "profil": "Profil",
@@ -601,6 +603,27 @@
       "title": "À rattraper",
       "plannedOn": "Prévu le {date} — à publier dès que possible",
       "plannedOnWindow": "Prévu le {date} ({window}) — à publier dès que possible"
+    },
+    "missions": {
+      "title": "Mes missions",
+      "subtitle": "Tout ce qu'il te reste à faire, jour par jour.",
+      "seeAll": "+{count} de plus — voir toutes mes missions",
+      "count": "{count, plural, =1 {# mission} other {# missions}}",
+      "empty": "Aucune mission en cours. Tu es à jour.",
+      "emptyManaged": "Rien à produire pour l'instant — l'équipe publie sur tes comptes.",
+      "group": {
+        "catchup": "À rattraper",
+        "today": "Aujourd'hui",
+        "tomorrow": "Demain",
+        "upcoming": "À venir",
+        "later": "Plus tard",
+        "undated": "Sans date de publication",
+        "managed": "Gérées par l'équipe"
+      },
+      "groupHint": {
+        "catchup": "Le jour prévu est passé et rien n'est encore publié.",
+        "undated": "Aucune date de publication n'a été planifiée — tu peux les tourner quand tu veux."
+      }
     },
     "nudge": {
       "addPaymentInfo": "Ajoute tes coordonnées de paiement",

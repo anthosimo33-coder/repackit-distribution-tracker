@@ -53,6 +53,7 @@
     "components/portal/CreatorSidebar.tsx",
     "components/portal/DriveUploader.tsx",
     "components/portal/EarningsCalculator.tsx",
+    "components/portal/MissionListItem.tsx",
     "components/portal/ModelVideoEmbed.tsx",
     "components/portal/PaymentInfoNudge.tsx",
     "components/portal/PortalLeaderboard.tsx",

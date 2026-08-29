@@ -8,6 +8,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
 import {
   HomeIcon,
+  ListChecksIcon,
   AtSignIcon,
   FilesIcon,
   FilmIcon,
@@ -46,6 +47,10 @@ type Tab = {
 // `as const` : cf CreatorSidebar — labelKey doit rester littéral pour t().
 const BASE_TABS = [
   { href: "/app", labelKey: "bottomNav.home", icon: HomeIcon, exact: true, badgeKey: "actionable" },
+  // « Missions » — la liste sans plafond. Le badge reste sur « Accueil » : c'est
+  // le MÊME compteur (countMyActionable), le porter deux fois afficherait deux
+  // fois le même nombre côte à côte.
+  { href: "/app/missions", labelKey: "bottomNav.missions", icon: ListChecksIcon, exact: false },
   { href: "/app/comptes", labelKey: "bottomNav.comptes", icon: AtSignIcon, exact: false, badgeKey: "warmupDue" },
   { href: "/app/paiements", labelKey: "bottomNav.gains", icon: WalletIcon, exact: false },
   { href: "/app/profil", labelKey: "bottomNav.profil", icon: UserIcon, exact: false },
@@ -89,16 +94,18 @@ export function CreatorBottomNav({
 }) {
   const t = useTranslations("portal");
   const pathname = usePathname();
-  // Snytch → 7 onglets (Fichiers + Vidéos insérés) ; sinon 5 (inchangé).
+  // Snytch → 8 onglets (Fichiers + Vidéos insérés après Comptes) ; sinon 6.
+  // Découpage par NOM et non par index nu : l'assemblage listait BASE_TABS[0..3]
+  // à la main, donc insérer un onglet en amont réordonnait la barre en silence.
   const lastTab = hasTools ? OUTILS_TAB : GUIDE_TAB;
+  const afterComptes =
+    BASE_TABS.findIndex((t) => t.href === "/app/comptes") + 1;
   const tabs: readonly Tab[] = showFiles
     ? [
-        BASE_TABS[0],
-        BASE_TABS[1],
+        ...BASE_TABS.slice(0, afterComptes),
         FICHIERS_TAB,
         VIDEOS_TAB,
-        BASE_TABS[2],
-        BASE_TABS[3],
+        ...BASE_TABS.slice(afterComptes),
         lastTab,
       ]
     : [...BASE_TABS, lastTab];
@@ -126,11 +133,13 @@ export function CreatorBottomNav({
       <ul
         className={cn(
           "mx-auto grid max-w-lg",
-          tabs.length === 7
-            ? "grid-cols-7"
-            : tabs.length === 6
-              ? "grid-cols-6"
-              : "grid-cols-5",
+          tabs.length === 8
+            ? "grid-cols-8"
+            : tabs.length === 7
+              ? "grid-cols-7"
+              : tabs.length === 6
+                ? "grid-cols-6"
+                : "grid-cols-5",
         )}
       >
         {tabs.map((tab) => {
@@ -146,7 +155,11 @@ export function CreatorBottomNav({
                 href={tab.href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "relative flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors",
+                  "relative flex h-16 flex-col items-center justify-center gap-1 font-medium transition-colors",
+                  // À 8 onglets (Snytch), 375 px ne laisse que ~47 px par colonne :
+                  // sans réduction ni bornage, les libellés DÉBORDENT de leur
+                  // cellule et se collent les uns aux autres (« MissionsComptes »).
+                  tabs.length >= 8 ? "text-[10px]" : "text-[11px]",
                   active ? "text-primary" : "text-slate-500 hover:text-slate-900",
                 )}
               >
@@ -158,7 +171,11 @@ export function CreatorBottomNav({
                     </span>
                   )}
                 </span>
-                {t(tab.labelKey)}
+                {/* Borné à la cellule : un libellé trop long est COUPÉ, jamais
+                    étalé sur l'onglet voisin. */}
+                <span className="w-full truncate px-0.5 text-center">
+                  {t(tab.labelKey)}
+                </span>
               </Link>
             </li>
           );
