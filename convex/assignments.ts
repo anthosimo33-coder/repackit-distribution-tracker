@@ -1232,6 +1232,36 @@ export const nudgeAssignment = adminMutation({
  * File de revue vidéo : assignments en video_submitted, avec le MP4 résolu en URL
  * signée (lecture in-app admin). Origin script → nom de campagne visible ADMIN.
  */
+/**
+ * ORDRE DE LA FILE DE VALIDATION — par date de PUBLICATION prévue, pas par date
+ * de création.
+ *
+ * Le tri était `createdAt` croissant. Or une assignation de LOT crée ses N lignes
+ * dans la même transaction : elles portent le MÊME `createdAt` à la milliseconde
+ * près, et le tri ne départageait rien. Cinq vidéos soumises ensemble arrivaient
+ * donc dans un ordre arbitraire, sans que rien à l'écran ne dise laquelle devait
+ * sortir le lendemain.
+ *
+ * SANS `postDate` → EN DERNIER, jamais en tête. Une mission sans date de
+ * publication n'est pas urgente, elle est non planifiée ; la remonter au-dessus
+ * d'un post prévu demain inverserait exactement la question qu'on veut trancher.
+ * (27 % du parc n'a pas de postDate — ce n'est pas un cas de bord.)
+ *
+ * Départages : `dueDate` (échéance de production) puis `createdAt`, pour que
+ * l'ordre soit TOTAL — deux rendus successifs de la même file donnent la même
+ * liste.
+ */
+function compareByPostDate(
+  a: Doc<"assignments">,
+  b: Doc<"assignments">,
+): number {
+  const pa = a.postDate ?? Number.POSITIVE_INFINITY;
+  const pb = b.postDate ?? Number.POSITIVE_INFINITY;
+  if (pa !== pb) return pa - pb;
+  if (a.dueDate !== b.dueDate) return a.dueDate - b.dueDate;
+  return a.createdAt - b.createdAt;
+}
+
 export const listVideoSubmitted = adminQuery({
   args: {},
   handler: async (ctx) => {
@@ -1271,7 +1301,7 @@ export const listVideoSubmitted = adminQuery({
     const brickMap = new Map(scriptBricks.map((b) => [b._id, b]));
     return Promise.all(
       subs
-        .sort((a, b) => a.createdAt - b.createdAt)
+        .sort(compareByPostDate)
         .map(async (a) => {
           const combo = a.scriptCombo;
           // Résumé combo (Tier · Flux · CTA) — contexte ADMIN, comme la modale
@@ -1300,6 +1330,12 @@ export const listVideoSubmitted = adminQuery({
                 : null,
             })),
             dueDate: a.dueDate,
+            // Date de PUBLICATION planifiée — c'est elle qui dit ce qui doit
+            // sortir demain. `dueDate` ne peut pas jouer ce rôle : un lot
+            // d'assignation partage UNE échéance de production, si bien que cinq
+            // vidéos soumises ensemble affichaient cinq fois la même date.
+            postDate: a.postDate ?? null,
+            postWindow: a.postWindow ?? null,
             videoStorageId: a.submittedVideoStorageId ?? null,
             videoUrl: a.submittedVideoStorageId
               ? await ctx.storage.getUrl(a.submittedVideoStorageId)

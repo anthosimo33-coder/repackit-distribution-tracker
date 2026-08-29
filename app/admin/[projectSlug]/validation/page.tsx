@@ -40,6 +40,8 @@ import { AdminPublishForm } from "@/components/admin/AdminPublishForm";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { formatMoney } from "@/lib/format-rate";
+import { countTomorrow, reviewSlot, type ReviewSlot } from "@/lib/review-queue";
+import { formatPostWindow } from "@/convex/postWindow";
 import type { FunctionReturnType } from "convex/server";
 import {
   CheckIcon,
@@ -52,6 +54,7 @@ import {
   FilmIcon,
   FileTextIcon,
   ChevronDownIcon,
+  CalendarClockIcon,
 } from "lucide-react";
 
 type VideoSubmittedRow =
@@ -76,6 +79,73 @@ const nf = new Intl.NumberFormat("fr-FR");
 const formatDate = (ts: number) => new Date(ts).toLocaleDateString("fr-FR");
 
 /**
+ * PASTILLE « ça sort quand » de la file de validation.
+ *
+ * C'est l'information qui manquait : la file affichait `dueDate`, l'échéance de
+ * PRODUCTION — partagée par tout un lot d'assignation. Cinq vidéos soumises
+ * ensemble portaient donc cinq fois la même date, et rien ne disait laquelle
+ * devait sortir le lendemain. Le créneau se lit sur `postDate`.
+ *
+ * Le libellé nomme le jour (« demain ») au lieu de le dater quand il est proche :
+ * c'est ce qui permet de balayer la file sans lire les chiffres.
+ */
+const SLOT_META: Record<
+  ReviewSlot,
+  { className: string; label: (ts: number | null) => string }
+> = {
+  overdue: {
+    className: "border-rose-300 bg-rose-50 text-rose-700",
+    label: (ts) => `Devait sortir le ${formatDate(ts!)}`,
+  },
+  today: {
+    className: "border-orange-300 bg-orange-50 text-orange-700",
+    label: () => "Sort aujourd'hui",
+  },
+  tomorrow: {
+    className: "border-amber-300 bg-amber-50 text-amber-800",
+    label: () => "Sort demain",
+  },
+  upcoming: {
+    className: "border-slate-200 bg-slate-50 text-slate-600",
+    label: (ts) => `Sort le ${formatDate(ts!)}`,
+  },
+  undated: {
+    className: "border-slate-200 bg-white text-slate-400",
+    label: () => "Pas de date de publication",
+  },
+};
+
+function PublicationSlotBadge({
+  postDate,
+  postWindow,
+  now,
+}: {
+  postDate: number | null;
+  postWindow: { startMin: number; endMin: number } | null;
+  now: number;
+}) {
+  const slot = reviewSlot(postDate, now);
+  const meta = SLOT_META[slot];
+  // La plage n'est rendue que si elle existe : sans elle, la pastille reste
+  // exactement ce qu'elle serait sans le champ (aucun tiret orphelin).
+  const plage = formatPostWindow(postWindow ?? undefined);
+  return (
+    <span
+      data-testid="publication-slot"
+      data-slot={slot}
+      className={cn(
+        "inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-semibold",
+        meta.className,
+      )}
+    >
+      <CalendarClockIcon className="size-3" />
+      {meta.label(postDate)}
+      {plage !== null && <span className="font-normal">· {plage}</span>}
+    </span>
+  );
+}
+
+/**
  * Wrapper Suspense pour useSearchParams (Next 16 le suspend) — cf le même
  * découpage dans app/admin/[projectSlug]/inspirations/page.tsx.
  */
@@ -91,6 +161,10 @@ function ValidationPageInner() {
   // Devise de la PAIE créatrices (dollars) — pour les montants de bonus affichés.
   const payCurrency = useProject().project.payCurrency;
   const toReview = useProjectQuery(api.assignments.listVideoSubmitted, {});
+  // Ancre temporelle FIGÉE au montage : « demain » doit être le même demain pour
+  // l'en-tête et pour chaque carte. Un Date.now() par appel les ferait diverger
+  // à la seconde qui change de jour (même patron que le dashboard créateur).
+  const [now] = useState(() => Date.now());
   // Lien profond des notifications hors-app : `?soumission=<assignmentId>` cible
   // UNE soumission (« un lien vers l'écran de validation de CETTE soumission,
   // pas vers la liste »). Sa carte est surlignée et amenée à l'écran.
@@ -112,6 +186,19 @@ function ValidationPageInner() {
           {toReview === undefined
             ? "Chargement…"
             : `${toReview.length} vidéo${toReview.length > 1 ? "s" : ""} en attente de revue`}
+          {/* Le chiffre qui décide de l'ordre de traitement : ce qui doit sortir
+              demain ne peut pas attendre la revue d'après-demain. */}
+          {toReview !== undefined && countTomorrow(toReview, now) > 0 && (
+            <>
+              {" — dont "}
+              <strong
+                data-testid="review-tomorrow-count"
+                className="font-semibold text-amber-700"
+              >
+                {countTomorrow(toReview, now)} à sortir demain
+              </strong>
+            </>
+          )}
         </p>
       </header>
 
@@ -138,6 +225,7 @@ function ValidationPageInner() {
               <VideoReviewCard
                 key={a._id}
                 a={a}
+                now={now}
                 highlighted={a._id === highlightedId}
               />
             ))}
@@ -250,9 +338,13 @@ function ValidationPageInner() {
 
 function VideoReviewCard({
   a,
+  now,
   highlighted = false,
 }: {
   a: VideoSubmittedRow;
+  /** Ancre temporelle du rendu, figée au montage par la page (jamais Date.now()
+   *  au render : deux cartes calculeraient « demain » à deux instants). */
+  now: number;
   /** Cible du lien profond `?soumission=` : surlignée et amenée à l'écran. */
   highlighted?: boolean;
 }) {
@@ -370,8 +462,17 @@ function VideoReviewCard({
               )}
             </div>
           </div>
-          <div className="text-right text-xs text-slate-400">
-            Échéance {formatDate(a.dueDate)}
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <PublicationSlotBadge
+              postDate={a.postDate}
+              postWindow={a.postWindow}
+              now={now}
+            />
+            {/* L'échéance de PRODUCTION reste lisible, mais en second : elle est
+                partagée par tout un lot et ne départage rien. */}
+            <span className="text-xs text-slate-400">
+              Échéance {formatDate(a.dueDate)}
+            </span>
           </div>
         </div>
 
