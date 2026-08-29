@@ -1053,6 +1053,10 @@ async function comptesForCreator(
   // recalcule pas.
   const days = await warmupDaysFor(ctx, projectId);
   const now = Date.now();
+  // Régime STRICT (Snytch) : un compte en warmup, même terminé, n'est pas
+  // publiable tant que l'admin ne l'a pas repassé actif. Résolu SERVEUR, comme
+  // targetDays / dueToday juste en dessous.
+  const strict = await isSnytchProject(ctx, projectId);
   return comptes
     .sort((a, b) => a.handle.localeCompare(b.handle, "fr", { sensitivity: "base" }))
     .map((c) => {
@@ -1064,6 +1068,12 @@ async function comptesForCreator(
         ...c,
         targetDays: effectiveTargetDays(warmupLike, days),
         warmupDone: isWarmupComplete(warmupLike, days),
+        // DISPONIBLE pour publier — MÊME prédicat que `validateTargets` côté
+        // écriture (`isAccountAvailable`, régime strict inclus). Servi plutôt
+        // que redérivé côté client : un calcul parallèle finirait par proposer
+        // un compte que le serveur refuse ensuite, et c'est exactement le
+        // défaut que `dueToday` a été ajouté pour corriger.
+        disponible: isAccountAvailable(c, days, { strict }),
         // Check dû aujourd'hui : servi lui aussi, pour la même raison — le
         // portail affichait « à cocher » sur un calcul client parallèle.
         dueToday:

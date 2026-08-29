@@ -299,3 +299,22 @@ export function useMyWarmupModule(
   if (!enabled) return undefined;
   return va ? asAdmin : mine;
 }
+
+/**
+ * DÉFIS ouverts où la créatrice est nommément inscrite.
+ *
+ * View-as admin → `getChallengesAsAdmin` (adminViewAsQuery, scopé serveur) :
+ * l'observation rend EXACTEMENT le même DTO, donc l'écran ne branche sur rien.
+ */
+export function useMyChallenges(projectId: Id<"projects">) {
+  const va = useViewAs();
+  const mine = useQuery(
+    api.challengePortal.getMyChallenges,
+    va ? "skip" : { projectId },
+  );
+  const asAdmin = useQuery(
+    api.challengePortal.getChallengesAsAdmin,
+    va ? { projectId, creatorId: va.creatorId } : "skip",
+  );
+  return va ? asAdmin : mine;
+}

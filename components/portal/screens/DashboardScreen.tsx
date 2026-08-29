@@ -7,6 +7,7 @@ import { PaymentInfoNudge } from "@/components/portal/PaymentInfoNudge";
 import { PortalLeaderboard } from "@/components/portal/PortalLeaderboard";
 import { CatchUpBanner } from "@/components/portal/CatchUpBanner";
 import { TodayPostBanner } from "@/components/portal/TodayPostBanner";
+import { ChallengeBanner } from "@/components/portal/ChallengeBanner";
 import { CreatorPublicationCalendar } from "@/components/portal/CreatorPublicationCalendar";
 import {
   useMyAssignments,
@@ -181,6 +182,14 @@ export default function DashboardScreen() {
           {/* Bandeau « aujourd'hui tu postes X » (brique D) — LA réponse à « je
               poste quoi ? ». Null si aucune publication planifiée. */}
           <TodayPostBanner list={list} now={nowMs} base={base} />
+
+          {/* DÉFIS — juste SOUS le rattrapage et le post du jour, au-dessus de
+              tout le reste. L'ordre n'est pas négociable : un retard caché sous
+              un défi reste un retard, et les deux bandeaux au-dessus demandent
+              une action qui n'attend pas. Un défi est une opportunité — il
+              mérite d'être vu, pas de couvrir une échéance.
+              Null si elle ne participe à aucun défi ouvert. */}
+          <ChallengeBanner />
 
           {/* 0. Checklist d'onboarding (Snytch) — tant que le compte n'est pas
               activé, on guide au lieu d'afficher un faux « tout à jour ». */}
