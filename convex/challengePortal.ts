@@ -73,14 +73,22 @@ function publicReward(reward: Doc<"challenges">["reward"]): PublicReward {
  * recalculer un fuseau côté navigateur.
  */
 export function nextNightlySyncAt(now: number): number {
-  const parisHourOf = (ts: number): number =>
-    Number(
-      new Intl.DateTimeFormat("fr-FR", {
-        hour: "2-digit",
-        hour12: false,
-        timeZone: "Europe/Paris",
-      }).format(new Date(ts)),
-    );
+  // ⚠️ `formatToParts` et NON `format`. En français, `format` rend « 23 h » —
+  // avec l'espace et le « h ». `Number("23 h")` vaut NaN, la comparaison échoue
+  // TOUJOURS, et la fonction retombait sur son filet `now + 24 h` : chaque
+  // créatrice se voyait annoncer un relevé à l'heure qu'il était, et une échéance
+  // de « 23 h » assez plausible pour ne réveiller personne. Constaté à l'aperçu
+  // visuel, pas au typage ni à la relecture.
+  const parisHourOf = (ts: number): number => {
+    const part = new Intl.DateTimeFormat("fr-FR", {
+      hour: "2-digit",
+      hour12: false,
+      timeZone: "Europe/Paris",
+    })
+      .formatToParts(new Date(ts))
+      .find((p) => p.type === "hour");
+    return part ? Number(part.value) : Number.NaN;
+  };
   // On part de l'heure pleine suivante et on avance heure par heure. 48 essais
   // couvrent deux jours — largement au-delà de tout décalage saisonnier.
   const HOUR = 3_600_000;
