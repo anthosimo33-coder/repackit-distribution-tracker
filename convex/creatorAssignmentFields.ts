@@ -47,6 +47,10 @@ export const CREATOR_ASSIGNMENT_FIELDS = [
   "submittedVideoStreamStatus",
   "videoReviewFeedback",
   "videoRejectedAt",
+  // DÉFI — la créatrice doit savoir qu'une mission relève d'un défi : c'est ce
+  // qui distingue « une vidéo de plus » de « une vidéo qui compte dans le
+  // classement ». Un id seul ne dit rien de plus que l'appartenance.
+  "challengeId",
 ] as const;
 
 /** Champs DÉLIBÉRÉMENT retirés de la sortie créatrice (admin-only / interne /
@@ -64,6 +68,11 @@ export const NON_CREATOR_ASSIGNMENT_FIELDS = [
   // vérifie leur ABSENCE des payloads.
   "contentType",
   "remunerated",
+  // Retrait d'une vidéo du défi : décision de pilotage, du même ordre que
+  // `contentType`. L'écran du défi rend le score CALCULÉ côté serveur — la
+  // créatrice n'a pas besoin de ce champ pour lire un total juste. (À arbitrer :
+  // faut-il le lui DIRE explicitement plutôt que de le taire ? cf rapport.)
+  "challengeRemovedAt",
   // Décomposition script / rejeu / traçabilité admin — JAMAIS côté créatrice.
   "scriptCombo",
   "comboKey",

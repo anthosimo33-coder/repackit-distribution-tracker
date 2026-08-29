@@ -1590,6 +1590,28 @@ export default defineSchema({
     // `computeLivePricingBreakdown` ne ramasse que les porteurs de
     // `pricingSnapshot` — les trois modèles sont mutuellement exclusifs.
     clipRateSnapshot: v.optional(v.number()),
+    // ─── DÉFI — cette vidéo a été produite DANS LE CADRE d'un défi ────────────
+    // Marqueur posé à la création de l'assignation, jamais réécrit. C'est LUI
+    // qui définit le périmètre du score (« uniquement les vidéos publiées dans
+    // le cadre de ce défi ») : sans ce champ, il faudrait deviner par la date ou
+    // par la campagne, et les deux seraient faux.
+    //
+    // ⚠️ TROIS CONSÉQUENCES, toutes voulues :
+    //  1. Les lignes de défi n'occupent PAS la fenêtre de cooldown du projet
+    //     (cf cooldownAnchorOf) : toutes les participantes reçoivent le MÊME
+    //     script le même jour, c'est le principe. Sans cette exclusion, un défi
+    //     stériliserait son combo pour toute la production normale.
+    //  2. Elles sont créées avec `comboImposed: true`, donc déjà hors de
+    //     l'unicité à vie — une créatrice soumet autant de vidéos qu'elle veut
+    //     sur le même script.
+    //  3. Elles portent le pricing DÉDIÉ du défi (montantFixe 0) : groupe de
+    //     paie séparé, le budget fixe des vidéos ordinaires est intouchable.
+    challengeId: v.optional(v.id("challenges")),
+    // Retirée du défi par l'admin : la vidéo reste PUBLIÉE, PAYÉE et TRACKÉE,
+    // seul son apport au score disparaît. Distinct de `cancelled` (statut) et de
+    // `isWarmup`/`remunere` (paie) : trois retraits de natures différentes, qu'on
+    // ne fait jamais jouer l'un pour l'autre.
+    challengeRemovedAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_project", ["projectId"])
@@ -1597,7 +1619,9 @@ export default defineSchema({
     .index("by_format", ["formatId"])
     .index("by_project_status", ["projectId", "status"])
     // S2 — anti-coordination : (créateur, signature de combo).
-    .index("by_creator_combo", ["creatorId", "comboKey"]),
+    .index("by_creator_combo", ["creatorId", "comboKey"])
+    // Défis — le score lit toutes les vidéos d'un défi, toutes créatrices.
+    .index("by_challenge", ["challengeId"]),
 
   // ─── P7 — « Comment ça marche » (guide projet, éditable admin) ────────────
   // Un seul guide markdown par projet (le SYSTÈME, pas un format). Lu par les
@@ -2355,4 +2379,175 @@ export default defineSchema({
     // n'affiche qu'un échantillon. Un décompte tronqué se lirait comme un total.
     pendingCount: v.number(),
   }).index("by_project_kind", ["projectId", "kind"]),
+
+  // ─── DÉFIS — opérations exceptionnelles, limitées dans le temps ────────────
+  // Un défi est attribué NOMINATIVEMENT (challengeParticipants) à un
+  // sous-ensemble de créatrices, avec son propre matériel et son propre
+  // compteur. Il ne remplace RIEN : les vidéos d'un défi sont des assignations
+  // ordinaires (assignments.challengeId), validées par la même file et payées
+  // par le même cycle. Le défi ajoute une PRIME par-dessus, jamais un régime à
+  // part.
+  //
+  // ⚠️ Le score part de ZÉRO à l'ouverture et ne compte QUE les vidéos publiées
+  // dans le cadre du défi. Aucun report d'historique — cf convex/challengeScore.
+  challenges: defineTable({
+    projectId: v.id("projects"),
+    name: v.string(),
+    /** Consigne libre affichée à la créatrice sous le titre. */
+    description: v.optional(v.string()),
+    /**
+     * Objectif de vues — VALEUR LIBRE. Aucune valeur n'est privilégiée dans le
+     * code : ni palier prédéfini, ni seuil « rond » traité à part. Le seul
+     * contrôle est > 0 (une barre à 0 serait franchie par tout le monde à
+     * l'ouverture, y compris par qui n'a rien publié).
+     */
+    targetViews: v.number(),
+    /**
+     * CUMULÉ : somme des vues de ses vidéos du défi.
+     * UNIQUE : sa MEILLEURE vidéo doit atteindre la barre à elle seule.
+     */
+    mode: v.union(v.literal("cumulative"), v.literal("single")),
+    /**
+     * Récompense PAR GAGNANTE — jamais partagée entre elles (200 € × 3 = 600 €).
+     * `cash` : `amount` est dû à CHAQUE gagnante.
+     * `nature` : `libelle` (ex. « iPhone ») + `coutReel` = ce que l'objet nous
+     * COÛTE, jamais son prix public et JAMAIS montré à la créatrice — copie
+     * exacte du précédent bonusUnlocks, y compris l'absence de `coutReel` qui
+     * s'affiche en tiret (un 0 se lirait « gratuit »).
+     */
+    reward: v.object({
+      type: v.union(v.literal("cash"), v.literal("nature")),
+      amount: v.optional(v.number()),
+      libelle: v.optional(v.string()),
+      coutReel: v.optional(v.number()),
+    }),
+    /**
+     * Combien de gagnantes : la première (1), les N premières, ou toutes celles
+     * qui franchissent. Objet discriminé plutôt qu'un nombre avec des sentinelles
+     * (0 = toutes ?) — trois intentions distinctes, trois formes distinctes.
+     */
+    winnerRule: v.union(
+      v.object({ kind: v.literal("first") }),
+      v.object({ kind: v.literal("topN"), n: v.number() }),
+      v.object({ kind: v.literal("all") }),
+    ),
+    /** Passée, plus aucune victoire n'est actée. Rien n'est versé si personne
+     *  n'a franchi. Borne INCLUSIVE (cf challengeScore.newWinnersAt). */
+    deadline: v.number(),
+    /**
+     * `draft` : en préparation, INVISIBLE des créatrices.
+     * `active` : ouvert, visible des participantes, le score tourne.
+     * `closed` : clos à la main par l'admin. La fin « de fait » (deadline
+     * dépassée ou places prises) est DÉRIVÉE, pas stockée — un statut persisté
+     * se désynchronise du jour où plus personne ne fait tourner le job.
+     */
+    status: v.union(
+      v.literal("draft"),
+      v.literal("active"),
+      v.literal("closed"),
+    ),
+    /**
+     * MATÉRIEL — la campagne de scripts dont le défi tire son texte, et les
+     * briques IMPOSÉES. Toutes les participantes reçoivent le MÊME matériel :
+     * le tirage anti-coordination est donc court-circuité (comboImposed), comme
+     * pour « Rejouer ce script ». `hookBrickIds` accepte PLUSIEURS hooks (le
+     * script d'un défi en propose souvent 2-3) ; ils sont servis en ROTATION,
+     * par index de soumission. Un seul hook ⇒ combo unique, cas dégénéré.
+     * Absent = défi sans script (vidéos modèles + instructions seulement).
+     */
+    material: v.optional(
+      v.object({
+        campaignId: v.id("scriptCampaigns"),
+        hookBrickIds: v.array(v.id("scriptBricks")),
+        fluxBrickId: v.id("scriptBricks"),
+        ctaBrickId: v.id("scriptBricks"),
+      }),
+    ),
+    /** Vidéos MODÈLES (liens) — même forme que assignments.modelVideos. */
+    modelVideos: v.optional(
+      v.array(
+        v.object({
+          id: v.string(),
+          url: v.string(),
+          title: v.optional(v.string()),
+          note: v.optional(v.string()),
+          addedAt: v.number(),
+        }),
+      ),
+    ),
+    /** Consignes de production, recopiées sur chaque assignation du défi. */
+    instructions: v.optional(v.string()),
+    /** Dossiers d'assets liés, recopiés sur chaque assignation du défi. */
+    assetFolderIds: v.optional(v.array(v.id("assetFolders"))),
+    /**
+     * BARÈME des vidéos du défi. Distinct de celui de la production normale, et
+     * c'est le point : `montantFixe` y vaut 0, donc les vidéos du défi forment
+     * leur PROPRE groupe de paie (payoutGroupKey inclut montantFixe/
+     * nbVideosCible/tauxCPM) et ne peuvent pas consommer le budget fixe des
+     * vidéos ordinaires. Elles touchent CPM + paliers + la prime.
+     */
+    pricingId: v.id("pricings"),
+    createdAt: v.number(),
+    /** Horodatage de l'ouverture (draft → active) : borne basse du score. */
+    openedAt: v.optional(v.number()),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_project_status", ["projectId", "status"]),
+
+  // ─── Qui VOIT le défi — le ciblage nominatif ──────────────────────────────
+  // Table de jointure et non un tableau d'ids sur `challenges` : un défi doit
+  // être visible AVANT qu'une participante ait produit quoi que ce soit, donc la
+  // liste ne peut pas être dérivée des assignations. 1 row = 1 créatrice invitée.
+  // Idempotence : (challengeId, creatorId) unique, imposée serveur.
+  challengeParticipants: defineTable({
+    projectId: v.id("projects"),
+    challengeId: v.id("challenges"),
+    creatorId: v.id("creators"),
+    addedAt: v.number(),
+  })
+    .index("by_challenge", ["challengeId"])
+    .index("by_creator", ["creatorId"])
+    .index("by_challenge_creator", ["challengeId", "creatorId"]),
+
+  // ─── VICTOIRES actées — 1 row = 1 gagnante d'1 défi ───────────────────────
+  // Même nature que `bonusUnlocks` : la récompense est FIGÉE au moment où la
+  // victoire est actée (type/montant/libellé/coût réel), si bien qu'éditer le
+  // défi ensuite ne réécrit pas ce qui est dû.
+  //
+  // ⚠️ UNE VICTOIRE NE SE DÉ-ACQUIERT PAS TOUTE SEULE. Le score peut baisser
+  // (vidéo retirée du défi), la barre peut être dépassée par une autre : rien de
+  // tout cela ne reprend une victoire actée. Seul un geste ADMIN explicite
+  // (`cancelledAt` + motif) le peut, et il est VERROUILLÉ dès que la prime est
+  // versée — même règle que setPublicationWarmup, et pour la même raison :
+  // annuler après versement ferait diverger l'écran de ce qui a été payé.
+  challengeWins: defineTable({
+    projectId: v.id("projects"),
+    challengeId: v.id("challenges"),
+    creatorId: v.id("creators"),
+    /** Instant du RELEVÉ qui a constaté le franchissement (pas Date.now()). */
+    wonAt: v.number(),
+    /** Score AU MOMENT de la victoire — figé, c'est la preuve du départage. */
+    scoreAtWin: v.number(),
+    /** Rang d'attribution, 1-based, dans l'ordre où les places ont été prises. */
+    position: v.number(),
+    /** Récompense FIGÉE (copie du défi au moment de l'acte). */
+    reward: v.object({
+      type: v.union(v.literal("cash"), v.literal("nature")),
+      amount: v.optional(v.number()),
+      libelle: v.optional(v.string()),
+      coutReel: v.optional(v.number()),
+    }),
+    /** Annulation ADMIN : la place est libérée, la prime n'est plus due. */
+    cancelledAt: v.optional(v.number()),
+    /** Motif OBLIGATOIRE à l'annulation (imposé serveur, pas au schéma). */
+    cancelReason: v.optional(v.string()),
+    /** Période "YYYY-MM" où la prime cash est due (cf periodOf). */
+    attributionPeriod: v.string(),
+    /** Marqueur « célébration vue » — UI seule, aucun euro (cf bonusUnlocks). */
+    celebrationSeenAt: v.optional(v.number()),
+  })
+    .index("by_challenge", ["challengeId"])
+    .index("by_creator", ["creatorId"])
+    .index("by_project", ["projectId"])
+    .index("by_challenge_creator", ["challengeId", "creatorId"]),
 });

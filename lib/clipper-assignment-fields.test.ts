@@ -126,6 +126,10 @@ describe("clipperAssignmentFields — allowlist anti-fuite clippeur", () => {
       "formatId",
       "rateSnapshot",
       "pricingSnapshot",
+      // Les DÉFIS sont réservés aux créatrices partenaires : un clippeur monte
+      // les rushes d'un talent, il n'a jamais de vidéo à lui dans un défi. Le
+      // champ est donc exposé d'un côté et classé NON_CLIPPER de l'autre.
+      "challengeId",
     ]);
     expect(onlyClipper).toEqual([]);
   });

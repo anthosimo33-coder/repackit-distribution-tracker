@@ -323,6 +323,18 @@ async function comboCooldownDaysFor(
  * fantômes sur des posts jamais publiés.
  */
 function cooldownAnchorOf(a: Doc<"assignments">): number | null {
+  // ─── Les vidéos de DÉFI n'occupent aucune fenêtre ──────────────────────────
+  // Un défi donne le MÊME script à toutes ses participantes, le même jour :
+  // c'est son principe, pas un accident. Sans cette sortie, la première
+  // assignation de défi stériliserait son combo pour toute la production
+  // normale pendant la fenêtre — on aurait construit un mécanisme qui se
+  // sabote lui-même.
+  //
+  // ⚠️ Sortie ici et non dans les appelants : `cooldownAnchorOf` est le point
+  // unique par lequel TOUS les lecteurs de cooldown passent (tirage, aperçu,
+  // garde d'édition, premier créneau libre). Un filtre posé dans l'un d'eux
+  // seulement laisserait les autres compter ces lignes.
+  if (a.challengeId !== undefined) return null;
   if (typeof a.postDate === "number") return a.postDate;
   const stamps = (a.targets ?? [])
     .map((t) => t.publishedAt)
