@@ -505,6 +505,27 @@ export const finishNightlyRun = internalAction({
       console.error("[nightly-views] recalcul du quadrant en échec :", e);
     }
 
+    // DÉFIS — les victoires se constatent ICI, pour la MÊME raison que le
+    // quadrant : les vues qu'elles lisent viennent d'être écrites. Une
+    // évaluation menée à un autre moment rendrait le même résultat avec un
+    // horodatage trompeur — et `wonAt` est la preuve du départage.
+    //
+    // `at: startedAt` et non `Date.now()` : la victoire est datée du RELEVÉ, pas
+    // de la minute où la chaîne s'achève. Sans ça, deux gagnantes constatées au
+    // même relevé porteraient des instants différents selon la longueur de la
+    // chaîne, et « à franchissement constaté au même relevé » cesserait d'être
+    // vérifiable dans la donnée.
+    //
+    // Encapsulé, comme le quadrant : un défi en échec ne doit pas priver l'admin
+    // de l'alerte de panne de relevé ci-dessous.
+    try {
+      await ctx.runAction(internal.challengeSync.runChallengeEvaluation, {
+        at: startedAt,
+      });
+    } catch (e) {
+      console.error("[nightly-views] évaluation des défis en échec :", e);
+    }
+
     for (const [projectId, comptes] of groupByProject(tally)) {
       if (projectId === "" || !shouldAlert(comptes)) continue;
       const failed = failedComptes(comptes);

@@ -36,6 +36,7 @@ import { formatMoney } from "@/lib/format-rate";
 import { progressRatio, type WinnerRule } from "@/convex/challengeScore";
 import { ChallengeMaterialCard } from "@/components/challenges/ChallengeMaterialCard";
 import { ChallengeParticipantsCard } from "@/components/challenges/ChallengeParticipantsCard";
+import { ChallengeWinsCard } from "@/components/challenges/ChallengeWinsCard";
 import {
   deadlineLabel,
   formatViews,
@@ -61,6 +62,8 @@ export default function ChallengeDetailPage() {
   const open = useProjectMutation(api.challenges.openChallenge);
   const close = useProjectMutation(api.challenges.closeChallenge);
   const remove = useProjectMutation(api.challenges.deleteChallenge);
+  const evaluate = useProjectMutation(api.challengeSync.evaluateChallengeNow);
+  const setRemoved = useProjectMutation(api.challenges.setChallengeVideoRemoved);
   const [busy, setBusy] = useState(false);
   const [now] = useState(() => Date.now());
 
@@ -148,13 +151,32 @@ export default function ChallengeDetailPage() {
             </>
           )}
           {c.status === "active" && (
-            <Button
-              variant="outline"
-              disabled={busy}
-              onClick={() => act(() => close({ id }), "Défi clos")}
-            >
-              Clore
-            </Button>
+            <>
+              {/* Ne pas attendre 23h30 quand on vient d'ouvrir ou de corriger.
+                  Passe par le MÊME chemin que le relevé nocturne — un second
+                  chemin d'écriture des victoires divergerait, et ce sont des
+                  primes. */}
+              <Button
+                variant="outline"
+                disabled={busy}
+                data-testid="challenge-evaluate-now"
+                onClick={() =>
+                  act(async () => {
+                    const r = await evaluate({ id });
+                    return r;
+                  }, "Évaluation faite")
+                }
+              >
+                Évaluer maintenant
+              </Button>
+              <Button
+                variant="outline"
+                disabled={busy}
+                onClick={() => act(() => close({ id }), "Défi clos")}
+              >
+                Clore
+              </Button>
+            </>
           )}
         </div>
       </header>
@@ -303,6 +325,8 @@ export default function ChallengeDetailPage() {
         </CardContent>
       </Card>
 
+      <ChallengeWinsCard wins={wins} currency={payCurrency} />
+
       <div className="grid gap-6 lg:grid-cols-2">
         <ChallengeMaterialCard
           challengeId={id}
@@ -334,6 +358,7 @@ export default function ChallengeDetailPage() {
                 <TableHead>Vues</TableHead>
                 <TableHead>Statut</TableHead>
                 <TableHead>Compte au score</TableHead>
+                <TableHead className="w-32" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -355,11 +380,37 @@ export default function ChallengeDetailPage() {
                       <span className="text-slate-400">pas encore publiée</span>
                     )}
                   </TableCell>
+                  <TableCell>
+                    {/* RETIRER n'est pas SUPPRIMER : la vidéo reste publiée,
+                        payée et trackée, seul son apport au score disparaît.
+                        Sans ce geste, le seul moyen de corriger un score serait
+                        de supprimer la publication — qui emporterait
+                        l'historique, les relevés et la trace de paie. */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={busy}
+                      onClick={() =>
+                        act(
+                          () =>
+                            setRemoved({
+                              assignmentId: v.assignmentId,
+                              removed: v.removedAt === null,
+                            }),
+                          v.removedAt === null
+                            ? "Vidéo retirée du défi (elle reste publiée)"
+                            : "Vidéo réintégrée au défi",
+                        )
+                      }
+                    >
+                      {v.removedAt === null ? "Retirer du défi" : "Réintégrer"}
+                    </Button>
+                  </TableCell>
                 </TableRow>
               ))}
               {videos.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={4} className="py-8 text-center text-sm text-slate-500">
+                  <TableCell colSpan={5} className="py-8 text-center text-sm text-slate-500">
                     Aucune vidéo soumise pour l&apos;instant.
                   </TableCell>
                 </TableRow>
