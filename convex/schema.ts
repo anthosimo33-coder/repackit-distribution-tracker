@@ -1786,6 +1786,9 @@ export default defineSchema({
             views: v.optional(v.number()),
             /** kind « retainer » : index de cycle, 1-indexé à l'affichage. */
             cycleIndex: v.optional(v.number()),
+            /** kind « challenge » : nom du défi gagné, figé au paiement. Le
+             *  libellé se recompose autour dans la langue de la lectrice. */
+            challengeName: v.optional(v.string()),
           }),
         ),
         amount: v.number(),
@@ -1801,6 +1804,17 @@ export default defineSchema({
         // réutiliser `base` mettrait un forfait dans le seau de l'accrual legacy
         // par post, et « base = une vidéo publiée » deviendrait faux pour une
         // population qui ne publie rien.
+        // challenge = PRIME d'une victoire de défi. Un kind À PART, et non un
+        // `bonus_tier` recyclé : une prime de défi n'est pas un palier de
+        // cumul, elle ne se déclenche pas sur les mêmes faits, et le grand
+        // livre doit pouvoir les distinguer six mois plus tard. C'est la règle
+        // que ce même commentaire pose déjà pour `clip` et `retainer`.
+        //
+        // ⚠️ UNE LIGNE PAR VICTOIRE, jamais agrégée — à la différence de
+        // `bonus_tier`, gelé en une ligne unique dont le commentaire d'origine
+        // reconnaît qu'« aucun détail par palier n'est récupérable », ce qui
+        // force `unlockIsFrozen` à raisonner par fenêtre. Ici chaque ligne
+        // nomme son défi : l'annulation reste vérifiable, et l'écran lisible.
         kind: v.union(
           v.literal("base"),
           v.literal("bonus"),
@@ -1809,6 +1823,7 @@ export default defineSchema({
           v.literal("bonus_tier"),
           v.literal("clip"),
           v.literal("retainer"),
+          v.literal("challenge"),
         ),
         // Chantier C — plateforme du post (paiement PAR POST : N lineItems base
         // par assignment, 1 par cible). Optional : le bonus (1/assignment) et

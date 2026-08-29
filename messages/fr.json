@@ -460,7 +460,8 @@
         "cpm": "CPM",
         "bonus_tier": "Palier",
         "clip": "Clip",
-        "retainer": "Forfait"
+        "retainer": "Forfait",
+        "challenge": "Prime"
       },
       "fixe": "Fixe",
       "cpmAccum": "CPM accumulé (sur tes vues)",
@@ -486,7 +487,8 @@
         "retainer": "Forfait — cycle {cycle}",
         "fixedGroup": "Fixe — {done}/{target} vidéos publiées",
         "outOf": "sur {amount}",
-        "tierBonus": "Bonus palier {views} vues"
+        "tierBonus": "Bonus palier {views} vues",
+        "challenge": "Prime de défi — {name}"
       },
       "tiersTitle": "🏆 Paliers de récompense",
       "cumulViews": "{views} vues cumulées",

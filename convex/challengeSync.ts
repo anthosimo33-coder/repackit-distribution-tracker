@@ -10,6 +10,7 @@ import {
 } from "./challenges";
 import { newWinnersAt, type WinnerRule } from "./challengeScore";
 import { periodOf } from "./payments";
+import { cycleIndexOf, cyclePeriodKey, cycleWindow } from "./payCycle";
 
 /**
  * DÉFIS — l'ÉVALUATION, et elle a lieu au RELEVÉ. Nulle part ailleurs.
@@ -138,20 +139,32 @@ export const cancelChallengeWin = adminMutation({
     if (motif.length === 0) {
       throw new ConvexError("Un motif d'annulation est requis.");
     }
-    // VERROU DE PAIE — la prime est-elle déjà partie ? On regarde la période
-    // d'attribution de la victoire : si son paiement est `paid`, l'argent est
-    // versé et l'écran doit continuer de le refléter.
-    const paid = (
+    // ── VERROU DE PAIE — la prime est-elle déjà partie ? ─────────────────────
+    //
+    // ⚠️ DEUX MODES DE PAIE COHABITENT, et c'est le piège : `attributionPeriod`
+    // est un mois calendaire (« 2026-08 ») alors qu'un cycle J+30 payé écrit une
+    // row dont la période est une DATE (« 2026-08-14 », cf cyclePeriodKey). Ne
+    // comparer que la première laisse passer toutes les primes payées en cycle —
+    // le verrou existait et ne verrouillait rien. Constaté par la contre-épreuve
+    // chiffrée, pas à la relecture.
+    //
+    // C'est exactement la précaution que prend déjà `unlockIsFrozen` pour les
+    // paliers, et pour la même raison. On teste donc les DEUX fenêtres.
+    const paidRows = (
       await ctx.db
         .query("payments")
         .withIndex("by_creator", (q) => q.eq("creatorId", win.creatorId))
         .collect()
-    ).filter(
-      (p) =>
-        p.projectId === ctx.projectId &&
-        p.status === "paid" &&
-        p.period === win.attributionPeriod,
-    );
+    ).filter((p) => p.projectId === ctx.projectId && p.status === "paid");
+    const creator = await ctx.db.get(win.creatorId);
+    const anchor = creator?.payAnchorAt ?? creator?.firstPostAt;
+    const paid = paidRows.filter((p) => {
+      if (p.period === win.attributionPeriod) return true; // mode mensuel
+      if (anchor === undefined) return false;
+      // Mode cycles : le cycle qui CONTIENT la victoire est-il payé ?
+      const k = cycleIndexOf(anchor, win.wonAt);
+      return p.period === cyclePeriodKey(cycleWindow(anchor, k).cycleStart);
+    });
     if (paid.length > 0) {
       throw new ConvexError(
         "Cette victoire n'est plus annulable : sa prime a déjà été versée " +

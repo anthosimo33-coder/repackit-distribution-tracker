@@ -460,7 +460,8 @@
         "cpm": "CPM",
         "bonus_tier": "Tier",
         "clip": "Clip",
-        "retainer": "Retainer"
+        "retainer": "Retainer",
+        "challenge": "Prize"
       },
       "fixe": "Flat",
       "cpmAccum": "Accrued CPM (on your views)",
@@ -486,7 +487,8 @@
         "retainer": "Retainer — cycle {cycle}",
         "fixedGroup": "Flat — {done}/{target} videos published",
         "outOf": "out of {amount}",
-        "tierBonus": "{views}-view tier bonus"
+        "tierBonus": "{views}-view tier bonus",
+        "challenge": "Challenge prize — {name}"
       },
       "tiersTitle": "🏆 Reward tiers",
       "cumulViews": "{views} total views",
