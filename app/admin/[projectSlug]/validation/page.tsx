@@ -453,11 +453,24 @@ function VideoReviewCard({
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-0.5">
             <div className="font-medium text-slate-900">{a.creatorName}</div>
-            <div className="flex items-center gap-2 text-sm text-slate-500">
+            <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
               {a.label}
               {a.origin === "script" && (
                 <Badge variant="secondary" className="text-[10px]">
                   Script
+                </Badge>
+              )}
+              {/* DÉFI — ce qu'on valide ici compte dans un classement en cours.
+                  Sans ce badge, la vidéo arriverait sous le nom de la campagne
+                  dont son script est tiré, indistinguable d'une vidéo
+                  ordinaire : refuser sans le savoir coûte une place à
+                  quelqu'un. */}
+              {a.challengeName !== null && (
+                <Badge
+                  className="bg-amber-100 text-[10px] text-amber-800 hover:bg-amber-100"
+                  data-testid="validation-challenge-badge"
+                >
+                  Défi — {a.challengeName}
                 </Badge>
               )}
             </div>

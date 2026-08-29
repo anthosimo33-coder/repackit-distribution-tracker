@@ -1271,7 +1271,7 @@ export const listVideoSubmitted = adminQuery({
         q.eq("projectId", ctx.projectId).eq("status", "video_submitted"),
       )
       .collect();
-    const [creators, formats, campaigns, comptes, scriptBricks] =
+    const [creators, formats, campaigns, comptes, scriptBricks, challenges] =
       await Promise.all([
         ctx.db
           .query("creators")
@@ -1293,10 +1293,15 @@ export const listVideoSubmitted = adminQuery({
           .query("scriptBricks")
           .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
           .collect(),
+        ctx.db
+          .query("challenges")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect(),
       ]);
     const creatorMap = new Map(creators.map((c) => [c._id, c.name]));
     const formatMap = new Map(formats.map((f) => [f._id, f.name]));
     const campaignMap = new Map(campaigns.map((c) => [c._id, c.name]));
+    const challengeMap = new Map(challenges.map((c) => [c._id, c.name]));
     const compteMap = new Map(comptes.map((c) => [c._id, c.handle]));
     const brickMap = new Map(scriptBricks.map((b) => [b._id, b]));
     return Promise.all(
@@ -1322,6 +1327,14 @@ export const listVideoSubmitted = adminQuery({
                 ? (formatMap.get(a.formatId) ?? "—")
                 : "—",
             origin: (combo ? "script" : "format") as "script" | "format",
+            // DÉFI — sans ce champ, une soumission de défi arriverait dans la
+            // file exactement comme une vidéo ordinaire, sous le nom de la
+            // campagne dont son script est tiré. L'admin ne saurait pas que ce
+            // qu'il valide compte dans un classement en cours, ni lequel.
+            challengeName:
+              a.challengeId !== undefined
+                ? (challengeMap.get(a.challengeId) ?? "Défi")
+                : null,
             // Chantier C — cibles (plateforme + compte) : « 1 vidéo → N posts ».
             targets: (a.targets ?? []).map((t) => ({
               platform: t.platform,

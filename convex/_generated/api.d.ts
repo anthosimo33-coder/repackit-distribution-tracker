@@ -22,6 +22,7 @@ import type * as assetsMigration from "../assetsMigration.js";
 import type * as assignments from "../assignments.js";
 import type * as auth from "../auth.js";
 import type * as calendarStatus from "../calendarStatus.js";
+import type * as challengePortal from "../challengePortal.js";
 import type * as challengeScore from "../challengeScore.js";
 import type * as challenges from "../challenges.js";
 import type * as clipQuota from "../clipQuota.js";
@@ -160,6 +161,7 @@ declare const fullApi: ApiFromModules<{
   assignments: typeof assignments;
   auth: typeof auth;
   calendarStatus: typeof calendarStatus;
+  challengePortal: typeof challengePortal;
   challengeScore: typeof challengeScore;
   challenges: typeof challenges;
   clipQuota: typeof clipQuota;
