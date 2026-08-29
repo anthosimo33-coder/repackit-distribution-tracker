@@ -10,6 +10,11 @@ import {
 import { internalMutation } from "./_generated/server";
 import { isPortalRole } from "./roles";
 import { warmupTargetDaysOf } from "./warmup";
+import {
+  COMBO_COOLDOWN_DAYS_FALLBACK,
+  assertValidComboCooldownDays,
+  comboCooldownDaysOf,
+} from "./comboCooldown";
 import { ConvexError, v } from "convex/values";
 import type { QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -792,6 +797,56 @@ export const setWarmupSettings = adminMutation({
     await ctx.db.patch(ctx.projectId, {
       warmupTargetDays: aucune ? undefined : next,
     });
+    return { updated: true };
+  },
+});
+
+/**
+ * COOLDOWN DE COMBO DU PROJET — lecture et écriture par l'admin.
+ *
+ * Un champ vide n'est PAS un zéro : vide = « ce projet ne définit rien » et la
+ * durée retombe sur le dernier recours ; `0` = « cooldown désactivé », une
+ * décision explicite. Même distinction que le barème de warmup, et pour la même
+ * raison : un nombre seul ne sait pas dire lequel des deux on veut.
+ *
+ * NE TOUCHE PAS aux combos déjà attribués — ils sont figés sur leur assignation
+ * et ne sont jamais rejugés. Le réglage n'agit que sur les tirages à venir.
+ */
+export const getComboCooldownSettings = adminQuery({
+  args: {},
+  handler: async (
+    ctx,
+  ): Promise<{
+    /** Valeur posée par le projet. null = aucune (repli sur le défaut). */
+    defined: number | null;
+    /** Durée réellement appliquée par le tirage. */
+    effective: number;
+    /** Le défaut, pour l'afficher sous un champ vide. */
+    fallback: number;
+  }> => {
+    const project = await ctx.db.get(ctx.projectId);
+    return {
+      defined: project?.comboCooldownDays ?? null,
+      effective: comboCooldownDaysOf(project ?? {}),
+      fallback: COMBO_COOLDOWN_DAYS_FALLBACK,
+    };
+  },
+});
+
+export const setComboCooldownDays = adminMutation({
+  args: { days: v.union(v.number(), v.null()) },
+  handler: async (ctx, { days }): Promise<{ updated: true }> => {
+    // La validation vit dans le module pur (bornes + message), pas ici : c'est
+    // elle que les tests vitest exercent.
+    let clean: number | undefined;
+    try {
+      clean = assertValidComboCooldownDays(days);
+    } catch (e) {
+      throw new ConvexError(
+        e instanceof Error ? e.message : "Durée de cooldown invalide.",
+      );
+    }
+    await ctx.db.patch(ctx.projectId, { comboCooldownDays: clean });
     return { updated: true };
   },
 });

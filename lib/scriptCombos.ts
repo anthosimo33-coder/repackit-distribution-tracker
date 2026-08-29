@@ -17,16 +17,16 @@
 import { assembleScript, type ScriptKind, type ScriptTier } from "./scriptAssembly";
 
 /**
- * Fenêtre de COOLDOWN d'un combo à l'échelle du PROJET, en jours. Un comboKey
- * programmé (ou publié) à moins de `COOLDOWN_DAYS` d'une date visée n'est pas
- * réattribuable à cette date — même sur un autre compte, même chez une autre
- * créatrice. Passé ce délai il redevient piochable : ce n'est PAS une exclusion
- * à vie (celle-là existe par créateur×plateforme, cf lib/script-combo-uniqueness).
+ * La DURÉE du cooldown ne vit plus ici : c'est un réglage PAR PROJET
+ * (`projects.comboCooldownDays`), lu par `comboCooldownDaysOf`. Les fonctions de
+ * ce module la reçoivent en PARAMÈTRE OBLIGATOIRE — jamais par défaut.
  *
- * Seule et unique définition de la durée — ne pas réécrire « 4 » ailleurs.
+ * ⚠️ Le caractère obligatoire est le point. Un paramètre à valeur par défaut
+ * laisserait un appelant oublié compiler en silence avec le mauvais nombre de
+ * jours, et personne ne le verrait avant de constater des doublons en ligne.
+ * Ici, un site d'appel oublié casse le typecheck. Même contrat que
+ * `lib/warmup.defaultTargetDays(plateforme, days)`.
  */
-export const COOLDOWN_DAYS = 4;
-
 const DAY_MS = 86_400_000;
 
 /** Usage d'un combo déjà en base, réduit à ce dont le cooldown a besoin. */
@@ -44,9 +44,12 @@ export interface ScheduledComboUsage {
  * comboKeys INDISPONIBLES pour une date visée, à l'échelle du projet.
  *
  * Borne STRICTE : un écart de EXACTEMENT `cooldownDays` jours est AUTORISÉ.
- * Avec 4 jours — J+3 refusé, J+4 accepté. Symétrique (valeur absolue) : on
- * protège aussi bien vers le passé que vers le futur, sinon programmer à
- * rebours contournerait la règle.
+ * Avec 1 jour (le défaut) — le jour même refusé, la veille et le lendemain
+ * acceptés. Symétrique (valeur absolue) : on protège aussi bien vers le passé
+ * que vers le futur, sinon programmer à rebours contournerait la règle.
+ *
+ * `cooldownDays = 0` désactive le cooldown (aucun écart n'est jamais strictement
+ * inférieur à 0) — l'unicité à vie, elle, continue de s'appliquer.
  *
  * ⚠️ Les combos IMPOSÉS occupent la fenêtre comme les autres, alors qu'ils sont
  * ignorés de l'unicité à vie. Ce n'est pas une incohérence : un combo imposé est
@@ -60,7 +63,7 @@ export interface ScheduledComboUsage {
 export function comboKeysInCooldown(
   usages: ScheduledComboUsage[],
   targetAt: number | null | undefined,
-  cooldownDays: number = COOLDOWN_DAYS,
+  cooldownDays: number,
 ): Set<string> {
   const out = new Set<string>();
   if (targetAt === null || targetAt === undefined) return out;
@@ -108,7 +111,7 @@ export function shiftPostDatesByDays(dates: number[], days: number): number[] {
 export function firstFreeSlotAfter(
   usages: ScheduledComboUsage[],
   targetAt: number,
-  cooldownDays: number = COOLDOWN_DAYS,
+  cooldownDays: number,
 ): number | null {
   const window = cooldownDays * DAY_MS;
   let best: number | null = null;

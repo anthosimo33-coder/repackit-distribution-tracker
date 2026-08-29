@@ -75,7 +75,7 @@ import {
   isHookAvailable,
   type HookAvailability,
 } from "@/convex/hookAvailability";
-import { COOLDOWN_DAYS } from "@/lib/scriptCombos";
+import { COMBO_COOLDOWN_DAYS_FALLBACK } from "@/convex/comboCooldown";
 import { campaignNameMatches, LAB_CAMPAIGN_NAME } from "@/convex/graduation";
 import { AssignScriptCampaignDialog } from "@/components/admin/AssignScriptCampaignDialog";
 import type { FunctionReturnType } from "convex/server";
@@ -107,6 +107,13 @@ export default function ScriptCampaignDetailPage() {
   const hookUsages = useProjectQuery(
     api.scripts.hookUsagesForCampaign,
     availableFor === NO_CREATOR ? "skip" : { campaignId: id },
+  );
+  // Fenêtre de cooldown DU PROJET (réglage produit). Le badge « Cooldown → JJ/MM »
+  // doit annoncer la durée que le tirage applique réellement ; la lire dans une
+  // constante du client la ferait mentir dès le premier réglage.
+  const cooldownSettings = useProjectQuery(
+    api.projects.getComboCooldownSettings,
+    {},
   );
   // Date visée = MAINTENANT : la question posée est « assignable aujourd'hui ».
   const [now] = useState(() => Date.now());
@@ -151,7 +158,12 @@ export default function ScriptCampaignDetailPage() {
       creatorId: availableFor,
       platforms: creatorPlatforms,
       targetAt: now,
-      cooldownMs: COOLDOWN_DAYS * 86_400_000,
+      // Le repli sur le défaut ne dure que le temps du chargement de la query —
+      // c'est la même valeur que le serveur appliquerait à un projet sans
+      // réglage, donc le badge ne clignote jamais vers une durée inventée.
+      cooldownMs:
+        (cooldownSettings?.effective ?? COMBO_COOLDOWN_DAYS_FALLBACK) *
+        86_400_000,
     });
   };
 

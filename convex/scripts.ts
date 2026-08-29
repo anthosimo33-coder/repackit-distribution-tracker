@@ -12,6 +12,7 @@ import {
   representativePostedAt,
 } from "./assignments";
 import { formatDateFr } from "./dateFr";
+import { comboCooldownDaysOf } from "./comboCooldown";
 import { isValidPostWindow } from "./postWindow";
 import { buildPricingSnapshot } from "./pricing";
 import { canTransition } from "./rushStatus";
@@ -285,9 +286,24 @@ function usedComboKeysForPlatforms(
   return used;
 }
 
-/** Fenêtre de cooldown projet — RÉPLIQUE de lib/scriptCombos.COOLDOWN_DAYS (A6). */
-const COOLDOWN_DAYS = 4;
 const DAY_MS = 86_400_000;
+
+/**
+ * Durée de cooldown DU PROJET, en jours. Réglage produit (`comboCooldownDays`),
+ * défaut dans `convex/comboCooldown.ts` — module PUR partagé par le serveur, lib
+ * et le client, donc aucune réplique A6 à tenir sur la valeur.
+ *
+ * Lue à CHAQUE appel plutôt que mise en cache : un tirage doit obéir au réglage
+ * en vigueur au moment où il tourne, et une lecture de document de plus est
+ * négligeable devant la lecture intégrale des assignments du projet que le
+ * cooldown fait déjà juste à côté.
+ */
+async function comboCooldownDaysFor(
+  ctx: QueryCtx | MutationCtx,
+  projectId: Id<"projects">,
+): Promise<number> {
+  return comboCooldownDaysOf((await ctx.db.get(projectId)) ?? {});
+}
 
 /**
  * Statuts qui ne réservent AUCUNE fenêtre : la vidéo a été refusée, le script
@@ -317,7 +333,12 @@ function cooldownAnchorOf(a: Doc<"assignments">): number | null {
 /**
  * comboKeys indisponibles à `targetAt` sur TOUT le projet — RÉPLIQUE EXACTE de
  * lib/scriptCombos.comboKeysInCooldown (règle A6). Borne stricte : un écart
- * d'exactement COOLDOWN_DAYS est autorisé (J+3 refusé, J+4 accepté).
+ * d'exactement `cooldownDays` est autorisé (avec 1 jour : le jour même refusé,
+ * la veille acceptée).
+ *
+ * `cooldownDays` est OBLIGATOIRE, comme côté lib : un appelant qui oublierait de
+ * le passer doit casser le typecheck, pas retomber en silence sur une durée qui
+ * n'est pas celle du projet.
  *
  * Les combos IMPOSÉS occupent la fenêtre (une publication imposée sort pour de
  * vrai) alors qu'ils sont ignorés de l'unicité à vie : « hors règles » veut dire
@@ -326,6 +347,7 @@ function cooldownAnchorOf(a: Doc<"assignments">): number | null {
 function comboKeysInCooldownServer(
   projectAssignments: Doc<"assignments">[],
   targetAt: number | null | undefined,
+  cooldownDays: number,
 ): Set<string> {
   const out = new Set<string>();
   if (targetAt === null || targetAt === undefined) return out;
@@ -334,7 +356,7 @@ function comboKeysInCooldownServer(
     if (COMBO_FREEING_STATUSES.has(a.status)) continue;
     const anchor = cooldownAnchorOf(a);
     if (anchor === null) continue;
-    if (Math.abs(anchor - targetAt) < COOLDOWN_DAYS * DAY_MS) out.add(a.comboKey);
+    if (Math.abs(anchor - targetAt) < cooldownDays * DAY_MS) out.add(a.comboKey);
   }
   return out;
 }
@@ -347,6 +369,7 @@ function comboKeysInCooldownServer(
 function firstFreeSlotServer(
   projectAssignments: Doc<"assignments">[],
   targetAt: number,
+  cooldownDays: number,
 ): number | null {
   let best: number | null = null;
   for (const a of projectAssignments) {
@@ -354,8 +377,8 @@ function firstFreeSlotServer(
     if (COMBO_FREEING_STATUSES.has(a.status)) continue;
     const anchor = cooldownAnchorOf(a);
     if (anchor === null) continue;
-    if (Math.abs(anchor - targetAt) >= COOLDOWN_DAYS * DAY_MS) continue;
-    const freeAt = anchor + COOLDOWN_DAYS * DAY_MS;
+    if (Math.abs(anchor - targetAt) >= cooldownDays * DAY_MS) continue;
+    const freeAt = anchor + cooldownDays * DAY_MS;
     if (best === null || freeAt < best) best = freeAt;
   }
   return best;
@@ -389,6 +412,8 @@ function pickForDates(input: {
   projectRows: Doc<"assignments">[];
   postDates: number[] | undefined;
   count: number;
+  /** Durée de cooldown DU PROJET (cf comboCooldownDaysFor). Obligatoire. */
+  cooldownDays: number;
   manualExclusions?: string[];
   onExhausted?: (targetAt: number | undefined) => void;
 }): ServerCombo[] {
@@ -398,7 +423,7 @@ function pickForDates(input: {
     const targetAt = input.postDates?.[i];
     const excluded = new Set<string>([
       ...input.lifetimeKeys,
-      ...comboKeysInCooldownServer(input.projectRows, targetAt),
+      ...comboKeysInCooldownServer(input.projectRows, targetAt, input.cooldownDays),
       ...takenThisCall,
     ]);
     const one = pickCombosServer(input.combos, excluded, 1);
@@ -488,6 +513,8 @@ async function assertComboFreeForCreatorPlatforms(
   // un script programmé ailleurs dans la fenêtre. Sans ce contrôle, l'édition
   // serait la porte de sortie de la règle.
   if (input.targetAt === undefined || input.targetAt === null) return;
+  const cooldownDays = await comboCooldownDaysFor(ctx, input.projectId);
+  if (cooldownDays === 0) return; // cooldown désactivé pour ce projet
   const projectRows = await projectAssignmentsForCooldown(ctx, input.projectId);
   for (const a of projectRows) {
     if (a._id === input.excludeAssignmentId) continue;
@@ -495,7 +522,7 @@ async function assertComboFreeForCreatorPlatforms(
     if (COMBO_FREEING_STATUSES.has(a.status)) continue;
     const anchor = cooldownAnchorOf(a);
     if (anchor === null) continue;
-    if (Math.abs(anchor - input.targetAt) >= COOLDOWN_DAYS * DAY_MS) continue;
+    if (Math.abs(anchor - input.targetAt) >= cooldownDays * DAY_MS) continue;
     // Message OPÉRATIONNEL : sans le compte ni les dates, l'admin ne peut ni
     // vérifier ni choisir une autre date — il ne peut que subir le refus.
     const handles: string[] = [];
@@ -507,8 +534,9 @@ async function assertComboFreeForCreatorPlatforms(
     const oue = handles.length > 0 ? handles.join(", ") : "un autre compte";
     throw new ConvexError(
       `Ce script est déjà programmé sur ${oue} le ${formatDateFr(anchor)} ` +
-        `(cooldown de ${COOLDOWN_DAYS} jours). Il redevient disponible le ` +
-        `${formatDateFr(anchor + COOLDOWN_DAYS * DAY_MS)}.`,
+        `(cooldown de ${cooldownDays} jour${cooldownDays > 1 ? "s" : ""}). ` +
+        `Il redevient disponible le ` +
+        `${formatDateFr(anchor + cooldownDays * DAY_MS)}.`,
     );
   }
 }
@@ -603,7 +631,12 @@ export const previewCombosForAssignment = adminQuery({
         : allBricks.filter((b) => b.kind !== "hook" || b.tier === args.tier);
     const combos = generateCombosServer(bricks);
     if (combos.length === 0) {
-      return { combos: [], total: 0, shortage: args.videosPerCreator > 0 };
+      return {
+        combos: [],
+        total: 0,
+        shortage: args.videosPerCreator > 0,
+        cooldownDays: await comboCooldownDaysFor(ctx, ctx.projectId),
+      };
     }
     const existing = await ctx.db
       .query("assignments")
@@ -615,12 +648,14 @@ export const previewCombosForAssignment = adminQuery({
       args.targets.map((t) => t.platform),
     );
     const projectRows = await projectAssignmentsForCooldown(ctx, ctx.projectId);
+    const cooldownDays = await comboCooldownDaysFor(ctx, ctx.projectId);
     const picked = pickForDates({
       combos,
       lifetimeKeys,
       projectRows,
       postDates: args.postDates,
       count: args.videosPerCreator,
+      cooldownDays,
       manualExclusions: args.excludedComboKeys,
     });
 
@@ -653,7 +688,7 @@ export const previewCombosForAssignment = adminQuery({
         dernierUsage = {
           compte: handles.join(", ") || "un autre compte",
           le: anchor,
-          disponibleLe: anchor + COOLDOWN_DAYS * DAY_MS,
+          disponibleLe: anchor + cooldownDays * DAY_MS,
         };
       }
       out.push({
@@ -670,6 +705,10 @@ export const previewCombosForAssignment = adminQuery({
       combos: out,
       total: combos.length,
       shortage: picked.length < args.videosPerCreator,
+      // La fenêtre EFFECTIVE du projet, rendue au client : l'aperçu explique la
+      // rotation qu'il montre, et il ne peut pas annoncer une durée différente de
+      // celle que le tirage vient d'appliquer (c'est la même variable).
+      cooldownDays,
     };
   },
 });
@@ -1266,20 +1305,23 @@ export const assignScriptCampaign = adminMutation({
         args.creatorId,
         targetPlatforms,
       );
-      // COOLDOWN PROJET : un combo programmé (ou sorti) à moins de COOLDOWN_DAYS
-      // de la date visée est indisponible, quel que soit le compte ou la
-      // créatrice. Deux exclusions qui se CUMULENT, elles ne se remplacent pas :
-      // l'unicité à vie reste appliquée par-dessus.
+      // COOLDOWN PROJET : un combo programmé (ou sorti) à moins de
+      // `cooldownDays` de la date visée est indisponible, quel que soit le
+      // compte ou la créatrice. Deux exclusions qui se CUMULENT, elles ne se
+      // remplacent pas : l'unicité à vie reste appliquée par-dessus (et n'a
+      // aucun réglage — mettre 0 jour ici ne la relâche pas).
       const projectRows = await projectAssignmentsForCooldown(
         ctx,
         ctx.projectId,
       );
+      const cooldownDays = await comboCooldownDaysFor(ctx, ctx.projectId);
       picked = pickForDates({
         combos,
         lifetimeKeys,
         projectRows,
         postDates: args.postDates,
         count: args.videosPerCreator,
+        cooldownDays,
         manualExclusions: args.excludedComboKeys,
         onExhausted: (targetAt) => {
           // POOL ÉPUISÉ pour cette date. On ne dégrade pas en silence : assigner
@@ -1287,12 +1329,13 @@ export const assignScriptCampaign = adminMutation({
           // les dates suivantes déciderait du planning à la place de l'admin.
           // On refuse en disant QUAND ça repasse.
           if (targetAt === undefined) return;
-          const freeAt = firstFreeSlotServer(projectRows, targetAt);
+          const freeAt = firstFreeSlotServer(projectRows, targetAt, cooldownDays);
           if (freeAt === null) return;
           throw new ConvexError(
             `Plus aucun script disponible pour le ${formatDateFr(targetAt)} : ` +
-              `tous ceux de cette campagne sont déjà programmés dans les ` +
-              `${COOLDOWN_DAYS} jours. Le premier se libère le ` +
+              `tous ceux de cette campagne sont déjà programmés à ` +
+              `${cooldownDays} jour${cooldownDays > 1 ? "s" : ""} ou moins. ` +
+              `Le premier se libère le ` +
               `${formatDateFr(freeAt)} — replanifie à partir de cette date, ` +
               `ou ajoute des briques à la campagne.`,
           );
@@ -1317,14 +1360,22 @@ export const assignScriptCampaign = adminMutation({
         ? verbatimCombo.comboKey
         : comboKeyOf(picked[0]);
       const rows = await projectAssignmentsForCooldown(ctx, ctx.projectId);
+      const imposedCooldownDays = await comboCooldownDaysFor(ctx, ctx.projectId);
       for (let i = 0; i < picked.length; i++) {
         const targetAt = args.postDates?.[i];
-        if (!comboKeysInCooldownServer(rows, targetAt).has(imposedKey)) continue;
+        if (
+          !comboKeysInCooldownServer(rows, targetAt, imposedCooldownDays).has(
+            imposedKey,
+          )
+        ) {
+          continue;
+        }
         console.warn(
           `[combo-cooldown] Combo imposé ${imposedKey} assigné à ${creator.name} ` +
             `le ${formatDateFr(targetAt as number)} alors qu'il est déjà programmé ` +
-            `dans les ${COOLDOWN_DAYS} jours sur ce projet. Laissé passer ` +
-            `(imposé = volontaire), mais c'est un doublon inter-comptes.`,
+            `à ${imposedCooldownDays} jour${imposedCooldownDays > 1 ? "s" : ""} ` +
+            `ou moins sur ce projet. Laissé passer (imposé = volontaire), mais ` +
+            `c'est un doublon inter-comptes.`,
         );
       }
     }
