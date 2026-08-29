@@ -319,7 +319,16 @@ function BottomNav({ items, base, isActive, badgeCount }: NavRenderProps) {
       <ul
         className={cn(
           "mx-auto grid max-w-lg",
-          items.length === 6 ? "grid-cols-6" : "grid-cols-5",
+          // ⚠️ La table doit couvrir TOUTES les tailles possibles. Elle s'arrêtait
+          // à 6, si bien que l'arrivée de « Mes missions » (7 items sur Snytch)
+          // faisait retomber la barre sur `grid-cols-5` : deux items passaient à
+          // la ligne, sous la zone visible. Tailwind ne pouvant pas générer
+          // `grid-cols-${n}` à la volée, la table reste explicite.
+          items.length === 7
+            ? "grid-cols-7"
+            : items.length === 6
+              ? "grid-cols-6"
+              : "grid-cols-5",
         )}
       >
         {items.map((it) => {
@@ -332,7 +341,7 @@ function BottomNav({ items, base, isActive, badgeCount }: NavRenderProps) {
                 href={portalHref(base, it.sub)}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "relative flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors",
+                  "relative flex h-16 w-full flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors",
                   active ? "text-primary" : "text-slate-500 hover:text-slate-900",
                 )}
               >
@@ -344,7 +353,11 @@ function BottomNav({ items, base, isActive, badgeCount }: NavRenderProps) {
                     </span>
                   )}
                 </span>
-                {k(it.shortLabelKey)}
+                {/* Borné à la cellule, comme dans la barre créatrice : un
+                    libellé trop long est coupé, jamais étalé sur le voisin. */}
+                <span className="w-full truncate px-0.5 text-center">
+                  {k(it.shortLabelKey)}
+                </span>
               </Link>
             </li>
           );
