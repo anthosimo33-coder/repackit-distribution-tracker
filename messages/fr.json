@@ -440,6 +440,8 @@
     "bottomNav": {
       "home": "Accueil",
       "missions": "Missions",
+      "more": "Plus",
+      "moreTitle": "Autres écrans",
       "comptes": "Comptes",
       "gains": "Gains",
       "profil": "Profil",
