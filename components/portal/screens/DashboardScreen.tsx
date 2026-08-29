@@ -2,8 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import type { FunctionReturnType } from "convex/server";
-import { api } from "@/convex/_generated/api";
 import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
 import { PaymentInfoNudge } from "@/components/portal/PaymentInfoNudge";
 import { PortalLeaderboard } from "@/components/portal/PortalLeaderboard";
@@ -20,6 +18,10 @@ import {
   useMyProgression,
 } from "@/components/portal/creator-data";
 import { usePortalBase } from "@/components/portal/ViewAsContext";
+import {
+  MissionListItem,
+  type CreatorAssignment,
+} from "@/components/portal/MissionListItem";
 import { portalHref } from "@/lib/view-as";
 import { buildProgression } from "@/lib/progression";
 import {
@@ -34,7 +36,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowRightIcon,
@@ -58,12 +59,6 @@ import { cn } from "@/lib/utils";
 import { formatMoney, formatViews } from "@/lib/format-rate";
 import { isSnytchProject } from "@/lib/snytch-drive";
 import type { Id } from "@/convex/_generated/dataModel";
-import {
-  ASSIGNMENT_STATUS,
-  assignmentUrgency,
-  URGENCY_BADGE,
-  type AssignmentStatus,
-} from "@/lib/assignment-status";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { useLabel } from "@/lib/use-label";
@@ -80,25 +75,7 @@ import { formatMoneyDate } from "@/lib/format";
  *     (pas de page de détail dans le mode vue).
  */
 
-type CreatorAssignment = FunctionReturnType<
-  typeof api.assignments.listMyAssignments
->[number];
-
-const TYPE_LABELS: Record<string, string> = {
-  carousel: "Carrousel",
-  short: "Short",
-  screenrecorder: "ScreenRecorder",
-  custom: "Custom",
-};
-
 const ITEM_CAP = 5;
-
-function formatDate(ts: number, locale: string) {
-  return new Date(ts).toLocaleDateString(locale, {
-    day: "2-digit",
-    month: "short",
-  });
-}
 
 export default function DashboardScreen() {
   const t = useTranslations("portal");
@@ -721,6 +698,14 @@ function NextTierCard({
   );
 }
 
+/**
+ * Bloc de missions du dashboard — plafonné à ITEM_CAP.
+ *
+ * Le reliquat n'est plus une mention morte : « +N de plus… » est un LIEN vers
+ * « Mes missions », qui liste tout. Sans ce lien, une créatrice au-delà de 5
+ * missions n'avait aucun chemin vers la 6ᵉ depuis ce bloc (constaté en prod :
+ * 16 missions actionnables pour une créatrice, 5 affichées).
+ */
 function AssignmentList({
   items,
   base,
@@ -733,13 +718,14 @@ function AssignmentList({
   /** Comptes gérés : pas d'urgence, badge « géré par l'équipe » au lieu du statut. */
   managed?: boolean;
 }) {
+  const t = useTranslations("portal");
   const shown = items.slice(0, ITEM_CAP);
   const extra = items.length - shown.length;
   return (
     <ul className="space-y-2">
       {shown.map((a) => (
         <li key={a._id}>
-          <AssignmentItem
+          <MissionListItem
             assignment={a}
             base={base}
             showFeedback={showFeedback}
@@ -748,101 +734,18 @@ function AssignmentList({
         </li>
       ))}
       {extra > 0 && (
-        <li className="px-1 pt-1 text-xs text-slate-400">
-          +{extra} de plus…
+        <li className="px-1 pt-1">
+          <Link
+            href={portalHref(base, "/missions")}
+            data-testid="see-all-missions"
+            className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 underline underline-offset-4 hover:text-slate-900"
+          >
+            {t("missions.seeAll", { count: extra })}
+            <ArrowRightIcon className="size-3" />
+          </Link>
         </li>
       )}
     </ul>
-  );
-}
-
-function AssignmentItem({
-  assignment: a,
-  base,
-  showFeedback,
-  managed,
-}: {
-  assignment: CreatorAssignment;
-  base: string;
-  showFeedback?: boolean;
-  managed?: boolean;
-}) {
-  const tLabel = useLabel();
-  const loc = useIntlLocale();
-  const t = useTranslations("portal");
-  // Compte géré : aucune urgence (elle n'agit pas), et un badge « géré par
-  // l'équipe » remplace le statut de workflow (« À publier » serait trompeur).
-  const urg = managed
-    ? ("none" as const)
-    : assignmentUrgency(a.dueDate, a.status as AssignmentStatus);
-  const st = ASSIGNMENT_STATUS[a.status as AssignmentStatus];
-  const inner = (
-    <>
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0 space-y-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate font-medium text-slate-900">
-              {a.formatName}
-            </span>
-            {a.formatType && (
-              <Badge variant="secondary" className="shrink-0">
-                {TYPE_LABELS[a.formatType] ?? a.formatType}
-              </Badge>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
-            <span className="text-slate-500">
-              {t("dashboard.dueOn", { date: formatDate(a.dueDate, loc) })}
-            </span>
-            {a.targets.length > 0 && (
-              <span className="font-mono text-slate-400">
-                · {a.targets.map((t) => t.platform).join(" · ")}
-              </span>
-            )}
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {urg !== "none" && urg !== "ok" && (
-            <span
-              className={cn(
-                "rounded-full border px-2 py-0.5 text-xs font-semibold",
-                URGENCY_BADGE[urg].className,
-              )}
-            >
-              {tLabel(URGENCY_BADGE[urg].labelKey)}
-            </span>
-          )}
-          <span
-            className={cn(
-              "hidden rounded-full border px-2.5 py-0.5 text-xs font-semibold sm:inline",
-              managed
-                ? "border-slate-300 bg-slate-100 text-slate-600"
-                : st.className,
-            )}
-          >
-            {managed ? t("dashboard.managedBadge") : tLabel(st.labelKey)}
-          </span>
-          <ArrowRightIcon className="size-4 text-slate-400" />
-        </div>
-      </div>
-      {showFeedback && a.videoReviewFeedback && (
-        <p className="mt-2 rounded-md border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700">
-          {a.videoReviewFeedback}
-        </p>
-      )}
-    </>
-  );
-
-  // Lien vers le détail de la mission — dans le portail créateur (/app/...) comme
-  // dans le mode admin view-as (la fiche détail existe dans les deux, en lecture
-  // seule côté admin). usePortalBase fournit la bonne base.
-  return (
-    <Link
-      href={portalHref(base, `/assignments/${a._id}`)}
-      className="block rounded-lg border border-slate-200 bg-white p-3 transition-colors hover:border-slate-300 hover:bg-slate-50"
-    >
-      {inner}
-    </Link>
   );
 }
 

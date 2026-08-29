@@ -117,3 +117,82 @@ export function sortBySchedule<T extends ScheduleItem>(
 ): T[] {
   return [...items].sort((a, b) => compareBySchedule(a, b, now));
 }
+
+/**
+ * REGROUPEMENT PAR JOUR de la liste de missions — ce qui fait qu'« une semaine
+ * se lit d'un coup ».
+ *
+ * Quatre familles, dans l'ordre où elles doivent être lues :
+ *   - `catchup` : le jour prévu est passé (ou le créneau du jour est dépassé),
+ *     rien n'est publié. Même prédicat que le bandeau rouge — `isToCatchUp` est
+ *     appelé, jamais réimplémenté : deux définitions du retard finiraient par
+ *     désigner des missions différentes dans deux endroits de l'écran.
+ *   - `days` : un seau PAR JOUR sur l'horizon demandé, à partir d'aujourd'hui.
+ *     Les jours vides ne sont pas matérialisés (une semaine à trois missions ne
+ *     doit pas afficher quatre sections vides).
+ *   - `later` : au-delà de l'horizon.
+ *   - `undated` : aucune `postDate`. Ces missions-là n'apparaissent NI au
+ *     calendrier NI dans les bandeaux — sans cette famille, elles resteraient
+ *     invisibles partout ailleurs que dans un bloc plafonné.
+ *
+ * PUR (`now` injecté), donc testable, et sans dépendance au fuseau autre que
+ * celle du navigateur — le repère est le JOUR LOCAL, comme `dayIndex` ci-dessus
+ * et comme le calendrier créatrice.
+ */
+export interface ScheduleGroups<T> {
+  catchup: T[];
+  days: { dayStart: number; items: T[] }[];
+  later: T[];
+  undated: T[];
+}
+
+/** Minuit LOCAL du jour d'un instant (borne de seau, et clé de tri). */
+function startOfLocalDay(ts: number): number {
+  const d = new Date(ts);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+export function groupBySchedule<T extends ScheduleItem>(
+  items: T[],
+  now: number,
+  horizonDays: number = 7,
+): ScheduleGroups<T> {
+  const out: ScheduleGroups<T> = { catchup: [], days: [], later: [], undated: [] };
+  const byDay = new Map<number, T[]>();
+  const todayStart = startOfLocalDay(now);
+  const horizonEnd = todayStart + horizonDays * 86_400_000;
+
+  for (const item of items) {
+    if (item.postDate == null) {
+      out.undated.push(item);
+      continue;
+    }
+    if (isToCatchUp(item, now)) {
+      out.catchup.push(item);
+      continue;
+    }
+    const dayStart = startOfLocalDay(item.postDate);
+    // Un jour ANTÉRIEUR à aujourd'hui qui n'est pas « à rattraper » est déjà
+    // publié : il n'a rien à faire dans une liste de missions à faire.
+    if (dayStart < todayStart) continue;
+    if (dayStart >= horizonEnd) {
+      out.later.push(item);
+      continue;
+    }
+    const bucket = byDay.get(dayStart);
+    if (bucket) bucket.push(item);
+    else byDay.set(dayStart, [item]);
+  }
+
+  // Le plus ancien retard EN TÊTE : c'est celui qu'on a le plus laissé traîner.
+  out.catchup.sort((a, b) => (a.postDate ?? 0) - (b.postDate ?? 0));
+  out.later.sort((a, b) => (a.postDate ?? 0) - (b.postDate ?? 0));
+  out.days = [...byDay.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([dayStart, group]) => ({
+      dayStart,
+      items: group.sort((a, b) => (a.postDate ?? 0) - (b.postDate ?? 0)),
+    }));
+  return out;
+}

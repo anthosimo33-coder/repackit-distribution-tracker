@@ -8,6 +8,7 @@ import {
   FilmIcon,
   HelpCircleIcon,
   HomeIcon,
+  ListChecksIcon,
   LogOutIcon,
   UserIcon,
   WalletIcon,
@@ -70,6 +71,7 @@ type NavItem = {
 
 const NAV: NavItem[] = [
   { sub: "/", labelKey: "sidebar.dashboard", shortLabelKey: "bottomNav.home", icon: HomeIcon, exact: true, badge: "actionable" },
+  { sub: "/missions", labelKey: "sidebar.missions", shortLabelKey: "bottomNav.missions", icon: ListChecksIcon, exact: false },
   { sub: "/comptes", labelKey: "sidebar.comptes", shortLabelKey: "bottomNav.comptes", icon: AtSignIcon, exact: false, badge: "warmupDue" },
   { sub: "/paiements", labelKey: "sidebar.paiements", shortLabelKey: "bottomNav.gains", icon: WalletIcon, exact: false },
   { sub: "/profil", labelKey: "sidebar.profil", shortLabelKey: "bottomNav.profil", icon: UserIcon, exact: false },
@@ -370,8 +372,9 @@ function PartnerViewShell({ children, locale, messages }: ShellProps) {
   const warmupDue = useWarmupDue(current.projectId) ?? 0;
   const badgeCount = { actionable, warmupDue };
   // « Mes vidéos » réservé à Snytch (comme dans le portail créateur normal).
+  const afterPaiements = NAV.findIndex((it) => it.sub === "/paiements") + 1;
   const navItems = isSnytchProject(current.slug)
-    ? [...NAV.slice(0, 3), VIDEOS_NAV, ...NAV.slice(3)]
+    ? [...NAV.slice(0, afterPaiements), VIDEOS_NAV, ...NAV.slice(afterPaiements)]
     : NAV;
 
   function isActive(item: NavItem) {
