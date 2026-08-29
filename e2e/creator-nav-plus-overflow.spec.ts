@@ -12,16 +12,7 @@ const admin = createE2eClient(url);
 
 const MOBILE = { width: 375, height: 812 };
 
-/**
- * Nom FIXE du projet de test à slug « snytch ».
- *
- * ⚠️ Pas de `${ts}` ici, et ce n'est pas un détail. `e2eEnsureProjectBySlug` est
- * idempotent PAR SLUG : si un run précédent est mort avant son nettoyage, le
- * projet survit avec SON nom, et un nom horodaté ne serait plus jamais trouvé
- * dans le switcher — le test échouerait ensuite à chaque exécution, pour une
- * raison étrangère à ce qu'il mesure. C'est le piège de la base locale polluée,
- * déjà payé une fois sur ce chantier.
- */
+/** Nom du projet de test à slug « snytch » (fixe : le slug seul l'identifie). */
 const SNYTCH_NOM = "E2E Snytch (nav)";
 
 /**
@@ -86,10 +77,25 @@ test.describe("Créateur — barre mobile et entrée « Plus »", () => {
       email,
       projectId,
     });
+    // Projet courant posé DIRECTEMENT dans le stockage local, au lieu de passer
+    // par le switcher.
+    //
+    // POURQUOI. `CreatorProjectProvider` hydrate son projet courant depuis
+    // localStorage APRÈS le montage : le temps d'un rendu, `current` retombe sur
+    // le PREMIER projet du créateur. Sur un écran gaté par le slug — « Mes
+    // vidéos » l'est — cette fenêtre rend un écran « indisponible », et en build
+    // de PRODUCTION un sous-arbre mort ne se rétablit pas comme en `next dev`.
+    // La spec échouait donc en CI (trois tentatives) tout en passant en local :
+    // reproduit ici avec `CI=true` (2 échecs, verte à la 3ᵉ).
+    //
+    // Ce n'est pas ce que cette spec mesure. On pose l'état de départ, et la
+    // barre est mesurée dans un contexte déterministe. La persistance du projet
+    // courant reste couverte par creator-multi-project.spec.ts.
+    await page.addInitScript(
+      ([key, id]) => window.localStorage.setItem(key, id),
+      ["creator-current-project", projectId as string] as const,
+    );
     await page.goto("/app");
-    await page.getByRole("button", { name: "Changer de projet" }).click();
-    await page.getByRole("menuitem", { name: SNYTCH_NOM }).click();
-    await page.waitForURL("**/app", { timeout: 20_000 });
     await expect(cellules).toHaveCount(7, { timeout: 20_000 });
 
     // L'ASSERTION CENTRALE : les deux écrans ne sont plus des onglets.
@@ -110,6 +116,12 @@ test.describe("Créateur — barre mobile et entrée « Plus »", () => {
     });
     await feuille.getByRole("link", { name: "Vidéos" }).click();
     await page.waitForURL("**/app/videos", { timeout: 20_000 });
+    // LA FEUILLE DOIT S'ÊTRE FERMÉE. Cette barre vit dans le layout, qui ne se
+    // démonte pas au changement de route : sans fermeture explicite, la feuille
+    // restait ouverte PAR-DESSUS l'écran ouvert, et son `aria-hidden` rendait
+    // tout le contenu invisible aux requêtes par rôle. Défaut trouvé par la CI
+    // (build de production), invisible en `next dev`.
+    await expect(feuille).toHaveCount(0, { timeout: 10_000 });
     await expect(
       page.getByRole("heading", { level: 1, name: "Mes vidéos" }),
     ).toBeVisible({ timeout: 20_000 });

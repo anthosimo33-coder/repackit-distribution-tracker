@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -126,6 +127,13 @@ export function CreatorBottomNav({
   const tabs: readonly Tab[] = [...BASE_TABS, lastTab];
   const overflow = showFiles ? OVERFLOW_ITEMS : [];
   const overflowActive = overflow.some((it) => pathname.startsWith(it.href));
+  // Feuille CONTRÔLÉE, et c'est nécessaire, pas un raffinement : cette barre vit
+  // dans le LAYOUT, qui ne se démonte pas au changement de route. Une feuille
+  // non contrôlée reste donc ouverte APRÈS la navigation, par-dessus l'écran
+  // qu'on vient d'ouvrir — et son `aria-hidden` masque tout le contenu derrière.
+  // Constaté en CI (build de production) sur l'écran « Mes vidéos », invisible
+  // tant que la feuille était encore là.
+  const [moreOpen, setMoreOpen] = useState(false);
   // Nombre de colonnes = onglets + l'entrée « Plus » si le projet en a besoin.
   // Table EXPLICITE : Tailwind ne peut pas générer `grid-cols-${n}` à la volée
   // (les classes sont extraites du source), et une classe absente ferait
@@ -197,7 +205,7 @@ export function CreatorBottomNav({
         })}
         {overflow.length > 0 && (
           <li>
-            <Sheet>
+            <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
               <SheetTrigger
                 render={
                   <button
@@ -233,11 +241,11 @@ export function CreatorBottomNav({
                     const active = pathname.startsWith(it.href);
                     return (
                       <li key={it.href}>
-                        {/* SheetClose n'enveloppe pas le lien : la feuille se
-                            ferme d'elle-même à la navigation (démontage), et
-                            l'imbriquer ferait un bouton dans un lien. */}
+                        {/* La fermeture est EXPLICITE : la navigation seule ne
+                            démonte pas la feuille (cf `moreOpen` ci-dessus). */}
                         <Link
                           href={it.href}
+                          onClick={() => setMoreOpen(false)}
                           aria-current={active ? "page" : undefined}
                           className={cn(
                             "flex h-14 items-center gap-3 rounded-lg px-3 text-base font-medium transition-colors",
