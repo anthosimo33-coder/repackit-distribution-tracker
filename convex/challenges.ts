@@ -590,7 +590,14 @@ export const closeChallenge = adminMutation({
   handler: async (ctx, { id }): Promise<{ ok: true }> => {
     const c = await requireChallenge(ctx, id, ctx.projectId);
     if (c.status === "closed") return { ok: true };
-    await ctx.db.patch(id, { status: "closed" });
+    // `closedAt` est un FAIT distinct de la deadline : la fin réelle est le
+    // premier des deux, et c'est elle qui ouvre la fenêtre de 7 jours pendant
+    // laquelle la créatrice voit encore le résultat.
+    await ctx.db.patch(id, { status: "closed", closedAt: Date.now() });
+    // Le classement d'arrivée se fige ICI aussi : clore à la main termine le
+    // défi, donc arrête les compteurs. Sans ça, une clôture anticipée laisserait
+    // un « classement final » qui continue de bouger.
+    await freezeFinalRanking(ctx, id);
     return { ok: true };
   },
 });
@@ -694,6 +701,37 @@ export const setChallengeParticipants = adminMutation({
   },
 });
 
+
+/**
+ * FIGE le classement d'arrivée — une seule fois, jamais réécrit.
+ *
+ * ⚠️ Les vues d'un post montent encore pendant des semaines après la fin d'un
+ * défi. Sans ce gel, le « classement final » changerait après coup : une
+ * créatrice remonterait d'une place trois jours plus tard, et le classement
+ * d'arrivée cesserait d'en être un. Le score des GAGNANTES, lui, était déjà figé
+ * (`scoreAtWin`) ; c'est le reste du tableau qui manquait.
+ *
+ * Idempotent : un défi qui a déjà son classement ne le rejoue pas.
+ */
+export async function freezeFinalRanking(
+  ctx: MutationCtx,
+  challengeId: Id<"challenges">,
+): Promise<void> {
+  const c = await ctx.db.get(challengeId);
+  if (!c || c.finalRanking !== undefined) return;
+  const ranking = await computeChallengeRanking(ctx, c);
+  await ctx.db.patch(challengeId, {
+    finalRanking: ranking.map((r) => ({
+      creatorId: r.creatorId as Id<"creators">,
+      name: r.name,
+      score: r.score,
+      videoCount: r.videoCount,
+      rank: r.rank,
+      crossed: r.crossed,
+    })),
+    finalRankingAt: Date.now(),
+  });
+}
 
 // ─── Créer une VIDÉO de défi — le cœur partagé ───────────────────────────────
 

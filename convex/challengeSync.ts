@@ -6,6 +6,7 @@ import type { Id } from "./_generated/dataModel";
 import {
   challengeWinsOf,
   computeChallengeRanking,
+  freezeFinalRanking,
   requireChallenge,
 } from "./challenges";
 import { newWinnersAt, type WinnerRule } from "./challengeScore";
@@ -103,6 +104,13 @@ export const evaluateChallenges = internalMutation({
           `[challenges] « ${c.name} » — ${fresh.length} victoire(s) actée(s) au relevé.`,
         );
       }
+      // FIN DU DÉFI — on fige le classement d'arrivée au PREMIER relevé qui
+      // constate la deadline passée. Après lui, les vues continuent de monter
+      // et un classement recalculé se mettrait à bouger tout seul.
+      //
+      // Fait APRÈS l'acte des victoires, dans le même passage : le classement
+      // figé doit refléter l'état sur lequel les victoires ont été décidées.
+      if (at > c.deadline) await freezeFinalRanking(ctx, c._id);
     }
     return { evaluated: actives.length, won };
   },

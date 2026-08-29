@@ -384,7 +384,10 @@ function ChallengeCard({
             )}
             data-testid="challenge-toggle-board"
           >
-            {t("leaderboard")}
+            {/* « Classement d'arrivée » quand il est FIGÉ : le mot dit que les
+                chiffres ne bougeront plus, ce qui est exactement la différence
+                qu'on vient d'introduire. */}
+            {c.rankingIsFinal ? t("finalRanking") : t("leaderboardLive")}
             <ChevronDownIcon
               className={cn("size-3.5 transition-transform", showBoard && "rotate-180")}
             />

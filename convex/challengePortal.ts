@@ -11,7 +11,9 @@ import {
   requireChallenge,
 } from "./challenges";
 import {
+  challengeEndedAt,
   challengeIsOver,
+  challengeStillVisible,
   progressRatio,
   viewsToTarget,
   winnerSlots,
@@ -133,8 +135,10 @@ export type CreatorChallengeDTO = {
   }[];
   /** Places déjà prises — « il reste 2 places » se dit avec ça. */
   winnersCount: number;
-  /** Terminé de fait (deadline passée ou places prises) : plus rien à jouer. */
+  /** Terminé de fait (deadline passée, places prises, ou clos par l'admin). */
   over: boolean;
+  /** Le classement affiché est-il le classement d'ARRIVÉE (figé) ? */
+  rankingIsFinal: boolean;
   /** Horodatage du dernier relevé qui a nourri ces chiffres. `null` si aucun. */
   lastSyncAt: number | null;
   /** Prochain relevé — « prochain relevé dans X h ». */
@@ -146,10 +150,16 @@ export type CreatorChallengeDTO = {
  * sont ouverts. Un brouillon n'existe pas pour elle ; un défi clos disparaît de
  * son espace (son historique reste côté admin).
  *
- * ⚠️ Un défi TERMINÉ DE FAIT (deadline passée, ou toutes les places prises)
- * reste rendu tant qu'il est `active` : c'est là qu'elle lit le résultat. Le
- * masquer à la seconde où la deadline tombe escamoterait l'issue de ce qu'elle
- * vient de jouer.
+ * ⚠️ UN DÉFI TERMINÉ RESTE VISIBLE 7 JOURS. Le masquer à la seconde où il se
+ * termine escamote précisément le moment qui compte : celui où l'on découvre qui
+ * a gagné. L'émulation se joue là, pas pendant la course. Passé une semaine,
+ * l'écran se libère.
+ *
+ * La fenêtre part de la fin RÉELLE — le premier des deux entre la deadline et la
+ * clôture manuelle (`challengeEndedAt`) — et non de la seule deadline : un défi
+ * clos d'avance traînerait sinon des mois.
+ *
+ * Un `draft` reste invisible : il n'existe pas encore pour elle.
  */
 async function challengesForCreator(
   ctx: QueryCtx,
@@ -168,7 +178,10 @@ async function challengesForCreator(
     if (p.projectId !== projectId) continue;
     const c = await ctx.db.get(p.challengeId);
     if (!c || c.projectId !== projectId) continue;
-    if (c.status !== "active") continue;
+    if (c.status === "draft") continue;
+    if (!challengeStillVisible({ deadline: c.deadline, closedAt: c.closedAt }, now)) {
+      continue;
+    }
 
     // MÊME classement que l'admin et que l'évaluation nocturne : une seule
     // implémentation, sinon le rang affiché ne serait pas celui qui décide.
@@ -199,6 +212,31 @@ async function challengesForCreator(
 
     const rule = c.winnerRule as WinnerRule;
     const slots = winnerSlots(rule);
+    // CLASSEMENT D'ARRIVÉE quand il existe : après la fin, les vues montent
+    // encore, et un classement recalculé changerait tout seul. Le gel est écrit
+    // une fois par l'évaluation (ou la clôture) — ici on le LIT, on ne le
+    // recalcule jamais.
+    const finale = c.finalRanking;
+    const affiche = finale
+      ? finale.map((r) => ({
+          creatorId: r.creatorId as string,
+          name: r.name,
+          score: r.score,
+          videoCount: r.videoCount,
+          rank: r.rank,
+          crossed: r.crossed,
+        }))
+      : ranking;
+    const mineDisplayed = affiche.find((r) => r.creatorId === creatorId);
+    const overNow =
+      c.status === "closed" ||
+      now > challengeEndedAt({ deadline: c.deadline, closedAt: c.closedAt }) ||
+      challengeIsOver({
+        rule,
+        existingWins: liveWins.map((w) => ({ creatorId: w.creatorId })),
+        deadline: c.deadline,
+        now,
+      });
     out.push({
       _id: c._id,
       name: c.name,
@@ -209,12 +247,12 @@ async function challengesForCreator(
       winnerRule: rule,
       slots: Number.isFinite(slots) ? slots : null,
       deadline: c.deadline,
-      myScore: mine?.score ?? 0,
-      myVideoCount: mine?.videoCount ?? 0,
-      myProgress: progressRatio(mine?.score ?? 0, c.targetViews),
-      myViewsToTarget: viewsToTarget(mine?.score ?? 0, c.targetViews),
+      myScore: mineDisplayed?.score ?? mine?.score ?? 0,
+      myVideoCount: mineDisplayed?.videoCount ?? mine?.videoCount ?? 0,
+      myProgress: progressRatio(mineDisplayed?.score ?? 0, c.targetViews),
+      myViewsToTarget: viewsToTarget(mineDisplayed?.score ?? 0, c.targetViews),
       iWon: wonIds.has(creatorId),
-      ranking: ranking.map((r) => ({
+      ranking: affiche.map((r) => ({
         creatorId: r.creatorId,
         name: r.name,
         score: r.score,
@@ -224,12 +262,8 @@ async function challengesForCreator(
         isMe: r.creatorId === creatorId,
       })),
       winnersCount: liveWins.length,
-      over: challengeIsOver({
-        rule,
-        existingWins: liveWins.map((w) => ({ creatorId: w.creatorId })),
-        deadline: c.deadline,
-        now,
-      }),
+      over: overNow,
+      rankingIsFinal: finale !== undefined,
       lastSyncAt,
       nextSyncAt,
     });

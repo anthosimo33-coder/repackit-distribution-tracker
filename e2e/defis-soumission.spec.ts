@@ -387,7 +387,9 @@ test.describe("Défis — soumission libre", () => {
       targets: [tIn],
     });
 
-    // CLOS : plus de soumission, et le défi disparaît de son espace.
+    // CLOS : plus de soumission — mais le défi RESTE VISIBLE (7 jours), avec
+    // son résultat. Le faire disparaître à la clôture escamoterait le moment où
+    // elle découvre l'issue de ce qu'elle vient de jouer.
     await admin.mutation(api.challenges.closeChallenge, { id: challengeId });
     await expect(
       inside.client.mutation(api.challengePortal.startChallengeVideo, {
@@ -396,11 +398,14 @@ test.describe("Défis — soumission libre", () => {
         targets: [tIn],
       }),
     ).rejects.toThrow(/clos/i);
-    expect(
-      await inside.client.query(api.challengePortal.getMyChallenges, {
-        projectId: inside.projectId,
-      }),
-    ).toEqual([]);
+    const apresCloture = await inside.client.query(
+      api.challengePortal.getMyChallenges,
+      { projectId: inside.projectId },
+    );
+    expect(apresCloture).toHaveLength(1);
+    expect(apresCloture[0].over).toBe(true);
+    // Et son classement est désormais celui d'ARRIVÉE : il ne bougera plus.
+    expect(apresCloture[0].rankingIsFinal).toBe(true);
   });
 
   test("le coût réel d'une récompense en nature ne sort JAMAIS côté créatrice", async () => {

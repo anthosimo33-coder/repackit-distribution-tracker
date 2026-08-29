@@ -672,7 +672,9 @@
       "overNoWinner": "Terminé — personne n'a franchi la barre. Rien n'est versé.",
       "overOthersWon": "Terminé — {count, plural, =1 {1 gagnante} other {# gagnantes}}.",
       "othersWon": "{count, plural, =1 {1 place prise} other {# places prises}} — il en reste.",
-      "syncLineOver": "Dernier relevé : {date} à {time}"
+      "syncLineOver": "Dernier relevé : {date} à {time}",
+      "finalRanking": "Classement d'arrivée",
+      "leaderboardLive": "Classement"
     }
   },
   "status": {

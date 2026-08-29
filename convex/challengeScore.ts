@@ -237,6 +237,43 @@ export function challengeIsOver(input: {
 }
 
 /**
+ * Fenêtre pendant laquelle un défi TERMINÉ reste visible dans l'espace de la
+ * créatrice.
+ *
+ * Un défi qui disparaît à la seconde où il se termine escamote précisément le
+ * moment qui compte : celui où l'on découvre qui a gagné. L'émulation se joue
+ * là, pas pendant la course. Sept jours, puis l'écran se libère.
+ */
+export const CHALLENGE_VISIBLE_AFTER_END_DAYS = 7;
+
+/**
+ * Instant où le défi s'est RÉELLEMENT terminé : le premier des deux entre sa
+ * deadline et sa clôture manuelle.
+ *
+ * Prendre le plus TARDIF ferait traîner pendant des mois un défi clos d'avance ;
+ * prendre la seule deadline ignorerait la clôture manuelle. C'est bien le
+ * premier événement qui met fin au jeu.
+ */
+export function challengeEndedAt(input: {
+  deadline: number;
+  closedAt?: number;
+}): number {
+  return input.closedAt !== undefined
+    ? Math.min(input.deadline, input.closedAt)
+    : input.deadline;
+}
+
+/** Le défi terminé est-il encore dans sa fenêtre de 7 jours d'affichage ? */
+export function challengeStillVisible(
+  input: { deadline: number; closedAt?: number },
+  now: number,
+): boolean {
+  const end = challengeEndedAt(input);
+  if (now <= end) return true; // pas encore terminé
+  return now - end <= CHALLENGE_VISIBLE_AFTER_END_DAYS * 86_400_000;
+}
+
+/**
  * Progression vers la barre, bornée à 1 — la barre de l'écran créatrice.
  * `targetViews <= 0` ⇒ 0 plutôt qu'une division par zéro : un objectif nul est
  * refusé à la saisie, mais une donnée corrompue ne doit pas rendre `NaN` à
