@@ -30,6 +30,7 @@ import {
 import { EXPLAIN } from "./explanations";
 import { PromoRpmCard } from "./PromoRpmCard";
 import { buildDayDetail } from "@/lib/day-detail";
+import { countryLabel } from "@/lib/country-name";
 import {
   toDisplayAmount,
   convertedValue,
@@ -714,7 +715,9 @@ function DayDetailRows({
   );
   const ligne = (r: ReturnType<typeof buildDayDetail>["countries"][number], k: string) => (
     <TableRow key={k} className="bg-slate-50/60">
-      <TableCell className="py-1.5 pl-8 text-xs text-slate-600">{r.label}</TableCell>
+      <TableCell className="py-1.5 pl-8 text-xs text-slate-600">
+        {k.startsWith("b:") ? countryLabel(r.label) : r.label}
+      </TableCell>
       <SubCell value={r.visitors} />
       <SubCell value={r.signups} />
       <SubCell value={r.checkouts} />
@@ -728,16 +731,29 @@ function DayDetailRows({
     <>
       {d.countries.length > 0 ? (
         <>
-          {groupe("Par pays")}
+          {groupe("Par pays de connexion — trafic")}
           {d.countries.map((r) => ligne(r, `c:${r.label}`))}
-          <TableRow className="bg-slate-50/60">
-            <TableCell colSpan={8} className="pb-2 pl-8 text-xs text-slate-400">
-              Le pays vient de PostHog et ne couvre que le trafic. Whop, qui porte
-              l&apos;argent, ne stocke aucun pays : nouveaux clients,
-              renouvellements, échecs et revenu ne sont pas ventilables par pays.
-            </TableCell>
-          </TableRow>
         </>
+      ) : null}
+      {d.billingCountries.length > 0 ? (
+        <>
+          {groupe("Par pays de facturation — ventes")}
+          {d.billingCountries.map((r) => ligne(r, `b:${r.label}`))}
+        </>
+      ) : null}
+      {d.countries.length > 0 || d.billingCountries.length > 0 ? (
+        <TableRow className="bg-slate-50/60">
+          <TableCell colSpan={8} className="pb-2 pl-8 text-xs text-slate-400">
+            Deux pays, deux sources, deux populations — d&apos;où deux groupes et
+            non des colonnes de plus. Le <strong>pays de connexion</strong> vient
+            de l&apos;adresse IP (PostHog) et ne couvre que le trafic : les étapes
+            émises côté serveur en sont exclues, faute d&apos;IP visiteur. Le{" "}
+            <strong>pays de facturation</strong> vient de l&apos;adresse que Whop
+            collecte pour la TVA et ne couvre que l&apos;argent. Les deux lignes
+            « France » ne désignent pas les mêmes personnes : leurs chiffres ne se
+            divisent pas entre eux.
+          </TableCell>
+        </TableRow>
       ) : null}
       {d.refs.length > 0 ? (
         <>

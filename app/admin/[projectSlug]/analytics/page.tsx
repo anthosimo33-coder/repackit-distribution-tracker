@@ -59,6 +59,7 @@ export default function AnalyticsPage() {
   const natureRewards = useProjectQuery(api.analyticsHub.getNatureRewards, {});
   const churn = useProjectQuery(api.analyticsHub.getChurn, {});
   const dayDetail = useProjectQuery(api.analyticsHub.getDayDetail, {});
+  const billing = useProjectQuery(api.analyticsHub.getBillingCountries, {});
   const requestSync = useProjectMutation(api.posthogSync.requestPosthogSync);
   const [syncing, setSyncing] = useState(false);
   const [periodDays, setPeriodDays] = useState<number>(90);
@@ -212,7 +213,12 @@ export default function AnalyticsPage() {
 
             <TabsContent value="parcours" className="mt-6">
               {analytics.configured ? (
-                <ParcoursTab analytics={analytics} reliability={reliability} now={now} />
+                <ParcoursTab
+                  analytics={analytics}
+                  reliability={reliability}
+                  billing={billing}
+                  now={now}
+                />
               ) : (
                 <NotConfigured />
               )}

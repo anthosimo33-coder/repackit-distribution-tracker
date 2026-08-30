@@ -1759,6 +1759,106 @@ const MEMBERSHIP_ID_BREAK_LABEL = "28/07/2026 01:09 UTC";
  */
 const SANS_SOURCE = "sans source";
 
+/**
+ * VENTES PAR PAYS DE FACTURATION — l'agrégat du second tableau de Parcours.
+ *
+ * ⚠️ PAYS DE FACTURATION, pas de connexion. Celui-ci vient de
+ * `whopPayments.billingCountry` (adresse collectée par Whop pour la TVA) ; le
+ * pays PostHog vient de l'adresse IP. Deux notions, DEUX POPULATIONS — payeurs
+ * contre visiteurs — donc deux tableaux et jamais les mêmes cases : côte à côte,
+ * on finirait par diviser des clients par des visiteurs.
+ *
+ * Le pays est porté par le PAIEMENT et non par le client. Un client est rattaché
+ * au pays de son PREMIER paiement encaissé — la même ancre que « client acquis »
+ * partout ailleurs dans le hub, plutôt qu'une seconde définition. Mesuré le
+ * 30/08 : zéro client avec des pays divergents entre ses paiements, donc l'ancre
+ * ne tranche aujourd'hui aucun cas réel.
+ */
+export const getBillingCountries = adminQuery({
+  args: {},
+  handler: async (ctx) => {
+    const project = await ctx.db.get(ctx.projectId);
+    if (!project?.whop) {
+      return { rows: [], payments: 0, withCountry: 0, clients: 0, clientsWithCountry: 0 };
+    }
+    const { payments } = await collectProjectWhopPayments(
+      ctx,
+      ctx.projectId,
+      project.slug,
+    );
+    const memberships = await ctx.db
+      .query("whopMemberships")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const userOf = new Map<string, string>();
+    for (const m of memberships) {
+      if (m.whopUserId) userOf.set(m.whopMembershipId, m.whopUserId);
+    }
+
+    // Pays d'un client = celui de son PREMIER paiement encaissé.
+    const first = new Map<string, { at: number; country?: string }>();
+    for (const p of payments) {
+      if (!p.membershipId || whopCollectedAmount(p) <= 0) continue;
+      const u = userOf.get(p.membershipId) ?? `mem:${p.membershipId}`;
+      const prev = first.get(u);
+      if (prev === undefined || p.paidAt < prev.at) {
+        first.set(u, { at: p.paidAt, country: p.billingCountry });
+      }
+    }
+
+    type Row = {
+      country: string | null;
+      clients: number;
+      renewals: number;
+      failures: number;
+      net: number;
+    };
+    const rows = new Map<string, Row>();
+    const touch = (c: string | undefined): Row => {
+      const k = c ?? "";
+      const cur = rows.get(k) ?? {
+        country: c ?? null,
+        clients: 0,
+        renewals: 0,
+        failures: 0,
+        net: 0,
+      };
+      rows.set(k, cur);
+      return cur;
+    };
+    for (const [, f] of first) touch(f.country).clients += 1;
+    for (const p of payments) {
+      const r = touch(p.billingCountry);
+      if (p.status === "failed") {
+        r.failures += 1;
+        continue;
+      }
+      const net = whopNetContribution(p);
+      if (net <= 0) continue;
+      r.net = round2(r.net + net);
+      const u = p.membershipId
+        ? (userOf.get(p.membershipId) ?? `mem:${p.membershipId}`)
+        : null;
+      const estPremier = u !== null && first.get(u)?.at === p.paidAt;
+      if (!estPremier) r.renewals += 1;
+    }
+
+    const withCountry = payments.filter((p) => p.billingCountry).length;
+    const clientsWithCountry = [...first.values()].filter((f) => f.country).length;
+    // Devise du revenu — garde A5 : au-delà d'une devise encaissée, on ne somme
+    // pas (`summarizeWhopRevenue` porte la même règle ailleurs dans le hub).
+    const devises = summarizeWhopRevenue(payments).currenciesPresent;
+    return {
+      rows: [...rows.values()].sort((a, b) => b.net - a.net || b.clients - a.clients),
+      payments: payments.length,
+      withCountry,
+      clients: first.size,
+      clientsWithCountry,
+      currency: devises.length === 1 ? devises[0] : null,
+    };
+  },
+});
+
 export const getDayDetail = adminQuery({
   args: {},
   handler: async (ctx) => {
@@ -1834,6 +1934,35 @@ export const getDayDetail = adminQuery({
       string,
       { day: string; newNet: number; renewalNet: number; refunded: number }
     >();
+    /**
+     * Argent par (jour, PAYS DE FACTURATION). Groupe SÉPARÉ du trafic par pays
+     * de connexion : deux notions, deux populations. Les réunir sur une même
+     * ligne inviterait à diviser des clients par des visiteurs.
+     */
+    const billing = new Map<
+      string,
+      {
+        day: string;
+        country: string | null;
+        clients: number;
+        renewals: number;
+        failures: number;
+        net: number;
+      }
+    >();
+    const touchBilling = (day: string, country: string | undefined) => {
+      const k = `${day}|${country ?? ""}`;
+      const cur = billing.get(k) ?? {
+        day,
+        country: country ?? null,
+        clients: 0,
+        renewals: 0,
+        failures: 0,
+        net: 0,
+      };
+      billing.set(k, cur);
+      return cur;
+    };
     if (project?.whop) {
       const { payments } = await collectProjectWhopPayments(
         ctx,
@@ -1861,6 +1990,7 @@ export const getDayDetail = adminQuery({
         const a = touch(day, ref ?? SANS_SOURCE);
         if (p.status === "failed") {
           a.failures += 1;
+          touchBilling(day, p.billingCountry).failures += 1;
           continue;
         }
         const net = whopNetContribution(p);
@@ -1872,11 +2002,15 @@ export const getDayDetail = adminQuery({
         a.net = round2(a.net + net);
         const estNouveau =
           p.membershipId !== undefined && firstPaid.get(p.membershipId) === p.paidAt;
+        const b = touchBilling(day, p.billingCountry);
+        b.net = round2(b.net + net);
         if (estNouveau) {
           a.clients += 1;
+          b.clients += 1;
           rev.newNet = round2(rev.newNet + net);
         } else {
           a.renewals += 1;
+          b.renewals += 1;
           rev.renewalNet = round2(rev.renewalNet + net);
         }
       }
@@ -1886,6 +2020,7 @@ export const getDayDetail = adminQuery({
       countries,
       refs: [...refs.values()],
       revenue: [...revenue.values()],
+      billingCountries: [...billing.values()],
     };
   },
 });
