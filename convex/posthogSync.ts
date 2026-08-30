@@ -142,6 +142,7 @@ export const POSTHOG_CACHE_KEYS = {
   funnelSource: "funnel:source",
   funnelLanguage: "funnel:language",
   funnelCountry: "funnel:country",
+  serverSideSplit: "serverSideSplit",
   timeToValue: "timeToValue",
   paywall: "paywall",
   paywallById: "paywallById",
@@ -768,9 +769,39 @@ LIMIT ${SEGMENT_LIMIT}`,
 SELECT ${segExpr("properties['$geoip_country_name']")} AS seg,${FUNNEL_COLUMNS}
 FROM events
 WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+  AND NOT (${SERVER_COPY})
 GROUP BY seg
 ORDER BY visit DESC
 LIMIT ${COUNTRY_LIMIT}`,
+
+  /**
+   * RÉPARTITION CLIENT / SERVEUR par étape du funnel — le contrôle qui rend le
+   * filtre géo lisible, et vérifiable.
+   *
+   * GeoIP géolocalise l'IP de l'appel. Un event émis par le BACKEND porte donc
+   * l'IP du datacenter, pas celle du visiteur : relevé en prod le 30/08, avant
+   * filtre, l'Indonésie affichait 58 visiteurs pour 4 243 inscrits et 160
+   * clients sur 161 — 86 % de toutes les inscriptions du site sur une ligne à 58
+   * visiteurs.
+   *
+   * On compte les PERSONNES et pas seulement les events, parce que c'est la
+   * question qui décide : si une étape n'était émise QUE côté serveur, la
+   * filtrer VIDERAIT sa colonne pour tous les pays. `persons_client` répond
+   * directement ; un compteur d'events ne l'aurait pas fait, le funnel comptant
+   * des personnes.
+   */
+  serverSideSplit: `
+SELECT event,
+       uniq(person_id) AS persons_total,
+       uniqIf(person_id, NOT (${SERVER_COPY})) AS persons_client,
+       count() AS events_total,
+       countIf(${SERVER_COPY}) AS events_server
+FROM events
+WHERE event IN ('$pageview', 'signup_completed', 'paywall_viewed', 'checkout_started', 'subscription_completed')
+  AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+GROUP BY event
+ORDER BY events_total DESC
+LIMIT 100`,
 
   /**
    * Délais médians/p90 (en secondes) entre les jalons d'activation, par personne.
@@ -1620,6 +1651,34 @@ function shapeConversion(rows: unknown[][]): ConversionPayload {
 
 // ─── C1 — Shapes du contrat élargi ───────────────────────────────────────────
 
+/**
+ * Une étape du funnel, vue sous l'angle client / serveur. `personsClient` est le
+ * chiffre qui décide : c'est lui qui dit si filtrer les copies serveur VIDERAIT
+ * une colonne du funnel géographique.
+ */
+export interface ServerSideSplitRow {
+  event: string;
+  personsTotal: number;
+  personsClient: number;
+  eventsTotal: number;
+  eventsServer: number;
+}
+export interface ServerSideSplitPayload {
+  rows: ServerSideSplitRow[];
+}
+
+function shapeServerSideSplit(rows: unknown[][]): ServerSideSplitPayload {
+  return {
+    rows: rows.map((r) => ({
+      event: cellStr(r, 0),
+      personsTotal: cellNum(r, 1),
+      personsClient: cellNum(r, 2),
+      eventsTotal: cellNum(r, 3),
+      eventsServer: cellNum(r, 4),
+    })),
+  };
+}
+
 /** Ligne unique → état par event du contrat + présence des propriétés sondées. */
 function shapeInstrumentation(rows: unknown[][]): InstrumentationPayload {
   const r = rows[0] ?? [];
@@ -1768,6 +1827,13 @@ export const runHourlySync = internalAction({
           target,
           QUERIES.funnelCountry,
           shapeFunnel,
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.serverSideSplit,
+          apiKey,
+          target,
+          QUERIES.serverSideSplit,
+          shapeServerSideSplit,
         ),
         await collect(
           POSTHOG_CACHE_KEYS.funnelLanguage,
@@ -2192,9 +2258,11 @@ export interface ProductAnalytics {
     sequential: FunnelPayload;
     source: FunnelPayload;
     language: FunnelPayload;
-    /** Funnel par PAYS du visiteur (propriété d'event GeoIP). */
+    /** Funnel par PAYS du visiteur (propriété d'event GeoIP, copies serveur exclues). */
     country: FunnelPayload;
   };
+  /** Répartition client/serveur par étape — rend le filtre géo vérifiable. */
+  serverSideSplit: ServerSideSplitPayload;
   timeToValue: TimeToValuePayload;
   paywall: ConversionPayload;
   /** Conversion par paywall_id (vide/'(inconnu)' tant que paywall_id n'est pas émis). */
@@ -2257,6 +2325,7 @@ export const getProductAnalytics = adminQuery({
         language: EMPTY_FUNNEL,
         country: EMPTY_FUNNEL,
       },
+      serverSideSplit: { rows: [] },
       timeToValue: { steps: [] },
       paywall: EMPTY_CONVERSION,
       paywallById: EMPTY_CONVERSION,
@@ -2319,6 +2388,7 @@ export const getProductAnalytics = adminQuery({
         language: read(POSTHOG_CACHE_KEYS.funnelLanguage, EMPTY_FUNNEL),
         country: read(POSTHOG_CACHE_KEYS.funnelCountry, EMPTY_FUNNEL),
       },
+      serverSideSplit: read(POSTHOG_CACHE_KEYS.serverSideSplit, { rows: [] }),
       timeToValue: read(POSTHOG_CACHE_KEYS.timeToValue, empty.timeToValue),
       paywall: read(POSTHOG_CACHE_KEYS.paywall, EMPTY_CONVERSION),
       paywallById: read(POSTHOG_CACHE_KEYS.paywallById, EMPTY_CONVERSION),

@@ -81,3 +81,45 @@ export function buildSegmentRows(payload: SegmentPayload): SegmentRows {
     unknownShare: totalVisitors > 0 ? unknownVisitors / totalVisitors : null,
   };
 }
+
+/** Une étape du funnel vue sous l'angle client / serveur (cf serverSideSplit). */
+export interface SplitRow {
+  event: string;
+  personsTotal: number;
+  personsClient: number;
+  eventsTotal: number;
+  eventsServer: number;
+}
+
+export interface Coverage {
+  event: string;
+  /** Part de personnes mesurées côté NAVIGATEUR. null si l'étape n'a personne. */
+  share: number | null;
+  /**
+   * true = l'étape n'est émise QUE côté serveur, donc sa colonne se vide dans
+   * un découpage géographique. À DIRE à l'écran : un zéro non signalé se lit
+   * comme une mesure.
+   */
+  unmeasurable: boolean;
+}
+
+/**
+ * Ce que le filtre géographique laisse voir, étape par étape.
+ *
+ * GeoIP géolocalise l'IP de l'appel : un event émis par le backend porte celle
+ * du datacenter, pas celle du visiteur. Relevé en prod le 30/08 AVANT filtre,
+ * l'Indonésie affichait 58 visiteurs pour 4 243 inscrits et 160 clients sur
+ * 161 — 86 % de toutes les inscriptions du site sur une ligne à 58 visiteurs.
+ *
+ * Filtrer les copies serveur est donc nécessaire, mais pas gratuit : une étape
+ * émise UNIQUEMENT côté serveur verrait sa colonne se vider pour tous les pays.
+ * Cette fonction le chiffre pour que l'écran le dise, au lieu d'afficher un zéro
+ * qui se lirait comme une mesure.
+ */
+export function clientCoverage(rows: readonly SplitRow[]): Coverage[] {
+  return rows.map((r) => ({
+    event: r.event,
+    share: r.personsTotal > 0 ? r.personsClient / r.personsTotal : null,
+    unmeasurable: r.personsTotal > 0 && r.personsClient === 0,
+  }));
+}

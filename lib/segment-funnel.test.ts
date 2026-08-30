@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildSegmentRows } from "./segment-funnel";
+import { buildSegmentRows, clientCoverage } from "./segment-funnel";
 
 /**
  * FUNNEL PAR SEGMENT (pays, langue) — mise en forme du payload PostHog.
@@ -115,5 +115,57 @@ describe("buildSegmentRows — le cas 100 % inconnu", () => {
     });
     expect(r.unknownShare).toBe(1);
     expect(r.rows.filter((x) => x.key !== "(inconnu)")).toEqual([]);
+  });
+});
+
+/**
+ * COUVERTURE CLIENT — ce que le filtre géographique laisse voir.
+ *
+ * GeoIP géolocalise l'IP de l'appel : un event émis par le backend porte celle
+ * du datacenter. Relevé en prod le 30/08 AVANT filtre : l'Indonésie affichait 58
+ * visiteurs pour 4 243 inscrits et 160 clients sur 161 — 86 % de toutes les
+ * inscriptions du site sur une ligne à 58 visiteurs.
+ *
+ * Filtrer les copies serveur est donc nécessaire. Mais si une étape n'était
+ * émise QUE côté serveur, la filtrer VIDERAIT sa colonne pour tous les pays — un
+ * zéro qui se lirait comme une mesure. D'où ce calcul, affiché sur la carte :
+ * une étape sous les 100 % est nommée, une étape à 0 % est signalée comme
+ * NON MESURABLE par pays.
+ */
+describe("clientCoverage", () => {
+  const split = [
+    { event: "$pageview", personsTotal: 8268, personsClient: 8268, eventsTotal: 60000, eventsServer: 0 },
+    { event: "signup_completed", personsTotal: 4944, personsClient: 1429, eventsTotal: 9000, eventsServer: 4300 },
+    { event: "subscription_completed", personsTotal: 161, personsClient: 0, eventsTotal: 304, eventsServer: 304 },
+  ];
+
+  it("chiffre la part de personnes mesurées côté navigateur, par étape", () => {
+    const c = clientCoverage(split);
+    expect(c.find((x) => x.event === "$pageview")!.share).toBe(1);
+    expect(c.find((x) => x.event === "signup_completed")!.share).toBeCloseTo(1429 / 4944, 4);
+  });
+
+  it("une étape émise UNIQUEMENT côté serveur est marquée non mesurable", () => {
+    // LE cas qui décide : sa colonne se viderait pour tous les pays.
+    const sub = clientCoverage(split).find((x) => x.event === "subscription_completed")!;
+    expect(sub.share).toBe(0);
+    expect(sub.unmeasurable).toBe(true);
+  });
+
+  it("une étape entièrement client n'est PAS marquée — contrôle opposé", () => {
+    const pv = clientCoverage(split).find((x) => x.event === "$pageview")!;
+    expect(pv.unmeasurable).toBe(false);
+  });
+
+  it("une étape sans aucune personne ne prétend pas être mesurable", () => {
+    const c = clientCoverage([
+      { event: "scan_started", personsTotal: 0, personsClient: 0, eventsTotal: 0, eventsServer: 0 },
+    ]);
+    expect(c[0].share).toBeNull();
+    expect(c[0].unmeasurable).toBe(false);
+  });
+
+  it("payload vide → aucune ligne", () => {
+    expect(clientCoverage([])).toEqual([]);
   });
 });

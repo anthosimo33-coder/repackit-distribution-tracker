@@ -25,6 +25,8 @@ const EXEMPT: Record<string, string> = {
     "coût d'infrastructure : runs/with_cost = nombre de scans (events scan_completed) ventilés léger/complet, pas de personnes",
   instrumentation:
     "les countIf sont des SONDES de présence de propriété (nb d'events portant la prop) ; les compteurs de personnes, eux, utilisent uniqIf(person_id)",
+  serverSideSplit:
+    "compte les EVENTS pour mesurer la double émission client/serveur (events_total, events_server) — c'est justement le rapport events/personnes qu'on cherche ; les deux colonnes de PERSONNES de cette requête utilisent bien uniq/uniqIf(person_id)",
 };
 
 // Requêtes réelles, interpolations résolues (notInternal/internalMarker à vide).
