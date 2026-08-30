@@ -11,6 +11,8 @@ import { runHogQL, type PosthogTarget } from "./posthogApi";
 import { internalAccountsFor, notInternalClause } from "./internalAccounts";
 import { parisDayKey, parisMidnightUtc } from "./viewsDaily";
 import { parisHour } from "./calendarStatus";
+import { collectProjectWhopPayments } from "./whopPaymentsAccess";
+import { whopNetContribution } from "./whopRevenue";
 import {
   mergeDayRows,
   normalizeRef,
@@ -453,6 +455,11 @@ LIMIT 10000`;
  * Chaque ref porte SA plage réelle (`firstDate`/`lastDate`) : en all-time, « 146
  * visiteurs » ne veut pas dire la même chose sur 2 jours et sur 41.
  */
+/** Arrondi au centime — une somme de montants flottants traîne sinon. */
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 export const readConversionAllTime = adminQuery({
   args: {},
   handler: async (ctx) => {
@@ -460,11 +467,13 @@ export const readConversionAllTime = adminQuery({
       .query("creatorConversions")
       .withIndex("by_project_date", (q) => q.eq("projectId", ctx.projectId))
       .collect();
-    if (all.length === 0) return null;
 
-    // Agrégation par ref. Un champ reste ABSENT tant qu'aucun jour ne le porte —
-    // c'est ce qui distingue « jamais collecté » de « zéro mesuré », et la
-    // distinction doit survivre à la somme.
+    const project = await ctx.db.get(ctx.projectId);
+
+    // ── VISITEURS / INSCRITS : l'agrégat quotidien (source PostHog) ─────────
+    // Un champ reste ABSENT tant qu'aucun jour ne le porte — c'est ce qui
+    // distingue « jamais collecté » d'un « zéro mesuré », et la distinction doit
+    // survivre à la somme.
     type Acc = {
       ref?: string;
       visitors?: number;
@@ -477,35 +486,102 @@ export const readConversionAllTime = adminQuery({
     };
     const byRef = new Map<string, Acc>();
     const days = new Set<string>();
+    const touch = (key: string, ref: string | undefined, date: string): Acc => {
+      const cur = byRef.get(key) ?? { ref, firstDate: date, lastDate: date };
+      if (date < cur.firstDate) cur.firstDate = date;
+      if (date > cur.lastDate) cur.lastDate = date;
+      byRef.set(key, cur);
+      return cur;
+    };
     for (const r of all) {
       days.add(r.date);
-      const key = r.ref ?? "";
-      const cur = byRef.get(key) ?? {
-        ref: r.ref,
-        firstDate: r.date,
-        lastDate: r.date,
-      };
-      if (r.date < cur.firstDate) cur.firstDate = r.date;
-      if (r.date > cur.lastDate) cur.lastDate = r.date;
+      const cur = touch(r.ref ?? "", r.ref, r.date);
       if (r.visitors !== undefined) cur.visitors = (cur.visitors ?? 0) + r.visitors;
       if (r.signups !== undefined) cur.signups = (cur.signups ?? 0) + r.signups;
-      if (r.sales !== undefined) cur.sales = (cur.sales ?? 0) + r.sales;
-      if (r.revenue !== undefined) cur.revenue = (cur.revenue ?? 0) + r.revenue;
-      if (r.currency !== undefined) cur.currency = r.currency;
-      byRef.set(key, cur);
+      // `sales`/`revenue` de la table ne sont PLUS LUS : ils viennent désormais
+      // en direct de Whop (ci-dessous). Ils restent ÉCRITS — c'est un instantané
+      // quotidien figé de l'attribution Whop, que le calcul en direct ne peut
+      // pas reproduire si `whopMemberships.ref` change (re-synchro, ref
+      // réaffectée). Ce n'est en revanche PAS une trace de ce que PostHog a vu
+      // sur les ventes : la requête de collecte ne demande que `$pageview` et
+      // `signup_completed`, jamais `subscription_completed`.
+    }
+
+    // ── VENTES / REVENU : lus EN DIRECT, sans passer par l'agrégat ──────────
+    // Ils n'ont jamais eu besoin de PostHog : `whopPayments` et
+    // `whopMemberships.ref` sont déjà en Convex, rafraîchis toutes les heures
+    // par whop-revenue-sync. Les faire transiter par la collecte quotidienne
+    // leur imposait le retard de CELLE-CI : le cron conversion est un no-op hors
+    // de 23 h Paris et collecte la veille, soit jusqu'à 47 h. Symptôme vécu :
+    // `paredes` affichée à 0 alors qu'elle avait 3 ventes encaissées (27,81 €)
+    // les 29 et 30/08.
+    //
+    // Même lecture que le reste du hub : point de passage A4 (internes exclus —
+    // `gatherWhopDays` ne les excluait pas, ils gonflaient la ligne « sans
+    // source ») et `whopNetContribution`, qui retire les remboursements
+    // partiels au lieu de compter le net brut.
+    const { payments } = await collectProjectWhopPayments(
+      ctx,
+      ctx.projectId,
+      project?.slug ?? "",
+    );
+    const memberships = await ctx.db
+      .query("whopMemberships")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const refOfMembership = new Map<string, string | null>(
+      memberships.map((m) => [m.whopMembershipId, normalizeRef(m.ref ?? null)]),
+    );
+    let salesSyncMs: number | null = null;
+    for (const p of payments) {
+      salesSyncMs = Math.max(salesSyncMs ?? 0, p.updatedAt);
+      if (p.status !== "paid") continue;
+      const net = whopNetContribution(p);
+      const ref = p.membershipId
+        ? (refOfMembership.get(p.membershipId) ?? null)
+        : null;
+      const day = parisDayKey(p.paidAt);
+      const cur = touch(ref ?? "", ref ?? undefined, day);
+      cur.sales = (cur.sales ?? 0) + 1;
+      cur.revenue = round2((cur.revenue ?? 0) + net);
+      if (p.currency) cur.currency ??= p.currency;
+    }
+    // La source des ventes est COMPLÈTE : une absence y vaut zéro, pas
+    // « inconnu ». Sans ça une ref sans vente afficherait « — » alors qu'on
+    // sait, à l'heure près, qu'elle n'en a aucune.
+    for (const acc of byRef.values()) {
+      acc.sales ??= 0;
+      acc.revenue ??= 0;
     }
 
     const creators = await ctx.db
       .query("creators")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
-    const project = await ctx.db.get(ctx.projectId);
 
-    const sorted = [...days].sort();
+    // Rien nulle part ⇒ pas de bloc. Le contrôle est fait APRÈS les deux sources :
+    // un projet avec des ventes Whop mais dont la collecte PostHog n'a pas encore
+    // tourné affichait « pas encore de données » alors que l'argent était là —
+    // le même défaut que celui qu'on vient de corriger pour `paredes`, un cran
+    // plus tôt.
+    if (byRef.size === 0) return null;
+
+    // Bornes de la PLAGE DE DONNÉES, sur les deux sources réunies : un jour de
+    // vente est une donnée au même titre qu'un jour de trafic.
+    const spans = [...byRef.values()];
+    const firstDate = spans.reduce((a, r) => (r.firstDate < a ? r.firstDate : a), spans[0].firstDate);
+    const lastDate = spans.reduce((a, r) => (r.lastDate > a ? r.lastDate : a), spans[0].lastDate);
+    const collectedSorted = [...days].sort();
     return {
-      firstDate: sorted[0],
-      lastDate: sorted[sorted.length - 1],
+      firstDate,
+      lastDate,
       collectedDays: days.size,
+      /** Dernier jour COLLECTÉ côté PostHog — fraîcheur des colonnes visiteurs
+       *  et inscrits, arrêtées à ce jour-là. */
+      visitorsThroughDate: collectedSorted[collectedSorted.length - 1] ?? null,
+      /** Dernière synchro Whop — fraîcheur des colonnes ventes et revenu, lues
+       *  en direct. Les deux cadences diffèrent, l'écran doit le dire. */
+      salesSyncMs,
       // Refs d'influenceuses — nommées, sans fiche créatrice (cf schema).
       influencers: project?.influencerRefs ?? [],
       rows: [...byRef.values()].map((a) => ({
