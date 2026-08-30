@@ -1278,3 +1278,170 @@ describe("clients acquis — une seule unité, un seul dénominateur", () => {
     expect(c?.status).toBe("info");
   });
 });
+
+/**
+ * CALIBRAGE — alerter sur l'INEXPLIQUÉ, pas sur l'écart brut.
+ *
+ * Le contrôle comparait 159 personnes PostHog à 153 personnes Whop et jugeait
+ * les 6 d'écart sur des seuils fixes. Or cet écart se DÉCOMPOSE, et sa
+ * composition dit tout :
+ *
+ *  - `ghostClients`  : ont émis l'event, n'ont jamais encaissé (remboursé,
+ *    paiement en attente) — présents côté PostHog seulement, poussent l'écart
+ *    vers le HAUT ;
+ *  - `missingEvents` : ont encaissé sans jamais émettre d'event — présents côté
+ *    Whop seulement, poussent vers le BAS. En prod : 10, dont 9 les 27–28/07 ;
+ *  - `unlinkedBeforeBreak` : events sans `membership_id` ANTÉRIEURS au
+ *    2026-07-28 01:09 UTC, date à laquelle la propriété est apparue. Ces
+ *    personnes peuvent avoir payé ou non — inclassables. Ce n'est donc PAS un
+ *    terme de l'écart mais une BANDE D'INCERTITUDE, et un bucket CLOS : il ne
+ *    grandira jamais, et il sortira tout seul de la fenêtre de 90 jours, ce qui
+ *    resserre le contrôle avec le temps au lieu de le rendre bruyant ;
+ *  - `unlinkedAfterBreak` : le même défaut APRÈS la date. Zéro aujourd'hui —
+ *    donc toute apparition est une RÉGRESSION D'INSTRUMENTATION, et alerte quel
+ *    que soit le reste.
+ *
+ * Les seuils (5 % / 5 clients) ne bougent pas : c'est le numérateur qui devient
+ * honnête.
+ */
+describe("dashboard_vs_whop — alerte sur l'inexpliqué", () => {
+  const find = (checks: CoherenceCheck[]) =>
+    checks.find((c) => c.key === "dashboard_vs_whop");
+  /** Relevé de prod du 2026-08-30, 11:45 (cron post-correctif de troncature). */
+  const prod = {
+    sequentialSteps: [{ key: "subscription_completed", label: "", count: 154 }],
+    reachSteps: [{ key: "subscription_completed", label: "", count: 159 }],
+    currencyCount: 1,
+    dashboardClients: 154,
+    whopMembers: 163,
+    whopClients: 153,
+    whopMembersTotal: 164,
+    whopClientsTotal: 154,
+    windowReconciliation: {
+      ghostClients: 3,
+      missingEvents: 9,
+      unlinkedBeforeBreak: 18,
+      unlinkedAfterBreak: 0,
+      breakLabel: "28/07/2026 01:09 UTC",
+    },
+  };
+
+  it("l'écart de prod tient dans la bande historique → plus de violation", () => {
+    // écart +6 ; attendu = 3 fantômes − 9 sans event = −6 ; inexpliqué 12,
+    // sous les 18 events non liés de juillet.
+    const c = find(buildCoherenceChecks(prod));
+    expect(c?.status).not.toBe("violation");
+    expect(c?.detail).toContain("inexpliqué");
+  });
+
+  it("le détail NOMME la décomposition, pas seulement le verdict", () => {
+    const c = find(buildCoherenceChecks(prod));
+    expect(c?.detail).toContain("9 paiement(s) sans event");
+    expect(c?.detail).toContain("18"); // bande d'incertitude
+    expect(c?.detail).toContain("28/07/2026");
+  });
+
+  it("un event non lié APRÈS la rupture = régression, alerte seule", () => {
+    // Tout le reste est identique et sous les seuils : c'est bien ce terme-là,
+    // et lui seul, qui déclenche.
+    const c = find(
+      buildCoherenceChecks({
+        ...prod,
+        windowReconciliation: { ...prod.windowReconciliation, unlinkedAfterBreak: 3 },
+      }),
+    );
+    expect(c?.status).toBe("violation");
+    expect(c?.detail).toMatch(/régression/i);
+  });
+
+  it("un écart RÉEL, hors bande, alerte toujours", () => {
+    // Contrôle OPPOSÉ : le calibrage ne doit pas rendre le contrôle muet.
+    const c = find(
+      buildCoherenceChecks({
+        ...prod,
+        reachSteps: [{ key: "subscription_completed", label: "", count: 220 }],
+      }),
+    );
+    expect(c?.status).toBe("violation");
+  });
+
+  it("la bande se resserre quand juillet sort de la fenêtre", () => {
+    // Même écart brut, mais plus d'events non liés : l'inexpliqué ressort.
+    const c = find(
+      buildCoherenceChecks({
+        ...prod,
+        windowReconciliation: { ...prod.windowReconciliation, unlinkedBeforeBreak: 0 },
+      }),
+    );
+    expect(c?.status).toBe("violation");
+  });
+
+  it("sans réconciliation de fenêtre : comportement d'avant, INTACT", () => {
+    const { windowReconciliation: _omit, ...sansRec } = prod;
+    const c = find(buildCoherenceChecks(sansRec));
+    expect(c?.status).toBe("info"); // 159 vs 153 = 6, 3.9 % → sous les seuils
+    expect(c?.detail).toContain("159 personnes vs 153");
+  });
+});
+
+describe("contrôle croisé par jour — un jour expliqué n'est pas divergent", () => {
+  it("le 25/08 entièrement décomposé n'est plus COMPTÉ comme divergent", () => {
+    // Cas de prod : 4 subs pour 2 clients, mais 2 sont des rejeux d'un autre
+    // jour — la journée se recoupe exactement. Elle gonflait quand même le
+    // « N jour(s) divergent(s) », ce qui rendait le compte illisible.
+    const checks = buildCoherenceChecks({
+      sequentialSteps: [],
+      reachSteps: [],
+      currencyCount: 1,
+      dashboardClients: null,
+      whopMembers: null,
+      whopClients: null,
+      todayParis: "2026-08-31",
+      dailySubs: [{ day: "2026-08-25", subs: 4 }],
+      dailyPaidClients: [{ day: "2026-08-25", clients: 2 }],
+      subsByMembership: [
+        { day: "2026-08-25", membershipId: "mem_a", persons: 1 },
+        { day: "2026-08-25", membershipId: "mem_b", persons: 1 },
+        { day: "2026-08-25", membershipId: "mem_c", persons: 1 },
+        { day: "2026-08-25", membershipId: "mem_d", persons: 1 },
+      ],
+      whopFirstPaidDay: [
+        { membershipId: "mem_a", day: "2026-08-25" },
+        { membershipId: "mem_b", day: "2026-08-25" },
+        { membershipId: "mem_c", day: "2026-08-24" },
+        { membershipId: "mem_d", day: "2026-08-24" },
+      ],
+    });
+    const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");
+    // Il reste AFFICHÉ avec sa décomposition — c'est le mot « divergent » qui
+    // était faux, pas l'information.
+    expect(c?.status).toBe("info");
+    expect(c?.detail).toContain("réconcilié");
+    expect(c?.detail).toContain("aucun divergent");
+    // Ce qui était faux, c'est le COMPTE : « N jour(s) divergent(s) ».
+    expect(c?.detail).not.toMatch(/\d+ jour\(s\) divergent/);
+    expect(c?.detail).toContain("rejoué");
+  });
+
+  it("un jour VRAIMENT divergent reste compté", () => {
+    // Contrôle opposé : sans rejeu à opposer, l'écart demeure.
+    const checks = buildCoherenceChecks({
+      sequentialSteps: [],
+      reachSteps: [],
+      currencyCount: 1,
+      dashboardClients: null,
+      whopMembers: null,
+      whopClients: null,
+      todayParis: "2026-08-31",
+      dailySubs: [{ day: "2026-08-25", subs: 6 }],
+      dailyPaidClients: [{ day: "2026-08-25", clients: 1 }],
+      subsByMembership: [
+        { day: "2026-08-25", membershipId: "", persons: 6 },
+      ],
+      whopFirstPaidDay: [{ membershipId: "mem_z", day: "2026-08-25" }],
+    });
+    const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(c?.status).not.toBe("ok");
+    expect(c?.detail).toContain("1 jour(s) divergent(s)");
+  });
+});

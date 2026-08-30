@@ -1629,6 +1629,20 @@ export interface ReliabilityResult {
      * SURESTIME plutôt que de perdre un client. > 0 ⇒ chiffre dégradé, à dire.
      */
     whopClientsUnresolved: number;
+    /**
+     * Décomposition de l'écart PostHog↔Whop sur TOUTE la fenêtre — permet
+     * d'alerter sur l'inexpliqué plutôt que sur l'écart brut (cf
+     * lib/analytics-hub, contrôle `dashboard_vs_whop`). null tant que le cache
+     * `subsByMembership` n'est pas alimenté : le contrôle retombe alors sur
+     * l'écart brut, il ne se tait jamais faute de données.
+     */
+    windowReconciliation: {
+      ghostClients: number;
+      missingEvents: number;
+      unlinkedBeforeBreak: number;
+      unlinkedAfterBreak: number;
+      breakLabel: string;
+    } | null;
     /** Exclus car antérieurs à l'instrumentation (cause explicable de l'écart). */
     whopExcludedPre: number;
     /** Exclus car postérieurs au dernier cron (latence, pas incohérence). */
@@ -1701,6 +1715,27 @@ export interface ReliabilityResult {
  * fraîcheur des sources. La phase C n'a plus qu'à afficher (et composer les
  * checks via le module pur côté client).
  */
+/**
+ * RUPTURE DE SÉRIE — jour Paris à partir duquel `subscription_completed` porte
+ * `membership_id`. Avant, l'event existe mais n'est rattachable à aucun
+ * abonnement : ces personnes sont inclassables, ni « fantômes » ni « appariées ».
+ *
+ * Mesuré en prod : 18 events non liés, tous entre le 24 et le 28/07/2026, aucun
+ * après. Le bucket est CLOS — il ne grandira jamais et sortira de la fenêtre de
+ * 90 jours de lui-même, ce qui resserre le contrôle avec le temps.
+ *
+ * ⚠️ LA BORNE EST AU 29/07, pas au 28. `subsByMembership` est bucketisé par JOUR
+ * PARIS : on ne peut pas distinguer, dans la journée du 28, ce qui précède
+ * 01:09 UTC (03:09 Paris) de ce qui suit. Le seul arrondi sûr range la journée
+ * de transition ENTIÈRE dans le bucket clos. Sans cet arrondi, l'unique event
+ * non lié du 28/07 — antérieur à la bascule selon toute vraisemblance — était
+ * compté comme une régression et suspendait les chiffres EN PERMANENCE
+ * (constaté en rejouant le contrôle sur l'export de prod). Le coût est un angle
+ * mort d'UN jour, dans le passé, et nommé.
+ */
+const MEMBERSHIP_ID_BREAK_DAY = "2026-07-29";
+const MEMBERSHIP_ID_BREAK_LABEL = "28/07/2026 01:09 UTC";
+
 export const getReliability = adminQuery({
   args: {},
   handler: async (ctx): Promise<ReliabilityResult> => {
@@ -1844,6 +1879,8 @@ export const getReliability = adminQuery({
     let whopClientsTotal: number | null = null;
     let whopSecuredClients: number | null = null;
     let whopClientsUnresolved = 0;
+    let windowReconciliation: ReliabilityResult["coherence"]["windowReconciliation"] =
+      null;
     let dailyFailedPayments: { day: string; count: number }[] = [];
     let whopInternalExcluded = 0;
     let whopSyncMs: number | null = null;
@@ -1996,6 +2033,55 @@ export const getReliability = adminQuery({
         if (!userOf.has(id)) whopClientsUnresolved += 1;
       }
 
+      // ─── Décomposition de l'écart PostHog↔Whop sur la fenêtre ─────────────
+      // Le contrôle jugeait l'écart BRUT sur des seuils fixes. Il se décompose,
+      // et sa composition dit tout : des personnes qui ont émis l'event sans
+      // jamais encaisser (elles gonflent), des paiements sans aucun event (ils
+      // creusent), et des events sans membership_id — inclassables, donc une
+      // BANDE D'INCERTITUDE et non un terme.
+      //
+      // La rupture du 2026-07-28 01:09 UTC est la date d'apparition de
+      // `membership_id` sur subscription_completed. Avant : bucket CLOS, qui
+      // sortira tout seul de la fenêtre de 90 jours. Après : zéro aujourd'hui,
+      // donc toute apparition est une RÉGRESSION d'instrumentation — c'est ce
+      // que le contrôle doit attraper, et il ne le pouvait pas jusqu'ici.
+      const emittedMemberships = new Set(
+        subsByMembership.filter((r) => r.membershipId !== "").map((r) => r.membershipId),
+      );
+      // Un FANTÔME est une PERSONNE absente du compte Whop, pas un abonnement
+      // impayé : quelqu'un qui a un abonnement remboursé ET un autre encaissé
+      // reste un client des deux côtés. Compter par abonnement gonflait le terme
+      // (4 au lieu de 2, vérifié sur l'export de prod).
+      const payingUsers = new Set(comparableIds.map((m) => userOf.get(m) ?? `mem:${m}`));
+      const ghostUsers = new Set<string>();
+      for (const m of emittedMemberships) {
+        if (firstPaid.has(m)) continue;
+        const u = userOf.get(m) ?? `mem:${m}`;
+        if (!payingUsers.has(u)) ghostUsers.add(u);
+      }
+      // Symétriquement : une personne dont AUCUN abonnement n'a d'event.
+      const emittedUsers = new Set(
+        [...emittedMemberships].map((m) => userOf.get(m) ?? `mem:${m}`),
+      );
+      const missingUsers = new Set<string>();
+      for (const u of payingUsers) {
+        if (!emittedUsers.has(u)) missingUsers.add(u);
+      }
+      let unlinkedBeforeBreak = 0;
+      let unlinkedAfterBreak = 0;
+      for (const r of subsByMembership) {
+        if (r.membershipId !== "") continue;
+        if (r.day < MEMBERSHIP_ID_BREAK_DAY) unlinkedBeforeBreak += r.persons;
+        else unlinkedAfterBreak += r.persons;
+      }
+      windowReconciliation = {
+        ghostClients: ghostUsers.size,
+        missingEvents: missingUsers.size,
+        unlinkedBeforeBreak,
+        unlinkedAfterBreak,
+        breakLabel: MEMBERSHIP_ID_BREAK_LABEL,
+      };
+
       // Contrôle « N abonnements pour M personnes ». Il ANNOTE « Clients payants »
       // et DOIT donc porter sur la MÊME population : les memberships ayant au
       // moins un paiement encaissé (`firstPaid`), pas tous les memberships non
@@ -2084,6 +2170,7 @@ export const getReliability = adminQuery({
         whopClients,
         whopClientsTotal,
         whopClientsUnresolved,
+        windowReconciliation,
         whopExcludedPre,
         whopExcludedAfter,
         dailyPaidClients,
