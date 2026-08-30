@@ -1926,6 +1926,19 @@ export default defineSchema({
     retryable: v.optional(v.boolean()),
     // Pseudo Whop du client (username) — pour identifier un litige à traiter.
     // Optionnel : peuplé à partir de la re-synchro (rows anciennes = absent).
+    /**
+     * PAYS DE FACTURATION, valeur BRUTE de `billing_address.country` (API Whop).
+     * Whop est marchand de référence et collecte l'adresse pour la TVA. Format
+     * NON documenté côté API (`string | null`, sans exemple) : on stocke tel
+     * quel, sans normaliser — un code ISO et un nom complet doivent rester
+     * distinguables. Porté par le PAIEMENT, jamais par le client : ni `user`, ni
+     * `member`, ni `membership` n'exposent de pays.
+     *
+     * ⚠️ Pays de FACTURATION — à ne JAMAIS mélanger avec le pays de CONNEXION
+     * de PostHog (`$geoip_country_name`) : deux notions, deux populations.
+     * Absent = adresse non fournie par Whop pour ce paiement.
+     */
+    billingCountry: v.optional(v.string()),
     memberName: v.optional(v.string()),
     // LITIGE (chargeback) EN COURS : échéance de réponse (needs_response_by, ms) et
     // motif. Le délai restant est URGENT (frais de litige > abonnement). Optionnels :
