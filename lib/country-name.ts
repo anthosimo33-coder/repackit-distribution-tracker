@@ -1,5 +1,12 @@
 /**
- * CODES PAYS → NOMS EN CLAIR.
+ * CODES PAYS → NOMS EN CLAIR, monde OUVERT.
+ *
+ * ⚠️ À NE PAS CONFONDRE avec `countryLabel` de `lib/countries`, qui sert les
+ * SÉLECTEURS ADMIN : liste FERMÉE de dix pays, avec drapeau, tenue en phase avec
+ * `convex/countries.SUPPORTED_COUNTRIES` qui la valide côté serveur. Elle rend
+ * le code brut pour tout ce qui n'y figure pas — c'est-à-dire la plupart des
+ * pays vus par l'analytics (BE, CH, RS, BA, MK…). D'où deux fonctions, et deux
+ * noms distincts pour qu'on n'importe pas l'une pour l'autre.
  *
  * Whop rend `billing_address.country` en ISO 3166-1 alpha-2. La doc de l'API ne
  * le spécifiait pas (`string | null`, sans exemple) : c'est la MESURE qui a
@@ -34,7 +41,7 @@ function displayNames(): Intl.DisplayNames | null {
 }
 
 /** Libellé lisible d'un code pays ISO 3166-1 alpha-2. */
-export function countryLabel(code: string | null | undefined): string {
+export function isoCountryLabel(code: string | null | undefined): string {
   const brut = (code ?? "").trim();
   if (brut === "") return "Pays non renseigné";
   const dn = displayNames();
