@@ -524,6 +524,7 @@ export function ParcoursTab({
           payload={analytics.funnels.country}
           colonne="Pays"
           split={analytics.serverSideSplit.rows}
+          libelle={countryLabel}
           note="Une personne qui visite depuis un pays et achète depuis un autre compte dans les deux : les lignes ne s'additionnent pas en un total."
         />
         <SegmentFunnelCard
@@ -668,6 +669,7 @@ function SegmentFunnelCard({
   colonne,
   note,
   split,
+  libelle,
 }: {
   title: string;
   subtitle: string;
@@ -676,6 +678,12 @@ function SegmentFunnelCard({
   note: string;
   /** Répartition client/serveur — seulement pour le découpage géographique. */
   split?: readonly SplitRow[];
+  /**
+   * Traduction du libellé de segment. ⚠️ NE PAS passer `countryLabel` à la carte
+   * des LANGUES : « fr » y rendrait « France » et « en » « EN ». Les deux
+   * vocabulaires se ressemblent et ne veulent pas dire la même chose.
+   */
+  libelle?: (s: string) => string;
 }) {
   const { rows, unknownShare, unknownVisitors } = buildSegmentRows(payload);
   // Les events SERVEUR sont exclus du découpage par pays : ils portent l'IP du
@@ -733,7 +741,7 @@ function SegmentFunnelCard({
                   {nommes.map((r) => (
                     <TableRow key={r.key}>
                       <TableCell className="text-xs font-medium text-slate-700">
-                        {r.key}
+                        {libelle ? libelle(r.key) : r.key}
                       </TableCell>
                       <TableCell className="text-right text-xs tabular-nums">
                         {formatNumber(r.visit)}

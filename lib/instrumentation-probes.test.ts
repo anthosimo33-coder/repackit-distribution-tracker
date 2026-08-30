@@ -55,15 +55,28 @@ describe("sondes d'instrumentation", () => {
     }
   });
 
-  it("les trois sondes géo séparent event, bas de funnel et personne", () => {
+  it("les sondes géo couvrent les quatre rôles attendus", () => {
+    // Assertion par RÔLE et non par compte : figer « exactement 3 » cassait au
+    // premier ajout sans rien prouver de plus. Chaque rôle répond à une question
+    // distincte, et c'est ça qui doit tenir.
     const geo = CONTRACT_PROPERTIES.filter((p) => p.name.includes("geoip"));
-    expect(geo).toHaveLength(3);
-    const [evt, bas, pers] = geo;
-    expect(evt.cond).toBe("isNotNull(properties['$geoip_country_name'])");
-    expect(bas.cond).toContain("event = 'subscription_completed'");
-    // LA distinction qui décide si un segment est exploitable ici.
-    expect(pers.cond).toContain("person.properties");
-    expect(evt.cond).not.toContain("person.properties");
+    const par = (f: (c: string) => boolean) => geo.filter((p) => f(p.cond ?? ""));
+
+    // 1. le pays est-il sur les EVENTS ?
+    expect(par((c) => c === "isNotNull(properties['$geoip_country_name'])")).toHaveLength(1);
+    // 2. tient-il jusqu'en bas du funnel ?
+    expect(par((c) => c.includes("event = 'subscription_completed'"))).toHaveLength(1);
+    // 3. n'est-il QUE sur la personne ? (le piège de `source` et `language`)
+    expect(par((c) => c.includes("person.properties"))).toHaveLength(1);
+    // 4. le CODE ISO est-il peuplé ? (il décide de la langue d'affichage)
+    expect(par((c) => c.includes("$geoip_country_code"))).toHaveLength(1);
+
+    // Aucune sonde d'event ne doit lire la personne, et inversement.
+    for (const p of geo) {
+      const surPersonne = (p.cond ?? "").includes("person.properties");
+      const surEvent = /properties\['\$geoip/.test((p.cond ?? "").replace("person.properties", ""));
+      expect(surPersonne && surEvent).toBe(false);
+    }
   });
 
   it("les noms de sonde sont uniques — deux puces identiques seraient illisibles", () => {
