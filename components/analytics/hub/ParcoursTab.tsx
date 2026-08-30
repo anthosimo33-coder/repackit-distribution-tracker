@@ -28,8 +28,10 @@ import {
 import { EXPLAIN } from "./explanations";
 import {
   buildSegmentRows,
+  clientCoverage,
   UNKNOWN_SEGMENT,
   type SegmentPayload,
+  type SplitRow,
 } from "@/lib/segment-funnel";
 import type { ProductAnalyticsData, ReliabilityData } from "./types";
 
@@ -515,6 +517,7 @@ export function ParcoursTab({
           subtitle="Le tunnel complet, coupé par pays du VISITEUR. Le pays est lu sur l'event (GeoIP), pas sur la personne : il accompagne donc chaque étape."
           payload={analytics.funnels.country}
           colonne="Pays"
+          split={analytics.serverSideSplit.rows}
           note="Une personne qui visite depuis un pays et achète depuis un autre compte dans les deux : les lignes ne s'additionnent pas en un total."
         />
         <SegmentFunnelCard
@@ -623,6 +626,15 @@ export function ParcoursTab({
   );
 }
 
+/** Libellés d'étapes pour les mentions de couverture. */
+const STEP_LABELS: Record<string, string> = {
+  $pageview: "visiteurs",
+  signup_completed: "inscriptions",
+  paywall_viewed: "paywall",
+  checkout_started: "checkouts",
+  subscription_completed: "clients",
+};
+
 /**
  * Une carte « tunnel par segment » — pays, langue, et ce qui viendra.
  *
@@ -641,14 +653,28 @@ function SegmentFunnelCard({
   payload,
   colonne,
   note,
+  split,
 }: {
   title: string;
   subtitle: string;
   payload: SegmentPayload;
   colonne: string;
   note: string;
+  /** Répartition client/serveur — seulement pour le découpage géographique. */
+  split?: readonly SplitRow[];
 }) {
   const { rows, unknownShare, unknownVisitors } = buildSegmentRows(payload);
+  // Les events SERVEUR sont exclus du découpage par pays : ils portent l'IP du
+  // datacenter, pas celle du visiteur. Nécessaire — avant filtre, l'Indonésie
+  // absorbait 86 % des inscriptions du site sur une ligne à 58 visiteurs — mais
+  // pas gratuit : une étape émise uniquement côté serveur voit sa colonne se
+  // vider. On le DIT, plutôt que d'afficher un zéro qui se lirait comme une
+  // mesure.
+  const couverture = clientCoverage(split ?? []);
+  const vides = couverture.filter((c) => c.unmeasurable);
+  const partielles = couverture.filter(
+    (c) => !c.unmeasurable && c.share !== null && c.share < 0.99,
+  );
   const nommes = rows.filter((r) => r.key !== UNKNOWN_SEGMENT);
   return (
     <Card>
@@ -717,6 +743,26 @@ function SegmentFunnelCard({
             </div>
             )}
             <p className="text-xs text-slate-400">{note}</p>
+            {vides.length > 0 ? (
+              <p className="text-xs text-amber-700">
+                Non mesurable par {colonne.toLowerCase()} :{" "}
+                {vides.map((c) => STEP_LABELS[c.event] ?? c.event).join(", ")} —
+                ces étapes ne sont émises que côté serveur, dont l&apos;adresse
+                est celle du datacenter. La colonne reste vide plutôt que fausse.
+              </p>
+            ) : null}
+            {partielles.length > 0 ? (
+              <p className="text-xs text-slate-400">
+                Mesuré côté navigateur :{" "}
+                {partielles
+                  .map(
+                    (c) =>
+                      `${STEP_LABELS[c.event] ?? c.event} ${pctFromFraction(c.share)}`,
+                  )
+                  .join(" · ")}{" "}
+                — le reste part du serveur et est exclu du découpage.
+              </p>
+            ) : null}
           </>
         )}
       </CardContent>
