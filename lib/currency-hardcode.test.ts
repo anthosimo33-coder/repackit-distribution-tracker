@@ -151,3 +151,52 @@ describe("aucune devise codée en dur dans les composants (elle vient de la donn
     });
   }
 });
+
+// ─── 3. Une seule devise d'AFFICHAGE sur le hub analytics ────────────────────
+
+/**
+ * GARDE-FOU — le hub affiche TOUT dans la devise du REVENU (l'euro), y compris
+ * les coûts créatrices qui sont libellés en dollars dans la donnée.
+ *
+ * Le défaut vécu : « Coût d'acquisition » et « Coût complet du moteur »
+ * sortaient en dollars, posés à côté de « Revenu net par client » en euros,
+ * comme s'ils étaient comparables. Relevé en prod : 10,62 $ affiché face à
+ * 11,10 € — converti, le coût vaut 9,13 €, donc l'erreur se lisait dans le
+ * MAUVAIS SENS (la marge réelle était meilleure que l'écran). Sept montants
+ * étaient concernés, pas deux : les deux valeurs de carte, leurs deux hints, et
+ * les trois montants des récompenses en nature.
+ *
+ * La conversion existait pourtant déjà (RPM promo, Rétention) : c'est
+ * l'application qui manquait, pas le mécanisme.
+ *
+ * RÈGLE TENUE ICI : dans `components/analytics/`, un seul module a le droit de
+ * formater un montant dans la devise de PAIE — le module de conversion partagé,
+ * qui rend la mention « 10,62 $ converti » à côté du montant en euros. Partout
+ * ailleurs, un montant de paie doit passer par lui. Un site qui rappellerait
+ * `formatMoney(x, payCurrency)` en direct réintroduirait exactement le défaut.
+ */
+describe("hub analytics : une seule devise d'affichage", () => {
+  /** Le SEUL module autorisé à formater en devise de paie (il rend la mention). */
+  const CONVERSION_MODULE = "lib/currency-display.ts";
+
+  // `formatMoney(<quoi que ce soit>, …payCurrency…)` — la devise de la PAIE.
+  const PAY_CURRENCY_DISPLAY = /formatMoney\s*\([^;]*?payCurrency/;
+
+  it("aucun montant en devise de paie hors du module de conversion", () => {
+    const offenders: string[] = [];
+    for (const file of walk(join(ROOT, "components", "analytics"))) {
+      const rel = file.slice(ROOT.length + 1).split("\\").join("/");
+      const src = readFileSync(file, "utf8");
+      src.split("\n").forEach((line, i) => {
+        if (PAY_CURRENCY_DISPLAY.test(line)) offenders.push(`${rel}:${i + 1}`);
+      });
+    }
+    expect(
+      offenders,
+      `Montants affichés en devise de PAIE hors du module de conversion :\n  ${offenders.join(
+        "\n  ",
+      )}\nLe hub affiche en devise du REVENU. Passe par ${CONVERSION_MODULE}, qui convertit ` +
+        `au taux du projet et écrit « … converti » — ou dit « non converti » quand aucun taux n'est réglé.`,
+    ).toEqual([]);
+  });
+});

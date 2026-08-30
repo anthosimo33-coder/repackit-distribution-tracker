@@ -15,6 +15,7 @@ import { HubCardHeader, HubEmptyState, dash } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import { UsersIcon } from "lucide-react";
 import { NatureRewardsCard } from "./NatureRewardsCard";
+import type { CurrencyContext } from "@/lib/currency-display";
 import type {
   AttributionData,
   NatureRewardsData,
@@ -37,16 +38,24 @@ export function AcquisitionTab({
   attribution,
   viewCounters,
   natureRewards,
+  revenueCurrency,
 }: {
   attribution: AttributionData;
   viewCounters: ViewCountersData | undefined;
   natureRewards: NatureRewardsData | undefined;
+  /** Devise du REVENU — celle dans laquelle tout le hub s'affiche. */
+  revenueCurrency: string | null | undefined;
 }) {
+  const fxCtx: CurrencyContext = {
+    payCurrency: attribution.payCurrency,
+    revenueCurrency,
+    fxRateToRevenue: attribution.fxRateToRevenue,
+  };
   return (
     <div className="space-y-6">
       {/* Récompenses en nature — dû (dépense) vs engagé (promesse). Placée ici :
           ce sont les cumuls de vues de cet onglet qui font tomber les paliers. */}
-      <NatureRewardsCard data={natureRewards} />
+      <NatureRewardsCard data={natureRewards} fxCtx={fxCtx} />
 
       {/* Quatre compteurs de vues */}
       <Card>

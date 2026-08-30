@@ -28,6 +28,13 @@ import {
 } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import { PromoRpmCard } from "./PromoRpmCard";
+import {
+  toDisplayAmount,
+  convertedValue,
+  conversionNote,
+  rateNote,
+  type CurrencyContext,
+} from "@/lib/currency-display";
 import { PayCurrencyWarning } from "@/components/PayCurrencyWarning";
 import { MixedCurrencyNotice } from "@/components/MixedCurrencyNotice";
 import type { TrendPoint } from "./HubTrendChart";
@@ -49,6 +56,11 @@ import type {
  * une courbe LISIBLE (survol daté). La table « Détail par jour » donne la lecture
  * du matin : une ligne par jour, les chiffres clés côte à côte.
  */
+
+/** Assemble un hint en sautant les morceaux vides — jamais un « · » orphelin. */
+function joinHint(parts: (string | null | undefined | false)[]): string {
+  return parts.filter((p): p is string => typeof p === "string" && p !== "").join(" · ");
+}
 
 function stepCount(steps: { key: string; count: number }[], key: string): number | null {
   const s = steps.find((x) => x.key === key);
@@ -90,6 +102,16 @@ export function OverviewTab({
   // chacune dans sa devise, sans les soustraire (pas de marge combinée sur ces cartes).
   const currency = revenue?.currency ?? undefined; // revenu (€)
   const payCurrency = attribution?.payCurrency ?? undefined; // coût créateurs ($)
+  // UNE SEULE devise d'affichage sur tout l'écran : celle du REVENU. Les coûts
+  // créatrices sont en dollars dans la donnée et passent tous par ConvertedAmount.
+  // Ils sortaient jusqu'ici en dollars, posés à côté d'un revenu par client en
+  // euros comme s'ils étaient comparables — 10,62 $ face à 11,10 €, soit 9,13 €
+  // convertis : l'erreur se lisait dans le MAUVAIS SENS.
+  const fxCtx: CurrencyContext = {
+    payCurrency,
+    revenueCurrency: currency,
+    fxRateToRevenue: attribution?.fxRateToRevenue,
+  };
 
   // Écart client comparable (base du garde-fou) + libellé discret toujours visible.
   const coh = reliability?.coherence;
@@ -235,7 +257,7 @@ export function OverviewTab({
   );
   const violations = checks.filter((c) => c.status === "violation");
 
-  // ── Éco unitaire : deux coûts par client (en $) + revenu par client (en €) ──
+  // ── Éco unitaire : trois montants, TOUS dans la devise du revenu ───────────
   // Global, PLUS de restriction aux jours solo (elle n'était utile qu'à
   // l'attribution PAR créatrice) : le coût total / clients n'a pas besoin
   // d'attribuer chaque client à une créatrice.
@@ -254,16 +276,16 @@ export function OverviewTab({
   const c = attribution?.costs;
   const promoPlusBonus =
     c && c.promo !== null && c.promoBonus !== null ? c.promo + c.promoBonus : null;
-  const acquisitionCost = perClient(promoPlusBonus);
+  const acquisitionCost = toDisplayAmount(perClient(promoPlusBonus), fxCtx);
   // Bonus inclus EN ENTIER : un palier ne se gagne que sur des vues promo, donc
   // tout bonus débloqué est un coût promo (plus de prorata, cf getAttribution).
-  const acquisitionBonus = c?.promoBonus ?? null;
+  const acquisitionBonus = toDisplayAmount(c?.promoBonus, fxCtx);
   // Carte 2 — coût complet du moteur : toute la paie (warmup + 100 % du bonus cash
   // + les récompenses en NATURE déjà dues) / clients. Une récompense en nature sans
   // coût réel renseigné est ABSENTE du total : on le dit, plutôt que de présenter
   // un coût incomplet comme entier.
-  const fullEngineCost = perClient(attribution?.costs.total);
-  const natureDue = attribution?.costs.natureDue ?? 0;
+  const fullEngineCost = toDisplayAmount(perClient(attribution?.costs.total), fxCtx);
+  const natureDue = toDisplayAmount(attribution?.costs.natureDue ?? 0, fxCtx);
   const natureMissing = attribution?.costs.natureDueMissingCost ?? 0;
 
   const seq = analytics.funnels.sequential.segments[0]?.steps ?? [];
@@ -368,38 +390,35 @@ export function OverviewTab({
         currencies={revenue?.currenciesPresent}
       />
 
-      {/* Éco unitaire — deux coûts ($) côte à côte + revenu par client (€). */}
+      {/* Éco unitaire — les TROIS montants dans la devise du revenu. Les deux
+          coûts sont convertis depuis la paie ; leur provenance est écrite. */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <KpiTile
           label="Coût d'acquisition"
-          value={acquisitionCost === null ? "—" : formatMoney(acquisitionCost, payCurrency)}
+          value={convertedValue(acquisitionCost)}
           delta={null}
-          hint={
-            acquisitionBonus !== null && acquisitionBonus > 0
-              ? `dont ${formatMoney(acquisitionBonus, payCurrency)} de bonus de paliers, débloqué sur des vues promo${
-                  clients !== null ? ` · ÷ ${formatNumber(clients)} clients acquis` : ""
-                }`
-              : clients !== null
-                ? `publications promo · ÷ ${formatNumber(clients)} clients acquis`
-                : "publications promo uniquement"
-          }
+          hint={joinHint([
+            acquisitionBonus !== null && acquisitionBonus.sourceValue > 0
+              ? `dont ${convertedValue(acquisitionBonus)} de bonus de paliers, débloqué sur des vues promo`
+              : "publications promo",
+            clients !== null ? `÷ ${formatNumber(clients)} clients acquis` : null,
+            conversionNote(acquisitionCost),
+          ])}
           info={EXPLAIN.coutAcquisition}
         />
         <KpiTile
           label="Coût complet du moteur"
-          value={fullEngineCost === null ? "—" : formatMoney(fullEngineCost, payCurrency)}
+          value={convertedValue(fullEngineCost)}
           delta={null}
-          hint={
+          hint={joinHint([
             natureMissing > 0
               ? `warmup inclus · sous-estimé : ${formatNumber(natureMissing)} récompense(s) en nature sans coût réel`
-              : natureDue > 0
-                ? `warmup + ${formatMoney(natureDue, payCurrency)} de récompenses en nature dues${
-                    clients !== null ? ` · ÷ ${formatNumber(clients)} clients acquis` : ""
-                  }`
-                : clients !== null
-                  ? `warmup inclus · ÷ ${formatNumber(clients)} clients acquis`
-                  : "warmup inclus · tout le moteur"
-          }
+              : natureDue !== null && natureDue.sourceValue > 0
+                ? `warmup + ${convertedValue(natureDue)} de récompenses en nature dues`
+                : "warmup inclus",
+            clients !== null ? `÷ ${formatNumber(clients)} clients acquis` : null,
+            conversionNote(fullEngineCost),
+          ])}
           info={EXPLAIN.coutComplet}
         />
         <KpiTile
@@ -418,6 +437,12 @@ export function OverviewTab({
           info={EXPLAIN.revenuParClient}
         />
       </div>
+
+      {/* Le taux, écrit UNE fois pour les trois cartes : sans lui, un lecteur ne
+          peut pas savoir que deux d'entre elles sont converties depuis la paie. */}
+      {rateNote(fxCtx) !== "" ? (
+        <p className="-mt-2 text-xs text-slate-400">{rateNote(fxCtx)}</p>
+      ) : null}
 
       {/* RPM promo — revenu, coût et écart pour 1 000 vues promo. Placée avec
           l'éco unitaire : c'est le même bloc « ce que rapporte / ce que coûte ». */}

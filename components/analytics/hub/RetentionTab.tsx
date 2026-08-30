@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/table";
 import { formatNumber } from "@/lib/format";
 import { formatMoney } from "@/lib/format-rate";
+import { toDisplayAmount, conversionNote } from "@/lib/currency-display";
 import { computeChurn } from "@/lib/churn";
 import {
   HubCardHeader,
@@ -148,11 +149,17 @@ export function RetentionTab({
           ) / 100
         : null
       : null;
-  const fx = attribution?.fxRateToRevenue ?? null;
-  const acqCostRevCur =
-    acqCostPayCur !== null && fx !== null
-      ? Math.round(acqCostPayCur * fx * 100) / 100
-      : null;
+  // Passage par le module partagé (cf ConvertedAmount) plutôt qu'une
+  // multiplication locale. Deux raisons : un seul site du hub formate un montant
+  // de paie, et surtout ce calcul lisait `fxRateToRevenue` BRUT — si paie et
+  // revenu venaient à partager la même devise, il aurait appliqué le taux du
+  // projet au lieu de 1. `effectiveFxRate`, derrière le module, tranche ce cas.
+  const acqCost = toDisplayAmount(acqCostPayCur, {
+    payCurrency: attribution?.payCurrency,
+    revenueCurrency: churn?.currency,
+    fxRateToRevenue: attribution?.fxRateToRevenue,
+  });
+  const acqCostRevCur = acqCost !== null && acqCost.converted ? acqCost.value : null;
   const ratioOf = (v: number | null | undefined): number | null =>
     v != null && acqCostRevCur !== null && acqCostRevCur > 0
       ? Math.round((v / acqCostRevCur) * 100) / 100
@@ -396,8 +403,7 @@ export function RetentionTab({
                         Coût d&apos;acquisition
                         <span className="text-slate-400">
                           {" "}
-                          ({formatMoney(acqCostPayCur ?? 0, attribution?.payCurrency)}{" "}
-                          converti)
+                          ({conversionNote(acqCost)})
                         </span>
                       </TableCell>
                       <TableCell className="text-right text-xs tabular-nums">
