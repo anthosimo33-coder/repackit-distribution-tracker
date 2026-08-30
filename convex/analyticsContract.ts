@@ -178,11 +178,23 @@ export const CONTRACT_EVENTS: ContractEvent[] = [
 ];
 
 export interface ContractProperty {
+  /** Nom affiché sur la carte. Sert aussi de nom de propriété par défaut. */
   name: string;
   /** Event porteur, ou "*" pour « attendue sur tous les events ». */
   onEvent: string;
   /** true = propriété PAS ENCORE émise côté app (règle A1). */
   notYetEmitted?: boolean;
+  /**
+   * Condition HogQL EXPLICITE, quand le gabarit par défaut ne suffit pas.
+   *
+   * Le gabarit sonde `properties.<name>` — une propriété d'EVENT. Il ne sait pas
+   * exprimer une propriété de PERSONNE (`person.properties.X`), ni un nom qui
+   * demande la notation entre crochets. Or la distinction event/personne est
+   * précisément ce qui décide si un segment est exploitable ici : `source` et
+   * `language`, lus sur la personne, rendent 100 % et 84 % d'« inconnu » parce
+   * que l'app les pose à l'inscription, après les pageviews.
+   */
+  cond?: string;
 }
 
 /**
@@ -249,6 +261,40 @@ export const CONTRACT_PROPERTIES: ContractProperty[] = [
   // Le lot serveur de 06:00 UTC rapporte les paiements de la veille : sans lui,
   // la série quotidienne PostHog est décalée d'un jour par rapport à Whop.
   { name: "paid_at", onEvent: "subscription_completed", notYetEmitted: true },
+  // ─── Pays du visiteur (GeoIP) — SONDES du chantier « trafic par pays » ─────
+  // On ne peut pas savoir depuis le tracker si GeoIP est actif sur le projet
+  // PostHog : c'est un réglage d'INGESTION, invisible d'ici, et la clé API ne
+  // quitte pas le runtime Convex. Ces trois sondes répondent au cron suivant.
+  //
+  //   `$geoip_country_name`        > 0 ⇒ GeoIP écrit sur les EVENTS ;
+  //   `… (bas de funnel)`          > 0 ⇒ et il tient jusqu'à la vente ;
+  //   `… (personne)` SEULE  > 0    ⇒ GeoIP n'écrit que sur la PERSONNE, donc
+  //     inexploitable pour segmenter — même piège que `source` et `language`,
+  //     posées à l'inscription, qui rendent 100 % et 84 % d'« inconnu » sur les
+  //     visiteurs (relevé de prod du 30/08).
+  //
+  // Notation entre CROCHETS : le nom commence par `$`, l'accès par point est
+  // ambigu en HogQL. `notYetEmitted` marque « déclarée, pas encore vérifiée » —
+  // le retour du drapeau est MANUEL, après lecture de la carte (règle A1).
+  {
+    name: "$geoip_country_name",
+    onEvent: "*",
+    notYetEmitted: true,
+    cond: "isNotNull(properties['$geoip_country_name'])",
+  },
+  {
+    name: "$geoip_country_name (bas de funnel)",
+    onEvent: "subscription_completed",
+    notYetEmitted: true,
+    cond:
+      "event = 'subscription_completed' AND isNotNull(properties['$geoip_country_name'])",
+  },
+  {
+    name: "$geoip_country_name (personne)",
+    onEvent: "*",
+    notYetEmitted: true,
+    cond: "isNotNull(person.properties['$geoip_country_name'])",
+  },
 ];
 
 /**
