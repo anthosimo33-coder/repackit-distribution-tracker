@@ -242,3 +242,84 @@ describe("shapeConversionDay — l'écran", () => {
     expect(d.total.sales).toBeNull();
   });
 });
+
+/**
+ * ALL-TIME — le bloc « Ce que ça a rapporté » n'affiche plus une journée mais
+ * tout l'historique. Deux changements de sens en découlent.
+ *
+ * 1. LE VIDE. Sur UNE journée, une ref sans ligne peut vouloir dire « la source
+ *    n'a rien dit » — d'où le « — ». Sur une période dont on sait combien de
+ *    jours ont été collectés, c'est autre chose : les sources ont répondu, et
+ *    elles n'ont rien vu pour cette ref. Une créatrice avec une ref active et
+ *    zéro visiteur depuis toujours est un VRAI ZÉRO. Cas de prod : `marine`,
+ *    `orlane` et `celia` ont une ref configurée et pas une seule ligne en 41
+ *    jours collectés.
+ *
+ * 2. LE TOTAL. Il somme TOUT — refs rattachées, refs orphelines et ligne « sans
+ *    source ». En vue journée l'écart passait ; en all-time il devient criant :
+ *    en prod, 1 257,59 € « sans source » contre 46,32 € attribués à Kelly. Un
+ *    seul « Total » sous une liste où une seule créatrice a un chiffre laisse
+ *    croire à une attribution qui n'existe pas. D'où DEUX lignes : ce qui est
+ *    attribué, et le total réconciliable avec Whop.
+ */
+describe("shapeConversionDay — all-time", () => {
+  const creators = [
+    { creatorId: "cr_kelly", name: "Kelly", refSlug: "kelly" },
+    { creatorId: "cr_marine", name: "Marine", refSlug: "marine" },
+    { creatorId: "cr_lea", name: "Léa" }, // pas de ref
+  ];
+  // Chiffres de prod (cumuls au 2026-08-27) — pas des nombres ronds.
+  const rows: DayRefRow[] = [
+    { ref: "kelly", visitors: 236, signups: 13, sales: 5, revenue: 46.32, currency: "EUR" },
+    { ref: "gio", visitors: 146, signups: 4, sales: 1, revenue: 9.27, currency: "EUR" },
+    { ref: undefined, visitors: 6107, signups: 3405, sales: 172, revenue: 1257.59, currency: "EUR" },
+  ];
+
+  it("ref active sans aucune ligne sur des jours COLLECTÉS → un vrai zéro", () => {
+    const d = shapeConversionDay(rows, creators, { collectedDays: 41 });
+    const marine = d.rows.find(
+      (r) => r.kind === "creator" && r.creatorName === "Marine",
+    )!;
+    expect(marine).toMatchObject({ visitors: 0, signups: 0, sales: 0, revenue: 0 });
+  });
+
+  it("aucun jour collecté → « — » maintenu (on ne mesure rien, on n'invente rien)", () => {
+    // Contrôle OPPOSÉ du précédent : le zéro ne doit pas apparaître par défaut.
+    const d = shapeConversionDay(rows, creators, { collectedDays: 0 });
+    const marine = d.rows.find(
+      (r) => r.kind === "creator" && r.creatorName === "Marine",
+    )!;
+    expect(marine).toMatchObject({ visitors: null, revenue: null });
+  });
+
+  it("« pas de ref configurée » reste un état, jamais un zéro", () => {
+    const d = shapeConversionDay(rows, creators, { collectedDays: 41 });
+    expect(d.rows.some((r) => r.kind === "no-ref" && r.creatorName === "Léa")).toBe(true);
+    expect(d.rows.some((r) => r.kind === "creator" && r.creatorName === "Léa")).toBe(false);
+  });
+
+  it("Total attribué = les refs RATTACHÉES ; le Total garde tout", () => {
+    const d = shapeConversionDay(rows, creators, { collectedDays: 41 });
+    // Attribué : Kelly seule (gio est orpheline, « sans source » n'est à personne).
+    expect(d.attributed).toMatchObject({ visitors: 236, sales: 5, revenue: 46.32 });
+    // Total : tout, donc réconciliable avec Whop. Le revenu est ARRONDI au
+    // centime — la somme brute des flottants donne 1313,1799999999998, et la
+    // base de prod porte déjà des valeurs comme 46,31999999999999.
+    expect(d.total).toMatchObject({
+      visitors: 236 + 146 + 6107,
+      sales: 5 + 1 + 172,
+      revenue: 1313.18,
+    });
+  });
+
+  it("le revenu d'une ref orpheline entre dans le Total, jamais dans l'attribué", () => {
+    const d = shapeConversionDay(rows, creators, { collectedDays: 41 });
+    expect(d.total.revenue! - d.attributed.revenue!).toBeCloseTo(9.27 + 1257.59, 2);
+  });
+
+  it("sans données du tout : attribué et total restent null, jamais 0", () => {
+    const d = shapeConversionDay([], creators, { collectedDays: 41 });
+    expect(d.total.revenue).toBeNull();
+    expect(d.attributed.revenue).toBeNull();
+  });
+});

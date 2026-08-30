@@ -233,3 +233,45 @@ Ce fichier liste les anti-patterns repérés dans la zone touchée par chaque fe
   population. Deux remesures valent mieux qu'une (cf les 7 briques devenues 77).
 - **Reste dû, sans déclencheur connu** : rien. La lecture seule est structurelle
   (aucun `adminViewAsMutation` n'existe, et il ne doit pas en exister).
+
+
+---
+
+## Détectés pendant le passage en ALL-TIME de l'attribution par ref (août 2026)
+
+### TD-026 — Une ref réaffectée réécrit rétroactivement l'attribution
+- **Fichiers** : `convex/schema.ts` (table `creatorConversions`), `convex/conversionAttribution.ts` (`shapeConversionDay`)
+- **Constat** : `creatorConversions` ne stocke QUE la chaîne `ref` ; la créatrice
+  est résolue AU READ via `creators.refSlug`. C'est délibéré et documenté dans le
+  schéma (« configurer une ref après coup rattache tout l'historique ») — utile en
+  vue journée. En ALL-TIME, la même propriété devient un piège : réaffecter un
+  slug transfère silencieusement tout l'historique d'une personne à une autre.
+- **Exposition** : cinq refs orphelines existent en prod (`gio`, `asly`,
+  `paredes`, `sabrina`, `hilary`), dont `gio` porte 9,27 € et 146 visiteurs. Le
+  jour où quelqu'un pose `refSlug: "gio"` sur une créatrice, elle en hérite.
+- **Palliatif en place** : l'écran affiche la plage réelle par ref et avertit
+  quand une ref porte des données antérieures à l'arrivée de la créatrice. Ce
+  contrôle ne crie jamais à tort mais **ne voit pas tout** : la date de POSE d'un
+  refSlug n'est stockée nulle part, donc une ref configurée tardivement sur une
+  créatrice ancienne passe au travers.
+- **Reste dû** : figer le `creatorId` au write. Arbitré comme NON prioritaire —
+  les jours déjà en base n'ont pas de `creatorId` et resteraient résolus au read
+  de toute façon, donc le stockage ne protégerait que le futur tout en cassant une
+  propriété assumée du schéma. À rouvrir si une réaffectation se produit.
+
+### TD-027 — Le départ d'une créatrice orpheline son historique de conversion
+- **Fichier** : `convex/conversionSync.ts` (`readConversionAllTime`, filtre `c.status !== "churned"`)
+- **Constat** : la liste des créatrices envoyée à `shapeConversionDay` exclut les
+  `churned`. Leur ref cesse donc d'être revendiquée et bascule en « ref sans
+  créatrice rattachée » — avec son revenu, qui sort du « Total attribué » pour ne
+  rester que dans le « Total ».
+- **Pourquoi ça compte maintenant** : en vue journée, l'effet portait sur un jour
+  et passait inaperçu. En all-time, **chaque départ réécrit le passé** : le
+  travail d'une créatrice partie disparaît de l'attribution, rétroactivement et
+  sans aucun signal.
+- **Aucune créatrice n'est `churned` en prod aujourd'hui** — le défaut est donc
+  latent, et il se déclenchera au premier départ.
+- **Piste** : garder les `churned` dans la liste d'attribution (leur historique
+  est un fait), en les marquant comme parties plutôt qu'en les retirant. À
+  arbitrer : l'écran doit-il les lister indéfiniment, ou seulement tant qu'elles
+  portent des données ?

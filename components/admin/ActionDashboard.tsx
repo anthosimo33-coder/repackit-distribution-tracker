@@ -124,7 +124,7 @@ export function ActionDashboard() {
   // logique (seuils, détections) vit dans les modules purs testés.
   const decisions = useProjectQuery(api.dashboardDecisions.decisionDashboard, {});
   // Conversion par créatrice (ref snytch.co) — la veille, collectée à 23h50.
-  const conversion = useProjectQuery(api.conversionSync.readConversionDay, {});
+  const conversion = useProjectQuery(api.conversionSync.readConversionAllTime, {});
 
   // Dialogues des trois actions : graduer (modale existante), désactiver un
   // hook mort (confirmation), programmer une frappe (modale d'assignation
@@ -1091,8 +1091,14 @@ function ActionSkeleton() {
 // ─── Section « Ce que ça a rapporté » (conversion par créatrice) ─────────────
 
 type ConversionData = FunctionReturnType<
-  typeof api.conversionSync.readConversionDay
+  typeof api.conversionSync.readConversionAllTime
 >;
+
+/** "YYYY-MM-DD" → "18/07/2026". */
+function frDate(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
+}
 
 function ConversionSection({ data }: { data: ConversionData | undefined }) {
   const projectPath = useProjectPath();
@@ -1106,13 +1112,43 @@ function ConversionSection({ data }: { data: ConversionData | undefined }) {
     );
   }
 
-  const d = shapeConversionDay(data.rows, data.creators);
-  const [y, m, day] = data.date.split("-");
+  // `collectedDays` donne son sens au vide : une ref sans ligne sur des jours
+  // COLLECTÉS est un zéro mesuré, pas une donnée manquante.
+  const d = shapeConversionDay(data.rows, data.creators, {
+    collectedDays: data.collectedDays,
+  });
+  // Plage réelle PAR REF : en all-time, « 146 visiteurs » ne veut pas dire la
+  // même chose sur 2 jours et sur 41.
+  const spanByRef = new Map(
+    data.rows
+      .filter((r) => r.ref !== undefined)
+      .map((r) => [r.ref as string, { first: r.firstDate, last: r.lastDate }]),
+  );
+  // Attribution DOUTEUSE : des conversions antérieures à l'existence de la
+  // créatrice ne peuvent pas être les siennes. Le refSlug est résolu au READ et
+  // sa date de pose n'est stockée nulle part — ce contrôle ne voit donc pas tout,
+  // mais il ne crie jamais à tort.
+  const createdAtByRef = new Map(
+    data.creators
+      .filter((c) => c.refSlug)
+      .map((c) => [c.refSlug as string, c.createdAt]),
+  );
+  const suspectRefs = new Set(
+    [...spanByRef.entries()]
+      .filter(([ref, span]) => {
+        const createdAt = createdAtByRef.get(ref);
+        if (createdAt === undefined) return false;
+        return span.first < new Date(createdAt).toISOString().slice(0, 10);
+      })
+      .map(([ref]) => ref),
+  );
 
   return (
     <div className="space-y-1">
       <div className="text-xs text-slate-400">
-        Journée du {day}/{m}/{y} — attribution par ref snytch.co
+        Depuis le {frDate(data.firstDate)} — {data.collectedDays} jour
+        {data.collectedDays > 1 ? "s" : ""} collecté
+        {data.collectedDays > 1 ? "s" : ""} · attribution par ref snytch.co
       </div>
       <div className="divide-y divide-slate-100">
         {d.rows.map((row) => (
@@ -1123,6 +1159,8 @@ function ConversionSection({ data }: { data: ConversionData | undefined }) {
                 : `cr:${row.creatorId}`
             }
             row={row}
+            span={row.kind === "no-ref" ? undefined : spanByRef.get(row.ref)}
+            suspect={row.kind !== "no-ref" && suspectRefs.has(row.ref)}
             href={
               row.kind === "no-ref"
                 ? projectPath(`/createurs/${row.creatorId}`)
@@ -1147,9 +1185,31 @@ function ConversionSection({ data }: { data: ConversionData | undefined }) {
             />
           </div>
         )}
+        {/* DEUX totaux. Un seul, sous une liste où presque personne n'a de
+            chiffre, laisserait croire à une attribution qui n'existe pas : en
+            all-time l'essentiel du revenu n'est rattaché à aucune ref. Le
+            « Total » reste la somme de TOUT, donc réconciliable avec Whop. */}
+        <div className="flex items-center gap-3 py-2">
+          <div className="min-w-0 flex-1 text-sm font-medium text-slate-700">
+            Total attribué
+            <div className="text-xs text-slate-400">
+              refs rattachées à une créatrice
+            </div>
+          </div>
+          <ConversionCells
+            visitors={d.attributed.visitors}
+            signups={d.attributed.signups}
+            sales={d.attributed.sales}
+            revenue={d.attributed.revenue}
+            currency={d.attributed.currency}
+          />
+        </div>
         <div className="flex items-center gap-3 py-2">
           <div className="min-w-0 flex-1 text-sm font-semibold text-slate-900">
             Total
+            <div className="text-xs font-normal text-slate-400">
+              orphelines et sans source comprises
+            </div>
           </div>
           <ConversionCells
             visitors={d.total.visitors}
@@ -1167,9 +1227,16 @@ function ConversionSection({ data }: { data: ConversionData | undefined }) {
 function ConversionRow({
   row,
   href,
+  span,
+  suspect,
 }: {
   row: ConversionDisplayRow;
   href?: string;
+  /** Plage réelle des données de cette ref — « 146 visiteurs » sur 2 jours ou
+   *  sur 41 ne se lit pas pareil en all-time. */
+  span?: { first: string; last: string };
+  /** Données antérieures à l'existence de la créatrice → attribution douteuse. */
+  suspect?: boolean;
 }) {
   if (row.kind === "no-ref") {
     // PAS un zéro : sans ref dans la bio, l'attribution est aveugle sur elle.
@@ -1205,6 +1272,21 @@ function ConversionRow({
         {row.kind === "ref-only" && (
           <div className="text-xs text-slate-400">
             ref sans créatrice rattachée
+          </div>
+        )}
+        {span !== undefined && (
+          <div className="text-xs text-slate-400">
+            {span.first === span.last
+              ? `le ${frDate(span.first)}`
+              : `du ${frDate(span.first)} au ${frDate(span.last)}`}
+          </div>
+        )}
+        {suspect === true && (
+          <div
+            className="text-xs italic text-amber-700"
+            title="Cette ref porte des conversions ANTÉRIEURES à l'arrivée de la créatrice : le slug a pu servir à quelqu'un d'autre avant elle. La date de pose d'une ref n'étant pas stockée, l'attribution all-time ne peut pas trancher."
+          >
+            données antérieures à son arrivée — attribution à vérifier
           </div>
         )}
       </div>
