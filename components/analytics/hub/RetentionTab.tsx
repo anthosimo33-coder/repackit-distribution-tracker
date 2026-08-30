@@ -25,6 +25,7 @@ import {
   pct,
   WHOP_WEBHOOK_FIX_MS,
   ANALYSIS_WINDOW_DAYS,
+  pctFromFraction,
 } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import { UsersIcon } from "lucide-react";
@@ -133,8 +134,8 @@ export function RetentionTab({
     : !concluant
       ? `${formatNumber(renewals.resolvedDueCount)} échéance(s) tranchée(s), seuil ${MIN_RESOLVED_DUE}`
       : renewals.projectedPerClientResolved !== null
-        ? `taux ${pct(renewals.renewalRateResolved)} · ${formatNumber(renewals.resolvedDueCount)} échéances observées`
-        : `taux ${pct(renewals.renewalRateResolved)} — 1/(1−t) diverge, borne basse affichée`;
+        ? `taux ${pctFromFraction(renewals.renewalRateResolved)} · ${formatNumber(renewals.resolvedDueCount)} échéances observées`
+        : `taux ${pctFromFraction(renewals.renewalRateResolved)} — 1/(1−t) diverge, borne basse affichée`;
 
   // Coût d'acquisition : MÊME dénominateur que le revenu par client (les clients
   // payants Whop), et converti dans la devise du revenu — le comparer brut
@@ -260,12 +261,12 @@ export function RetentionTab({
               hint={
                 renewals.renewalShare === null
                   ? "aucun revenu classé"
-                  : `${pct(renewals.renewalShare)} du revenu classé · ${formatNumber(renewals.renewalCount)} paiements`
+                  : `${pctFromFraction(renewals.renewalShare)} du revenu classé · ${formatNumber(renewals.renewalCount)} paiements`
               }
             />
             <KpiTile
               label="Maturité des cohortes"
-              value={renewals.matureShare === null ? "—" : pct(renewals.matureShare)}
+              value={renewals.matureShare === null ? "—" : pctFromFraction(renewals.matureShare)}
               delta={null}
               hint={`${formatNumber(renewals.due.notYetDue)} client(s) encore dans leur 1re période`}
             />
@@ -297,7 +298,7 @@ export function RetentionTab({
                   value={
                     renewals.renewalRateResolved === null
                       ? "—"
-                      : pct(renewals.renewalRateResolved)
+                      : pctFromFraction(renewals.renewalRateResolved)
                   }
                   delta={null}
                   hint={`${formatNumber(renewals.due.renewed)} renouvelées / ${formatNumber(renewals.resolvedDueCount)} tranchées`}
@@ -307,7 +308,7 @@ export function RetentionTab({
                   value={
                     renewals.renewalRateWorstCase === null
                       ? "—"
-                      : pct(renewals.renewalRateWorstCase)
+                      : pctFromFraction(renewals.renewalRateWorstCase)
                   }
                   delta={null}
                   hint={`si les ${formatNumber(renewals.due.pending)} en attente échouaient toutes`}
@@ -503,10 +504,10 @@ export function RetentionTab({
                           )}
                         </TableCell>
                         <TableCell className="text-right text-xs tabular-nums">
-                          {o.rateResolved === null ? "—" : pct(o.rateResolved)}
+                          {o.rateResolved === null ? "—" : pctFromFraction(o.rateResolved)}
                         </TableCell>
                         <TableCell className="text-right text-xs font-medium tabular-nums">
-                          {o.rateWorstCase === null ? "—" : pct(o.rateWorstCase)}
+                          {o.rateWorstCase === null ? "—" : pctFromFraction(o.rateWorstCase)}
                         </TableCell>
                         <TableCell className="text-xs text-slate-600">
                           {o.topFailureCause ?? (
