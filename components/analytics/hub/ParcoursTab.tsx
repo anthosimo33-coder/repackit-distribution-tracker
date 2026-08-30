@@ -26,6 +26,8 @@ import {
   pctFromFraction,
 } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
+import { countryLabel } from "@/lib/country-name";
+import { formatMoney } from "@/lib/format-rate";
 import {
   buildSegmentRows,
   clientCoverage,
@@ -33,7 +35,9 @@ import {
   type SegmentPayload,
   type SplitRow,
 } from "@/lib/segment-funnel";
-import type { ProductAnalyticsData, ReliabilityData } from "./types";
+import type { ProductAnalyticsData, ReliabilityData,
+  BillingCountriesData,
+} from "./types";
 
 /**
  * Onglet PARCOURS (B1) — le tunnel de CONVERSION corrigé (chemin de monétisation)
@@ -94,10 +98,12 @@ interface ActivationRow {
 export function ParcoursTab({
   analytics,
   reliability,
+  billing,
   now,
 }: {
   analytics: ProductAnalyticsData;
   reliability: ReliabilityData | undefined;
+  billing: BillingCountriesData | undefined;
   now: number;
 }) {
   const [recentOnly, setRecentOnly] = useState(false);
@@ -513,8 +519,8 @@ export function ParcoursTab({
           noyée dans les lignes. */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <SegmentFunnelCard
-          title="Trafic par pays"
-          subtitle="Le tunnel complet, coupé par pays du VISITEUR. Le pays est lu sur l'event (GeoIP), pas sur la personne : il accompagne donc chaque étape."
+          title="Trafic par pays de connexion"
+          subtitle="Le tunnel, coupé par le pays d'où le VISITEUR SE CONNECTE — lu sur l'event PostHog, donc sur l'adresse IP."
           payload={analytics.funnels.country}
           colonne="Pays"
           split={analytics.serverSideSplit.rows}
@@ -528,6 +534,14 @@ export function ParcoursTab({
           note="La langue est une propriété de PERSONNE, posée à l'inscription : les visiteurs qui n'ont pas fini de s'inscrire restent en « inconnu »."
         />
       </div>
+
+      {/* ── Ventes par pays de FACTURATION ────────────────────────────────
+          Tableau SÉPARÉ, et non des colonnes de plus au-dessus. Le pays de
+          facturation vient de Whop (adresse collectée pour la TVA), celui du
+          trafic vient de l'IP : deux notions, et surtout DEUX POPULATIONS —
+          payeurs contre visiteurs. Côte à côte, on finirait par diviser des
+          clients par des visiteurs, un taux qui n'aurait aucun sens. */}
+      <BillingCountriesCard billing={billing} />
 
       {/* Activation — hors tunnel de paiement, séparée par type d'inscrit */}
       <Card>
@@ -765,6 +779,96 @@ function SegmentFunnelCard({
             ) : null}
           </>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * VENTES PAR PAYS DE FACTURATION — le pendant Whop du tableau de trafic.
+ *
+ * Tableau SÉPARÉ, délibérément. Le pays vient ici de l'adresse que Whop collecte
+ * pour la TVA ; celui du trafic vient de l'adresse IP. Deux notions, et surtout
+ * deux POPULATIONS : les payeurs d'un côté, les visiteurs de l'autre. Réunis
+ * dans un même tableau, quelqu'un finirait par diviser les uns par les autres.
+ *
+ * La couverture est annoncée en tête, comme sur le tableau de trafic — c'est
+ * elle qui qualifie tout ce qui suit.
+ */
+function BillingCountriesCard({ billing }: { billing: BillingCountriesData | undefined }) {
+  if (billing === undefined || billing.rows.length === 0) {
+    return (
+      <Card>
+        <CardContent className="space-y-3 p-4">
+          <HubCardHeader
+            title="Ventes par pays de facturation"
+            subtitle="Clients, renouvellements et revenu, par pays de l'adresse de facturation Whop."
+          />
+          <p className="text-sm text-slate-400">
+            — en attente de la synchro Whop.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  const couverture =
+    billing.clients > 0 ? billing.clientsWithCountry / billing.clients : null;
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-4">
+        <HubCardHeader
+          title="Ventes par pays de facturation"
+          subtitle="Clients, renouvellements et revenu, par pays de l'adresse que Whop collecte pour la TVA — pas par pays de connexion."
+        />
+        {couverture !== null ? (
+          <p className="text-xs text-slate-500">
+            <strong className="tabular-nums">{pctFromFraction(couverture)}</strong>{" "}
+            des clients ont un pays de facturation (
+            {formatNumber(billing.clientsWithCountry)} sur{" "}
+            {formatNumber(billing.clients)}) ·{" "}
+            {formatNumber(billing.withCountry)} paiements sur{" "}
+            {formatNumber(billing.payments)}.
+          </p>
+        ) : null}
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Pays de facturation</TableHead>
+                <TableHead className="text-right">Clients</TableHead>
+                <TableHead className="text-right">Renouvellements</TableHead>
+                <TableHead className="text-right">Échecs</TableHead>
+                <TableHead className="text-right">Revenu net</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {billing.rows.map((r) => (
+                <TableRow key={r.country ?? "(sans pays)"}>
+                  <TableCell className="text-xs font-medium text-slate-700">
+                    {countryLabel(r.country)}
+                  </TableCell>
+                  <TableCell className="text-right text-xs tabular-nums">
+                    {formatNumber(r.clients)}
+                  </TableCell>
+                  <TableCell className="text-right text-xs tabular-nums">
+                    {formatNumber(r.renewals)}
+                  </TableCell>
+                  <TableCell className="text-right text-xs tabular-nums">
+                    {formatNumber(r.failures)}
+                  </TableCell>
+                  <TableCell className="text-right text-xs tabular-nums font-medium">
+                    {formatMoney(r.net, billing.currency ?? undefined)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+        <p className="text-xs text-slate-400">
+          Un client est rattaché au pays de son PREMIER paiement encaissé — la
+          même ancre que « client acquis » ailleurs dans le hub. Ces lignes ne se
+          comparent pas à celles du trafic : ce ne sont pas les mêmes personnes.
+        </p>
       </CardContent>
     </Card>
   );

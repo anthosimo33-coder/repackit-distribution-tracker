@@ -46,6 +46,16 @@ export interface RefDay {
   net: number;
 }
 
+/** Argent d'un jour par pays de FACTURATION (Whop) — jamais de connexion. */
+export interface BillingCountryDay {
+  day: string;
+  country: string | null;
+  clients: number;
+  renewals: number;
+  failures: number;
+  net: number;
+}
+
 export interface RevenueDay {
   day: string;
   newNet: number;
@@ -66,7 +76,12 @@ export interface DetailRow {
 }
 
 export interface DayDetail {
+  /** Pays de CONNEXION — trafic seul. */
   countries: DetailRow[];
+  /** Pays de FACTURATION — argent seul. Groupe SÉPARÉ, pas des colonnes de plus :
+   *  réunis, « France · 982 visiteurs · 18 clients » inviterait à lire 18/982
+   *  comme un taux, or ce sont deux populations. */
+  billingCountries: DetailRow[];
   refs: DetailRow[];
   revenue: { label: string; net: number }[];
   /** true = rien à déplier ce jour-là. */
@@ -78,6 +93,7 @@ export function buildDayDetail(input: {
   countries: readonly CountryDay[];
   refs: readonly RefDay[];
   revenue: readonly RevenueDay[];
+  billingCountries?: readonly BillingCountryDay[];
 }): DayDetail {
   const countries: DetailRow[] = input.countries
     .filter((c) => c.day === input.day)
@@ -114,6 +130,23 @@ export function buildDayDetail(input: {
       net: r.net,
     }));
 
+  const billingCountries: DetailRow[] = (input.billingCountries ?? [])
+    .filter((b) => b.day === input.day)
+    .sort((a, b) => b.net - a.net || b.clients - a.clients)
+    .map((b) => ({
+      label: b.country ?? "Pays non renseigné",
+      // NON MESURABLE par pays de facturation : le trafic est compté par pays de
+      // CONNEXION, sur l'IP. Un 0 ici se lirait « personne n'est venu de ce
+      // pays », alors qu'on n'y mesure pas le trafic du tout.
+      visitors: null,
+      signups: null,
+      checkouts: null,
+      clients: b.clients,
+      renewals: b.renewals,
+      failures: b.failures,
+      net: b.net,
+    }));
+
   const rev = input.revenue.find((r) => r.day === input.day);
   const revenue: { label: string; net: number }[] = [];
   if (rev) {
@@ -128,8 +161,13 @@ export function buildDayDetail(input: {
 
   return {
     countries,
+    billingCountries,
     refs,
     revenue,
-    isEmpty: countries.length === 0 && refs.length === 0 && revenue.length === 0,
+    isEmpty:
+      countries.length === 0 &&
+      billingCountries.length === 0 &&
+      refs.length === 0 &&
+      revenue.length === 0,
   };
 }

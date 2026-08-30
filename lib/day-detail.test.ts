@@ -150,3 +150,60 @@ describe("buildDayDetail — les zéros qui n'en sont pas", () => {
     expect(d.refs[0].signups).toBe(0);
   });
 });
+
+/**
+ * DEUX GROUPES PAYS, jamais un seul.
+ *
+ * Le trafic vient du pays de CONNEXION (PostHog, adresse IP) ; l'argent du pays
+ * de FACTURATION (Whop, adresse TVA). Sur une même ligne, « France · 982
+ * visiteurs · 18 clients » invite à lire 18/982 comme un taux de conversion —
+ * or ce sont deux populations et deux définitions de « France ». C'est le même
+ * refus qu'entre les deux tableaux de Parcours, un cran plus bas.
+ */
+describe("buildDayDetail — connexion et facturation restent séparés", () => {
+  const JOUR = "2026-08-29";
+  const socle = {
+    day: JOUR,
+    countries: [{ day: JOUR, country: "France", visitors: 982, signups: 441, checkouts: 88 }],
+    refs: [],
+    revenue: [],
+    billingCountries: [
+      { day: JOUR, country: "FR", clients: 18, renewals: 4, failures: 6, net: 198.2 },
+      { day: JOUR, country: "BE", clients: 3, renewals: 1, failures: 1, net: 34.1 },
+      { day: "2026-08-28", country: "FR", clients: 9, renewals: 0, failures: 0, net: 90 },
+    ],
+  };
+
+  it("le groupe facturation remplit l'argent, et rien d'autre", () => {
+    const d = buildDayDetail(socle);
+    const fr = d.billingCountries[0];
+    expect(fr).toMatchObject({ clients: 18, renewals: 4, failures: 6, net: 198.2 });
+    // Le trafic n'est PAS mesurable par pays de facturation.
+    expect(fr.visitors).toBeNull();
+    expect(fr.signups).toBeNull();
+    expect(fr.checkouts).toBeNull();
+  });
+
+  it("le groupe connexion garde ses tirets sur l'argent — contrôle opposé", () => {
+    const d = buildDayDetail(socle);
+    expect(d.countries[0]).toMatchObject({ visitors: 982, signups: 441 });
+    expect(d.countries[0].clients).toBeNull();
+    expect(d.countries[0].net).toBeNull();
+  });
+
+  it("ne retient que les lignes du jour, classées par revenu", () => {
+    const d = buildDayDetail(socle);
+    expect(d.billingCountries.map((r) => r.label)).toEqual(["FR", "BE"]);
+  });
+
+  it("un jour sans paiement n'invente aucune ligne pays", () => {
+    const d = buildDayDetail({ ...socle, day: "2026-01-01" });
+    expect(d.billingCountries).toEqual([]);
+    expect(d.isEmpty).toBe(true);
+  });
+
+  it("un jour avec SEULEMENT des ventes n'est pas vide", () => {
+    const d = buildDayDetail({ ...socle, countries: [] });
+    expect(d.isEmpty).toBe(false);
+  });
+});

@@ -31,3 +31,8 @@ export type ChurnData = FunctionReturnType<typeof api.analyticsHub.getChurn>;
 export type DayDetailData = FunctionReturnType<
   typeof api.analyticsHub.getDayDetail
 >;
+
+/** Ventes agrégées par pays de FACTURATION (Whop) — jamais de connexion. */
+export type BillingCountriesData = FunctionReturnType<
+  typeof api.analyticsHub.getBillingCountries
+>;
