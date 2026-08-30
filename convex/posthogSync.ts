@@ -593,10 +593,13 @@ export const INSTRUMENTATION_PROP_PROBES: {
   ...CONTRACT_PROPERTIES.map((p) => ({
     key: p.name,
     onEvent: p.onEvent,
+    // `cond` explicite quand le gabarit ne suffit pas : propriété de PERSONNE,
+    // ou nom qui exige la notation entre crochets (préfixe `$`).
     cond:
-      p.onEvent === "*"
+      p.cond ??
+      (p.onEvent === "*"
         ? `isNotNull(properties.${p.name})`
-        : `event = '${p.onEvent}' AND isNotNull(properties.${p.name})`,
+        : `event = '${p.onEvent}' AND isNotNull(properties.${p.name})`),
     notYetEmitted: p.notYetEmitted === true,
   })),
 ];
