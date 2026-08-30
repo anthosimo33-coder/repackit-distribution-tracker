@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/table";
 import { formatNumber } from "@/lib/format";
 import { formatMoney, formatViews } from "@/lib/format-rate";
+import { coherenceInputsFrom } from "@/lib/coherence-inputs";
 import {
   buildCoherenceChecks,
   parisDayKey,
@@ -56,6 +57,22 @@ import type {
  * une courbe LISIBLE (survol daté). La table « Détail par jour » donne la lecture
  * du matin : une ligne par jour, les chiffres clés côte à côte.
  */
+
+/**
+ * Le diviseur, avec son UNITÉ.
+ *
+ * « ÷ 154 clients acquis » ne dit pas si 154 compte des personnes ou des
+ * abonnements — et les deux nombres se croisent : le 29/08 la prod portait 154
+ * abonnements pour 145 personnes, le 30/08 164 abonnements pour 154 personnes.
+ * Le même « 154 » désignait donc deux choses à un jour d'intervalle, ce qui a
+ * suffi à faire lire un correctif comme non déployé. Le nombre d'abonnements
+ * n'est rappelé que lorsqu'il DIFFÈRE — sinon il n'y a rien à distinguer.
+ */
+function denominateurLabel(clients: number, memberships: number | null | undefined): string {
+  return memberships != null && memberships !== clients
+    ? `${formatNumber(clients)} clients acquis (personnes ; ${formatNumber(memberships)} abonnements)`
+    : `${formatNumber(clients)} clients acquis`;
+}
 
 /** Assemble un hint en sautant les morceaux vides — jamais un « · » orphelin. */
 function joinHint(parts: (string | null | undefined | false)[]): string {
@@ -132,38 +149,7 @@ export function OverviewTab({
   const checks = useMemo(() => {
     const c = reliability?.coherence;
     if (!c) return [];
-    return buildCoherenceChecks({
-      sequentialSteps: c.sequentialSteps.map((s) => ({ key: s.key, label: s.key, count: s.count })),
-      reachSteps: c.reachSteps.map((s) => ({ key: s.key, label: s.key, count: s.count })),
-      currencyCount: c.currencyCount,
-      dashboardClients: c.dashboardClients,
-      // Whop dans les DEUX unités : `whopClients` (personnes) est ce que le
-      // contrôle compare à PostHog, `whopMembers` (abonnements) n'est que le
-      // contexte affiché. Les intervertir avait suspendu « Clients payants » en
-      // permanence sur un écart qui n'existait pas.
-      whopMembers: c.whopMembers,
-      whopClients: c.whopClients,
-      whopClientsTotal: c.whopClientsTotal,
-      whopMembersTotal: c.whopMembersTotal,
-      // Le dénominateur RÉEL des trois cartes — la variable qu'elles utilisent,
-      // pas la source dont elle est tirée (sinon le contrôle se vérifie lui-même).
-      unitCostDenominator: clients,
-      whopExcludedPre: c.whopExcludedPre,
-      whopExcludedAfter: c.whopExcludedAfter,
-      dailyClientsSum: c.dailyClientsSum,
-      dailySignupsSum: c.dailySignupsSum,
-      // Contrôle CROISÉ PAR JOUR : PostHog subs vs Whop clients payants. Les deux
-      // séries comptent des PREMIERS paiements (subs filtre `is_renewal`), donc
-      // aucune tolérance « renouvellements » n'est passée au contrôle.
-      dailySubs: c.dailySubs,
-      dailyPaidClients: c.dailyPaidClients,
-      todayParis: c.todayParis,
-      // Montant dû : total affiché vs somme de ses parts (fixe + CPM + paliers).
-      // Décomposition de l'écart sur la fenêtre : le contrôle alerte sur ce
-      // qui reste INEXPLIQUÉ, pas sur l'écart brut.
-      windowReconciliation: c.windowReconciliation ?? undefined,
-      payDue: c.payDue,
-    });
+    return buildCoherenceChecks(coherenceInputsFrom(c, { unitCostDenominator: clients }));
   }, [reliability, clients]);
 
   // « Clients payants »/jour = SOURCE WHOP (dailyPaidClients), pas PostHog subs :
@@ -404,7 +390,7 @@ export function OverviewTab({
             acquisitionBonus !== null && acquisitionBonus.sourceValue > 0
               ? `dont ${convertedValue(acquisitionBonus)} de bonus de paliers, débloqué sur des vues promo`
               : "publications promo",
-            clients !== null ? `÷ ${formatNumber(clients)} clients acquis` : null,
+            clients !== null ? `÷ ${denominateurLabel(clients, coh?.whopMembersTotal)}` : null,
             conversionNote(acquisitionCost),
           ])}
           info={EXPLAIN.coutAcquisition}
@@ -419,7 +405,7 @@ export function OverviewTab({
               : natureDue !== null && natureDue.sourceValue > 0
                 ? `warmup + ${convertedValue(natureDue)} de récompenses en nature dues`
                 : "warmup inclus",
-            clients !== null ? `÷ ${formatNumber(clients)} clients acquis` : null,
+            clients !== null ? `÷ ${denominateurLabel(clients, coh?.whopMembersTotal)}` : null,
             conversionNote(fullEngineCost),
           ])}
           info={EXPLAIN.coutComplet}
