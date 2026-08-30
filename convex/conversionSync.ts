@@ -319,6 +319,13 @@ export const runConversionSync = internalAction({
       const to = parisDayBounds(daysToCollect[daysToCollect.length - 1]).end;
 
       // ── PostHog : UNE requête pour tout l'intervalle, par jour et par ref ──
+      // ⚠️ `LIMIT` explicite : sans lui PostHog tronque SILENCIEUSEMENT à 100
+      // lignes. Le run nominal n'en produit que ~8 (un jour), mais le rattrapage
+      // en collecte 30 au premier run et jusqu'à 90 en manuel — à 8 refs/jour, un
+      // backfill de 30 jours dépasse déjà le plafond. Et sans `ORDER BY`, le
+      // sous-ensemble perdu aurait été ARBITRAIRE : pire que la perte prévisible
+      // des jours récents constatée sur `subsByMembership`. Tenu par
+      // lib/posthog-person-counters.test.ts, qui scanne désormais tout le dépôt.
       // `properties.creator_ref` AU NIVEAU EVENT : c'est là que snytch.co pose
       // la ref du chemin court (mapping confirmé le 18/08 par le dev du site).
       // Elle ne remonte sur la personne que pour une minorité de visiteurs —
@@ -350,7 +357,9 @@ FROM events
 WHERE event IN ('$pageview', 'signup_completed')
   AND timestamp >= toDateTime('${daysToCollect[0]} 00:00:00', 'Europe/Paris')
   AND timestamp < toDateTime('${parisDayKey(to)} 00:00:00', 'Europe/Paris')${notInternalClause(internalAccountsFor(proj.slug))}
-GROUP BY d, ref`;
+GROUP BY d, ref
+ORDER BY d
+LIMIT 10000`;
           const res = await runHogQL(apiKey, target, query);
           if (res.error !== null) {
             posthogErrors += 1;
@@ -428,51 +437,84 @@ GROUP BY d, ref`;
 // ─── Lecture écran ───────────────────────────────────────────────────────────
 
 /**
- * Le jour AFFICHÉ par la section « Ce que ça a rapporté » : la veille si elle a
- * des lignes, sinon le jour le plus récent qui en a (collecte en retard vaut
- * mieux qu'un écran vide) — accompagné des créatrices et de leur refSlug pour
- * la jointure côté client (shapeConversionDay, pur et testé).
+ * Le bloc « Ce que ça a rapporté » en ALL-TIME : tout l'historique agrégé par
+ * ref, et non plus une seule journée.
+ *
+ * La fenêtre n'a JAMAIS vécu dans la collecte : `creatorConversions` stocke déjà
+ * une ligne par (projet, jour Paris, ref) pour tous les jours. Passer en
+ * all-time est donc une agrégation en lecture — aucune requête HogQL n'est
+ * touchée.
+ *
+ * `collectedDays` est ce qui donne son sens au VIDE : c'est le nombre de jours
+ * pour lesquels au moins une ligne existe, donc des jours où les sources ont
+ * répondu. Une ref sans ligne sur ces jours-là n'est pas une donnée manquante,
+ * c'est un zéro mesuré (cf shapeConversionDay).
+ *
+ * Chaque ref porte SA plage réelle (`firstDate`/`lastDate`) : en all-time, « 146
+ * visiteurs » ne veut pas dire la même chose sur 2 jours et sur 41.
  */
-export const readConversionDay = adminQuery({
+export const readConversionAllTime = adminQuery({
   args: {},
   handler: async (ctx) => {
-    const hier = previousParisDay(parisDayKey(Date.now()));
-    let rows = await ctx.db
+    const all = await ctx.db
       .query("creatorConversions")
-      .withIndex("by_project_date", (q) =>
-        q.eq("projectId", ctx.projectId).eq("date", hier),
-      )
+      .withIndex("by_project_date", (q) => q.eq("projectId", ctx.projectId))
       .collect();
-    let date = hier;
-    if (rows.length === 0) {
-      // Dernier jour collecté (l'index range-scanne par date croissante).
-      const latest = await ctx.db
-        .query("creatorConversions")
-        .withIndex("by_project_date", (q) => q.eq("projectId", ctx.projectId))
-        .order("desc")
-        .first();
-      if (latest === null) return null;
-      date = latest.date;
-      rows = await ctx.db
-        .query("creatorConversions")
-        .withIndex("by_project_date", (q) =>
-          q.eq("projectId", ctx.projectId).eq("date", date),
-        )
-        .collect();
+    if (all.length === 0) return null;
+
+    // Agrégation par ref. Un champ reste ABSENT tant qu'aucun jour ne le porte —
+    // c'est ce qui distingue « jamais collecté » de « zéro mesuré », et la
+    // distinction doit survivre à la somme.
+    type Acc = {
+      ref?: string;
+      visitors?: number;
+      signups?: number;
+      sales?: number;
+      revenue?: number;
+      currency?: string;
+      firstDate: string;
+      lastDate: string;
+    };
+    const byRef = new Map<string, Acc>();
+    const days = new Set<string>();
+    for (const r of all) {
+      days.add(r.date);
+      const key = r.ref ?? "";
+      const cur = byRef.get(key) ?? {
+        ref: r.ref,
+        firstDate: r.date,
+        lastDate: r.date,
+      };
+      if (r.date < cur.firstDate) cur.firstDate = r.date;
+      if (r.date > cur.lastDate) cur.lastDate = r.date;
+      if (r.visitors !== undefined) cur.visitors = (cur.visitors ?? 0) + r.visitors;
+      if (r.signups !== undefined) cur.signups = (cur.signups ?? 0) + r.signups;
+      if (r.sales !== undefined) cur.sales = (cur.sales ?? 0) + r.sales;
+      if (r.revenue !== undefined) cur.revenue = (cur.revenue ?? 0) + r.revenue;
+      if (r.currency !== undefined) cur.currency = r.currency;
+      byRef.set(key, cur);
     }
+
     const creators = await ctx.db
       .query("creators")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
+
+    const sorted = [...days].sort();
     return {
-      date,
-      rows: rows.map((r) => ({
-        ref: r.ref,
-        visitors: r.visitors,
-        signups: r.signups,
-        sales: r.sales,
-        revenue: r.revenue,
-        currency: r.currency,
+      firstDate: sorted[0],
+      lastDate: sorted[sorted.length - 1],
+      collectedDays: days.size,
+      rows: [...byRef.values()].map((a) => ({
+        ref: a.ref,
+        visitors: a.visitors,
+        signups: a.signups,
+        sales: a.sales,
+        revenue:
+          a.revenue === undefined ? undefined : Math.round(a.revenue * 100) / 100,
+        currency: a.currency,
+        firstDate: a.firstDate,
+        lastDate: a.lastDate,
       })),
       creators: creators
         .filter((c) => c.status !== "churned")
@@ -480,6 +522,14 @@ export const readConversionDay = adminQuery({
           creatorId: c._id as string,
           name: c.name,
           refSlug: c.refSlug ?? null,
+          // Pour signaler une attribution DOUTEUSE : des données de conversion
+          // antérieures à l'existence même de la créatrice ne peuvent pas être
+          // les siennes (ref réaffectée, ou reprise d'un slug déjà utilisé).
+          // C'est le seul repère disponible — la DATE DE POSE du refSlug n'est
+          // stockée nulle part, donc une ref configurée tardivement sur une
+          // créatrice ancienne ne déclenchera PAS l'avertissement. Le contrôle
+          // ne crie jamais à tort ; il ne voit simplement pas tout.
+          createdAt: c.createdAt,
         })),
     };
   },
