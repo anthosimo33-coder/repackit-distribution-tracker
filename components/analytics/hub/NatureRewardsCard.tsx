@@ -11,7 +11,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatNumber } from "@/lib/format";
-import { formatMoney, formatViews } from "@/lib/format-rate";
+import { formatViews } from "@/lib/format-rate";
+import {
+  toDisplayAmount,
+  convertedValue,
+  conversionNote,
+  type CurrencyContext,
+} from "@/lib/currency-display";
 import { HubCardHeader, HubNotice } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import type { NatureRewardsData } from "./types";
@@ -57,11 +63,20 @@ function Amount({
   );
 }
 
-export function NatureRewardsCard({ data }: { data: NatureRewardsData | undefined }) {
+export function NatureRewardsCard({
+  data,
+  fxCtx,
+}: {
+  data: NatureRewardsData | undefined;
+  /** Devises de l'écran — les coûts réels sont saisis en devise de PAIE et
+   *  s'affichent, comme tout le hub, dans celle du REVENU. */
+  fxCtx: CurrencyContext;
+}) {
   // Aucune récompense en nature dans aucune grille → rien à montrer.
   if (data === undefined || !data.hasNatureTiers) return null;
 
-  const { payCurrency } = data;
+  const dueTotal = toDisplayAmount(data.dueTotal, fxCtx);
+  const engagedTotal = toDisplayAmount(data.engagedTotal, fxCtx);
   const missing = data.dueMissingCost + data.engagedMissingCost;
 
   return (
@@ -79,7 +94,7 @@ export function NatureRewardsCard({ data }: { data: NatureRewardsData | undefine
             value={
               data.dueTotal === 0 && data.dueMissingCost > 0
                 ? "—"
-                : formatMoney(data.dueTotal, payCurrency)
+                : convertedValue(dueTotal)
             }
             hint="paliers franchis, objets à livrer · compté dans le coût complet du moteur"
             valueClass={data.dueTotal > 0 ? "text-rose-600" : "text-slate-900"}
@@ -89,7 +104,7 @@ export function NatureRewardsCard({ data }: { data: NatureRewardsData | undefine
             value={
               data.engagedTotal === 0 && data.engagedMissingCost > 0
                 ? "—"
-                : formatMoney(data.engagedTotal, payCurrency)
+                : convertedValue(engagedTotal)
             }
             hint="promesses en cours · ce n'est PAS une dépense, aucun coût ne le compte"
             valueClass="text-slate-500"
@@ -150,7 +165,7 @@ export function NatureRewardsCard({ data }: { data: NatureRewardsData | undefine
                           —
                         </span>
                       ) : (
-                        formatMoney(r.coutReel, payCurrency)
+                        convertedValue(toDisplayAmount(r.coutReel, fxCtx))
                       )}
                     </TableCell>
                     <TableCell className="text-right text-xs tabular-nums">

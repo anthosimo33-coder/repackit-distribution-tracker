@@ -224,6 +224,7 @@ export default function AnalyticsPage() {
                   attribution={attribution}
                   viewCounters={viewCounters}
                   natureRewards={natureRewards}
+                  revenueCurrency={revenue?.currency}
                 />
               )}
             </TabsContent>
