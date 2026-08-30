@@ -68,6 +68,8 @@ const whopPaymentArg = v.object({
   billingReason: v.optional(v.string()),
   failureMessage: v.optional(v.string()),
   retryable: v.optional(v.boolean()),
+  /** Pays de FACTURATION (brut, cf whopApi) — jamais celui de la connexion. */
+  billingCountry: v.optional(v.string()),
   memberName: v.optional(v.string()),
   disputeDueAt: v.optional(v.number()),
   disputeReason: v.optional(v.string()),
@@ -249,6 +251,7 @@ export const upsertWhopPayments = internalMutation({
           billingReason: p.billingReason,
           failureMessage: p.failureMessage,
           retryable: p.retryable,
+          billingCountry: p.billingCountry,
           memberName: p.memberName,
           // Litige résolu → l'API ne renvoie plus d'échéance : le champ se VIDE
           // (patch à undefined = suppression), le litige disparaît de la carte.
@@ -274,6 +277,7 @@ export const upsertWhopPayments = internalMutation({
           billingReason: p.billingReason,
           failureMessage: p.failureMessage,
           retryable: p.retryable,
+          billingCountry: p.billingCountry,
           memberName: p.memberName,
           disputeDueAt: p.disputeDueAt,
           disputeReason: p.disputeReason,
