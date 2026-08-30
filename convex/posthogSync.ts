@@ -59,6 +59,16 @@ const WINDOW_DAYS = 90;
 const RETENTION_WEEKS = 9;
 /** Borne des segments listés (sources, variants, langues) — anti-explosion d'UI. */
 const SEGMENT_LIMIT = 20;
+/**
+ * Borne PROPRE aux pays. 20 suffit pour des langues ou des bras d'A/B ; pour des
+ * pays c'est une troncature de fait — et `SEGMENT_LIMIT` est partagé par six
+ * requêtes, le monter reviendrait à en changer six pour une. La borne reste
+ * basse devant le plafond du document Convex (~1 Mo) : 60 lignes de funnel
+ * pèsent quelques kilo-octets, là où une série (jour × pays) sur 90 jours en
+ * ferait 4 500 et taperait dans le plafond — le plus gros cache actuel,
+ * `abPersonArms`, pèse déjà 780 Ko.
+ */
+const COUNTRY_LIMIT = 60;
 
 /**
  * DOUBLE ÉMISSION client + serveur — déduplication de LECTURE.
@@ -131,6 +141,7 @@ export const POSTHOG_CACHE_KEYS = {
   funnelSequential: "funnel:sequential",
   funnelSource: "funnel:source",
   funnelLanguage: "funnel:language",
+  funnelCountry: "funnel:country",
   timeToValue: "timeToValue",
   paywall: "paywall",
   paywallById: "paywallById",
@@ -732,6 +743,34 @@ WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
 GROUP BY seg
 ORDER BY visit DESC
 LIMIT ${SEGMENT_LIMIT}`,
+
+  /**
+   * Funnel par PAYS DU VISITEUR — l'entonnoir complet, coupé par géographie.
+   *
+   * Lu sur la propriété d'EVENT (`properties['$geoip_country_name']`, posée par
+   * GeoIP à l'INGESTION), et surtout PAS sur la personne. La distinction n'est
+   * pas cosmétique : `funnelSource` et `funnelLanguage` segmentent sur
+   * `person.properties` et rendent 100 % et 84 % d'« inconnu » sur les visiteurs,
+   * parce que l'app pose ces propriétés à l'INSCRIPTION — après les pageviews.
+   * Sondé avant d'écrire cette requête (#132) : 550 516 events portent le pays,
+   * dont 304 sur `subscription_completed` pour 161 personnes, soit ~2 events par
+   * personne (double instrumentation client + serveur) — la couverture tient
+   * jusqu'en bas du funnel.
+   *
+   * Chaque étape est donc attribuée au pays de SON event. Une personne qui
+   * change de pays entre sa visite et son achat compte dans les deux — c'est le
+   * sens voulu (« d'où vient le trafic »), pas un défaut.
+   *
+   * Notation entre crochets : le nom commence par `$`, l'accès par point est
+   * ambigu en HogQL.
+   */
+  funnelCountry: `
+SELECT ${segExpr("properties['$geoip_country_name']")} AS seg,${FUNNEL_COLUMNS}
+FROM events
+WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+GROUP BY seg
+ORDER BY visit DESC
+LIMIT ${COUNTRY_LIMIT}`,
 
   /**
    * Délais médians/p90 (en secondes) entre les jalons d'activation, par personne.
@@ -1724,6 +1763,13 @@ export const runHourlySync = internalAction({
           shapeFunnel,
         ),
         await collect(
+          POSTHOG_CACHE_KEYS.funnelCountry,
+          apiKey,
+          target,
+          QUERIES.funnelCountry,
+          shapeFunnel,
+        ),
+        await collect(
           POSTHOG_CACHE_KEYS.funnelLanguage,
           apiKey,
           target,
@@ -2146,6 +2192,8 @@ export interface ProductAnalytics {
     sequential: FunnelPayload;
     source: FunnelPayload;
     language: FunnelPayload;
+    /** Funnel par PAYS du visiteur (propriété d'event GeoIP). */
+    country: FunnelPayload;
   };
   timeToValue: TimeToValuePayload;
   paywall: ConversionPayload;
@@ -2207,6 +2255,7 @@ export const getProductAnalytics = adminQuery({
         sequential: EMPTY_FUNNEL,
         source: EMPTY_FUNNEL,
         language: EMPTY_FUNNEL,
+        country: EMPTY_FUNNEL,
       },
       timeToValue: { steps: [] },
       paywall: EMPTY_CONVERSION,
@@ -2268,6 +2317,7 @@ export const getProductAnalytics = adminQuery({
         sequential: read(POSTHOG_CACHE_KEYS.funnelSequential, EMPTY_FUNNEL),
         source: read(POSTHOG_CACHE_KEYS.funnelSource, EMPTY_FUNNEL),
         language: read(POSTHOG_CACHE_KEYS.funnelLanguage, EMPTY_FUNNEL),
+        country: read(POSTHOG_CACHE_KEYS.funnelCountry, EMPTY_FUNNEL),
       },
       timeToValue: read(POSTHOG_CACHE_KEYS.timeToValue, empty.timeToValue),
       paywall: read(POSTHOG_CACHE_KEYS.paywall, EMPTY_CONVERSION),

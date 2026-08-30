@@ -25,6 +25,11 @@ import {
   formatDuration,
 } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
+import {
+  buildSegmentRows,
+  UNKNOWN_SEGMENT,
+  type SegmentPayload,
+} from "@/lib/segment-funnel";
 import type { ProductAnalyticsData, ReliabilityData } from "./types";
 
 /**
@@ -497,6 +502,29 @@ export function ParcoursTab({
         </Card>
       </div>
 
+      {/* ── D'où vient le trafic ──────────────────────────────────────────
+          Le MÊME entonnoir, coupé par géographie puis par langue. Le pays vient
+          d'une propriété d'EVENT (GeoIP, posée à l'ingestion) ; la langue d'une
+          propriété de PERSONNE, posée par l'app à l'inscription — d'où sa part
+          d'« inconnu » massive, affichée en tête de chaque tableau plutôt que
+          noyée dans les lignes. */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <SegmentFunnelCard
+          title="Trafic par pays"
+          subtitle="Le tunnel complet, coupé par pays du VISITEUR. Le pays est lu sur l'event (GeoIP), pas sur la personne : il accompagne donc chaque étape."
+          payload={analytics.funnels.country}
+          colonne="Pays"
+          note="Une personne qui visite depuis un pays et achète depuis un autre compte dans les deux : les lignes ne s'additionnent pas en un total."
+        />
+        <SegmentFunnelCard
+          title="Trafic par langue"
+          subtitle="Même tunnel, coupé par langue d'interface. Collectée depuis toujours, affichée seulement maintenant."
+          payload={analytics.funnels.language}
+          colonne="Langue"
+          note="La langue est une propriété de PERSONNE, posée à l'inscription : les visiteurs qui n'ont pas fini de s'inscrire restent en « inconnu »."
+        />
+      </div>
+
       {/* Activation — hors tunnel de paiement, séparée par type d'inscrit */}
       <Card>
         <CardContent className="space-y-3 p-4">
@@ -591,5 +619,106 @@ export function ParcoursTab({
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/**
+ * Une carte « tunnel par segment » — pays, langue, et ce qui viendra.
+ *
+ * La part d'« inconnu » est affichée EN TÊTE, avant le tableau, parce qu'elle
+ * qualifie tout ce qui suit : un classement qui ne l'annonce pas se lit comme
+ * une répartition du trafic alors qu'il n'en décrit qu'une fraction. Mesuré en
+ * prod sur la langue : 84 % des visiteurs y sont « inconnu ».
+ *
+ * Aucun TOTAL n'est affiché, volontairement. Le pays vient de l'event : une
+ * personne qui visite depuis la France et achète depuis la Belgique compte dans
+ * les deux lignes, donc leur somme dépasse le nombre réel de personnes.
+ */
+function SegmentFunnelCard({
+  title,
+  subtitle,
+  payload,
+  colonne,
+  note,
+}: {
+  title: string;
+  subtitle: string;
+  payload: SegmentPayload;
+  colonne: string;
+  note: string;
+}) {
+  const { rows, unknownShare, unknownVisitors } = buildSegmentRows(payload);
+  const nommes = rows.filter((r) => r.key !== UNKNOWN_SEGMENT);
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-4">
+        <HubCardHeader title={title} subtitle={subtitle} />
+        {rows.length === 0 ? (
+          <p className="text-sm text-slate-400">
+            — en attente de la synchro PostHog.
+          </p>
+        ) : (
+          <>
+            {unknownShare !== null && unknownShare > 0 ? (
+              <p className="text-xs text-slate-500">
+                <strong className="tabular-nums">{pct(unknownShare)}</strong> des
+                visiteurs ne sont pas attribués (
+                {formatNumber(unknownVisitors)} en « inconnu ») — ce
+                classement ne décrit que le reste.
+              </p>
+            ) : null}
+            {nommes.length === 0 ? (
+              /* Tout est en « inconnu » — cas réel de `source`, à 100 %. Un
+                 tableau vide sous ses en-têtes se lit comme une panne ; la
+                 phrase dit ce qui se passe. */
+              <p className="text-sm text-slate-400">
+                Aucun segment identifié : la totalité du trafic est en
+                « inconnu ».
+              </p>
+            ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{colonne}</TableHead>
+                    <TableHead className="text-right">Visiteurs</TableHead>
+                    <TableHead className="text-right">Inscrits</TableHead>
+                    <TableHead className="text-right">Checkouts</TableHead>
+                    <TableHead className="text-right">Clients</TableHead>
+                    <TableHead className="text-right">Taux</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {nommes.map((r) => (
+                    <TableRow key={r.key}>
+                      <TableCell className="text-xs font-medium text-slate-700">
+                        {r.key}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {formatNumber(r.visit)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {formatNumber(r.signup)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {formatNumber(r.checkout)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums font-medium">
+                        {formatNumber(r.subs)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums text-slate-500">
+                        {r.rate === null ? "—" : pct(r.rate)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            )}
+            <p className="text-xs text-slate-400">{note}</p>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
