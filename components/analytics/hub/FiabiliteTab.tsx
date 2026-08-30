@@ -101,7 +101,14 @@ export function FiabiliteTab({
       reachSteps: c.reachSteps.map((s) => ({ key: s.key, label: s.key, count: s.count })),
       currencyCount: c.currencyCount,
       dashboardClients: c.dashboardClients,
+      // Personnes (comparées à PostHog) ET abonnements (contexte du détail).
       whopMembers: c.whopMembers,
+      whopClients: c.whopClients,
+      whopClientsTotal: c.whopClientsTotal,
+      whopMembersTotal: c.whopMembersTotal,
+      // PAS de `unitCostDenominator` ici : cet onglet ne divise rien. Le contrôle
+      // compare le diviseur RÉELLEMENT utilisé par les cartes à la référence — le
+      // renseigner depuis la même source qu'il vérifie en ferait une tautologie.
       whopExcludedPre: c.whopExcludedPre,
       whopExcludedAfter: c.whopExcludedAfter,
       dailyClientsSum: c.dailyClientsSum,
@@ -255,7 +262,10 @@ export function FiabiliteTab({
             {/* Règle de lecture du contrôle croisé — issue du diagnostic du 28/07/2026
                 (11 vs 8) : les deux séries étaient déjà en jour Paris ; l'écart
                 venait d'events REJOUÉS un autre jour et d'un paiement remboursé,
-                pas d'un décalage de minuit. */}
+                pas d'un décalage de minuit. Décomposition relevée ce jour-là :
+                6 appariés + 3 rejoués du 27/07 + 3 remboursés + 1 sans
+                membership_id, moins 2 (trois de ces abonnements appartiennent à
+                UNE personne), face à 6 appariés + 2 paiements sans event. */}
             <p className="text-xs text-slate-500">
               <span className="font-medium text-slate-700">
                 Clients/jour PostHog vs Whop

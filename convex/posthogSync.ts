@@ -651,11 +651,20 @@ SELECT toStartOfDay(timestamp, 'Europe/Paris') AS d,
 FROM events
 WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
 GROUP BY d
-ORDER BY d`,
+ORDER BY d
+LIMIT 10000`,
   // Subs par (jour Paris, membership_id) — la clé qui rend l'écart EXPLICABLE.
   // Personnes distinctes par membership : un retry serveur qui ré-émet l'event
   // pour le même membership compte 1 ici et se réconcilie ensuite au jour de
   // son paiement Whop (module pur lib/analytics-hub).
+  //
+  // ⚠️ Le `LIMIT` explicite n'est pas décoratif. Sans lui, PostHog tronque
+  // SILENCIEUSEMENT à 100 lignes, et l'`ORDER BY d` étant ascendant, ce sont les
+  // jours RÉCENTS qui tombent. Relevé en prod le 2026-08-29 : exactement 100
+  // lignes, dernier jour 2026-08-24 — la réconciliation ne voyait plus aucun sub
+  // depuis le 25/08 et rangeait TOUS les clients Whop en « paiement sans event »
+  // (2 le 25/08, 6 le 26, 8 le 27, 16 le 28), fabriquant un jour divergent de
+  // plus chaque jour. Le piège est tenu par lib/posthog-person-counters.test.ts.
   subsByMembership: `
 SELECT formatDateTime(toStartOfDay(timestamp, 'Europe/Paris'), '%Y-%m-%d') AS d,
        ifNull(toString(properties.membership_id), '') AS membership_id,
@@ -665,7 +674,8 @@ WHERE event = 'subscription_completed'
   AND ifNull(toString(properties.is_renewal), '') != 'true'
   AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
 GROUP BY d, membership_id
-ORDER BY d`,
+ORDER BY d
+LIMIT 10000`,
 
   /**
    * Funnel GLOBAL — atteinte d'étape (personnes distinctes ayant réalisé chaque
@@ -1010,7 +1020,8 @@ FROM (
   )
 )
 GROUP BY cohort, segment
-ORDER BY cohort DESC`,
+ORDER BY cohort DESC
+LIMIT 10000`,
 
   /**
    * Prédicteurs d'abonnement : pour chaque comportement, effectif et convertis,

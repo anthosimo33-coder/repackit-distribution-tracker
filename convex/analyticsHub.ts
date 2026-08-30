@@ -1611,8 +1611,24 @@ export interface ReliabilityResult {
      * l'instrumentation → base du calcul d'écart (ni latence de cron, ni artefact).
      */
     whopMembers: number | null;
-    /** Total des membres payants Whop (affichage « Clients payants »). */
+    /** Total des membres payants Whop, en ABONNEMENTS. Contexte, jamais diviseur. */
     whopMembersTotal: number | null;
+    /**
+     * LE MÊME ensemble que `whopMembers`, en PERSONNES (`whopUserId` distincts).
+     * Seule unité comparable à PostHog, qui ne compte que des `person_id`.
+     */
+    whopClients: number | null;
+    /**
+     * Clients ACQUIS (personnes), toutes fenêtres — affichage « Clients payants »
+     * ET dénominateur unique des trois cartes d'éco unitaire.
+     */
+    whopClientsTotal: number | null;
+    /**
+     * Abonnements payants dont la personne n'est pas résolue (`whopUserId` pas
+     * encore synchronisé). Chacun compte pour un client à part : le compte
+     * SURESTIME plutôt que de perdre un client. > 0 ⇒ chiffre dégradé, à dire.
+     */
+    whopClientsUnresolved: number;
     /** Exclus car antérieurs à l'instrumentation (cause explicable de l'écart). */
     whopExcludedPre: number;
     /** Exclus car postérieurs au dernier cron (latence, pas incohérence). */
@@ -1639,6 +1655,9 @@ export interface ReliabilityResult {
      * `whopMembersTotal` reste le compte de clients ACQUIS (litiges inclus).
      */
     whopSecuredMembers: number | null;
+    /** Le même sous-ensemble sécurisé, en PERSONNES — dénominateur du revenu par
+     *  client, dans la même unité que « clients acquis ». */
+    whopSecuredClients: number | null;
     /** Tentatives de paiement ÉCHOUÉES Whop PAR JOUR Paris (statut "failed",
      *  internes exclus) — colonne « Échecs » du Détail par jour. Une tentative
      *  échouée n'est PAS un client (0 au net) mais doit être visible. */
@@ -1818,6 +1837,13 @@ export const getReliability = adminQuery({
     let dailyRenewals: { day: string; renewals: number }[] = [];
     let dailyPaymentCount: { day: string; payments: number }[] = [];
     let whopSecuredMembers: number | null = null;
+    // Les MÊMES ensembles, comptés en PERSONNES. C'est l'unité de référence du
+    // hub : PostHog ne sait produire que des personnes, et un « client » qui
+    // prend deux abonnements reste un client.
+    let whopClients: number | null = null;
+    let whopClientsTotal: number | null = null;
+    let whopSecuredClients: number | null = null;
+    let whopClientsUnresolved = 0;
     let dailyFailedPayments: { day: string; count: number }[] = [];
     let whopInternalExcluded = 0;
     let whopSyncMs: number | null = null;
@@ -1862,18 +1888,18 @@ export const getReliability = adminQuery({
       // `whopCollectedAmount <= 0`, donc un compte interne n'ayant jamais payé
       // n'était jamais compté comme exclu — le KPI sous-estimait l'exclusion.
       whopInternalExcluded = internalMembers.size;
-      let comparable = 0;
-      for (const first of firstPaid.values()) {
+      const comparableIds: string[] = [];
+      for (const [membershipId, first] of firstPaid.entries()) {
         if (instrumentationStart !== null && first < instrumentationStart) {
           whopExcludedPre += 1; // antérieur à l'instrumentation (pas de distinctId)
         } else if (posthogSyncMs !== null && first > posthogSyncMs) {
           whopExcludedAfter += 1; // après le dernier cron → latence, pas un écart
         } else {
-          comparable += 1;
+          comparableIds.push(membershipId);
         }
       }
       whopMembersTotal = firstPaid.size;
-      whopMembers = comparable;
+      whopMembers = comparableIds.length;
       // Nouveaux clients payants Whop PAR JOUR Paris = série « Clients payants »
       // (source de vérité). firstPaid = 1er paiement encaissé par membership,
       // internes déjà exclus → un membership compte le JOUR de son premier paiement.
@@ -1935,6 +1961,41 @@ export const getReliability = adminQuery({
         .map(([day, count]) => ({ day, count }))
         .sort((a, b) => (a.day < b.day ? -1 : 1));
 
+      // ─── ABONNEMENTS → PERSONNES ────────────────────────────────────────
+      // La jointure qui manquait. Le hub comparait les PERSONNES de PostHog aux
+      // ABONNEMENTS de Whop : relevé du 2026-08-29, 153 abonnements pour 144
+      // personnes face à 144 personnes côté PostHog — « écart 9, 5,9 % », donc
+      // « Clients payants » suspendu en permanence, pour un écart réel NUL. Les
+      // 9 étaient les 9 abonnements en double (8 personnes en ont 2,
+      // `user_R6wC645MnVDI7` en a 3). L'écart ne pouvait que grandir avec le
+      // volume : ce n'était pas une dérive à surveiller, c'était une unité.
+      const memberships = await ctx.db
+        .query("whopMemberships")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect();
+      const userOf = new Map<string, string>();
+      for (const m of memberships) {
+        if (m.whopUserId) userOf.set(m.whopMembershipId, m.whopUserId);
+      }
+      /**
+       * Personnes derrière un lot d'abonnements. Un abonnement dont la personne
+       * n'est pas résolue (`whopUserId` pas encore synchronisé) compte POUR
+       * LUI-MÊME : on ne fusionne jamais deux inconnus en un seul client, donc
+       * le compte ne peut que SURESTIMER — jamais perdre un client acquis. Le
+       * nombre de non-résolus est exposé pour que la dégradation se lise.
+       */
+      const clientsOf = (ids: Iterable<string>): number => {
+        const keys = new Set<string>();
+        for (const id of ids) keys.add(userOf.get(id) ?? `mem:${id}`);
+        return keys.size;
+      };
+      whopClientsTotal = clientsOf(firstPaid.keys());
+      whopClients = clientsOf(comparableIds);
+      whopSecuredClients = clientsOf(secured);
+      for (const id of firstPaid.keys()) {
+        if (!userOf.has(id)) whopClientsUnresolved += 1;
+      }
+
       // Contrôle « N abonnements pour M personnes ». Il ANNOTE « Clients payants »
       // et DOIT donc porter sur la MÊME population : les memberships ayant au
       // moins un paiement encaissé (`firstPaid`), pas tous les memberships non
@@ -1944,10 +2005,7 @@ export const getReliability = adminQuery({
       // intégralement remboursé (donc pas des clients payants).
       // `whopUserId` n'est peuplé qu'à partir de la re-synchro : les memberships
       // sans user sont ignorés (le contrôle s'allume quand la synchro l'a rempli).
-      const memberships = await ctx.db
-        .query("whopMemberships")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect();
+      // Ce contrôle-ci LISTE les doublons ; `whopClients` ci-dessus les compte.
       const byUser = new Map<string, string[]>();
       let counted = 0;
       for (const m of memberships) {
@@ -2023,12 +2081,16 @@ export const getReliability = adminQuery({
         dailySignupsSum,
         whopMembers,
         whopMembersTotal,
+        whopClients,
+        whopClientsTotal,
+        whopClientsUnresolved,
         whopExcludedPre,
         whopExcludedAfter,
         dailyPaidClients,
         dailyRenewals,
         dailyPaymentCount,
         whopSecuredMembers,
+        whopSecuredClients,
         dailyFailedPayments,
         dailySubs,
         subsByMembership,
