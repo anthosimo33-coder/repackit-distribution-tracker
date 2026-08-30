@@ -27,6 +27,7 @@ import { useProject, useProjectPath } from "@/components/project/ProjectProvider
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { creatorStatusBadge } from "@/lib/creator-status";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatNumber, formatPercent } from "@/lib/format";
@@ -1292,6 +1293,17 @@ function ConversionRow({
               : row.ref}
         </span>
         <span className="ml-1.5 text-xs text-slate-400">/{row.ref}</span>
+        {/* Une créatrice PARTIE garde son historique à son nom — le badge dit la
+            différence, avec le vocabulaire de la fiche et de la table Créateurs
+            (lib/creator-status), pas un marqueur inventé ici. */}
+        {row.kind === "creator" && row.status === "churned" && (
+          <Badge
+            variant="outline"
+            className={`ml-1.5 align-middle text-[10px] ${creatorStatusBadge("churned").className}`}
+          >
+            {creatorStatusBadge("churned").label}
+          </Badge>
+        )}
         {row.kind === "influencer" && (
           <div className="text-xs text-slate-400">influenceuse</div>
         )}

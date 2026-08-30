@@ -259,7 +259,7 @@ Ce fichier liste les anti-patterns repérés dans la zone touchée par chaque fe
   de toute façon, donc le stockage ne protégerait que le futur tout en cassant une
   propriété assumée du schéma. À rouvrir si une réaffectation se produit.
 
-### TD-027 — Le départ d'une créatrice orpheline son historique de conversion
+### TD-027 — Le départ d'une créatrice orpheline son historique de conversion ✅ RÉSOLU (août 2026)
 - **Fichier** : `convex/conversionSync.ts` (`readConversionAllTime`, filtre `c.status !== "churned"`)
 - **Constat** : la liste des créatrices envoyée à `shapeConversionDay` exclut les
   `churned`. Leur ref cesse donc d'être revendiquée et bascule en « ref sans
@@ -271,7 +271,25 @@ Ce fichier liste les anti-patterns repérés dans la zone touchée par chaque fe
   sans aucun signal.
 - **Aucune créatrice n'est `churned` en prod aujourd'hui** — le défaut est donc
   latent, et il se déclenchera au premier départ.
-- **Piste** : garder les `churned` dans la liste d'attribution (leur historique
-  est un fait), en les marquant comme parties plutôt qu'en les retirant. À
-  arbitrer : l'écran doit-il les lister indéfiniment, ou seulement tant qu'elles
-  portent des données ?
+- **Résolution** : le filtre `status !== "churned"` est retiré de la source. Le
+  tri de ce qui reste listé se fait à l'AFFICHAGE, sur la présence de données —
+  une créatrice partie reste listée si elle a produit quelque chose, et
+  seulement alors. Pour une créatrice ACTIVE un zéro est actionnable (son lien
+  ne tourne pas) ; pour une partie il ne le sera jamais, et « pas de ref
+  configurée » serait une consigne à laquelle personne ne peut plus répondre.
+  Son historique, lui, reste à son nom et dans le « Total attribué », marqué du
+  badge « Parti » de `lib/creator-status` — le vocabulaire de la fiche et de la
+  table Créateurs, pas un marqueur inventé sur place.
+- **Ce que la cartographie a montré** : le filtre n'existait qu'à UN endroit
+  (`readConversionAllTime`) et n'était mentionné nulle part dans le commit qui
+  l'a introduit (#72) — une ligne incidente sur un écran journée, où l'effet
+  était invisible. `listCreators` ne filtre pas ; `listAssignableCreators`
+  exclut bien les `churned`, mais c'est une règle d'ÉCRITURE (on n'assigne pas
+  de travail à quelqu'un de parti), sans rapport avec l'affichage.
+- **Effet de bord souhaitable** : le bandeau de conflits de refs voit désormais
+  les fiches parties. Le refus à l'écriture les couvrait déjà
+  (`assertRefSlugFree` n'a pas de filtre de statut), l'écran non.
+- **Mesuré avant correctif**, en simulant Kelly partie sur l'export de prod : sa
+  ligne devenait « (kelly) · ref rattachée à personne » et le « Total attribué »
+  tombait de 92,67 € à 37,08 € — 60 % du revenu attribué évaporé à l'instant où
+  l'on enregistre un départ. Après : 92,67 €, inchangé.

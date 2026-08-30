@@ -519,12 +519,23 @@ export const readConversionAllTime = adminQuery({
         firstDate: a.firstDate,
         lastDate: a.lastDate,
       })),
+      // PLUS DE FILTRE `churned` (TD-027). Il écartait les fiches parties, donc
+      // tout leur travail retombait sous le slug nu et leur revenu sortait du
+      // « Total attribué » : en all-time, chaque départ réécrivait le passé.
+      // Simulé sur l'export de prod — le Total attribué tombait de 92,67 € à
+      // 37,08 € au départ de Kelly. Le tri de ce qui reste listé se fait
+      // désormais à l'affichage, sur la présence de DONNÉES (shapeConversionDay),
+      // pas sur le statut à la source.
+      //
+      // Effet de bord souhaitable : le bandeau de conflits de refs voit enfin
+      // les fiches parties. Le refus à l'écriture, lui, les couvrait déjà —
+      // `assertRefSlugFree` interroge toutes les fiches sans filtre de statut.
       creators: creators
-        .filter((c) => c.status !== "churned")
         .map((c) => ({
           creatorId: c._id as string,
           name: c.name,
           refSlug: c.refSlug ?? null,
+          status: c.status,
           // Pour signaler une attribution DOUTEUSE : des données de conversion
           // antérieures à l'existence même de la créatrice ne peuvent pas être
           // les siennes (ref réaffectée, ou reprise d'un slug déjà utilisé).
