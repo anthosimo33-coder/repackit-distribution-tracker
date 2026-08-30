@@ -1095,6 +1095,20 @@ type ConversionData = FunctionReturnType<
   typeof api.conversionSync.readConversionAllTime
 >;
 
+/** Horodatage → "30/08 à 12h30" (Paris) — la fraîcheur d'une colonne se lit à
+ *  l'heure, pas à la journée. */
+function frDateTime(ms: number): string {
+  return new Intl.DateTimeFormat("fr-FR", {
+    timeZone: "Europe/Paris",
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+    .format(new Date(ms))
+    .replace(", ", " à ");
+}
+
 /** "YYYY-MM-DD" → "18/07/2026". */
 function frDate(iso: string): string {
   const [y, m, d] = iso.split("-");
@@ -1168,6 +1182,22 @@ function ConversionSection({ data }: { data: ConversionData | undefined }) {
         Depuis le {frDate(data.firstDate)} — {data.collectedDays} jour
         {data.collectedDays > 1 ? "s" : ""} collecté
         {data.collectedDays > 1 ? "s" : ""} · attribution par ref snytch.co
+      </div>
+      {/* DEUX CADENCES dans le même tableau, écrites plutôt que sues. Les
+          visiteurs viennent d'un relevé PostHog quotidien de 23 h ; les ventes
+          sont lues en direct sur Whop, synchronisé toutes les heures. Sans cette
+          ligne, une colonne arrêtée à la veille et une colonne à l'heure se
+          lisent comme si elles décrivaient le même instant. */}
+      <div className="text-xs text-slate-400">
+        <span className="text-slate-500">Visiteurs et inscrits</span>{" "}
+        {data.visitorsThroughDate === null
+          ? "en attente du premier relevé PostHog"
+          : `arrêtés au ${frDate(data.visitorsThroughDate)} (relevé quotidien de 23h)`}{" "}
+        ·{" "}
+        <span className="text-slate-500">ventes et revenu</span>{" "}
+        {data.salesSyncMs === null
+          ? "en attente de la synchro Whop"
+          : `à jour, synchro Whop du ${frDateTime(data.salesSyncMs)}`}
       </div>
       <div className="divide-y divide-slate-100">
         {d.rows.map((row) => (
