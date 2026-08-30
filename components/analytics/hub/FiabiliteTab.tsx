@@ -117,6 +117,9 @@ export function FiabiliteTab({
       dailyPaidClients: c.dailyPaidClients,
       subsByMembership: c.subsByMembership,
       whopFirstPaidDay: c.whopFirstPaidDay,
+      // Décomposition de l'écart sur la fenêtre : le contrôle alerte sur ce
+      // qui reste INEXPLIQUÉ, pas sur l'écart brut.
+      windowReconciliation: c.windowReconciliation ?? undefined,
       todayParis: c.todayParis,
     });
   }, [reliability.coherence]);

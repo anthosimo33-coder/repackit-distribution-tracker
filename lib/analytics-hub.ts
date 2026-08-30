@@ -247,6 +247,37 @@ export interface CoherenceInputs {
   /** Les abonnements correspondants (contexte du dénominateur, jamais diviseur). */
   whopMembersTotal?: number | null;
   /**
+   * Décomposition de l'écart PostHog↔Whop sur TOUTE la fenêtre — ce qui permet
+   * d'alerter sur l'INEXPLIQUÉ plutôt que sur l'écart brut.
+   *
+   * Absent (cache pas encore alimenté) ⇒ on retombe sur l'écart brut : le
+   * contrôle ne se tait jamais faute de données, il explique quand il peut.
+   */
+  windowReconciliation?: {
+    /** Personnes ayant émis l'event sans jamais encaisser (remboursé, en
+     *  attente). Côté PostHog seulement → poussent l'écart vers le HAUT. */
+    ghostClients: number;
+    /** Personnes ayant encaissé sans jamais émettre d'event. Côté Whop
+     *  seulement → poussent vers le BAS. */
+    missingEvents: number;
+    /**
+     * Events sans `membership_id` ANTÉRIEURS à la rupture de série. Ces
+     * personnes peuvent avoir payé ou non : inclassables. Ce n'est donc PAS un
+     * terme de l'écart mais une BANDE D'INCERTITUDE — et un bucket CLOS, qui
+     * sortira tout seul de la fenêtre de 90 jours. Le contrôle se resserre donc
+     * avec le temps au lieu de devenir bruyant.
+     */
+    unlinkedBeforeBreak: number;
+    /**
+     * Le même défaut APRÈS la rupture. Zéro au moment où ce contrôle est écrit :
+     * toute apparition est une RÉGRESSION D'INSTRUMENTATION et alerte seule,
+     * quel que soit le reste. C'est le vrai apport du calibrage.
+     */
+    unlinkedAfterBreak: number;
+    /** Date de la rupture, écrite dans le détail (ex. « 28/07/2026 01:09 UTC »). */
+    breakLabel: string;
+  };
+  /**
    * Dénominateur RÉELLEMENT passé aux trois cartes (coût d'acquisition, coût
    * complet du moteur, revenu net par client). On ne recalcule pas ce que
    * l'écran devrait afficher : on lui demande ce qu'il affiche, et on le
@@ -371,11 +402,42 @@ export function buildCoherenceChecks(i: CoherenceInputs): CoherenceCheck[] {
   const posthogReach = stepBy(i.reachSteps, "subscription_completed");
   const posthogClients = posthogReach ?? i.dashboardClients;
   if (posthogClients !== null && i.whopClients !== null) {
-    const diff = Math.abs(posthogClients - i.whopClients);
+    const rec = i.windowReconciliation;
+    // Écart SIGNÉ : les deux termes de la décomposition tirent en sens opposés,
+    // les confondre en valeur absolue effacerait justement l'information.
+    const signed = posthogClients - i.whopClients;
+    // Ce que la décomposition PRÉDIT : les fantômes gonflent, les paiements
+    // sans event creusent. Ce qui reste est inexpliqué.
+    const predicted = rec ? rec.ghostClients - rec.missingEvents : 0;
+    const unexplained = rec ? Math.abs(signed - predicted) : Math.abs(signed);
+    // Hors bande = ce que les events non liés de juillet ne peuvent PAS couvrir.
+    const band = rec ? rec.unlinkedBeforeBreak : 0;
+    const diff = Math.max(0, unexplained - band);
     const pct = Math.round((diff / Math.max(1, i.whopClients)) * 1000) / 10;
+    const regression = rec !== undefined && rec.unlinkedAfterBreak > 0;
     const masks =
-      pct > DASHBOARD_WHOP_TOLERANCE_PCT && diff > DASHBOARD_WHOP_TOLERANCE_ABS;
+      regression ||
+      (pct > DASHBOARD_WHOP_TOLERANCE_PCT && diff > DASHBOARD_WHOP_TOLERANCE_ABS);
     const causes: string[] = [];
+    if (rec) {
+      if (rec.ghostClients > 0) {
+        causes.push(`${rec.ghostClients} sans encaissement`);
+      }
+      if (rec.missingEvents > 0) {
+        causes.push(`${rec.missingEvents} paiement(s) sans event`);
+      }
+      causes.push(`inexpliqué ${unexplained}`);
+      if (band > 0) {
+        causes.push(
+          `bande ±${band} (events sans membership_id antérieurs au ${rec.breakLabel}, bucket clos)`,
+        );
+      }
+      if (regression) {
+        causes.push(
+          `RÉGRESSION : ${rec.unlinkedAfterBreak} event(s) sans membership_id APRÈS le ${rec.breakLabel}`,
+        );
+      }
+    }
     if (i.whopMembers !== null && i.whopMembers !== i.whopClients) {
       causes.push(
         `${i.whopMembers} abonnements pour ${i.whopClients} personnes`,
@@ -391,13 +453,15 @@ export function buildCoherenceChecks(i: CoherenceInputs): CoherenceCheck[] {
       causes.push(`${i.whopExcludedAfter} après le dernier cron (latence)`);
     }
     const base =
-      diff === 0
+      signed === 0
         ? `écart 0 — ${posthogClients} personnes des deux côtés`
-        : `${posthogClients} personnes vs ${i.whopClients} (écart ${diff}, ${pct} %)`;
+        : `${posthogClients} personnes vs ${i.whopClients} (écart ${Math.abs(signed)}${
+            rec ? "" : `, ${pct} %`
+          })`;
     checks.push({
       key: "dashboard_vs_whop",
       label: "Clients dashboard vs Whop",
-      status: masks ? "violation" : diff === 0 ? "ok" : "info",
+      status: masks ? "violation" : diff === 0 && signed === 0 ? "ok" : "info",
       detail: causes.length > 0 ? `${base} · ${causes.join(" · ")}` : base,
     });
   } else {
@@ -607,6 +671,8 @@ function pushDailyCrossCheck(
   const recBy = new Map((reconciliation ?? []).map((r) => [r.day, r]));
   const days = [...new Set([...subsBy.keys(), ...cliBy.keys()])];
   const mismatches: DailyMismatch[] = [];
+  /** Jours dont l'écart brut est ENTIÈREMENT décomposé — affichés, pas comptés. */
+  const reconciled: DailyMismatch[] = [];
   let explainedDays = 0;
   for (const day of days) {
     if (today && day >= today) continue; // jour courant/futur = partiel → ignoré
@@ -622,21 +688,30 @@ function pushDailyCrossCheck(
       rec === undefined
         ? diff
         : Math.abs(rec.matched + rec.unlinked - clients) ;
-    if (rec !== undefined && diff > 0 && unexplained < diff) explainedDays += 1;
-    if (!significantGap(subs, clients)) continue;
-    if (rec !== undefined && !significantGap(rec.matched + rec.unlinked, clients)) {
-      // Écart brut significatif mais EXPLIQUÉ par la réconciliation → info,
-      // pas violation. On le dit, on ne le cache pas.
-      mismatches.push({ day, subs, clients, diff, unexplained, reconciliation: rec });
+    if (!significantGap(subs, clients)) {
+      if (rec !== undefined && diff > 0 && unexplained < diff) explainedDays += 1;
       continue;
     }
-    mismatches.push({ day, subs, clients, diff, unexplained, reconciliation: rec });
+    // DIVERGENT vs RÉCONCILIÉ. Un jour dont l'écart brut est ENTIÈREMENT
+    // décomposé (rejeux d'un autre jour, fantômes) se recoupe : l'appeler
+    // « divergent » était trompeur — cas de prod du 25/08, 4 subs pour 2 clients
+    // dont 2 rejeux, qui gonflait le compte sans rien signaler. Il reste
+    // AFFICHÉ, avec sa décomposition : c'est l'information, pas le mot.
+    const row = { day, subs, clients, diff, unexplained, reconciliation: rec };
+    if (rec !== undefined && !significantGap(rec.matched + rec.unlinked, clients)) {
+      reconciled.push(row);
+    } else {
+      mismatches.push(row);
+    }
   }
-  mismatches.sort((a, b) => b.unexplained - a.unexplained || b.diff - a.diff);
+  const bySeverity = (a: DailyMismatch, b: DailyMismatch) =>
+    b.unexplained - a.unexplained || b.diff - a.diff;
+  mismatches.sort(bySeverity);
+  reconciled.sort(bySeverity);
 
   const key = "daily_clients_posthog_vs_whop";
   const label = "Clients/jour PostHog vs Whop";
-  if (mismatches.length === 0) {
+  if (mismatches.length === 0 && reconciled.length === 0) {
     checks.push({
       key,
       label,
@@ -648,7 +723,7 @@ function pushDailyCrossCheck(
     });
     return;
   }
-  const worst = mismatches[0];
+  const worst = mismatches[0] ?? reconciled[0];
   const rec = worst.reconciliation;
   const decomposition =
     rec === undefined
@@ -662,12 +737,21 @@ function pushDailyCrossCheck(
   // ≥2 « significatif » = info. Un écart brut entièrement décomposé (retries,
   // fantômes) retombe sous le seuil et n'est qu'une information.
   const inexplique = rec ? Math.abs(rec.matched + rec.unlinked - worst.clients) : worst.diff;
+  // Le mot « divergent » est RÉSERVÉ aux jours qui gardent un résidu inexpliqué.
+  // Les jours entièrement décomposés sont annoncés comme réconciliés — mais avec
+  // la même décomposition, parce que c'est elle qui apprend quelque chose.
+  const entete =
+    mismatches.length > 0
+      ? `${mismatches.length} jour(s) divergent(s)${
+          reconciled.length > 0 ? ` · ${reconciled.length} réconcilié(s)` : ""
+        } — pire : `
+      : `${reconciled.length} jour(s) réconcilié(s), aucun divergent — dont : `;
   checks.push({
     key,
     label,
-    status: inexplique >= 3 ? "violation" : "info",
+    status: mismatches.length === 0 ? "info" : inexplique >= 3 ? "violation" : "info",
     detail:
-      `${mismatches.length} jour(s) divergent(s) — pire : ${worst.day} PostHog ${worst.subs} vs Whop ${worst.clients}` +
+      `${entete}${worst.day} PostHog ${worst.subs} vs Whop ${worst.clients}` +
       (rec ? ` (PostHog ${worst.subs}${decomposition} ; inexpliqué ${worst.unexplained})` : ` (écart ${worst.diff})`) +
       " — Whop fait foi pour les ventes",
   });

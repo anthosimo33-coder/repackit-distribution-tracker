@@ -159,6 +159,9 @@ export function OverviewTab({
       dailyPaidClients: c.dailyPaidClients,
       todayParis: c.todayParis,
       // Montant dû : total affiché vs somme de ses parts (fixe + CPM + paliers).
+      // Décomposition de l'écart sur la fenêtre : le contrôle alerte sur ce
+      // qui reste INEXPLIQUÉ, pas sur l'écart brut.
+      windowReconciliation: c.windowReconciliation ?? undefined,
       payDue: c.payDue,
     });
   }, [reliability, clients]);
