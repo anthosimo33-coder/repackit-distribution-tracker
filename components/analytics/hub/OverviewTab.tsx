@@ -30,7 +30,6 @@ import {
 import { EXPLAIN } from "./explanations";
 import { PromoRpmCard } from "./PromoRpmCard";
 import { buildDayDetail } from "@/lib/day-detail";
-import { countryLabel } from "@/lib/country-name";
 import {
   toDisplayAmount,
   convertedValue,
@@ -715,9 +714,11 @@ function DayDetailRows({
   );
   const ligne = (r: ReturnType<typeof buildDayDetail>["countries"][number], k: string) => (
     <TableRow key={k} className="bg-slate-50/60">
-      <TableCell className="py-1.5 pl-8 text-xs text-slate-600">
-        {k.startsWith("b:") ? countryLabel(r.label) : r.label}
-      </TableCell>
+      {/* `r.label` est DÉJÀ humanisé pour les groupes pays (cf lib/day-detail) :
+          le rendu ne décide plus de traduire ou non. Il le décidait en reniflant
+          un préfixe de clé React, ce qui est devenu faux le jour où la requête
+          est passée du nom anglais au code ISO. */}
+      <TableCell className="py-1.5 pl-8 text-xs text-slate-600">{r.label}</TableCell>
       <SubCell value={r.visitors} />
       <SubCell value={r.signups} />
       <SubCell value={r.checkouts} />
