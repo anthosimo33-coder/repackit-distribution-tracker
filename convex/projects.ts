@@ -9,6 +9,7 @@ import {
 } from "./functions";
 import { internalMutation } from "./_generated/server";
 import { isPortalRole } from "./roles";
+import { normalizeRef } from "./conversionAttribution";
 import { warmupTargetDaysOf } from "./warmup";
 import {
   COMBO_COOLDOWN_DAYS_FALLBACK,
@@ -230,6 +231,73 @@ export const renameProjectBySlug = internalMutation({
  * paie sans symbole) ; fxRateToRevenue:0 → retire (marge combinée non calculée).
  *   npx convex run projects:setProjectCurrencyBySlug '{"slug":"snytch","payCurrency":"usd","fxRateToRevenue":0.92}' --prod
  */
+/**
+ * Déclare les refs d'INFLUENCEUSES d'un projet, DEPUIS LE CLI.
+ *
+ * Ces personnes n'ont pas de fiche `creators` — et ne doivent pas en avoir :
+ * une fiche les ferait entrer dans le moteur de paie, les cycles et le portail
+ * créateur pour une seule ligne d'attribution. Ce champ leur donne un NOM dans
+ * le bloc « Ce que ça a rapporté » sans rien d'autre.
+ *
+ * REMPLACE la liste entière (pas d'ajout incrémental) : c'est ce qui rend
+ * l'appel idempotent et relisible d'un coup d'œil. Une liste vide efface.
+ *
+ * REFUSE une ref déjà portée par une créatrice du projet : une ref est une clé
+ * d'attribution, deux porteurs et les deux lignes affichent les mêmes chiffres
+ * sans que le total le montre.
+ *
+ *   npx convex run projects:setInfluencerRefsBySlug '{"slug":"snytch","refs":[{"ref":"gio","name":"Gio"}]}'
+ */
+export const setInfluencerRefsBySlug = internalMutation({
+  args: {
+    slug: v.string(),
+    refs: v.array(v.object({ ref: v.string(), name: v.string() })),
+  },
+  handler: async (ctx, { slug, refs }) => {
+    const project = (await ctx.db.query("projects").collect()).find(
+      (p) => p.slug === slug,
+    );
+    if (!project) throw new ConvexError(`Projet « ${slug} » introuvable.`);
+
+    const cleaned: { ref: string; name: string }[] = [];
+    for (const r of refs) {
+      const ref = normalizeRef(r.ref);
+      const name = r.name.trim();
+      if (ref === null) throw new ConvexError(`Ref vide pour « ${r.name} ».`);
+      if (name === "") throw new ConvexError(`Nom manquant pour la ref « ${ref} ».`);
+      if (cleaned.some((c) => c.ref === ref)) {
+        throw new ConvexError(`Ref « ${ref} » présente deux fois dans la liste.`);
+      }
+      cleaned.push({ ref, name });
+    }
+
+    const creators = await ctx.db
+      .query("creators")
+      .withIndex("by_project", (q) => q.eq("projectId", project._id))
+      .collect();
+    for (const c of cleaned) {
+      const taken = creators.find(
+        (cr) => normalizeRef(cr.refSlug ?? null) === c.ref,
+      );
+      if (taken) {
+        throw new ConvexError(
+          `La ref « ${c.ref} » est déjà celle de la créatrice ${taken.name}. Une ref ne peut appartenir qu'à une seule personne.`,
+        );
+      }
+    }
+
+    const before = project.influencerRefs ?? [];
+    await ctx.db.patch(project._id, {
+      influencerRefs: cleaned.length > 0 ? cleaned : undefined,
+    });
+    return {
+      slug,
+      before: before.map((r) => `${r.ref} (${r.name})`),
+      after: cleaned.map((r) => `${r.ref} (${r.name})`),
+    };
+  },
+});
+
 export const setProjectCurrencyBySlug = internalMutation({
   args: {
     slug: v.string(),

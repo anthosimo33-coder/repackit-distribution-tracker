@@ -200,6 +200,25 @@ export default defineSchema({
     // 1 unité de payCurrency = fxRateToRevenue unités de la devise du revenu (ex.
     // 1 $ = 0,92 €). ABSENT ⇒ la marge combinée n'est PAS calculée (ni inventée).
     fxRateToRevenue: v.optional(v.number()),
+    // ─── Refs d'INFLUENCEUSES (chemin court snytch.co) ──────────────────────
+    // Des refs qui appartiennent à quelqu'un de NOMMÉ sans être des créatrices :
+    // elles n'entrent ni dans le moteur de paie, ni dans le portail, ni dans les
+    // assignations. Leur seule existence dans le produit est la ligne
+    // d'attribution du bloc « Ce que ça a rapporté ».
+    //
+    // POURQUOI ICI et pas une fiche `creators` : leur créer une fiche les ferait
+    // apparaître dans les écrans de paie, les cycles et le portail créateur pour
+    // une seule ligne d'attribution. Relevé en prod : `gio`, `asly`, `paredes`,
+    // `sabrina` et `hilary` ont du trafic et des ventes sans aucune fiche, et
+    // l'écran les étiquetait « ref sans créatrice rattachée » — ce qui se lit
+    // comme une donnée à corriger alors que c'est une catégorie normale.
+    //
+    // Une ref ne peut appartenir qu'à UNE personne : le croisement avec
+    // `creators.refSlug` est refusé à l'écriture (cf conversionAttribution.refConflicts).
+    // Posé par projects.setInfluencerRefsBySlug (interne, `npx convex run`).
+    influencerRefs: v.optional(
+      v.array(v.object({ ref: v.string(), name: v.string() })),
+    ),
     // ─── Notifications hors-app (Telegram) — canal PAR PROJET ─────────────────
     // MÊME contrat de secret que `whop` et `posthog` ci-dessus : le JETON du bot
     // n'est JAMAIS stocké ici — `tokenEnvVar` NOMME la variable d'env (Convex env)

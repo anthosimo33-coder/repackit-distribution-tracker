@@ -9,6 +9,7 @@ import {
   normalizeRef,
   mergeDayRows,
   shapeConversionDay,
+  refConflicts,
   type DayRefRow,
   type PosthogDayResult,
   type WhopDayResult,
@@ -321,5 +322,125 @@ describe("shapeConversionDay — all-time", () => {
     const d = shapeConversionDay([], creators, { collectedDays: 41 });
     expect(d.total.revenue).toBeNull();
     expect(d.attributed.revenue).toBeNull();
+  });
+});
+
+/**
+ * INFLUENCEUSES — des refs qui appartiennent à quelqu'un de nommé sans être des
+ * créatrices. Elles n'entrent ni dans le moteur de paie, ni dans le portail :
+ * leur seule existence dans le produit est cette ligne d'attribution.
+ *
+ * Cas de prod : `gio`, `asly`, `paredes`, `sabrina` et `hilary` ont du trafic et
+ * des ventes, et aucune fiche `creators` — l'écran les étiquetait « ref sans
+ * créatrice rattachée », ce qui se lit comme une donnée à corriger alors que
+ * c'est une catégorie normale.
+ *
+ * CONSÉQUENCE ASSUMÉE : « Total attribué » ne veut plus dire « rattaché à une
+ * créatrice » mais « rattaché à quelqu'un de NOMMÉ ». C'est la question qui
+ * compte — sait-on qui a amené ce revenu ? — et pas le statut contractuel de la
+ * personne.
+ */
+describe("shapeConversionDay — influenceuses", () => {
+  const creators = [{ creatorId: "cr_kelly", name: "Kelly", refSlug: "kelly" }];
+  const influencers = [
+    { ref: "gio", name: "Gio" },
+    { ref: "paredes", name: "Paredes" },
+  ];
+  const rows: DayRefRow[] = [
+    { ref: "kelly", visitors: 274, signups: 17, sales: 6, revenue: 55.59, currency: "EUR" },
+    { ref: "gio", visitors: 146, signups: 4, sales: 1, revenue: 9.27, currency: "EUR" },
+    { ref: "inconnue", visitors: 12, signups: 0, sales: 0, revenue: 0 },
+    { ref: undefined, visitors: 7105, signups: 3992, sales: 190, revenue: 1409.99, currency: "EUR" },
+  ];
+
+  it("une ref d'influenceuse est NOMMÉE, plus « sans créatrice rattachée »", () => {
+    const d = shapeConversionDay(rows, creators, { collectedDays: 42, influencers });
+    const gio = d.rows.find((r) => r.kind === "influencer" && r.ref === "gio")!;
+    expect(gio).toMatchObject({ name: "Gio", visitors: 146, sales: 1, revenue: 9.27 });
+  });
+
+  it("son revenu entre dans le Total ATTRIBUÉ (on sait qui l'a amené)", () => {
+    const d = shapeConversionDay(rows, creators, { collectedDays: 42, influencers });
+    expect(d.attributed.revenue).toBeCloseTo(55.59 + 9.27, 2);
+    expect(d.attributed.sales).toBe(7);
+  });
+
+  it("une ref que PERSONNE ne revendique reste orpheline — le signal survit", () => {
+    // Contrôle OPPOSÉ : si tout devenait « nommé », la catégorie ne servirait
+    // plus à rien. `inconnue` doit rester visible ET hors de l'attribué.
+    const d = shapeConversionDay(rows, creators, { collectedDays: 42, influencers });
+    expect(d.rows.some((r) => r.kind === "ref-only" && r.ref === "inconnue")).toBe(true);
+    expect(d.attributed.visitors).toBe(274 + 146); // 12 visiteurs d'`inconnue` exclus
+  });
+
+  it("une influenceuse déclarée SANS données apparaît quand même, à zéro", () => {
+    const d = shapeConversionDay(rows, creators, { collectedDays: 42, influencers });
+    const paredes = d.rows.find((r) => r.kind === "influencer" && r.ref === "paredes")!;
+    expect(paredes).toMatchObject({ name: "Paredes", visitors: 0, revenue: 0 });
+  });
+
+  it("sans influenceuses déclarées, le comportement d'avant est INTACT", () => {
+    const d = shapeConversionDay(rows, creators, { collectedDays: 42 });
+    expect(d.rows.some((r) => r.kind === "ref-only" && r.ref === "gio")).toBe(true);
+    expect(d.attributed.revenue).toBeCloseTo(55.59, 2);
+  });
+});
+
+/**
+ * GARDE-FOU — deux fiches ne peuvent pas porter la même ref.
+ *
+ * Ni l'interface (`updateCreator`) ni le CLI (`setCreatorRefSlugBySlug`) ne le
+ * vérifiaient. Deux créatrices avec `gio` afficheraient TOUTES DEUX les chiffres
+ * de `gio` : le « Total attribué » resterait juste (il somme les refs, pas les
+ * fiches), donc rien ne signalerait l'erreur — c'est exactement le genre de
+ * défaut qui ne se voit jamais.
+ */
+describe("refConflicts — une ref appartient à une seule personne", () => {
+  it("deux créatrices sur la même ref → conflit nommé", () => {
+    const c = refConflicts(
+      [
+        { creatorId: "a", name: "Kelly", refSlug: "kelly" },
+        { creatorId: "b", name: "Kelly B.", refSlug: "Kelly" }, // casse ≠, même ref
+      ],
+      [],
+    );
+    expect(c).toHaveLength(1);
+    expect(c[0]).toMatchObject({ ref: "kelly" });
+    expect(c[0].holders).toEqual(["Kelly", "Kelly B."]);
+  });
+
+  it("une créatrice et une influenceuse sur la même ref → conflit aussi", () => {
+    const c = refConflicts(
+      [{ creatorId: "a", name: "Gio C.", refSlug: "gio" }],
+      [{ ref: "gio", name: "Gio" }],
+    );
+    expect(c).toHaveLength(1);
+    expect(c[0].holders).toContain("Gio C.");
+    expect(c[0].holders).toContain("Gio");
+  });
+
+  it("aucun doublon → aucun conflit (le cas de la prod aujourd'hui)", () => {
+    expect(
+      refConflicts(
+        [
+          { creatorId: "a", name: "Kelly", refSlug: "kelly" },
+          { creatorId: "b", name: "Sarah", refSlug: "sarah" },
+          { creatorId: "c", name: "Léa", refSlug: null },
+        ],
+        [{ ref: "gio", name: "Gio" }],
+      ),
+    ).toEqual([]);
+  });
+
+  it("les fiches sans ref ne collisionnent jamais entre elles", () => {
+    expect(
+      refConflicts(
+        [
+          { creatorId: "a", name: "A", refSlug: null },
+          { creatorId: "b", name: "B", refSlug: "  " },
+        ],
+        [],
+      ),
+    ).toEqual([]);
   });
 });

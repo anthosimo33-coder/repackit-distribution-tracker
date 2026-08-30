@@ -499,12 +499,15 @@ export const readConversionAllTime = adminQuery({
       .query("creators")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
+    const project = await ctx.db.get(ctx.projectId);
 
     const sorted = [...days].sort();
     return {
       firstDate: sorted[0],
       lastDate: sorted[sorted.length - 1],
       collectedDays: days.size,
+      // Refs d'influenceuses — nommées, sans fiche créatrice (cf schema).
+      influencers: project?.influencerRefs ?? [],
       rows: [...byRef.values()].map((a) => ({
         ref: a.ref,
         visitors: a.visitors,
