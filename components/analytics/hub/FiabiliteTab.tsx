@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/table";
 import { formatNumber, formatDate } from "@/lib/format";
 import { buildCoherenceChecks, type CoherenceStatus } from "@/lib/analytics-hub";
+import { coherenceInputsFrom } from "@/lib/coherence-inputs";
 import { HubCardHeader, KpiTile, dash } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import type { ReliabilityData } from "./types";
@@ -92,36 +93,7 @@ export function FiabiliteTab({
 }) {
   const checks = useMemo(() => {
     const c = reliability.coherence;
-    return buildCoherenceChecks({
-      sequentialSteps: c.sequentialSteps.map((s) => ({
-        key: s.key,
-        label: s.key,
-        count: s.count,
-      })),
-      reachSteps: c.reachSteps.map((s) => ({ key: s.key, label: s.key, count: s.count })),
-      currencyCount: c.currencyCount,
-      dashboardClients: c.dashboardClients,
-      // Personnes (comparées à PostHog) ET abonnements (contexte du détail).
-      whopMembers: c.whopMembers,
-      whopClients: c.whopClients,
-      whopClientsTotal: c.whopClientsTotal,
-      whopMembersTotal: c.whopMembersTotal,
-      // PAS de `unitCostDenominator` ici : cet onglet ne divise rien. Le contrôle
-      // compare le diviseur RÉELLEMENT utilisé par les cartes à la référence — le
-      // renseigner depuis la même source qu'il vérifie en ferait une tautologie.
-      whopExcludedPre: c.whopExcludedPre,
-      whopExcludedAfter: c.whopExcludedAfter,
-      dailyClientsSum: c.dailyClientsSum,
-      dailySignupsSum: c.dailySignupsSum,
-      dailySubs: c.dailySubs,
-      dailyPaidClients: c.dailyPaidClients,
-      subsByMembership: c.subsByMembership,
-      whopFirstPaidDay: c.whopFirstPaidDay,
-      // Décomposition de l'écart sur la fenêtre : le contrôle alerte sur ce
-      // qui reste INEXPLIQUÉ, pas sur l'écart brut.
-      windowReconciliation: c.windowReconciliation ?? undefined,
-      todayParis: c.todayParis,
-    });
+    return buildCoherenceChecks(coherenceInputsFrom(c));
   }, [reliability.coherence]);
 
   return (
