@@ -58,6 +58,7 @@ export default function AnalyticsPage() {
   const viewCounters = useProjectQuery(api.analyticsHub.getViewCounters, {});
   const natureRewards = useProjectQuery(api.analyticsHub.getNatureRewards, {});
   const churn = useProjectQuery(api.analyticsHub.getChurn, {});
+  const dayDetail = useProjectQuery(api.analyticsHub.getDayDetail, {});
   const requestSync = useProjectMutation(api.posthogSync.requestPosthogSync);
   const [syncing, setSyncing] = useState(false);
   const [periodDays, setPeriodDays] = useState<number>(90);
@@ -203,6 +204,7 @@ export default function AnalyticsPage() {
                 reliability={reliability}
                 attribution={attribution}
                 viewCounters={viewCounters}
+                dayDetail={dayDetail}
                 periodDays={periodDays}
                 now={now}
               />

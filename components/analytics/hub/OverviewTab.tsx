@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Table,
@@ -29,6 +29,7 @@ import {
 } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import { PromoRpmCard } from "./PromoRpmCard";
+import { buildDayDetail } from "@/lib/day-detail";
 import {
   toDisplayAmount,
   convertedValue,
@@ -45,6 +46,7 @@ import type {
   ReliabilityData,
   AttributionData,
   ViewCountersData,
+  DayDetailData,
 } from "./types";
 
 /**
@@ -94,6 +96,7 @@ export function OverviewTab({
   reliability,
   attribution,
   viewCounters,
+  dayDetail,
   periodDays,
   now,
 }: {
@@ -102,6 +105,7 @@ export function OverviewTab({
   reliability: ReliabilityData | undefined;
   attribution: AttributionData | undefined;
   viewCounters: ViewCountersData | undefined;
+  dayDetail: DayDetailData | undefined;
   periodDays: number;
   now: number;
 }) {
@@ -321,6 +325,9 @@ export function OverviewTab({
     [revenue],
   );
   const dailyRows = useMemo(() => [...daily].reverse(), [daily]);
+  /** Jour déplié — un seul à la fois : deux décompositions ouvertes côte à côte
+   *  se comparent mal, les sous-lignes n'étant pas alignées verticalement. */
+  const [ouvert, setOuvert] = useState<string | null>(null);
 
   return (
     <div className="space-y-5">
@@ -545,9 +552,18 @@ export function OverviewTab({
                   {dailyRows.map((d) => {
                     const net = netByDay.get(parisDayKey(d.ts));
                     const failed = failedByDay.get(parisDayKey(d.ts)) ?? 0;
+                    const jour = parisDayKey(d.ts);
+                    const estOuvert = ouvert === jour;
                     return (
-                      <TableRow key={d.ts}>
+                      <Fragment key={d.ts}>
+                      <TableRow
+                        className="cursor-pointer hover:bg-slate-50"
+                        onClick={() => setOuvert(estOuvert ? null : jour)}
+                      >
                         <TableCell className="text-xs tabular-nums text-slate-600">
+                          <span className="mr-1 inline-block w-3 text-slate-300">
+                            {estOuvert ? "▾" : "▸"}
+                          </span>
                           {parisShortDate(d.ts)}
                         </TableCell>
                         <TableCell className="text-right text-xs tabular-nums">
@@ -610,6 +626,15 @@ export function OverviewTab({
                           {net === undefined ? "—" : formatMoney(net, currency)}
                         </TableCell>
                       </TableRow>
+                      {estOuvert ? (
+                        <DayDetailRows
+                          jour={jour}
+                          detail={dayDetail}
+                          currency={currency}
+                          visitorsThrough={parisShortDate(d.ts)}
+                        />
+                      ) : null}
+                      </Fragment>
                     );
                   })}
                 </TableBody>
@@ -619,5 +644,133 @@ export function OverviewTab({
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/** Une cellule de sous-ligne : « — » quand la valeur n'est pas mesurable. */
+function SubCell({ value, format }: { value: number | null; format?: (n: number) => string }) {
+  return (
+    <TableCell className="text-right text-xs tabular-nums text-slate-500">
+      {value === null ? (
+        <span className="text-slate-300">—</span>
+      ) : (
+        (format ?? formatNumber)(value)
+      )}
+    </TableCell>
+  );
+}
+
+/**
+ * Les sous-lignes d'une journée dépliée — mêmes colonnes que le tableau, pour
+ * qu'un chiffre se lise dans la verticale de son en-tête.
+ *
+ * Le groupe PAYS ne remplit que le trafic, et la mention le dit UNE FOIS, en
+ * toutes lettres : le pays vient de PostHog et ne couvre que les étapes émises
+ * côté navigateur, Whop ne porte aucun pays donc l'argent n'est pas ventilable
+ * par pays. Les cellules concernées affichent un TIRET et jamais un zéro — un
+ * zéro se lirait « ce pays ne convertit pas » là où il veut dire « on ne mesure
+ * pas », et l'œil retient le chiffre plutôt que la note.
+ */
+function DayDetailRows({
+  jour,
+  detail,
+  currency,
+  visitorsThrough,
+}: {
+  jour: string;
+  detail: DayDetailData | undefined;
+  currency: string | undefined;
+  visitorsThrough: string;
+}) {
+  if (detail === undefined) {
+    return (
+      <TableRow className="bg-slate-50/60">
+        <TableCell colSpan={8} className="py-3 text-xs text-slate-400">
+          — chargement du détail…
+        </TableCell>
+      </TableRow>
+    );
+  }
+  const d = buildDayDetail({ day: jour, ...detail });
+  if (d.isEmpty) {
+    return (
+      <TableRow className="bg-slate-50/60">
+        <TableCell colSpan={8} className="py-3 text-xs text-slate-400">
+          Aucune décomposition pour cette journée.
+        </TableCell>
+      </TableRow>
+    );
+  }
+  const money = (n: number) => formatMoney(n, currency);
+  const groupe = (titre: string) => (
+    <TableRow className="bg-slate-50/60">
+      <TableCell
+        colSpan={8}
+        className="pb-1 pt-3 text-[10px] font-medium uppercase tracking-wide text-slate-400"
+      >
+        {titre}
+      </TableCell>
+    </TableRow>
+  );
+  const ligne = (r: ReturnType<typeof buildDayDetail>["countries"][number], k: string) => (
+    <TableRow key={k} className="bg-slate-50/60">
+      <TableCell className="py-1.5 pl-8 text-xs text-slate-600">{r.label}</TableCell>
+      <SubCell value={r.visitors} />
+      <SubCell value={r.signups} />
+      <SubCell value={r.checkouts} />
+      <SubCell value={r.clients} />
+      <SubCell value={r.renewals} />
+      <SubCell value={r.failures} />
+      <SubCell value={r.net} format={money} />
+    </TableRow>
+  );
+  return (
+    <>
+      {d.countries.length > 0 ? (
+        <>
+          {groupe("Par pays")}
+          {d.countries.map((r) => ligne(r, `c:${r.label}`))}
+          <TableRow className="bg-slate-50/60">
+            <TableCell colSpan={8} className="pb-2 pl-8 text-xs text-slate-400">
+              Le pays vient de PostHog et ne couvre que le trafic. Whop, qui porte
+              l&apos;argent, ne stocke aucun pays : nouveaux clients,
+              renouvellements, échecs et revenu ne sont pas ventilables par pays.
+            </TableCell>
+          </TableRow>
+        </>
+      ) : null}
+      {d.refs.length > 0 ? (
+        <>
+          {groupe("Par ref")}
+          {d.refs.map((r) => ligne(r, `r:${r.label}`))}
+        </>
+      ) : null}
+      {d.revenue.length > 0 ? (
+        <>
+          {groupe("Revenu")}
+          {d.revenue.map((r) => (
+            <TableRow key={`v:${r.label}`} className="bg-slate-50/60">
+              <TableCell className="py-1.5 pl-8 text-xs text-slate-600">
+                {r.label}
+              </TableCell>
+              <TableCell colSpan={6} />
+              <TableCell
+                className={`text-right text-xs tabular-nums ${
+                  r.net < 0 ? "text-rose-600" : "text-slate-500"
+                }`}
+              >
+                {money(r.net)}
+              </TableCell>
+            </TableRow>
+          ))}
+        </>
+      ) : null}
+      <TableRow className="bg-slate-50/60">
+        <TableCell colSpan={8} className="pb-3 pl-8 text-xs text-slate-400">
+          Visiteurs et inscriptions : relevé PostHog du {visitorsThrough} · ventes
+          et revenu : Whop, synchronisé toutes les heures.
+        </TableCell>
+      </TableRow>
+    </>
   );
 }

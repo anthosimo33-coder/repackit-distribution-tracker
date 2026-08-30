@@ -69,6 +69,17 @@ const SEGMENT_LIMIT = 20;
  * `abPersonArms`, pèse déjà 780 Ko.
  */
 const COUNTRY_LIMIT = 60;
+/**
+ * Profondeur de la série JOUR × PAYS du détail dépliable — 30 jours et non 90.
+ *
+ * C'est la seule série du hub dont la cardinalité est un PRODUIT : un document
+ * `posthogCache` est un JSON unique, plafonné ~1 Mo par Convex. Mesuré sur le
+ * payload plat : 12 547 octets pour 60 pays, soit ~210 octets la ligne. À ~15
+ * pays actifs par jour, 30 jours font ~450 lignes ≈ 95 Ko — large. Les 90 jours
+ * de la fenêtre générale en feraient trois fois plus pour un tableau qui n'en
+ * affiche jamais autant : « Détail par jour » ne montre que la période choisie.
+ */
+const DAY_DETAIL_DAYS = 30;
 
 /**
  * DOUBLE ÉMISSION client + serveur — déduplication de LECTURE.
@@ -143,6 +154,7 @@ export const POSTHOG_CACHE_KEYS = {
   funnelLanguage: "funnel:language",
   funnelCountry: "funnel:country",
   serverSideSplit: "serverSideSplit",
+  countryDaily: "countryDaily",
   timeToValue: "timeToValue",
   paywall: "paywall",
   paywallById: "paywallById",
@@ -790,6 +802,32 @@ LIMIT ${COUNTRY_LIMIT}`,
    * directement ; un compteur d'events ne l'aurait pas fait, le funnel comptant
    * des personnes.
    */
+  /**
+   * Trafic par JOUR et par PAYS — les sous-lignes du détail dépliable.
+   *
+   * Trois colonnes seulement, et c'est délibéré : ce sont les trois étapes dont
+   * la couverture client est de 100 % (relevé du 30/08 : visiteurs, paywall et
+   * checkouts à 100 %, inscriptions à 32,5 %, clients à 8,5 %). Les colonnes
+   * argent ne sont pas ventilables par pays du tout — Whop ne porte aucun pays.
+   *
+   * Copies serveur exclues, pour la même raison que `funnelCountry` : elles
+   * portent l'IP du datacenter. Sans ce filtre, l'Indonésie absorbait 86 % des
+   * inscriptions du site sur une ligne à 58 visiteurs.
+   */
+  countryDaily: `
+SELECT formatDateTime(toStartOfDay(timestamp, 'Europe/Paris'), '%Y-%m-%d') AS d,
+       ${segExpr("properties['$geoip_country_name']")} AS pays,
+       uniqIf(person_id, event = '$pageview') AS visitors,
+       uniqIf(person_id, event = 'signup_completed') AS signups,
+       uniqIf(person_id, event = 'checkout_started') AS checkouts
+FROM events
+WHERE event IN ('$pageview', 'signup_completed', 'checkout_started')
+  AND timestamp >= now() - INTERVAL ${DAY_DETAIL_DAYS} DAY${notCounted}
+  AND NOT (${SERVER_COPY})
+GROUP BY d, pays
+ORDER BY d DESC, visitors DESC
+LIMIT 10000`,
+
   serverSideSplit: `
 SELECT event,
        uniq(person_id) AS persons_total,
@@ -1667,6 +1705,30 @@ export interface ServerSideSplitPayload {
   rows: ServerSideSplitRow[];
 }
 
+/** Une ligne (jour Paris, pays) — seulement les étapes à couverture client 100 %. */
+export interface CountryDailyRow {
+  day: string;
+  country: string;
+  visitors: number;
+  signups: number;
+  checkouts: number;
+}
+export interface CountryDailyPayload {
+  rows: CountryDailyRow[];
+}
+
+function shapeCountryDaily(rows: unknown[][]): CountryDailyPayload {
+  return {
+    rows: rows.map((r) => ({
+      day: cellStr(r, 0),
+      country: cellStr(r, 1),
+      visitors: cellNum(r, 2),
+      signups: cellNum(r, 3),
+      checkouts: cellNum(r, 4),
+    })),
+  };
+}
+
 function shapeServerSideSplit(rows: unknown[][]): ServerSideSplitPayload {
   return {
     rows: rows.map((r) => ({
@@ -1834,6 +1896,13 @@ export const runHourlySync = internalAction({
           target,
           QUERIES.serverSideSplit,
           shapeServerSideSplit,
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.countryDaily,
+          apiKey,
+          target,
+          QUERIES.countryDaily,
+          shapeCountryDaily,
         ),
         await collect(
           POSTHOG_CACHE_KEYS.funnelLanguage,
@@ -2263,6 +2332,8 @@ export interface ProductAnalytics {
   };
   /** Répartition client/serveur par étape — rend le filtre géo vérifiable. */
   serverSideSplit: ServerSideSplitPayload;
+  /** Trafic par (jour, pays) sur 30 jours — sous-lignes du détail dépliable. */
+  countryDaily: CountryDailyPayload;
   timeToValue: TimeToValuePayload;
   paywall: ConversionPayload;
   /** Conversion par paywall_id (vide/'(inconnu)' tant que paywall_id n'est pas émis). */
@@ -2326,6 +2397,7 @@ export const getProductAnalytics = adminQuery({
         country: EMPTY_FUNNEL,
       },
       serverSideSplit: { rows: [] },
+      countryDaily: { rows: [] },
       timeToValue: { steps: [] },
       paywall: EMPTY_CONVERSION,
       paywallById: EMPTY_CONVERSION,
@@ -2389,6 +2461,7 @@ export const getProductAnalytics = adminQuery({
         country: read(POSTHOG_CACHE_KEYS.funnelCountry, EMPTY_FUNNEL),
       },
       serverSideSplit: read(POSTHOG_CACHE_KEYS.serverSideSplit, { rows: [] }),
+      countryDaily: read(POSTHOG_CACHE_KEYS.countryDaily, { rows: [] }),
       timeToValue: read(POSTHOG_CACHE_KEYS.timeToValue, empty.timeToValue),
       paywall: read(POSTHOG_CACHE_KEYS.paywall, EMPTY_CONVERSION),
       paywallById: read(POSTHOG_CACHE_KEYS.paywallById, EMPTY_CONVERSION),
