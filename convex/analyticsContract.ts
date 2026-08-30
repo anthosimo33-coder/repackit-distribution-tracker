@@ -289,6 +289,18 @@ export const CONTRACT_PROPERTIES: ContractProperty[] = [
     cond:
       "event = 'subscription_completed' AND isNotNull(properties['$geoip_country_name'])",
   },
+  // Le CODE ISO, sondé pour la même raison que le nom : le tracker ne peut pas
+  // savoir si GeoIP l'écrit. S'il est peuplé, la segmentation bascule dessus et
+  // les pays s'affichent en français des deux côtés de l'écran (Intl.DisplayNames
+  // ne sait traduire qu'un code) ; sinon on reste sur le nom anglais de PostHog.
+  // La requête prend le code AVEC REPLI sur le nom, donc aucun état cassé
+  // possible : la sonde dit seulement lequel des deux a servi.
+  {
+    name: "$geoip_country_code",
+    onEvent: "*",
+    notYetEmitted: true,
+    cond: "isNotNull(properties['$geoip_country_code'])",
+  },
   {
     name: "$geoip_country_name (personne)",
     onEvent: "*",

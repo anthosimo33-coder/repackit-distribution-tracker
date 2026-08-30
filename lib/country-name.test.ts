@@ -64,3 +64,32 @@ describe("countryLabel", () => {
     expect(countryLabel("")).toBe("Pays non renseigné");
   });
 });
+
+/**
+ * LE PIÈGE DES DEUX VOCABULAIRES.
+ *
+ * Les codes langue et les codes pays se ressemblent : « fr » est une langue ET
+ * le code de la France. `countryLabel("fr")` rend donc « France », et
+ * `countryLabel("en")` rend « EN ». Appliquer cette fonction au tableau des
+ * LANGUES afficherait « France » en face du trafic francophone — un libellé
+ * faux qui ne se verrait pas, puisqu'il est plausible.
+ *
+ * D'où le libellé passé PAR CARTE et non appliqué globalement.
+ */
+describe("countryLabel — ne pas confondre langue et pays", () => {
+  it("« fr » est lu comme la FRANCE, pas comme une langue", () => {
+    // Ce test ne demande pas de changer le comportement : il DOCUMENTE le piège
+    // et échouerait si quelqu'un croyait pouvoir appliquer countryLabel partout.
+    expect(countryLabel("fr")).toBe("France");
+    expect(countryLabel("en")).toBe("EN");
+  });
+
+  it("un nom déjà en clair traverse intact — le repli sur le nom PostHog", () => {
+    // La requête prend le code ISO avec repli sur le nom : si le code n'est pas
+    // peuplé, un nom anglais arrive ici et doit ressortir tel quel.
+    expect(countryLabel("Belgium")).toBe("Belgium");
+    expect(countryLabel("Switzerland")).toBe("Switzerland");
+    expect(countryLabel("United Arab Emirates")).toBe("United Arab Emirates");
+    expect(countryLabel("(inconnu)")).toBe("(inconnu)");
+  });
+});

@@ -82,6 +82,26 @@ const COUNTRY_LIMIT = 60;
 const DAY_DETAIL_DAYS = 30;
 
 /**
+ * Segment PAYS — le CODE ISO d'abord, le NOM en repli.
+ *
+ * `Intl.DisplayNames` ne sait traduire qu'un code : sans lui, les pays de
+ * connexion s'affichent en anglais (« Belgium », « Switzerland ») à côté des
+ * pays de facturation en français, sur le même écran. Deux langues côte à côte
+ * font douter du reste.
+ *
+ * Le repli sur le nom rend la bascule SANS RISQUE : si `$geoip_country_code`
+ * n'est pas peuplé, l'expression retombe exactement sur le comportement
+ * d'aujourd'hui. Rien ne peut se vider. La sonde du contrat dit seulement lequel
+ * des deux a servi, et `countryLabel` laisse passer intact ce qu'il ne sait pas
+ * traduire — un nom anglais reste un nom anglais.
+ */
+const COUNTRY_SEGMENT = `coalesce(
+    nullIf(toString(properties['$geoip_country_code']), ''),
+    nullIf(toString(properties['$geoip_country_name']), ''),
+    '(inconnu)'
+  )`;
+
+/**
  * DOUBLE ÉMISSION client + serveur — déduplication de LECTURE.
  *
  * Depuis le lot d'instrumentation serveur de l'app (semaine du 02/08/2026),
@@ -778,7 +798,7 @@ LIMIT ${SEGMENT_LIMIT}`,
    * ambigu en HogQL.
    */
   funnelCountry: `
-SELECT ${segExpr("properties['$geoip_country_name']")} AS seg,${FUNNEL_COLUMNS}
+SELECT ${COUNTRY_SEGMENT} AS seg,${FUNNEL_COLUMNS}
 FROM events
 WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
   AND NOT (${SERVER_COPY})
@@ -816,7 +836,7 @@ LIMIT ${COUNTRY_LIMIT}`,
    */
   countryDaily: `
 SELECT formatDateTime(toStartOfDay(timestamp, 'Europe/Paris'), '%Y-%m-%d') AS d,
-       ${segExpr("properties['$geoip_country_name']")} AS pays,
+       ${COUNTRY_SEGMENT} AS pays,
        uniqIf(person_id, event = '$pageview') AS visitors,
        uniqIf(person_id, event = 'signup_completed') AS signups,
        uniqIf(person_id, event = 'checkout_started') AS checkouts
