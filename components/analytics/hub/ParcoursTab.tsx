@@ -23,6 +23,7 @@ import {
   dash,
   pct,
   formatDuration,
+  pctFromFraction,
 } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import {
@@ -661,7 +662,7 @@ function SegmentFunnelCard({
           <>
             {unknownShare !== null && unknownShare > 0 ? (
               <p className="text-xs text-slate-500">
-                <strong className="tabular-nums">{pct(unknownShare)}</strong> des
+                <strong className="tabular-nums">{pctFromFraction(unknownShare)}</strong> des
                 visiteurs ne sont pas attribués (
                 {formatNumber(unknownVisitors)} en « inconnu ») — ce
                 classement ne décrit que le reste.
@@ -707,7 +708,7 @@ function SegmentFunnelCard({
                         {formatNumber(r.subs)}
                       </TableCell>
                       <TableCell className="text-right text-xs tabular-nums text-slate-500">
-                        {r.rate === null ? "—" : pct(r.rate)}
+                        {r.rate === null ? "—" : pctFromFraction(r.rate)}
                       </TableCell>
                     </TableRow>
                   ))}

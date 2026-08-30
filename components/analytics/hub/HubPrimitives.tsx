@@ -42,10 +42,12 @@ export function dash(
   return value === null || value === undefined ? "—" : format(value);
 }
 
-/** Pourcentage (1 décimale) tolérant au null. */
-export function pct(value: number | null | undefined): string {
-  return value === null || value === undefined ? "—" : `${formatNumber(value)} %`;
-}
+/**
+ * Les helpers de pourcentage vivent dans lib/percent — testables là-bas. Ils
+ * sont réexportés ici parce que tout le hub les importe depuis HubPrimitives.
+ */
+export { pct, pctFromFraction } from "@/lib/percent";
+
 
 /** Facteur multiplicatif (× la moyenne) tolérant au null. */
 export function factor(value: number | null | undefined): string {
