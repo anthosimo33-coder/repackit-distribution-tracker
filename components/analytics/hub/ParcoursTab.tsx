@@ -167,10 +167,23 @@ export function ParcoursTab({
     return { medMs: top.medPayMs, p90Ms: top.p90PayMs };
   }, [analytics.checkoutReliability.rows]);
 
+  // « Paiements Whop sans abonnement applicatif » — en PERSONNES des deux côtés.
+  // Cette carte affichait `whopMembers - dashboardClients`, soit des ABONNEMENTS
+  // moins des PERSONNES : au relevé du 2026-08-29 elle annonçait 9 paiements
+  // orphelins en rouge, qui étaient les 9 abonnements en double de clients
+  // existants (8 personnes en ont 2, une en a 3). Aucun paiement orphelin.
+  //
+  // Côté applicatif on prend l'atteinte brute (personnes ayant émis
+  // subscription_completed) et non le tunnel séquentiel : un client qui paie
+  // sans checkout tracké a bien un abonnement applicatif.
   const whopGap = useMemo(() => {
     const c = reliability?.coherence;
-    if (!c || c.whopMembers === null || c.dashboardClients === null) return null;
-    return { whop: c.whopMembers, app: c.dashboardClients, gap: c.whopMembers - c.dashboardClients };
+    if (!c || c.whopClients === null) return null;
+    const reach =
+      c.reachSteps.find((s) => s.key === "subscription_completed")?.count ??
+      c.dashboardClients;
+    if (reach === null) return null;
+    return { whop: c.whopClients, app: reach, gap: c.whopClients - reach };
   }, [reliability]);
 
   // Activation : agrégée par segment, « tous » ou « depuis le 28/07 » (recent=1).
@@ -466,8 +479,8 @@ export function ParcoursTab({
                     {formatNumber(Math.max(0, whopGap.gap))}
                   </span>
                   <span className="text-xs text-slate-500">
-                    paiement(s) Whop ({formatNumber(whopGap.whop)}) sans abonnement
-                    applicatif ({formatNumber(whopGap.app)})
+                    client(s) Whop ({formatNumber(whopGap.whop)} personnes) sans
+                    abonnement applicatif ({formatNumber(whopGap.app)} personnes)
                   </span>
                 </div>
                 <p className="text-xs text-slate-400">

@@ -219,8 +219,43 @@ export interface CoherenceInputs {
    * Membres payants Whop COMPARABLES : ancrés sur la MÊME fenêtre que le cache
    * PostHog (paiement ≤ dernière synchro) et hors memberships antérieurs à
    * l'instrumentation → un écart n'est plus de la latence de cron ni un artefact.
+   *
+   * C'est un compte d'ABONNEMENTS. Il n'est JAMAIS comparé à PostHog (voir
+   * `whopClients`) : il ne sert qu'à dire, dans le détail, combien d'abonnements
+   * portent les personnes comparées.
    */
   whopMembers: number | null;
+  /**
+   * Le MÊME ensemble que `whopMembers`, compté en PERSONNES (`whopUserId`
+   * distincts). C'est L'UNITÉ DE RÉFÉRENCE du hub, et la seule que PostHog
+   * sache produire : PostHog ne compte que des `person_id`, jamais des
+   * abonnements.
+   *
+   * Mesuré en prod le 2026-08-29 : 153 abonnements pour 144 personnes. Comparer
+   * les 144 personnes de PostHog aux 153 abonnements de Whop affichait « écart
+   * 9, 5,9 % » et suspendait « Clients payants » en permanence, alors que
+   * l'écart réel était NUL — les 9 étaient les 9 abonnements en double (8
+   * personnes en ont 2, une en a 3).
+   */
+  whopClients: number | null;
+  /**
+   * Clients acquis (PERSONNES), sans borne de fenêtre : la référence des cartes
+   * d'éco unitaire. `whopClients` sert au recoupement avec PostHog, celui-ci
+   * sert à diviser des coûts — deux usages, deux fenêtres, une seule unité.
+   */
+  whopClientsTotal?: number | null;
+  /** Les abonnements correspondants (contexte du dénominateur, jamais diviseur). */
+  whopMembersTotal?: number | null;
+  /**
+   * Dénominateur RÉELLEMENT passé aux trois cartes (coût d'acquisition, coût
+   * complet du moteur, revenu net par client). On ne recalcule pas ce que
+   * l'écran devrait afficher : on lui demande ce qu'il affiche, et on le
+   * compare. C'est la seule façon d'attraper un écran qui divise par autre
+   * chose que la référence — le défaut vécu : « Clients payants » suspendu par
+   * le garde-fou pendant que les trois cartes juste au-dessus divisaient
+   * toujours par 154. null ⇒ rien n'est divisé (aucun coût disponible).
+   */
+  unitCostDenominator?: number | null;
   /** Memberships exclus car antérieurs à l'instrumentation (cause explicable). */
   whopExcludedPre?: number;
   /** Memberships exclus car postérieurs au dernier cron (latence, pas incohérence). */
@@ -320,14 +355,35 @@ export function buildCoherenceChecks(i: CoherenceInputs): CoherenceCheck[] {
   });
 
   // Clients dashboard vs Whop, sur une base COMPARABLE (même fenêtre, memberships
-  // pré-instrumentation exclus). Masquage SEULEMENT si les DEUX seuils sont
-  // franchis (% ET absolu) : sur petits nombres, ±1-2 clients ne suspend rien.
-  if (i.dashboardClients !== null && i.whopMembers !== null) {
-    const diff = Math.abs(i.dashboardClients - i.whopMembers);
-    const pct = Math.round((diff / Math.max(1, i.whopMembers)) * 1000) / 10;
+  // pré-instrumentation exclus) et surtout DANS LA MÊME UNITÉ : des PERSONNES
+  // des deux côtés. PostHog ne sait compter que des `person_id` ; lui opposer un
+  // compte d'ABONNEMENTS transforme chaque personne à deux abonnements en faux
+  // écart, et l'écart ne peut alors que croître avec le volume.
+  //
+  // Côté PostHog on prend l'ATTEINTE BRUTE (personnes ayant émis
+  // subscription_completed), pas le tunnel séquentiel : un client qui paie sans
+  // checkout tracké reste un client, et le manque de tracking amont a déjà son
+  // propre contrôle (`subscription_double_instrumentation`). Le séquentiel ne
+  // sert de repli que s'il est la seule chose disponible — et le détail le dit.
+  //
+  // Masquage SEULEMENT si les DEUX seuils sont franchis (% ET absolu) : sur
+  // petits nombres, ±1-2 clients ne suspend rien.
+  const posthogReach = stepBy(i.reachSteps, "subscription_completed");
+  const posthogClients = posthogReach ?? i.dashboardClients;
+  if (posthogClients !== null && i.whopClients !== null) {
+    const diff = Math.abs(posthogClients - i.whopClients);
+    const pct = Math.round((diff / Math.max(1, i.whopClients)) * 1000) / 10;
     const masks =
       pct > DASHBOARD_WHOP_TOLERANCE_PCT && diff > DASHBOARD_WHOP_TOLERANCE_ABS;
     const causes: string[] = [];
+    if (i.whopMembers !== null && i.whopMembers !== i.whopClients) {
+      causes.push(
+        `${i.whopMembers} abonnements pour ${i.whopClients} personnes`,
+      );
+    }
+    if (posthogReach === null) {
+      causes.push("côté PostHog : tunnel séquentiel (atteinte brute absente)");
+    }
     if (i.whopExcludedPre && i.whopExcludedPre > 0) {
       causes.push(`${i.whopExcludedPre} antérieur(s) à l'instrumentation exclu(s)`);
     }
@@ -336,8 +392,8 @@ export function buildCoherenceChecks(i: CoherenceInputs): CoherenceCheck[] {
     }
     const base =
       diff === 0
-        ? "écart 0"
-        : `${i.dashboardClients} vs ${i.whopMembers} (écart ${diff}, ${pct} %)`;
+        ? `écart 0 — ${posthogClients} personnes des deux côtés`
+        : `${posthogClients} personnes vs ${i.whopClients} (écart ${diff}, ${pct} %)`;
     checks.push({
       key: "dashboard_vs_whop",
       label: "Clients dashboard vs Whop",
@@ -351,6 +407,39 @@ export function buildCoherenceChecks(i: CoherenceInputs): CoherenceCheck[] {
       status: "info",
       detail: "en attente (PostHog et/ou Whop)",
     });
+  }
+
+  // Le DÉNOMINATEUR des trois cartes d'éco unitaire. Il n'avait aucun contrôle :
+  // le hub affichait 144 (PostHog), 153 et 154 (Whop) sur le même écran, et
+  // divisait par le troisième — celui que rien ne recoupait. On vérifie donc que
+  // l'écran divise par la RÉFÉRENCE (clients acquis, en personnes) et pas par un
+  // compte d'abonnements qui lui ressemble.
+  if (i.whopClientsTotal !== null && i.whopClientsTotal !== undefined) {
+    const denom = i.unitCostDenominator;
+    const contexte =
+      i.whopMembersTotal != null && i.whopMembersTotal !== i.whopClientsTotal
+        ? ` (${i.whopMembersTotal} abonnements)`
+        : "";
+    if (denom === null || denom === undefined) {
+      // Cet écran ne divise rien (onglet Fiabilité) : on affiche la RÉFÉRENCE,
+      // sans prétendre vérifier un diviseur qu'on n'a pas sous les yeux.
+      checks.push({
+        key: "unit_cost_denominator",
+        label: "Dénominateur des coûts unitaires",
+        status: "info",
+        detail: `référence : ${i.whopClientsTotal} clients acquis${contexte} — recoupé sur la Vue d'ensemble, où les cartes divisent`,
+      });
+    } else {
+      const aligned = denom === i.whopClientsTotal;
+      checks.push({
+        key: "unit_cost_denominator",
+        label: "Dénominateur des coûts unitaires = clients acquis",
+        status: aligned ? "ok" : "violation",
+        detail: aligned
+          ? `÷ ${denom} clients acquis${contexte}`
+          : `les cartes divisent par ${denom}, la référence est ${i.whopClientsTotal} clients acquis${contexte}`,
+      });
+    }
   }
 
   // Défaut d'instrumentation : subscription_completed compté DEUX FOIS (client +

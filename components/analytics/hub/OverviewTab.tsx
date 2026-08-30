@@ -91,6 +91,21 @@ export function OverviewTab({
   const currency = revenue?.currency ?? undefined; // revenu (€)
   const payCurrency = attribution?.payCurrency ?? undefined; // coût créateurs ($)
 
+  // Écart client comparable (base du garde-fou) + libellé discret toujours visible.
+  const coh = reliability?.coherence;
+
+  // ── LE dénominateur, défini UNE fois, avant les contrôles ──────────────────
+  // Clients acquis en PERSONNES (Whop fait foi). C'était `whopMembersTotal`, un
+  // compte d'ABONNEMENTS : l'écran affichait trois effectifs de clients (144,
+  // 153, 154) et divisait par celui que rien ne recoupait. Une re-souscription
+  // du même humain n'est pas une acquisition de plus — elle ne doit pas alléger
+  // un coût par client.
+  //
+  // Il est déclaré ici pour être PASSÉ aux contrôles : le module compare le
+  // diviseur réellement utilisé à la référence. Le rebrancher un jour sur
+  // `whopMembersTotal` rallumerait le contrôle au lieu de passer inaperçu.
+  const clients = coh?.whopClientsTotal ?? null;
+
   // Garde-fou C2 : écart dashboard vs Whop.
   const checks = useMemo(() => {
     const c = reliability?.coherence;
@@ -100,7 +115,17 @@ export function OverviewTab({
       reachSteps: c.reachSteps.map((s) => ({ key: s.key, label: s.key, count: s.count })),
       currencyCount: c.currencyCount,
       dashboardClients: c.dashboardClients,
+      // Whop dans les DEUX unités : `whopClients` (personnes) est ce que le
+      // contrôle compare à PostHog, `whopMembers` (abonnements) n'est que le
+      // contexte affiché. Les intervertir avait suspendu « Clients payants » en
+      // permanence sur un écart qui n'existait pas.
       whopMembers: c.whopMembers,
+      whopClients: c.whopClients,
+      whopClientsTotal: c.whopClientsTotal,
+      whopMembersTotal: c.whopMembersTotal,
+      // Le dénominateur RÉEL des trois cartes — la variable qu'elles utilisent,
+      // pas la source dont elle est tirée (sinon le contrôle se vérifie lui-même).
+      unitCostDenominator: clients,
       whopExcludedPre: c.whopExcludedPre,
       whopExcludedAfter: c.whopExcludedAfter,
       dailyClientsSum: c.dailyClientsSum,
@@ -114,10 +139,7 @@ export function OverviewTab({
       // Montant dû : total affiché vs somme de ses parts (fixe + CPM + paliers).
       payDue: c.payDue,
     });
-  }, [reliability]);
-
-  // Écart client comparable (base du garde-fou) + libellé discret toujours visible.
-  const coh = reliability?.coherence;
+  }, [reliability, clients]);
 
   // « Clients payants »/jour = SOURCE WHOP (dailyPaidClients), pas PostHog subs :
   // aligné sur le revenu et le gros chiffre (Whop fait foi), sans décalage de cache.
@@ -176,23 +198,23 @@ export function OverviewTab({
       ? disputeDeadlineLabel(openDisputes[0].dueAt, now)
       : null;
 
+  // Écart dashboard/Whop, en PERSONNES des deux côtés. Il se comparait jusqu'ici
+  // aux ABONNEMENTS Whop : PostHog compte des `person_id`, Whop des memberships,
+  // et une personne à deux abonnements pesait 1 d'un côté et 2 de l'autre. Relevé
+  // du 2026-08-29 : 144 personnes PostHog contre 153 abonnements → « écart 9 »,
+  // au-delà des deux seuils, « Clients payants » suspendu — pour un écart réel
+  // NUL (153 abonnements = 144 personnes). Ce n'était pas une dérive à
+  // surveiller, c'était une unité ; l'écart ne pouvait que croître avec le volume.
   const clientEcart =
-    coh && coh.dashboardClients !== null && coh.whopMembers !== null
-      ? Math.abs(coh.dashboardClients - coh.whopMembers)
+    coh && coh.dashboardClients !== null && coh.whopClients !== null
+      ? Math.abs(coh.dashboardClients - coh.whopClients)
       : null;
-  // L'écart dashboard/Whop n'est PAS un défaut à corriger : les deux côtés ne
-  // comptent pas la même unité. PostHog compte des PERSONNES (un person_id qui a
-  // émis subscription_completed), Whop compte des ABONNEMENTS (un membership dont
-  // le premier paiement est encaissé). Une personne qui prend plusieurs
-  // abonnements pèse 1 d'un côté et N de l'autre — vérifié en prod : 37
-  // abonnements payants pour 34 personnes. Tant que ce cas existe, les deux
-  // nombres ne PEUVENT pas coïncider : on nomme la cause au lieu de la masquer.
   const dup = reliability?.membershipDuplicates;
   const dupGap =
     dup && dup.memberships > dup.users ? dup.memberships - dup.users : 0;
   const clientsHint =
-    coh?.whopMembersTotal == null || clientEcart === null
-      ? "ancré sur le paiement Whop"
+    coh?.whopClientsTotal == null || clientEcart === null
+      ? "personnes distinctes, ancré sur le paiement Whop"
       : clientEcart === 0
         ? "aligné avec le dashboard"
         : `écart de ${clientEcart} avec le dashboard${
@@ -203,6 +225,10 @@ export function OverviewTab({
             coh.whopExcludedPre > 0
               ? ` · ${coh.whopExcludedPre} antérieur(s) à l'instrumentation`
               : ""
+          }${
+            coh.whopClientsUnresolved > 0
+              ? ` · ${coh.whopClientsUnresolved} abonnement(s) sans personne résolue (comptés à part)`
+              : ""
           }`;
   const dashboardWhopViolation = checks.some(
     (c) => c.key === "dashboard_vs_whop" && c.status === "violation",
@@ -212,9 +238,14 @@ export function OverviewTab({
   // ── Éco unitaire : deux coûts par client (en $) + revenu par client (en €) ──
   // Global, PLUS de restriction aux jours solo (elle n'était utile qu'à
   // l'attribution PAR créatrice) : le coût total / clients n'a pas besoin
-  // d'attribuer chaque client à une créatrice. Dénominateur = clients payants (Whop).
-  const clients = coh?.whopMembersTotal ?? null;
-  const canDivide = clients !== null && clients > 0;
+  // d'attribuer chaque client à une créatrice.
+  //
+  // Le dénominateur (`clients`) est défini plus haut : les contrôles le reçoivent.
+  // On ne divise PAS pendant que le garde-fou suspend ce même nombre : la
+  // carte « Clients payants » affichait « chiffres suspendus » deux lignes plus
+  // bas pendant que celles-ci imprimaient « ÷ 154 clients acquis ». Un nombre
+  // suspendu et utilisé comme diviseur dans le même écran.
+  const canDivide = clients !== null && clients > 0 && !dashboardWhopViolation;
   const perClient = (n: number | null | undefined): number | null =>
     n != null && canDivide ? Math.round((n / (clients as number)) * 100) / 100 : null;
   // Carte 1 — coût d'acquisition : (fixe + CPM promo + PART du bonus) / clients. Le
@@ -251,7 +282,10 @@ export function OverviewTab({
     revenue?.configured && !revenue.mixedCurrency
       ? Math.round(revenue.periods.reduce((s, p) => s + p.net, 0) * 100) / 100
       : null;
-  const totalClients = reliability?.coherence.dashboardClients ?? null;
+  // Vues promo par client : MÊME référence que les coûts unitaires (clients
+  // acquis, personnes, Whop fait foi) — c'était le compteur PostHog, une
+  // quatrième définition de « client » sur le même écran.
+  const totalClients = coh?.whopClientsTotal ?? null;
   const viewsPerClient =
     viewCounters && totalClients !== null && totalClients > 0
       ? Math.round(viewCounters.promo / totalClients)
@@ -262,7 +296,7 @@ export function OverviewTab({
   // que rien ne le dise. Mesuré en prod : 6,52 € au lieu de 6,92 €.
   // Le coût d'acquisition, lui, garde les clients ACQUIS (la dépense a bien été
   // engagée pour eux) — les deux cartes affichent donc leur dénominateur.
-  const securedClients = coh?.whopSecuredMembers ?? null;
+  const securedClients = coh?.whopSecuredClients ?? null;
   const atRiskClients =
     clients !== null && securedClients !== null ? clients - securedClients : 0;
   const revenuePerClient =
@@ -408,7 +442,7 @@ export function OverviewTab({
           <>
             <KpiTile
               label="Clients payants"
-              value={dash(coh?.whopMembersTotal ?? null)}
+              value={dash(coh?.whopClientsTotal ?? null)}
               delta={null}
               points={paidClientsPts}
               hint={clientsHint}

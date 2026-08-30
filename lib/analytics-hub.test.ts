@@ -23,6 +23,7 @@ import {
   parisDayKey,
   parisShortDate,
   daysUntil,
+  type CoherenceCheck,
 } from "./analytics-hub";
 
 const HOUR = 60 * 60 * 1000;
@@ -400,7 +401,10 @@ describe("buildCoherenceChecks", () => {
     reachSteps: cleanReach,
     currencyCount: 1,
     dashboardClients: 21,
+    // Whop des DEUX unités : 21 abonnements portés par 21 personnes. Le contrôle
+    // ne compare que les personnes (cf « clients acquis » plus bas).
     whopMembers: 21,
+    whopClients: 21,
   };
   const byKey = (checks: { key: string; status: string }[]) =>
     new Map(checks.map((c) => [c.key, c.status]));
@@ -422,14 +426,24 @@ describe("buildCoherenceChecks", () => {
   it("petit écart (>5 % mais ≤5 clients) NE masque PAS → info", () => {
     // 19 vs 21 = 9,5 % mais seulement 2 clients : les deux seuils ne sont pas franchis.
     const m = byKey(
-      buildCoherenceChecks({ ...base, dashboardClients: 19, whopMembers: 21 }),
+      buildCoherenceChecks({
+        ...base,
+        dashboardClients: 19,
+        whopMembers: 21,
+        whopClients: 21,
+      }),
     );
     expect(m.get("dashboard_vs_whop")).toBe("info");
   });
 
   it("gros écart (>5 % ET >5 clients) → violation (masque)", () => {
     const m = byKey(
-      buildCoherenceChecks({ ...base, dashboardClients: 10, whopMembers: 21 }),
+      buildCoherenceChecks({
+        ...base,
+        dashboardClients: 10,
+        whopMembers: 21,
+        whopClients: 21,
+      }),
     );
     expect(m.get("dashboard_vs_whop")).toBe("violation");
   });
@@ -439,6 +453,7 @@ describe("buildCoherenceChecks", () => {
       ...base,
       dashboardClients: 19,
       whopMembers: 20,
+      whopClients: 20,
       whopExcludedPre: 2,
     });
     const c = checks.find((x) => x.key === "dashboard_vs_whop");
@@ -447,7 +462,9 @@ describe("buildCoherenceChecks", () => {
   });
 
   it("source manquante → dashboard/Whop en attente (info, pas 0)", () => {
-    const m = byKey(buildCoherenceChecks({ ...base, whopMembers: null }));
+    const m = byKey(
+      buildCoherenceChecks({ ...base, whopMembers: null, whopClients: null }),
+    );
     expect(m.get("dashboard_vs_whop")).toBe("info");
   });
 
@@ -1086,6 +1103,7 @@ describe("contrôle de cohérence — montant dû = somme des cycles calculés",
     currencyCount: 1,
     dashboardClients: null,
     whopMembers: null,
+    whopClients: null,
   };
   const find = (checks: ReturnType<typeof buildCoherenceChecks>) =>
     checks.find((c) => c.key === "pay_due_matches_parts");
@@ -1143,5 +1161,120 @@ describe("contrôle de cohérence — montant dû = somme des cycles calculés",
       }),
     );
     expect(c?.status).toBe("ok");
+  });
+});
+
+/**
+ * TROIS COMPTEURS DE CLIENTS SUR UN MÊME ÉCRAN (relevé de prod du 2026-08-29).
+ *
+ * Le hub affichait 144 (PostHog), 153 et 154 (Whop) et divisait trois cartes
+ * d'éco unitaire par le troisième. Le contrôle « Clients dashboard vs Whop »
+ * comparait des PERSONNES (PostHog ne sait compter que ça) à des ABONNEMENTS,
+ * et sonnait donc une violation permanente : l'écart de 9 était exactement les
+ * 9 abonnements en double (8 personnes en ont 2, `user_R6wC645MnVDI7` en a 3).
+ * Mesuré sur la base comparable : 153 abonnements = 144 personnes, contre 144
+ * personnes côté PostHog — écart réel NUL.
+ *
+ * Conséquence à l'écran : « Clients payants » était suspendu par le garde-fou
+ * pendant que les trois cartes juste au-dessus continuaient d'imprimer
+ * « ÷ 154 clients acquis ». Un nombre suspendu et utilisé comme diviseur dans
+ * le même écran.
+ *
+ * Ces chiffres sont ceux de la prod, pas des nombres ronds : c'est la forme qui
+ * a produit le défaut.
+ */
+describe("clients acquis — une seule unité, un seul dénominateur", () => {
+  const find = (checks: CoherenceCheck[], key: string) =>
+    checks.find((c) => c.key === key);
+
+  /** Relevé de prod 2026-08-29 21:45 (Snytch). */
+  const prod = {
+    sequentialSteps: [
+      { key: "visit", label: "", count: 7150 },
+      { key: "signup_completed", label: "", count: 4340 },
+      { key: "paywall_viewed", label: "", count: 4170 },
+      { key: "checkout_started", label: "", count: 845 },
+      { key: "subscription_completed", label: "", count: 144 },
+    ],
+    reachSteps: [
+      { key: "visit", label: "", count: 7150 },
+      { key: "signup_completed", label: "", count: 4392 },
+      { key: "paywall_viewed", label: "", count: 4210 },
+      { key: "checkout_started", label: "", count: 847 },
+      { key: "subscription_completed", label: "", count: 149 },
+    ],
+    currencyCount: 1,
+    dashboardClients: 144,
+    // Base comparable : 153 abonnements pour 144 personnes.
+    whopMembers: 153,
+    whopClients: 144,
+    // Sans borne de fenêtre : 154 abonnements pour 145 personnes.
+    whopMembersTotal: 154,
+    whopClientsTotal: 145,
+    whopExcludedAfter: 1,
+  };
+
+  it("PostHog vs Whop se compare en PERSONNES — l'écart de 9 disparaît", () => {
+    const c = find(
+      buildCoherenceChecks({ ...prod, unitCostDenominator: 145 }),
+      "dashboard_vs_whop",
+    );
+    // 149 personnes ayant émis subscription_completed vs 144 personnes ayant
+    // encaissé sur la même fenêtre : 5 d'écart (remboursés, events sans
+    // paiement), soit 3,5 % — sous les deux seuils.
+    expect(c?.status).not.toBe("violation");
+    expect(c?.detail).toContain("149");
+    expect(c?.detail).toContain("144");
+    expect(c?.detail).not.toContain("écart 9");
+  });
+
+  it("le détail nomme les DEUX unités — la confusion ne peut pas revenir", () => {
+    const c = find(
+      buildCoherenceChecks({ ...prod, unitCostDenominator: 145 }),
+      "dashboard_vs_whop",
+    );
+    expect(c?.detail).toContain("personnes");
+    expect(c?.detail).toContain("abonnements");
+    expect(c?.detail).toContain("153");
+  });
+
+  it("un VRAI écart en personnes sonne toujours (le contrôle mord encore)", () => {
+    const c = find(
+      buildCoherenceChecks({
+        ...prod,
+        reachSteps: [{ key: "subscription_completed", label: "", count: 120 }],
+        unitCostDenominator: 145,
+      }),
+      "dashboard_vs_whop",
+    );
+    expect(c?.status).toBe("violation");
+  });
+
+  it("diviser par 154 abonnements au lieu de 145 clients = violation", () => {
+    const c = find(
+      buildCoherenceChecks({ ...prod, unitCostDenominator: 154 }),
+      "unit_cost_denominator",
+    );
+    expect(c?.status).toBe("violation");
+    expect(c?.detail).toContain("154");
+    expect(c?.detail).toContain("145");
+  });
+
+  it("dénominateur aligné sur les clients acquis → OK, et il le DIT", () => {
+    const c = find(
+      buildCoherenceChecks({ ...prod, unitCostDenominator: 145 }),
+      "unit_cost_denominator",
+    );
+    expect(c?.status).toBe("ok");
+    expect(c?.detail).toContain("145");
+    expect(c?.detail).toContain("154");
+  });
+
+  it("dénominateur absent (aucun coût à diviser) → info, jamais violation", () => {
+    const c = find(
+      buildCoherenceChecks({ ...prod, unitCostDenominator: null }),
+      "unit_cost_denominator",
+    );
+    expect(c?.status).toBe("info");
   });
 });
