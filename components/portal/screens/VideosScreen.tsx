@@ -130,10 +130,25 @@ function StatusChip({ status }: { status: Video["status"] }) {
   );
 }
 
-/** Bloc Vues + Gain — vidéos EN LIGNE uniquement (published/paid). */
+/**
+ * Bloc Vues + Gain — vidéos EN LIGNE uniquement (published/paid).
+ *
+ * DEUX PLAFONDS, DEUX MESSAGES, jamais confondus :
+ *   - `capped`          → le gain a atteint 150 $ sur cette vidéo (« gain max ») ;
+ *   - `payWindowClosed` → la vidéo a plus de 30 jours, ses vues continuent de
+ *     monter mais plus son gain.
+ * Les deux peuvent être vrais en même temps ; on affiche alors les deux, parce
+ * qu'ils ne disent pas la même chose à la créatrice.
+ *
+ * ⚠️ LA COLONNE VUES NE MENT PAS. Elle montre TOUJOURS les vues réelles
+ * (`v.views`, mesure complète). Le nombre de vues hors fenêtre s'écrit à côté du
+ * GAIN, là où il explique quelque chose — l'écrire à la place des vues ferait
+ * lire une vidéo plafonnée comme une vidéo qui aurait cessé d'être vue.
+ */
 function OnlineMetrics({ v, currency }: { v: Video; currency?: string | null }) {
   const tv = useTranslations("portal.videos");
   const loc = useIntlLocale();
+  const windowClosed = v.payWindowClosed;
   return (
     <div className="flex items-end justify-between gap-3">
       <div>
@@ -154,6 +169,25 @@ function OnlineMetrics({ v, currency }: { v: Video; currency?: string | null }) 
         </p>
         {v.capped && (
           <span className="text-[0.65rem] font-semibold uppercase tracking-wide text-emerald-600">{tv("maxGain")}</span>
+        )}
+        {windowClosed && (
+          <span
+            data-testid="pay-window-closed"
+            className="mt-0.5 block text-[0.65rem] font-semibold uppercase tracking-wide text-amber-600"
+            title={tv("payWindowHint")}
+          >
+            {tv("payWindowClosed")}
+          </span>
+        )}
+        {windowClosed && v.viewsOutsideWindow > 0 && (
+          <span
+            data-testid="views-outside-window"
+            className="mt-0.5 block text-[0.65rem] text-slate-400"
+          >
+            {tv("viewsOutsideWindow", {
+              count: formatViews(v.viewsOutsideWindow, loc),
+            })}
+          </span>
         )}
       </div>
     </div>

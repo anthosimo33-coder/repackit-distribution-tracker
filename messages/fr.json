@@ -482,7 +482,7 @@
       "nextPayout": "Prochaine paie le {date}",
       "line": {
         "fixed": "{count, plural, one {Fixe — # vidéo publiée} other {Fixe — # vidéos publiées}}",
-        "cpm": "CPM — {views} vues",
+        "cpm": "CPM — {views} vues retenues",
         "bonusTier": "Bonus paliers (cumul de vues)",
         "retainer": "Forfait — cycle {cycle}",
         "fixedGroup": "Fixe — {done}/{target} vidéos publiées",
@@ -522,7 +522,10 @@
       "emptyFilter": "Aucune vidéo dans ce filtre.",
       "unavailable": "Le suivi des vidéos n'est pas disponible pour ce projet.",
       "publishedAgo": "Publié {ago}",
-      "submittedWaiting": "Vidéo soumise — en attente de la validation de l'équipe."
+      "submittedWaiting": "Vidéo soumise — en attente de la validation de l'équipe.",
+      "payWindowClosed": "fenêtre de gain close",
+      "viewsOutsideWindow": "{count} vues au-delà de 30 j — suivies, non rémunérées",
+      "payWindowHint": "Les vues comptent pour ton gain pendant 30 jours après la publication. Passé ce délai, on continue de les suivre, mais le gain de cette vidéo n'augmente plus."
     },
     "declare": {
       "declared": "Compte déclaré — warmup démarré",

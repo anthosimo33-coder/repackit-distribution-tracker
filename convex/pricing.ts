@@ -11,6 +11,12 @@ import { periodOf } from "./payments";
 import { cycleIndexOf, cyclePeriodKey, cycleWindow } from "./payCycle";
 import { isRemunerated, type RemunerationFlags } from "./remunerate";
 import { isBonusTierPost, isPromoPost } from "./viewCounters";
+import {
+  aggregatePayWindow,
+  payWindowEndsAt,
+  retainedViews,
+  type RetainedViews,
+} from "./payWindow";
 import { ERR, err } from "./errorCodes";
 
 /**
@@ -302,23 +308,41 @@ export function assignmentPublishedAt(a: Doc<"assignments">): number {
  * UNIQUE des vues d'une vidéo, réutilisée par le CPM/cumul (paie) ET par le suivi
  * vidéos créatrice → aucune divergence de vues.
  *
- *  - `totalViews` : Σ de TOUTES les vues (warmup INCLUS) → AFFICHAGE/suivi (un
- *    post warmup reste tracké normalement, ses vues restent visibles).
- *  - `payableViews` : Σ des vues des posts RÉMUNÉRÉS (isRemunerated) → fixe + CPM.
- *  - `bonusTierViews` : Σ des vues RÉMUNÉRÉES **et** en PROMO (isBonusTierPost) →
- *    cumul des PALIERS de bonus, et RIEN d'autre. Sous-ensemble de payableViews :
- *    un post warmup rémunéré (cas Kelly) est payé au fixe/CPM mais ne fait pas
- *    avancer les paliers. Cf convex/viewCounters (point de décision unique).
+ *  - `totalViews` : Σ de TOUTES les vues MESURÉES (warmup INCLUS) →
+ *    AFFICHAGE/suivi (un post warmup reste tracké normalement, ses vues restent
+ *    visibles). JAMAIS plafonné : on garde la mesure.
+ *  - `payableViews` : Σ des vues RETENUES des posts RÉMUNÉRÉS (isRemunerated) →
+ *    fixe + CPM. PLAFONNÉ à J+30 (cf convex/payWindow).
+ *  - `bonusTierViews` : Σ des vues RETENUES des posts RÉMUNÉRÉS **et** en PROMO
+ *    (isBonusTierPost) → cumul des PALIERS de bonus, et RIEN d'autre.
+ *    Sous-ensemble de payableViews : un post warmup rémunéré (cas Kelly) est payé
+ *    au fixe/CPM mais ne fait pas avancer les paliers. Cf convex/viewCounters
+ *    (point de décision unique). PLAFONNÉ, comme toute assiette d'argent.
+ *  - `promoViews` : Σ des vues MESURÉES des posts en promo → taux de conversion.
+ *    JAMAIS plafonné : un taux de conversion mesure la réalité, pas la paie.
  *  - `hasPayablePost` : la vidéo compte-t-elle pour le FIXE (false = tout-warmup).
+ *    INDÉPENDANT des vues → une vidéo plafonnée garde sa part fixe, elle ne
+ *    devient JAMAIS une vidéo à zéro.
  *  - `hasMetrics` : suivi actif vs en cours de calcul (côté créatrice).
+ *  - `payWindowClosed` / `viewsOutsideWindow` : de quoi DIRE le plafond à
+ *    l'écran (cf convex/creatorVideos → portail « Mes vidéos »). Une baisse
+ *    silencieuse serait illisible.
  *
- * Sans aucun post warmup, payableViews === bonusTierViews === totalViews et
- * hasPayablePost === true → la paie est INCHANGÉE. Cf
+ * ⚠️ UNE LECTURE D'INDEX EN PLUS PAR POST (`by_publication_and_capturedAt`,
+ * bornée, `.first()`) : le relevé de fenêtre n'est PAS dénormalisé sur la
+ * publication. C'est délibéré — une valeur dénormalisée de plus à maintenir
+ * (comme `vuesLatest`) dériverait au premier re-run de sync, et le plafond doit
+ * être RÉTROACTIF sur tout l'historique sans migration.
+ *
+ * Sans aucun post warmup et fenêtres ouvertes, payableViews === bonusTierViews
+ * === totalViews et hasPayablePost === true → la paie est INCHANGÉE. Cf
  * lib/pricing-engine.payableAssignmentViews (A6).
  */
 export async function assignmentViewsAndMetrics(
   ctx: QueryCtx | MutationCtx,
   a: Doc<"assignments">,
+  /** Instant de référence — ne change AUCUN montant, seulement l'état affiché. */
+  now: number = Date.now(),
 ): Promise<{
   totalViews: number;
   payableViews: number;
@@ -330,12 +354,19 @@ export async function assignmentViewsAndMetrics(
   /** Au moins un post en phase promo (détection des jours solo, même à 0 vue). */
   hasPromoPost: boolean;
   hasMetrics: boolean;
+  /** Au moins un post RÉMUNÉRÉ dont la fenêtre de paie est close (et mesurée). */
+  payWindowClosed: boolean;
+  /** Σ des vues RÉMUNÉRÉES acquises hors fenêtre (mesurées − retenues). */
+  viewsOutsideWindow: number;
 }> {
   const pubIds = [
     ...(a.targets ?? []).map((t) => t.publicationId),
     a.publicationId,
   ].filter((p): p is Id<"publications"> => p !== undefined);
-  const pubs: PublicationViews[] = [];
+  /** Vues MESURÉES (suivi) et RETENUES (paie) — jamais confondues. */
+  const pubs: (RemunerationFlags & { measured: number; retained: number })[] = [];
+  /** Un item par post, pour l'AFFICHAGE du plafond (cf aggregatePayWindow). */
+  const windows: { retained: RetainedViews; isPaid: boolean }[] = [];
   let hasMetrics = false;
   const seen = new Set<string>();
   for (const pid of pubIds) {
@@ -343,28 +374,54 @@ export async function assignmentViewsAndMetrics(
     seen.add(pid);
     const pub = await ctx.db.get(pid);
     if (!pub) continue;
-    pubs.push({
-      views: pub.vuesLatest ?? 0,
+    const measured = pub.vuesLatest ?? 0;
+    // DERNIER relevé de la fenêtre de paie. La borne est un instant, donc elle
+    // se lit directement dans l'index sur capturedAt — inutile de charger la
+    // série pour filtrer sur daysSincePublication (cf payWindowEndsAt).
+    const windowSnapshot = await ctx.db
+      .query("metricSnapshots")
+      .withIndex("by_publication_and_capturedAt", (q) =>
+        q
+          .eq("publicationId", pid)
+          .lt("capturedAt", payWindowEndsAt(pub.datePubli)),
+      )
+      .order("desc")
+      .first();
+    const retained = retainedViews({
+      datePubli: pub.datePubli,
+      measuredViews: measured,
+      windowSnapshot,
+      now,
+    });
+    const flags = {
       isWarmup: pub.isWarmup === true,
       remunere: pub.remunere,
-    });
+    };
+    pubs.push({ ...flags, measured, retained: retained.views });
+    windows.push({ retained, isPaid: isRemunerated(flags) });
     // Un snapshot a été relevé (Apify/YouTube/manuel) ⇒ suivi actif.
     if (pub.latestSnapshotAt !== undefined) hasMetrics = true;
   }
-  const totalViews = pubs.reduce((s, p) => s + p.views, 0);
+  // AFFICHAGE : vues MESURÉES, jamais plafonnées (le suivi continue).
+  const totalViews = pubs.reduce((s, p) => s + p.measured, 0);
   // promo = non-warmup (isPromoPost, point unique) — DISTINCT de payable : un post
-  // warmup rémunéré (cas Kelly) est payable mais HORS promo.
+  // warmup rémunéré (cas Kelly) est payable mais HORS promo. MESURÉES aussi : un
+  // taux de conversion se calcule sur les vues réelles, pas sur l'assiette.
   const promoViews = pubs.reduce(
-    (s, p) => s + (isPromoPost(p) ? Math.max(0, p.views) : 0),
+    (s, p) => s + (isPromoPost(p) ? Math.max(0, p.measured) : 0),
     0,
   );
   const hasPromoPost = pubs.some((p) => isPromoPost(p));
   // Paliers : rémunéré ET promo (isBonusTierPost, point de décision unique).
+  // ARGENT ⇒ vues RETENUES.
   const bonusTierViews = pubs.reduce(
-    (s, p) => s + (isBonusTierPost(p) ? Math.max(0, p.views) : 0),
+    (s, p) => s + (isBonusTierPost(p) ? Math.max(0, p.retained) : 0),
     0,
   );
-  const { payableViews, hasPayablePost } = payableAssignmentViews(pubs);
+  const { payableViews, hasPayablePost } = payableAssignmentViews(
+    pubs.map((p) => ({ ...p, views: p.retained })),
+  );
+  const payWindow = aggregatePayWindow(windows);
   return {
     totalViews,
     payableViews,
@@ -373,6 +430,8 @@ export async function assignmentViewsAndMetrics(
     hasPayablePost,
     hasPromoPost,
     hasMetrics,
+    payWindowClosed: payWindow.closed,
+    viewsOutsideWindow: payWindow.viewsOutsideWindow,
   };
 }
 
