@@ -50,6 +50,7 @@ import {
 import { savesAvailability } from "@/convex/decisionThresholds";
 import {
   shapeConversionDay,
+  refConflicts,
   type ConversionDisplayRow,
 } from "@/convex/conversionAttribution";
 import { formatMoney } from "@/lib/format-rate";
@@ -1116,7 +1117,12 @@ function ConversionSection({ data }: { data: ConversionData | undefined }) {
   // COLLECTÉS est un zéro mesuré, pas une donnée manquante.
   const d = shapeConversionDay(data.rows, data.creators, {
     collectedDays: data.collectedDays,
+    influencers: data.influencers,
   });
+  // Une ref ne peut appartenir qu'à UNE personne. Le garde-fou serveur empêche
+  // d'en créer un doublon ; celui-ci attrape ceux qui existeraient déjà — deux
+  // lignes afficheraient les mêmes chiffres sans que rien ne le signale.
+  const conflicts = refConflicts(data.creators, data.influencers);
   // Plage réelle PAR REF : en all-time, « 146 visiteurs » ne veut pas dire la
   // même chose sur 2 jours et sur 41.
   const spanByRef = new Map(
@@ -1145,6 +1151,19 @@ function ConversionSection({ data }: { data: ConversionData | undefined }) {
 
   return (
     <div className="space-y-1">
+      {conflicts.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-900">
+          <strong>
+            {conflicts.length} ref{conflicts.length > 1 ? "s" : ""} portée
+            {conflicts.length > 1 ? "s" : ""} par plusieurs personnes.
+          </strong>{" "}
+          Chacune affiche les MÊMES chiffres, et le total ne le montre pas —
+          il somme les refs, pas les lignes.{" "}
+          {conflicts
+            .map((c) => `« ${c.ref} » : ${c.holders.join(", ")}`)
+            .join(" · ")}
+        </div>
+      )}
       <div className="text-xs text-slate-400">
         Depuis le {frDate(data.firstDate)} — {data.collectedDays} jour
         {data.collectedDays > 1 ? "s" : ""} collecté
@@ -1154,9 +1173,9 @@ function ConversionSection({ data }: { data: ConversionData | undefined }) {
         {d.rows.map((row) => (
           <ConversionRow
             key={
-              row.kind === "ref-only"
-                ? `ref:${row.ref}`
-                : `cr:${row.creatorId}`
+              row.kind === "creator" || row.kind === "no-ref"
+                ? `cr:${row.creatorId}`
+                : `ref:${row.ref}`
             }
             row={row}
             span={row.kind === "no-ref" ? undefined : spanByRef.get(row.ref)}
@@ -1193,7 +1212,7 @@ function ConversionSection({ data }: { data: ConversionData | undefined }) {
           <div className="min-w-0 flex-1 text-sm font-medium text-slate-700">
             Total attribué
             <div className="text-xs text-slate-400">
-              refs rattachées à une créatrice
+              refs rattachées à quelqu&apos;un — créatrice ou influenceuse
             </div>
           </div>
           <ConversionCells
@@ -1266,12 +1285,19 @@ function ConversionRow({
     <div className="flex items-center gap-3 py-2">
       <div className="min-w-0 flex-1">
         <span className="truncate text-sm font-medium text-slate-900">
-          {row.kind === "creator" ? row.creatorName : row.ref}
+          {row.kind === "creator"
+            ? row.creatorName
+            : row.kind === "influencer"
+              ? row.name
+              : row.ref}
         </span>
         <span className="ml-1.5 text-xs text-slate-400">/{row.ref}</span>
+        {row.kind === "influencer" && (
+          <div className="text-xs text-slate-400">influenceuse</div>
+        )}
         {row.kind === "ref-only" && (
           <div className="text-xs text-slate-400">
-            ref sans créatrice rattachée
+            ref rattachée à personne
           </div>
         )}
         {span !== undefined && (

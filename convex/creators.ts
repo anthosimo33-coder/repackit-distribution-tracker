@@ -402,6 +402,11 @@ export const updateCreator = adminMutation({
       patch.adminNotes = args.adminNotes.trim() || undefined;
     }
     if (args.refSlug !== undefined) {
+      // Une ref appartient à UNE personne. Sans ce contrôle, deux fiches avec
+      // la même ref affichaient toutes deux les mêmes chiffres et le total ne
+      // le montrait pas (il somme les refs, pas les fiches) : rien n'aurait
+      // signalé l'erreur. Couvre aussi le croisement avec une ref d'influenceuse.
+      await assertRefSlugFree(ctx, ctx.projectId, args.refSlug, args.id);
       // Normalisée à l'écriture (minuscules, sans « / » ni « @ ») ; null ET
       // saisie blanche retirent la ref — la créatrice repasse « pas de ref
       // configurée » dans la section conversion, jamais à zéro.
@@ -1314,6 +1319,48 @@ export const cleanupTestCreators = e2eMutation({
 });
 
 
+/**
+ * Refuse une ref déjà portée par QUELQU'UN D'AUTRE — une autre créatrice du
+ * projet, ou une influenceuse déclarée (`projects.influencerRefs`).
+ *
+ * Une ref est une clé d'attribution : deux porteurs, et les deux lignes
+ * affichent les mêmes chiffres pendant que le total reste juste (il somme les
+ * refs, pas les lignes). Le défaut serait donc invisible — d'où un refus À
+ * L'ÉCRITURE plutôt qu'un contrôle à la lecture.
+ *
+ * Effacer une ref (null/vide) est toujours autorisé, et reposer la MÊME ref sur
+ * la même fiche reste idempotent.
+ */
+async function assertRefSlugFree(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  refSlug: string | null | undefined,
+  selfId: Id<"creators">,
+): Promise<void> {
+  const next = normalizeRef(refSlug ?? null);
+  if (next === null) return;
+  const others = (
+    await ctx.db
+      .query("creators")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .collect()
+  ).filter((c) => c._id !== selfId && normalizeRef(c.refSlug ?? null) === next);
+  if (others.length > 0) {
+    throw new ConvexError(
+      `La ref « ${next} » est déjà portée par ${others[0].name}. Une ref ne peut appartenir qu'à une seule personne.`,
+    );
+  }
+  const project = await ctx.db.get(projectId);
+  const influencer = (project?.influencerRefs ?? []).find(
+    (i) => normalizeRef(i.ref) === next,
+  );
+  if (influencer) {
+    throw new ConvexError(
+      `La ref « ${next} » est déclarée pour l'influenceuse ${influencer.name}. Une ref ne peut appartenir qu'à une seule personne.`,
+    );
+  }
+}
+
 // ─── Outillage : pose des refSlug depuis le CLI (npx convex run --prod) ──────
 
 /**
@@ -1367,6 +1414,7 @@ export const setCreatorRefSlugBySlug = internalMutation({
         `${c.name} porte déjà la ref « ${c.refSlug} » — passer force:true pour la remplacer par « ${next} ».`,
       );
     }
+    await assertRefSlugFree(ctx, project._id, refSlug, c._id);
     await ctx.db.patch(c._id, { refSlug: next });
     return {
       creatorId: c._id,

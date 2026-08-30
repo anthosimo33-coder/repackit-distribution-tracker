@@ -58,4 +58,47 @@ test.describe("refSlug créatrice", () => {
     )!;
     expect(fiche.refSlug).toBeUndefined();
   });
+
+  /**
+   * Une ref appartient à UNE personne. Sans ce refus, deux fiches portant
+   * « kelly » afficheraient toutes deux les chiffres de kelly, et le « Total
+   * attribué » resterait juste — il somme les refs, pas les fiches. Rien
+   * n'aurait donc signalé l'erreur : c'est le genre de défaut qui ne se voit
+   * jamais, d'où un refus À L'ÉCRITURE.
+   *
+   * Garde SERVEUR : invérifiable en unitaire, elle vit dans la mutation.
+   */
+  test("refuse une ref déjà portée par une autre créatrice", async () => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const a = await createCreatorSession(url, {
+      name: `[E2E_TEST] RefA ${ts}`,
+      email: `e2e-refa-${ts}@repackit.test`,
+      password: "creator-ref-12345",
+    });
+    const b = await createCreatorSession(url, {
+      name: `[E2E_TEST] RefB ${ts}`,
+      email: `e2e-refb-${ts}@repackit.test`,
+      password: "creator-ref-12345",
+    });
+    const ref = `e2edup${ts}`;
+
+    await admin.mutation(api.creators.updateCreator, { id: a.creatorId, refSlug: ref });
+
+    // La casse ne sauve pas : les refs sont pliées avant comparaison.
+    await expect(
+      admin.mutation(api.creators.updateCreator, {
+        id: b.creatorId,
+        refSlug: ref.toUpperCase(),
+      }),
+    ).rejects.toThrow(/déjà portée/);
+
+    // ASSERTION DE PRÉSENCE : le refus n'a rien écrit, et la 1re fiche est intacte.
+    const fiches = await admin.query(api.creators.listCreators, {});
+    expect(fiches.find((c) => c._id === b.creatorId)!.refSlug).toBeUndefined();
+    expect(fiches.find((c) => c._id === a.creatorId)!.refSlug).toBe(ref);
+
+    // …et la MÊME fiche peut toujours reposer SA propre ref (idempotence intacte).
+    await admin.mutation(api.creators.updateCreator, { id: a.creatorId, refSlug: ref });
+  });
 });
