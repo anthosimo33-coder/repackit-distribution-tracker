@@ -26,3 +26,8 @@ export type NatureRewardsData = FunctionReturnType<
   typeof api.analyticsHub.getNatureRewards
 >;
 export type ChurnData = FunctionReturnType<typeof api.analyticsHub.getChurn>;
+
+/** Détail dépliable d'une journée — pays, refs, décomposition du revenu. */
+export type DayDetailData = FunctionReturnType<
+  typeof api.analyticsHub.getDayDetail
+>;

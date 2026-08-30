@@ -43,6 +43,7 @@ import {
 // par collectProjectWhopPayments (point de passage unique).
 import { isInternalWhopMembership } from "./internalAccounts";
 import { collectProjectWhopPayments } from "./whopPaymentsAccess";
+import { normalizeRef } from "./conversionAttribution";
 import {
   computeViewCounters,
   VIEW_COUNTER_USAGE,
@@ -1735,6 +1736,159 @@ export interface ReliabilityResult {
  */
 const MEMBERSHIP_ID_BREAK_DAY = "2026-07-29";
 const MEMBERSHIP_ID_BREAK_LABEL = "28/07/2026 01:09 UTC";
+
+/**
+ * DÉTAIL DÉPLIABLE PAR JOUR — les trois groupes de sous-lignes, sur 30 jours.
+ *
+ * Trois provenances distinctes, réunies ici et NON mélangées :
+ *  - PAYS : cache PostHog `countryDaily` (trafic seul, copies serveur exclues) ;
+ *  - REF  : `creatorConversions` pour le trafic + les paiements Whop LUS EN
+ *    DIRECT pour l'argent — même choix qu'au bloc « Ce que ça a rapporté », où
+ *    faire transiter les ventes par l'agrégat quotidien leur imposait jusqu'à
+ *    47 h de retard ;
+ *  - REVENU : décomposition du net du jour depuis `whopPayments`.
+ *
+ * Les colonnes argent des lignes PAYS ne sont pas calculées : Whop ne stocke
+ * aucun pays. C'est le module pur (lib/day-detail) qui les rend `null`, pour que
+ * l'écran affiche un tiret et jamais un zéro.
+ */
+/**
+ * Étiquette de la ligne « sans source » dans le détail par ref — le trafic et
+ * l'argent qu'aucune ref ne revendique. Volontairement la MÊME formulation que
+ * le bloc « Ce que ça a rapporté », pour qu'un même fait ne porte pas deux noms.
+ */
+const SANS_SOURCE = "sans source";
+
+export const getDayDetail = adminQuery({
+  args: {},
+  handler: async (ctx) => {
+    const project = await ctx.db.get(ctx.projectId);
+
+    // ── Pays : cache PostHog ───────────────────────────────────────────────
+    const cacheRow = await ctx.db
+      .query("posthogCache")
+      .withIndex("by_project_key", (q) =>
+        q.eq("projectId", ctx.projectId).eq("key", POSTHOG_CACHE_KEYS.countryDaily),
+      )
+      .first();
+    let countries: {
+      day: string;
+      country: string;
+      visitors: number;
+      signups: number;
+      checkouts: number;
+    }[] = [];
+    if (cacheRow && cacheRow.json !== "") {
+      try {
+        countries = (JSON.parse(cacheRow.json) as { rows: typeof countries }).rows ?? [];
+      } catch {
+        countries = []; // cache illisible ⇒ pas de sous-lignes, jamais d'invention
+      }
+    }
+
+    // ── Trafic par (jour, ref) : agrégat quotidien déjà stocké ──────────────
+    const conv = await ctx.db
+      .query("creatorConversions")
+      .withIndex("by_project_date", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    type RefAcc = {
+      day: string;
+      ref: string;
+      /** null = trafic PAS ENCORE COLLECTÉ ce jour-là (cf lib/day-detail). */
+      visitors: number | null;
+      signups: number | null;
+      clients: number;
+      renewals: number;
+      failures: number;
+      net: number;
+    };
+    const refs = new Map<string, RefAcc>();
+    const touch = (day: string, ref: string): RefAcc => {
+      const k = `${day}|${ref}`;
+      const cur = refs.get(k) ?? {
+        day,
+        ref,
+        // Le trafic démarre à NULL : une ref créée par un paiement Whop n'a pas
+        // de trafic collecté tant que le cron de 23 h n'est pas passé. Un 0
+        // initial aurait affiché « 0 visiteur » pour une journée non collectée.
+        visitors: null,
+        signups: null,
+        clients: 0,
+        renewals: 0,
+        failures: 0,
+        net: 0,
+      };
+      refs.set(k, cur);
+      return cur;
+    };
+    for (const r of conv) {
+      const a = touch(r.date, r.ref ?? SANS_SOURCE);
+      // Une ligne collectée fait passer le trafic de « inconnu » à une MESURE —
+      // y compris quand elle vaut zéro.
+      if (r.visitors !== undefined) a.visitors = (a.visitors ?? 0) + r.visitors;
+      if (r.signups !== undefined) a.signups = (a.signups ?? 0) + r.signups;
+    }
+
+    // ── Argent par (jour, ref) et décomposition du revenu : Whop, EN DIRECT ─
+    const revenue = new Map<
+      string,
+      { day: string; newNet: number; renewalNet: number; refunded: number }
+    >();
+    if (project?.whop) {
+      const { payments } = await collectProjectWhopPayments(
+        ctx,
+        ctx.projectId,
+        project.slug,
+      );
+      const memberships = await ctx.db
+        .query("whopMemberships")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect();
+      const refOf = new Map<string, string | null>(
+        memberships.map((m) => [m.whopMembershipId, normalizeRef(m.ref ?? null)]),
+      );
+      // 1er paiement encaissé par abonnement : un NOUVEAU client compte le jour
+      // de celui-là, jamais d'un renouvellement (cf getReliability).
+      const firstPaid = new Map<string, number>();
+      for (const p of payments) {
+        if (!p.membershipId || whopCollectedAmount(p) <= 0) continue;
+        const prev = firstPaid.get(p.membershipId);
+        if (prev === undefined || p.paidAt < prev) firstPaid.set(p.membershipId, p.paidAt);
+      }
+      for (const p of payments) {
+        const day = parisDay(p.paidAt);
+        const ref = p.membershipId ? (refOf.get(p.membershipId) ?? null) : null;
+        const a = touch(day, ref ?? SANS_SOURCE);
+        if (p.status === "failed") {
+          a.failures += 1;
+          continue;
+        }
+        const net = whopNetContribution(p);
+        const rev = revenue.get(day) ?? { day, newNet: 0, renewalNet: 0, refunded: 0 };
+        revenue.set(day, rev);
+        const rembourse = Math.max(0, p.refundedAmount ?? 0);
+        if (rembourse > 0) rev.refunded = round2(rev.refunded + rembourse);
+        if (net <= 0) continue;
+        a.net = round2(a.net + net);
+        const estNouveau =
+          p.membershipId !== undefined && firstPaid.get(p.membershipId) === p.paidAt;
+        if (estNouveau) {
+          a.clients += 1;
+          rev.newNet = round2(rev.newNet + net);
+        } else {
+          a.renewals += 1;
+          rev.renewalNet = round2(rev.renewalNet + net);
+        }
+      }
+    }
+
+    return {
+      countries,
+      refs: [...refs.values()],
+      revenue: [...revenue.values()],
+    };
+  },
+});
 
 export const getReliability = adminQuery({
   args: {},
