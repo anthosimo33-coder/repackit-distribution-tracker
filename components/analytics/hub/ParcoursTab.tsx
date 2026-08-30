@@ -525,6 +525,7 @@ export function ParcoursTab({
           colonne="Pays"
           split={analytics.serverSideSplit.rows}
           libelle={countryLabel}
+          sansVentes
           note="Une personne qui visite depuis un pays et achète depuis un autre compte dans les deux : les lignes ne s'additionnent pas en un total."
         />
         <SegmentFunnelCard
@@ -670,6 +671,7 @@ function SegmentFunnelCard({
   note,
   split,
   libelle,
+  sansVentes,
 }: {
   title: string;
   subtitle: string;
@@ -684,6 +686,19 @@ function SegmentFunnelCard({
    * vocabulaires se ressemblent et ne veulent pas dire la même chose.
    */
   libelle?: (s: string) => string;
+  /**
+   * Retire les colonnes VENTES (clients, taux) de ce tableau, et dit pourquoi.
+   *
+   * Un seul drapeau porte les deux, délibérément : on ne peut pas retirer la
+   * colonne sans que l'écran l'explique. Sinon la question revient dans trois
+   * mois et personne ne retrouve la raison.
+   *
+   * Le cas : le pays de connexion vient de l'IP, or `subscription_completed` est
+   * émis à 91,5 % côté SERVEUR — la colonne « clients » n'y couvrait que 8,5 %
+   * des clients réels. À côté du tableau de facturation, qui en couvre 99,4 %,
+   * elle n'apportait rien et invitait à la comparaison qu'on cherche à éviter.
+   */
+  sansVentes?: boolean;
 }) {
   const { rows, unknownShare, unknownVisitors } = buildSegmentRows(payload);
   // Les events SERVEUR sont exclus du découpage par pays : ils portent l'IP du
@@ -694,8 +709,17 @@ function SegmentFunnelCard({
   // mesure.
   const couverture = clientCoverage(split ?? []);
   const vides = couverture.filter((c) => c.unmeasurable);
+  // Couverture client de l'étape de souscription — sert la mention ci-dessous.
+  const ventesCouverture =
+    couverture.find((c) => c.event === "subscription_completed")?.share ?? null;
   const partielles = couverture.filter(
-    (c) => !c.unmeasurable && c.share !== null && c.share < 0.99,
+    (c) =>
+      !c.unmeasurable &&
+      c.share !== null &&
+      c.share < 0.99 &&
+      // La souscription a sa propre mention quand la colonne est retirée : la
+      // citer deux fois donnerait deux explications du même fait.
+      !(sansVentes && c.event === "subscription_completed"),
   );
   const nommes = rows.filter((r) => r.key !== UNKNOWN_SEGMENT);
   return (
@@ -733,8 +757,12 @@ function SegmentFunnelCard({
                     <TableHead className="text-right">Visiteurs</TableHead>
                     <TableHead className="text-right">Inscrits</TableHead>
                     <TableHead className="text-right">Checkouts</TableHead>
-                    <TableHead className="text-right">Clients</TableHead>
-                    <TableHead className="text-right">Taux</TableHead>
+                    {sansVentes ? null : (
+                      <>
+                        <TableHead className="text-right">Clients</TableHead>
+                        <TableHead className="text-right">Taux</TableHead>
+                      </>
+                    )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -752,12 +780,16 @@ function SegmentFunnelCard({
                       <TableCell className="text-right text-xs tabular-nums">
                         {formatNumber(r.checkout)}
                       </TableCell>
-                      <TableCell className="text-right text-xs tabular-nums font-medium">
-                        {formatNumber(r.subs)}
-                      </TableCell>
-                      <TableCell className="text-right text-xs tabular-nums text-slate-500">
-                        {r.rate === null ? "—" : pctFromFraction(r.rate)}
-                      </TableCell>
+                      {sansVentes ? null : (
+                        <>
+                          <TableCell className="text-right text-xs tabular-nums font-medium">
+                            {formatNumber(r.subs)}
+                          </TableCell>
+                          <TableCell className="text-right text-xs tabular-nums text-slate-500">
+                            {r.rate === null ? "—" : pctFromFraction(r.rate)}
+                          </TableCell>
+                        </>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -765,6 +797,22 @@ function SegmentFunnelCard({
             </div>
             )}
             <p className="text-xs text-slate-400">{note}</p>
+            {sansVentes ? (
+              <p className="text-xs text-slate-400">
+                Pas de colonne « clients » ici, volontairement. Ce pays vient de
+                l&apos;adresse IP, or l&apos;event de souscription part
+                {ventesCouverture !== null
+                  ? ` à ${pctFromFraction(1 - ventesCouverture)} `
+                  : " majoritairement "}
+                du serveur, dont l&apos;adresse est celle du datacenter :
+                {ventesCouverture !== null
+                  ? ` seuls ${pctFromFraction(ventesCouverture)} des clients y seraient visibles.`
+                  : " la colonne ne couvrirait qu'une fraction des clients."}{" "}
+                Les ventes se lisent dans « Ventes par pays de facturation », qui
+                les couvre presque toutes — et les deux tableaux ne se comparent
+                pas, ce ne sont pas les mêmes personnes.
+              </p>
+            ) : null}
             {vides.length > 0 ? (
               <p className="text-xs text-amber-700">
                 Non mesurable par {colonne.toLowerCase()} :{" "}
