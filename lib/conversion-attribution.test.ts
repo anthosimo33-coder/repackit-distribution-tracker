@@ -444,3 +444,81 @@ describe("refConflicts — une ref appartient à une seule personne", () => {
     ).toEqual([]);
   });
 });
+
+/**
+ * DÉPART D'UNE CRÉATRICE (TD-027).
+ *
+ * `readConversionAllTime` écartait les fiches `churned`. En vue journée l'effet
+ * passait ; en all-time, CHAQUE DÉPART RÉÉCRIVAIT LE PASSÉ — le travail de la
+ * partante quittait son nom pour retomber sous le slug nu, et son revenu sortait
+ * du « Total attribué ».
+ *
+ * Simulé sur l'export de prod avant correctif, en marquant Kelly partie : sa
+ * ligne devenait « (kelly) · ref rattachée à personne », et le Total attribué
+ * tombait de 92,67 € à 37,08 € — 60 % du revenu attribué évaporé à l'instant où
+ * on enregistre un départ.
+ *
+ * RÈGLE RETENUE : une créatrice partie reste listée SI elle a produit quelque
+ * chose, et seulement alors. Pour une créatrice ACTIVE un zéro est actionnable
+ * (son lien ne tourne pas) ; pour une partie il ne le sera jamais, et « pas de
+ * ref configurée » serait une consigne à laquelle personne ne peut plus
+ * répondre. Son historique, lui, est un fait — c'est exactement le cas où elle a
+ * des données.
+ */
+describe("shapeConversionDay — créatrice partie", () => {
+  const rows: DayRefRow[] = [
+    { ref: "kelly", visitors: 274, signups: 17, sales: 6, revenue: 55.59, currency: "EUR" },
+    { ref: undefined, visitors: 7105, signups: 3992, sales: 225, revenue: 1723.79, currency: "EUR" },
+  ];
+  const partie = (extra: object = {}) => [
+    { creatorId: "cr_kelly", name: "Kelly", refSlug: "kelly", status: "churned", ...extra },
+  ];
+
+  it("partie AVEC historique : elle garde son nom et son revenu reste attribué", () => {
+    const d = shapeConversionDay(rows, partie(), { collectedDays: 42 });
+    const kelly = d.rows.find((r) => r.kind === "creator" && r.creatorName === "Kelly")!;
+    expect(kelly).toMatchObject({ visitors: 274, sales: 6, revenue: 55.59 });
+    expect(d.attributed.revenue).toBeCloseTo(55.59, 2);
+    // …et surtout : elle n'est PAS retombée en ref orpheline.
+    expect(d.rows.some((r) => r.kind === "ref-only" && r.ref === "kelly")).toBe(false);
+  });
+
+  it("son statut est exposé, pour que l'écran puisse la distinguer", () => {
+    const d = shapeConversionDay(rows, partie(), { collectedDays: 42 });
+    const kelly = d.rows.find((r) => r.kind === "creator" && r.creatorName === "Kelly")!;
+    expect(kelly).toMatchObject({ status: "churned" });
+  });
+
+  it("partie SANS aucune donnée : elle sort de la liste", () => {
+    const d = shapeConversionDay(rows, [
+      { creatorId: "cr_x", name: "Ancienne", refSlug: "ancienne", status: "churned" },
+    ], { collectedDays: 42 });
+    expect(d.rows.some((r) => r.kind === "creator" && r.creatorName === "Ancienne")).toBe(false);
+  });
+
+  it("partie SANS ref : pas de « pas de ref configurée » pour qui ne reviendra pas", () => {
+    const d = shapeConversionDay(rows, [
+      { creatorId: "cr_y", name: "Partie", status: "churned" },
+    ], { collectedDays: 42 });
+    expect(d.rows.some((r) => r.kind === "no-ref" && r.creatorName === "Partie")).toBe(false);
+  });
+
+  it("une créatrice ACTIVE sans données reste listée, à zéro — INTACT", () => {
+    // Contrôle OPPOSÉ : la règle ne doit mordre QUE sur les parties. Un zéro
+    // actionnable doit rester visible.
+    const d = shapeConversionDay(rows, [
+      { creatorId: "cr_z", name: "Marine", refSlug: "marine", status: "paused" },
+      { creatorId: "cr_w", name: "Léa", status: "active" },
+    ], { collectedDays: 42 });
+    expect(d.rows.find((r) => r.kind === "creator" && r.creatorName === "Marine"))
+      .toMatchObject({ visitors: 0, revenue: 0 });
+    expect(d.rows.some((r) => r.kind === "no-ref" && r.creatorName === "Léa")).toBe(true);
+  });
+
+  it("sans statut fourni, rien ne change (rétrocompatible)", () => {
+    const d = shapeConversionDay(rows, [
+      { creatorId: "cr_kelly", name: "Kelly", refSlug: "kelly" },
+    ], { collectedDays: 42 });
+    expect(d.attributed.revenue).toBeCloseTo(55.59, 2);
+  });
+});
