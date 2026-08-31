@@ -128,6 +128,8 @@ import type * as storageCleanup from "../storageCleanup.js";
 import type * as syncScope from "../syncScope.js";
 import type * as talentBriefFields from "../talentBriefFields.js";
 import type * as talentRushFields from "../talentRushFields.js";
+import type * as tiktokFallback from "../tiktokFallback.js";
+import type * as tiktokPublicPage from "../tiktokPublicPage.js";
 import type * as trackerData from "../trackerData.js";
 import type * as viewCounters from "../viewCounters.js";
 import type * as viewsDaily from "../viewsDaily.js";
@@ -270,6 +272,8 @@ declare const fullApi: ApiFromModules<{
   syncScope: typeof syncScope;
   talentBriefFields: typeof talentBriefFields;
   talentRushFields: typeof talentRushFields;
+  tiktokFallback: typeof tiktokFallback;
+  tiktokPublicPage: typeof tiktokPublicPage;
   trackerData: typeof trackerData;
   viewCounters: typeof viewCounters;
   viewsDaily: typeof viewsDaily;

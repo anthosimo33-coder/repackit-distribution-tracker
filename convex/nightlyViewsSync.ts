@@ -13,6 +13,10 @@ import {
   fetchYouTubeViews,
   fetchYouTubeChannelStats,
 } from "./youtubeApi";
+import {
+  recoverMissingTikTokPosts,
+  type FallbackTarget,
+} from "./tiktokFallback";
 import { parisHour } from "./calendarStatus";
 import { deliver, resolveNotifyContext } from "./notifications";
 import { buildSyncFailureMessage } from "./notificationMessage";
@@ -399,9 +403,16 @@ export const syncApifyLot = internalAction({
       // identique sur toutes les vidéos d'un même compte, l'écrire une fois par
       // post ferait N écritures pour une seule information.
       const comptesReleves = new Set<string>();
+      // Posts qu'Apify n'a PAS rendus. Jusqu'ici : `continue`, et plus rien —
+      // d'où 10 publications jamais relevées pendant des semaines, dont une à
+      // 39 000 vues réelles peinte « 0 vue » et payée comme telle.
+      const manques: FallbackTarget[] = [];
       for (const t of lot.targets) {
         const stat = stats[t.key];
-        if (stat === undefined) continue; // indisponible ou lot en erreur
+        if (stat === undefined) {
+          manques.push({ publicationId: t.publicationId, key: t.key, url: t.url });
+          continue;
+        }
         const capturedAt = Date.now();
         const r = await ctx.runMutation(internal.apifySync.recordApifySnapshot, {
           publicationId: t.publicationId,
@@ -430,12 +441,39 @@ export const syncApifyLot = internalAction({
           });
         }
       }
+      // ── REPLI ────────────────────────────────────────────────────────────
+      // TikTok : on va lire les compteurs sur la page publique du post. Les
+      // rattrapés rejoignent `releves`, donc ils comptent comme relevés dans le
+      // tally — sinon le repli réparerait la donnée tout en déclenchant l'alerte.
+      // Instagram : pas de repli (le payload public est propre à TikTok), mais
+      // l'échec est persisté pareil — c'est la moitié « B » du correctif.
+      let replii = "";
+      if (manques.length > 0) {
+        const capturedAt = Date.now();
+        if (lot.plateforme === "TikTok") {
+          const r = await recoverMissingTikTokPosts(ctx, manques, capturedAt);
+          for (const id of r.recoveredIds) releves.add(id);
+          replii =
+            ` | repli ${r.recovered} rattrapé(s), ${r.refused} refusé(s) par TikTok, ` +
+            `${r.unreadable} illisible(s), ${r.deferred} reporté(s)`;
+        } else {
+          for (const t of manques) {
+            await ctx.runMutation(internal.apifySync.recordCollectFailure, {
+              publicationId: t.publicationId,
+              at: capturedAt,
+              reason: "Apify n'a pas rendu le post (aucun repli sur cette plateforme)",
+            });
+          }
+          replii = ` | ${manques.length} échec(s) enregistré(s), pas de repli Instagram`;
+        }
+      }
+
       tallyLot = tallyFor(lot.targets, releves);
       console.info(
         `[nightly-views] lot ${args.lotIndex + 1}/${args.lotTotal} ${lot.plateforme} — ` +
           `${comptes.length} compte(s), ${releves.size}/${lot.targets.length} relevée(s), ` +
           `${comptesReleves.size} profil(s), ` +
-          `${Date.now() - debut} ms.`,
+          `${Date.now() - debut} ms${replii}.`,
       );
     } catch (e) {
       tallyLot = tallyFor(lot.targets, new Set());

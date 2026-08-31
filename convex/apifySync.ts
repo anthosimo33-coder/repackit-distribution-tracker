@@ -14,6 +14,10 @@ import {
   instagramShortcode,
   type ApifyPlatform,
 } from "./apifyApi";
+import {
+  recoverMissingTikTokPosts,
+  type FallbackTarget,
+} from "./tiktokFallback";
 import { recomputeLatestMetrics } from "./metricSnapshots";
 import { TRACKING_WINDOW_DAYS } from "./syncScope";
 import { syncBonusForPublication } from "./pricing";
@@ -71,6 +75,10 @@ export interface ApifySyncSummary {
   errors: number;
   /** Runs Apify lancés (≈ unité de coût). */
   runs: number;
+  /** Posts rattrapés par le REPLI maison après un abandon d'Apify. */
+  recovered: number;
+  /** Posts perdus malgré le repli — échec persisté sur la publication. */
+  failed: number;
 }
 
 /**
@@ -135,8 +143,21 @@ async function upsertApifySnapshot(
   // On préserve le dernier connu plutôt que d'effacer une mesure valable.
   const saves = args.saves ?? pub.savesLatest ?? undefined;
   // Patch publication : indicateur de sync + titre (légende) si capturé.
-  const pubPatch: { lastApifySyncAt: number; postTitle?: string } = {
+  //
+  // La RÉUSSITE EFFACE L'ÉCHEC — les trois marqueurs sont remis à `undefined`,
+  // pas laissés à leur ancienne valeur. Un compteur d'échecs consécutifs qui ne
+  // se remet pas à zéro finirait par accuser une publication qui va très bien.
+  const pubPatch: {
+    lastApifySyncAt: number;
+    postTitle?: string;
+    lastCollectFailureAt: undefined;
+    collectFailureStreak: undefined;
+    lastCollectFailureReason: undefined;
+  } = {
     lastApifySyncAt: args.capturedAt,
+    lastCollectFailureAt: undefined,
+    collectFailureStreak: undefined,
+    lastCollectFailureReason: undefined,
   };
   if (typeof args.title === "string" && args.title.length > 0) {
     pubPatch.postTitle = args.title;
@@ -272,6 +293,41 @@ export const recordApifySnapshot = internalMutation({
  * Ignore silencieusement un profil SANS aucun compteur : historiser des lignes
  * vides ferait calculer le delta d'abonnés sur du vide.
  */
+/**
+ * Enregistre un ÉCHEC de collecte sur une publication.
+ *
+ * Appelée quand Apify n'a pas rendu le post ET que le repli maison n'a pas pu
+ * le lire non plus. C'est la contrepartie de `recordApifySnapshot` : l'un efface
+ * les marqueurs d'échec, l'autre les pose.
+ *
+ * `streak` s'INCRÉMENTE : c'est lui qui permet de distinguer l'aléa d'une nuit
+ * d'un post durablement perdu — la distinction que l'ancien `console.warn` ne
+ * permettait pas, et qui a laissé 10 publications non relevées pendant 26 jours.
+ *
+ * Le `reason` est destiné à être LU (« visible par son autrice uniquement »,
+ * « HTTP 429 ») : c'est ce qui permettra à l'écran de dire pourquoi une ligne
+ * n'a pas de chiffres, au lieu de la peindre à 0.
+ */
+export const recordCollectFailure = internalMutation({
+  args: {
+    publicationId: v.id("publications"),
+    at: v.number(),
+    reason: v.string(),
+  },
+  handler: async (ctx, { publicationId, at, reason }) => {
+    const pub = await ctx.db.get(publicationId);
+    if (!pub) return { streak: 0 };
+    const streak = (pub.collectFailureStreak ?? 0) + 1;
+    await ctx.db.patch(publicationId, {
+      lastCollectFailureAt: at,
+      collectFailureStreak: streak,
+      // Tronqué : un motif est une phrase, pas un dump de page.
+      lastCollectFailureReason: reason.slice(0, 200),
+    });
+    return { streak };
+  },
+});
+
 export const recordAccountProfile = internalMutation({
   args: {
     publicationId: v.id("publications"),
@@ -452,6 +508,8 @@ export const runDailySync = internalAction({
         unavailable: 0,
         errors: 0,
         runs: 0,
+        recovered: 0,
+        failed: 0,
       };
     }
 
@@ -465,6 +523,8 @@ export const runDailySync = internalAction({
       unavailable: 0,
       errors: 0,
       runs: 0,
+      recovered: 0,
+      failed: 0,
     };
 
     for (const { plateforme, source } of APIFY_PLATFORMS) {
@@ -477,12 +537,16 @@ export const runDailySync = internalAction({
       // Clé de post par publication (id TikTok / shortcode Insta).
       const keyFor = (url: string): string | null =>
         plateforme === "TikTok" ? tiktokPostId(url) : instagramShortcode(url);
-      const targets: { publicationId: Id<"publications">; key: string }[] = [];
+      const targets: {
+        publicationId: Id<"publications">;
+        key: string;
+        url: string;
+      }[] = [];
       const urls: string[] = [];
       for (const p of pubs) {
         const key = keyFor(p.postUrl);
         if (!key) continue; // shortlink / URL non rapprochable → loggué via matched
-        targets.push({ publicationId: p._id, key });
+        targets.push({ publicationId: p._id, key, url: p.postUrl });
         urls.push(p.postUrl);
       }
       summary.matched += targets.length;
@@ -494,9 +558,15 @@ export const runDailySync = internalAction({
       summary.errors += errors.length;
       summary.runs += runs;
 
+      // Même point de bascule que le cron : ce `continue` était l'endroit exact
+      // où un post abandonné par Apify disparaissait sans laisser de trace.
+      const manques: FallbackTarget[] = [];
       for (const t of targets) {
         const stat = stats[t.key];
-        if (stat === undefined) continue; // indisponible ou lot en erreur
+        if (stat === undefined) {
+          manques.push({ publicationId: t.publicationId, key: t.key, url: t.url });
+          continue;
+        }
         const r = await ctx.runMutation(internal.apifySync.recordApifySnapshot, {
           publicationId: t.publicationId,
           vues: stat.views,
@@ -508,6 +578,25 @@ export const runDailySync = internalAction({
           source,
         });
         if (r.action !== "skipped") summary.synced += 1;
+      }
+
+      if (manques.length > 0) {
+        if (plateforme === "TikTok") {
+          const r = await recoverMissingTikTokPosts(ctx, manques, now);
+          summary.recovered += r.recovered;
+          summary.synced += r.recovered;
+          summary.failed += r.refused + r.unreadable + r.deferred;
+        } else {
+          for (const t of manques) {
+            await ctx.runMutation(internal.apifySync.recordCollectFailure, {
+              publicationId: t.publicationId,
+              at: now,
+              reason:
+                "Apify n'a pas rendu le post (aucun repli sur cette plateforme)",
+            });
+          }
+          summary.failed += manques.length;
+        }
       }
 
       if (errors.length > 0) {
