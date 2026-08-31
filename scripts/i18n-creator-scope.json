@@ -103,6 +103,7 @@
     "convex/challengeScore.ts",
     "convex/errorCodes.ts",
     "convex/locales.ts",
+    "convex/payWindow.ts",
     "convex/postUrlDate.ts",
     "convex/postWindow.ts",
     "convex/roles.ts",
