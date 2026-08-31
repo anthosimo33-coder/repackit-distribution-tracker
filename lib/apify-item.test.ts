@@ -51,6 +51,14 @@ describe("toCount", () => {
     expect(toCount(NaN)).toBeNull();
     expect(toCount(Infinity)).toBeNull();
   });
+
+  it("rejette les NÉGATIFS — code d'absence, jamais un compteur", () => {
+    // Réplique A6 de lib/apifyPosts.ts : la règle doit tenir des deux côtés.
+    expect(toCount(-1)).toBeNull();
+    expect(toCount("-1")).toBeNull();
+    expect(toCount(-Infinity)).toBeNull();
+    expect(toCount(0)).toBe(0);
+  });
 });
 
 describe("parseSaves — le champ que le relevé jetait", () => {
