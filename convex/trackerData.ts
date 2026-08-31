@@ -5,6 +5,7 @@ import type { QueryCtx } from "./_generated/server";
 import { passesWarmupMode, type WarmupMode } from "./warmupMode";
 import { computeDailyViewDeltas } from "./viewsDaily";
 import { savesAvailability } from "./decisionThresholds";
+import { collectAvailability } from "./collectAvailability";
 import { qualificationOf } from "./quadrant";
 
 /**
@@ -366,9 +367,21 @@ export const listTrackerPosts = adminQuery({
         // d'une décision. Dérivé ici, au contact du champ brut.
         qualification: qualificationOf(p.isWarmup),
         // Métriques LATEST dénormalisées (null → 0 pour les agrégats).
+        //
+        // ⚠️ Le `?? 0` reste, et c'est VOULU : les sommes et les moyennes ont
+        // besoin d'un nombre. Ce qui change, c'est qu'on dit désormais à côté
+        // s'il s'agit d'une MESURE ou d'une ignorance (cf `collect` plus bas) —
+        // l'écran affiche un tiret dans le second cas au lieu de peindre « 0 »
+        // sur une vidéo qu'on n'a pas su relever.
         vues: p.vuesLatest ?? 0,
         likes: p.likesLatest ?? 0,
         comments: p.commentsLatest ?? 0,
+        // STATUT DE COLLECTE — mesuré / en attente / en échec, avec le motif.
+        collect: {
+          availability: collectAvailability(p),
+          reason: p.lastCollectFailureReason ?? null,
+          failureStreak: p.collectFailureStreak ?? 0,
+        },
         // SAVES — `null` et jamais 0 par défaut : Instagram/YouTube n'exposent
         // pas la métrique et les posts antérieurs à sa collecte n'en portent
         // pas. Replier sur 0 ferait passer une absence pour un save rate nul,

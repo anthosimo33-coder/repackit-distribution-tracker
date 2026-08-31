@@ -4,6 +4,7 @@ import {
   creatorQuery,
   e2eMutation,
 } from "./functions";
+import { collectAvailability } from "./collectAvailability";
 import { ConvexError, v } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -354,6 +355,15 @@ export async function assignmentViewsAndMetrics(
   /** Au moins un post en phase promo (détection des jours solo, même à 0 vue). */
   hasPromoPost: boolean;
   hasMetrics: boolean;
+  /**
+   * Posts RÉMUNÉRÉS dont AUCUNE vue n'a pu être mesurée.
+   *
+   * SIGNALÉ, JAMAIS BLOQUANT — arbitrage produit : une vidéo non mesurée ne
+   * retient pas le cycle de paie, elle se signale pour que qui valide le sache.
+   * Ce compteur ne modifie donc aucun montant ; il rend visible ce qui est payé
+   * sur une ignorance plutôt que sur une mesure.
+   */
+  unmeasuredPayablePosts: number;
   /** Au moins un post RÉMUNÉRÉ dont la fenêtre de paie est close (et mesurée). */
   payWindowClosed: boolean;
   /** Σ des vues RÉMUNÉRÉES acquises hors fenêtre (mesurées − retenues). */
@@ -368,6 +378,7 @@ export async function assignmentViewsAndMetrics(
   /** Un item par post, pour l'AFFICHAGE du plafond (cf aggregatePayWindow). */
   const windows: { retained: RetainedViews; isPaid: boolean }[] = [];
   let hasMetrics = false;
+  let unmeasuredPayable = 0;
   const seen = new Set<string>();
   for (const pid of pubIds) {
     if (seen.has(pid)) continue;
@@ -397,6 +408,11 @@ export async function assignmentViewsAndMetrics(
       isWarmup: pub.isWarmup === true,
       remunere: pub.remunere,
     };
+    // Non mesuré ET rémunéré = payé sur une ignorance. On le compte pour le
+    // dire ; le montant, lui, ne bouge pas (cf `unmeasuredPayablePosts`).
+    if (isRemunerated(flags) && collectAvailability(pub) !== "measured") {
+      unmeasuredPayable += 1;
+    }
     pubs.push({ ...flags, measured, retained: retained.views });
     windows.push({ retained, isPaid: isRemunerated(flags) });
     // Un snapshot a été relevé (Apify/YouTube/manuel) ⇒ suivi actif.
@@ -430,6 +446,7 @@ export async function assignmentViewsAndMetrics(
     hasPayablePost,
     hasPromoPost,
     hasMetrics,
+    unmeasuredPayablePosts: unmeasuredPayable,
     payWindowClosed: payWindow.closed,
     viewsOutsideWindow: payWindow.viewsOutsideWindow,
   };
@@ -763,6 +780,18 @@ export interface PricingBreakdown extends MonthlyPayout {
     challengeName: string;
     montant: number;
   }[];
+  /**
+   * Vidéos RÉMUNÉRÉES de la période dont aucune vue n'a pu être mesurée.
+   *
+   * SIGNALÉ, JAMAIS BLOQUANT (arbitrage produit) : le cycle se paie
+   * normalement, `total` est intouché. Ce compteur sert uniquement à ce que
+   * l'écran de paiement puisse dire « N vidéo(s) payée(s) sans mesure » avant
+   * qu'on valide, au lieu de laisser croire qu'elles ont fait zéro vue.
+   *
+   * Vaut 0 sur un breakdown GELÉ (lineItems agrégées d'un cycle déjà payé) :
+   * l'information n'y est pas récupérable, et un cycle payé ne se rediscute pas.
+   */
+  unmeasuredPayablePosts: number;
 }
 
 /**
@@ -843,14 +872,16 @@ export async function computeLivePricingBreakdown(
       !legacyAssignmentIds.has(a._id),
   );
   const items: PayoutItem[] = [];
+  let unmeasuredPayablePosts = 0;
   for (const a of assignments) {
-    const { payableViews, hasPayablePost } = await assignmentViewsAndMetrics(
-      ctx,
-      a,
-    );
+    const { payableViews, hasPayablePost, unmeasuredPayablePosts: nonMesures } =
+      await assignmentViewsAndMetrics(ctx, a);
     // Vidéo ENTIÈREMENT warmup → exclue (ni fixe compté, ni CPM). Partiellement
     // warmup → CPM sur les seules vues payables ; compte une fois pour le fixe.
     if (!hasPayablePost) continue;
+    // Comptées seulement sur les vidéos RETENUES pour la paie : signaler une
+    // vidéo warmup non mesurée n'aurait aucun sens, elle n'est pas payée.
+    unmeasuredPayablePosts += nonMesures;
     items.push({
       assignmentId: a._id,
       snapshot: a.pricingSnapshot!,
@@ -893,6 +924,7 @@ export async function computeLivePricingBreakdown(
     bonusTierCashUnlocks,
     challengeTotal,
     challengeWins,
+    unmeasuredPayablePosts,
     // ⚠️ La prime S'AJOUTE, elle ne remplace rien : `base.total` (fixe + CPM)
     // est intouché. C'est ce que garantit le barème dédié à fixe nul — les
     // vidéos de défi forment leur propre groupe de paie.
@@ -933,14 +965,16 @@ export async function computeCyclePricingBreakdown(
       !legacyAssignmentIds.has(a._id),
   );
   const items: PayoutItem[] = [];
+  let unmeasuredPayablePosts = 0;
   for (const a of assignments) {
-    const { payableViews, hasPayablePost } = await assignmentViewsAndMetrics(
-      ctx,
-      a,
-    );
+    const { payableViews, hasPayablePost, unmeasuredPayablePosts: nonMesures } =
+      await assignmentViewsAndMetrics(ctx, a);
     // Vidéo ENTIÈREMENT warmup → exclue (ni fixe compté, ni CPM). Partiellement
     // warmup → CPM sur les seules vues payables ; compte une fois pour le fixe.
     if (!hasPayablePost) continue;
+    // Comptées seulement sur les vidéos RETENUES pour la paie : signaler une
+    // vidéo warmup non mesurée n'aurait aucun sens, elle n'est pas payée.
+    unmeasuredPayablePosts += nonMesures;
     items.push({
       assignmentId: a._id,
       snapshot: a.pricingSnapshot!,
@@ -987,6 +1021,7 @@ export async function computeCyclePricingBreakdown(
     bonusTierCashUnlocks,
     challengeTotal,
     challengeWins,
+    unmeasuredPayablePosts,
     // ⚠️ S'AJOUTE (cf. computeLivePricingBreakdown) : fixe et CPM intouchés.
     total: round2(base.total + bonusTierCashTotal + challengeTotal),
   };

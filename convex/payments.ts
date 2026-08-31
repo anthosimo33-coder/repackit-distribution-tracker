@@ -490,6 +490,10 @@ function frozenBreakdownOf(p: Doc<"payments">): PricingBreakdown {
     bonusTierCashUnlocks: [],
     challengeTotal,
     challengeWins,
+    // Gelé : le statut de collecte du moment n'est pas dans les lignes payées,
+    // et un cycle déjà payé ne se rediscute pas. 0 = « rien à signaler ICI »,
+    // pas « tout était mesuré » — l'avertissement n'a de sens qu'AVANT de payer.
+    unmeasuredPayablePosts: 0,
     total: round2(fixedTotal + cpmTotal + bonusTierCashTotal + challengeTotal),
     perPricing: [],
     perAssignment: [],

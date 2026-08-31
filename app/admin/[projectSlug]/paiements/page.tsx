@@ -165,6 +165,14 @@ export default function PaiementsPage() {
   );
   const payableTotal = payableRows.reduce((s, p) => s + p.totalDue, 0);
   const selectedTotal = selectedRows.reduce((s, p) => s + p.totalDue, 0);
+  // Vidéos rémunérées dont AUCUNE vue n'a pu être mesurée, sur la sélection.
+  // On signale, on ne bloque pas (arbitrage produit) : le bouton reste actif,
+  // mais on ne paie plus sans le savoir. Sept vidéos Snytch cumulant 78 476
+  // vues réelles ont été payées « 0 vue » faute de cette phrase.
+  const selectedUnmeasured = selectedRows.reduce(
+    (s, p) => s + (p.pricingBreakdown?.unmeasuredPayablePosts ?? 0),
+    0,
+  );
   const selectedCreators = new Set(selectedRows.map((p) => p.creatorId)).size;
   const allSelected =
     payableRows.length > 0 && selectedRows.length === payableRows.length;
@@ -448,6 +456,20 @@ export default function PaiementsPage() {
               paiement (fixe, CPM et paliers bonus) : il ne sera plus recalculé
               ensuite.
             </p>
+            {selectedUnmeasured > 0 && (
+              <p
+                className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900"
+                data-testid="unmeasured-warning"
+              >
+                <strong>
+                  {selectedUnmeasured} vidéo{selectedUnmeasured > 1 ? "s" : ""}{" "}
+                  rémunérée{selectedUnmeasured > 1 ? "s" : ""} sans vue mesurée.
+                </strong>{" "}
+                Leur collecte a échoué ou n&apos;a pas encore eu lieu : elles
+                comptent pour 0 vue dans le CPM. Le paiement reste possible —
+                c&apos;est un signalement, pas un blocage.
+              </p>
+            )}
             <p className="text-xs text-slate-500">
               Les cycles déjà payés ne sont pas retouchés. Un cycle qui échoue
               n&apos;interrompt pas les autres et reste sélectionné.
@@ -562,6 +584,17 @@ function PaymentRow({
         </TableCell>
         <TableCell className="text-right font-medium tabular-nums text-slate-900">
           {formatMoney(p.totalDue, currency)}
+          {(p.pricingBreakdown?.unmeasuredPayablePosts ?? 0) > 0 && (
+            // Repère AVANT la sélection : la modale dit le total, cette pastille
+            // dit CHEZ QUI. Sans elle, l'avertissement serait vrai mais inutile.
+            <span
+              className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-normal text-amber-900"
+              title={`${p.pricingBreakdown.unmeasuredPayablePosts} vidéo(s) rémunérée(s) sans vue mesurée — comptée(s) 0 vue dans le CPM`}
+            >
+              {p.pricingBreakdown.unmeasuredPayablePosts} non mesurée
+              {p.pricingBreakdown.unmeasuredPayablePosts > 1 ? "s" : ""}
+            </span>
+          )}
           {/*
             TALENTS — ce que le cycle a effectivement produit, à côté de ce
             qu'il coûte. Le forfait est dû parce que le cycle a couru, PAS parce
