@@ -22,6 +22,7 @@ import {
   CYCLE_LENGTH_MS,
   payAnchorOf,
 } from "./payCycle";
+import { paidBeforePayWindow } from "./payWindow";
 import { resolveCreatorKind } from "./roles";
 import { ConvexError, v } from "convex/values";
 import { internalMutation } from "./_generated/server";
@@ -524,6 +525,18 @@ export type CyclePayment = {
    * `markCyclePaid` en règle automatique, ce que personne n'a demandé.
    */
   rushCount: number | null;
+  /**
+   * Cycle PAYÉ sous l'ANCIENNE règle : son montant a été gelé avant l'entrée en
+   * vigueur du plafond J+30 (cf convex/payWindow.PAY_WINDOW_EFFECTIVE_AT), et il
+   * comporte au moins une ligne assise sur des vues.
+   *
+   * Sert UNIQUEMENT à afficher une mention datée. Sans elle, une créatrice qui
+   * compare deux cycles voit deux logiques de calcul et rien ne le lui dit —
+   * exactement le genre d'écart silencieux que ce chantier existe pour éviter.
+   * `false` sur tout cycle en cours, et sur un cycle payé que le plafond
+   * n'aurait de toute façon pas déplacé.
+   */
+  computedBeforePayWindow: boolean;
 };
 
 /** LineItems GELÉES (fixed/cpm + bonus_tier cash) construites depuis un breakdown. */
@@ -662,6 +675,10 @@ export async function cyclePaymentsForCreator(
         rushCount: estTalent
           ? rushDates.filter((d) => d >= w.cycleStart && d < w.cycleEnd).length
           : null,
+        computedBeforePayWindow: paidBeforePayWindow({
+          paidAt: paid.paidAt,
+          lineItemKinds: paid.lineItems.map((li) => li.kind),
+        }),
       });
       continue;
     }
@@ -699,6 +716,8 @@ export async function cyclePaymentsForCreator(
       rushCount: estTalent
         ? rushDates.filter((d) => d >= w.cycleStart && d < w.cycleEnd).length
         : null,
+      // Cycle EN COURS : il se calcule live, donc sous la règle actuelle.
+      computedBeforePayWindow: false,
     });
   }
   return out.filter(

@@ -482,7 +482,7 @@
       "nextPayout": "Next payout on {date}",
       "line": {
         "fixed": "{count, plural, one {Flat — # video published} other {Flat — # videos published}}",
-        "cpm": "CPM — {views} views",
+        "cpm": "CPM — {views} paid views",
         "bonusTier": "Tier bonuses (cumulative views)",
         "retainer": "Retainer — cycle {cycle}",
         "fixedGroup": "Flat — {done}/{target} videos published",
@@ -496,7 +496,8 @@
       "viewsBefore": "{count, plural, one {{views} view to go before {reward}.} other {{views} views to go before {reward}.}}",
       "paidLabel": "Paid",
       "paidOn": "Paid on {date}",
-      "rewardFallback": "Reward"
+      "rewardFallback": "Reward",
+      "preCapNotice": "Earnings calculated on {paid}, before the 30-day cap took effect (on {effective}). Views past day 30 still count in this cycle."
     },
     "videos": {
       "trackingActive": "Tracking active",
@@ -522,7 +523,10 @@
       "emptyFilter": "No videos in this filter.",
       "unavailable": "Video tracking isn't available for this project.",
       "publishedAgo": "Published {ago}",
-      "submittedWaiting": "Video submitted — waiting for the team to approve it."
+      "submittedWaiting": "Video submitted — waiting for the team to approve it.",
+      "payWindowClosed": "earning window closed",
+      "viewsOutsideWindow": "{count} views past day 30 — tracked, not paid",
+      "payWindowHint": "Views count toward your earnings for 30 days after publication. After that we keep tracking them, but this video's earnings stop growing."
     },
     "declare": {
       "declared": "Account declared — warm-up started",

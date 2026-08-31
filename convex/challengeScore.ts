@@ -21,6 +21,12 @@
  * incompréhensible. Le seul retrait possible est EXPLICITE (geste admin
  * « retirer du défi »), jamais un effet de bord d'un réglage de paie.
  *
+ * Le PLAFOND J+30 (convex/payWindow) suit la même ligne et ne s'applique donc
+ * PAS ici : il borne l'assiette de RÉMUNÉRATION, pas la performance. Un défi
+ * dure moins de 30 jours dans les faits, mais la raison n'est pas la durée —
+ * c'est qu'un score qui divergerait des vues affichées ne serait pas défendable
+ * devant les participantes. Décision prise au chantier du plafond, pas subie.
+ *
  * ── L'instant de décision ────────────────────────────────────────────────────
  * Tout se joue au RELEVÉ NOCTURNE (23h30 Paris, cf convex/nightlyViewsSync.ts) :
  * c'est le seul moment où l'app connaît l'état de chacune. « La première à

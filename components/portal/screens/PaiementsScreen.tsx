@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format-rate";
 import { formatMoneyDate } from "@/lib/format";
 import { formatCycleRange } from "@/lib/pay-cycle";
+import { PAY_WINDOW_EFFECTIVE_AT } from "@/convex/payWindow";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { ArrowRightIcon, ChevronRightIcon } from "lucide-react";
 import type { FunctionReturnType } from "convex/server";
@@ -387,6 +388,22 @@ function PastPeriod({ p, currency }: { p: Payment; currency?: string | null }) {
       </button>
       {open && (
         <div className="border-t border-slate-100">
+          {/* ANCIENNE RÈGLE — mention DATÉE, jamais générique. Un cycle payé
+              avant le plafond garde son montant gelé : sans cette phrase, deux
+              cycles côte à côte affichent deux logiques de calcul et rien ne
+              l'explique. Elle nomme les deux dates (celle du paiement, celle de
+              l'entrée en vigueur) pour que la comparaison soit vérifiable. */}
+          {p.computedBeforePayWindow && p.paidAt !== null && (
+            <p
+              data-testid="pre-cap-notice"
+              className="border-b border-slate-100 bg-slate-50 px-4 py-2 text-xs text-slate-500"
+            >
+              {t("paiements.preCapNotice", {
+                paid: formatMoneyDate(p.paidAt, loc),
+                effective: formatMoneyDate(PAY_WINDOW_EFFECTIVE_AT, loc),
+              })}
+            </p>
+          )}
           <LineItems p={p} currency={currency} />
         </div>
       )}
