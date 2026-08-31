@@ -496,7 +496,8 @@
       "viewsBefore": "{count, plural, one {{views} view to go before {reward}.} other {{views} views to go before {reward}.}}",
       "paidLabel": "Paid",
       "paidOn": "Paid on {date}",
-      "rewardFallback": "Reward"
+      "rewardFallback": "Reward",
+      "preCapNotice": "Earnings calculated on {paid}, before the 30-day cap took effect (on {effective}). Views past day 30 still count in this cycle."
     },
     "videos": {
       "trackingActive": "Tracking active",

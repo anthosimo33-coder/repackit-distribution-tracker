@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   aggregatePayWindow,
+  paidBeforePayWindow,
   PAY_WINDOW_DAYS,
+  PAY_WINDOW_EFFECTIVE_AT,
   payWindowEndsAt,
   payWindowIsClosed,
   retainedViews,
@@ -221,5 +223,73 @@ describe("aggregatePayWindow", () => {
       closed: false,
       viewsOutsideWindow: 0,
     });
+  });
+});
+
+describe("paidBeforePayWindow", () => {
+  /** Cycle 0 de Kelly, l'unique cycle payé non nul de la prod : 769,62 $ le 17/08/2026 à 14:47 UTC. */
+  const KELLY_PAID_AT = 1_786_978_067_200;
+
+  it("PRÉSENCE — le cycle payé de Kelly porte la mention d'ancienne règle", () => {
+    expect(
+      paidBeforePayWindow({
+        paidAt: KELLY_PAID_AT,
+        lineItemKinds: ["fixed", ...Array(12).fill("cpm")],
+      }),
+    ).toBe(true);
+    // Et la date de bascule est bien POSTÉRIEURE à ce paiement.
+    expect(KELLY_PAID_AT).toBeLessThan(PAY_WINDOW_EFFECTIVE_AT);
+  });
+
+  it("ABSENCE — un cycle payé APRÈS l'entrée en vigueur n'a rien à annoncer", () => {
+    expect(
+      paidBeforePayWindow({
+        paidAt: PAY_WINDOW_EFFECTIVE_AT,
+        lineItemKinds: ["fixed", "cpm"],
+      }),
+    ).toBe(false);
+  });
+
+  it("un cycle payé avant, mais qu'aucune vue ne rémunérait, n'annonce rien", () => {
+    // Le second cycle payé de la prod (29/08/2026, 0,00 $, aucune ligne) : le
+    // plafond ne l'aurait pas déplacé d'un centime. Une mention y serait un
+    // avertissement sans objet.
+    expect(paidBeforePayWindow({ paidAt: KELLY_PAID_AT, lineItemKinds: [] })).toBe(
+      false,
+    );
+    // Idem pour un forfait de talent ou une paie au clip : rien n'est assis
+    // sur des vues.
+    expect(
+      paidBeforePayWindow({
+        paidAt: KELLY_PAID_AT,
+        lineItemKinds: ["retainer", "clip", "fixed"],
+      }),
+    ).toBe(false);
+  });
+
+  it("les PALIERS comptent aussi : leur cumul est plafonné comme le CPM", () => {
+    expect(
+      paidBeforePayWindow({
+        paidAt: KELLY_PAID_AT,
+        lineItemKinds: ["bonus_tier"],
+      }),
+    ).toBe(true);
+  });
+
+  it("un cycle jamais payé n'a pas d'ancienne règle à annoncer", () => {
+    expect(
+      paidBeforePayWindow({ paidAt: null, lineItemKinds: ["cpm"] }),
+    ).toBe(false);
+    expect(
+      paidBeforePayWindow({ paidAt: undefined, lineItemKinds: ["cpm"] }),
+    ).toBe(false);
+  });
+
+  it("la date d'entrée en vigueur est le 31/08/2026 UTC, et rien d'autre", () => {
+    // Elle DOIT suivre le déploiement réel : la figer ici rend tout glissement
+    // visible en revue plutôt qu'invisible en prod.
+    expect(new Date(PAY_WINDOW_EFFECTIVE_AT).toISOString()).toBe(
+      "2026-08-31T00:00:00.000Z",
+    );
   });
 });

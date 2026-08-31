@@ -47,6 +47,47 @@ const DAY_MS = 86_400_000;
 export const PAY_WINDOW_DAYS = 30;
 
 /**
+ * ENTRÉE EN VIGUEUR du plafond en PRODUCTION — 31/08/2026, 00:00 UTC.
+ *
+ * À QUOI ELLE SERT, et à rien d'autre : distinguer les cycles PAYÉS sous
+ * l'ancienne règle de ceux payés sous celle-ci. Les premiers sont gelés et ne se
+ * recalculent pas (c'est la garantie du grand livre), si bien qu'une créatrice
+ * qui compare deux cycles voit deux logiques sans que rien ne le dise. Cette
+ * date permet de l'ÉCRIRE. Elle n'entre dans AUCUN calcul de montant : le
+ * plafond lui-même est rétroactif sur tout cycle non payé, sans date de bascule.
+ *
+ * ⚠️ ELLE DOIT CORRESPONDRE AU DÉPLOIEMENT RÉEL. Si le merge de la PR glisse
+ * d'un jour, cette constante glisse avec — sinon un cycle payé entre les deux
+ * porterait une mention fausse. Au moment où elle est posée, la prod ne compte
+ * que DEUX cycles payés (17/08/2026 et 29/08/2026), tous deux largement
+ * antérieurs : la borne est sans ambiguïté sur les données existantes.
+ */
+export const PAY_WINDOW_EFFECTIVE_AT = Date.UTC(2026, 7, 31);
+
+/**
+ * Ce cycle PAYÉ a-t-il été calculé AVANT l'entrée en vigueur du plafond, d'une
+ * manière que le plafond aurait pu changer ?
+ *
+ * Les deux conditions comptent. « Payé avant » ne suffit pas : un cycle sans
+ * aucune ligne assise sur des vues (0 $, forfait de talent seul, paie au clip)
+ * aurait donné le MÊME montant sous la nouvelle règle. Y accrocher une mention
+ * d'ancienne règle serait un avertissement sans objet — et à force d'en semer là
+ * où il ne s'est rien passé, on apprend à ne plus les lire.
+ *
+ * `cpm` et `bonus_tier` sont exactement les deux kinds que le plafond déplace
+ * (cf convex/pricing : payableViews → CPM, bonusTierViews → paliers). Le `fixed`
+ * est par vidéo, il ne dépend pas des vues.
+ */
+export function paidBeforePayWindow(payment: {
+  paidAt?: number | null;
+  lineItemKinds: readonly string[];
+}): boolean {
+  if (payment.paidAt === undefined || payment.paidAt === null) return false;
+  if (payment.paidAt >= PAY_WINDOW_EFFECTIVE_AT) return false;
+  return payment.lineItemKinds.some((k) => k === "cpm" || k === "bonus_tier");
+}
+
+/**
  * Premier instant EXCLU de la fenêtre de rémunération.
  *
  * `daysSincePublication = floor((capturedAt − datePubli) / jour)`, donc

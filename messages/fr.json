@@ -496,7 +496,8 @@
       "viewsBefore": "{count, plural, one {Plus que {views} vue avant {reward}.} other {Plus que {views} vues avant {reward}.}}",
       "paidLabel": "Payé",
       "paidOn": "Payé le {date}",
-      "rewardFallback": "Récompense"
+      "rewardFallback": "Récompense",
+      "preCapNotice": "Rémunération calculée le {paid}, avant l'entrée en vigueur du plafond de 30 jours (le {effective}). Les vues acquises au-delà de 30 jours y comptent encore."
     },
     "videos": {
       "trackingActive": "Suivi actif",
