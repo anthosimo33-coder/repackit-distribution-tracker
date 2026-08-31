@@ -192,8 +192,10 @@ describe("buildDayDetail — connexion et facturation restent séparés", () => 
   });
 
   it("ne retient que les lignes du jour, classées par revenu", () => {
+    // Les libellés sortent HUMANISÉS du module (cf « libellés pays » plus bas) :
+    // c'est l'ordre qu'on vérifie ici, pas la forme du code.
     const d = buildDayDetail(socle);
-    expect(d.billingCountries.map((r) => r.label)).toEqual(["FR", "BE"]);
+    expect(d.billingCountries.map((r) => r.label)).toEqual(["France", "Belgique"]);
   });
 
   it("un jour sans paiement n'invente aucune ligne pays", () => {
@@ -205,5 +207,60 @@ describe("buildDayDetail — connexion et facturation restent séparés", () => 
   it("un jour avec SEULEMENT des ventes n'est pas vide", () => {
     const d = buildDayDetail({ ...socle, countries: [] });
     expect(d.isEmpty).toBe(false);
+  });
+});
+
+/**
+ * LIBELLÉS PAYS — humanisés DANS LE MODULE, pas à l'écran.
+ *
+ * Le défaut : le rendu décidait de traduire ou non en reniflant un préfixe de
+ * clé React (`k.startsWith("b:")`). Écrit quand les pays de connexion étaient
+ * des noms anglais, ce test est devenu FAUX dès que la requête est passée au
+ * code ISO — le groupe connexion affichait « FR, RS, BE, BA, CH, MK ».
+ *
+ * Un composant ne peut plus se tromper : les deux groupes pays sortent d'ici
+ * déjà humanisés, et les refs — dont les slugs peuvent ressembler à des codes —
+ * n'y touchent pas.
+ */
+describe("buildDayDetail — libellés pays", () => {
+  const JOUR = "2026-08-29";
+  const socle = {
+    day: JOUR,
+    countries: [
+      { day: JOUR, country: "FR", visitors: 982, signups: 441, checkouts: 88 },
+      { day: JOUR, country: "BA", visitors: 12, signups: 1, checkouts: 0 },
+    ],
+    billingCountries: [
+      { day: JOUR, country: "CH", clients: 2, renewals: 1, failures: 0, net: 19.5 },
+    ],
+    refs: [
+      // Slug de DEUX LETTRES : traduit, il deviendrait « Belgique ».
+      { day: JOUR, ref: "be", visitors: 5, signups: 1, clients: 1, renewals: 0, failures: 0, net: 9.27 },
+    ],
+    revenue: [],
+  };
+
+  it("le groupe CONNEXION est humanisé", () => {
+    const d = buildDayDetail(socle);
+    expect(d.countries.map((r) => r.label)).toEqual(["France", "Bosnie-Herzégovine"]);
+  });
+
+  it("le groupe FACTURATION aussi", () => {
+    expect(buildDayDetail(socle).billingCountries[0].label).toBe("Suisse");
+  });
+
+  it("les REFS ne sont JAMAIS traduites — un slug « be » reste « be »", () => {
+    // Contrôle opposé : traduire ici renommerait une créatrice en pays.
+    expect(buildDayDetail(socle).refs[0].label).toBe("be");
+  });
+
+  it("un code inconnu reste brut, un pays absent est nommé", () => {
+    const d = buildDayDetail({
+      ...socle,
+      countries: [{ day: JOUR, country: "ZY", visitors: 1, signups: 0, checkouts: 0 }],
+      billingCountries: [{ day: JOUR, country: null, clients: 1, renewals: 0, failures: 0, net: 9 }],
+    });
+    expect(d.countries[0].label).toBe("ZY");
+    expect(d.billingCountries[0].label).toBe("Pays non renseigné");
   });
 });

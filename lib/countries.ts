@@ -28,7 +28,14 @@ export const COUNTRY_LABELS: Record<string, string> = {
   AR: "🇦🇷 Argentine",
 };
 
-/** Code → libellé (drapeau + nom), fallback sur le code brut. null si non défini. */
+/**
+ * Code → libellé (drapeau + nom), fallback sur le code brut. null si non défini.
+ *
+ * ⚠️ LISTE FERMÉE, volontairement : elle est en phase avec la validation serveur
+ * et sert les SÉLECTEURS. Pour afficher un pays venu de la DONNÉE (analytics,
+ * facturation Whop), utiliser `isoCountryLabel` de `lib/country-name`, adossé à
+ * ICU — celle-ci rendrait « BE » ou « CH » en code brut.
+ */
 export function countryLabel(code: string | null | undefined): string | null {
   if (!code) return null;
   return COUNTRY_LABELS[code] ?? code;

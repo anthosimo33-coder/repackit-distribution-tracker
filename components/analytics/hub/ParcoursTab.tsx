@@ -26,7 +26,7 @@ import {
   pctFromFraction,
 } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
-import { countryLabel } from "@/lib/country-name";
+import { isoCountryLabel } from "@/lib/country-name";
 import { formatMoney } from "@/lib/format-rate";
 import {
   buildSegmentRows,
@@ -524,7 +524,7 @@ export function ParcoursTab({
           payload={analytics.funnels.country}
           colonne="Pays"
           split={analytics.serverSideSplit.rows}
-          libelle={countryLabel}
+          libelle={isoCountryLabel}
           sansVentes
           note="Une personne qui visite depuis un pays et achète depuis un autre compte dans les deux : les lignes ne s'additionnent pas en un total."
         />
@@ -681,7 +681,7 @@ function SegmentFunnelCard({
   /** Répartition client/serveur — seulement pour le découpage géographique. */
   split?: readonly SplitRow[];
   /**
-   * Traduction du libellé de segment. ⚠️ NE PAS passer `countryLabel` à la carte
+   * Traduction du libellé de segment. ⚠️ NE PAS passer `isoCountryLabel` à la carte
    * des LANGUES : « fr » y rendrait « France » et « en » « EN ». Les deux
    * vocabulaires se ressemblent et ne veulent pas dire la même chose.
    */
@@ -901,7 +901,7 @@ function BillingCountriesCard({ billing }: { billing: BillingCountriesData | und
               {billing.rows.map((r) => (
                 <TableRow key={r.country ?? "(sans pays)"}>
                   <TableCell className="text-xs font-medium text-slate-700">
-                    {countryLabel(r.country)}
+                    {isoCountryLabel(r.country)}
                   </TableCell>
                   <TableCell className="text-right text-xs tabular-nums">
                     {formatNumber(r.clients)}

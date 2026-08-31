@@ -20,6 +20,8 @@
  * se lirait comme une recette.
  */
 
+import { isoCountryLabel } from "./country-name";
+
 export interface CountryDay {
   day: string;
   country: string;
@@ -99,7 +101,11 @@ export function buildDayDetail(input: {
     .filter((c) => c.day === input.day)
     .sort((a, b) => b.visitors - a.visitors || (a.country < b.country ? -1 : 1))
     .map((c) => ({
-      label: c.country,
+      // HUMANISÉ ICI, pas à l'écran. Le rendu décidait de traduire en reniflant
+      // un préfixe de clé React — écrit quand les pays de connexion étaient des
+      // noms anglais, ce test est devenu faux dès que la requête est passée au
+      // code ISO, et le groupe affichait « FR, RS, BE, BA, CH, MK ».
+      label: isoCountryLabel(c.country),
       visitors: c.visitors,
       signups: c.signups,
       checkouts: c.checkouts,
@@ -134,7 +140,7 @@ export function buildDayDetail(input: {
     .filter((b) => b.day === input.day)
     .sort((a, b) => b.net - a.net || b.clients - a.clients)
     .map((b) => ({
-      label: b.country ?? "Pays non renseigné",
+      label: isoCountryLabel(b.country),
       // NON MESURABLE par pays de facturation : le trafic est compté par pays de
       // CONNEXION, sur l'IP. Un 0 ici se lirait « personne n'est venu de ce
       // pays », alors qu'on n'y mesure pas le trafic du tout.
