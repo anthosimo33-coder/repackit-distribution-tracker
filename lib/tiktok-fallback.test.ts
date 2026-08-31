@@ -3,6 +3,7 @@ import type { ActionCtx } from "../convex/_generated/server";
 import type { Id } from "../convex/_generated/dataModel";
 import {
   recoverMissingTikTokPosts,
+  splitFallbackBudget,
   MAX_FALLBACK_FETCHES,
 } from "../convex/tiktokFallback";
 
@@ -207,5 +208,65 @@ describe("recoverMissingTikTokPosts", () => {
       // d'un timer (marge basse volontaire : un runner chargé peut dériver).
       expect(Date.now() - t0).toBeGreaterThanOrEqual(70);
     })();
+  });
+});
+
+describe("splitFallbackBudget — le budget de la NUIT, pas seulement du lot", () => {
+  const cibles = (n: number) => Array.from({ length: n }, (_, i) => `p${i}`);
+
+  it("Instagram n'appelle JAMAIS — le payload public est propre à TikTok", () => {
+    const r = splitFallbackBudget(cibles(5), "Instagram", 60);
+    expect(r.aTenter).toEqual([]);
+    // PRÉSENCE : rien n'est perdu, tout part en échec inscrit.
+    expect(r.sansAppel).toHaveLength(5);
+    expect(r.budgetRestant).toBe(60);
+  });
+
+  it("TikTok appelle dans la limite du budget RESTANT", () => {
+    const r = splitFallbackBudget(cibles(10), "TikTok", 60);
+    expect(r.aTenter).toHaveLength(10);
+    expect(r.sansAppel).toEqual([]);
+    expect(r.budgetRestant).toBe(50);
+  });
+
+  it("le surplus n'est pas perdu : inscrit en échec, sans appel réseau", () => {
+    const r = splitFallbackBudget(cibles(25), "TikTok", 10);
+    expect(r.aTenter).toHaveLength(10);
+    expect(r.sansAppel).toHaveLength(15);
+    expect(r.budgetRestant).toBe(0);
+  });
+
+  it("budget épuisé → plus AUCUN appel, mais tout reste visible", () => {
+    const r = splitFallbackBudget(cibles(25), "TikTok", 0);
+    expect(r.aTenter).toEqual([]);
+    expect(r.sansAppel).toHaveLength(25);
+    expect(r.budgetRestant).toBe(0);
+  });
+
+  it("PANNE APIFY TOTALE — le repli ne devient pas la collecte principale", () => {
+    // 9 lots de 25 arrivent tous dans le repli (crédits épuisés). Sans budget
+    // de nuit, ce serait 225 lectures depuis l'IP unique de Convex.
+    let budget = 60;
+    let appels = 0;
+    let inscrits = 0;
+    for (let lot = 0; lot < 9; lot++) {
+      const r = splitFallbackBudget(cibles(25), "TikTok", budget);
+      appels += r.aTenter.length;
+      inscrits += r.sansAppel.length;
+      budget = r.budgetRestant;
+    }
+    expect(appels).toBe(60);
+    expect(appels + inscrits).toBe(225); // aucun post perdu
+    expect(budget).toBe(0);
+  });
+
+  it("un budget négatif ne rend pas une tranche à l'envers", () => {
+    // ⚠️ Le cas doit être choisi avec soin : `slice(0, -5)` sur 3 éléments rend
+    // DÉJÀ [] par accident, donc ce test-là ne prouverait rien. Avec 10
+    // éléments et −2, une tranche non gardée rendrait les 8 premiers — c'est-à-dire
+    // qu'on appellerait le réseau alors que le budget est épuisé.
+    const r = splitFallbackBudget(cibles(10), "TikTok", -2);
+    expect(r.aTenter).toEqual([]);
+    expect(r.sansAppel).toHaveLength(10);
   });
 });
