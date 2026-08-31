@@ -95,6 +95,20 @@ describe("toCount", () => {
     expect(toCount(NaN)).toBeNull();
     expect(toCount(Infinity)).toBeNull();
   });
+
+  it("rejette les NÉGATIFS — code d'absence, jamais un compteur", () => {
+    // `likesCount: -1` est ce que l'actor Instagram renvoie quand le compte
+    // masque ses likes. Rendu tel quel, il s'affichait « -1 like » et rendait
+    // le taux d'engagement négatif. Aucun compteur de cette chaîne (vues,
+    // likes, commentaires, saves, abonnés) n'admet de négatif légitime.
+    expect(toCount(-1)).toBeNull();
+    expect(toCount("-1")).toBeNull();
+    expect(toCount(-4_211)).toBeNull();
+    expect(toCount(-Infinity)).toBeNull();
+    // 0 reste une MESURE, et le reste.
+    expect(toCount(0)).toBe(0);
+    expect(toCount("0")).toBe(0);
+  });
 });
 
 // ─── Parse TikTok ────────────────────────────────────────────────────────────
@@ -244,6 +258,46 @@ describe("parseInstagramViews", () => {
 
   it("ne crash pas sur une réponse non-array", () => {
     expect(parseInstagramViews("nope", ["Cx"]).unavailable).toEqual(["Cx"]);
+  });
+
+  it("likes MASQUÉS (likesCount: -1) → null, et le post reste relevé", () => {
+    // Items recopiés d'un run réel de l'actor sur des posts Snytch dont le
+    // compte masque le nombre de likes : `likesCount: -1`, `videoViewCount`
+    // absent, `videoPlayCount` renseigné. C'est le cas des 63 publications
+    // trouvées en prod. Le post N'EST PAS perdu — seuls ses likes le sont.
+    const items = [
+      {
+        shortCode: "DcraIz6seQJ",
+        type: "Video",
+        likesCount: -1,
+        commentsCount: 0,
+        videoPlayCount: 163,
+        videoViewCount: null,
+        url: "https://www.instagram.com/p/DcraIz6seQJ/",
+      },
+      {
+        shortCode: "DcY8lwlsHqf",
+        type: "Video",
+        likesCount: -1,
+        commentsCount: 2,
+        videoPlayCount: 2_227,
+        videoViewCount: null,
+        url: "https://www.instagram.com/p/DcY8lwlsHqf/",
+      },
+    ];
+    const { stats, unavailable } = parseInstagramViews(items, [
+      "DcraIz6seQJ",
+      "DcY8lwlsHqf",
+    ]);
+    expect(unavailable).toEqual([]);
+    // PRÉSENCE : vues et commentaires continuent d'être relevés...
+    expect(stats["DcraIz6seQJ"].views).toBe(163);
+    expect(stats["DcraIz6seQJ"].comments).toBe(0);
+    expect(stats["DcY8lwlsHqf"].views).toBe(2_227);
+    expect(stats["DcY8lwlsHqf"].comments).toBe(2);
+    // ...ABSENCE : et seuls les likes tombent à null, jamais à -1 ni à 0.
+    expect(stats["DcraIz6seQJ"].likes).toBeNull();
+    expect(stats["DcY8lwlsHqf"].likes).toBeNull();
   });
 });
 

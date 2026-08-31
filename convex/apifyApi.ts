@@ -49,11 +49,27 @@ export type ApifyPlatform = "TikTok" | "Instagram";
 
 // ─── Répliques pures (lib/apifyPosts.ts) ─────────────────────────────────────
 
+/**
+ * "123" → 123 ; nombre fini POSITIF OU NUL → lui-même ; tout le reste → null.
+ *
+ * UN NÉGATIF EST UN CODE D'ABSENCE, PAS UN COMPTEUR. L'actor Instagram renvoie
+ * `likesCount: -1` quand le compte masque ses likes ; stocké tel quel, il
+ * s'affichait « -1 like », faussait les sommes et rendait le taux d'engagement
+ * NÉGATIF. Aucun compteur qui passe par ici n'admet de négatif légitime (vues,
+ * likes, commentaires, saves, abonnés/abonnements/likes cumulés). Le seul
+ * compteur du domaine qui en admettrait un — `subsGained`, une perte d'abonnés
+ * — est une saisie manuelle et ne passe PAS par cette fonction.
+ *
+ * `null` veut dire « non collecté », comme pour une valeur absente : c'est
+ * l'appelant qui décide quoi en faire, et il le décide déjà (cf `parseSaves`).
+ */
 function toCount(value: unknown): number | null {
-  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  }
   if (typeof value === "string" && value.trim() !== "") {
     const n = Number(value);
-    return Number.isFinite(n) ? n : null;
+    return Number.isFinite(n) && n >= 0 ? n : null;
   }
   return null;
 }
