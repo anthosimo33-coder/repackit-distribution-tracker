@@ -491,6 +491,27 @@ export default defineSchema({
     // des snapshots existants). undefined = aucun snapshot OU row pas encore
     // reprocessée (fallback recalcul depuis datePubli côté lecture).
     latestSnapshotDaysSince: v.optional(v.number()),
+    // ─── ÉCHEC DE COLLECTE — persisté, parce qu'un console.warn ne compte pas ──
+    // Jusqu'ici, un post qu'Apify n'arrivait pas à relever produisait un
+    // `console.warn` agrégé et RIEN d'autre. Conséquence mesurée le 2026-08-31 :
+    // 10 publications Snytch n'avaient jamais été relevées — l'une depuis 26
+    // jours, à 39 000 vues réelles — sans qu'aucune alerte ne parte. L'alerte
+    // existante (`failedComptes`) ne se déclenche que si TOUTES les vidéos d'un
+    // compte échouent ; ces comptes avaient des vidéos qui marchaient.
+    //
+    // Ces trois champs rendent l'échec DURABLE et donc comptable. Absents = la
+    // publication n'a jamais échoué (ou a réussi depuis : la réussite les efface,
+    // cf recordApifySnapshot).
+    /** Instant du dernier échec de collecte (Apify ET repli maison). */
+    lastCollectFailureAt: v.optional(v.number()),
+    /** Échecs CONSÉCUTIFS. Remis à zéro par le premier relevé réussi. */
+    collectFailureStreak: v.optional(v.number()),
+    /**
+     * Motif du dernier échec, en clair et destiné à être LU par un humain
+     * (ex. « visible par son autrice uniquement », « HTTP 429 »). C'est ce qui
+     * permet à l'écran de dire pourquoi, au lieu d'afficher « 0 vue ».
+     */
+    lastCollectFailureReason: v.optional(v.string()),
     // ─── QUADRANT « Vues × Intent » — classement DÉRIVÉ, recalculé la nuit ────
     // Même nature que les champs `*Latest` ci-dessus : une valeur dénormalisée
     // qu'aucune saisie ne produit, écrite par un job et relue telle quelle par
