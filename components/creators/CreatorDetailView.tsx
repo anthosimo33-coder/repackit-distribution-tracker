@@ -75,6 +75,19 @@ import {
   normalizeLocale,
   type Locale,
 } from "@/i18n/locales";
+import {
+  TIMEZONE_CHOICES,
+  utcOffsetLabel,
+} from "@/convex/creatorDay";
+
+/**
+ * Valeur sentinelle du <Select> pour « non défini ».
+ *
+ * Un `<SelectItem value="">` est refusé par le composant partagé (il confond la
+ * chaîne vide avec « rien de sélectionné »), d'où la sentinelle — même patron
+ * que COUNTRY_NONE dans CompteDialog.
+ */
+const TZ_NONE = "none";
 
 type Creator = NonNullable<FunctionReturnType<typeof api.creators.getCreator>>;
 
@@ -114,6 +127,22 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
     normalizeLocale(creator.locale) ?? DEFAULT_LOCALE,
   );
   const [refSlug, setRefSlug] = useState(creator.refSlug ?? "");
+  // FUSEAU de la créatrice. "" = à définir (le champ est effacé en base, et la
+  // déduction depuis le pays de ses comptes reprend la main). On garde la valeur
+  // STOCKÉE et non la valeur résolue : afficher la déduction dans le <Select>
+  // ferait croire qu'elle est enregistrée, et le premier « Enregistrer » la
+  // figerait en « admin » — une supposition promue en fait sans que personne
+  // ne l'ait décidé.
+  const [timezone, setTimezone] = useState(creator.timezone ?? "");
+  // Provenance RÉSOLUE par le serveur (fiche, sinon pays des comptes). Servie et
+  // non recalculée ici : la déduction lit les comptes, que cet écran n'a pas.
+  const zoneInfo = useProjectQuery(api.creators.getCreatorTimezone, {
+    id: creator._id,
+  });
+  const timezoneLabel =
+    timezone === ""
+      ? "Non défini"
+      : (TIMEZONE_CHOICES.find((c) => c.zone === timezone)?.label ?? timezone);
   // Tarif de la personne — un seul des deux selon sa population (cf bloc JSX).
   const [population, setPopulation] = useState<string>(kind);
   const [tarif, setTarif] = useState(
@@ -183,6 +212,9 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
         // Vide = retirer la ref → la créatrice repasse « pas de ref
         // configurée » dans la section conversion, jamais à zéro.
         refSlug: refSlug.trim() === "" ? null : refSlug,
+        // Vide = effacer le fuseau (retour à « à définir »), jamais un repli
+        // sur Paris. Écrire ici pose la provenance « admin » côté serveur.
+        timezone: timezone === "" ? null : timezone,
         handlesToCreate: {
           tiktok: handleTiktok.trim() || undefined,
           youtube: handleYoutube.trim() || undefined,
@@ -480,6 +512,72 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
                 Langue des e-mails, de son espace, et de l&apos;aperçu « Voir son
                 espace ». Une fois son compte créé, sa propre préférence (Profil)
                 prend le dessus.
+              </p>
+            </div>
+            {/*
+              FUSEAU HORAIRE — « quel jour est-il pour elle ? ».
+              
+              Ce champ ne décore pas : il décide de la date des checks de warmup,
+              donc du compteur de jours manqués. Avant lui, tout tournait sur la
+              journée UTC et une créatrice qui cochait à 21 h à New York perdait
+              un jour de chauffe (cf docs/diagnostic-fuseaux.md).
+
+              La PROVENANCE est affichée à côté de la valeur, exprès : dans six
+              mois, il faut pouvoir lire une fiche et savoir si America/New_York
+              est un FAIT (elle l'a confirmé) ou une SUPPOSITION (déduit du pays
+              de ses comptes). « à confirmer » tant que ce n'est pas elle.
+            */}
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="creator-timezone">Fuseau horaire</Label>
+                {zoneInfo && zoneInfo.timezone !== null && (
+                  <span
+                    className={
+                      zoneInfo.source === "confirmed"
+                        ? "rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700"
+                        : "rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700"
+                    }
+                  >
+                    {zoneInfo.source === "confirmed"
+                      ? "confirmé par elle"
+                      : zoneInfo.source === "admin"
+                        ? "saisi — à confirmer"
+                        : "déduit du pays — à confirmer"}
+                  </span>
+                )}
+                {zoneInfo && zoneInfo.timezone === null && (
+                  <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                    à définir
+                  </span>
+                )}
+              </div>
+              <Select
+                value={timezone}
+                onValueChange={(v) => setTimezone(v === TZ_NONE ? "" : (v ?? ""))}
+              >
+                <SelectTrigger id="creator-timezone" aria-label="Fuseau horaire">
+                  <SelectValue>{timezoneLabel}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={TZ_NONE}>Non défini</SelectItem>
+                  {TIMEZONE_CHOICES.map((c) => (
+                    <SelectItem key={c.zone} value={c.zone}>
+                      {c.label}
+                      {utcOffsetLabel(c.zone) ? ` — ${utcOffsetLabel(c.zone)}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-slate-500">
+                Sert de référence aux dates : jours de warmup, échéances et
+                relances. Laisser « non défini » plutôt que deviner — un pays ne
+                détermine pas un fuseau (les États-Unis en ont six).
+                {zoneInfo?.timezone && !creator.timezone && (
+                  <>
+                    {" "}
+                    Actuellement déduit : <strong>{zoneInfo.timezone}</strong>.
+                  </>
+                )}
               </p>
             </div>
           </div>

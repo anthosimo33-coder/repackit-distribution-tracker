@@ -40,6 +40,10 @@ export function WarmupProtocolSection({ compte }: { compte: Compte }) {
   const targetDefault = compte.targetDays;
   const [targetDays, setTargetDays] = useState(String(targetDefault));
   const [saving, setSaving] = useState(false);
+  // Instant figé au montage (convention du dépôt, cf ActionDashboard) : `Date.now()`
+  // en plein rendu est impur, et une valeur qui bouge à chaque rendu ferait
+  // clignoter le compteur de jours manqués.
+  const [now] = useState(() => Date.now());
   const [activating, setActivating] = useState(false);
 
   const dailyChecks = protocol?.dailyChecks ?? [];
@@ -50,7 +54,12 @@ export function WarmupProtocolSection({ compte }: { compte: Compte }) {
       : null;
   const missed =
     compte.warmupStartedAt !== undefined
-      ? missedDays(compte.warmupStartedAt, dailyChecks, target)
+      ? missedDays(
+          compte.warmupStartedAt,
+          dailyChecks,
+          target,
+          now,
+        )
       : 0;
   const last = lastCheck(dailyChecks);
 

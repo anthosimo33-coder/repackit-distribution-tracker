@@ -1,11 +1,26 @@
 /**
  * P5 — Réplique SERVEUR des helpers warmup (règle A6 : convex/ ne peut pas
  * importer lib/). Doit rester en phase avec lib/warmup.ts (mêmes valeurs, même
- * sémantique UTC). Les tests de référence vivent côté lib (lib/warmup.test.ts).
+ * sémantique). Les tests de référence vivent côté lib (lib/warmup.test.ts).
  *
  * Pas de `export const meta`/fonction Convex ici : module de pures fonctions
  * importé par convex/comptes.ts.
+ *
+ * ⚠️ LE JOUR N'EST PLUS UTC — il est celui de la CRÉATRICE. Le décompte de
+ * warmup suivait la journée UTC, ce qui faisait perdre un jour à toute
+ * créatrice qui cochait après 20 h heure de New York : son check partait dans
+ * la journée UTC du LENDEMAIN, et son check du lendemain matin était refusé
+ * (« le check du jour est déjà fait »). Le fuseau vient désormais de
+ * `creators.timezone`, via `convex/creatorDay.ts` — définition UNIQUE du jour
+ * dans tout le dépôt. Cf docs/diagnostic-fuseaux.md.
  */
+import { dayKey, zoneOrNeutral, type CreatorZone } from "./creatorDay";
+
+export type { CreatorZone };
+
+const DAY_MS = 86_400_000;
+
+
 
 // Réplique de lib/warmup (A6). Barème de DERNIER RECOURS : la durée de warmup
 // est une règle PRODUIT par projet (projects.warmupTargetDays), pas une
@@ -64,14 +79,25 @@ export function defaultTargetDays(
   }
 }
 
-/** Clé de jour "YYYY-MM-DD" en UTC (cf lib/warmup.todayKey). */
-export function todayKey(now: number): string {
-  return new Date(now).toISOString().slice(0, 10);
+/**
+ * Clé de jour "YYYY-MM-DD" TELLE QUE LA CRÉATRICE LA VIT (cf lib/warmup).
+ *
+ * Remplace l'ancienne clé UTC. `tz` null ⇒ UTC (comportement d'avant, explicite).
+ */
+export function todayKey(now: number, tz: CreatorZone): string {
+  return dayKey(now, zoneOrNeutral(tz));
 }
 
-const DAY_MS = 86_400_000;
-
-/** Jours pleins écoulés depuis le début du warmup (réplique de lib/warmup.daysElapsed). */
+/**
+ * Jours pleins écoulés depuis le début du warmup (réplique de lib/warmup).
+ *
+ * ⚠️ PAS de fuseau ici, et c'est VOLONTAIRE. Cette fonction ne dérive aucune
+ * date : elle divise un écart d'instants. Elle est donc déjà indépendante du
+ * fuseau, et lui en passer un CHANGERAIT sa sémantique — « jours calendaires
+ * franchis » au lieu de « tranches de 24 h révolues » — ce qui ferait apparaître
+ * un jour manqué de plus dès le lendemain matin d'un warmup commencé le soir.
+ * Le chantier fuseaux corrige QUI compte le jour du check, pas la durée écoulée.
+ */
 export function daysElapsed(warmupStartedAt: number, now: number): number {
   return Math.floor((now - warmupStartedAt) / DAY_MS);
 }
@@ -94,9 +120,13 @@ export function missedDays(
   return Math.max(0, fullDays - dailyChecks.length);
 }
 
-/** Le check du jour est-il déjà posé ? */
-export function checkedToday(dailyChecks: string[], now: number): boolean {
-  return dailyChecks.includes(todayKey(now));
+/** Le check du jour est-il déjà posé, DANS LE FUSEAU DE LA CRÉATRICE ? */
+export function checkedToday(
+  dailyChecks: string[],
+  now: number,
+  tz: CreatorZone,
+): boolean {
+  return dailyChecks.includes(todayKey(now, tz));
 }
 
 // ─── Chantier B — progression par CHECKS RÉELS (réplique de lib/warmup) ───────
@@ -127,14 +157,15 @@ export function isWarmupComplete(
   return checksCompleted(c) >= effectiveTargetDays(c, days);
 }
 
-/** Check dû aujourd'hui : warmup non terminé ET pas coché aujourd'hui (UTC). */
+/** Check dû aujourd'hui : warmup non terminé ET pas coché aujourd'hui (fuseau créatrice). */
 export function mustCheckToday(
   c: WarmupCompteLike,
   days: WarmupTargetDays,
   now: number,
+  tz: CreatorZone,
 ): boolean {
   if (isWarmupComplete(c, days)) return false;
-  return !checkedToday(c.warmupProtocol?.dailyChecks ?? [], now);
+  return !checkedToday(c.warmupProtocol?.dailyChecks ?? [], now, tz);
 }
 
 type CompteStatusLike = "warmup" | "actif" | "shadowban" | "archived";

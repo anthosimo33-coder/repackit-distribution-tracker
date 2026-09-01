@@ -38,6 +38,8 @@ import type * as conversionAttribution from "../conversionAttribution.js";
 import type * as conversionSync from "../conversionSync.js";
 import type * as countries from "../countries.js";
 import type * as creatorAssignmentFields from "../creatorAssignmentFields.js";
+import type * as creatorDay from "../creatorDay.js";
+import type * as creatorTimezone from "../creatorTimezone.js";
 import type * as creatorVideos from "../creatorVideos.js";
 import type * as creators from "../creators.js";
 import type * as crons from "../crons.js";
@@ -183,6 +185,8 @@ declare const fullApi: ApiFromModules<{
   conversionSync: typeof conversionSync;
   countries: typeof countries;
   creatorAssignmentFields: typeof creatorAssignmentFields;
+  creatorDay: typeof creatorDay;
+  creatorTimezone: typeof creatorTimezone;
   creatorVideos: typeof creatorVideos;
   creators: typeof creators;
   crons: typeof crons;

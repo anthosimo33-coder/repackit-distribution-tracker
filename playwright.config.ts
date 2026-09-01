@@ -18,6 +18,16 @@ export default defineConfig({
     screenshot: "only-on-failure",
     video: "retain-on-failure",
     locale: "fr-FR",
+    // ⚠️ FUSEAU PAR DÉFAUT — épinglé, et il DOIT le rester.
+    //
+    // Ce n'est pas ce pin qui rendait les bugs de fuseau invisibles : c'est
+    // qu'AUCUN projet ne tournait ailleurs qu'à Paris. Le retirer purement et
+    // simplement ferait tourner les 167 specs dans le fuseau du runner (UTC en
+    // CI, Paris en local) : les mêmes specs donneraient des résultats différents
+    // selon la machine, et on aurait troqué un angle mort contre du flake.
+    //
+    // Le remède est le projet `chromium-newyork` ci-dessous : un fuseau
+    // DÉTERMINISTE, mais un AUTRE. Cf docs/diagnostic-fuseaux.md, étape 0.
     timezoneId: "Europe/Paris",
   },
 
@@ -34,6 +44,27 @@ export default defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
       dependencies: ["setup"],
+      // Le projet New York rejoue ces specs-là : ne pas les compter deux fois.
+      testIgnore: /.*\.newyork\.spec\.ts/,
+    },
+    // ─── ESPACE CRÉATRICE, VU DEPUIS NEW YORK ─────────────────────────────────
+    // Une partie des créatrices vit aux États-Unis, l'équipe est en France. Tant
+    // que TOUTES les specs tournaient à Paris, aucune ne pouvait attraper un
+    // décalage de jour : le navigateur de test avait la même horloge que celui
+    // qui écrivait la donnée, et les deux se trompaient ensemble.
+    //
+    // `America/New_York` et non un fuseau au hasard : c'est le défaut du pays
+    // le plus représenté hors France dans la base, et il franchit minuit UTC en
+    // soirée locale — l'heure exacte où les créatrices cochent leur warmup.
+    //
+    // Périmètre volontairement ÉTROIT (`*.newyork.spec.ts`) : rejouer les 167
+    // specs deux fois doublerait la CI pour ne rien prouver de plus. Une spec
+    // rejoint ce projet quand elle porte sur une DATE VUE PAR LA CRÉATRICE.
+    {
+      name: "chromium-newyork",
+      use: { ...devices["Desktop Chrome"], timezoneId: "America/New_York" },
+      dependencies: ["setup"],
+      testMatch: /.*\.newyork\.spec\.ts/,
     },
   ],
 

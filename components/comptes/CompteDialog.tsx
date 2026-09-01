@@ -67,6 +67,17 @@ export type Compte = Doc<"comptes"> & {
    */
   targetDays: number;
   warmupDone: boolean;
+  /**
+   * Fuseau (IANA) de la créatrice PROPRIÉTAIRE du compte, résolu par le serveur
+   * — `null` quand il est encore à définir.
+   *
+   * Servi pour la même raison que `targetDays` : tout écran qui compte des
+   * JOURS (jours manqués, « déjà coché aujourd'hui », « en retard ») doit le
+   * faire dans l'horloge de la créatrice. Le recalculer côté navigateur le
+   * ferait dans celle de l'équipe — c'est exactement le défaut corrigé par le
+   * chantier fuseaux (cf docs/diagnostic-fuseaux.md).
+   */
+  creatorTimezone: string | null;
 };
 
 const STATUS_OPTIONS: { value: CompteStatus; label: string; dot: string }[] = [

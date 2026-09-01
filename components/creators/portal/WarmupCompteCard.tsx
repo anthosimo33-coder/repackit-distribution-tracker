@@ -21,7 +21,7 @@ import {
   getEffectiveWarmupDuration,
   type Plateforme,
 } from "@/lib/compte-status";
-import { warmupProgress, checkedToday, mustCheckToday } from "@/lib/warmup";
+import { warmupProgress, mustCheckToday } from "@/lib/warmup";
 import { useLabel } from "@/lib/use-label";
 import { useTranslations } from "next-intl";
 
@@ -65,7 +65,9 @@ export function WarmupCompteCard({
     isWarmup && compte.warmupStartedAt !== undefined
       ? warmupProgress(dailyChecks.length, targetDays)
       : null;
-  const doneToday = checkedToday(dailyChecks);
+  // Servi par le serveur (comme targetDays et dueToday) : le calculer ici le
+  // ferait dans le fuseau du NAVIGATEUR, qui n'est pas forcément le sien.
+  const doneToday = compte.doneToday;
   // Warmup à faire/rattraper aujourd'hui (non terminé ET pas coché aujourd'hui).
   // Servi par le serveur, comme la durée : aucun calcul de warmup côté écran.
   const dueToday = isWarmup && compte.dueToday;
