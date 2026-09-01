@@ -52,6 +52,36 @@ export type FallbackOutcome = {
   recoveredIds: string[];
 };
 
+/**
+ * Répartit les posts manquants d'un lot entre « on appelle » et « on inscrit
+ * l'échec sans appeler ».
+ *
+ * Fonction PURE, extraite du cron pour être testable — la règle qu'elle porte
+ * est trop conséquente pour vivre dans une action Convex que rien ne couvre :
+ *   - hors TikTok, on n'appelle JAMAIS (le payload public est propre à TikTok) ;
+ *   - sur TikTok, on appelle dans la limite du budget RESTANT de la nuit ;
+ *   - le surplus n'est pas perdu : il est inscrit en échec, donc visible, et
+ *     repassera la nuit suivante.
+ *
+ * Le budget de nuit existe pour un scénario précis : Apify tombe entièrement
+ * (crédits épuisés) et TOUS les lots atterrissent dans le repli. Sans borne
+ * globale, le repli deviendrait la collecte principale — ~220 lectures depuis
+ * l'IP unique de Convex, jamais testé à ce volume.
+ */
+export function splitFallbackBudget<T>(
+  manques: readonly T[],
+  plateforme: "TikTok" | "Instagram",
+  budget: number,
+): { aTenter: T[]; sansAppel: T[]; budgetRestant: number } {
+  const place = plateforme === "TikTok" ? Math.max(0, budget) : 0;
+  const aTenter = manques.slice(0, place);
+  return {
+    aTenter,
+    sansAppel: manques.slice(aTenter.length),
+    budgetRestant: budget - aTenter.length,
+  };
+}
+
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
 
