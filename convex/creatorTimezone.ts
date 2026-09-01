@@ -38,6 +38,12 @@ type Ctx = {
 export type ResolvedZone = {
   timezone: CreatorZone;
   source: TimezoneSource | null;
+  /**
+   * La valeur est-elle ÉCRITE sur la fiche (figée), ou seulement calculée à la
+   * lecture ? Cf `creatorDay.resolveCreatorTimezone` — c'est ce qui permet à
+   * l'admin de distinguer une fiche gelée d'une fiche qui se corrigera seule.
+   */
+  stored: boolean;
 };
 
 /**
@@ -52,7 +58,7 @@ export async function creatorZone(
   creatorId: Id<"creators">,
 ): Promise<ResolvedZone> {
   const creator = await ctx.db.get(creatorId);
-  if (!creator) return { timezone: null, source: null };
+  if (!creator) return { timezone: null, source: null, stored: false };
 
   // Chemin rapide : une valeur stockée n'est jamais écrasée par la déduction.
   const direct = resolveCreatorTimezone(creator, []);

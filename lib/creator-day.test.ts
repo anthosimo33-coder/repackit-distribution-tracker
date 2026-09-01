@@ -208,7 +208,7 @@ describe("Résolution du fuseau d'une créatrice + PROVENANCE", () => {
         { timezone: NY, timezoneSource: "confirmed" },
         ["FR"],
       ),
-    ).toEqual({ timezone: NY, source: "confirmed" });
+    ).toEqual({ timezone: NY, source: "confirmed", stored: true });
   });
 
   it("une valeur confirmée n'est JAMAIS écrasée par le pays des comptes", () => {
@@ -225,13 +225,14 @@ describe("Résolution du fuseau d'une créatrice + PROVENANCE", () => {
   it("valeur posée par l'admin — retenue, et marquée comme telle", () => {
     expect(
       resolveCreatorTimezone({ timezone: LA, timezoneSource: "admin" }, ["US"]),
-    ).toEqual({ timezone: LA, source: "admin" });
+    ).toEqual({ timezone: LA, source: "admin", stored: true });
   });
 
   it("champ vide → déduction depuis les comptes, marquée « inferred »", () => {
     expect(resolveCreatorTimezone({}, ["US"])).toEqual({
       timezone: "America/New_York",
       source: "inferred",
+      stored: false,
     });
   });
 
@@ -239,10 +240,12 @@ describe("Résolution du fuseau d'une créatrice + PROVENANCE", () => {
     expect(resolveCreatorTimezone({}, [])).toEqual({
       timezone: null,
       source: null,
+      stored: false,
     });
     expect(resolveCreatorTimezone({}, ["US", "FR"])).toEqual({
       timezone: null,
       source: null,
+      stored: false,
     });
   });
 
@@ -266,7 +269,64 @@ describe("Résolution du fuseau d'une créatrice + PROVENANCE", () => {
     expect(resolveCreatorTimezone({}, ["FR"])).toEqual({
       timezone: PARIS,
       source: "inferred",
+      stored: false,
     });
+  });
+});
+
+describe("STOCKÉ vs VIVANT — distinguer une fiche figée d'une fiche qui bougera", () => {
+  /**
+   * Depuis le gel au premier check, `source: "inferred"` recouvre DEUX états
+   * très différents :
+   *   - la valeur est ÉCRITE sur la fiche (figée) — elle ne bougera plus, même
+   *     si on change le pays de ses comptes ;
+   *   - la valeur est CALCULÉE à la lecture — elle se corrigera toute seule.
+   * L'admin doit pouvoir les distinguer, sinon il ne sait pas s'il doit agir.
+   */
+  it("valeur écrite sur la fiche → stored: true", () => {
+    expect(
+      resolveCreatorTimezone(
+        { timezone: NY, timezoneSource: "inferred" },
+        ["US"],
+      ),
+    ).toEqual({ timezone: NY, source: "inferred", stored: true });
+  });
+
+  it("valeur seulement DÉDUITE à la lecture → stored: false", () => {
+    expect(resolveCreatorTimezone({}, ["US"])).toEqual({
+      timezone: "America/New_York",
+      source: "inferred",
+      stored: false,
+    });
+  });
+
+  it("une saisie admin et une confirmation sont TOUJOURS stockées", () => {
+    expect(
+      resolveCreatorTimezone({ timezone: LA, timezoneSource: "admin" }, []).stored,
+    ).toBe(true);
+    expect(
+      resolveCreatorTimezone({ timezone: NY, timezoneSource: "confirmed" }, []).stored,
+    ).toBe(true);
+  });
+
+  it("aucun fuseau → stored: false (il n'y a rien à figer)", () => {
+    expect(resolveCreatorTimezone({}, [])).toEqual({
+      timezone: null,
+      source: null,
+      stored: false,
+    });
+  });
+
+  it("figée sur une valeur DIFFÉRENTE du pays actuel — le cas qui compte", () => {
+    // Figée à New York, puis ses comptes passent en FR. La déduction dirait
+    // Paris ; la fiche doit rester à New York ET se dire figée, sinon l'admin
+    // croit que ça se corrigera tout seul et n'agit jamais.
+    const r = resolveCreatorTimezone(
+      { timezone: NY, timezoneSource: "inferred" },
+      ["FR"],
+    );
+    expect(r.timezone).toBe(NY);
+    expect(r.stored).toBe(true);
   });
 });
 

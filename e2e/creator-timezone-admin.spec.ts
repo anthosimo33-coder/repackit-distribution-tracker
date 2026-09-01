@@ -103,6 +103,73 @@ test.describe("Fiche créatrice — fuseau horaire", () => {
       .toBeNull();
   });
 
+  test("une saisie admin ÉCRASE une valeur GELÉE, et repasse la provenance en « admin »", async ({
+    page,
+  }) => {
+    // Le cas qui compte : une créatrice dont le fuseau a été DÉDUIT puis FIGÉ
+    // au premier check. Elle ne suit plus le pays de ses comptes — si le gel a
+    // retenu la mauvaise valeur, l'admin doit pouvoir la corriger d'un coup,
+    // sans avoir à passer par « non défini » d'abord.
+    const ts = Date.now();
+    const A = await createCreatorSession(convexUrl, {
+      name: `[E2E_TEST] TZ gel corrige ${ts}`,
+      email: `e2e-tzgel-${ts}@repackit.test`,
+      password: "creator-tzgel-12345",
+    });
+    const id = await A.client.mutation(api.comptes.declareCompte, {
+      projectId: A.projectId,
+      plateforme: "TikTok",
+      handle: `@e2etzgel${ts}`,
+    });
+    await convex.mutation(api.comptes.updateCompte, { id, targetCountry: "US" });
+    // Le check FIGE la déduction (America/New_York, provenance « inferred »).
+    await A.client.mutation(api.comptes.markWarmupCheck, {
+      projectId: A.projectId,
+      id,
+    });
+    const gele = await convex.query(api.creators.getCreatorTimezone, {
+      id: A.creatorId,
+    });
+    expect(gele).toEqual({
+      timezone: "America/New_York",
+      source: "inferred",
+      stored: true,
+    });
+
+    // L'écran DIT que c'est figé — sinon l'admin croit que ça se corrigera seul.
+    await page.goto(adminPath(`/createurs/${A.creatorId}`));
+    await expect(page.getByText("déduit puis FIGÉ — à confirmer")).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Correction en UN geste : on choisit Los Angeles et on enregistre.
+    await page.getByRole("combobox", { name: "Fuseau horaire" }).click();
+    await page.getByRole("option", { name: /Los Angeles/ }).click();
+    await page.getByRole("button", { name: /Enregistrer/ }).first().click();
+
+    await expect
+      .poll(
+        async () =>
+          await convex.query(api.creators.getCreatorTimezone, {
+            id: A.creatorId,
+          }),
+        { timeout: 10000 },
+      )
+      .toEqual({
+        timezone: "America/Los_Angeles",
+        source: "admin",
+        stored: true,
+      });
+
+    // Et un check POSTÉRIEUR suit bien la nouvelle valeur.
+    const comptes = await A.client.query(api.comptes.listMyComptes, {
+      projectId: A.projectId,
+    });
+    expect(comptes.find((c) => c._id === id)?.creatorTimezone).toBe(
+      "America/Los_Angeles",
+    );
+  });
+
   test("une fiche SANS fuseau ne casse ni la fiche, ni la liste (cas « Antho Test »)", async ({
     page,
   }) => {

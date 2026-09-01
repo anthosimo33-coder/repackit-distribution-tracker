@@ -312,11 +312,25 @@ export function inferTimezoneFromCountries(
  * ⚠️ `{ timezone: null, source: null }` est un RÉSULTAT LÉGITIME, pas une
  * erreur. Tout appelant doit le traiter — c'est ce qui rend le repli sur Paris
  * impossible par construction.
+ *
+ * ─── `stored` : FIGÉ ou VIVANT ───────────────────────────────────────────────
+ * Depuis le gel au premier check, `source: "inferred"` recouvre DEUX états que
+ * l'admin doit pouvoir distinguer :
+ *   - `stored: true`  — la valeur est ÉCRITE sur la fiche. Elle ne bougera plus,
+ *     même si le pays des comptes change. Il faut agir pour la corriger.
+ *   - `stored: false` — la valeur est CALCULÉE à la lecture. Elle se corrigera
+ *     toute seule le jour où le pays change, et se figera au premier check.
+ * Sans ce drapeau, une fiche gelée sur une mauvaise valeur est indiscernable
+ * d'une fiche qui va se corriger : l'admin croit n'avoir rien à faire.
  */
 export function resolveCreatorTimezone(
   creator: { timezone?: string | null; timezoneSource?: string | null },
   accountCountries: readonly string[] = [],
-): { timezone: string | null; source: TimezoneSource | null } {
+): {
+  timezone: string | null;
+  source: TimezoneSource | null;
+  stored: boolean;
+} {
   const stocke = creator.timezone;
   if (typeof stocke === "string" && isSupportedTimezone(stocke)) {
     // Une valeur stockée sans provenance lisible est traitée comme « admin » :
@@ -328,11 +342,11 @@ export function resolveCreatorTimezone(
         : creator.timezoneSource === "inferred"
           ? "inferred"
           : "admin";
-    return { timezone: stocke, source: src };
+    return { timezone: stocke, source: src, stored: true };
   }
   const deduit = inferTimezoneFromCountries(accountCountries);
-  if (deduit) return { timezone: deduit, source: "inferred" };
-  return { timezone: null, source: null };
+  if (deduit) return { timezone: deduit, source: "inferred", stored: false };
+  return { timezone: null, source: null, stored: false };
 }
 
 /**

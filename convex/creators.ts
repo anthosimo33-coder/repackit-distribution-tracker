@@ -956,7 +956,9 @@ export const confirmMyTimezone = creatorMutation({
       timezone: tz,
       timezoneSource: "confirmed",
     });
-    return { timezone: tz, source: "confirmed" as const };
+    // Même forme que `getMyTimezone` / `getCreatorTimezone` : un appelant qui
+    // compare les deux ne doit pas avoir à connaître deux contrats.
+    return { timezone: tz, source: "confirmed" as const, stored: true };
   },
 });
 

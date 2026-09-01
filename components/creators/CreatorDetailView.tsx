@@ -550,7 +550,9 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
                       ? "confirmé par elle"
                       : zoneInfo.source === "admin"
                         ? "saisi — à confirmer"
-                        : "déduit du pays — à confirmer"}
+                        : zoneInfo.stored
+                          ? "déduit puis FIGÉ — à confirmer"
+                          : "déduit du pays — à confirmer"}
                   </span>
                 )}
                 {zoneInfo && zoneInfo.timezone === null && (
@@ -580,11 +582,28 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
                 Sert de référence aux dates : jours de warmup, échéances et
                 relances. Un pays ne détermine pas un fuseau — les États-Unis en
                 ont six — donc mieux vaut « non défini » qu&apos;une supposition.
-                {zoneInfo?.timezone && !creator.timezone && (
+                {/*
+                  DEUX états très différents sous le même mot « déduit », et
+                  l'admin doit savoir lequel : une valeur FIGÉE ne se corrigera
+                  plus toute seule, il faut agir. Sans cette distinction, une
+                  fiche gelée sur un mauvais fuseau ressemble à une fiche en
+                  attente, et personne n'y touche jamais.
+                */}
+                {zoneInfo?.stored && zoneInfo.source === "inferred" && (
+                  <>
+                    {" "}
+                    <strong>{zoneInfo.timezone}</strong> a été déduit du pays de
+                    ses comptes puis <strong>figé</strong> à son premier check de
+                    warmup : il ne suivra plus le pays de ses comptes. Choisis
+                    une valeur ci-dessus pour le corriger.
+                  </>
+                )}
+                {zoneInfo?.timezone && !zoneInfo.stored && (
                   <>
                     {" "}
                     En attendant, <strong>{zoneInfo.timezone}</strong> est déduit
-                    du pays de ses comptes, et sera figé à son premier check de
+                    du pays de ses comptes. Rien n&apos;est encore enregistré :
+                    la valeur suivra le pays, et se figera à son premier check de
                     warmup.
                   </>
                 )}

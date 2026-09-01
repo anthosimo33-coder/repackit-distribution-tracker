@@ -44,14 +44,14 @@ test.describe("Warmup — le jour du check suit le fuseau de la créatrice", () 
       projectId: A.projectId,
       timezone: NY,
     });
-    expect(confirme).toEqual({ timezone: NY, source: "confirmed" });
+    expect(confirme).toEqual({ timezone: NY, source: "confirmed", stored: true });
 
     // La provenance est lisible ensuite — c'est un FAIT, pas une supposition.
     expect(
       await A.client.query(api.creators.getMyTimezone, {
         projectId: A.projectId,
       }),
-    ).toEqual({ timezone: NY, source: "confirmed" });
+    ).toEqual({ timezone: NY, source: "confirmed", stored: true });
 
     const id = await A.client.mutation(api.comptes.declareCompte, {
       projectId: A.projectId,
@@ -157,7 +157,7 @@ test.describe("Warmup — le jour du check suit le fuseau de la créatrice", () 
       await A.client.query(api.creators.getMyTimezone, {
         projectId: A.projectId,
       }),
-    ).toEqual({ timezone: null, source: null });
+    ).toEqual({ timezone: null, source: null, stored: false });
 
     const id = await A.client.mutation(api.comptes.declareCompte, {
       projectId: A.projectId,
@@ -206,9 +206,10 @@ test.describe("Warmup — le jour du check suit le fuseau de la créatrice", () 
       id,
       targetCountry: "US",
     });
+    // AVANT le check : déduit mais RIEN d'écrit — la valeur suit encore le pays.
     expect(
       await A.client.query(api.creators.getMyTimezone, { projectId: A.projectId }),
-    ).toEqual({ timezone: NY, source: "inferred" });
+    ).toEqual({ timezone: NY, source: "inferred", stored: false });
 
     // Premier check → la déduction devient une valeur STOCKÉE.
     await A.client.mutation(api.comptes.markWarmupCheck, {
@@ -230,7 +231,7 @@ test.describe("Warmup — le jour du check suit le fuseau de la créatrice", () 
     // FIGÉ : la valeur ne bouge pas, et reste marquée « déduite ».
     expect(
       await A.client.query(api.creators.getMyTimezone, { projectId: A.projectId }),
-    ).toEqual({ timezone: NY, source: "inferred" });
+    ).toEqual({ timezone: NY, source: "inferred", stored: true });
   });
 
   test("chaque check laisse une TRACE horodatée (jour + instant + fuseau)", async () => {

@@ -106,3 +106,39 @@ la trouvera par son nom et posera une troisième horloge sans s'en apercevoir.
 **Sera traité par** : l'étape 2 du plan fuseaux (module unique du jour), qui la
 renomme et la fait converger vers `convex/creatorDay.ts`. Noté ici pour ne pas
 l'oublier si l'étape 2 glisse.
+
+---
+
+## AT-005 — La créatrice ne peut pas CONFIRMER son fuseau : aucun écran ne le lui propose
+
+**Repéré pendant** : chantier fuseaux, en relisant ce qui a été livré.
+
+Le côté serveur existe et est testé :
+`creators.confirmMyTimezone` (pose la provenance `confirmed`) et
+`creators.getMyTimezone` (lecture). **Mais aucun composant ne les appelle** —
+recherche sur `components/` et `app/` : zéro appelant, uniquement des specs e2e.
+
+Conséquence : une créatrice n'a **aucun moyen** de dire où elle vit. Les 11
+fuseaux déduits du pays de ses comptes restent donc des SUPPOSITIONS, désormais
+gelées au premier check de warmup. Elles ne peuvent devenir des faits que par
+une saisie admin — qui reste, elle aussi, une supposition, juste mieux informée.
+
+C'est le maillon qui manque pour que la chaîne `inferred → admin → confirmed`
+ait un sens : sans lui, `confirmed` est un état inatteignable en production.
+
+**Coût de l'inaction** : le fuseau reste juste « à peu près », et personne ne le
+saura jamais. Une créatrice du Colorado classée `America/New_York` (le défaut
+des US) perd deux heures sur chaque frontière de journée, sans que rien ne le
+signale — la pastille dira « à confirmer » pour toujours.
+
+**Piste** : à la première connexion de l'espace créatrice, pré-remplir depuis
+`Intl.DateTimeFormat().resolvedOptions().timeZone` (le fuseau réel de SON
+navigateur, la meilleure source disponible) et lui demander de valider en un
+clic. Le refus ou l'ignorance doivent être possibles — on ne bloque pas l'accès
+à son espace sur cette question.
+
+⚠️ Piège à ne pas rater au moment de le faire : le mode admin « voir son espace »
+ne doit JAMAIS déclencher cette invite, ni écrire quoi que ce soit. Elle
+poserait le fuseau du navigateur de l'ADMIN sur la fiche de la créatrice, avec
+la provenance `confirmed` — soit exactement le mensonge que toute la chaîne de
+provenance sert à empêcher.
