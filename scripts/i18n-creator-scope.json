@@ -101,6 +101,7 @@
     "convex/apifyItem.ts",
     "convex/calendarStatus.ts",
     "convex/challengeScore.ts",
+    "convex/creatorDay.ts",
     "convex/errorCodes.ts",
     "convex/locales.ts",
     "convex/payWindow.ts",

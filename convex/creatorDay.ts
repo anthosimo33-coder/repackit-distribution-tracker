@@ -127,6 +127,9 @@ function localParts(ms: number, timeZone: string): number[] {
   const s = formatterFor(timeZone).format(new Date(ms));
   const m = s.match(/(\d{4})-(\d{2})-(\d{2})\D+(\d{2}):(\d{2}):(\d{2})/);
   if (!m) {
+    // Diagnostic développeur : un fuseau invalide est refusé à l'écriture par
+    // isSupportedTimezone, ce throw n'atteint donc jamais un écran.
+    // i18n-exempt: message d'erreur interne, jamais rendu
     throw new Error(`Fuseau illisible : ${timeZone} (rendu « ${s} »)`);
   }
   return [
@@ -196,6 +199,7 @@ export function isSameDay(a: number, b: number, timeZone: string): boolean {
  */
 export function startOfDayUtc(key: string, timeZone: string): number {
   const m = key.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  // i18n-exempt: diagnostic développeur — la clé vient toujours de dayKey().
   if (!m) throw new Error(`Clé de jour invalide : ${key}`);
   const wall = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
 
@@ -384,51 +388,22 @@ export function buildZoneMap(
   return out;
 }
 
-/**
- * Fuseaux PROPOSÉS dans le sélecteur admin, groupés et ordonnés pour la lecture.
- *
- * ⚠️ Ce n'est PAS la liste des fuseaux acceptés : `isSupportedTimezone` accepte
- * tout identifiant IANA que le runtime sait rendre. Cette liste-ci ne fait que
- * mettre en avant ceux qu'on rencontre réellement — les six fuseaux américains
- * en tête, parce que « États-Unis » ne dit pas lequel et que c'est précisément
- * l'ambiguïté qui a coûté un jour de warmup à des créatrices.
- */
-export const TIMEZONE_CHOICES: { zone: string; label: string }[] = [
-  { zone: "America/New_York", label: "New York — côte est (US)" },
-  { zone: "America/Chicago", label: "Chicago — centre (US)" },
-  { zone: "America/Denver", label: "Denver — montagnes (US)" },
-  { zone: "America/Phoenix", label: "Phoenix — Arizona (US, sans heure d'été)" },
-  { zone: "America/Los_Angeles", label: "Los Angeles — côte ouest (US)" },
-  { zone: "America/Anchorage", label: "Anchorage — Alaska (US)" },
-  { zone: "Pacific/Honolulu", label: "Honolulu — Hawaï (US)" },
-  { zone: "America/Toronto", label: "Toronto (Canada)" },
-  { zone: "America/Vancouver", label: "Vancouver (Canada)" },
-  { zone: "America/Sao_Paulo", label: "São Paulo (Brésil)" },
-  { zone: "America/Argentina/Buenos_Aires", label: "Buenos Aires (Argentine)" },
-  { zone: "Europe/Paris", label: "Paris (France)" },
-  { zone: "Europe/London", label: "Londres (Royaume-Uni)" },
-  { zone: "Europe/Madrid", label: "Madrid (Espagne)" },
-  { zone: "Europe/Berlin", label: "Berlin (Allemagne)" },
-  { zone: "Europe/Rome", label: "Rome (Italie)" },
-  { zone: "Australia/Sydney", label: "Sydney (Australie)" },
-];
 
 /**
- * Décalage courant d'un fuseau, en « UTC+2 » / « UTC−4 » — pour l'afficher à
- * côté du nom sans faire deviner.
+ * Décalage d'un fuseau à un instant donné, en MINUTES (négatif à l'ouest).
  *
- * Calculé à l'instant `at` et jamais mis en cache : il change deux fois par an.
- * Rend `null` si le fuseau est illisible, plutôt qu'un décalage faux.
+ * Rend un NOMBRE et jamais du texte : la mise en forme (« UTC−4 ») est de
+ * l'interface, elle vit côté écran — c'est ce qui garde ce module hors de portée
+ * du contrôle i18n, alors qu'il est importé par le portail créatrice.
+ *
+ * `null` si le fuseau est illisible, plutôt qu'un décalage faux.
  */
-export function utcOffsetLabel(timeZone: string, at: number = Date.now()): string | null {
+export function utcOffsetMinutes(
+  timeZone: string,
+  at: number = Date.now(),
+): number | null {
   try {
-    const min = Math.round(offsetAt(at, timeZone) / 60_000);
-    const signe = min < 0 ? "−" : "+";
-    const h = Math.floor(Math.abs(min) / 60);
-    const m = Math.abs(min) % 60;
-    return m === 0
-      ? `UTC${signe}${h}`
-      : `UTC${signe}${h}:${String(m).padStart(2, "0")}`;
+    return Math.round(offsetAt(at, timeZone) / 60_000);
   } catch {
     return null;
   }

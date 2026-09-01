@@ -78,7 +78,8 @@ import {
 import {
   TIMEZONE_CHOICES,
   utcOffsetLabel,
-} from "@/convex/creatorDay";
+  zoneLabel,
+} from "@/lib/timezone-choices";
 
 /**
  * Valeur sentinelle du <Select> pour « non défini ».
@@ -139,8 +140,6 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
   const zoneInfo = useProjectQuery(api.creators.getCreatorTimezone, {
     id: creator._id,
   });
-  const zoneLabel = (zone: string) =>
-    TIMEZONE_CHOICES.find((c) => c.zone === zone)?.label ?? zone;
   // Rien de stocké : le champ dit « non défini » ET ce qui sert en attendant.
   // Sans ça, le sélecteur affiche « Non défini » pendant que la pastille dit
   // « déduit du pays » — les deux sont vrais, mais ça se lit comme une
