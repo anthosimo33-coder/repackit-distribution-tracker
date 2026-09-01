@@ -9,6 +9,11 @@
  * lib/compte-status.ts DÉRIVE WARMUP_DURATION_BY_PLATFORM de cette constante —
  * un seul barème dans toute l'app (décision du chantier P5).
  *
+ * ⚠️ LE JOUR N'EST PLUS UTC — il est celui de la CRÉATRICE (`creators.timezone`,
+ * résolu via `convex/creatorDay.ts`, définition UNIQUE du jour dans le dépôt).
+ * L'ancienne journée UTC faisait perdre un jour à toute créatrice cochant après
+ * 20 h heure de New York. Cf docs/diagnostic-fuseaux.md.
+ *
  * ⚠️ Chantier B — la PROGRESSION se compte en NOMBRE DE CHECKS RÉELLEMENT POSÉS
  * (dailyChecks.length), PAS en jours calendaires. Un compte n'est "chaud"
  * (isWarmupComplete) qu'après N checks effectifs ; rater un jour ne fait JAMAIS
@@ -58,7 +63,13 @@ export function warmupTargetDaysOf(project: {
   };
 }
 
+// Le jour vient de convex/creatorDay (module PUR : lib/ peut l'importer, c'est
+// convex/ qui ne peut pas importer lib/). UNE seule définition des deux côtés.
+import { dayKey, zoneOrNeutral, type CreatorZone } from "../convex/creatorDay";
+
 const DAY_MS = 86_400_000;
+
+export type { CreatorZone };
 
 /** Plateforme applicative (capitalisée) → clé du barème. */
 export function platformKey(plateforme: Plateforme): WarmupPlatformKey {
@@ -89,15 +100,26 @@ export function defaultTargetDays(
 }
 
 /**
- * Clé de jour "YYYY-MM-DD" en UTC (déterministe, indépendant du fuseau du
- * client/serveur). Le warmup « tourne » sur la journée UTC — choix assumé pour
- * que client et serveur s'accordent sur « aujourd'hui » sans gérer de TZ.
+ * Clé de jour "YYYY-MM-DD" TELLE QUE LA CRÉATRICE LA VIT.
+ *
+ * ⚠️ `tz` est OBLIGATOIRE (même contrat que `days` : un appelant qui l'oublie
+ * doit casser le typecheck, pas retomber en silence sur une autre horloge).
+ * `null` = fuseau inconnu ⇒ UTC, jamais Paris.
  */
-export function todayKey(now: number = Date.now()): string {
-  return new Date(now).toISOString().slice(0, 10);
+export function todayKey(now: number, tz: CreatorZone): string {
+  return dayKey(now, zoneOrNeutral(tz));
 }
 
-/** Nombre de jours pleins écoulés depuis le début du warmup (floor). */
+/**
+ * Nombre de jours pleins écoulés depuis le début du warmup (floor).
+ *
+ * ⚠️ PAS de fuseau ici, et c'est VOLONTAIRE : cette fonction ne dérive aucune
+ * date, elle divise un écart d'instants — elle est déjà indépendante du fuseau.
+ * Lui en passer un changerait sa SÉMANTIQUE (« jours calendaires franchis »
+ * au lieu de « tranches de 24 h révolues ») et ferait apparaître un jour manqué
+ * de plus dès le lendemain matin d'un warmup commencé le soir. Le chantier
+ * fuseaux corrige le jour du CHECK, pas la durée écoulée.
+ */
 export function daysElapsed(
   warmupStartedAt: number,
   now: number = Date.now(),
@@ -130,12 +152,13 @@ export function warmupProgress(
   };
 }
 
-/** Le check du jour est-il déjà fait ? (todayKey présent dans dailyChecks). */
+/** Le check du jour est-il déjà fait, DANS LE FUSEAU DE LA CRÉATRICE ? */
 export function checkedToday(
   dailyChecks: string[],
-  now: number = Date.now(),
+  now: number,
+  tz: CreatorZone,
 ): boolean {
-  return dailyChecks.includes(todayKey(now));
+  return dailyChecks.includes(todayKey(now, tz));
 }
 
 /**
@@ -240,8 +263,9 @@ export function isAccountAvailable(
 export function mustCheckToday(
   c: WarmupCompteLike,
   days: WarmupTargetDays,
-  now: number = Date.now(),
+  now: number,
+  tz: CreatorZone,
 ): boolean {
   if (isWarmupComplete(c, days)) return false;
-  return !checkedToday(c.warmupProtocol?.dailyChecks ?? [], now);
+  return !checkedToday(c.warmupProtocol?.dailyChecks ?? [], now, tz);
 }

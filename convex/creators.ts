@@ -23,6 +23,8 @@ import { syncBonusUnlocks } from "./pricing";
 import { DELETABLE_STATUSES, purgeAndDeleteAssignment } from "./assignments";
 import { ConvexError, v } from "convex/values";
 import { normalizeRef } from "./conversionAttribution";
+import { isSupportedTimezone } from "./creatorDay";
+import { creatorZone } from "./creatorTimezone";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -312,6 +314,14 @@ export const updateCreator = adminMutation({
     // « fr » explicite est normalisée en `undefined` (on ne stocke que la
     // divergence) : repasser un créateur en français EFFACE le champ.
     locale: v.optional(v.string()),
+    // ─── FUSEAU HORAIRE (IANA) — saisi à la main par l'admin ─────────────────
+    // `null` = effacer (la fiche redevient « fuseau à définir » et la déduction
+    // depuis le pays des comptes reprend la main). Absent = ne pas toucher.
+    // Écrire ici pose TOUJOURS la provenance "admin" : c'est une saisie humaine,
+    // pas une confirmation de la créatrice — seule `confirmMyTimezone` peut
+    // marquer "confirmed", et faire passer l'une pour l'autre reviendrait à
+    // présenter une supposition comme un fait.
+    timezone: v.optional(v.union(v.string(), v.null())),
     // Ref du chemin court snytch.co (attribution de conversion). null = retirer.
     refSlug: v.optional(v.union(v.string(), v.null())),
     // Grille de paliers de bonus du créateur (cumul). null = détacher.
@@ -367,6 +377,21 @@ export const updateCreator = adminMutation({
       patch.name = name;
     }
     if (args.phone !== undefined) patch.phone = args.phone.trim() || undefined;
+    if (args.timezone !== undefined) {
+      if (args.timezone === null || args.timezone.trim() === "") {
+        patch.timezone = undefined;
+        patch.timezoneSource = undefined;
+      } else {
+        const tz = args.timezone.trim();
+        if (!isSupportedTimezone(tz)) {
+          throw new ConvexError(
+            `Fuseau horaire inconnu : ${tz}. Attendu un identifiant IANA, par exemple America/New_York.`,
+          );
+        }
+        patch.timezone = tz;
+        patch.timezoneSource = "admin";
+      }
+    }
     if (args.locale !== undefined) {
       patch.locale = normalizeCreatorLocale(args.locale);
     }
@@ -883,6 +908,58 @@ async function profileFor(ctx: QueryCtx, creatorId: Id<"creators">) {
 export const getMyProfile = creatorQuery({
   args: {},
   handler: async (ctx) => profileFor(ctx, ctx.creatorId),
+});
+
+/**
+ * FUSEAU de la créatrice connectée + provenance — lecture.
+ *
+ * Sert l'invite d'onboarding : « tu es bien à New York ? ». L'écran compare
+ * cette valeur à `Intl.DateTimeFormat().resolvedOptions().timeZone` (le fuseau
+ * réel de son navigateur) et propose de confirmer ou de corriger.
+ */
+export const getCreatorTimezone = adminQuery({
+  args: { id: v.id("creators") },
+  handler: async (ctx, { id }) => {
+    const creator = await ctx.db.get(id);
+    if (!creator || creator.projectId !== ctx.projectId) {
+      throw new ConvexError("Créateur introuvable dans le projet.");
+    }
+    return creatorZone(ctx, id);
+  },
+});
+
+export const getMyTimezone = creatorQuery({
+  args: {},
+  handler: async (ctx) => creatorZone(ctx, ctx.creatorId),
+});
+
+/**
+ * La créatrice CONFIRME son fuseau — la seule source de provenance "confirmed".
+ *
+ * Pré-rempli depuis son navigateur puis validé par elle : c'est le seul chemin
+ * qui produit un FAIT plutôt qu'une supposition. L'admin, lui, ne peut poser que
+ * "admin" (cf updateCreator) et la déduction depuis le pays que "inferred".
+ *
+ * Idempotent : reconfirmer le même fuseau ne fait rien de plus. Une créatrice
+ * qui déménage rappelle simplement cette mutation.
+ */
+export const confirmMyTimezone = creatorMutation({
+  args: { timezone: v.string() },
+  handler: async (ctx, { timezone }) => {
+    const tz = timezone.trim();
+    if (!isSupportedTimezone(tz)) {
+      throw new ConvexError(
+        `Fuseau horaire inconnu : ${timezone}. Attendu un identifiant IANA, par exemple America/New_York.`,
+      );
+    }
+    await ctx.db.patch(ctx.creatorId, {
+      timezone: tz,
+      timezoneSource: "confirmed",
+    });
+    // Même forme que `getMyTimezone` / `getCreatorTimezone` : un appelant qui
+    // compare les deux ne doit pas avoir à connaître deux contrats.
+    return { timezone: tz, source: "confirmed" as const, stored: true };
+  },
 });
 
 /** ADMIN view-as — profil (lecture) du créateur ciblé. Scopé projet + superadmin. */

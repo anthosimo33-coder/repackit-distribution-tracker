@@ -793,6 +793,37 @@ export default defineSchema({
         instructions: v.string(),
         targetDays: v.number(),
         dailyChecks: v.array(v.string()),
+        // ─── JOURNAL D'AUDIT des checks — PREUVE, jamais règle (AT-002) ───────
+        // `dailyChecks` reste la SOURCE DE VÉRITÉ du décompte et de la garde
+        // « 1 check par jour ». Ce journal ne fait que conserver, à côté, ce que
+        // la clé de jour perd : l'INSTANT exact et le FUSEAU retenu.
+        //
+        // Pourquoi il existe : une chaîne « 2026-08-31 » peut aussi bien être
+        // « le 30 au soir » que « le 31 au matin ». Quand le bug de fuseau a été
+        // découvert, cette ambiguïté a rendu tout recalcul rétroactif IMPOSSIBLE
+        // — `warmupProtocol.updatedAt` ne bouge pas au check (vérifié sur
+        // l'export de prod du 2026-08-31 : il ne coïncide avec le dernier check
+        // que dans 10 cas sur 25, par pure coïncidence), et Convex ne conserve
+        // pas de date de modification. Le prochain défaut de datation, lui, sera
+        // rejouable.
+        //
+        // ⚠️ AUCUNE logique métier ne doit le lire. S'il devenait un second
+        // prédicat, il faudrait le garder en phase avec `dailyChecks` — et deux
+        // vérités qui doivent rester d'accord finissent toujours par diverger.
+        //
+        // `tz` absent = fuseau de la créatrice inconnu au moment du check (le
+        // calcul est alors en UTC, cf creatorDay.zoneOrNeutral). Optional →
+        // 0 migration : les checks d'avant ce champ n'ont simplement pas de
+        // trace, ce qui est exactement leur situation actuelle.
+        checkLog: v.optional(
+          v.array(
+            v.object({
+              day: v.string(),
+              at: v.number(),
+              tz: v.optional(v.string()),
+            }),
+          ),
+        ),
         updatedAt: v.number(),
       }),
     ),
@@ -998,6 +1029,42 @@ export default defineSchema({
     // a pas d'users.locale à lire. Une fois le compte créé, users.locale hérite
     // de cette valeur puis fait foi.
     locale: v.optional(v.string()),
+    // ─── FUSEAU HORAIRE (IANA) — « quel jour est-il pour elle ? » ──────────────
+    // SUR LA CRÉATRICE, et nulle part ailleurs. Volontairement PAS sur le compte :
+    // `comptes.targetCountry` décrit le MARCHÉ VISÉ, pas le domicile de la
+    // personne (une créatrice à Madrid peut animer un compte US), et le warmup
+    // est une routine humaine — elle regarde ses vidéos le soir, chez elle, une
+    // fois par jour, quels que soient ses comptes. Deux horloges concurrentes,
+    // c'est précisément le défaut qu'on élimine (cf docs/diagnostic-fuseaux.md).
+    //
+    // Identifiant IANA ("America/New_York"), JAMAIS un décalage ("UTC-4") : un
+    // décalage ne porte pas de règle de changement d'heure et dérive deux fois
+    // par an — les US et l'Europe ne basculent même pas le même week-end.
+    // Validé à l'écriture par creatorDay.isSupportedTimezone.
+    //
+    // ⚠️ ABSENT ⇒ fuseau INCONNU, et c'est un état LÉGITIME et VISIBLE, jamais
+    // un repli silencieux sur Paris. Une créatrice sans fuseau s'affiche comme
+    // telle dans l'admin ; les calculs de jour retombent sur UTC (le repère
+    // neutre historique), pas sur l'heure de l'équipe. Optional → 0 migration.
+    timezone: v.optional(v.string()),
+    // PROVENANCE du champ ci-dessus, par confiance décroissante :
+    //   "confirmed" — la créatrice l'a validé elle-même (pré-rempli depuis son
+    //                 navigateur à la première connexion, puis confirmé) ;
+    //   "admin"     — saisi à la main sur sa fiche ;
+    //   "inferred"  — déduit du pays de ses comptes en attendant mieux.
+    // Stockée À CÔTÉ de la valeur pour qu'on puisse, dans six mois, regarder une
+    // fiche et savoir si "America/New_York" est un FAIT ou une SUPPOSITION.
+    // L'admin affiche « à confirmer » tant que ce n'est pas "confirmed".
+    // Absent alors que `timezone` est présent ⇒ traité comme "admin" (une valeur
+    // stockée sans provenance a forcément été posée à la main ; la dire
+    // "confirmed" ferait passer une supposition pour un fait).
+    timezoneSource: v.optional(
+      v.union(
+        v.literal("confirmed"),
+        v.literal("admin"),
+        v.literal("inferred"),
+      ),
+    ),
     // ─── POPULATION de la fiche — partenaire / talent / clippeur ───────────────
     // ABSENT = "partner" (créateur partenaire historique) ⇒ 0 migration : toutes
     // les fiches existantes restent des partenaires, au comportement inchangé.

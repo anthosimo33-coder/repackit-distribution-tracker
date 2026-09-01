@@ -65,8 +65,8 @@ describe("Barème : dernier recours et barème de projet", () => {
 
 describe("todayKey", () => {
   it("YYYY-MM-DD UTC", () => {
-    expect(todayKey(START)).toBe("2023-11-14");
-    expect(todayKey(at(1))).toBe("2023-11-15");
+    expect(todayKey(START, null)).toBe("2023-11-14");
+    expect(todayKey(at(1), null)).toBe("2023-11-15");
   });
 });
 
@@ -242,10 +242,10 @@ describe("isAccountAvailable", () => {
 });
 
 describe("mustCheckToday", () => {
-  const TODAY = todayKey(START); // "2023-11-14"
+  const TODAY = todayKey(START, null); // "2023-11-14"
   it("dû si warmup non terminé ET pas coché aujourd'hui", () => {
     expect(
-      mustCheckToday({ plateforme: "TikTok", warmupProtocol: { dailyChecks: [] } }, REPACKIT, START),
+      mustCheckToday({ plateforme: "TikTok", warmupProtocol: { dailyChecks: [] } }, REPACKIT, START, null),
     ).toBe(true);
   });
   it("non dû si déjà coché aujourd'hui", () => {
@@ -254,6 +254,7 @@ describe("mustCheckToday", () => {
         { plateforme: "TikTok", warmupProtocol: { dailyChecks: [TODAY] } },
         REPACKIT,
         START,
+        null,
       ),
     ).toBe(false);
   });
@@ -264,6 +265,7 @@ describe("mustCheckToday", () => {
         { plateforme: "TikTok", warmupProtocol: { dailyChecks: ["2023-11-13"] } },
         REPACKIT,
         START,
+        null,
       ),
     ).toBe(true);
   });
@@ -278,6 +280,7 @@ describe("mustCheckToday", () => {
         },
         REPACKIT,
         START,
+        null,
       ),
     ).toBe(false);
   });
@@ -285,9 +288,9 @@ describe("mustCheckToday", () => {
 
 describe("checkedToday", () => {
   it("vrai si todayKey présent", () => {
-    expect(checkedToday(["2023-11-14"], START)).toBe(true);
-    expect(checkedToday(["2023-11-13"], START)).toBe(false);
-    expect(checkedToday([], START)).toBe(false);
+    expect(checkedToday(["2023-11-14"], START, null)).toBe(true);
+    expect(checkedToday(["2023-11-13"], START, null)).toBe(false);
+    expect(checkedToday([], START, null)).toBe(false);
   });
 });
 
@@ -316,5 +319,81 @@ describe("lastCheck", () => {
     expect(lastCheck(["2023-11-14", "2023-11-16", "2023-11-15"])).toBe(
       "2023-11-16",
     );
+  });
+});
+
+// ─── Chantier FUSEAUX — le check du soir d'une créatrice américaine ──────────
+
+/**
+ * LE défaut que ce chantier corrige, rejoué sur les fonctions RÉELLES.
+ *
+ * Scénario vécu en prod : une créatrice à New York coche son warmup le soir. À
+ * 21 h chez elle, la journée UTC du LENDEMAIN a déjà commencé — son check
+ * partait donc sur J+1, et le check du lendemain matin était refusé (« le check
+ * du jour est déjà fait »). Elle perdait un jour de chauffe à chaque fois.
+ *
+ * ⚠️ Les instants sont écrits en UTC explicite : une ISO nue serait relue dans
+ * le fuseau du runner et le test mentirait. Ce bloc est vert sous n'importe
+ * quel TZ (vérifié sous UTC, Europe/Paris, America/New_York, Asia/Kolkata).
+ */
+describe("Check du soir — fuseau de la créatrice", () => {
+  const NY = "America/New_York";
+  const LA = "America/Los_Angeles";
+  /** Mardi 2 sept 2026, 21:00 à New York (EDT) = mercredi 3, 01:00 UTC. */
+  const MARDI_21H_NY = Date.parse("2026-09-03T01:00:00Z");
+  /** Mercredi 3 sept 2026, 09:00 à New York = 13:00 UTC — le lendemain matin. */
+  const MERCREDI_9H_NY = Date.parse("2026-09-03T13:00:00Z");
+
+  it("le check de 21 h est daté du JOUR VÉCU, pas du lendemain UTC", () => {
+    expect(todayKey(MARDI_21H_NY, NY)).toBe("2026-09-02");
+    // Sans fuseau (comportement d'avant), il partait sur le 3 :
+    expect(todayKey(MARDI_21H_NY, null)).toBe("2026-09-03");
+  });
+
+  it("RÉGRESSION — le lendemain matin n'est plus refusé", () => {
+    // Elle a coché mardi soir : son historique porte le 2.
+    const apresLeSoir = [todayKey(MARDI_21H_NY, NY)];
+    // Mercredi 9 h, le check du jour NE DOIT PAS être considéré comme fait.
+    expect(checkedToday(apresLeSoir, MERCREDI_9H_NY, NY)).toBe(false);
+    // ...alors qu'avec l'ancienne clé UTC, il l'était — c'est le jour perdu.
+    const ancienHistorique = [todayKey(MARDI_21H_NY, null)];
+    expect(checkedToday(ancienHistorique, MERCREDI_9H_NY, null)).toBe(true);
+  });
+
+  it("le check reste refusé DEUX FOIS dans la même journée locale", () => {
+    const checks = [todayKey(MARDI_21H_NY, NY)];
+    // Mardi 22 h, une heure plus tard : toujours le même jour chez elle.
+    const mardi22h = Date.parse("2026-09-03T02:00:00Z");
+    expect(checkedToday(checks, mardi22h, NY)).toBe(true);
+  });
+
+  it("mustCheckToday suit la même horloge", () => {
+    const compte = {
+      plateforme: "TikTok" as const,
+      warmupProtocol: { targetDays: 3, dailyChecks: [todayKey(MARDI_21H_NY, NY)] },
+    };
+    expect(mustCheckToday(compte, SNYTCH, MARDI_21H_NY, NY)).toBe(false);
+    expect(mustCheckToday(compte, SNYTCH, MERCREDI_9H_NY, NY)).toBe(true);
+  });
+
+  it("Los Angeles perd encore plus large — 17 h locales suffisent à basculer", () => {
+    // 2 sept 17:00 PDT (UTC−7) = 3 sept 00:00 UTC : déjà « demain » en UTC.
+    const at = Date.parse("2026-09-03T00:00:00Z");
+    expect(todayKey(at, LA)).toBe("2026-09-02");
+    expect(todayKey(at, null)).toBe("2026-09-03");
+  });
+
+  it("une créatrice française n'est PAS affectée par le correctif", () => {
+    // 2 sept 21 h à Paris = 19:00 UTC : même jour des deux côtés, avant comme
+    // après. Le chantier ne doit rien déplacer pour l'équipe ni pour Kelly.
+    const at = Date.parse("2026-09-02T19:00:00Z");
+    expect(todayKey(at, "Europe/Paris")).toBe("2026-09-02");
+    expect(todayKey(at, null)).toBe("2026-09-02");
+  });
+
+  it("fuseau inconnu ⇒ comportement STRICTEMENT inchangé (UTC, pas Paris)", () => {
+    for (const at of [MARDI_21H_NY, MERCREDI_9H_NY, Date.parse("2026-01-15T23:30:00Z")]) {
+      expect(todayKey(at, null)).toBe(new Date(at).toISOString().slice(0, 10));
+    }
   });
 });

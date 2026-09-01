@@ -38,6 +38,8 @@ import { isSnytchProject } from "./projects";
 import { resolveCreatorKind } from "./roles";
 import { auditCompteHandle } from "./handleHygiene";
 import { postsPerDayAt } from "./accountPhase";
+import { creatorZoneOnly, ensureCreatorZone } from "./creatorTimezone";
+import { buildZoneMap, type CreatorZone } from "./creatorDay";
 import {
   phaseOfClipperAccount,
   sortieDeChauffeAt,
@@ -304,6 +306,11 @@ export const listComptes = adminQuery({
     // la recalculent pas — un second calcul côté client redeviendrait une
     // seconde vérité, exactement ce que ce chantier supprime.
     const days = await warmupDaysFor(ctx, ctx.projectId);
+    // MÊME PRINCIPE pour le FUSEAU : résolu ici (fiche créatrice, sinon pays de
+    // ses comptes), servi tel quel. Les écrans admin qui comptent des jours
+    // (jours manqués, « en retard ») le LISENT — sans lui, ils recompteraient
+    // dans l'horloge du navigateur de l'équipe, ce qui est le bug d'origine.
+    const zoneMap = buildZoneMap(creators, results);
     return sorted.map((c) => {
       const p = c.personneId ? personneMap.get(c.personneId) : null;
       const creator = c.creatorId ? creatorMap.get(c.creatorId) : null;
@@ -315,6 +322,9 @@ export const listComptes = adminQuery({
         ...c,
         targetDays: effectiveTargetDays(warmupLike, days),
         warmupDone: isWarmupComplete(warmupLike, days),
+        // Fuseau de la créatrice propriétaire (null = à définir). Servi, pas
+        // recalculé : cf le commentaire de `zoneMap` plus haut.
+        creatorTimezone: c.creatorId ? (zoneMap.get(c.creatorId) ?? null) : null,
         personne: p ? { prenom: p.prenom, nom: p.nom } : null,
         creator: creator ? { name: creator.name } : null,
         perf: perfMap.get(c.handle) ?? EMPTY_PERF,
@@ -1053,6 +1063,9 @@ async function comptesForCreator(
   // recalcule pas.
   const days = await warmupDaysFor(ctx, projectId);
   const now = Date.now();
+  // Fuseau de la créatrice : `dueToday` doit répondre « aujourd'hui » au sens
+  // où ELLE le vit, sinon le portail réaffiche « à cocher » un jour de trop.
+  const tz = await creatorZoneOnly(ctx, creatorId);
   // Régime STRICT (Snytch) : un compte en warmup, même terminé, n'est pas
   // publiable tant que l'admin ne l'a pas repassé actif. Résolu SERVEUR, comme
   // targetDays / dueToday juste en dessous.
@@ -1078,7 +1091,14 @@ async function comptesForCreator(
         // portail affichait « à cocher » sur un calcul client parallèle.
         dueToday:
           effectiveStatus(c) === "warmup" &&
-          mustCheckToday(warmupLike, days, now),
+          mustCheckToday(warmupLike, days, now, tz),
+        // « Déjà coché aujourd'hui » — servi pour la MÊME raison que dueToday.
+        // Le calculer côté écran le ferait dans le fuseau du NAVIGATEUR : une
+        // créatrice à New York verrait le bouton se réarmer à 20 h locales,
+        // alors que le serveur refuserait le check.
+        doneToday: checkedToday(c.warmupProtocol?.dailyChecks ?? [], now, tz),
+        // Fuseau retenu pour ces calculs (null = à définir).
+        creatorTimezone: tz,
       };
     });
 }
@@ -1089,12 +1109,13 @@ function warmupDueCount(
   comptes: Doc<"comptes">[],
   days: WarmupTargetDays,
   now: number,
+  tz: CreatorZone,
 ) {
   return comptes.filter(
     (c) =>
       !c.managedByAdmin &&
       effectiveStatus(c) === "warmup" &&
-      mustCheckToday(c, days, now),
+      mustCheckToday(c, days, now, tz),
   ).length;
 }
 
@@ -1319,13 +1340,20 @@ export const declareManagedCompte = adminMutation({
  * Cœur du check warmup du jour — PARTAGÉ par le check CRÉATRICE (markWarmupCheck)
  * et le check ADMIN d'un compte géré (markWarmupCheckAsAdmin). Le compte est déjà
  * AUTORISÉ par l'appelant (appartenance créatrice OU compte géré du projet).
- * REFUSE un 2e check le même jour (UTC) et un warmup déjà terminé — gardes
- * serveur, pas seulement UI. Chantier B : progression par checks RÉELS.
+ * REFUSE un 2e check le même jour et un warmup déjà terminé — gardes serveur,
+ * pas seulement UI. Chantier B : progression par checks RÉELS.
+ *
+ * ⚠️ « LE MÊME JOUR » = le jour de la CRÉATRICE, plus la journée UTC. C'est le
+ * correctif du chantier fuseaux : à 21 h à New York, la journée UTC du lendemain
+ * a déjà commencé — le check partait sur J+1, et celui du lendemain matin était
+ * refusé. La créatrice perdait un jour de warmup à chaque fois qu'elle cochait
+ * le soir. Cf docs/diagnostic-fuseaux.md.
  */
 async function applyWarmupCheck(
   ctx: MutationCtx,
   compte: Doc<"comptes">,
   days: WarmupTargetDays,
+  tz: CreatorZone,
 ): Promise<{ totalChecks: number }> {
   if (effectiveStatus(compte) !== "warmup") {
     throw err(ERR.ACCOUNT_NOT_IN_WARMUP, "Ce compte n'est plus en warmup.");
@@ -1346,12 +1374,19 @@ async function applyWarmupCheck(
   ) {
     throw err(ERR.WARMUP_ALREADY_DONE, "Warmup déjà terminé — en attente de validation admin.");
   }
-  if (checkedToday(protocol.dailyChecks, now)) {
+  if (checkedToday(protocol.dailyChecks, now, tz)) {
     throw err(ERR.WARMUP_CHECK_ALREADY_DONE, "Le check du jour est déjà fait.");
   }
-  const dailyChecks = [...protocol.dailyChecks, todayKey(now)];
+  const jour = todayKey(now, tz);
+  const dailyChecks = [...protocol.dailyChecks, jour];
+  // TRACE (AT-002) — l'instant et le fuseau, à côté du jour. Jamais relus par la
+  // logique : `dailyChecks` reste seul juge du décompte et de la garde 1/jour.
+  const checkLog = [
+    ...(protocol.checkLog ?? []),
+    { day: jour, at: now, ...(tz ? { tz } : {}) },
+  ];
   await ctx.db.patch(compte._id, {
-    warmupProtocol: { ...protocol, dailyChecks },
+    warmupProtocol: { ...protocol, dailyChecks, checkLog },
   });
   return { totalChecks: dailyChecks.length };
 }
@@ -1379,6 +1414,9 @@ export const markWarmupCheck = creatorMutation({
       ctx,
       compte,
       await warmupDaysFor(ctx, compte.projectId),
+      // GEL au premier check : la déduction depuis le pays cesse d'être
+      // recalculée à chaque lecture, donc de bouger quand on touche aux comptes.
+      await ensureCreatorZone(ctx, ctx.creatorId),
     );
   },
 });
@@ -1400,10 +1438,14 @@ export const markWarmupCheckAsAdmin = adminMutation({
     if (!compte.managedByAdmin) {
       throw err(ERR.ACCOUNT_NOT_MANAGED, "Ce compte n'est pas géré par l'équipe (le créateur coche son warmup).");
     }
+    // ⚠️ Le fuseau est celui de la CRÉATRICE rattachée, pas celui de l'admin qui
+    // clique : le compte est chauffé POUR elle, et son historique de checks doit
+    // rester lisible dans une seule horloge — la sienne.
     return applyWarmupCheck(
       ctx,
       compte,
       await warmupDaysFor(ctx, compte.projectId),
+      compte.creatorId ? await ensureCreatorZone(ctx, compte.creatorId) : null,
     );
   },
 });
@@ -1422,6 +1464,7 @@ export const countMyWarmupDue = creatorQuery({
       comptes,
       await warmupDaysFor(ctx, ctx.projectId),
       Date.now(),
+      await creatorZoneOnly(ctx, ctx.creatorId),
     );
   },
 });
@@ -1435,6 +1478,7 @@ export const countWarmupDueAsAdmin = adminViewAsQuery({
       comptes,
       await warmupDaysFor(ctx, ctx.projectId),
       Date.now(),
+      await creatorZoneOnly(ctx, ctx.creatorId),
     );
   },
 });
@@ -1515,6 +1559,8 @@ async function onboardingStateForCreator(
   const comptes = allComptes.filter((c) => !c.managedByAdmin);
   const fullyManaged =
     comptes.length === 0 && allComptes.some((c) => c.managedByAdmin);
+  // Fuseau de la créatrice : « à cocher aujourd'hui » se juge dans SON horloge.
+  const tz = await creatorZoneOnly(ctx, creatorId);
   const accounts = comptes.map((c) => {
     const warmupLike = {
       plateforme: c.plateforme,
@@ -1530,7 +1576,7 @@ async function onboardingStateForCreator(
       targetDays: effectiveTargetDays(warmupLike, days),
       warmupDone: isWarmupComplete(warmupLike, days),
       dueToday:
-        status === "warmup" && mustCheckToday(warmupLike, days, now),
+        status === "warmup" && mustCheckToday(warmupLike, days, now, tz),
       bio: (c.bioStatus ?? "none") as "none" | "to_apply" | "applied",
     };
   });
