@@ -29,7 +29,7 @@ trace de qui a corrigé quoi. À faire dans la fiche compte, section Warmup.
 
 ---
 
-## AT-002 — L'INSTANT d'un check de warmup n'est pas stocké, seulement son jour
+## AT-002 — L'INSTANT d'un check de warmup n'est pas stocké ✅ TRAITÉ (2026-09-01)
 
 **Repéré pendant** : chantier fuseaux, en tentant de recalculer les jours manqués
 des créatrices américaines.
@@ -52,10 +52,16 @@ C'est ce qui a rendu tout recalcul rétroactif impossible.
 **Coût de l'inaction** : le prochain défaut de datation sera, lui aussi,
 irrécupérable.
 
-**Piste** : ajouter un journal d'audit à côté (et non à la place) de
-`dailyChecks` — `{ day, at, tz }` par check. Additif, zéro migration,
-jamais lu par la logique métier (`dailyChecks` reste la source de vérité du
-décompte) : uniquement de la preuve.
+**FAIT** : `comptes.warmupProtocol.checkLog` — un `{ day, at, tz }` par check,
+écrit par `applyWarmupCheck`. Additif, zéro migration, **jamais lu par la
+logique métier** (`dailyChecks` reste seul juge du décompte et de la garde
+1-par-jour) : uniquement de la preuve. Les checks antérieurs au champ n'ont pas
+de trace — leur situation ne pouvait pas être améliorée rétroactivement, c'est
+tout le propos.
+
+⚠️ Ce qui reste vrai : **l'historique d'AVANT le 2026-09-01 demeure
+irrécupérable.** Le journal n'est pas une réparation du passé, seulement l'arrêt
+de l'hémorragie.
 
 ---
 

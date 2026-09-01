@@ -79,3 +79,54 @@ export async function creatorZoneOnly(
 ): Promise<CreatorZone> {
   return (await creatorZone(ctx, creatorId)).timezone;
 }
+
+/** Contexte de MUTATION — `creatorZone` + le droit d'écrire la fiche. */
+type MutCtx = Ctx & {
+  db: {
+    patch: (
+      id: Id<"creators">,
+      patch: { timezone?: string; timezoneSource?: "inferred" },
+    ) => Promise<void>;
+  };
+};
+
+/**
+ * Fuseau d'une créatrice, FIGÉ au premier usage qui a une conséquence.
+ *
+ * ─── POURQUOI GELER ──────────────────────────────────────────────────────────
+ * Sans valeur stockée, le fuseau déduit est une PURE FONCTION du pays des
+ * comptes, réévaluée à chaque lecture. Il bouge donc rétroactivement dès qu'on
+ * touche aux comptes — vérifié cas par cas :
+ *   - AJOUTER un compte d'un autre pays : US → {US, FR} = pays contradictoires
+ *     ⇒ le fuseau passe de America/New_York à AUCUN (donc UTC) ;
+ *   - RETIRER un compte : {US, FR} → US ⇒ il apparaît d'un coup ;
+ *   - CHANGER le pays d'un compte : le fuseau suit.
+ *
+ * Les checks DÉJÀ POSÉS ne changent pas de valeur — ce sont des chaînes figées
+ * en base. Mais la FRONTIÈRE de « aujourd'hui » se déplace sous eux : un check
+ * de 21 h enregistré « le 2 » cesserait d'être vu comme le check du jour, et la
+ * créatrice pourrait en poser un second dans la même soirée — ou se voir
+ * refuser celui du lendemain. Le gel supprime la classe entière de défauts.
+ *
+ * ─── CE QUI EST GELÉ, ET CE QUI NE L'EST PAS ─────────────────────────────────
+ * Seule une déduction RÉUSSIE est écrite. Un fuseau indéterminable (aucun pays,
+ * ou des pays contradictoires — le cas d'une créatrice qui porte des comptes US
+ * ET FR) reste `null` : on ne fige pas une absence de réponse, sinon la fiche
+ * cesserait de se corriger toute seule le jour où le pays devient univoque.
+ *
+ * La provenance reste "inferred" : geler ne transforme pas une supposition en
+ * fait. L'admin voit toujours « déduit du pays — à confirmer ».
+ */
+export async function ensureCreatorZone(
+  ctx: MutCtx,
+  creatorId: Id<"creators">,
+): Promise<CreatorZone> {
+  const resolu = await creatorZone(ctx, creatorId);
+  if (resolu.timezone !== null && resolu.source === "inferred") {
+    await ctx.db.patch(creatorId, {
+      timezone: resolu.timezone,
+      timezoneSource: "inferred",
+    });
+  }
+  return resolu.timezone;
+}

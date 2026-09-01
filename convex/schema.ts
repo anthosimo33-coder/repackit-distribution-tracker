@@ -793,6 +793,37 @@ export default defineSchema({
         instructions: v.string(),
         targetDays: v.number(),
         dailyChecks: v.array(v.string()),
+        // ─── JOURNAL D'AUDIT des checks — PREUVE, jamais règle (AT-002) ───────
+        // `dailyChecks` reste la SOURCE DE VÉRITÉ du décompte et de la garde
+        // « 1 check par jour ». Ce journal ne fait que conserver, à côté, ce que
+        // la clé de jour perd : l'INSTANT exact et le FUSEAU retenu.
+        //
+        // Pourquoi il existe : une chaîne « 2026-08-31 » peut aussi bien être
+        // « le 30 au soir » que « le 31 au matin ». Quand le bug de fuseau a été
+        // découvert, cette ambiguïté a rendu tout recalcul rétroactif IMPOSSIBLE
+        // — `warmupProtocol.updatedAt` ne bouge pas au check (vérifié sur
+        // l'export de prod du 2026-08-31 : il ne coïncide avec le dernier check
+        // que dans 10 cas sur 25, par pure coïncidence), et Convex ne conserve
+        // pas de date de modification. Le prochain défaut de datation, lui, sera
+        // rejouable.
+        //
+        // ⚠️ AUCUNE logique métier ne doit le lire. S'il devenait un second
+        // prédicat, il faudrait le garder en phase avec `dailyChecks` — et deux
+        // vérités qui doivent rester d'accord finissent toujours par diverger.
+        //
+        // `tz` absent = fuseau de la créatrice inconnu au moment du check (le
+        // calcul est alors en UTC, cf creatorDay.zoneOrNeutral). Optional →
+        // 0 migration : les checks d'avant ce champ n'ont simplement pas de
+        // trace, ce qui est exactement leur situation actuelle.
+        checkLog: v.optional(
+          v.array(
+            v.object({
+              day: v.string(),
+              at: v.number(),
+              tz: v.optional(v.string()),
+            }),
+          ),
+        ),
         updatedAt: v.number(),
       }),
     ),

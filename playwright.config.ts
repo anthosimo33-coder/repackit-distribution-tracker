@@ -44,27 +44,36 @@ export default defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
       dependencies: ["setup"],
-      // Le projet New York rejoue ces specs-là : ne pas les compter deux fois.
-      testIgnore: /.*\.newyork\.spec\.ts/,
+      // Les projets US rejouent ces specs-là : ne pas les compter deux fois.
+      testIgnore: /.*\.uszone\.spec\.ts/,
     },
-    // ─── ESPACE CRÉATRICE, VU DEPUIS NEW YORK ─────────────────────────────────
-    // Une partie des créatrices vit aux États-Unis, l'équipe est en France. Tant
-    // que TOUTES les specs tournaient à Paris, aucune ne pouvait attraper un
+    // ─── ESPACE CRÉATRICE, VU DEPUIS LES ÉTATS-UNIS ───────────────────────────
+    // Une partie des créatrices vit aux US, l'équipe est en France. Tant que
+    // TOUTES les specs tournaient à Paris, aucune ne pouvait attraper un
     // décalage de jour : le navigateur de test avait la même horloge que celui
     // qui écrivait la donnée, et les deux se trompaient ensemble.
     //
-    // `America/New_York` et non un fuseau au hasard : c'est le défaut du pays
-    // le plus représenté hors France dans la base, et il franchit minuit UTC en
-    // soirée locale — l'heure exacte où les créatrices cochent leur warmup.
+    // DEUX fuseaux et non un seul, et c'est le point. Un unique projet New York
+    // laisserait passer tout code qui suppose « le » décalage américain : LA est
+    // à 3 h de plus, franchit minuit UTC dès 17 h locales, et l'Arizona ne change
+    // même pas d'heure. Un correctif juste à New York et faux à Los Angeles est
+    // une erreur qu'on a déjà les moyens de ne pas commettre.
     //
-    // Périmètre volontairement ÉTROIT (`*.newyork.spec.ts`) : rejouer les 167
-    // specs deux fois doublerait la CI pour ne rien prouver de plus. Une spec
-    // rejoint ce projet quand elle porte sur une DATE VUE PAR LA CRÉATRICE.
+    // Périmètre volontairement ÉTROIT (`*.uszone.spec.ts`) : rejouer les 167
+    // specs deux fois doublerait la CI pour ne rien prouver de plus. Coût mesuré
+    // au 2026-09-01 : ~9 s par fuseau sur 8 tests. Une spec rejoint ce périmètre
+    // quand elle porte sur une DATE VUE PAR LA CRÉATRICE.
     {
       name: "chromium-newyork",
       use: { ...devices["Desktop Chrome"], timezoneId: "America/New_York" },
       dependencies: ["setup"],
-      testMatch: /.*\.newyork\.spec\.ts/,
+      testMatch: /.*\.uszone\.spec\.ts/,
+    },
+    {
+      name: "chromium-losangeles",
+      use: { ...devices["Desktop Chrome"], timezoneId: "America/Los_Angeles" },
+      dependencies: ["setup"],
+      testMatch: /.*\.uszone\.spec\.ts/,
     },
   ],
 

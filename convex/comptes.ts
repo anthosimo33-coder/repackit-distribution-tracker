@@ -38,7 +38,7 @@ import { isSnytchProject } from "./projects";
 import { resolveCreatorKind } from "./roles";
 import { auditCompteHandle } from "./handleHygiene";
 import { postsPerDayAt } from "./accountPhase";
-import { creatorZoneOnly } from "./creatorTimezone";
+import { creatorZoneOnly, ensureCreatorZone } from "./creatorTimezone";
 import { buildZoneMap, type CreatorZone } from "./creatorDay";
 import {
   phaseOfClipperAccount,
@@ -1377,9 +1377,16 @@ async function applyWarmupCheck(
   if (checkedToday(protocol.dailyChecks, now, tz)) {
     throw err(ERR.WARMUP_CHECK_ALREADY_DONE, "Le check du jour est déjà fait.");
   }
-  const dailyChecks = [...protocol.dailyChecks, todayKey(now, tz)];
+  const jour = todayKey(now, tz);
+  const dailyChecks = [...protocol.dailyChecks, jour];
+  // TRACE (AT-002) — l'instant et le fuseau, à côté du jour. Jamais relus par la
+  // logique : `dailyChecks` reste seul juge du décompte et de la garde 1/jour.
+  const checkLog = [
+    ...(protocol.checkLog ?? []),
+    { day: jour, at: now, ...(tz ? { tz } : {}) },
+  ];
   await ctx.db.patch(compte._id, {
-    warmupProtocol: { ...protocol, dailyChecks },
+    warmupProtocol: { ...protocol, dailyChecks, checkLog },
   });
   return { totalChecks: dailyChecks.length };
 }
@@ -1407,7 +1414,9 @@ export const markWarmupCheck = creatorMutation({
       ctx,
       compte,
       await warmupDaysFor(ctx, compte.projectId),
-      await creatorZoneOnly(ctx, ctx.creatorId),
+      // GEL au premier check : la déduction depuis le pays cesse d'être
+      // recalculée à chaque lecture, donc de bouger quand on touche aux comptes.
+      await ensureCreatorZone(ctx, ctx.creatorId),
     );
   },
 });
@@ -1436,7 +1445,7 @@ export const markWarmupCheckAsAdmin = adminMutation({
       ctx,
       compte,
       await warmupDaysFor(ctx, compte.projectId),
-      compte.creatorId ? await creatorZoneOnly(ctx, compte.creatorId) : null,
+      compte.creatorId ? await ensureCreatorZone(ctx, compte.creatorId) : null,
     );
   },
 });

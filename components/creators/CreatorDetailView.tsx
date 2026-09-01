@@ -139,10 +139,18 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
   const zoneInfo = useProjectQuery(api.creators.getCreatorTimezone, {
     id: creator._id,
   });
+  const zoneLabel = (zone: string) =>
+    TIMEZONE_CHOICES.find((c) => c.zone === zone)?.label ?? zone;
+  // Rien de stocké : le champ dit « non défini » ET ce qui sert en attendant.
+  // Sans ça, le sélecteur affiche « Non défini » pendant que la pastille dit
+  // « déduit du pays » — les deux sont vrais, mais ça se lit comme une
+  // contradiction, et on ne sait pas quelle heure fait foi.
   const timezoneLabel =
-    timezone === ""
-      ? "Non défini"
-      : (TIMEZONE_CHOICES.find((c) => c.zone === timezone)?.label ?? timezone);
+    timezone !== ""
+      ? zoneLabel(timezone)
+      : zoneInfo?.timezone
+        ? `Non défini — déduit : ${zoneLabel(zoneInfo.timezone)}`
+        : "Non défini";
   // Tarif de la personne — un seul des deux selon sa population (cf bloc JSX).
   const [population, setPopulation] = useState<string>(kind);
   const [tarif, setTarif] = useState(
@@ -570,12 +578,14 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
               </Select>
               <p className="text-xs text-slate-500">
                 Sert de référence aux dates : jours de warmup, échéances et
-                relances. Laisser « non défini » plutôt que deviner — un pays ne
-                détermine pas un fuseau (les États-Unis en ont six).
+                relances. Un pays ne détermine pas un fuseau — les États-Unis en
+                ont six — donc mieux vaut « non défini » qu&apos;une supposition.
                 {zoneInfo?.timezone && !creator.timezone && (
                   <>
                     {" "}
-                    Actuellement déduit : <strong>{zoneInfo.timezone}</strong>.
+                    En attendant, <strong>{zoneInfo.timezone}</strong> est déduit
+                    du pays de ses comptes, et sera figé à son premier check de
+                    warmup.
                   </>
                 )}
               </p>
