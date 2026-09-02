@@ -65,18 +65,21 @@ function Metric({
 
 /**
  * Rentabilité par projet (rentabilité P3) — REVENU net Whop vs COÛT créateurs →
- * MARGE (mise en avant) + RPM business, avec un toggle « avec / sans warmup ».
+ * MARGE (mise en avant) + RPM business, avec un toggle « avec / sans les vues non
+ * rémunérées ».
  *
  * Le toggle change UNIQUEMENT le DÉNOMINATEUR (les vues) → il recalcule les vues
- * et le RPM (dilué avec warmup, vrai RPM sans), JAMAIS le revenu Whop ni le coût
+ * et le RPM (dilué avec, vrai RPM sans), JAMAIS le revenu Whop ni le coût
  * (calcul dérivé côté client via lib/profitability). Rendue uniquement si le
  * projet a un mapping Whop. Cumul (cf query : mois calendaires, même moteur de
  * paie que les Paiements).
  */
 export function ProfitabilityCard() {
   const data = useProjectQuery(api.profitability.getProjectProfitability, {});
-  // Défaut = sans warmup → le VRAI RPM business (vues monétisées).
-  const [includeWarmup, setIncludeWarmup] = useState(false);
+  // Défaut = vues RÉMUNÉRÉES seules → le VRAI RPM business. « Non rémunéré » n'est
+  // pas « warmup » : un post retiré de la paie à la main en fait partie, et un post
+  // warmup explicitement payé n'en fait PAS partie (cf lib/profitability ViewsSplit).
+  const [includeUnpaid, setIncludeUnpaid] = useState(false);
 
   if (data === undefined) return <Skeleton className="h-56 w-full" />;
   if (!data.configured) return null;
@@ -88,7 +91,7 @@ export function ProfitabilityCard() {
   const fx = effectiveFxRate(payCurrency, revenueCurrency, data.fxRateToRevenue);
   const withFx = <T extends object>(x: T) => ({ ...x, fxRateToRevenue: fx });
 
-  const total = computeProfitability(withFx(data.total), includeWarmup);
+  const total = computeProfitability(withFx(data.total), includeUnpaid);
   const marginPositive = total.margin !== null && total.margin >= 0;
 
   return (
@@ -106,11 +109,11 @@ export function ProfitabilityCard() {
           </div>
           <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-600">
             <Switch
-              checked={includeWarmup}
-              onCheckedChange={setIncludeWarmup}
-              aria-label="Inclure les vues des posts warmup"
+              checked={includeUnpaid}
+              onCheckedChange={setIncludeUnpaid}
+              aria-label="Inclure les vues des posts non rémunérés"
             />
-            Inclure les vues warmup
+            Inclure les vues non rémunérées
           </label>
         </div>
 
@@ -149,23 +152,27 @@ export function ProfitabilityCard() {
             hint="fixe + CPM + bonus"
           />
           <Metric
-            label={includeWarmup ? "RPM dilué" : "RPM business"}
+            label={includeUnpaid ? "RPM dilué" : "RPM business"}
             value={formatRpm(total.rpm, revenueCurrency)}
             hint={
-              includeWarmup ? "/ 1000 vues (warmup inclus)" : "/ 1000 vues monétisées"
+              includeUnpaid
+                ? "/ 1000 vues (non rémunérées incluses)"
+                : "/ 1000 vues rémunérées"
             }
             valueClass="text-slate-900"
           />
           <Metric
             label="Vues"
             value={formatNumber(total.views)}
-            hint={includeWarmup ? "warmup inclus" : "monétisées (hors warmup)"}
+            hint={
+            includeUnpaid ? "non rémunérées incluses" : "rémunérées seulement"
+          }
           />
         </div>
 
         <p className="flex items-start gap-1.5 text-[11px] text-slate-400">
           <InfoIcon className="mt-px size-3.5 shrink-0" />
-          Le toggle warmup ne change que les vues (donc le RPM) — le revenu Whop
+          Le toggle ne change que les vues (donc le RPM) — le revenu Whop
           net et le coût créateurs sont identiques dans les deux cas.
         </p>
 
@@ -186,7 +193,7 @@ export function ProfitabilityCard() {
               </thead>
               <tbody>
                 {data.months.map((m) => {
-                  const row = computeProfitability(withFx(m), includeWarmup);
+                  const row = computeProfitability(withFx(m), includeUnpaid);
                   return (
                     <tr
                       key={m.period}

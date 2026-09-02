@@ -5,6 +5,7 @@ import { computeLivePricingBreakdown, assignmentPublishedAt } from "./pricing";
 import { monthKeyParis } from "./dateFr";
 import { summarizeWhopRevenue } from "./whopRevenue";
 import { collectProjectWhopPayments } from "./whopPaymentsAccess";
+import { viewsSplitOf } from "./viewCounters";
 
 /**
  * Rentabilité par PROJET (rentabilité P3) — met en face le REVENU Whop net
@@ -112,16 +113,16 @@ export const getProjectProfitability = adminQuery({
         total: {
           revenueNet: 0,
           creatorCost: 0,
-          monetizedViews: 0,
-          warmupViews: 0,
+          paidViews: 0,
+          unpaidViews: 0,
         },
         months: [] as Array<{
           period: string;
           revenueNet: number;
           mixedCurrency: boolean;
           creatorCost: number;
-          monetizedViews: number;
-          warmupViews: number;
+          paidViews: number;
+          unpaidViews: number;
         }>,
       };
     }
@@ -169,33 +170,46 @@ export const getProjectProfitability = adminQuery({
       [...costByMonth.values()].reduce((s, a) => s + a, 0),
     );
 
-    // ─── Vues ventilées monétisées (non-warmup) / warmup — DÉNOMINATEUR du RPM ─
+    // ─── Vues ventilées RÉMUNÉRÉES / non rémunérées — DÉNOMINATEUR du RPM ─────
+    // La coupure est le fait FINANCIER (viewsSplitOf → isRemunerated), pas le fait
+    // éditorial. Ce site testait `p.isWarmup === true` en dur, ce que l'en-tête de
+    // convex/viewCounters interdit précisément.
+    //
+    // Le défaut jouait dans les DEUX sens, mesuré sur la prod du 2026-09-02 :
+    //   - un post retiré de la paie à la main (remunere=false) restait au
+    //     dénominateur — 277 857 vues en août, 23 % du mois ;
+    //   - un post warmup explicitement PAYÉ (cas Kelly, remunere=true) en était
+    //     absent — 694 000 vues sur juillet à lui seul.
+    // Le RPM n'était donc ni sur- ni sous-estimé de façon systématique : il était
+    // calculé sur un ensemble qui n'était celui d'aucune des deux questions.
     const pubs = await ctx.db
       .query("publications")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
+    const pubsByMonth = new Map<string, typeof pubs>();
+    for (const p of pubs) {
+      const m = monthKeyParis(p.datePubli);
+      const arr = pubsByMonth.get(m);
+      if (arr) arr.push(p);
+      else pubsByMonth.set(m, [p]);
+    }
+    const asItems = (list: typeof pubs) =>
+      list.map((p) => ({
+        isWarmup: p.isWarmup === true,
+        remunere: p.remunere,
+        views: p.vuesLatest ?? 0,
+      }));
     const viewsByMonth = new Map<
       string,
-      { monetizedViews: number; warmupViews: number }
+      { paidViews: number; unpaidViews: number }
     >();
-    let totMonetized = 0;
-    let totWarmup = 0;
-    for (const p of pubs) {
-      const v = p.vuesLatest ?? 0;
-      const m = monthKeyParis(p.datePubli);
-      const bucket = viewsByMonth.get(m) ?? {
-        monetizedViews: 0,
-        warmupViews: 0,
-      };
-      if (p.isWarmup === true) {
-        bucket.warmupViews += v;
-        totWarmup += v;
-      } else {
-        bucket.monetizedViews += v;
-        totMonetized += v;
-      }
-      viewsByMonth.set(m, bucket);
+    for (const [m, list] of pubsByMonth) {
+      viewsByMonth.set(m, viewsSplitOf(asItems(list)));
     }
+    // Total recalculé sur TOUT le lot, jamais sommé depuis les mois : une
+    // publication hors des mois retenus resterait comptée dans le total.
+    const { paidViews: totPaid, unpaidViews: totUnpaid } =
+      viewsSplitOf(asItems(pubs));
 
     // ─── Assemblage (mois présents dans revenu, coût OU vues), plus récent d'abord ─
     const allPeriods = new Set<string>([
@@ -210,8 +224,8 @@ export const getProjectProfitability = adminQuery({
         revenueNet: revenueNetByMonth.get(period) ?? 0,
         mixedCurrency: mixedByMonth.get(period) ?? false,
         creatorCost: costByMonth.get(period) ?? 0,
-        monetizedViews: viewsByMonth.get(period)?.monetizedViews ?? 0,
-        warmupViews: viewsByMonth.get(period)?.warmupViews ?? 0,
+        paidViews: viewsByMonth.get(period)?.paidViews ?? 0,
+        unpaidViews: viewsByMonth.get(period)?.unpaidViews ?? 0,
       }));
 
     return {
@@ -232,8 +246,8 @@ export const getProjectProfitability = adminQuery({
       total: {
         revenueNet: totalRevenue.net,
         creatorCost: totalCost,
-        monetizedViews: totMonetized,
-        warmupViews: totWarmup,
+        paidViews: totPaid,
+        unpaidViews: totUnpaid,
       },
       months,
     };
