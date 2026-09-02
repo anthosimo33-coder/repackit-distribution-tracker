@@ -13,9 +13,10 @@ import {
   promoVideoCost,
   type PricingBreakdown,
 } from "./pricing";
-import { cyclePaymentsForCreator, periodOf } from "./payments";
-// Mois CALENDAIRE des agrégats de revenu : Europe/Paris, comme les jours du hub
-// (parisDay) et comme Whop. `periodOf` (UTC) reste réservé aux périodes de PAIE.
+import { cyclePaymentsForCreator } from "./payments";
+// TOUT mois calendaire de ce module est en Europe/Paris, comme ses jours
+// (`parisDay`) et comme Whop. `periodOf` (UTC) n'y a plus aucun appelant : il ne
+// sert qu'aux clés PERSISTÉES de la paie legacy (cf convex/payments.ts).
 import { monthKeyParis } from "./dateFr";
 import {
   summarizeWhopRevenue,
@@ -295,8 +296,8 @@ export const getAttribution = adminQuery({
       }
     }
 
-    // Coût : un breakdown par (créatrice, mois), mémoïsé — le moteur est la
-    // SEULE source du chiffre (aucun recalcul ici).
+    // Coût : un breakdown par (créatrice, mois EUROPE/PARIS), mémoïsé — le moteur
+    // est la SEULE source du chiffre (aucun recalcul ici).
     const breakdowns = new Map<string, PricingBreakdown>();
     const breakdownFor = async (
       creatorId: Id<"creators">,
@@ -311,6 +312,12 @@ export const getAttribution = adminQuery({
         creatorId,
         period,
         new Set(),
+        // Même clé de mois que le reste du hub (jours en Paris, revenu en Paris) :
+        // sans ça, une vidéo publiée le 1er à 00:03 Paris met son coût dans le mois
+        // précédent, sous une ligne dont les vues et le revenu sont, eux, du mois
+        // courant. Aucun argent en jeu ici : ce breakdown ne sert QU'À afficher,
+        // jamais à payer (le paiement passe par markCyclePaid → cycles J+30).
+        monthKeyParis,
       );
       breakdowns.set(key, b);
       return b;
@@ -319,7 +326,7 @@ export const getAttribution = adminQuery({
     const rows: AttributionRow[] = [];
     for (const a of assignments) {
       const publishedAt = assignmentPublishedAt(a);
-      const period = periodOf(publishedAt);
+      const period = monthKeyParis(publishedAt);
       const views = await assignmentViewsAndMetrics(ctx, a);
 
       // Métadonnées des posts de la vidéo (langue/plateformes/nombre).
