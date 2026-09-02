@@ -41,7 +41,7 @@ describe("computeRpm — revenu net pour 1000 vues", () => {
 });
 
 describe("viewsForToggle — seul levier du toggle", () => {
-  const split = { monetizedViews: 400_000, warmupViews: 100_000 };
+  const split = { paidViews: 400_000, unpaidViews: 100_000 };
   it("sans warmup → vues monétisées seules", () => {
     expect(viewsForToggle(split, false)).toBe(400_000);
   });
@@ -54,8 +54,8 @@ describe("computeProfitability — le toggle change les vues/RPM, JAMAIS le reve
   const input: ProfitabilityInput = {
     revenueNet: 1000,
     creatorCost: 400,
-    monetizedViews: 400_000, // posts non-warmup
-    warmupViews: 100_000, // posts warmup
+    paidViews: 400_000, // posts RÉMUNÉRÉS
+    unpaidViews: 100_000, // posts NON rémunérés
     fxRateToRevenue: 1, // même devise pour ce jeu de test
   };
 
@@ -87,10 +87,10 @@ describe("computeProfitability — le toggle change les vues/RPM, JAMAIS le reve
     expect(on.margin).toBe(off.margin);
   });
 
-  it("sans post warmup : le toggle n'a aucun effet (warmupViews = 0)", () => {
-    const noWarmup: ProfitabilityInput = { ...input, warmupViews: 0 };
-    const off = computeProfitability(noWarmup, false);
-    const on = computeProfitability(noWarmup, true);
+  it("sans post non rémunéré : le toggle n'a aucun effet (unpaidViews = 0)", () => {
+    const noUnpaid: ProfitabilityInput = { ...input, unpaidViews: 0 };
+    const off = computeProfitability(noUnpaid, false);
+    const on = computeProfitability(noUnpaid, true);
     expect(on.views).toBe(off.views);
     expect(on.rpm).toBe(off.rpm);
   });
