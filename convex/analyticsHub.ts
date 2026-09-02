@@ -14,6 +14,9 @@ import {
   type PricingBreakdown,
 } from "./pricing";
 import { cyclePaymentsForCreator, periodOf } from "./payments";
+// Mois CALENDAIRE des agrégats de revenu : Europe/Paris, comme les jours du hub
+// (parisDay) et comme Whop. `periodOf` (UTC) reste réservé aux périodes de PAIE.
+import { monthKeyParis } from "./dateFr";
 import {
   summarizeWhopRevenue,
   whopNetContribution,
@@ -877,7 +880,7 @@ export const getRevenueBreakdown = adminQuery({
 
     const byPeriod = new Map<string, Doc<"whopPayments">[]>();
     for (const p of payments) {
-      const k = periodOf(p.paidAt);
+      const k = monthKeyParis(p.paidAt);
       const list = byPeriod.get(k) ?? [];
       list.push(p);
       byPeriod.set(k, list);
@@ -926,7 +929,7 @@ export const getRevenueBreakdown = adminQuery({
         months: new Set<string>(),
       };
       cur.net += net;
-      if (net > 0) cur.months.add(periodOf(p.paidAt));
+      if (net > 0) cur.months.add(monthKeyParis(p.paidAt));
       perMembership.set(p.membershipId, cur);
     }
 

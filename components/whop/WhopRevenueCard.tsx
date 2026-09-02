@@ -21,7 +21,12 @@ import {
   WalletIcon,
 } from "lucide-react";
 
-/** "2026-07" → "juillet 2026" (UTC, fr-FR). */
+/**
+ * "2026-07" → "juillet 2026" (fr-FR). La clé vient du serveur, déjà découpée en
+ * mois EUROPE/PARIS (convex/dateFr `monthKeyParis`) : ici on ne fait que rendre
+ * une clé lisible, l'UTC de `Date.UTC`/`timeZone` ne sert qu'à neutraliser le
+ * fuseau du navigateur sur un 1er du mois — il ne redécoupe rien.
+ */
 function formatMonth(period: string): string {
   const [y, m] = period.split("-").map(Number);
   if (!y || !m) return period;

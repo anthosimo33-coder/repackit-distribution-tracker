@@ -850,6 +850,16 @@ async function challengeCashWins(
  * `attributionPeriod === period` (Guard B — JAMAIS ré-évalué live ; le $
  * d'une période vient uniquement des unlocks persistés). Guard B (legacy) :
  * exclut les assignments déjà couverts par une lineItem legacy.
+ *
+ * `periodKeyOf` — comment un instant est ramené à un mois. Défaut `periodOf`
+ * (UTC), qui est la période de PAIE et la seule valeur PERSISTÉE : tous les
+ * appels de la paie gardent donc EXACTEMENT le comportement d'avant. Le seul
+ * appelant qui l'écrase est la carte Rentabilité (convex/profitability.ts), qui
+ * lit un mois CALENDAIRE Europe/Paris — il faut alors que la fenêtre du coût soit
+ * la même que celle du revenu Whop et des vues, sinon une vidéo publiée le 1er à
+ * 00:03 Paris se retrouve avec ses vues d'un côté et son coût de l'autre.
+ * ⚠️ NE JAMAIS passer autre chose que `periodOf` depuis un chemin qui ÉCRIT
+ * (accrual, gel au paiement) : la clé y sert de jointure avec `payments.period`.
  */
 export async function computeLivePricingBreakdown(
   ctx: QueryCtx | MutationCtx,
@@ -857,6 +867,7 @@ export async function computeLivePricingBreakdown(
   creatorId: Id<"creators">,
   period: string,
   legacyAssignmentIds: Set<string>,
+  periodKeyOf: (ts: number) => string = periodOf,
 ): Promise<PricingBreakdown> {
   const assignments = (
     await ctx.db
@@ -868,7 +879,7 @@ export async function computeLivePricingBreakdown(
       a.projectId === projectId &&
       a.pricingSnapshot !== undefined &&
       (a.status === "published" || a.status === "paid") &&
-      periodOf(assignmentPublishedAt(a)) === period &&
+      periodKeyOf(assignmentPublishedAt(a)) === period &&
       !legacyAssignmentIds.has(a._id),
   );
   const items: PayoutItem[] = [];
