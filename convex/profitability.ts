@@ -2,7 +2,7 @@ import { adminQuery } from "./functions";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { computeLivePricingBreakdown, assignmentPublishedAt } from "./pricing";
-import { periodOf } from "./payments";
+import { monthKeyParis } from "./dateFr";
 import { summarizeWhopRevenue } from "./whopRevenue";
 import { collectProjectWhopPayments } from "./whopPaymentsAccess";
 
@@ -11,19 +11,26 @@ import { collectProjectWhopPayments } from "./whopPaymentsAccess";
  * (prompt 2) et le COÛT créateurs (moteur de paie, prompt 1 : posts warmup déjà
  * exclus du coût) → MARGE, + les vues ventilées (monétisées / warmup) pour le RPM.
  *
- * Périmètre = CALENDAIRE (mois UTC, aligné sur periodOf) pour un face-à-face
- * cohérent avec le revenu Whop (mensuel). Le COÛT réutilise le MÊME moteur que
- * les Paiements (computeLivePricingBreakdown → computeMonthlyPayout) — mêmes
- * montants par vidéo, seule la fenêtre est le mois calendaire (≠ cycle J+30 de la
- * page Paiements). AUCUN recalcul divergent. Le calcul marge/RPM + le TOGGLE
- * warmup vivent côté client (lib/profitability) : ici on ne renvoie que des
+ * Périmètre = CALENDAIRE (mois EUROPE/PARIS, `monthKeyParis`) pour un face-à-face
+ * cohérent avec le revenu Whop (mensuel), que Whop découpe en heure locale.
+ * Les TROIS colonnes (revenu, coût, vues) partagent cette clé : sans ça, une
+ * vidéo publiée le 1er à 00:03 Paris met ses vues dans un mois et son coût dans
+ * l'autre. Le coût passe toujours par le MÊME moteur que les Paiements ; c'est la
+ * clé de mois qui lui est injectée, pas son calcul.
+ *
+ * Le COÛT réutilise le MÊME moteur que les Paiements (computeLivePricingBreakdown
+ * → computeMonthlyPayout) — mêmes montants par vidéo, seule la fenêtre est le mois
+ * calendaire (≠ cycle J+30 de la page Paiements). AUCUN recalcul divergent.
+ *
+ * Le calcul marge/RPM + le TOGGLE warmup vivent côté client (lib/profitability) : ici on ne renvoie que des
  * nombres bruts (revenu/coût constants + vues ventilées).
  */
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
- * Coût créateurs d'UN créateur, ventilé par mois de publication (UTC). Réutilise
+ * Coût créateurs d'UN créateur, ventilé par mois de publication (EUROPE/PARIS,
+ * cf en-tête de fichier — `monthKeyParis` est injecté dans le moteur). Réutilise
  * computeLivePricingBreakdown (fixe + CPM + bonus paliers cash), appelé UNIQUEMENT
  * sur les mois où le créateur a de l'activité (mois de publi d'un assignment
  * pricing OU mois d'attribution d'un bonus cash) → borne les lectures.
@@ -48,9 +55,14 @@ async function creatorCostByMonth(
   );
   const activeMonths = new Set<string>();
   for (const a of assignments) {
-    activeMonths.add(periodOf(assignmentPublishedAt(a)));
+    activeMonths.add(monthKeyParis(assignmentPublishedAt(a)));
   }
   // Un bonus cash peut être attribué à un mois SANS nouvelle publication (rollover).
+  // ⚠️ `attributionPeriod` est une chaîne PERSISTÉE, dérivée en UTC à l'accrual, et
+  // aucun timestamp ne l'accompagne : elle ne peut pas être re-clée en Paris. Un
+  // bonus attribué dans les 2 h qui précèdent minuit UTC reste donc rangé sous son
+  // mois UTC. Résidu assumé — le corriger voudrait dire réécrire des périodes de
+  // paie déjà émises, ce qu'on ne fait pas pour un libellé d'écran.
   const unlocks = (
     await ctx.db
       .query("bonusUnlocks")
@@ -67,6 +79,7 @@ async function creatorCostByMonth(
       creator._id,
       month,
       new Set(),
+      monthKeyParis,
     );
     if (bd.total > 0) out.set(month, bd.total);
   }
@@ -95,7 +108,7 @@ export const getProjectProfitability = adminQuery({
         currenciesPresent: [] as string[],
         payCurrency: (project?.payCurrency ?? null) as string | null,
         fxRateToRevenue: (project?.fxRateToRevenue ?? null) as number | null,
-        currentPeriod: periodOf(Date.now()),
+        currentPeriod: monthKeyParis(Date.now()),
         total: {
           revenueNet: 0,
           creatorCost: 0,
@@ -123,7 +136,7 @@ export const getProjectProfitability = adminQuery({
     );
     const revByMonth = new Map<string, Doc<"whopPayments">[]>();
     for (const r of whopRows) {
-      const m = periodOf(r.paidAt);
+      const m = monthKeyParis(r.paidAt);
       const arr = revByMonth.get(m);
       if (arr) arr.push(r);
       else revByMonth.set(m, [r]);
@@ -169,7 +182,7 @@ export const getProjectProfitability = adminQuery({
     let totWarmup = 0;
     for (const p of pubs) {
       const v = p.vuesLatest ?? 0;
-      const m = periodOf(p.datePubli);
+      const m = monthKeyParis(p.datePubli);
       const bucket = viewsByMonth.get(m) ?? {
         monetizedViews: 0,
         warmupViews: 0,
@@ -209,7 +222,7 @@ export const getProjectProfitability = adminQuery({
       // Taux paie→revenu pour la marge (revenu € − coût $ converti). null → marge
       // non calculée (jamais soustraire deux devises sans conversion).
       fxRateToRevenue: project?.fxRateToRevenue ?? null,
-      currentPeriod: periodOf(Date.now()),
+      currentPeriod: monthKeyParis(Date.now()),
       // A5 — le drapeau était calculé puis jeté : la carte affichait un revenu
       // zéroïsé (donc une marge très négative) comme s'il s'agissait d'un vrai
       // montant. Un chiffre faux est pire qu'un chiffre absent.

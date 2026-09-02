@@ -49,3 +49,34 @@ export function formatDayMonthFr(ts: number): string {
     timeZone: "Europe/Paris",
   });
 }
+
+/**
+ * Clé de MOIS CALENDAIRE "YYYY-MM" en Europe/Paris.
+ *
+ * ⚠️ À NE PAS confondre avec `periodOf` (convex/payments.ts), qui découpe en
+ * **UTC** et dont la valeur est PERSISTÉE (`payments.period`,
+ * `bonusUnlocks.attributionPeriod`, `assignments`/pricing). Ces deux clés ne
+ * sont PAS interchangeables :
+ *
+ *  - `periodOf` = période de PAIE. Sa valeur est écrite en base et sert de
+ *    jointure ; la changer déplacerait de l'argent d'une période à l'autre sur
+ *    des lignes déjà émises. Elle reste en UTC, définitivement.
+ *  - `monthKeyParis` = mois tel qu'un humain le LIT sur un écran de revenu /
+ *    rentabilité, et tel que Whop le découpe (heure locale). Jamais persistée.
+ *
+ * Pourquoi ce module existe : le revenu Whop était bucketisé avec `periodOf`,
+ * donc en UTC, alors que le reste du hub Analytics compte déjà ses JOURS en
+ * Europe/Paris (`analyticsHub.parisDay`). Les deux axes du même écran ne
+ * tombaient donc pas sur le même mois. Relevé en prod le 2026-09-02 : 11
+ * paiements du 31/08 22:03→23:43 UTC sont le 1er septembre à Paris (00:03→01:43),
+ * dont 7 encaissés — 85,93 € de brut et 80,26 € de net rangés en août par l'app
+ * et en septembre par Whop.
+ *
+ * Même construction que `analyticsHub.parisDay` (en-CA → "YYYY-MM-DD"), dont on
+ * ne garde que l'année et le mois : un seul mécanisme de fuseau à auditer.
+ */
+export function monthKeyParis(ts: number): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" })
+    .format(new Date(ts))
+    .slice(0, 7);
+}

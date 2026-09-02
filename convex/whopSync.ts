@@ -14,7 +14,7 @@ import {
   fetchWhopMemberships,
 } from "./whopApi";
 import { summarizeWhopRevenue } from "./whopRevenue";
-import { periodOf } from "./payments";
+import { monthKeyParis } from "./dateFr";
 import {
   shouldNotifyDispute,
   shouldNotifyRenewalFailure,
@@ -530,7 +530,11 @@ export const requestWhopSync = adminMutation({
 // ─── Vue lecture — revenu net par projet & période ───────────────────────────
 
 /**
- * Revenu Whop du projet, agrégé PAR MOIS (UTC, aligné sur periodOf). Le NET
+ * Revenu Whop du projet, agrégé PAR MOIS EUROPE/PARIS (`monthKeyParis`), comme
+ * Whop lui-même le découpe et comme le hub compte déjà ses jours. PAS `periodOf`
+ * (UTC, période de PAIE persistée) : sur l'export prod du 2026-09-02, 7
+ * encaissements du 31/08 22:03→23:43 UTC (85,93 € brut, 80,26 € net) tombaient en
+ * août ici et en septembre sur Whop. Le NET
  * (après frais Whop ET remboursements) est le chiffre de pilotage ; brut/frais/
  * remboursements exposés pour la transparence. `configured` = false → le projet
  * n'a pas de mapping Whop (l'UI invite à le configurer). Ne lit QUE les paiements
@@ -551,7 +555,7 @@ export const getWhopRevenue = adminQuery({
 
     const byMonth = new Map<string, Doc<"whopPayments">[]>();
     for (const r of rows) {
-      const period = periodOf(r.paidAt);
+      const period = monthKeyParis(r.paidAt);
       const arr = byMonth.get(period);
       if (arr) arr.push(r);
       else byMonth.set(period, [r]);
@@ -563,7 +567,7 @@ export const getWhopRevenue = adminQuery({
     return {
       configured: project?.whop !== undefined,
       companyId: project?.whop?.companyId ?? null,
-      currentPeriod: periodOf(Date.now()),
+      currentPeriod: monthKeyParis(Date.now()),
       total: summarizeWhopRevenue(rows),
       months,
     };
