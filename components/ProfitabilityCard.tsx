@@ -111,9 +111,9 @@ export function ProfitabilityCard() {
             <Switch
               checked={includeUnpaid}
               onCheckedChange={setIncludeUnpaid}
-              aria-label="Inclure les vues des posts non rémunérés"
+              aria-label="Inclure les vues non facturées"
             />
-            Inclure les vues non rémunérées
+            Inclure les vues non facturées
           </label>
         </div>
 
@@ -156,8 +156,8 @@ export function ProfitabilityCard() {
             value={formatRpm(total.rpm, revenueCurrency)}
             hint={
               includeUnpaid
-                ? "/ 1000 vues (non rémunérées incluses)"
-                : "/ 1000 vues rémunérées"
+                ? "/ 1000 vues (non facturées incluses)"
+                : "/ 1000 vues facturées"
             }
             valueClass="text-slate-900"
           />
@@ -165,20 +165,18 @@ export function ProfitabilityCard() {
             label="Vues"
             value={formatNumber(total.views)}
             hint={
-            includeUnpaid
-              ? "non rémunérées incluses · retenues J+30"
-              : "rémunérées seulement · retenues J+30"
+            includeUnpaid ? "toutes les vues suivies" : "facturées seulement"
           }
           />
         </div>
 
         <p className="flex items-start gap-1.5 text-[11px] text-slate-400">
           <InfoIcon className="mt-px size-3.5 shrink-0" />
-          Vues RETENUES&nbsp;: plafonnées à J+30 après publication, comme
-          l&apos;assiette du CPM — au-delà, une vidéo reste suivie mais n&apos;est
-          plus payée, donc elle ne compte plus au dénominateur. Le toggle ne change
-          que les vues (donc le RPM) — le revenu Whop net et le coût créateurs sont
-          identiques dans les deux cas.
+          Vues FACTURÉES&nbsp;: celles réellement payées — arrêtées à J+30 après
+          publication, et bornées au plafond de 150&nbsp;$/vidéo. Au-delà, une
+          vidéo reste suivie mais ne coûte plus rien, donc elle ne pèse plus au
+          dénominateur. Le toggle ne change que les vues (donc le RPM) — le revenu
+          Whop net et le coût créateurs sont identiques dans les deux cas.
         </p>
 
         {data.months.length > 0 && (
