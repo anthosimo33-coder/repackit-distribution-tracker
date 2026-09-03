@@ -423,6 +423,10 @@
       "sentAwaiting": "Video sent — waiting for the admin to approve it.",
       "resubmit": "Submit another video",
       "urlWrongPlatform": "The URL for {platform} doesn't match that platform.",
+      "urlIsAccount": "The {platform} link is a profile link, not a link to a post.",
+      "profileLink": "That's a profile link, not the link to the post.",
+      "unknownLink": "Unrecognized link. If it's the one for your post, send it anyway — it'll be checked.",
+      "confirmPublish": "Confirm publication",
       "managedNotice": "— the team publishes this content. There's nothing for you to submit or publish; the post and its performance will show up in “My videos”.",
       "seePostOn": "View the {platform} post"
     },
@@ -1007,6 +1011,7 @@
     "ERR_ACCOUNT_NOT_APPROVED_TO_PUBLISH": "Account {handle} isn't approved to publish (warm-up in progress, or the admin has to re-approve it).",
     "ERR_POST_URL_INVALID": "Invalid post URL for {platform} (an http(s) link is expected).",
     "ERR_POST_URL_WRONG_PLATFORM": "The URL given for {platform} doesn't match that platform.",
+    "ERR_POST_URL_IS_ACCOUNT": "The URL given for {platform} is a profile link, not a link to a post.",
     "ERR_POST_URL_MISSING": "Missing URL for {platform} — every platform is required.",
     "ERR_ACCOUNT_RENAME_LOCKED": "{count, plural, one {You can't rename this account: # publication uses it. Renaming the handle would orphan it.} other {You can't rename this account: # publications use it. Renaming the handle would orphan them.}}",
     "ERR_ACCOUNT_ALREADY_EXISTS": "Account {handle} already exists on {platform}.",

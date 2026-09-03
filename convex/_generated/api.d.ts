@@ -96,6 +96,7 @@ import type * as payments from "../payments.js";
 import type * as personnes from "../personnes.js";
 import type * as postUrlDate from "../postUrlDate.js";
 import type * as postUrlResolution from "../postUrlResolution.js";
+import type * as postUrlShape from "../postUrlShape.js";
 import type * as postWindow from "../postWindow.js";
 import type * as posthogApi from "../posthogApi.js";
 import type * as posthogSync from "../posthogSync.js";
@@ -243,6 +244,7 @@ declare const fullApi: ApiFromModules<{
   personnes: typeof personnes;
   postUrlDate: typeof postUrlDate;
   postUrlResolution: typeof postUrlResolution;
+  postUrlShape: typeof postUrlShape;
   postWindow: typeof postWindow;
   posthogApi: typeof posthogApi;
   posthogSync: typeof posthogSync;
