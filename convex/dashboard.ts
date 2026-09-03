@@ -22,8 +22,8 @@ import { passesWarmupMode } from "./warmupMode";
  * ⚠️ NE PAS SUPPRIMER — ce N'EST PAS du code mort, malgré les apparences.
  * Aucun composant applicatif ne l'appelle : le dashboard admin (ActionDashboard)
  * calcule ses cartes côté client à partir de listAssignments / listComptes /
- * listPayments / listCreators. Un grep de « consommateurs » scopé à app/ et
- * components/ renvoie donc ZÉRO et conclut à tort à du code mort.
+ * listCreators. Un grep de « consommateurs » scopé à app/ et components/
+ * renvoie donc ZÉRO et conclut à tort à du code mort.
  *
  * En réalité e2e/validation-accrual.spec.ts l'interroge directement comme sonde :
  * il compare totalPublished avant/après une publication pour vérifier l'accrual.

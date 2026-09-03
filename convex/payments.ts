@@ -738,79 +738,112 @@ export async function cyclePaymentsForCreator(
  * NB : n'itère que les créateurs VIVANTS (une fiche supprimée avec des cycles
  * payés — inexistant tant que rien n'est versé — ne remonterait pas ici).
  */
-export const listPayments = adminQuery({
-  args: {},
-  handler: async (ctx) => {
-    const creators = await ctx.db
-      .query("creators")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
-    const now = Date.now();
-    const liveIds = new Set(creators.map((c) => c._id));
-    const out = [];
-    for (const c of creators) {
-      const cycles = await cyclePaymentsForCreator(
-        ctx,
-        ctx.projectId,
-        c._id,
-        now,
-      );
-      for (const cy of cycles) {
-        out.push({
-          ...cy,
-          creatorId: c._id,
-          creatorName: c.name,
-          creatorEmail: c.email,
-          creatorPaymentMethod: c.paymentMethod ?? null,
-          creatorPaymentDetails: c.paymentDetails ?? null,
-        });
-      }
-    }
-    // Approche C — paiements ORPHELINS (fiche créateur supprimée : plus de
-    // firstPostAt donc AUCUN cycle calculé) : on surface la row STOCKÉE telle
-    // quelle (snapshot financier figé), lisible via creatorNameSnapshot. Sans ça,
-    // l'historique d'un créateur supprimé disparaîtrait de la vue admin.
-    const orphanRows = (
-      await ctx.db
-        .query("payments")
-        .withIndex("by_project_period", (q) => q.eq("projectId", ctx.projectId))
-        .collect()
-    ).filter((p) => !liveIds.has(p.creatorId));
-    for (const p of orphanRows) {
+async function collectProjectPaymentRows(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+) {
+  const creators = await ctx.db
+    .query("creators")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+  const now = Date.now();
+  const liveIds = new Set(creators.map((c) => c._id));
+  const out = [];
+  for (const c of creators) {
+    const cycles = await cyclePaymentsForCreator(
+      ctx,
+      projectId,
+      c._id,
+      now,
+    );
+    for (const cy of cycles) {
       out.push({
-        // Fenêtre synthétique (ancre perdue avec la fiche) : juste pour l'affichage.
-        key: `orphan:${p._id}`,
-        cycleIndex: 0,
-        cycleStart: p.createdAt,
-        cycleEnd: p.createdAt + CYCLE_LENGTH_MS,
-        period: p.period,
-        status: (p.status === "paid" ? "paid" : "accruing") as
-          | "paid"
-          | "accruing",
-        paidAt: p.paidAt ?? null,
-        lineItems: p.lineItems,
-        totalDue: p.totalDue,
-        pricingBreakdown: frozenBreakdownOf(p),
-        // Row ORPHELINE (fiche supprimée) : on ne sait plus si c'était un talent,
-        // et ses rushes ont disparu avec la fiche. `null` = rien à afficher.
-        rushCount: null as number | null,
-        creatorId: p.creatorId,
-        creatorName: p.creatorNameSnapshot ?? "—",
-        creatorEmail: "",
-        creatorPaymentMethod: null as
-          | "sepa"
-          | "paypal"
-          | "usdt"
-          | "autre"
-          | null,
-        creatorPaymentDetails: null as string | null,
+        ...cy,
+        creatorId: c._id,
+        creatorName: c.name,
+        creatorEmail: c.email,
+        creatorPaymentMethod: c.paymentMethod ?? null,
+        creatorPaymentDetails: c.paymentDetails ?? null,
       });
     }
-    return out.sort(
-      (a, b) =>
-        b.cycleStart - a.cycleStart ||
-        a.creatorName.localeCompare(b.creatorName, "fr"),
-    );
+  }
+  // Approche C — paiements ORPHELINS (fiche créateur supprimée : plus de
+  // firstPostAt donc AUCUN cycle calculé) : on surface la row STOCKÉE telle
+  // quelle (snapshot financier figé), lisible via creatorNameSnapshot. Sans ça,
+  // l'historique d'un créateur supprimé disparaîtrait de la vue admin.
+  const orphanRows = (
+    await ctx.db
+      .query("payments")
+      .withIndex("by_project_period", (q) => q.eq("projectId", projectId))
+      .collect()
+  ).filter((p) => !liveIds.has(p.creatorId));
+  for (const p of orphanRows) {
+    out.push({
+      // Fenêtre synthétique (ancre perdue avec la fiche) : juste pour l'affichage.
+      key: `orphan:${p._id}`,
+      cycleIndex: 0,
+      cycleStart: p.createdAt,
+      cycleEnd: p.createdAt + CYCLE_LENGTH_MS,
+      period: p.period,
+      status: (p.status === "paid" ? "paid" : "accruing") as
+        | "paid"
+        | "accruing",
+      paidAt: p.paidAt ?? null,
+      lineItems: p.lineItems,
+      totalDue: p.totalDue,
+      pricingBreakdown: frozenBreakdownOf(p),
+      // Row ORPHELINE (fiche supprimée) : on ne sait plus si c'était un talent,
+      // et ses rushes ont disparu avec la fiche. `null` = rien à afficher.
+      rushCount: null as number | null,
+      creatorId: p.creatorId,
+      creatorName: p.creatorNameSnapshot ?? "—",
+      creatorEmail: "",
+      creatorPaymentMethod: null as
+        | "sepa"
+        | "paypal"
+        | "usdt"
+        | "autre"
+        | null,
+      creatorPaymentDetails: null as string | null,
+    });
+  }
+  return out.sort(
+    (a, b) =>
+      b.cycleStart - a.cycleStart ||
+      a.creatorName.localeCompare(b.creatorName, "fr"),
+  );
+}
+
+export const listPayments = adminQuery({
+  args: {},
+  handler: async (ctx) => collectProjectPaymentRows(ctx, ctx.projectId),
+});
+
+/**
+ * TOTAL DÛ du projet — la carte 3 du dashboard, et RIEN d'autre.
+ *
+ * POURQUOI CETTE QUERY EXISTE. Le dashboard calculait ce total côté client, en
+ * lisant `listPayments` : le navigateur recevait donc l'INTÉGRALITÉ des cycles
+ * de paie (montants par créatrice, lignes de paie, ventilation du barème et
+ * jusqu'aux coordonnées bancaires servies pour l'export CSV) pour n'afficher
+ * qu'un nombre. Masquer la carte n'y changeait rien : la donnée était déjà
+ * partie. Ici, seul le nombre traverse le réseau.
+ *
+ * MÊME ENSEMBLE, MÊME ORDRE, MÊME ARITHMÉTIQUE que la page Paiements : les deux
+ * passent par `collectProjectPaymentRows`, la somme est faite sur le tableau
+ * DÉJÀ TRIÉ et sans arrondi — exactement le `reduce` que faisait le client.
+ * Un total de dashboard qui diverge du total de la page Paiements serait pire
+ * que pas de total du tout, et l'addition de flottants n'est pas commutative.
+ */
+export const getDueTotal = adminQuery({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await collectProjectPaymentRows(ctx, ctx.projectId);
+    return {
+      dueTotal: rows
+        .filter((p) => p.status !== "paid")
+        .reduce((sum, p) => sum + p.totalDue, 0),
+    };
   },
 });
 

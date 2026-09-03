@@ -953,7 +953,64 @@ export const listAssignments = adminQuery({
         }));
         const linkedAssetFolderIds = effectiveAssetFolderIds(a);
         return {
-          ...a,
+          // PROJECTION EXPLICITE — surtout PAS `...a`. Le payload est le MÊME
+          // qu'avant, champ pour champ : l'objectif n'est pas de retirer une
+          // donnée (`rateSnapshot` reste servi — décision assumée, le tarif
+          // unitaire d'une vidéo fait partie du geste d'assignation) mais de
+          // rendre CONSCIENT l'ajout du prochain champ. Avec un spread, tout
+          // champ ajouté à la table `assignments` partait au navigateur sans
+          // que personne ne l'ait décidé — et la table en porte déjà trois de
+          // rémunération. Cf docs/CHAMPS-SENSIBLES.md.
+          //
+          // ⚠️ `targets` n'est PAS repris de `a` : la version enrichie
+          // (handle + pays + URL par plateforme) est posée plus bas.
+          _id: a._id,
+          _creationTime: a._creationTime,
+          projectId: a.projectId,
+          creatorId: a.creatorId,
+          creatorNameSnapshot: a.creatorNameSnapshot,
+          formatId: a.formatId,
+          scriptCombo: a.scriptCombo,
+          comboKey: a.comboKey,
+          comboImposed: a.comboImposed,
+          replayedFrom: a.replayedFrom,
+          replayVerbatim: a.replayVerbatim,
+          accountId: a.accountId,
+          dueDate: a.dueDate,
+          postDate: a.postDate,
+          postWindow: a.postWindow,
+          contentType: a.contentType,
+          remunerated: a.remunerated,
+          managedByAdmin: a.managedByAdmin,
+          status: a.status,
+          submittedVideoStorageId: a.submittedVideoStorageId,
+          submittedVideoMimeType: a.submittedVideoMimeType,
+          submittedVideoStreamUid: a.submittedVideoStreamUid,
+          submittedVideoStreamStatus: a.submittedVideoStreamStatus,
+          videoReviewFeedback: a.videoReviewFeedback,
+          deadlineReminderSentAt: a.deadlineReminderSentAt,
+          videoRejectedAt: a.videoRejectedAt,
+          lastNudgeAt: a.lastNudgeAt,
+          publishedUrl: a.publishedUrl,
+          publishedAt: a.publishedAt,
+          publishedBy: a.publishedBy,
+          submittedUrl: a.submittedUrl,
+          submittedAt: a.submittedAt,
+          submittedPlatform: a.submittedPlatform,
+          publicationId: a.publicationId,
+          adminFeedback: a.adminFeedback,
+          modelVideos: a.modelVideos,
+          assetFolderIds: a.assetFolderIds,
+          assetFolderId: a.assetFolderId,
+          overlayText: a.overlayText,
+          instructions: a.instructions,
+          // ── Rémunération — servie DÉLIBÉRÉMENT (cf en-tête) ──────────────
+          rateSnapshot: a.rateSnapshot,
+          pricingSnapshot: a.pricingSnapshot,
+          clipRateSnapshot: a.clipRateSnapshot,
+          challengeId: a.challengeId,
+          challengeRemovedAt: a.challengeRemovedAt,
+          createdAt: a.createdAt,
           creatorName: creatorMap.get(a.creatorId) ?? a.creatorNameSnapshot ?? "—",
           formatName: a.formatId ? (formatMap.get(a.formatId) ?? "—") : null,
           targets,

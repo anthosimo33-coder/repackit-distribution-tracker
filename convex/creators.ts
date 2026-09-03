@@ -125,7 +125,34 @@ export const listCreators = adminQuery({
       // `resolveCreatorLocale` est le cœur PARTAGÉ avec `getCreatorLocale`
       // (convex/i18n.ts) : les deux ne peuvent pas diverger.
       rows.push({
-        ...c,
+        // PROJECTION EXPLICITE — surtout PAS `...c`. La fiche `creators` porte
+        // des données de RÉMUNÉRATION et des COORDONNÉES DE PAIEMENT ; un
+        // spread les diffusait à tous les écrans qui listent des créatrices
+        // (table Créateurs, tracker, appariement, sélecteur de propriétaire,
+        // assignation de campagne) alors qu'aucun ne les affiche. Ces champs
+        // sortent désormais par `getCreator` seule — la query de la FICHE, qui
+        // est le seul écran à les rendre. Cf docs/CHAMPS-SENSIBLES.md.
+        //
+        // ⚠️ Ajouter un champ ici est une DÉCISION : tout champ absent de cette
+        // liste ne quitte pas le serveur.
+        _id: c._id,
+        _creationTime: c._creationTime,
+        projectId: c.projectId,
+        userId: c.userId,
+        name: c.name,
+        email: c.email,
+        phone: c.phone,
+        timezone: c.timezone,
+        timezoneSource: c.timezoneSource,
+        kind: c.kind,
+        clipperId: c.clipperId,
+        status: c.status,
+        handlesToCreate: c.handlesToCreate,
+        driveFolderId: c.driveFolderId,
+        firstPostAt: c.firstPostAt,
+        payAnchorAt: c.payAnchorAt,
+        refSlug: c.refSlug,
+        createdAt: c.createdAt,
         invitation,
         locale: localeOrDefault(await resolveCreatorLocale(ctx, c)),
       });
@@ -142,8 +169,37 @@ export const getCreator = adminQuery({
     if (!creator || creator.projectId !== ctx.projectId) return null;
     const inv =
       creator.status === "invited" ? await activeInvitation(ctx, id) : null;
+    // PROJECTION EXPLICITE (pas de spread) — c'est ICI, et nulle part ailleurs,
+    // que sortent les champs de rémunération et les coordonnées de paiement :
+    // `getCreator` sert la FICHE, le seul écran qui les affiche et les édite
+    // (components/creators/CreatorDetailView). Cf docs/CHAMPS-SENSIBLES.md.
     return {
-      ...creator,
+      _id: creator._id,
+      _creationTime: creator._creationTime,
+      projectId: creator.projectId,
+      userId: creator.userId,
+      name: creator.name,
+      email: creator.email,
+      phone: creator.phone,
+      locale: creator.locale,
+      timezone: creator.timezone,
+      timezoneSource: creator.timezoneSource,
+      kind: creator.kind,
+      clipperId: creator.clipperId,
+      status: creator.status,
+      handlesToCreate: creator.handlesToCreate,
+      driveFolderId: creator.driveFolderId,
+      firstPostAt: creator.firstPostAt,
+      payAnchorAt: creator.payAnchorAt,
+      refSlug: creator.refSlug,
+      createdAt: creator.createdAt,
+      // ── Rémunération et coordonnées — servies UNIQUEMENT par cette query ──
+      paymentMethod: creator.paymentMethod,
+      paymentDetails: creator.paymentDetails,
+      adminNotes: creator.adminNotes,
+      bonusPricingId: creator.bonusPricingId,
+      clipRate: creator.clipRate,
+      cycleRetainer: creator.cycleRetainer,
       invitation: inv ? { token: inv.token, expiresAt: inv.expiresAt } : null,
     };
   },
