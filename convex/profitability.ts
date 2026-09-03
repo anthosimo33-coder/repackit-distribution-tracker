@@ -5,7 +5,11 @@ import { computeLivePricingBreakdown, assignmentPublishedAt } from "./pricing";
 import { monthKeyParis } from "./dateFr";
 import { summarizeWhopRevenue } from "./whopRevenue";
 import { collectProjectWhopPayments } from "./whopPaymentsAccess";
-import { viewsSplitOf } from "./viewCounters";
+import {
+  payWindowEndsAt,
+  payWindowIsClosed,
+  retainedViews,
+} from "./payWindow";
 
 /**
  * Rentabilité par PROJET (rentabilité P3) — met en face le REVENU Whop net
@@ -23,8 +27,15 @@ import { viewsSplitOf } from "./viewCounters";
  * → computeMonthlyPayout) — mêmes montants par vidéo, seule la fenêtre est le mois
  * calendaire (≠ cycle J+30 de la page Paiements). AUCUN recalcul divergent.
  *
- * Le calcul marge/RPM + le TOGGLE warmup vivent côté client (lib/profitability) : ici on ne renvoie que des
- * nombres bruts (revenu/coût constants + vues ventilées).
+ * Les VUES du dénominateur sont celles qu'on a réellement PAYÉES, au sens plein :
+ * retenues à J+30 (`retainedViews`) ET bornées au plafond de 150 $/vidéo
+ * (`billedViews`, produit par le moteur lui-même). Les deux colonnes d'une même
+ * ligne décrivent donc le même ensemble de vues — sinon la marge et le RPM ne
+ * parlent pas de la même chose, et une vidéo virale déjà plafonnée fait chuter le
+ * RPM sans coûter un centime.
+ *
+ * Le calcul marge/RPM + le TOGGLE vivent côté client (lib/profitability) : ici on
+ * ne renvoie que des nombres bruts (revenu/coût constants + vues ventilées).
  */
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -42,7 +53,7 @@ async function creatorCostByMonth(
   ctx: QueryCtx,
   projectId: Id<"projects">,
   creator: Doc<"creators">,
-): Promise<Map<string, number>> {
+): Promise<Map<string, { cost: number; billedViews: number }>> {
   const assignments = (
     await ctx.db
       .query("assignments")
@@ -72,7 +83,7 @@ async function creatorCostByMonth(
   ).filter((u) => u.projectId === projectId && u.rewardType === "cash");
   for (const u of unlocks) activeMonths.add(u.attributionPeriod);
 
-  const out = new Map<string, number>();
+  const out = new Map<string, { cost: number; billedViews: number }>();
   for (const month of activeMonths) {
     const bd = await computeLivePricingBreakdown(
       ctx,
@@ -82,7 +93,14 @@ async function creatorCostByMonth(
       new Set(),
       monthKeyParis,
     );
-    if (bd.total > 0) out.set(month, bd.total);
+    // Les vues FACTURÉES viennent du MÊME appel que le coût : c'est la seule
+    // façon que le dénominateur du RPM et son numérateur décrivent le même
+    // ensemble. Un mois à coût nul peut porter des vues (barème à taux nul) et
+    // l'inverse (bonus de palier sans publication) — d'où les deux conditions.
+    const billedViews = bd.perAssignment.reduce((sum, a) => sum + a.billedViews, 0);
+    if (bd.total > 0 || billedViews > 0) {
+      out.set(month, { cost: bd.total, billedViews });
+    }
   }
   return out;
 }
@@ -160,10 +178,12 @@ export const getProjectProfitability = adminQuery({
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
     const costByMonth = new Map<string, number>();
+    const billedByMonth = new Map<string, number>();
     for (const c of creators) {
       const cm = await creatorCostByMonth(ctx, ctx.projectId, c);
-      for (const [m, amt] of cm) {
-        costByMonth.set(m, round2((costByMonth.get(m) ?? 0) + amt));
+      for (const [m, { cost, billedViews }] of cm) {
+        costByMonth.set(m, round2((costByMonth.get(m) ?? 0) + cost));
+        billedByMonth.set(m, (billedByMonth.get(m) ?? 0) + billedViews);
       }
     }
     const totalCost = round2(
@@ -193,23 +213,78 @@ export const getProjectProfitability = adminQuery({
       if (arr) arr.push(p);
       else pubsByMonth.set(m, [p]);
     }
-    const asItems = (list: typeof pubs) =>
-      list.map((p) => ({
-        isWarmup: p.isWarmup === true,
-        remunere: p.remunere,
-        views: p.vuesLatest ?? 0,
-      }));
+    // Vues RETENUES (plafond J+30), pas vues MESURÉES — MÊME assiette que le
+    // coût, qui passe déjà par `retainedViews` (convex/pricing). Sans ça, le
+    // numérateur d'un mois écoulé est figé pendant que son dénominateur continue
+    // de grossir : le RPM d'août baissait tout seul, tous les jours, sans qu'une
+    // seule décision ait été prise (−0,19 € en 24 h, mesuré les 02→03/09/2026,
+    // +125 832 vues dont 107 400 sur une seule vidéo publiée le 31/08).
+    //
+    // Une fenêtre OUVERTE retient les vues mesurées : aucune lecture de snapshot
+    // n'est nécessaire. On n'interroge `metricSnapshots` que pour les posts dont
+    // la fenêtre est CLOSE (51 sur 343 en prod le 03/09/2026) — le coût de la
+    // query reste donc proportionnel à ce qui est réellement figé, pas au stock.
+    const now = Date.now();
+    const retainedOf = async (p: Doc<"publications">): Promise<number> => {
+      const measured = p.vuesLatest ?? 0;
+      if (!payWindowIsClosed(p.datePubli, now)) return measured;
+      const windowSnapshot = await ctx.db
+        .query("metricSnapshots")
+        .withIndex("by_publication_and_capturedAt", (q) =>
+          q
+            .eq("publicationId", p._id)
+            .lt("capturedAt", payWindowEndsAt(p.datePubli)),
+        )
+        .order("desc")
+        .first();
+      return retainedViews({
+        datePubli: p.datePubli,
+        measuredViews: measured,
+        windowSnapshot,
+        now,
+      }).views;
+    };
+    const retainedById = new Map<string, number>();
+    for (const p of pubs) retainedById.set(p._id, await retainedOf(p));
+    const allViewsOf = (list: typeof pubs) =>
+      list.reduce((s, p) => s + (retainedById.get(p._id) ?? 0), 0);
+
+    // ─── PAYÉES = vues FACTURÉES, plafond 150 $/vidéo compris ────────────────
+    // Elles viennent de `billedByMonth`, c'est-à-dire du MÊME appel au moteur que
+    // le coût. Au-delà du seuil où une vidéo atteint le plafond, chaque vue
+    // supplémentaire est GRATUITE : la compter au dénominateur fait baisser le
+    // RPM sans qu'un centime ait été dépensé. Mesuré en prod le 03/09/2026 :
+    // 2 vidéos sur 128 portaient 248 489 vues gratuites en août (20 % du mois),
+    // et l'une d'elles a fait tomber le RPM de 1,88 € à 1,69 € en 24 h pour 0 $.
+    //
+    // `viewsSplitOf` (coupure isRemunerated) n'est donc plus la source du
+    // dénominateur ; il reste celle des vues TOTALES, dont on déduit les non
+    // rémunérées. Le `max(0, …)` est une ceinture : les vues facturées sont
+    // bornées par les vues payables, elles-mêmes bornées par les vues retenues du
+    // même mois — la soustraction ne peut pas passer sous zéro sans un décalage
+    // de mois entre un assignment et ses posts (aucun en prod le 03/09).
     const viewsByMonth = new Map<
       string,
       { paidViews: number; unpaidViews: number }
     >();
     for (const [m, list] of pubsByMonth) {
-      viewsByMonth.set(m, viewsSplitOf(asItems(list)));
+      const paid = billedByMonth.get(m) ?? 0;
+      viewsByMonth.set(m, {
+        paidViews: paid,
+        unpaidViews: Math.max(0, allViewsOf(list) - paid),
+      });
     }
-    // Total recalculé sur TOUT le lot, jamais sommé depuis les mois : une
-    // publication hors des mois retenus resterait comptée dans le total.
-    const { paidViews: totPaid, unpaidViews: totUnpaid } =
-      viewsSplitOf(asItems(pubs));
+    // Un mois peut porter des vues FACTURÉES sans aucune publication rangée sous
+    // lui (bonus attribué à une période persistée en UTC) : sans cette boucle, sa
+    // ligne afficherait un coût et zéro vue.
+    for (const [m, paid] of billedByMonth) {
+      if (!viewsByMonth.has(m)) {
+        viewsByMonth.set(m, { paidViews: paid, unpaidViews: 0 });
+      }
+    }
+    // Totaux recalculés sur TOUT le lot, jamais sommés depuis les mois.
+    const totPaid = [...billedByMonth.values()].reduce((s, v) => s + v, 0);
+    const totUnpaid = Math.max(0, allViewsOf(pubs) - totPaid);
 
     // ─── Assemblage (mois présents dans revenu, coût OU vues), plus récent d'abord ─
     const allPeriods = new Set<string>([

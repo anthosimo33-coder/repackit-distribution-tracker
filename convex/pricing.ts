@@ -79,8 +79,11 @@ export interface MonthlyPayout {
   perAssignment: {
     assignmentId: string;
     pricingId: string;
+    /** Assiette AVANT plafond (vues payables retenues). */
     totalViews: number;
     cpm: number;
+    /** Vues réellement FACTURÉES — cf lib/pricing-engine.PerAssignment. */
+    billedViews: number;
   }[];
 }
 
@@ -191,11 +194,22 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
       fixedOverflow += excess - cpmOverflow;
       const cappedCpm = round2(cpm - cpmOverflow);
       groupCpm = round2(groupCpm + cappedCpm);
+      const views = Math.max(0, it.totalViews);
+      // Vues FACTURÉES = celles en deçà du seuil où la vidéo atteint le plafond.
+      // Calculé sur le SEUIL (exact), pas sur le ratio des montants arrondis au
+      // centime : `round2` sur le CPM ferait dériver la conversion inverse — la
+      // vidéo à 379 898 vues rendait 149 999 au lieu de 150 000.
+      const cpmBudget = MAX_PAY_PER_VIDEO_EUR - fixedShare;
+      const billableViews =
+        it.snapshot.tauxCPM > 0
+          ? Math.max(0, (cpmBudget / it.snapshot.tauxCPM) * 1000)
+          : 0;
       perAssignment.push({
         assignmentId: it.assignmentId,
         pricingId: it.snapshot.pricingId,
-        totalViews: Math.max(0, it.totalViews),
+        totalViews: views,
         cpm: cappedCpm,
+        billedViews: Math.round(Math.min(views, billableViews)),
       });
     }
     const fixed = round2(round2(fixedRaw) - fixedOverflow);
