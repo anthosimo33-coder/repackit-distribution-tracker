@@ -265,16 +265,64 @@ export default defineSchema({
     // clippeur est rejeté MÉCANIQUEMENT de toutes les fonctions créateur
     // existantes, sans qu'aucune d'elles soit modifiée. Le littéral dérive de
     // `creators.kind` au signup (cf convex/roles.roleForKind + convex/auth.ts).
+    // "manager" = ADMIN RESTREINT. Littéral AJOUTÉ à côté des autres, jamais
+    // en remplacement : les memberships existants gardent "admin" et donc leurs
+    // accès actuels, d'où ZÉRO migration. Même patron que l'ajout de "talent" et
+    // "clipper" en 2026. Ce que peut un manager est décidé par `permissions`
+    // ci-dessous ; "admin" reste « tout », sans permissions à écrire.
     role: v.union(
       v.literal("admin"),
+      v.literal("manager"),
       v.literal("creator"),
       v.literal("talent"),
       v.literal("clipper"),
     ),
+    // ─── DROITS D'UN MANAGER (convex/permissions.ts) ──────────────────────────
+    // Blocs du catalogue accordés à CETTE personne SUR CE PROJET. Le grain est
+    // celui du membership, et ce n'est pas un hasard : un droit vaut pour une
+    // personne × un projet, et ce document est DÉJÀ lu à chaque requête gardée
+    // (requireProjectAdmin) — les droits arrivent donc sans lecture de plus, là
+    // où une table dédiée en ajouterait une sur chacune des 212 fonctions.
+    //
+    // ⚠️ Ignoré pour "admin" (qui a tout) et pour les rôles de portail.
+    // ABSENT ⇒ AUCUN droit : un manager fraîchement créé ne peut rien tant que
+    // rien n'est coché. C'est le défaut voulu — le champ est optional pour que
+    // les documents existants restent valides, pas pour ouvrir une porte.
+    // Une valeur hors catalogue n'autorise RIEN (cf. isPermissionId).
+    permissions: v.optional(v.array(v.string())),
   })
     .index("by_user", ["userId"])
     .index("by_project", ["projectId"])
     .index("by_user_project", ["userId", "projectId"]),
+
+  // ─── TRACE DES CHANGEMENTS DE DROITS — EN AJOUT SEUL ──────────────────────
+  // Une ligne par (personne, bloc, sens). Jamais de patch, jamais de delete :
+  // c'est un journal, pas un état. L'état effectif vit sur `memberships`, et
+  // rejouer ce journal pour le reconstruire serait une lecture de plus à chaque
+  // requête — exactement ce qu'on a refusé en posant `permissions` sur le
+  // membership.
+  //
+  // Écrit par TOUT chemin qui change des droits, y compris les provisionnements
+  // en ligne de commande : un droit accordé hors écran doit laisser la même
+  // trace qu'un droit accordé à l'écran, sinon le journal ment par omission.
+  permissionChanges: defineTable({
+    projectId: v.id("projects"),
+    // La personne DONT les droits changent.
+    subjectUserId: v.id("users"),
+    // Le bloc. `v.string()` et non une union : un bloc retiré du catalogue doit
+    // rester LISIBLE dans l'historique. Un journal qui refuse de relire le passé
+    // parce que le présent a changé n'est pas un journal.
+    permission: v.string(),
+    // true = accordé, false = retiré.
+    granted: v.boolean(),
+    // Qui a fait le geste. ABSENT = hors session (ligne de commande, migration).
+    actorUserId: v.optional(v.id("users")),
+    // Étiquette lisible de l'auteur ("cli", ou l'e-mail de l'admin).
+    actorLabel: v.string(),
+    at: v.number(),
+  })
+    .index("by_project_subject", ["projectId", "subjectUserId"])
+    .index("by_at", ["at"]),
 
   hooks: defineTable({
     // P2 — projectId optional (phase migration) → resserré en required après

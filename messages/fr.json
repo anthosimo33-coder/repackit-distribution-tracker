@@ -1016,6 +1016,7 @@
     "ERR_CLIP_QUOTA_REACHED": "{count, plural, one {Quota atteint pour le {date} sur {handle} : # publication sur {max} en phase de {phase}.} other {Quota atteint pour le {date} sur {handle} : # publications sur {max} en phase de {phase}.}}",
     "ERR_PUBLISHED_AT_BEFORE_CREATION": "La date de publication précède la création de l'assignation.",
     "ERR_PORTAL_ROLE_REJECTED": "Cet espace est réservé à une autre population du projet.",
-    "generic": "Une erreur est survenue."
+    "generic": "Une erreur est survenue.",
+    "ERR_PERMISSION_DENIED": "Cette action ne t'est pas accordée. Demande le droit à un administrateur."
   }
 }

@@ -96,6 +96,13 @@ export const ERR = {
   PUBLISHED_AT_BEFORE_CREATION: "ERR_PUBLISHED_AT_BEFORE_CREATION",
   /** Rôle de portail refusé (talent / clippeur / partenaire selon le contexte). */
   PORTAL_ROLE_REJECTED: "ERR_PORTAL_ROLE_REJECTED",
+  /**
+   * Droit manquant sur un BLOC du catalogue (convex/permissions.ts). Distinct
+   * d'ADMIN_ONLY : celui-ci dit « tu es bien de l'équipe, mais cette case n'est
+   * pas cochée pour toi », ce qui appelle une demande à un superadmin, pas une
+   * reconnexion. Le bloc manquant voyage en paramètre `permission`.
+   */
+  PERMISSION_DENIED: "ERR_PERMISSION_DENIED",
 } as const;
 
 export type ErrCode = (typeof ERR)[keyof typeof ERR];
