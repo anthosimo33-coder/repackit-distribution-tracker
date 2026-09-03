@@ -30,6 +30,7 @@ import {
 import { toast } from "sonner";
 import { useConvexError } from "@/lib/use-convex-error";
 import { detectInspirationType } from "@/lib/inspiration-url";
+import { publishUrlIssue, type PostUrlPlatform } from "@/convex/postUrlShape";
 import { useTranslations } from "next-intl";
 
 /**
@@ -125,14 +126,24 @@ export function AssignmentActions({
 
   async function handleConfirm(e: React.FormEvent) {
     e.preventDefault();
-    // Garde client : chaque URL doit correspondre à SA plateforme (le serveur
-    // revalide de toute façon).
+    // Garde client : on ne refuse QUE ce qui est prouvé faux — mauvaise
+    // plateforme, ou lien de profil. Un format d'URL non reconnu PASSE : c'est
+    // au serveur de trancher, et il est permissif. L'inverse — une liste
+    // blanche de formats côté client — a bloqué des créatrices pendant des
+    // semaines sur des liens parfaitement valides (cf convex/postUrlShape.ts).
     for (const t of targets) {
-      const val = (urls[t.platform] ?? "").trim();
-      const detected = val ? detectInspirationType(val) : null;
-      if (!detected || detected.plateforme !== t.platform) {
+      const issue = publishUrlIssue(
+        (urls[t.platform] ?? "").trim(),
+        t.platform as PostUrlPlatform,
+      );
+      if (issue !== null) {
         toast.error(
-          tr("assignment.urlWrongPlatform", { platform: t.platform }),
+          tr(
+            issue === "account-url"
+              ? "assignment.urlIsAccount"
+              : "assignment.urlWrongPlatform",
+            { platform: t.platform },
+          ),
         );
         return;
       }
@@ -374,8 +385,18 @@ export function AssignmentActions({
         </div>
         {targets.map((target) => {
           const val = urls[target.platform] ?? "";
-          const detected = val.trim() ? detectInspirationType(val) : null;
-          const mismatch = detected && detected.plateforme !== target.platform;
+          // Trois états, jamais un silence. `issue` = prouvé faux (rouge,
+          // bloquant) ; `unknown` = lien non reconnu (ambre, NON bloquant) —
+          // c'est cet état qui manquait : le champ paraissait valide, le bouton
+          // actif, et l'erreur ne tombait qu'au clic, sur un lien correct.
+          const issue = publishUrlIssue(
+            val.trim(),
+            target.platform as PostUrlPlatform,
+          );
+          const unknown =
+            issue === null &&
+            val.trim() !== "" &&
+            detectInspirationType(val) === null;
           return (
             <div key={target.platform} className="space-y-1.5">
               <Label htmlFor={`url-${target.platform}`}>
@@ -399,9 +420,22 @@ export function AssignmentActions({
                 required
                 className="h-11 sm:h-9"
               />
-              {mismatch && (
-                <p className="text-xs text-rose-600">
-                  {t("assignment.wrongLink", { platform: target.platform })}
+              {issue !== null && (
+                <p
+                  className="text-xs text-rose-600"
+                  data-testid={`url-issue-${target.platform}`}
+                >
+                  {issue === "account-url"
+                    ? t("assignment.profileLink")
+                    : t("assignment.wrongLink", { platform: target.platform })}
+                </p>
+              )}
+              {unknown && (
+                <p
+                  className="text-xs text-amber-600"
+                  data-testid={`url-unknown-${target.platform}`}
+                >
+                  {t("assignment.unknownLink")}
                 </p>
               )}
             </div>
@@ -417,7 +451,7 @@ export function AssignmentActions({
           ) : (
             <SendIcon className="mr-2 size-4" />
           )}
-          Confirmer la publication
+          {t("assignment.confirmPublish")}
         </Button>
       </form>
     );
