@@ -165,15 +165,20 @@ export function ProfitabilityCard() {
             label="Vues"
             value={formatNumber(total.views)}
             hint={
-            includeUnpaid ? "non rémunérées incluses" : "rémunérées seulement"
+            includeUnpaid
+              ? "non rémunérées incluses · retenues J+30"
+              : "rémunérées seulement · retenues J+30"
           }
           />
         </div>
 
         <p className="flex items-start gap-1.5 text-[11px] text-slate-400">
           <InfoIcon className="mt-px size-3.5 shrink-0" />
-          Le toggle ne change que les vues (donc le RPM) — le revenu Whop
-          net et le coût créateurs sont identiques dans les deux cas.
+          Vues RETENUES&nbsp;: plafonnées à J+30 après publication, comme
+          l&apos;assiette du CPM — au-delà, une vidéo reste suivie mais n&apos;est
+          plus payée, donc elle ne compte plus au dénominateur. Le toggle ne change
+          que les vues (donc le RPM) — le revenu Whop net et le coût créateurs sont
+          identiques dans les deux cas.
         </p>
 
         {data.months.length > 0 && (

@@ -6,6 +6,11 @@ import { monthKeyParis } from "./dateFr";
 import { summarizeWhopRevenue } from "./whopRevenue";
 import { collectProjectWhopPayments } from "./whopPaymentsAccess";
 import { viewsSplitOf } from "./viewCounters";
+import {
+  payWindowEndsAt,
+  payWindowIsClosed,
+  retainedViews,
+} from "./payWindow";
 
 /**
  * Rentabilité par PROJET (rentabilité P3) — met en face le REVENU Whop net
@@ -22,6 +27,11 @@ import { viewsSplitOf } from "./viewCounters";
  * Le COÛT réutilise le MÊME moteur que les Paiements (computeLivePricingBreakdown
  * → computeMonthlyPayout) — mêmes montants par vidéo, seule la fenêtre est le mois
  * calendaire (≠ cycle J+30 de la page Paiements). AUCUN recalcul divergent.
+ *
+ * Les VUES du dénominateur sont RETENUES au même titre : plafonnées à J+30 par
+ * `retainedViews`, exactement comme l'assiette du CPM. Les deux colonnes d'une
+ * même ligne décrivent donc le même ensemble de vues — sinon la marge et le RPM
+ * ne parlent pas de la même chose.
  *
  * Le calcul marge/RPM + le TOGGLE warmup vivent côté client (lib/profitability) : ici on ne renvoie que des
  * nombres bruts (revenu/coût constants + vues ventilées).
@@ -193,12 +203,47 @@ export const getProjectProfitability = adminQuery({
       if (arr) arr.push(p);
       else pubsByMonth.set(m, [p]);
     }
-    const asItems = (list: typeof pubs) =>
-      list.map((p) => ({
+    // Vues RETENUES (plafond J+30), pas vues MESURÉES — MÊME assiette que le
+    // coût, qui passe déjà par `retainedViews` (convex/pricing). Sans ça, le
+    // numérateur d'un mois écoulé est figé pendant que son dénominateur continue
+    // de grossir : le RPM d'août baissait tout seul, tous les jours, sans qu'une
+    // seule décision ait été prise (−0,19 € en 24 h, mesuré les 02→03/09/2026,
+    // +125 832 vues dont 107 400 sur une seule vidéo publiée le 31/08).
+    //
+    // Une fenêtre OUVERTE retient les vues mesurées : aucune lecture de snapshot
+    // n'est nécessaire. On n'interroge `metricSnapshots` que pour les posts dont
+    // la fenêtre est CLOSE (51 sur 343 en prod le 03/09/2026) — le coût de la
+    // query reste donc proportionnel à ce qui est réellement figé, pas au stock.
+    const now = Date.now();
+    const retainedOf = async (p: Doc<"publications">): Promise<number> => {
+      const measured = p.vuesLatest ?? 0;
+      if (!payWindowIsClosed(p.datePubli, now)) return measured;
+      const windowSnapshot = await ctx.db
+        .query("metricSnapshots")
+        .withIndex("by_publication_and_capturedAt", (q) =>
+          q
+            .eq("publicationId", p._id)
+            .lt("capturedAt", payWindowEndsAt(p.datePubli)),
+        )
+        .order("desc")
+        .first();
+      return retainedViews({
+        datePubli: p.datePubli,
+        measuredViews: measured,
+        windowSnapshot,
+        now,
+      }).views;
+    };
+    const itemOf = new Map<string, { isWarmup: boolean; remunere?: boolean; views: number }>();
+    for (const p of pubs) {
+      itemOf.set(p._id, {
         isWarmup: p.isWarmup === true,
         remunere: p.remunere,
-        views: p.vuesLatest ?? 0,
-      }));
+        views: await retainedOf(p),
+      });
+    }
+    const asItems = (list: typeof pubs) =>
+      list.map((p) => itemOf.get(p._id)!);
     const viewsByMonth = new Map<
       string,
       { paidViews: number; unpaidViews: number }
