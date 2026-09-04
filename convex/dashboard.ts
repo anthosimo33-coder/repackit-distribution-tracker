@@ -1,4 +1,6 @@
-import { adminQuery } from "./functions";
+import {
+  permissionQuery,
+} from "./functions";
 import { v } from "convex/values";
 import { coerceSnapshotAge } from "./snapshotMatching";
 import { resolveDisplayMetrics } from "./metricsDisplay";
@@ -31,7 +33,7 @@ import { passesWarmupMode } from "./warmupMode";
  * (logique d'argent) pour ne gagner qu'une query : mauvais ratio risque/valeur.
  * Si le sujet revient, chercher les usages dans e2e/ AVANT de conclure.
  */
-export const dashboardKpis = adminQuery({
+export const dashboardKpis = permissionQuery("content.analytics")({
   args: {
     snapshotAge: v.optional(v.string()),
     customDay: v.optional(v.number()),

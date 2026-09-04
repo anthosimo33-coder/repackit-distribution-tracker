@@ -1,4 +1,6 @@
-import { adminQuery } from "./functions";
+import {
+  permissionQuery,
+} from "./functions";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
@@ -290,7 +292,7 @@ export function aggregateByBrick(views: CampaignViews): BrickPerf[] {
 }
 
 /** perfByBrick — cf aggregateByBrick. */
-export const perfByBrick = adminQuery({
+export const perfByBrick = permissionQuery("content.analytics")({
   args: { campaignId: v.id("scriptCampaigns"), window: WINDOW },
   handler: async (ctx, { campaignId, window }): Promise<BrickPerf[]> =>
     aggregateByBrick(
@@ -373,7 +375,7 @@ export function postsByBrick(
  * variable. Enrichit ensuite chaque post de son créateur/format via les
  * assignments (même attribution que le tracker). Admin-only.
  */
-export const postsForBrick = adminQuery({
+export const postsForBrick = permissionQuery("content.analytics")({
   args: {
     campaignId: v.id("scriptCampaigns"),
     brickId: v.id("scriptBricks"),
@@ -430,7 +432,7 @@ export function aggregateByTier(views: CampaignViews): TierPerf[] {
 }
 
 /** perfByTier — cf aggregateByTier. */
-export const perfByTier = adminQuery({
+export const perfByTier = permissionQuery("content.analytics")({
   args: { campaignId: v.id("scriptCampaigns"), window: WINDOW },
   handler: async (ctx, { campaignId, window }): Promise<TierPerf[]> =>
     aggregateByTier(
@@ -496,7 +498,7 @@ export function aggregateByCombo(views: CampaignViews): ComboPerf[] {
 }
 
 /** perfByCombo — cf aggregateByCombo. */
-export const perfByCombo = adminQuery({
+export const perfByCombo = permissionQuery("content.analytics")({
   args: { campaignId: v.id("scriptCampaigns"), window: WINDOW },
   handler: async (ctx, { campaignId, window }): Promise<ComboPerf[]> =>
     aggregateByCombo(

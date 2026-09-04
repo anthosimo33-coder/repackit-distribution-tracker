@@ -1,4 +1,6 @@
-import { adminQuery } from "./functions";
+import {
+  permissionQuery,
+} from "./functions";
 import { v } from "convex/values";
 import {
   gatherCampaignViews,
@@ -298,7 +300,7 @@ function buildDecisions(views: CampaignViews): CampaignDecisions {
  * par dimension (tier/corps/flux/cta) et les signaux forts à valider. Changer de
  * fenêtre recalcule tout (la médiane bouge avec la fenêtre).
  */
-export const campaignDecisions = adminQuery({
+export const campaignDecisions = permissionQuery("content.analytics")({
   args: { campaignId: v.id("scriptCampaigns"), window: WINDOW },
   handler: async (ctx, { campaignId, window }): Promise<CampaignDecisions> => {
     const views = await gatherCampaignViews(
