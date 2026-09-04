@@ -1,6 +1,8 @@
 import { internalAction, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { adminMutation } from "./functions";
+import {
+  permissionMutation,
+} from "./functions";
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import {
@@ -135,7 +137,7 @@ export const evaluateChallenges = internalMutation({
  * compris à la même personne si elle est toujours en tête. C'est voulu — la
  * place appartient au défi, pas à la personne qu'on vient d'en écarter.
  */
-export const cancelChallengeWin = adminMutation({
+export const cancelChallengeWin = permissionMutation("challenges.run")({
   args: { winId: v.id("challengeWins"), reason: v.string() },
   handler: async (ctx, { winId, reason }): Promise<{ ok: true }> => {
     const win = await ctx.db.get(winId);
@@ -198,7 +200,7 @@ export const cancelChallengeWin = adminMutation({
  * `at` = maintenant : c'est bien l'instant où l'on constate. Les vues, elles,
  * datent du dernier relevé — l'écran le dit.
  */
-export const evaluateChallengeNow = adminMutation({
+export const evaluateChallengeNow = permissionMutation("challenges.run")({
   args: { id: v.id("challenges") },
   handler: async (ctx, { id }): Promise<{ won: number }> => {
     await requireChallenge(ctx, id, ctx.projectId);
