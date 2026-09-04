@@ -102,9 +102,15 @@ const NONE = "__none__";
 export function CreatorDetailView({
   creator,
   payTerms,
+  canEditPayTerms,
 }: {
   creator: Creator;
   payTerms: PayTerms;
+  /** La personne connectée porte-t-elle `creators.pay_terms` ? Faux ⇒ la carte
+   *  « Moyen de paiement » et la grille de bonus ne sont pas rendues du tout.
+   *  Ce n'est PAS la barrière (le serveur refuse de toute façon) : c'est ce qui
+   *  évite d'afficher des champs vides qu'on ne pourrait ni lire ni enregistrer. */
+  canEditPayTerms: boolean;
 }) {
   // Population de la fiche — décide du tarif affiché (et de rien d'autre ici).
   const kind = resolveCreatorKind(creator.kind);
@@ -257,6 +263,7 @@ export function CreatorDetailView({
         paymentMethod === NONE ? undefined : (paymentMethod as PaymentMethod);
       const tarifVoulu = tarif.trim() === "" ? null : Number(tarif);
       const argentChange =
+        canEditPayTerms &&
         methodeVoulue !== (payTerms?.paymentMethod ?? undefined) ||
         paymentDetails !== (payTerms?.paymentDetails ?? "") ||
         (kind === "clipper" && tarifVoulu !== (payTerms?.clipRate ?? null)) ||
@@ -675,6 +682,7 @@ export function CreatorDetailView({
         </CardContent>
       </Card>
 
+      {canEditPayTerms && (
       <Card>
         <CardHeader>
           <CardTitle>Moyen de paiement</CardTitle>
@@ -747,6 +755,7 @@ export function CreatorDetailView({
           )}
         </CardContent>
       </Card>
+      )}
 
       {/*
         BLOCS PARTENAIRE. Les @ à créer et la grille de paliers relèvent du flux
@@ -844,7 +853,7 @@ export function CreatorDetailView({
 
       {/* P5 — Comptes du créateur (alimenté). Assignments / Paiements restent
           des emplacements réservés (chantiers suivants). */}
-      {kind === "partner" && (
+      {kind === "partner" && canEditPayTerms && (
         <BonusGridSection
           creatorId={creator._id}
           current={payTerms?.bonusPricingId ?? null}

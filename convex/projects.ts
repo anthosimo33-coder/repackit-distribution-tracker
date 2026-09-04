@@ -9,6 +9,11 @@ import {
 } from "./functions";
 import { internalMutation } from "./_generated/server";
 import { isPortalRole } from "./roles";
+import {
+  PERMISSION_ID_LITERALS,
+  grantedPermissions,
+  type PermissionId,
+} from "./permissions";
 import { normalizeRef } from "./conversionAttribution";
 import { warmupTargetDaysOf } from "./warmup";
 import {
@@ -511,6 +516,60 @@ export const getMe = authedQuery({
  * #FF5200, payoutDay défaut 5 (borné 1–28). Aucun membership créé : le
  * superadmin a l'accès implicite ; le workspace reste 100 % vide.
  */
+/**
+ * MES DROITS sur un projet — ce que l'ÉCRAN a le droit de demander.
+ *
+ * Pourquoi cette query existe. Depuis le découpage financier, certains écrans
+ * appellent des fonctions gardées par un bloc que l'appelant ne porte pas
+ * forcément (la fiche créatrice et ses conditions de rémunération). Sans un
+ * moyen de SAVOIR, le client n'a que deux options : appeler et se prendre une
+ * erreur — un écran cassé pour un droit manquant — ou ne jamais appeler, et
+ * l'écran serait amputé pour tout le monde. Il lui faut la liste.
+ *
+ * ⚠️ Elle ne renvoie que les droits EFFECTIFS : les valeurs stockées hors
+ * catalogue sont écartées, exactement comme au contrôle d'accès
+ * (`grantedPermissions`). Un écran qui verrait « challenges.manage » — bloc
+ * retiré depuis — croirait pouvoir afficher quelque chose que le serveur
+ * refuserait ensuite. La liste que lit le client doit être la MÊME que celle qui
+ * décide, sans quoi elle ment poliment.
+ *
+ * ⚠️ Et ce n'est PAS une barrière : masquer un bouton n'a jamais protégé une
+ * donnée. La barrière reste `requirePermission`, à chaque requête. Ceci ne sert
+ * qu'à ne pas afficher un écran cassé.
+ *
+ * `admin` et `superadmin` reçoivent TOUT le catalogue : ils peuvent tout, et
+ * l'écran doit se comporter pour eux exactement comme avant.
+ */
+export const getMyPermissions = authedQuery({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }) => {
+    const user = await ctx.db.get(ctx.userId);
+    if (user?.role === "superadmin") {
+      return { role: "superadmin" as const, permissions: [...PERMISSION_ID_LITERALS] };
+    }
+    const membership = await ctx.db
+      .query("memberships")
+      .withIndex("by_user_project", (q) =>
+        q.eq("userId", ctx.userId).eq("projectId", projectId),
+      )
+      .first();
+    if (membership === null) {
+      return { role: null, permissions: [] as PermissionId[] };
+    }
+    if (membership.role === "admin") {
+      return { role: "admin" as const, permissions: [...PERMISSION_ID_LITERALS] };
+    }
+    if (membership.role !== "manager") {
+      // Rôle de portail : aucun droit d'administration, et c'est structurel.
+      return { role: membership.role, permissions: [] as PermissionId[] };
+    }
+    return {
+      role: "manager" as const,
+      permissions: [...grantedPermissions(membership.permissions)],
+    };
+  },
+});
+
 export const createProject = superadminMutation({
   args: {
     name: v.string(),

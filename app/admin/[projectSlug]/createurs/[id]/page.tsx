@@ -34,9 +34,16 @@ export default function CreatorDetailPage({
   const creator = useProjectQuery(api.creators.getCreator, {
     id: id as Id<"creators">,
   });
-  const payTerms = useProjectQuery(api.creators.getCreatorPayTerms, {
-    id: id as Id<"creators">,
-  });
+  // Les droits de la personne connectée décident si la SECONDE lecture a lieu.
+  // Sans ce garde-fou, un manager sans `creators.pay_terms` déclencherait une
+  // query qui lève, et l'écran entier tomberait — pour un droit manquant, pas
+  // pour une erreur. Un écran amputé vaut mieux qu'un écran cassé.
+  const perms = useProjectQuery(api.projects.getMyPermissions, {});
+  const canSeePayTerms = perms?.permissions.includes("creators.pay_terms");
+  const payTerms = useProjectQuery(
+    api.creators.getCreatorPayTerms,
+    canSeePayTerms ? { id: id as Id<"creators"> } : "skip",
+  );
 
   useEffect(() => {
     if (creator === null) router.replace(projectPath("/createurs"));
@@ -52,10 +59,19 @@ export default function CreatorDetailPage({
         Retour aux créateurs
       </Link>
 
-      {creator === undefined || payTerms === undefined ? (
+      {creator === undefined ||
+      perms === undefined ||
+      (canSeePayTerms && payTerms === undefined) ? (
         <Skeleton className="h-96 w-full" />
       ) : creator === null ? null : (
-        <CreatorDetailView creator={creator} payTerms={payTerms} />
+        <CreatorDetailView
+          creator={creator}
+          // `null` a DEUX sens ici, et un seul intéresse l'écran : soit la fiche
+          // n'a pas de conditions (impossible, la query rend un objet), soit la
+          // personne n'a pas le droit de les voir. `canSeePayTerms` tranche.
+          payTerms={canSeePayTerms ? (payTerms ?? null) : null}
+          canEditPayTerms={canSeePayTerms === true}
+        />
       )}
     </div>
   );
