@@ -3,7 +3,9 @@ import {
   internalMutation,
   internalQuery,
 } from "./_generated/server";
-import { adminQuery } from "./functions";
+import {
+  permissionQuery,
+} from "./functions";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
@@ -462,7 +464,7 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-export const readConversionAllTime = adminQuery({
+export const readConversionAllTime = permissionQuery("business.read")({
   args: {},
   handler: async (ctx) => {
     const all = await ctx.db

@@ -3,7 +3,10 @@ import {
   internalMutation,
   internalQuery,
 } from "./_generated/server";
-import { adminMutation, adminQuery } from "./functions";
+import {
+  permissionMutation,
+  permissionQuery,
+} from "./functions";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -2287,7 +2290,7 @@ export const runHourlySync = internalAction({
  * Bouton « Actualiser » — replanifie la sync POUR CE PROJET. Court-circuit si le
  * projet n'a pas de config PostHog (aucun appel API).
  */
-export const requestPosthogSync = adminMutation({
+export const requestPosthogSync = permissionMutation("business.read")({
   args: {},
   handler: async (ctx): Promise<{ scheduled: boolean; reason?: string }> => {
     const project = await ctx.db.get(ctx.projectId);
@@ -2400,7 +2403,7 @@ const EMPTY_INTERNAL_EXCLUDED: InternalExcludedPayload = {
  * rendu). Un projet non configuré rend `configured:false` et des payloads vides
  * → chaque carte bascule sur son état vide sans jamais afficher un 0 trompeur.
  */
-export const getProductAnalytics = adminQuery({
+export const getProductAnalytics = permissionQuery("business.read")({
   args: {},
   handler: async (ctx): Promise<ProductAnalytics> => {
     const project = await ctx.db.get(ctx.projectId);

@@ -1,16 +1,1 @@
-[
-  "analyticsHub.ts::getAttribution",
-  "analyticsHub.ts::getBillingCountries",
-  "analyticsHub.ts::getChurn",
-  "analyticsHub.ts::getDayDetail",
-  "analyticsHub.ts::getNatureRewards",
-  "analyticsHub.ts::getReliability",
-  "analyticsHub.ts::getRevenueBreakdown",
-  "analyticsHub.ts::getViewCounters",
-  "conversionSync.ts::readConversionAllTime",
-  "posthogSync.ts::getProductAnalytics",
-  "posthogSync.ts::requestPosthogSync",
-  "profitability.ts::getProjectProfitability",
-  "whopSync.ts::getWhopRevenue",
-  "whopSync.ts::requestWhopSync"
-]
+[]

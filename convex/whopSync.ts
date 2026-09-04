@@ -3,7 +3,10 @@ import {
   internalMutation,
   internalQuery,
 } from "./_generated/server";
-import { adminMutation, adminQuery } from "./functions";
+import {
+  permissionMutation,
+  permissionQuery,
+} from "./functions";
 import { collectProjectWhopPayments } from "./whopPaymentsAccess";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -513,7 +516,7 @@ export const runHourlySync = internalAction({
  * Planifie la sync SCOPÉE au projet courant, sans attendre le cron. Rejeté si le
  * projet n'est pas configuré. Gated adminMutation (créateur rejeté).
  */
-export const requestWhopSync = adminMutation({
+export const requestWhopSync = permissionMutation("business.read")({
   args: {},
   handler: async (
     ctx,
@@ -540,7 +543,7 @@ export const requestWhopSync = adminMutation({
  * n'a pas de mapping Whop (l'UI invite à le configurer). Ne lit QUE les paiements
  * du projet courant (jamais de mélange).
  */
-export const getWhopRevenue = adminQuery({
+export const getWhopRevenue = permissionQuery("business.read")({
   args: {},
   handler: async (ctx) => {
     const project = await ctx.db.get(ctx.projectId);

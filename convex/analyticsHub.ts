@@ -1,4 +1,6 @@
-import { adminQuery } from "./functions";
+import {
+  permissionQuery,
+} from "./functions";
 import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -243,7 +245,7 @@ export interface AttributionResult {
  * créatrice. Plus AUCUNE attribution par fenêtre 24 h (supprimée) : le seul
  * rapprochement honnête sans lien tracké est le jour solo.
  */
-export const getAttribution = adminQuery({
+export const getAttribution = permissionQuery("business.read")({
   args: {},
   handler: async (ctx): Promise<AttributionResult> => {
     const project = await ctx.db.get(ctx.projectId);
@@ -547,7 +549,7 @@ export interface NatureRewardsResult {
  * palier affiché ici et non débloqué là-bas. Un engagement est compté PAR
  * CRÉATRICE : deux créatrices sur la même grille, c'est deux objets à prévoir.
  */
-export const getNatureRewards = adminQuery({
+export const getNatureRewards = permissionQuery("business.read")({
   args: {},
   handler: async (ctx): Promise<NatureRewardsResult> => {
     const project = await ctx.db.get(ctx.projectId);
@@ -651,7 +653,7 @@ export interface ViewCountersResult {
  * (convex/viewCounters.isPromoPost) : le jour où `datePromoStart` remplace
  * « non-warmup », seule cette fonction change.
  */
-export const getViewCounters = adminQuery({
+export const getViewCounters = permissionQuery("business.read")({
   args: {},
   handler: async (ctx): Promise<ViewCountersResult> => {
     const pubs = await ctx.db
@@ -822,7 +824,7 @@ export interface RevenueBreakdown {
  * source). Le partage nouveau/récurrent s'appuie sur le premier paiement observé
  * par `membershipId` — approximation assumée et bornée à l'historique importé.
  */
-export const getRevenueBreakdown = adminQuery({
+export const getRevenueBreakdown = permissionQuery("business.read")({
   args: {},
   handler: async (ctx): Promise<RevenueBreakdown> => {
     const project = await ctx.db.get(ctx.projectId);
@@ -1435,7 +1437,7 @@ export interface RenewalsPayload {
   failureCauses: { cause: string; count: number }[];
 }
 
-export const getChurn = adminQuery({
+export const getChurn = permissionQuery("business.read")({
   args: {},
   handler: async (ctx) => {
     const project = await ctx.db.get(ctx.projectId);
@@ -1784,7 +1786,7 @@ const SANS_SOURCE = "sans source";
  * 30/08 : zéro client avec des pays divergents entre ses paiements, donc l'ancre
  * ne tranche aujourd'hui aucun cas réel.
  */
-export const getBillingCountries = adminQuery({
+export const getBillingCountries = permissionQuery("business.read")({
   args: {},
   handler: async (ctx) => {
     const project = await ctx.db.get(ctx.projectId);
@@ -1869,7 +1871,7 @@ export const getBillingCountries = adminQuery({
   },
 });
 
-export const getDayDetail = adminQuery({
+export const getDayDetail = permissionQuery("business.read")({
   args: {},
   handler: async (ctx) => {
     const project = await ctx.db.get(ctx.projectId);
@@ -2035,7 +2037,7 @@ export const getDayDetail = adminQuery({
   },
 });
 
-export const getReliability = adminQuery({
+export const getReliability = permissionQuery("business.read")({
   args: {},
   handler: async (ctx): Promise<ReliabilityResult> => {
     const project = await ctx.db.get(ctx.projectId);
