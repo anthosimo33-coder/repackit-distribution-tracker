@@ -8,6 +8,8 @@ import {
   creatorMutation,
   creatorQuery,
   e2eMutation,
+  permissionMutation,
+  permissionQuery,
 } from "./functions";
 import {
   CLIPPER_ASSIGNMENT_FIELDS,
@@ -189,7 +191,7 @@ export async function resolveManagedTargets(
  * Créateurs assignables : onboardés (userId posé) et au travail (status
  * active ou onboarding). Exclut invited (pas de compte), paused, churned.
  */
-export const listAssignableCreators = adminQuery({
+export const listAssignableCreators = permissionQuery("assignments.manage")({
   args: {},
   handler: async (ctx) => {
     const creators = await ctx.db
@@ -220,7 +222,7 @@ export const listAssignableCreators = adminQuery({
  * compte disponible sur les plateformes choisies est signalé INÉLIGIBLE côté UI
  * plutôt que de le laisser échouer à l'assignation.
  */
-export const listAssignableCreatorsWithAccounts = adminQuery({
+export const listAssignableCreatorsWithAccounts = permissionQuery("assignments.manage")({
   args: {},
   handler: async (ctx) => {
     const strict = await isSnytchProject(ctx, ctx.projectId);
@@ -303,7 +305,7 @@ export function normalizeInstructions(raw: string | undefined): string | undefin
   return t.length > INSTRUCTIONS_MAX_LENGTH ? t.slice(0, INSTRUCTIONS_MAX_LENGTH) : t;
 }
 
-export const assignFormat = adminMutation({
+export const assignFormat = permissionMutation("assignments.manage")({
   args: {
     formatId: v.id("formats"),
     creatorId: v.id("creators"),
@@ -432,7 +434,7 @@ export const assignFormat = adminMutation({
  * Édite le texte overlay d'un assignment EXISTANT (ajout/modif/effacement).
  * Admin only, scopé projet. overlayText absent/vide → efface l'overlay (undefined).
  */
-export const setAssignmentOverlayText = adminMutation({
+export const setAssignmentOverlayText = permissionMutation("assignments.manage")({
   args: {
     id: v.id("assignments"),
     overlayText: v.optional(v.string()),
@@ -456,7 +458,7 @@ export const setAssignmentOverlayText = adminMutation({
  * absent/vide → efface (undefined → aucun bloc côté créatrice). Même patron que
  * setAssignmentOverlayText.
  */
-export const setAssignmentInstructions = adminMutation({
+export const setAssignmentInstructions = permissionMutation("assignments.manage")({
   args: {
     id: v.id("assignments"),
     instructions: v.optional(v.string()),
@@ -479,7 +481,7 @@ export const setAssignmentInstructions = adminMutation({
  * Distincte de dueDate (production) : les deux coexistent. Permet de replanifier
  * après coup depuis la page Assignments (édition simple par ligne).
  */
-export const setAssignmentPostDate = adminMutation({
+export const setAssignmentPostDate = permissionMutation("assignments.manage")({
   args: {
     id: v.id("assignments"),
     postDate: v.optional(v.number()),
@@ -508,7 +510,7 @@ export const setAssignmentPostDate = adminMutation({
  * N'affecte NI le statut calendrier NI le cooldown : les deux raisonnent au JOUR,
  * sur postDate, qui n'est pas touchée ici.
  */
-export const setAssignmentPostWindow = adminMutation({
+export const setAssignmentPostWindow = permissionMutation("assignments.manage")({
   args: {
     id: v.id("assignments"),
     postWindow: v.optional(
@@ -612,7 +614,7 @@ async function requireProjectAssignment(
 }
 
 /** Attache une vidéo modèle (lien) à un assignment. Admin only, scopé projet. */
-export const addModelVideoToAssignment = adminMutation({
+export const addModelVideoToAssignment = permissionMutation("assignments.manage")({
   args: {
     id: v.id("assignments"),
     url: v.string(),
@@ -650,7 +652,7 @@ export const addModelVideoToAssignment = adminMutation({
 });
 
 /** Retire une vidéo modèle d'un assignment (à l'unité). Admin only, scopé projet. */
-export const removeModelVideoFromAssignment = adminMutation({
+export const removeModelVideoFromAssignment = permissionMutation("assignments.manage")({
   args: { id: v.id("assignments"), videoId: v.string() },
   handler: async (ctx, args) => {
     const a = await requireProjectAssignment(ctx, args.id, ctx.projectId);
@@ -704,7 +706,7 @@ export async function validateProjectFolderIds(
  * only, scopé projet : chaque dossier doit appartenir au projet de l'assignment.
  * Dédoublonne et UNSET le legacy assetFolderId (la source devient assetFolderIds).
  */
-export const setAssetFolders = adminMutation({
+export const setAssetFolders = permissionMutation("assignments.manage")({
   args: {
     id: v.id("assignments"),
     folderIds: v.array(v.id("assetFolders")),
@@ -777,7 +779,7 @@ export const DELETABLE_STATUSES = new Set<string>([
  * Idempotent : ré-abandonner ne fait rien. Bornée aux mêmes statuts que le
  * hard-delete — on n'abandonne jamais un post publié ou payé.
  */
-export const cancelAssignment = adminMutation({
+export const cancelAssignment = permissionMutation("assignments.manage")({
   args: { id: v.id("assignments") },
   handler: async (ctx, { id }) => {
     const a = await ctx.db.get(id);
@@ -837,7 +839,7 @@ export async function purgeAndDeleteAssignment(
  *
  * IDEMPOTENT : id déjà supprimé / hors projet → no-op (`alreadyGone`), jamais de crash.
  */
-export const deleteAssignment = adminMutation({
+export const deleteAssignment = permissionMutation("assignments.manage")({
   args: { id: v.id("assignments") },
   handler: async (ctx, { id }) => {
     const a = await ctx.db.get(id);
@@ -872,7 +874,7 @@ export const deleteAssignment = adminMutation({
  */
 export { representativePostedAt };
 
-export const listAssignments = adminQuery({
+export const listAssignments = permissionQuery("assignments.manage")({
   args: {},
   handler: async (ctx) => {
     const assignments = await ctx.db
@@ -1279,7 +1281,7 @@ export const NUDGE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
  * Ne relance QUE les missions où la balle est dans le camp du créateur
  * (UNFINISHED_STATUSES, partagé avec le cron de rappel).
  */
-export const nudgeAssignment = adminMutation({
+export const nudgeAssignment = permissionMutation("assignments.manage")({
   args: { assignmentId: v.id("assignments") },
   handler: async (ctx, { assignmentId }) => {
     const a = await ctx.db.get(assignmentId);

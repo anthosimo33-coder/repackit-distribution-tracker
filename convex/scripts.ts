@@ -1,5 +1,4 @@
 import {
-  adminMutation,
   e2eMutation,
   permissionMutation,
   permissionQuery,
@@ -1092,7 +1091,7 @@ export const importHooks = permissionMutation("scripts.manage")({
  * du pricing choisi, figé en pricingSnapshot. Les anciens champs tarif de base /
  * bonus aux vues (rateModel legacy) sont RETIRÉS de l'assignation.
  */
-export const assignScriptCampaign = adminMutation({
+export const assignScriptCampaign = permissionMutation("assignments.manage")({
   args: {
     campaignId: v.id("scriptCampaigns"),
     creatorId: v.id("creators"),
@@ -1875,7 +1874,7 @@ export const cleanupTestScripts = e2eMutation({
  * « afficher » entrent dans le tirage (cf convex/rushScriptEligibility.ts). Le
  * filtrage précède le tirage pour que l'erreur nomme la brique fautive.
  */
-export const assignScriptToRush = adminMutation({
+export const assignScriptToRush = permissionMutation("assignments.manage")({
   args: {
     rushId: v.id("rushes"),
     campaignId: v.id("scriptCampaigns"),
