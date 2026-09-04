@@ -11,7 +11,8 @@
       "createurs": "Créateurs",
       "contenu": "Contenu",
       "veille": "Veille",
-      "outils": "Outils"
+      "outils": "Outils",
+      "administration": "Administration"
     },
     "item": {
       "dashboard": "Dashboard",
@@ -29,7 +30,8 @@
       "assets": "Assets",
       "guide": "Comment ça marche",
       "radar": "Radar",
-      "defis": "Défis"
+      "defis": "Défis",
+      "equipe": "Rôles et droits"
     },
     "action": {
       "new": "Nouveau",
@@ -1018,6 +1020,7 @@
     "ERR_PORTAL_ROLE_REJECTED": "Cet espace est réservé à une autre population du projet.",
     "generic": "Une erreur est survenue.",
     "ERR_PERMISSION_DENIED": "Cette action ne t'est pas accordée. Demande le droit à un administrateur.",
-    "ERR_FORMAT_RATE_NOT_SET": "La grille de rémunération de ce format n'a jamais été renseignée. Renseigne-la avant d'assigner, sinon la mission serait figée à 0."
+    "ERR_FORMAT_RATE_NOT_SET": "La grille de rémunération de ce format n'a jamais été renseignée. Renseigne-la avant d'assigner, sinon la mission serait figée à 0.",
+    "ERR_SUPERADMIN_ONLY": "Réservé au superadmin."
   }
 }

@@ -109,6 +109,8 @@ export const ERR = {
    * format paie, et assigner figerait un tarif nul dans la mission.
    */
   FORMAT_RATE_NOT_SET: "ERR_FORMAT_RATE_NOT_SET",
+  /** Réservé au superadmin — administration des droits, pas travail sur un projet. */
+  SUPERADMIN_ONLY: "ERR_SUPERADMIN_ONLY",
 } as const;
 
 export type ErrCode = (typeof ERR)[keyof typeof ERR];

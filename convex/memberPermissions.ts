@@ -52,13 +52,14 @@ async function resolveMember(
  * réécrit les mêmes droits ne produit aucune ligne : un journal qui consigne les
  * non-événements devient illisible, et c'est comme ça qu'on cesse de le lire.
  */
-async function traceDiff(
+export async function traceDiff(
   ctx: MutationCtx,
   projectId: Id<"projects">,
   subjectUserId: Id<"users">,
   before: readonly string[],
   after: readonly string[],
   actorLabel: string,
+  actorUserId?: Id<"users">,
 ) {
   const b = new Set(before);
   const a = new Set(after);
@@ -74,8 +75,9 @@ async function traceDiff(
       permission: r.permission,
       granted: r.granted,
       // Hors session (ligne de commande) → pas d'auteur identifié, et on le DIT
-      // plutôt que d'attribuer le geste à quelqu'un.
-      actorUserId: undefined,
+      // plutôt que d'attribuer le geste à quelqu'un. Depuis l'écran de gestion,
+      // c'est le compte connecté qui signe.
+      actorUserId,
       actorLabel,
       at,
     });
@@ -84,7 +86,7 @@ async function traceDiff(
 }
 
 /** Chaînes hors catalogue — nommées dans le rapport, stockées quand même. */
-function unknownOf(permissions: readonly string[]): string[] {
+export function unknownOf(permissions: readonly string[]): string[] {
   return permissions.filter((p) => !isPermissionId(p));
 }
 

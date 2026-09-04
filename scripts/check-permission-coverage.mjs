@@ -36,7 +36,7 @@
  * cliquet, pas le script.
  */
 import ts from "typescript";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 /** Wrappers « pas encore migrés ». Leur disparition est l'objectif du chantier. */
@@ -180,6 +180,72 @@ export function findLegacyWrapperExports(source) {
       );
 }
 
+/**
+ * Modules exclus du DÉCOMPTE de couverture. `permissionProbe` ne contient que
+ * des sondes de test : elles sont bien gardées par un bloc, mais les compter
+ * gonflerait le nombre affiché à l'écran de gestion d'échafaudage de test.
+ */
+const HORS_DECOMPTE = new Set(["permissionProbe.ts"]);
+
+/**
+ * Combien de LECTURES et d'ÉCRITURES chaque bloc couvre-t-il ?
+ *
+ * C'est ce qui permet à l'écran de gestion de dire « Lecture » ou « Lecture +
+ * modification » à côté d'une case. Ce marqueur ne peut PAS être saisi à la main :
+ * il décrit ce que le code fait, et il changerait sans qu'on y pense à la première
+ * mutation ajoutée dans un bloc. Il est donc DÉRIVÉ, et le contrôle D ci-dessous
+ * échoue si le module généré ne correspond plus au code.
+ */
+export function scanPermissionUsage(dir = "convex") {
+  const usage = {};
+  for (const f of readdirSync(dir).sort()) {
+    if (!f.endsWith(".ts") || f.endsWith(".test.ts")) continue;
+    if (HORS_DECOMPTE.has(f)) continue;
+    const src = readFileSync(path.join(dir, f), "utf8");
+    const re = /export const \w+ = permission(Query|Mutation)\("([\w.]+)"\)/g;
+    let m;
+    while ((m = re.exec(src)) !== null) {
+      const bloc = (usage[m[2]] ??= { queries: 0, mutations: 0 });
+      if (m[1] === "Query") bloc.queries += 1;
+      else bloc.mutations += 1;
+    }
+  }
+  return usage;
+}
+
+/** Le module TypeScript que le serveur lira. Généré, jamais écrit à la main. */
+export function renderCoverageModule(usage) {
+  const lignes = Object.keys(usage)
+    .sort()
+    .map(
+      (b) =>
+        `  "${b}": { queries: ${usage[b].queries}, mutations: ${usage[b].mutations} },`,
+    )
+    .join("\n");
+  return `/**
+ * GÉNÉRÉ — ne pas éditer à la main.
+ *
+ * Combien de LECTURES et d'ÉCRITURES chaque bloc de permission couvre.
+ * L'écran de gestion des rôles en dérive le marqueur « Lecture » ou
+ * « Lecture + modification » affiché à côté de chaque case : sans lui, on coche
+ * sans savoir si on autorise à consulter ou à modifier.
+ *
+ * Régénérer :  node scripts/check-permission-coverage.mjs --write
+ * Le contrôle D de ce même script échoue si ce fichier ne correspond plus au code.
+ */
+export type BlocCoverage = { queries: number; mutations: number };
+
+export const PERMISSION_COVERAGE: Record<string, BlocCoverage> = {
+${lignes}
+};
+
+/** Un bloc qui ne couvre AUCUNE écriture ne donne qu'un droit de consultation. */
+export function couvreDesEcritures(bloc: string): boolean {
+  return (PERMISSION_COVERAGE[bloc]?.mutations ?? 0) > 0;
+}
+`;
+}
+
 function main() {
   let failed = false;
 
@@ -245,11 +311,28 @@ function main() {
     );
   }
 
+  // ── D ──
+  const coveragePath = path.join("convex", "permissionCoverage.ts");
+  const attendu = renderCoverageModule(scanPermissionUsage());
+  if (process.argv.includes("--write")) {
+    writeFileSync(coveragePath, attendu);
+    console.log(`↻ ${coveragePath} régénéré.`);
+  } else if (readFileSync(coveragePath, "utf8") !== attendu) {
+    failed = true;
+    console.error(
+      `\n✗ ${coveragePath} ne correspond plus au code.\n`,
+      "\n  L'écran de gestion en dérive le marqueur « Lecture » / « Lecture +",
+      "\n  modification » de chaque case. Périmé, il fait cocher un droit d'écriture",
+      "\n  en croyant n'accorder qu'une consultation.",
+      "\n  Régénère-le :  node scripts/check-permission-coverage.mjs --write",
+    );
+  }
+
   if (failed) process.exit(1);
   console.log(
     `✓ permissions : ${hits.length} fonction(s) restant à migrer, ` +
       `${fromModule.length} blocs alignés module ↔ document, ` +
-      `anciens wrappers absents.`,
+      `anciens wrappers absents, couverture à jour.`,
   );
 }
 

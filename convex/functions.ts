@@ -254,7 +254,29 @@ export const superadminMutation = customMutation(
     const userId = await requireUserId(ctx);
     const user = await ctx.db.get(userId);
     if (user?.role !== "superadmin") {
-      throw new ConvexError("Réservé aux superadmins.");
+      throw err(ERR.SUPERADMIN_ONLY, "Réservé aux superadmins.");
+    }
+    return { userId };
+  }),
+);
+
+/**
+ * Jumelle en LECTURE de `superadminMutation`. L'écran de gestion des rôles lit
+ * la composition d'une équipe et les droits de chacun : c'est le seul endroit de
+ * l'app où l'on voit qui peut quoi, et ça ne se regarde pas depuis un rôle qu'on
+ * pourrait soi-même s'être accordé.
+ *
+ * Volontairement PAS un bloc de permission : les blocs décrivent le travail sur
+ * un projet, pas l'administration des droits eux-mêmes. Un bloc « gérer les
+ * droits » serait un bloc qui permet de s'accorder tous les autres.
+ */
+export const superadminQuery = customQuery(
+  query,
+  customCtx(async (ctx) => {
+    const userId = await requireUserId(ctx);
+    const user = await ctx.db.get(userId);
+    if (user?.role !== "superadmin") {
+      throw err(ERR.SUPERADMIN_ONLY, "Réservé aux superadmins.");
     }
     return { userId };
   }),

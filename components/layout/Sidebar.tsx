@@ -22,6 +22,7 @@ import {
   RadarIcon,
   TrophyIcon,
   UserPlusIcon,
+  ShieldCheckIcon,
   Users2Icon,
   WalletIcon,
 } from "lucide-react";
@@ -190,6 +191,23 @@ export function Sidebar({
     },
   ];
 
+  // ADMINISTRATION — rôles et droits. SUPERADMIN uniquement : `me.isSuperadmin`
+  // vient de `projects.getMe`, déjà lu plus haut pour l'e-mail du pied de page.
+  //
+  // ⚠️ Masquer l'entrée n'est PAS la protection : les fonctions de l'écran
+  // passent par `superadminQuery`/`superadminMutation`, et la page elle-même
+  // rend un refus. On retire le lien pour ne pas proposer une porte fermée, pas
+  // pour fermer la porte.
+  const administrationItems = me?.isSuperadmin
+    ? [
+        {
+          icon: ShieldCheckIcon,
+          label: t("item.equipe"),
+          ...item(projectPath("/equipe")),
+        },
+      ]
+    : [];
+
   // VEILLE — Radar : module séparé de veille TikTok (admin only).
   const veilleItems = [
     {
@@ -257,6 +275,14 @@ export function Sidebar({
         <SidebarSection collapsed={collapsed} label={t("section.veille")}>
           {veilleItems.map(renderItem)}
         </SidebarSection>
+        {administrationItems.length > 0 && (
+          <SidebarSection
+            collapsed={collapsed}
+            label={t("section.administration")}
+          >
+            {administrationItems.map(renderItem)}
+          </SidebarSection>
+        )}
 
         {/* Outils — liens externes propres au projet (configurable). Masqué
             quand le projet n'en a aucun. */}
