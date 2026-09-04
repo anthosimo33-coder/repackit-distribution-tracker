@@ -1,6 +1,4 @@
 import {
-  adminMutation,
-  adminQuery,
   e2eMutation,
   permissionMutation,
   permissionQuery,
@@ -379,7 +377,7 @@ export async function computeChallengeRanking(
 
 // ─── CRUD admin ──────────────────────────────────────────────────────────────
 
-export const createChallenge = adminMutation({
+export const createChallenge = permissionMutation("challenges.money")({
   args: {
     name: v.string(),
     description: v.optional(v.string()),
@@ -466,7 +464,7 @@ export const createChallenge = adminMutation({
  * modifiables : corriger une faute ou prolonger un défi ne trahit personne.
  * (Prolonger, oui ; raccourcir est refusé — cf validateDeadline ci-dessous.)
  */
-export const updateChallenge = adminMutation({
+export const updateChallenge = permissionMutation("challenges.money")({
   args: {
     id: v.id("challenges"),
     name: v.optional(v.string()),
@@ -613,7 +611,7 @@ export const closeChallenge = permissionMutation("challenges.run")({
  * créatrices et peut porter des vidéos et des victoires ; le supprimer
  * effacerait des faits. On le clôt, on ne le supprime pas.
  */
-export const deleteChallenge = adminMutation({
+export const deleteChallenge = permissionMutation("challenges.money")({
   args: { id: v.id("challenges") },
   handler: async (ctx, { id }): Promise<{ ok: true }> => {
     const c = await requireChallenge(ctx, id, ctx.projectId);
@@ -1045,7 +1043,7 @@ export const getChallenge = permissionQuery("challenges.run")({
  * modale — proposer un barème que la création refusera ensuite serait une
  * impasse offerte à l'admin.
  */
-export const listChallengePricings = adminQuery({
+export const listChallengePricings = permissionQuery("challenges.money")({
   args: {},
   handler: async (ctx) => {
     const rows = await ctx.db
