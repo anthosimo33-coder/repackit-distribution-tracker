@@ -57,6 +57,24 @@ describe("check-db-spread — ce qui doit échouer", () => {
 });
 
 describe("check-db-spread — ce qui doit passer", () => {
+  it("SUIT une fonction migrée vers un bloc — forme curryfiée", () => {
+    // Le piège qui a mordu pendant la migration : `permissionQuery("bloc")({…})`
+    // est un appel d'appel. Avec une détection qui n'attend qu'un identifiant,
+    // chaque fonction migrée SORTAIT du champ de cette garde — et son entrée de
+    // baseline devenait « périmée », ce qui ressemble à un progrès.
+    const src = `
+      export const listThings = permissionQuery("library.manage")({
+        args: {},
+        handler: async (ctx) => rows.map((t) => ({ ...t })),
+      });
+    `;
+    expect(findDbSpreads("t.ts", src).map((h) => h.key)).toEqual([
+      "t.ts::listThings::...t",
+    ]);
+  });
+});
+
+describe("check-db-spread — ce qui doit passer", () => {
   it("ignore une mutation : elle spread dans des arguments de db.patch, pas dans une réponse", () => {
     const src = `
       export const setThing = adminMutation({

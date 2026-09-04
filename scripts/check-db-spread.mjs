@@ -40,6 +40,10 @@ import path from "node:path";
 
 /** Wrappers qui produisent une RÉPONSE lue par un client. */
 export const QUERY_WRAPPERS = new Set([
+  // ⚠️ Forme CURRYFIÉE — `permissionQuery("bloc")({…})`. Sans elle, migrer une
+  // fonction vers un bloc la ferait SORTIR du champ de cette garde : l'anti-fuite
+  // s'éroderait à mesure que le chantier permissions avance, en silence.
+  "permissionQuery",
   "adminQuery",
   "creatorQuery",
   "talentQuery",
@@ -51,6 +55,22 @@ export const QUERY_WRAPPERS = new Set([
   "projectQuery",
   "publicQuery",
 ]);
+
+/**
+ * Nom du wrapper d'une expression d'initialisation, qu'elle soit DIRECTE
+ * (`adminQuery({…})`) ou CURRYFIÉE (`permissionQuery("bloc")({…})`).
+ * `null` si ce n'est pas un appel de wrapper reconnaissable.
+ */
+export function wrapperNameOf(node) {
+  if (!ts.isCallExpression(node)) return null;
+  const callee = node.expression;
+  if (ts.isIdentifier(callee)) return callee.text;
+  // Forme curryfiée : l'appelé est lui-même un appel — `permissionQuery("x")`.
+  if (ts.isCallExpression(callee) && ts.isIdentifier(callee.expression)) {
+    return callee.expression.text;
+  }
+  return null;
+}
 
 /**
  * Relève les spreads d'identifiants dans les queries gardées d'UN fichier.
@@ -69,12 +89,7 @@ export function findDbSpreads(fileName, source) {
     if (ts.isVariableStatement(node)) {
       for (const decl of node.declarationList.declarations) {
         const init = decl.initializer;
-        if (
-          init &&
-          ts.isCallExpression(init) &&
-          ts.isIdentifier(init.expression) &&
-          QUERY_WRAPPERS.has(init.expression.text)
-        ) {
+        if (init && QUERY_WRAPPERS.has(wrapperNameOf(init) ?? "")) {
           collect(decl.name.getText(sf), init);
         }
       }

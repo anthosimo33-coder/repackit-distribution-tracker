@@ -139,7 +139,7 @@ describe("sur le vrai dépôt", () => {
     ).toEqual([]);
   });
 
-  it("le baseline vaut 212 : AUCUNE fonction n'est migrée dans ce chantier", () => {
+  it("le baseline décroît à mesure que les blocs sont migrés", () => {
     // Ce test dit l'intention du lot. Il devra être mis à jour à l'étape 4 —
     // et c'est voulu : le nombre baisse par décision, pas par dérive.
     const baseline = JSON.parse(
@@ -148,7 +148,7 @@ describe("sur le vrai dépôt", () => {
         "utf8",
       ),
     );
-    expect(baseline).toHaveLength(212);
+    expect(baseline).toHaveLength(184);
   });
 
   it("le catalogue du module et celui du document coïncident", () => {
