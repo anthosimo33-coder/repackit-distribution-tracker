@@ -1,8 +1,8 @@
 import {
-  adminMutation,
-  adminQuery,
   creatorQuery,
   e2eMutation,
+  permissionMutation,
+  permissionQuery,
 } from "./functions";
 import { collectAvailability } from "./collectAvailability";
 import { ConvexError, v } from "convex/values";
@@ -1148,7 +1148,7 @@ const PRICING_ARGS = {
   bonusTiers: v.optional(v.array(BONUS_TIER_VALIDATOR)),
 };
 
-export const createPricing = adminMutation({
+export const createPricing = permissionMutation("pricing.manage")({
   args: PRICING_ARGS,
   handler: async (ctx, args) => {
     const fields = validatePricingFields(args);
@@ -1162,7 +1162,7 @@ export const createPricing = adminMutation({
   },
 });
 
-export const updatePricing = adminMutation({
+export const updatePricing = permissionMutation("pricing.manage")({
   args: { id: v.id("pricings"), ...PRICING_ARGS },
   handler: async (ctx, { id, ...args }) => {
     const pricing = await ctx.db.get(id);
@@ -1177,7 +1177,7 @@ export const updatePricing = adminMutation({
   },
 });
 
-export const archivePricing = adminMutation({
+export const archivePricing = permissionMutation("pricing.manage")({
   args: { id: v.id("pricings"), archived: v.boolean() },
   handler: async (ctx, { id, archived }) => {
     const pricing = await ctx.db.get(id);
@@ -1189,7 +1189,7 @@ export const archivePricing = adminMutation({
   },
 });
 
-export const deletePricing = adminMutation({
+export const deletePricing = permissionMutation("pricing.manage")({
   args: { id: v.id("pricings") },
   handler: async (ctx, { id }) => {
     const pricing = await ctx.db.get(id);
@@ -1207,7 +1207,7 @@ export const deletePricing = adminMutation({
 });
 
 /** Pricings du projet (admin). includeArchived=false → actifs seuls. */
-export const listPricings = adminQuery({
+export const listPricings = permissionQuery("pricing.manage")({
   args: { includeArchived: v.optional(v.boolean()) },
   handler: async (ctx, { includeArchived }) => {
     const all = await ctx.db
@@ -1233,7 +1233,7 @@ export const listPricings = adminQuery({
  * Renvoie, PAR pricing, les générations de snapshot divergentes avec leur
  * effectif et un échantillon d'assignations (pour le détail au clic).
  */
-export const listPricingSnapshotDrift = adminQuery({
+export const listPricingSnapshotDrift = permissionQuery("pricing.manage")({
   args: {},
   handler: async (ctx) => {
     const pricings = await ctx.db
@@ -1392,7 +1392,7 @@ export const getMyBonusStatus = creatorQuery({
 });
 
 /** ADMIN — statut bonus d'UN créateur du projet (panneau récompenses). */
-export const getCreatorBonusStatus = adminQuery({
+export const getCreatorBonusStatus = permissionQuery("pricing.manage")({
   args: { creatorId: v.id("creators") },
   handler: async (ctx, { creatorId }) => {
     const creator = await ctx.db.get(creatorId);
@@ -1402,7 +1402,7 @@ export const getCreatorBonusStatus = adminQuery({
 });
 
 /** ADMIN — grille de bonus par DÉFAUT du projet (id ou null). */
-export const getDefaultBonusPricingId = adminQuery({
+export const getDefaultBonusPricingId = permissionQuery("pricing.manage")({
   args: {},
   handler: async (ctx): Promise<Id<"pricings"> | null> => {
     const project = await ctx.db.get(ctx.projectId);
@@ -1421,7 +1421,7 @@ export const getDefaultBonusPricingId = adminQuery({
  * grille (clé d'idempotence = creatorId+pricingId+seuil) — même propriété qu'un
  * changement de grille perso ; à réserver aux (rares) reconfigurations assumées.
  */
-export const setDefaultBonusPricing = adminMutation({
+export const setDefaultBonusPricing = permissionMutation("pricing.manage")({
   args: { pricingId: v.union(v.id("pricings"), v.null()) },
   handler: async (ctx, { pricingId }): Promise<{ synced: number }> => {
     if (pricingId !== null) {
