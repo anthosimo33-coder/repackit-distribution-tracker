@@ -7,7 +7,9 @@ import {
   parseCatalogueFromDoc,
   findLegacyWrapperExports,
   parseCatalogueFromModule,
+  renderCoverageModule,
   scanConvexDir,
+  scanPermissionUsage,
 } from "./check-permission-coverage.mjs";
 
 /**
@@ -167,6 +169,31 @@ describe("sur le vrai dépôt", () => {
       ),
     );
     expect(baseline).toHaveLength(0);
+  });
+
+  /**
+   * `convex/permissionCoverage.ts` est GÉNÉRÉ, et l'écran de gestion en dérive le
+   * marqueur « Lecture » / « Lecture + modification » de chaque case. Périmé, il
+   * ferait cocher un droit d'écriture en croyant n'accorder qu'une consultation.
+   *
+   * ⚠️ CE TEST EXISTE PARCE QUE LA CI NE LANCE PAS `pnpm lint`. Le script porte
+   * ce contrôle, mais le job `test` n'exécute que `pnpm test:unit` et
+   * `pnpm check:i18n` — un contrôle qui ne vit que dans `lint` ne s'exécute
+   * jamais sur une PR, et c'est un contrôle décoratif.
+   */
+  it("le module de couverture généré correspond au code", () => {
+    const attendu = renderCoverageModule(scanPermissionUsage());
+    const surDisque = readFileSync(
+      new URL("../convex/permissionCoverage.ts", import.meta.url),
+      "utf8",
+    );
+    expect(
+      surDisque,
+      "convex/permissionCoverage.ts est périmé — régénère-le : node scripts/check-permission-coverage.mjs --write",
+    ).toBe(attendu);
+    // Contrôle de PRÉSENCE : le scanner voit bien les 21 blocs. Sans lui, un
+    // scanner cassé rendrait deux chaînes vides identiques, donc un test vert.
+    expect(Object.keys(scanPermissionUsage())).toHaveLength(21);
   });
 
   it("le catalogue du module et celui du document coïncident", () => {
