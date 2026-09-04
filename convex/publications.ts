@@ -943,6 +943,56 @@ export const getPublicationPayFlags = permissionQuery("tracker.manage")({
  * payé (il lit ses lineItems gelées). Re-sync des paliers ensuite : retirer le
  * warmup peut refranchir un palier (idempotent, immuable).
  */
+/**
+ * Journalise une bascule de drapeau de paie — EN AJOUT SEUL (cf. schema).
+ *
+ * Appelée APRÈS le patch, et seulement quand la valeur CHANGE : les deux
+ * mutations retournent en no-op si l'état voulu est déjà celui en base, donc le
+ * journal ne consigne que de vrais événements. Un journal qui enregistre les
+ * non-événements devient illisible, et c'est comme ça qu'on cesse de le lire.
+ */
+async function traceFlagChange(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  publicationId: Id<"publications">,
+  actorUserId: Id<"users">,
+  flag: "warmup" | "remunerated",
+  before: boolean,
+  after: boolean,
+) {
+  if (before === after) return;
+  await ctx.db.insert("publicationFlagChanges", {
+    projectId,
+    publicationId,
+    flag,
+    before,
+    after,
+    actorUserId,
+    at: Date.now(),
+  });
+}
+
+/**
+ * LECTURE DE TEST du registre des drapeaux. `e2eMutation` — donc injoignable en
+ * production (E2E_SECRET n'y est jamais défini) et rangée sous AUCUN bloc de
+ * permission, volontairement : `publicationFlagChanges` est un REGISTRE, pas une
+ * fonctionnalité. Lui donner une query applicative reviendrait à décider tout de
+ * suite qui a le droit de le lire, alors que la question ne se pose pas encore.
+ * Le jour où un écran l'affichera, ce sera une décision à elle seule.
+ */
+export const e2eReadFlagChanges = e2eMutation({
+  args: { publicationId: v.id("publications") },
+  handler: async (ctx, { publicationId }) => {
+    const rows = await ctx.db
+      .query("publicationFlagChanges")
+      .withIndex("by_publication", (q) => q.eq("publicationId", publicationId))
+      .collect();
+    return rows
+      .sort((a, b) => a.at - b.at)
+      .map((r) => ({ flag: r.flag, before: r.before, after: r.after }));
+  },
+});
+
 export const setPublicationWarmup = permissionMutation("tracker.manage")({
   args: { publicationId: v.id("publications"), isWarmup: v.boolean() },
   handler: async (ctx, { publicationId, isWarmup }) => {
@@ -964,10 +1014,36 @@ export const setPublicationWarmup = permissionMutation("tracker.manage")({
     // ⚠️ Ne PAS recalculer la valeur effective sur l'ANCIEN warmup : c'était le bug
     // (« la bascule ne change jamais la paie »), qui épinglait tout post implicite
     // au premier passage en warmup, en silence.
+    // Rémunération EFFECTIVE avant/après : la bascule warmup la change quand le
+    // post n'a pas de `remunere` explicite. C'est précisément cette conséquence
+    // qu'on veut pouvoir relire — d'où la seconde ligne de journal ci-dessous.
+    const remunereAvant = isRemunerated({
+      isWarmup: pub.isWarmup === true,
+      remunere: pub.remunere,
+    });
+    const remunereApres = remunereAfterWarmupToggle(isWarmup, pub.remunere);
     await ctx.db.patch(publicationId, {
       isWarmup,
-      remunere: remunereAfterWarmupToggle(isWarmup, pub.remunere),
+      remunere: remunereApres,
     });
+    await traceFlagChange(
+      ctx,
+      ctx.projectId,
+      publicationId,
+      ctx.userId,
+      "warmup",
+      pub.isWarmup === true,
+      isWarmup,
+    );
+    await traceFlagChange(
+      ctx,
+      ctx.projectId,
+      publicationId,
+      ctx.userId,
+      "remunerated",
+      remunereAvant,
+      isRemunerated({ isWarmup, remunere: remunereApres }),
+    );
     // Le cumul PAYABLE du créateur change → re-sync des paliers de bonus.
     await syncBonusForPublication(ctx, publicationId);
     return { ok: true, isWarmup };
@@ -1010,6 +1086,15 @@ export const setPublicationRemuneration = adminMutation({
     await ctx.db.patch(publicationId, {
       remunere: normalizeRemunere(isWarmup, remunere),
     });
+    await traceFlagChange(
+      ctx,
+      ctx.projectId,
+      publicationId,
+      ctx.userId,
+      "remunerated",
+      isRemunerated({ isWarmup, remunere: pub.remunere }),
+      remunere,
+    );
     // Le cumul PAYABLE du créateur change → re-sync des paliers de bonus.
     await syncBonusForPublication(ctx, publicationId);
     return { ok: true, remunere };

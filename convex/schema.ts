@@ -305,6 +305,36 @@ export default defineSchema({
   // Écrit par TOUT chemin qui change des droits, y compris les provisionnements
   // en ligne de commande : un droit accordé hors écran doit laisser la même
   // trace qu'un droit accordé à l'écran, sinon le journal ment par omission.
+  // ─── TRACE DES DRAPEAUX DE PAIE D'UN POST — EN AJOUT SEUL ─────────────────
+  // Jumelle de `permissionChanges`, et SÉPARÉE d'elle à dessein : le sujet n'est
+  // pas du même type (une publication, pas une personne), les index diffèrent, et
+  // les durées de vie aussi — ce registre-ci se relit avec un CYCLE DE PAIE.
+  //
+  // POURQUOI IL EXISTE. `setPublicationWarmup` et `setPublicationRemuneration`
+  // décident si une vidéo est PAYÉE. Le geste est quotidien, il est désormais
+  // délégable à un manager (bloc `tracker.manage`), et jusqu'ici il ne laissait
+  // aucune trace : on pouvait constater qu'un post n'était plus payé sans pouvoir
+  // dire qui l'avait décidé ni quand.
+  //
+  // Jamais de patch, jamais de delete : c'est un journal, pas un état. L'état
+  // vit sur `publications` (isWarmup / remunere).
+  publicationFlagChanges: defineTable({
+    projectId: v.id("projects"),
+    publicationId: v.id("publications"),
+    // "warmup"      — le fait ÉDITORIAL (le post ne mentionne pas l'app) ;
+    // "remunerated" — le fait FINANCIER (ce post est-il payé ?).
+    // Une bascule warmup écrit les DEUX quand elle change aussi la paie : sans
+    // la seconde ligne, il faudrait re-dériver la conséquence pour la lire.
+    flag: v.union(v.literal("warmup"), v.literal("remunerated")),
+    before: v.boolean(),
+    after: v.boolean(),
+    // Qui. Toujours présent : ces mutations sont gardées, donc il y a une session.
+    actorUserId: v.id("users"),
+    at: v.number(),
+  })
+    .index("by_publication", ["publicationId"])
+    .index("by_project_at", ["projectId", "at"]),
+
   permissionChanges: defineTable({
     projectId: v.id("projects"),
     // La personne DONT les droits changent.
