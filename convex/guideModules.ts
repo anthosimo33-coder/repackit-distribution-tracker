@@ -1,9 +1,9 @@
 import {
-  adminMutation,
-  adminQuery,
   adminViewAsQuery,
   creatorQuery,
   e2eMutation,
+  permissionMutation,
+  permissionQuery,
 } from "./functions";
 import { v, ConvexError } from "convex/values";
 import type { Id } from "./_generated/dataModel";
@@ -94,7 +94,7 @@ function readerLocale(raw: string | undefined): Locale {
 // ─── Lecture admin ──────────────────────────────────────────────────────────
 
 /** Tous les modules du projet (published + draft), triés par order (édition). */
-export const listModulesForAdmin = adminQuery({
+export const listModulesForAdmin = permissionQuery("guide.manage")({
   args: {},
   handler: async (ctx) => {
     const modules = await ctx.db
@@ -185,7 +185,7 @@ function normalizeModuleLocale(raw: string | undefined): Locale {
  * L'ordre est par jeu : deux jeux numérotés indépendamment se lisent chacun dans
  * l'ordre voulu, et créer un module anglais ne décale rien côté français.
  */
-export const createModule = adminMutation({
+export const createModule = permissionMutation("guide.manage")({
   args: {
     title: v.string(),
     contentMarkdown: v.string(),
@@ -228,7 +228,7 @@ export const createModule = adminMutation({
  * l'insérerait à un rang arbitraire au milieu d'un guide qu'il ne connaît pas,
  * voire à égalité avec un module existant.
  */
-export const updateModule = adminMutation({
+export const updateModule = permissionMutation("guide.manage")({
   args: {
     id: v.id("guideModules"),
     title: v.optional(v.string()),
@@ -301,7 +301,7 @@ export const updateModule = adminMutation({
  */
 
 /** Suppression (scope projet vérifié). */
-export const deleteModule = adminMutation({
+export const deleteModule = permissionMutation("guide.manage")({
   args: { id: v.id("guideModules") },
   handler: async (ctx, args) => {
     const existing = await ctx.db.get(args.id);
@@ -322,7 +322,7 @@ export const deleteModule = adminMutation({
  * effet visible dans la liste de gauche, et un guide français réordonné dans le
  * dos de l'admin.
  */
-export const moveModule = adminMutation({
+export const moveModule = permissionMutation("guide.manage")({
   args: {
     id: v.id("guideModules"),
     direction: v.union(v.literal("up"), v.literal("down")),
@@ -415,7 +415,7 @@ export const getMyWarmupModule = creatorQuery({
 });
 
 /** Lecture ADMIN — même contenu, depuis l'écran comptes interne. */
-export const getWarmupModuleForAdmin = adminQuery({
+export const getWarmupModuleForAdmin = permissionQuery("guide.manage")({
   args: { locale: v.optional(v.string()) },
   handler: async (ctx, args) =>
     warmupModuleFor(ctx, ctx.projectId, readerLocale(args.locale)),
