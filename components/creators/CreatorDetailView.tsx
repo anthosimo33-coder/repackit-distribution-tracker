@@ -91,12 +91,21 @@ import {
 const TZ_NONE = "none";
 
 type Creator = NonNullable<FunctionReturnType<typeof api.creators.getCreator>>;
+/** Conditions de rémunération — SECONDE lecture, gardée par `creators.pay_terms`.
+ *  `null` = fiche introuvable côté serveur (même contrat que `getCreator`). */
+type PayTerms = FunctionReturnType<typeof api.creators.getCreatorPayTerms>;
 
 const PAYMENT_METHODS = ["sepa", "paypal", "usdt", "autre"] as const;
 type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 const NONE = "__none__";
 
-export function CreatorDetailView({ creator }: { creator: Creator }) {
+export function CreatorDetailView({
+  creator,
+  payTerms,
+}: {
+  creator: Creator;
+  payTerms: PayTerms;
+}) {
   // Population de la fiche — décide du tarif affiché (et de rien d'autre ici).
   const kind = resolveCreatorKind(creator.kind);
   const router = useRouter();
@@ -105,6 +114,10 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
   // Devise de la PAIE créatrices (dollars) — pour les montants de bonus (cash).
   const payCurrency = useProject().project.payCurrency;
   const update = useProjectMutation(api.creators.updateCreator);
+  // Seconde écriture, gardée par `creators.pay_terms`. Appelée UNIQUEMENT si un
+  // champ d'argent a bougé (cf. handleSave) : éditer un nom ne doit pas traverser
+  // la garde financière.
+  const updatePayTerms = useProjectMutation(api.creators.updateCreatorPayTerms);
   const regenerate = useProjectMutation(api.creators.regenerateInvitation);
   const generateResetLink = useProjectMutation(
     api.passwordReset.generatePasswordResetLink,
@@ -115,10 +128,10 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
   const [phone, setPhone] = useState(creator.phone ?? "");
   const [status, setStatus] = useState<CreatorStatus>(creator.status);
   const [paymentMethod, setPaymentMethod] = useState<string>(
-    creator.paymentMethod ?? NONE,
+    payTerms?.paymentMethod ?? NONE,
   );
   const [paymentDetails, setPaymentDetails] = useState(
-    creator.paymentDetails ?? "",
+    payTerms?.paymentDetails ?? "",
   );
   const [adminNotes, setAdminNotes] = useState(creator.adminNotes ?? "");
   // Langue de la fiche. `undefined` en base = français implicite (on ne stocke
@@ -154,9 +167,9 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
   const [population, setPopulation] = useState<string>(kind);
   const [tarif, setTarif] = useState(
     kind === "clipper"
-      ? (creator.clipRate?.toString() ?? "")
+      ? (payTerms?.clipRate?.toString() ?? "")
       : kind === "talent"
-        ? (creator.cycleRetainer?.toString() ?? "")
+        ? (payTerms?.cycleRetainer?.toString() ?? "")
         : "",
   );
   const [handleTiktok, setHandleTiktok] = useState(
@@ -209,11 +222,6 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
         name: name.trim(),
         phone,
         status,
-        paymentMethod:
-          paymentMethod === NONE
-            ? undefined
-            : (paymentMethod as PaymentMethod),
-        paymentDetails,
         adminNotes,
         locale,
         // Vide = retirer la ref → la créatrice repasse « pas de ref
@@ -227,9 +235,6 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
           youtube: handleYoutube.trim() || undefined,
           instagram: handleInstagram.trim() || undefined,
         },
-        // Vide = retirer le tarif (null), pas « 0 » : un tarif absent et un tarif
-        // nul ne veulent pas dire la même chose — sans tarif, aucune ligne de
-        // paie n'est créée du tout.
         // Population — n'est envoyée QUE si elle change : le serveur refuse la
         // bascule sur une fiche qui a déjà des comptes, des publications ou des
         // lignes de paie, et l'envoyer inutilement ferait échouer une simple
@@ -237,13 +242,34 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
         ...(population !== kind
           ? { kind: population as "partner" | "talent" | "clipper" }
           : {}),
-        ...(kind === "clipper"
-          ? { clipRate: tarif.trim() === "" ? null : Number(tarif) }
-          : {}),
-        ...(kind === "talent"
-          ? { cycleRetainer: tarif.trim() === "" ? null : Number(tarif) }
-          : {}),
       });
+      // ── SECONDE ÉCRITURE : la rémunération, derrière sa propre garde ────────
+      // Envoyée UNIQUEMENT si un de ces champs a bougé. Deux raisons :
+      //   1. éditer un nom ne doit pas traverser la garde financière — sinon un
+      //      manager sans `creators.pay_terms` ne pourrait plus rien enregistrer ;
+      //   2. les deux écritures ne sont pas atomiques (deux mutations Convex) :
+      //      moins on déclenche la seconde, moins on expose une réussite
+      //      partielle. Le prix du découpage, assumé.
+      // Vide = retirer le tarif (null), pas « 0 » : un tarif absent et un tarif
+      // nul ne veulent pas dire la même chose — sans tarif, aucune ligne de paie
+      // n'est créée du tout.
+      const methodeVoulue =
+        paymentMethod === NONE ? undefined : (paymentMethod as PaymentMethod);
+      const tarifVoulu = tarif.trim() === "" ? null : Number(tarif);
+      const argentChange =
+        methodeVoulue !== (payTerms?.paymentMethod ?? undefined) ||
+        paymentDetails !== (payTerms?.paymentDetails ?? "") ||
+        (kind === "clipper" && tarifVoulu !== (payTerms?.clipRate ?? null)) ||
+        (kind === "talent" && tarifVoulu !== (payTerms?.cycleRetainer ?? null));
+      if (argentChange) {
+        await updatePayTerms({
+          id: creator._id,
+          paymentMethod: methodeVoulue,
+          paymentDetails,
+          ...(kind === "clipper" ? { clipRate: tarifVoulu } : {}),
+          ...(kind === "talent" ? { cycleRetainer: tarifVoulu } : {}),
+        });
+      }
       toast.success("Créateur mis à jour");
     } catch (e) {
       toast.error(convexErrorMessage(e, "Échec de la mise à jour du créateur"));
@@ -821,7 +847,7 @@ export function CreatorDetailView({ creator }: { creator: Creator }) {
       {kind === "partner" && (
         <BonusGridSection
           creatorId={creator._id}
-          current={creator.bonusPricingId ?? null}
+          current={payTerms?.bonusPricingId ?? null}
           currency={payCurrency}
         />
       )}
@@ -892,7 +918,9 @@ function BonusGridSection({
 }) {
   const pricings = useProjectQuery(api.pricing.listPricings, {});
   const bonus = useProjectQuery(api.pricing.getCreatorBonusStatus, { creatorId });
-  const update = useProjectMutation(api.creators.updateCreator);
+  // La grille de bonus est de l'ARGENT : elle passe par la garde financière
+  // (`creators.pay_terms`), jamais par `updateCreator`.
+  const update = useProjectMutation(api.creators.updateCreatorPayTerms);
   const [saving, setSaving] = useState(false);
 
   async function setGrid(value: string) {

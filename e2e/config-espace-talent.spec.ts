@@ -102,15 +102,18 @@ test.describe("Configuration de l'espace talent — chemin admin réel", () => {
     expect(apres.talentBriefFormatId).toBe(formatId);
 
     // ── 4. Les deux tarifs, posés depuis la fiche de chaque personne ─────────
-    await admin.mutation(api.creators.updateCreator, {
+    await admin.mutation(api.creators.updateCreatorPayTerms, {
       id: clipper.creatorId,
       clipRate: TARIF_CLIP,
     });
     await admin.mutation(api.creators.updateCreator, {
       id: talent.creatorId,
       clipperId: clipper.creatorId,
-      cycleRetainer: FORFAIT,
       status: "active",
+    });
+    await admin.mutation(api.creators.updateCreatorPayTerms, {
+      id: talent.creatorId,
+      cycleRetainer: FORFAIT,
     });
 
     // ── Ce que le TALENT lit maintenant : son brief, et rien du reste ────────

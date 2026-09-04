@@ -102,7 +102,7 @@ async function decorClip(ts: number, suffix = "", tarif = TARIF_CLIP) {
     id: talent.creatorId,
     clipperId: clipper.creatorId,
   });
-  await admin.mutation(api.creators.updateCreator, {
+  await admin.mutation(api.creators.updateCreatorPayTerms, {
     id: clipper.creatorId,
     clipRate: tarif,
   });
@@ -307,8 +307,11 @@ test.describe("Paie — clips et forfaits de talent", () => {
     const talent = await fiche("talent", ts, "cyc");
     await admin.mutation(api.creators.updateCreator, {
       id: talent.creatorId,
-      cycleRetainer: FORFAIT,
       status: "active",
+    });
+    await admin.mutation(api.creators.updateCreatorPayTerms, {
+      id: talent.creatorId,
+      cycleRetainer: FORFAIT,
     });
     // Ancre antidatée d'un cycle + 18 jours → deux cycles, dont un révolu.
     const ancre = ts - CYCLE - 18 * JOUR;

@@ -15,6 +15,13 @@ import { CreatorDetailView } from "@/components/creators/CreatorDetailView";
  * P1 Créateurs — fiche détaillée. Le créateur est résolu serveur via
  * api.creators.getCreator (scopé admin + projet). null = introuvable ou hors
  * projet → retour à la liste.
+ *
+ * DEUX LECTURES depuis le découpage financier : l'identité par `getCreator`, la
+ * rémunération par `getCreatorPayTerms` (bloc `creators.pay_terms`). Elles sont
+ * appelées ICI plutôt que dans la vue, et le squelette attend LES DEUX : sans ça
+ * les champs d'argent s'afficheraient vides une fraction de seconde avant de se
+ * remplir. L'admin ne doit rien remarquer du découpage — un clignotement serait
+ * déjà un changement visible.
  */
 export default function CreatorDetailPage({
   params,
@@ -25,6 +32,9 @@ export default function CreatorDetailPage({
   const router = useRouter();
   const projectPath = useProjectPath();
   const creator = useProjectQuery(api.creators.getCreator, {
+    id: id as Id<"creators">,
+  });
+  const payTerms = useProjectQuery(api.creators.getCreatorPayTerms, {
     id: id as Id<"creators">,
   });
 
@@ -42,10 +52,10 @@ export default function CreatorDetailPage({
         Retour aux créateurs
       </Link>
 
-      {creator === undefined ? (
+      {creator === undefined || payTerms === undefined ? (
         <Skeleton className="h-96 w-full" />
       ) : creator === null ? null : (
-        <CreatorDetailView creator={creator} />
+        <CreatorDetailView creator={creator} payTerms={payTerms} />
       )}
     </div>
   );

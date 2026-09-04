@@ -9,6 +9,8 @@ import {
   publicQuery,
   requireCreatorViewableByAdmin,
   requireProjectAdmin,
+  permissionMutation,
+  permissionQuery,
 } from "./functions";
 import { resolveCreatorLocale } from "./i18n";
 import { getProjectBySlug, REPACKIT_SLUG } from "./projects";
@@ -169,10 +171,11 @@ export const getCreator = adminQuery({
     if (!creator || creator.projectId !== ctx.projectId) return null;
     const inv =
       creator.status === "invited" ? await activeInvitation(ctx, id) : null;
-    // PROJECTION EXPLICITE (pas de spread) — c'est ICI, et nulle part ailleurs,
-    // que sortent les champs de rémunération et les coordonnées de paiement :
-    // `getCreator` sert la FICHE, le seul écran qui les affiche et les édite
-    // (components/creators/CreatorDetailView). Cf docs/CHAMPS-SENSIBLES.md.
+    // PROJECTION EXPLICITE (pas de spread). Les champs de RÉMUNÉRATION ne
+    // sortent PLUS d'ici : ils ont leur propre query, `getCreatorPayTerms`,
+    // gardée par le bloc `creators.pay_terms`. C'est ce découpage qui fait
+    // exister la frontière argent — avant lui, « voir une fiche » suffisait à
+    // lire un RIB. Cf docs/CHAMPS-SENSIBLES.md.
     return {
       _id: creator._id,
       _creationTime: creator._creationTime,
@@ -193,13 +196,8 @@ export const getCreator = adminQuery({
       payAnchorAt: creator.payAnchorAt,
       refSlug: creator.refSlug,
       createdAt: creator.createdAt,
-      // ── Rémunération et coordonnées — servies UNIQUEMENT par cette query ──
-      paymentMethod: creator.paymentMethod,
-      paymentDetails: creator.paymentDetails,
+      // `adminNotes` reste ici : ce sont des notes d'équipe, pas de l'argent.
       adminNotes: creator.adminNotes,
-      bonusPricingId: creator.bonusPricingId,
-      clipRate: creator.clipRate,
-      cycleRetainer: creator.cycleRetainer,
       invitation: inv ? { token: inv.token, expiresAt: inv.expiresAt } : null,
     };
   },
@@ -357,14 +355,26 @@ function normalizeHandlesToCreate(
   return { tiktok, youtube, instagram };
 }
 
+/**
+ * Édition de la fiche — IDENTITÉ ET SUIVI, jamais la rémunération.
+ *
+ * Les cinq champs d'argent (`paymentMethod`, `paymentDetails`, `bonusPricingId`,
+ * `clipRate`, `cycleRetainer`) ont été SORTIS d'ici : ils vivent dans
+ * `updateCreatorPayTerms`, gardée par le bloc `creators.pay_terms`. Avant ce
+ * découpage, « pouvoir modifier une fiche » signifiait littéralement « pouvoir
+ * changer ce qu'on verse à quelqu'un », et aucune permission ne pouvait séparer
+ * les deux — c'est ce qui rendait le rôle manager fictif.
+ *
+ * ⚠️ NE PAS y ré-ajouter un champ de rémunération « pour la commodité de
+ * l'écran ». Deux points d'entrée avec chacun sa garde restent séparables ; un
+ * point d'entrée à deux gardes ne l'est plus (cf. convex/functions.ts).
+ */
 export const updateCreator = adminMutation({
   args: {
     id: v.id("creators"),
     name: v.optional(v.string()),
     phone: v.optional(v.string()),
     status: v.optional(CREATOR_STATUSES),
-    paymentMethod: v.optional(PAYMENT_METHODS),
-    paymentDetails: v.optional(v.string()),
     adminNotes: v.optional(v.string()),
     // LANGUE d'interface — corrigeable SANS régénérer l'invitation. Une valeur
     // « fr » explicite est normalisée en `undefined` (on ne stocke que la
@@ -380,8 +390,6 @@ export const updateCreator = adminMutation({
     timezone: v.optional(v.union(v.string(), v.null())),
     // Ref du chemin court snytch.co (attribution de conversion). null = retirer.
     refSlug: v.optional(v.union(v.string(), v.null())),
-    // Grille de paliers de bonus du créateur (cumul). null = détacher.
-    bonusPricingId: v.optional(v.union(v.id("pricings"), v.null())),
     // @ à créer par réseau (saisie libre admin). Absent = ne pas toucher ;
     // objet (réseaux vides) = effacer.
     handlesToCreate: v.optional(handlesToCreateValidator),
@@ -392,15 +400,6 @@ export const updateCreator = adminMutation({
     // inassignable et intestable. La cible est vérifiée : elle doit être un
     // CLIPPEUR du même projet, et le champ n'a de sens que sur un talent.
     clipperId: v.optional(v.union(v.id("creators"), v.null())),
-    // ─── TARIFS des deux nouvelles populations (chantier pricing) ────────────
-    // Scalaires, édités depuis l'écran Pricings. `null` = retirer le tarif,
-    // absent = ne pas toucher. Aucune validation croisée avec le `kind` : un
-    // tarif posé sur la mauvaise population est inerte (le moteur ne lit
-    // `clipRate` qu'à l'assignation d'un clip et `cycleRetainer` que sur un
-    // talent), et refuser ici obligerait à re-saisir après un changement de
-    // population.
-    clipRate: v.optional(v.union(v.number(), v.null())),
-    cycleRetainer: v.optional(v.union(v.number(), v.null())),
     // ─── CHANGEMENT DE POPULATION ────────────────────────────────────────────
     // Corrige une invitation faite avec la mauvaise population. Autorisé
     // UNIQUEMENT sur une fiche VIERGE (cf garde dans le handler) : basculer
@@ -416,17 +415,6 @@ export const updateCreator = adminMutation({
       throw new ConvexError("Créateur introuvable.");
     }
     const patch: Partial<Doc<"creators">> = {};
-    if (args.bonusPricingId !== undefined) {
-      if (args.bonusPricingId === null) {
-        patch.bonusPricingId = undefined;
-      } else {
-        const pricing = await ctx.db.get(args.bonusPricingId);
-        if (!pricing || pricing.projectId !== ctx.projectId) {
-          throw new ConvexError("Pricing de bonus introuvable dans le projet.");
-        }
-        patch.bonusPricingId = args.bonusPricingId;
-      }
-    }
     if (args.name !== undefined) {
       const name = args.name.trim();
       if (name.length === 0) throw new ConvexError("Le nom est requis.");
@@ -466,18 +454,6 @@ export const updateCreator = adminMutation({
       resolveCreatorKind(creator.kind) === "talent"
     ) {
       patch.payAnchorAt = Date.now();
-    }
-    for (const champ of ["clipRate", "cycleRetainer"] as const) {
-      const valeur = args[champ];
-      if (valeur === undefined) continue;
-      if (valeur !== null && (!Number.isFinite(valeur) || valeur < 0)) {
-        throw new ConvexError("Le tarif doit être un nombre ≥ 0.");
-      }
-      patch[champ] = valeur === null ? undefined : valeur;
-    }
-    if (args.paymentMethod !== undefined) patch.paymentMethod = args.paymentMethod;
-    if (args.paymentDetails !== undefined) {
-      patch.paymentDetails = args.paymentDetails.trim() || undefined;
     }
     if (args.adminNotes !== undefined) {
       patch.adminNotes = args.adminNotes.trim() || undefined;
@@ -579,6 +555,93 @@ export const updateCreator = adminMutation({
         }
         patch.clipperId = args.clipperId;
       }
+    }
+    await ctx.db.patch(args.id, patch);
+  },
+});
+
+// ─── RÉMUNÉRATION D'UNE CRÉATRICE — bloc `creators.pay_terms` ───────────────
+//
+// Les cinq champs d'argent de la fiche, extraits de `getCreator`/`updateCreator`
+// pour qu'un droit puisse les couvrir SEULS. C'est ce découpage qui fait exister
+// la frontière : un manager peut désormais gérer une créatrice sans voir son RIB
+// ni pouvoir changer son tarif.
+//
+// PREMIÈRES vraies `permissionQuery`/`permissionMutation` du dépôt, au-delà des
+// sondes : les 212 fonctions d'administration restent sur adminQuery/adminMutation
+// jusqu'à l'étape 4.
+
+/**
+ * Les conditions de rémunération d'UNE créatrice. `null` si la fiche est
+ * introuvable ou hors projet — même contrat que `getCreator`.
+ *
+ * Sert la fiche admin, qui fait donc DEUX lectures : l'identité par `getCreator`,
+ * l'argent par celle-ci. C'est le prix du découpage, et il est assumé : une seule
+ * query ne peut pas porter deux droits sans devenir insécable.
+ */
+export const getCreatorPayTerms = permissionQuery("creators.pay_terms")({
+  args: { id: v.id("creators") },
+  handler: async (ctx, { id }) => {
+    const creator = await ctx.db.get(id);
+    if (!creator || creator.projectId !== ctx.projectId) return null;
+    return {
+      paymentMethod: creator.paymentMethod ?? null,
+      paymentDetails: creator.paymentDetails ?? null,
+      bonusPricingId: creator.bonusPricingId ?? null,
+      clipRate: creator.clipRate ?? null,
+      cycleRetainer: creator.cycleRetainer ?? null,
+    };
+  },
+});
+
+/**
+ * Écriture des mêmes cinq champs. Contrat de chaque champ INCHANGÉ par rapport à
+ * `updateCreator` : absent = ne pas toucher, `null` = retirer. Un tarif absent et
+ * un tarif nul ne veulent pas dire la même chose — sans tarif, aucune ligne de
+ * paie n'est créée du tout.
+ *
+ * Les validations déménagent AVEC les champs (pricing du projet, tarif ≥ 0), et
+ * la matérialisation des paliers de bonus aussi : changer la grille doit toujours
+ * refléter immédiatement les paliers déjà atteints, sinon l'écran de progression
+ * ment jusqu'au prochain cumul.
+ */
+export const updateCreatorPayTerms = permissionMutation("creators.pay_terms")({
+  args: {
+    id: v.id("creators"),
+    paymentMethod: v.optional(PAYMENT_METHODS),
+    paymentDetails: v.optional(v.string()),
+    bonusPricingId: v.optional(v.union(v.id("pricings"), v.null())),
+    clipRate: v.optional(v.union(v.number(), v.null())),
+    cycleRetainer: v.optional(v.union(v.number(), v.null())),
+  },
+  handler: async (ctx, args) => {
+    const creator = await ctx.db.get(args.id);
+    if (!creator || creator.projectId !== ctx.projectId) {
+      throw new ConvexError("Créateur introuvable.");
+    }
+    const patch: Partial<Doc<"creators">> = {};
+    if (args.bonusPricingId !== undefined) {
+      if (args.bonusPricingId === null) {
+        patch.bonusPricingId = undefined;
+      } else {
+        const pricing = await ctx.db.get(args.bonusPricingId);
+        if (!pricing || pricing.projectId !== ctx.projectId) {
+          throw new ConvexError("Pricing de bonus introuvable dans le projet.");
+        }
+        patch.bonusPricingId = args.bonusPricingId;
+      }
+    }
+    for (const champ of ["clipRate", "cycleRetainer"] as const) {
+      const valeur = args[champ];
+      if (valeur === undefined) continue;
+      if (valeur !== null && (!Number.isFinite(valeur) || valeur < 0)) {
+        throw new ConvexError("Le tarif doit être un nombre ≥ 0.");
+      }
+      patch[champ] = valeur === null ? undefined : valeur;
+    }
+    if (args.paymentMethod !== undefined) patch.paymentMethod = args.paymentMethod;
+    if (args.paymentDetails !== undefined) {
+      patch.paymentDetails = args.paymentDetails.trim() || undefined;
     }
     await ctx.db.patch(args.id, patch);
     // Changer la grille de bonus → matérialise immédiatement les paliers déjà

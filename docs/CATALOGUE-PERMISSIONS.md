@@ -48,7 +48,7 @@ Décisions actées :
 | 11 | `tracker.manage` | Contenu | **Tracker et publications** | Saisir et corriger des relevés, gérer les publications, déclencher un relevé de vues, marquer un post comme chauffe. | ✓ | 13 | 🟠 Moyen — le drapeau « chauffe » décide si un post est payé (tracé, cf. §4) ; les synchros sont facturées. |
 | 12 | `content.analytics` | Contenu | **Performance des contenus** | Lire le Tracker, les KPI du Dashboard, les verdicts par script, les courbes de vues et le taux de publication à l'heure. | ✓ | 14 | 🟢 Faible — vues et engagement, jamais d'euros. |
 | 13 | `radar.use` | Contenu | **Radar** | Suivre des comptes TikTok, consulter les tendances, lancer une recherche d'outliers. | ✓ | 11 | 🟠 Moyen — chaque synchro est **facturée à l'usage** (Apify). |
-| 14 | `creators.pay_terms` | Argent | **Conditions de rémunération** | Voir et modifier le tarif négocié, le forfait mensuel, la grille de bonus et les coordonnées de paiement d'une créatrice. | ✗ | 0* | 🔴 **Élevé** — RIB/PayPal en clair, et un tarif modifié change ce qui sera versé. |
+| 14 | `creators.pay_terms` | Argent | **Conditions de rémunération** | Voir et modifier le tarif négocié, le forfait mensuel, la grille de bonus et les coordonnées de paiement d'une créatrice. | ✗ | 2 | 🔴 **Élevé** — RIB/PayPal en clair, et un tarif modifié change ce qui sera versé. |
 | 15 | `pricing.manage` | Argent | **Pricings** | Créer et modifier les grilles de rémunération : fixe, CPM, paliers de bonus. | ✗ | 9 | 🔴 **Élevé** — c'est la définition de ce que coûte chaque vidéo. |
 | 16 | `payments.manage` | Argent | **Paiements** | Voir les cycles et les totaux dus, calculer les bonus de vues, marquer un paiement comme payé. | ✗ | 9 | 🔴 **Élevé** — montants dus, coordonnées bancaires à l'export, marquage « payé » irréversible en pratique. |
 | 17 | `business.read` | Argent | **Analytics et revenus** | Revenu Whop, marge, RPM, rétention et churn, conversions par créatrice, analytics produit. | ✗ | 14 | 🔴 **Élevé** — c'est le compte d'exploitation de la boîte. |
@@ -57,9 +57,9 @@ Décisions actées :
 | 20 | `project.settings` | Système | **Réglages du projet** | Durée de chauffe, délai de réutilisation d'un combo, réglages de l'espace talent. | ✗ | 6 | 🟠 Moyen — règles structurantes qui s'appliquent à toutes les créatrices. |
 | 21 | `legacy.access` | Système | **Écrans historiques** | Carrousels, Shorts et sources — des écrans retirés du menu dont les routes répondent encore. | ✗ | 7 | 🟢 Faible — écrans hors menu, sans donnée financière. Décoché pour ne pas prolonger leur vie. |
 
-\* `creators.pay_terms` **ne couvre encore aucune fonction entière** : les champs qu'il protège (tarif négocié, forfait, grille de bonus, coordonnées de paiement) vivent à l'intérieur de `getCreator` et `updateCreator`, qui font aussi de la gestion. Ce bloc devient réel à l'étape 3. C'est le seul du catalogue qui exige un changement de code pour exister — et c'est le plus important : sans lui, « gérer une créatrice » veut dire « modifier sa rémunération ».
+`creators.pay_terms` **n'est plus vide** : le découpage de l'étape 3 lui a donné `getCreatorPayTerms` et `updateCreatorPayTerms`, extraites de `getCreator` et `updateCreator`. Avant lui, « gérer une créatrice » signifiait littéralement « modifier sa rémunération » — aucune permission ne pouvait séparer les deux.
 
-**21 blocs · 12 cochés · 9 décochés · somme des fonctions = 212.**
+**21 blocs · 12 cochés · 9 décochés · 214 fonctions** — les 212 d'administration, plus les 2 fonctions financières nées du découpage. Elles ne sont PAS dans le baseline du cliquet : celui-ci compte ce qui reste à migrer, et elles sont déjà gardées par leur bloc.
 
 > ⚠️ Ce tableau et le module `convex/permissions.ts` sont **tenus alignés par un test**
 > (`scripts/check-permission-coverage.mjs`, porté par `pnpm test:unit`). Un bloc ajouté
@@ -513,9 +513,14 @@ Signalements : 🟠 **mixte** (gestion + argent dans le même appel, §2.1) · �
 | `requestRadarSync` | M | radar | Resynchronise toute la veille |  |
 | `updateRadarAccountNote` | M | radar | Annote un compte suivi |  |
 
-### `creators.pay_terms` — 0 fonction
+### `creators.pay_terms` — 2 fonctions
 
-Ce bloc **ne couvre encore aucune fonction entière** : les champs qu'il protège vivent à l'intérieur de `getCreator` et `updateCreator`, qui font aussi de la gestion. Il devient réel à l'étape 3 (découpage financier).
+Nées du découpage de l'étape 3 : ce sont les **premières vraies** `permissionQuery`/`permissionMutation` du dépôt au-delà des sondes.
+
+| Fonction | T | Fichier | Ce qu'elle fait | |
+|---|---|---|---|---|
+| `getCreatorPayTerms` | Q | creators | Tarif négocié, forfait, grille de bonus et coordonnées de paiement d'une créatrice | |
+| `updateCreatorPayTerms` | M | creators | Modifie ces mêmes cinq champs | |
 
 
 ### `pricing.manage` — 9 fonctions
