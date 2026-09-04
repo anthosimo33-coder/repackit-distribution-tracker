@@ -36,12 +36,6 @@
   "pricing.ts::setDefaultBonusPricing",
   "pricing.ts::updatePricing",
   "profitability.ts::getProjectProfitability",
-  "projects.ts::getComboCooldownSettings",
-  "projects.ts::getTalentSettings",
-  "projects.ts::getWarmupSettings",
-  "projects.ts::setComboCooldownDays",
-  "projects.ts::setTalentSettings",
-  "projects.ts::setWarmupSettings",
   "publications.ts::setPublicationRemuneration",
   "whopSync.ts::getWhopRevenue",
   "whopSync.ts::requestWhopSync"

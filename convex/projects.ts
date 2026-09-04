@@ -1,8 +1,8 @@
 import {
-  adminMutation,
-  adminQuery,
   authedQuery,
   e2eMutation,
+  permissionMutation,
+  permissionQuery,
   publicQuery,
   requireProjectAccess,
   superadminMutation,
@@ -354,7 +354,7 @@ export const setProjectCurrencyBySlug = internalMutation({
  * champs de configuration de plus y seraient sans danger réel, mais la liste
  * blanche n'a de valeur que si on ne l'élargit pas par commodité.
  */
-export const getTalentSettings = adminQuery({
+export const getTalentSettings = permissionQuery("project.settings")({
   args: {},
   handler: async (
     ctx,
@@ -370,7 +370,7 @@ export const getTalentSettings = adminQuery({
   },
 });
 
-export const setTalentSettings = adminMutation({
+export const setTalentSettings = permissionMutation("project.settings")({
   args: {
     talentBriefFormatId: v.optional(v.union(v.id("formats"), v.null())),
     fileDropEnabled: v.optional(v.boolean()),
@@ -869,7 +869,7 @@ export const e2eDeleteProject = e2eMutation({
  * d'effet que sur les chauffes à venir — c'est dit à l'écran, pour qu'on ne
  * l'attende pas en vain.
  */
-export const getWarmupSettings = adminQuery({
+export const getWarmupSettings = permissionQuery("project.settings")({
   args: {},
   handler: async (
     ctx,
@@ -893,7 +893,7 @@ export const getWarmupSettings = adminQuery({
 const WARMUP_DAYS_MIN = 1;
 const WARMUP_DAYS_MAX = 60;
 
-export const setWarmupSettings = adminMutation({
+export const setWarmupSettings = permissionMutation("project.settings")({
   args: {
     tiktok: v.union(v.number(), v.null()),
     instagram: v.union(v.number(), v.null()),
@@ -939,7 +939,7 @@ export const setWarmupSettings = adminMutation({
  * NE TOUCHE PAS aux combos déjà attribués — ils sont figés sur leur assignation
  * et ne sont jamais rejugés. Le réglage n'agit que sur les tirages à venir.
  */
-export const getComboCooldownSettings = adminQuery({
+export const getComboCooldownSettings = permissionQuery("project.settings")({
   args: {},
   handler: async (
     ctx,
@@ -960,7 +960,7 @@ export const getComboCooldownSettings = adminQuery({
   },
 });
 
-export const setComboCooldownDays = adminMutation({
+export const setComboCooldownDays = permissionMutation("project.settings")({
   args: { days: v.union(v.number(), v.null()) },
   handler: async (ctx, { days }): Promise<{ updated: true }> => {
     // La validation vit dans le module pur (bornes + message), pas ici : c'est
