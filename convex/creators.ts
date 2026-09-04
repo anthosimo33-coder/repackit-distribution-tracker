@@ -1,6 +1,4 @@
 import {
-  adminMutation,
-  adminQuery,
   adminViewAsQuery,
   authedQuery,
   creatorMutation,
@@ -712,7 +710,7 @@ async function creatorDeletionImpact(
  * Prévisualisation pour la confirmation de suppression : nom exact (saisie de
  * confirmation) + compteurs supprimé/conservé. null si introuvable / hors projet.
  */
-export const getCreatorDeletionImpact = adminQuery({
+export const getCreatorDeletionImpact = permissionQuery("creators.delete")({
   args: { id: v.id("creators") },
   handler: async (ctx, { id }) => {
     const creator = await ctx.db.get(id);
@@ -750,7 +748,7 @@ export const getCreatorDeletionImpact = adminQuery({
  * via purgeAndDeleteAssignment (idiome deleteAssignment) — un échec externe ne
  * casse pas la suppression DB (transactionnelle).
  */
-export const deleteCreator = adminMutation({
+export const deleteCreator = permissionMutation("creators.delete")({
   args: { id: v.id("creators") },
   handler: async (ctx, { id }) => {
     const creator = await ctx.db.get(id);

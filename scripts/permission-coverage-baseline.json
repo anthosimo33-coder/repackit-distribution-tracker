@@ -14,8 +14,6 @@
   "challenges.ts::listChallengePricings",
   "challenges.ts::updateChallenge",
   "conversionSync.ts::readConversionAllTime",
-  "creators.ts::deleteCreator",
-  "creators.ts::getCreatorDeletionImpact",
   "payments.ts::getDueTotal",
   "payments.ts::leaderboard",
   "payments.ts::listPayments",
