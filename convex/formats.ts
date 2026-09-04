@@ -276,7 +276,7 @@ export const getTalentBriefAsAdmin = adminViewAsTalentQuery({
 
 // ─── Mutations ─────────────────────────────────────────────────────────────
 
-function validateRate(rate: Doc<"formats">["rateModel"]) {
+function validateRate(rate: NonNullable<Doc<"formats">["rateModel"]>) {
   if (!Number.isFinite(rate.basePerPost) || rate.basePerPost < 0) {
     throw new ConvexError("Le tarif de base doit être un nombre ≥ 0.");
   }
@@ -307,7 +307,7 @@ export const getFormatRateModel = permissionQuery("pricing.manage")({
   handler: async (ctx, { id }) => {
     const format = await ctx.db.get(id);
     if (!format || format.projectId !== ctx.projectId) return null;
-    return format.rateModel;
+    return format.rateModel ?? null;
   },
 });
 
@@ -345,11 +345,12 @@ export const createFormat = adminMutation({
   handler: async (ctx, args) => {
     const name = args.name.trim();
     if (name.length === 0) throw new ConvexError("Le nom du format est requis.");
-    // Un format NAÎT sans rémunération (0). La grille se pose ensuite par
-    // `setFormatRateModel`, sous `pricing.manage` : créer un format est un geste
-    // éditorial, en fixer le tarif est un geste financier. Un format à 0 ne paie
-    // rien tant que personne n'a décidé combien — c'est le défaut sûr.
-    const rateModel = { basePerPost: 0 };
+    // Un format NAÎT SANS GRILLE — champ absent, pas `{ basePerPost: 0 }`. La
+    // nuance est ce qui protège la paie : `assignFormat` refuse d'assigner un
+    // format dont la grille n'a jamais été renseignée, alors qu'un zéro EXPLICITE
+    // (posé par `setFormatRateModel`) reste assignable. Sans elle, un format créé
+    // puis assigné avant que quelqu'un ait décidé du tarif figerait des missions
+    // à 0 € et la créatrice travaillerait gratuitement.
     const now = Date.now();
     return await ctx.db.insert("formats", {
       projectId: ctx.projectId,
@@ -359,7 +360,6 @@ export const createFormat = adminMutation({
       hooks: args.hooks ?? [],
       guidelines: args.guidelines ?? { do: [], dont: [] },
       exampleVideos: args.exampleVideos ?? [],
-      rateModel,
       status: "active",
       createdAt: now,
       updatedAt: now,

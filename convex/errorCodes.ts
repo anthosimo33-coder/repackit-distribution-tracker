@@ -103,6 +103,12 @@ export const ERR = {
    * reconnexion. Le bloc manquant voyage en paramètre `permission`.
    */
   PERMISSION_DENIED: "ERR_PERMISSION_DENIED",
+  /**
+   * Format dont la GRILLE DE RÉMUNÉRATION n'a jamais été renseignée. Distinct
+   * d'une grille volontairement à 0 : ici personne n'a encore décidé combien ce
+   * format paie, et assigner figerait un tarif nul dans la mission.
+   */
+  FORMAT_RATE_NOT_SET: "ERR_FORMAT_RATE_NOT_SET",
 } as const;
 
 export type ErrCode = (typeof ERR)[keyof typeof ERR];

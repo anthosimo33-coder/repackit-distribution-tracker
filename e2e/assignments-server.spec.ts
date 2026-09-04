@@ -157,6 +157,64 @@ test.describe("Assignments — serveur (isolation + flux)", () => {
     }
   });
 
+  /**
+   * GARDE DE PAIE — la grille d'un format n'est plus posée à sa création : elle
+   * se renseigne à part (`setFormatRateModel`, bloc `pricing.manage`). Un format
+   * assigné AVANT que quelqu'un ait décidé du tarif figerait un `rateSnapshot` à
+   * 0 dans chaque mission, et personne ne le verrait avant de payer.
+   *
+   * Ce test tient les DEUX moitiés de la règle. Sans la seconde, on n'aurait
+   * prouvé qu'un refus — pas qu'un format volontairement gratuit reste possible.
+   */
+  test("un format sans grille est INASSIGNABLE ; un zéro explicite s'assigne", async () => {
+    const ts = Date.now();
+    const creator = await createCreatorSession(convexUrl, {
+      name: `[E2E_TEST] Grille ${ts}`,
+      email: `e2e-creator-grille-${ts}@repackit.test`,
+      password: "creator-grille-12345",
+    });
+    const target = await availableTarget({
+      e2eClient: admin,
+      creatorId: creator.creatorId,
+      platform: "TikTok",
+      handle: `e2e_grille_${ts}`,
+    });
+
+    // 1. Grille JAMAIS renseignée → refus, et le message NOMME le format.
+    const nu = await admin.mutation(api.formats.createFormat, {
+      name: `[E2E_TEST] Sans grille ${ts}`,
+      type: "short",
+    });
+    await expect(
+      admin.mutation(api.assignments.assignFormat, {
+        formatId: nu,
+        creatorId: creator.creatorId,
+        targets: [target],
+        postsPerCreator: 1,
+        dueDate: ts + 7 * 24 * 3600_000,
+      }),
+    ).rejects.toThrow(/grille de rémunération.*jamais été renseignée/i);
+
+    // 2. Zéro EXPLICITE → assignable. C'est toute la différence entre « personne
+    //    n'a décidé » et « on a décidé que c'était gratuit ».
+    await admin.mutation(api.formats.setFormatRateModel, {
+      id: nu,
+      rateModel: { basePerPost: 0 },
+    });
+    await admin.mutation(api.assignments.assignFormat, {
+      formatId: nu,
+      creatorId: creator.creatorId,
+      targets: [target],
+      postsPerCreator: 1,
+      dueDate: ts + 7 * 24 * 3600_000,
+    });
+    const rows = (await admin.query(api.assignments.listAssignments, {})).filter(
+      (a) => a.formatId === nu,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].rateSnapshot.basePerPost).toBe(0);
+  });
+
   test("guide : lecture créateur OK, édition réservée à l'admin", async () => {
     const ts = Date.now();
     const C = await createCreatorSession(convexUrl, {

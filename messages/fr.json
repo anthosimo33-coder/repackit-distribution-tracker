@@ -1017,6 +1017,7 @@
     "ERR_PUBLISHED_AT_BEFORE_CREATION": "La date de publication précède la création de l'assignation.",
     "ERR_PORTAL_ROLE_REJECTED": "Cet espace est réservé à une autre population du projet.",
     "generic": "Une erreur est survenue.",
-    "ERR_PERMISSION_DENIED": "Cette action ne t'est pas accordée. Demande le droit à un administrateur."
+    "ERR_PERMISSION_DENIED": "Cette action ne t'est pas accordée. Demande le droit à un administrateur.",
+    "ERR_FORMAT_RATE_NOT_SET": "La grille de rémunération de ce format n'a jamais été renseignée. Renseigne-la avant d'assigner, sinon la mission serait figée à 0."
   }
 }

@@ -372,6 +372,28 @@ export const assignFormat = adminMutation({
     const pricingSnapshot = args.pricingId
       ? await buildPricingSnapshot(ctx, ctx.projectId, args.pricingId)
       : undefined;
+    // ─── GARDE DE PAIE — un format sans grille ne s'assigne pas ──────────────
+    // `rateSnapshot` est figé ICI et jamais réécrit : ce qui est copié à cet
+    // instant est ce qui sera versé. Un format dont la grille n'a JAMAIS été
+    // renseignée (champ absent, cf. schema) produirait donc des missions à 0 €,
+    // découvertes au moment de payer — c'est-à-dire trop tard.
+    //
+    // Deux cas NE sont pas bloqués, et c'est délibéré :
+    //   - une grille posée EXPLICITEMENT à 0 (format volontairement gratuit) ;
+    //   - un `pricingId` fourni : l'argent vient alors du `pricingSnapshot`, et
+    //     `rateSnapshot` n'est qu'un placeholder neutre — même convention que
+    //     `assignScriptCampaign`.
+    const rateSnapshot =
+      format.rateModel ??
+      (pricingSnapshot !== undefined ? { basePerPost: 0 } : undefined);
+    if (rateSnapshot === undefined) {
+      throw err(
+        ERR.FORMAT_RATE_NOT_SET,
+        `La grille de rémunération du format « ${format.name} » n'a jamais été renseignée. ` +
+          "Renseigne-la avant d'assigner, sinon la mission serait figée à 0.",
+        { format: format.name },
+      );
+    }
     const overlayText = normalizeOverlayText(args.overlayText);
     const now = Date.now();
     let created = 0;
@@ -386,7 +408,7 @@ export const assignFormat = adminMutation({
         status: managed ? "to_publish" : "todo",
         // Dénormalisation D1 (undefined si non géré → 0 bruit sur les rows normales).
         managedByAdmin: managed ? true : undefined,
-        rateSnapshot: format.rateModel,
+        rateSnapshot,
         pricingSnapshot,
         overlayText,
         createdAt: now,

@@ -6,6 +6,7 @@ import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { formatUtcDay } from "../convex/accountPhase";
 import { availableTarget } from "./helpers/targets";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -65,9 +66,12 @@ async function fiche(
 
 /** Format minimal servant de support aux assignations. */
 async function format(ts: number): Promise<Id<"formats">> {
-  return admin.mutation(api.formats.createFormat, {
+  return createFormatWithRate(admin, {
     name: `[E2E_TEST] Quota ${ts}`,
     type: "short",
+    // Format volontairement GRATUIT : zéro EXPLICITE, pas une grille absente —
+    // sans quoi la garde de paie refuse l'assignation (et elle a raison).
+    rateModel: { basePerPost: 0 },
   });
 }
 

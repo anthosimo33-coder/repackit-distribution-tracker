@@ -1017,6 +1017,7 @@
     "ERR_PUBLISHED_AT_BEFORE_CREATION": "The publication date precedes the assignment's creation.",
     "ERR_PORTAL_ROLE_REJECTED": "This space is reserved for a different population on the project.",
     "generic": "Something went wrong.",
-    "ERR_PERMISSION_DENIED": "You don't have this permission. Ask an administrator for access."
+    "ERR_PERMISSION_DENIED": "You don't have this permission. Ask an administrator for access.",
+    "ERR_FORMAT_RATE_NOT_SET": "This format's pay grid has never been set. Set it before assigning, otherwise the mission would be locked at 0."
   }
 }

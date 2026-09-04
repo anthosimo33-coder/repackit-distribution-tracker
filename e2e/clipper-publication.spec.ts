@@ -6,6 +6,7 @@ import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { availableTarget } from "./helpers/targets";
 import { formatUtcDay, utcDayKey } from "../convex/accountPhase";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -78,9 +79,12 @@ async function clipsPretsAPublier(opts: {
     handle,
     validatedAt: ts - (opts.ancreJours ?? 20) * JOUR,
   });
-  const formatId = await convex.mutation(api.formats.createFormat, {
+  const formatId = await createFormatWithRate(convex, {
     name: `[E2E_TEST] Clip ${quoi} ${ts}`,
     type: "short",
+    // Format volontairement GRATUIT : zéro EXPLICITE, pas une grille absente —
+    // sans quoi la garde de paie refuse l'assignation (et elle a raison).
+    rateModel: { basePerPost: 0 },
   });
   await convex.mutation(api.assignments.assignFormat, {
     formatId,

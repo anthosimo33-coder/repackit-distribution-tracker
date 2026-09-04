@@ -5,6 +5,7 @@ import { createE2eClient } from "./helpers/authed-client";
 import { availableTarget } from "./helpers/targets";
 import { parisDayIndex } from "../convex/calendarStatus";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -101,10 +102,13 @@ test.describe("Bilan de fin de journée", () => {
       platform: "TikTok",
       handle: `@e2eretard${ts}`,
     });
-    const formatId = await convex.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(convex, {
       name: `[E2E_TEST] Retard ${ts}`,
       type: "short",
-    });
+      // Format volontairement GRATUIT : zéro EXPLICITE, pas une grille absente —
+    // sans quoi la garde de paie refuse l'assignation (et elle a raison).
+    rateModel: { basePerPost: 0 },
+  });
 
     // TROIS lots, et les trois comptent pour ce que le test prouve :
     //  - 4 MANQUÉS il y a dix jours → exclus (jour passé) ;
@@ -170,10 +174,13 @@ test.describe("Bilan de fin de journée", () => {
       platform: "TikTok",
       handle: `@e2eabsente${ts}`,
     });
-    const formatId = await convex.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(convex, {
       name: `[E2E_TEST] Absente ${ts}`,
       type: "short",
-    });
+      // Format volontairement GRATUIT : zéro EXPLICITE, pas une grille absente —
+    // sans quoi la garde de paie refuse l'assignation (et elle a raison).
+    rateModel: { basePerPost: 0 },
+  });
     // Un post manqué la semaine dernière, rien aujourd'hui.
     await planifier({
       creatorId,
@@ -204,10 +211,13 @@ test.describe("Bilan de fin de journée", () => {
       platform: "TikTok",
       handle: `@e2epublie${ts}`,
     });
-    const formatId = await convex.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(convex, {
       name: `[E2E_TEST] Publié ${ts}`,
       type: "short",
-    });
+      // Format volontairement GRATUIT : zéro EXPLICITE, pas une grille absente —
+    // sans quoi la garde de paie refuse l'assignation (et elle a raison).
+    rateModel: { basePerPost: 0 },
+  });
     const [id] = await planifier({
       creatorId,
       target,
@@ -250,10 +260,13 @@ test.describe("Taux à l'heure par créatrice", () => {
       platform: "TikTok",
       handle: `@e2etaux${ts}`,
     });
-    const formatId = await convex.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(convex, {
       name: `[E2E_TEST] Taux ${ts}`,
       type: "short",
-    });
+      // Format volontairement GRATUIT : zéro EXPLICITE, pas une grille absente —
+    // sans quoi la garde de paie refuse l'assignation (et elle a raison).
+    rateModel: { basePerPost: 0 },
+  });
 
     // 2 manqués il y a une semaine + 1 SANS date de post (invisible du taux).
     await planifier({

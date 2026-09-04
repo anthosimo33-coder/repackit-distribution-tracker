@@ -1411,18 +1411,32 @@ export default defineSchema({
         }),
       ),
     ),
-    rateModel: v.object({
-      basePerPost: v.number(),
-      viewBonusPer1k: v.optional(v.number()),
-      bounties: v.optional(
-        v.array(
-          v.object({
-            thresholdViews: v.number(),
-            amount: v.number(),
-          }),
+    // ─── GRILLE DE RÉMUNÉRATION — ABSENTE ⇔ JAMAIS RENSEIGNÉE ────────────────
+    // OPTIONNEL depuis que poser la grille est un geste à part
+    // (`setFormatRateModel`, bloc `pricing.manage`). L'absence n'est PAS un
+    // zéro : elle dit que personne n'a encore décidé combien ce format paie, et
+    // `assignFormat` REFUSE d'assigner dans cet état — sans quoi la mission
+    // figerait un `rateSnapshot` à 0 et la créatrice travaillerait gratuitement.
+    // Un format volontairement GRATUIT reste possible : on pose explicitement
+    // `{ basePerPost: 0 }`, et les deux cas cessent de se ressembler.
+    //
+    // Aucune migration : le champ était REQUIS jusqu'ici, donc tout format
+    // existant en porte une et se lit « renseignée ». Seuls les formats créés
+    // après ce changement naissent sans.
+    rateModel: v.optional(
+      v.object({
+        basePerPost: v.number(),
+        viewBonusPer1k: v.optional(v.number()),
+        bounties: v.optional(
+          v.array(
+            v.object({
+              thresholdViews: v.number(),
+              amount: v.number(),
+            }),
+          ),
         ),
-      ),
-    }),
+      }),
+    ),
     status: v.union(v.literal("active"), v.literal("archived")),
     createdAt: v.number(),
     updatedAt: v.number(),
