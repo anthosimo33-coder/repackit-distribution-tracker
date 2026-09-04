@@ -148,7 +148,7 @@ describe("sur le vrai dépôt", () => {
         "utf8",
       ),
     );
-    expect(baseline).toHaveLength(53);
+    expect(baseline).toHaveLength(46);
   });
 
   it("le catalogue du module et celui du document coïncident", () => {

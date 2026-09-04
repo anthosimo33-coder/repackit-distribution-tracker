@@ -1,6 +1,5 @@
 import {
   adminMutation,
-  adminQuery,
   authedQuery,
   e2eMutation,
   permissionMutation,
@@ -519,7 +518,7 @@ export const getNextPublicationId = permissionQuery("tracker.manage")({
  * présente sur disque + specs e2e). Délègue au compteur carousel. Le nouveau
  * code (NouveauModal) utilise getNextPublicationId({ mediaType }).
  */
-export const getNextCarouselId = adminQuery({
+export const getNextCarouselId = permissionQuery("legacy.access")({
   args: {},
   handler: async (ctx) => {
     const all = await ctx.db
@@ -601,7 +600,7 @@ export const listPublications = permissionQuery("tracker.manage")({
  * Coercion mediaType : alignée avec lib/media-type.getMediaType côté client
  * (rows pré-Batch-1-Shorts → "carousel"). Dupliquée car cross-tsconfig.
  */
-export const getByCarouselId = adminQuery({
+export const getByCarouselId = permissionQuery("legacy.access")({
   args: {
     carouselId: v.string(),
     snapshotAge: v.optional(v.string()),
@@ -1131,7 +1130,7 @@ export const deletePublication = permissionMutation("tracker.manage")({
  * Race condition sur nextCarouselId : héritée de getNextCarouselId (TD-004),
  * pas adressée ici.
  */
-export const duplicateCarousel = adminMutation({
+export const duplicateCarousel = permissionMutation("legacy.access")({
   args: {
     sourceCarouselId: v.string(),
     targetCompte: v.string(),
@@ -1306,7 +1305,7 @@ export const duplicateCarousel = adminMutation({
  * cohérent avec « édition au niveau carrousel »). Le UI ouvre le dialog
  * depuis une row spécifique mais propage à tout le carrousel.
  */
-export const updateDraft = adminMutation({
+export const updateDraft = permissionMutation("legacy.access")({
   args: {
     carouselId: v.string(),
     patch: v.object({
@@ -1502,7 +1501,7 @@ export const updateDraft = adminMutation({
  * 1 entrée par sourceId normalisé distinct, avec la matrice de couverture par
  * plateforme. Shorts only, scopé projet (by_project).
  */
-export const listSources = adminQuery({
+export const listSources = permissionQuery("legacy.access")({
   args: {},
   handler: async (ctx) => {
     const all = await ctx.db
@@ -1578,7 +1577,7 @@ export const listSources = adminQuery({
  * Source unique de vérité de l'UX ; la validation mutation reste le filet
  * defense-in-depth. sourceId vide/inédit → exists=false, tout disponible.
  */
-export const getSourceStatus = adminQuery({
+export const getSourceStatus = permissionQuery("legacy.access")({
   args: { sourceId: v.string() },
   handler: async (ctx, args) => {
     const normalized = normalizeSourceId(args.sourceId);
@@ -1625,7 +1624,7 @@ export const getSourceStatus = adminQuery({
  * incohérent (2 Shorts du même fichier source sur la même plateforme = le
  * risque shadowban qu'on combat). Shorts uniquement, normalisation systématique.
  */
-export const renameSourceId = adminMutation({
+export const renameSourceId = permissionMutation("legacy.access")({
   args: { oldSourceId: v.string(), newSourceId: v.string() },
   handler: async (ctx, args) => {
     const normalizedOld = normalizeSourceId(args.oldSourceId);

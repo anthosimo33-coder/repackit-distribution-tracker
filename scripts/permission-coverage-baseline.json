@@ -42,14 +42,7 @@
   "projects.ts::setComboCooldownDays",
   "projects.ts::setTalentSettings",
   "projects.ts::setWarmupSettings",
-  "publications.ts::duplicateCarousel",
-  "publications.ts::getByCarouselId",
-  "publications.ts::getNextCarouselId",
-  "publications.ts::getSourceStatus",
-  "publications.ts::listSources",
-  "publications.ts::renameSourceId",
   "publications.ts::setPublicationRemuneration",
-  "publications.ts::updateDraft",
   "whopSync.ts::getWhopRevenue",
   "whopSync.ts::requestWhopSync"
 ]
