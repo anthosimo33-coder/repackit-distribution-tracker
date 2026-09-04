@@ -208,7 +208,7 @@ export const getCreator = permissionQuery("creators.read")({
  * Retourne { creatorId, token } pour afficher le lien /join immédiatement.
  * Dedupe par email dans le projet.
  */
-export const inviteCreator = adminMutation({
+export const inviteCreator = permissionMutation("creators.manage")({
   args: {
     name: v.string(),
     email: v.string(),
@@ -292,7 +292,7 @@ export const inviteCreator = adminMutation({
  * Régénère le lien d'un créateur encore "invited" (lien expiré ou perdu) :
  * supprime les anciens tokens (l'ancien lien meurt) et en crée un neuf.
  */
-export const regenerateInvitation = adminMutation({
+export const regenerateInvitation = permissionMutation("creators.manage")({
   args: { creatorId: v.id("creators") },
   handler: async (ctx, { creatorId }) => {
     const creator = await ctx.db.get(creatorId);
@@ -369,7 +369,7 @@ function normalizeHandlesToCreate(
  * l'écran ». Deux points d'entrée avec chacun sa garde restent séparables ; un
  * point d'entrée à deux gardes ne l'est plus (cf. convex/functions.ts).
  */
-export const updateCreator = adminMutation({
+export const updateCreator = permissionMutation("creators.manage")({
   args: {
     id: v.id("creators"),
     name: v.optional(v.string()),
@@ -1230,7 +1230,7 @@ export const listAddableProjectsForCreator = authedQuery({
  * Pour un créateur JAMAIS inscrit (aucun compte), ce bouton ne s'applique pas :
  * c'est /join (invitation à token) qui crée un nouveau compte.
  */
-export const addCreatorToProject = adminMutation({
+export const addCreatorToProject = permissionMutation("creators.manage")({
   args: { creatorUserId: v.id("users") },
   handler: async (ctx, { creatorUserId }): Promise<{ creatorId: Id<"creators"> }> => {
     const user = await ctx.db.get(creatorUserId);
