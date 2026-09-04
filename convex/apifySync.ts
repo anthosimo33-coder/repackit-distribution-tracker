@@ -4,7 +4,10 @@ import {
   internalQuery,
   type MutationCtx,
 } from "./_generated/server";
-import { adminMutation, e2eMutation } from "./functions";
+import {
+  e2eMutation,
+  permissionMutation,
+} from "./functions";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
@@ -631,7 +634,7 @@ export const runDailySync = internalAction({
  * ⚠️ TS7022 — référence internal.apifySync.runDailySync via le scheduler : type
  * de retour annoté.
  */
-export const requestApifySync = adminMutation({
+export const requestApifySync = permissionMutation("tracker.manage")({
   args: {},
   handler: async (ctx): Promise<{ scheduled: true }> => {
     await ctx.scheduler.runAfter(0, internal.apifySync.runDailySync, {

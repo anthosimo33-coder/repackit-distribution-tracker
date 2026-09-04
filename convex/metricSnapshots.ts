@@ -1,7 +1,7 @@
 import { type MutationCtx } from "./_generated/server";
 import {
-  adminMutation,
   e2eMutation,
+  permissionMutation,
   permissionQuery,
 } from "./functions";
 import { syncBonusForPublication } from "./pricing";
@@ -211,7 +211,7 @@ export const listSnapshotsByPublication = permissionQuery("content.analytics")({
   },
 });
 
-export const createSnapshot = adminMutation({
+export const createSnapshot = permissionMutation("tracker.manage")({
   args: {
     publicationId: v.id("publications"),
     capturedAt: v.number(),
@@ -261,7 +261,7 @@ export const createSnapshot = adminMutation({
   },
 });
 
-export const updateSnapshot = adminMutation({
+export const updateSnapshot = permissionMutation("tracker.manage")({
   args: {
     id: v.id("metricSnapshots"),
     vues: v.optional(v.number()),
@@ -306,7 +306,7 @@ export const updateSnapshot = adminMutation({
   },
 });
 
-export const deleteSnapshot = adminMutation({
+export const deleteSnapshot = permissionMutation("tracker.manage")({
   args: { id: v.id("metricSnapshots") },
   handler: async (ctx, args) => {
     const snap = await ctx.db.get(args.id);

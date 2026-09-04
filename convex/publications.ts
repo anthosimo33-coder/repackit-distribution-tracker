@@ -1,8 +1,10 @@
 import {
-  authedQuery,
-  e2eMutation,
   adminMutation,
   adminQuery,
+  authedQuery,
+  e2eMutation,
+  permissionMutation,
+  permissionQuery,
 } from "./functions";
 import { internalMutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -200,7 +202,7 @@ async function findExistingSourcePublications(
   return matches;
 }
 
-export const createPublication = adminMutation({
+export const createPublication = permissionMutation("tracker.manage")({
   args: {
     carouselId: v.string(),
     hookId: v.union(v.id("hooks"), v.null()),
@@ -499,7 +501,7 @@ export const createFromAssignment = internalMutation({
  * mediaType optional → default "carousel" (backward compat pour un caller
  * oublié qui n'enverrait pas l'arg). Préfixe automatique C### / S### / SR###.
  */
-export const getNextPublicationId = adminQuery({
+export const getNextPublicationId = permissionQuery("tracker.manage")({
   args: { mediaType: v.optional(mediaTypeValidator) },
   handler: async (ctx, args) => {
     // A2 — compteur PAR PROJET : on ne compte que les publications du projet.
@@ -538,7 +540,7 @@ export const getNextCarouselId = adminQuery({
  * s'appuyer sur p.image directement pour afficher une URL — toujours
  * passer par imageUrl exposé par cette query.
  */
-export const listPublications = adminQuery({
+export const listPublications = permissionQuery("tracker.manage")({
   args: {
     // Refactor multi-snapshots — période d'âge sélectionnée globalement (UI).
     // Optional → "latest" (cf coerceSnapshotAge). customDay pour age="custom".
@@ -667,7 +669,7 @@ export const resolveCarouselForUser = authedQuery({
   },
 });
 
-export const updateMetrics = adminMutation({
+export const updateMetrics = permissionMutation("tracker.manage")({
   args: {
     id: v.id("publications"),
     // TD-016 : vuesJ1/J3/J7 retirés (le front saisit via les snapshots).
@@ -746,7 +748,7 @@ export const updateMetrics = adminMutation({
  * Patch single-row (chaque row = 1 plateforme a son propre compte). Pas de
  * updatedAt sur publications → non patché. Pattern cohérent avec updateMetrics.
  */
-export const updatePublishedAccount = adminMutation({
+export const updatePublishedAccount = permissionMutation("tracker.manage")({
   args: { id: v.id("publications"), newCompte: v.string() },
   handler: async (ctx, args) => {
     const pub = await ctx.db.get(args.id);
@@ -897,7 +899,7 @@ function lockedMessage(
  * `diverges` = le post s'écarte de la règle par défaut « payé ssi pas warmup »,
  * ce qui mérite d'être dit explicitement à l'écran.
  */
-export const getPublicationPayFlags = adminQuery({
+export const getPublicationPayFlags = permissionQuery("tracker.manage")({
   args: { publicationId: v.id("publications") },
   handler: async (ctx, { publicationId }) => {
     const pub = await ctx.db.get(publicationId);
@@ -941,7 +943,7 @@ export const getPublicationPayFlags = adminQuery({
  * payé (il lit ses lineItems gelées). Re-sync des paliers ensuite : retirer le
  * warmup peut refranchir un palier (idempotent, immuable).
  */
-export const setPublicationWarmup = adminMutation({
+export const setPublicationWarmup = permissionMutation("tracker.manage")({
   args: { publicationId: v.id("publications"), isWarmup: v.boolean() },
   handler: async (ctx, { publicationId, isWarmup }) => {
     const pub = await ctx.db.get(publicationId);
@@ -1014,7 +1016,7 @@ export const setPublicationRemuneration = adminMutation({
   },
 });
 
-export const deletePublication = adminMutation({
+export const deletePublication = permissionMutation("tracker.manage")({
   args: { id: v.id("publications") },
   handler: async (ctx, args) => {
     const pub = await ctx.db.get(args.id);
