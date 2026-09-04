@@ -1,5 +1,4 @@
 import {
-  adminMutation,
   authedQuery,
   e2eMutation,
   permissionMutation,
@@ -1067,7 +1066,7 @@ export const setPublicationWarmup = permissionMutation("tracker.manage")({
  * lineItems gelées, donc modifier ce réglage ne réécrirait aucun montant versé
  * mais ferait diverger l'affichage de ce qui a réellement été payé.
  */
-export const setPublicationRemuneration = adminMutation({
+export const setPublicationRemuneration = permissionMutation("payments.manage")({
   args: { publicationId: v.id("publications"), remunere: v.boolean() },
   handler: async (ctx, { publicationId, remunere }) => {
     const pub = await ctx.db.get(publicationId);

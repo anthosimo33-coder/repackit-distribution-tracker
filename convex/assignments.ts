@@ -1,6 +1,4 @@
 import {
-  adminMutation,
-  adminQuery,
   adminViewAsClipperQuery,
   adminViewAsQuery,
   clipperMutation,
@@ -1807,7 +1805,7 @@ export const migrateAssignmentsToTargets = internalMutation({
  * enrichis des vues du dernier snapshot (préremplissage) et du bonus déjà
  * crédité s'il existe.
  */
-export const listValidatedForBonus = adminQuery({
+export const listValidatedForBonus = permissionQuery("payments.manage")({
   args: {},
   handler: async (ctx) => {
     const validated = (
@@ -1884,7 +1882,7 @@ export const listValidatedForBonus = adminQuery({
  * seul bonus par assignment : recalculer REMPLACE la ligne (cf
  * upsertBonusLineItem), jamais d'ajout → idempotent.
  */
-export const computeViewBonus = adminMutation({
+export const computeViewBonus = permissionMutation("payments.manage")({
   args: { id: v.id("assignments"), views: v.number() },
   handler: async (ctx, { id, views }) => {
     const a = await ctx.db.get(id);

@@ -1,9 +1,9 @@
 import {
-  adminMutation,
-  adminQuery,
   adminViewAsQuery,
   creatorQuery,
   e2eMutation,
+  permissionMutation,
+  permissionQuery,
 } from "./functions";
 import { internal } from "./_generated/api";
 import {
@@ -814,7 +814,7 @@ async function collectProjectPaymentRows(
   );
 }
 
-export const listPayments = adminQuery({
+export const listPayments = permissionQuery("payments.manage")({
   args: {},
   handler: async (ctx) => collectProjectPaymentRows(ctx, ctx.projectId),
 });
@@ -835,7 +835,7 @@ export const listPayments = adminQuery({
  * Un total de dashboard qui diverge du total de la page Paiements serait pire
  * que pas de total du tout, et l'addition de flottants n'est pas commutative.
  */
-export const getDueTotal = adminQuery({
+export const getDueTotal = permissionQuery("payments.manage")({
   args: {},
   handler: async (ctx) => {
     const rows = await collectProjectPaymentRows(ctx, ctx.projectId);
@@ -934,7 +934,7 @@ async function computeProjectLeaderboard(
 }
 
 /** Leaderboard ADMIN du projet (cf computeProjectLeaderboard). isMe tout false. */
-export const leaderboard = adminQuery({
+export const leaderboard = permissionQuery("payments.manage")({
   args: {},
   handler: async (ctx) =>
     computeProjectLeaderboard(ctx, ctx.projectId, Date.now()),
@@ -962,7 +962,7 @@ export const projectLeaderboard = creatorQuery({
  * (pas la clé date, lossy si firstPostAt n'est pas à minuit) → la fenêtre + la
  * clé sont recalculées serveur. Idempotent : un cycle déjà payé → no-op.
  */
-export const markCyclePaid = adminMutation({
+export const markCyclePaid = permissionMutation("payments.manage")({
   args: { creatorId: v.id("creators"), cycleIndex: v.number() },
   handler: async (ctx, { creatorId, cycleIndex }) => {
     const creator = await ctx.db.get(creatorId);
@@ -1086,7 +1086,7 @@ export const markCyclePaid = adminMutation({
 });
 
 /** Marque UN paiement comme payé. Idempotent : re-marquer ne change pas paidAt. */
-export const markPaymentPaid = adminMutation({
+export const markPaymentPaid = permissionMutation("payments.manage")({
   args: { id: v.id("payments") },
   handler: async (ctx, { id }) => {
     const p = await ctx.db.get(id);
@@ -1115,7 +1115,7 @@ export const markPaymentPaid = adminMutation({
  * Marque TOUTE une période comme payée (masse). Idempotent : saute les
  * paiements déjà payés (leur paidAt est préservé). Retourne le nb basculé.
  */
-export const markPeriodPaid = adminMutation({
+export const markPeriodPaid = permissionMutation("payments.manage")({
   args: { period: v.string() },
   handler: async (ctx, { period }) => {
     const payments = await ctx.db
