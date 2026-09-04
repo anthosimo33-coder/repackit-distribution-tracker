@@ -1063,7 +1063,7 @@ export const listAssignments = permissionQuery("assignments.manage")({
 });
 
 /** Compteur d'assignments "video_submitted" — badge sidebar de la file de revue. */
-export const countVideoSubmitted = adminQuery({
+export const countVideoSubmitted = permissionQuery("review.manage")({
   args: {},
   handler: async (ctx) => {
     const subs = await ctx.db
@@ -1199,7 +1199,7 @@ async function materializeTargetPublication(
 
 /** video_submitted → to_publish. Approuve la vidéo ; le paiement attend la
  *  publication (published). Idempotent. */
-export const reviewVideoApprove = adminMutation({
+export const reviewVideoApprove = permissionMutation("review.manage")({
   args: { id: v.id("assignments") },
   handler: async (ctx, { id }) => {
     const a = await ctx.db.get(id);
@@ -1229,7 +1229,7 @@ export const reviewVideoApprove = adminMutation({
 });
 
 /** video_submitted → video_rejected (feedback obligatoire, visible créateur). */
-export const reviewVideoReject = adminMutation({
+export const reviewVideoReject = permissionMutation("review.manage")({
   args: { id: v.id("assignments"), feedback: v.string() },
   handler: async (ctx, { id, feedback }) => {
     const a = await ctx.db.get(id);
@@ -1343,7 +1343,7 @@ function compareByPostDate(
   return a.createdAt - b.createdAt;
 }
 
-export const listVideoSubmitted = adminQuery({
+export const listVideoSubmitted = permissionQuery("review.manage")({
   args: {},
   handler: async (ctx) => {
     const subs = await ctx.db
@@ -1455,7 +1455,7 @@ export const listVideoSubmitted = adminQuery({
 });
 
 /** « Publiées récemment » (admin) : assignments en published, URL + créateur. */
-export const listPublished = adminQuery({
+export const listPublished = permissionQuery("review.manage")({
   args: {},
   handler: async (ctx) => {
     const pubs = await ctx.db
@@ -1517,7 +1517,7 @@ export const listPublished = adminQuery({
  * valider ». Enrichi comme listPublished (créateur, format, cibles + handle) +
  * le script monté (à produire/publier par l'équipe).
  */
-export const listManagedToPublish = adminQuery({
+export const listManagedToPublish = permissionQuery("review.manage")({
   args: {},
   handler: async (ctx) => {
     const rows = await ctx.db
@@ -3173,7 +3173,7 @@ export const confirmPublication = creatorMutation({
  * date de création dans le message, puis confirme) : la borne devient un
  * AVERTISSEMENT franchissable, pas une porte ouverte.
  */
-export const confirmPublicationAsAdmin = adminMutation({
+export const confirmPublicationAsAdmin = permissionMutation("review.manage")({
   args: {
     id: v.id("assignments"),
     urls: v.array(v.object({ platform: plateformeValidator, url: v.string() })),
