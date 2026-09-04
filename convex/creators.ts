@@ -6,11 +6,11 @@ import {
   creatorMutation,
   creatorQuery,
   e2eMutation,
+  permissionMutation,
+  permissionQuery,
   publicQuery,
   requireCreatorViewableByAdmin,
   requireProjectAdmin,
-  permissionMutation,
-  permissionQuery,
 } from "./functions";
 import { resolveCreatorLocale } from "./i18n";
 import { getProjectBySlug, REPACKIT_SLUG } from "./projects";
@@ -97,7 +97,7 @@ async function killInvitations(ctx: MutationCtx, creatorId: Id<"creators">) {
  * l'invitation active (token + expiresAt) quand le créateur est encore
  * "invited" — pour reconstruire le lien /join et le bouton régénérer côté UI.
  */
-export const listCreators = adminQuery({
+export const listCreators = permissionQuery("creators.read")({
   args: {},
   handler: async (ctx) => {
     const creators = await ctx.db
@@ -164,7 +164,7 @@ export const listCreators = adminQuery({
 });
 
 /** Fiche détaillée d'un créateur + son invitation active éventuelle. */
-export const getCreator = adminQuery({
+export const getCreator = permissionQuery("creators.read")({
   args: { id: v.id("creators") },
   handler: async (ctx, { id }) => {
     const creator = await ctx.db.get(id);
@@ -1036,7 +1036,7 @@ export const getMyProfile = creatorQuery({
  * cette valeur à `Intl.DateTimeFormat().resolvedOptions().timeZone` (le fuseau
  * réel de son navigateur) et propose de confirmer ou de corriger.
  */
-export const getCreatorTimezone = adminQuery({
+export const getCreatorTimezone = permissionQuery("creators.read")({
   args: { id: v.id("creators") },
   handler: async (ctx, { id }) => {
     const creator = await ctx.db.get(id);
