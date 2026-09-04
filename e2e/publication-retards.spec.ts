@@ -104,7 +104,6 @@ test.describe("Bilan de fin de journée", () => {
     const formatId = await convex.mutation(api.formats.createFormat, {
       name: `[E2E_TEST] Retard ${ts}`,
       type: "short",
-      rateModel: { basePerPost: 0 },
     });
 
     // TROIS lots, et les trois comptent pour ce que le test prouve :
@@ -174,7 +173,6 @@ test.describe("Bilan de fin de journée", () => {
     const formatId = await convex.mutation(api.formats.createFormat, {
       name: `[E2E_TEST] Absente ${ts}`,
       type: "short",
-      rateModel: { basePerPost: 0 },
     });
     // Un post manqué la semaine dernière, rien aujourd'hui.
     await planifier({
@@ -209,7 +207,6 @@ test.describe("Bilan de fin de journée", () => {
     const formatId = await convex.mutation(api.formats.createFormat, {
       name: `[E2E_TEST] Publié ${ts}`,
       type: "short",
-      rateModel: { basePerPost: 0 },
     });
     const [id] = await planifier({
       creatorId,
@@ -256,7 +253,6 @@ test.describe("Taux à l'heure par créatrice", () => {
     const formatId = await convex.mutation(api.formats.createFormat, {
       name: `[E2E_TEST] Taux ${ts}`,
       type: "short",
-      rateModel: { basePerPost: 0 },
     });
 
     // 2 manqués il y a une semaine + 1 SANS date de post (invisible du taux).

@@ -9,6 +9,7 @@ import { availableTarget } from "./helpers/targets";
 import { viewAsBase } from "../lib/view-as";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -71,7 +72,7 @@ test.describe("View-as — la preview parle la langue de la personne observée",
     // Le séparateur décimal devient donc le témoin du format — « 15,00 » en
     // français, « 15.00 » en anglais. C'est l'assertion de format la plus nette
     // qu'on puisse écrire ici, et elle ne dépend d'aucune configuration.
-    const formatId = await admin.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(admin, {
       name: `[E2E_TEST] ViewAsLocFmt ${ts}`,
       type: "short",
       rateModel: { basePerPost: 15 },

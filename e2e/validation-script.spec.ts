@@ -6,6 +6,7 @@ import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import type { ConvexHttpClient } from "convex/browser";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -116,7 +117,7 @@ test.describe("Validation — script monté à côté de la vidéo", () => {
     expect(vrow.assembledScript).not.toContain("## ");
 
     // ─── Assignment FORMAT (pas de script) en attente de validation ──────────
-    const formatId = await admin.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(admin, {
       name: `[E2E_TEST] Format VS ${ts}`,
       type: "short",
       rateModel: { basePerPost: 5 },

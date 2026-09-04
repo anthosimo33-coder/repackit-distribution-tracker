@@ -51,7 +51,6 @@ test.describe("Pricing v2 — paliers de bonus (cumul, cash/nature)", () => {
     const formatId = await admin.mutation(api.formats.createFormat, {
       name: `[E2E_TEST] Format Tiers ${ts}`,
       type: "short",
-      rateModel: { basePerPost: 0 },
     });
     const target = await availableTarget({
       e2eClient: admin,

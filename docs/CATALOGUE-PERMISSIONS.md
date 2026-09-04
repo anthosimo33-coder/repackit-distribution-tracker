@@ -49,7 +49,7 @@ Décisions actées :
 | 12 | `content.analytics` | Contenu | **Performance des contenus** | Lire le Tracker, les KPI du Dashboard, les verdicts par script, les courbes de vues et le taux de publication à l'heure. | ✓ | 14 | 🟢 Faible — vues et engagement, jamais d'euros. |
 | 13 | `radar.use` | Contenu | **Radar** | Suivre des comptes TikTok, consulter les tendances, lancer une recherche d'outliers. | ✓ | 11 | 🟠 Moyen — chaque synchro est **facturée à l'usage** (Apify). |
 | 14 | `creators.pay_terms` | Argent | **Conditions de rémunération** | Voir et modifier le tarif négocié, le forfait mensuel, la grille de bonus et les coordonnées de paiement d'une créatrice. | ✗ | 2 | 🔴 **Élevé** — RIB/PayPal en clair, et un tarif modifié change ce qui sera versé. |
-| 15 | `pricing.manage` | Argent | **Pricings** | Créer et modifier les grilles de rémunération : fixe, CPM, paliers de bonus. | ✗ | 9 | 🔴 **Élevé** — c'est la définition de ce que coûte chaque vidéo. |
+| 15 | `pricing.manage` | Argent | **Pricings** | Créer et modifier les grilles de rémunération : fixe, CPM, paliers de bonus. | ✗ | 11 | 🔴 **Élevé** — c'est la définition de ce que coûte chaque vidéo. |
 | 16 | `payments.manage` | Argent | **Paiements** | Voir les cycles et les totaux dus, calculer les bonus de vues, marquer un paiement comme payé. | ✗ | 9 | 🔴 **Élevé** — montants dus, coordonnées bancaires à l'export, marquage « payé » irréversible en pratique. |
 | 17 | `business.read` | Argent | **Analytics et revenus** | Revenu Whop, marge, RPM, rétention et churn, conversions par créatrice, analytics produit. | ✗ | 14 | 🔴 **Élevé** — c'est le compte d'exploitation de la boîte. |
 | 18 | `challenges.money` | Argent | **Budget des Défis** | Créer et modifier un défi : objectif, récompense, budget et barème associé. | ✗ | 4 | 🔴 **Élevé** — fixe un budget et un barème, donc ce que le défi va coûter. |
@@ -59,7 +59,7 @@ Décisions actées :
 
 `creators.pay_terms` **n'est plus vide** : le découpage de l'étape 3 lui a donné `getCreatorPayTerms` et `updateCreatorPayTerms`, extraites de `getCreator` et `updateCreator`. Avant lui, « gérer une créatrice » signifiait littéralement « modifier sa rémunération » — aucune permission ne pouvait séparer les deux.
 
-**21 blocs · 12 cochés · 9 décochés · 214 fonctions** — les 212 d'administration, plus les 2 fonctions financières nées du découpage. Elles ne sont PAS dans le baseline du cliquet : celui-ci compte ce qui reste à migrer, et elles sont déjà gardées par leur bloc.
+**21 blocs · 12 cochés · 9 décochés · 216 fonctions** — les 212 d'administration, plus les 4 fonctions financières nées du découpage (2 sur la fiche créatrice, 2 sur la grille d'un format). Elles ne sont PAS dans le baseline du cliquet : celui-ci compte ce qui reste à migrer, et elles sont déjà gardées par leur bloc.
 
 > ⚠️ Ce tableau et le module `convex/permissions.ts` sont **tenus alignés par un test**
 > (`scripts/check-permission-coverage.mjs`, porté par `pnpm test:unit`). Un bloc ajouté
@@ -523,7 +523,14 @@ Nées du découpage de l'étape 3 : ce sont les **premières vraies** `permissio
 | `updateCreatorPayTerms` | M | creators | Modifie ces mêmes cinq champs | |
 
 
-### `pricing.manage` — 9 fonctions
+### `pricing.manage` — 11 fonctions
+
+Dont deux nées du découpage de l'étape 3 : la grille de rémunération d'un format (`rateModel`) a quitté `createFormat`/`updateFormat`, parce qu'elle fixe le prix de tout ce qui sera assigné ensuite — c'est un geste de barème, pas d'édition de brief.
+
+| Fonction | T | Fichier | Ce qu'elle fait | |
+|---|---|---|---|---|
+| `getFormatRateModel` | Q | formats | Grille de rémunération d'un format | |
+| `setFormatRateModel` | M | formats | Pose ou remplace cette grille | |
 
 | Fonction | T | Fichier | Ce qu'elle fait | |
 |---|---|---|---|---|

@@ -81,7 +81,6 @@ async function clipsPretsAPublier(opts: {
   const formatId = await convex.mutation(api.formats.createFormat, {
     name: `[E2E_TEST] Clip ${quoi} ${ts}`,
     type: "short",
-    rateModel: { basePerPost: 0 },
   });
   await convex.mutation(api.assignments.assignFormat, {
     formatId,

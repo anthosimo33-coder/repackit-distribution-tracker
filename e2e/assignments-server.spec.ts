@@ -5,6 +5,7 @@ import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -22,7 +23,7 @@ test.describe("Assignments — serveur (isolation + flux)", () => {
   test("assignation en masse, isolation, publication, idempotence", async () => {
     test.setTimeout(90_000);
     const ts = Date.now();
-    const fid = await admin.mutation(api.formats.createFormat, {
+    const fid = await createFormatWithRate(admin, {
       name: `[E2E_TEST] Assign ${ts}`,
       type: "short",
       rateModel: RATE,

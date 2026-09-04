@@ -4,6 +4,7 @@ import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -36,7 +37,7 @@ test.describe("Dashboard — vue action", () => {
       email: `e2e-dash-${ts}@repackit.test`,
       password: "creator-dash-12345",
     });
-    const formatId = await admin.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(admin, {
       name: `[E2E_TEST] Format Dash ${ts}`,
       type: "short",
       rateModel: { basePerPost: 10 },

@@ -7,6 +7,7 @@ import { createE2eClient, E2E_PROJECT_SLUG } from "./helpers/authed-client";
 import { availableTarget } from "./helpers/targets";
 import { viewAsBase, portalHref } from "../lib/view-as";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -182,7 +183,7 @@ test.describe("Populations — membership et mode d'observation", () => {
       fileDropEnabled: true,
     });
     const briefTexte = `Filme en extérieur, lumière du matin — consigne ${ts}`;
-    const formatId = await admin.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(admin, {
       name: `[E2E_TEST] Brief populations ${ts}`,
       type: "short",
       brief: briefTexte,

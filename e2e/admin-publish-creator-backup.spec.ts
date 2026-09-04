@@ -5,6 +5,7 @@ import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -18,7 +19,7 @@ test.describe("Admin publie EN SECOURS un compte de créatrice", () => {
   test("secours admin : traçabilité, bornes de date, dédup, aucune fuite créatrice", async () => {
     test.setTimeout(90_000);
     const ts = Date.now();
-    const fid = await admin.mutation(api.formats.createFormat, {
+    const fid = await createFormatWithRate(admin, {
       name: `[E2E_TEST] Backup ${ts}`,
       type: "short",
       rateModel: { basePerPost: 50 },
@@ -162,7 +163,7 @@ test.describe("Admin publie EN SECOURS un compte de créatrice", () => {
   test("régularisation : antidater est refusé par défaut, accepté sur confirmation", async () => {
     test.setTimeout(90_000);
     const ts = Date.now();
-    const fid = await admin.mutation(api.formats.createFormat, {
+    const fid = await createFormatWithRate(admin, {
       name: `[E2E_TEST] Backdate ${ts}`,
       type: "short",
       rateModel: { basePerPost: 50 },

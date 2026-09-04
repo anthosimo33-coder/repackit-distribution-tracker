@@ -10,6 +10,7 @@ import {
 import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -191,7 +192,7 @@ test.describe("Admin — voir l'espace d'un créateur (lecture seule, scopé pro
   test("détail de mission view-as : admin lit la mission de son créateur ; hors-créateur null ; session créateur rejetée", async () => {
     test.setTimeout(90_000);
     const ts = Date.now();
-    const fid = await convex.mutation(api.formats.createFormat, {
+    const fid = await createFormatWithRate(convex, {
       name: `[E2E_TEST] ViewAs Detail ${ts}`,
       type: "short",
       rateModel: {

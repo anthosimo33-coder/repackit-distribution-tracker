@@ -4,6 +4,7 @@ import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -47,7 +48,7 @@ test.describe("Warmup — relance admin (restartWarmup)", () => {
     const accountId = target.accountId;
 
     // ── A1 : assignment PUBLIÉ sur ce compte (le compte « a déjà publié »). ────
-    const fmt1 = await admin.mutation(api.formats.createFormat, {
+    const fmt1 = await createFormatWithRate(admin, {
       name: `[E2E_TEST] RestartFmt1 ${ts}`,
       type: "short",
       rateModel: { basePerPost: 10, viewBonusPer1k: 2 },
@@ -75,7 +76,7 @@ test.describe("Warmup — relance admin (restartWarmup)", () => {
     expect(pub.publicationIds.length).toBe(1);
 
     // ── A2 : assignment EN COURS (to_publish, non encore publié) sur ce compte. ─
-    const fmt2 = await admin.mutation(api.formats.createFormat, {
+    const fmt2 = await createFormatWithRate(admin, {
       name: `[E2E_TEST] RestartFmt2 ${ts}`,
       type: "short",
       rateModel: { basePerPost: 10, viewBonusPer1k: 2 },

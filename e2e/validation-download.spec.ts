@@ -6,6 +6,7 @@ import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import type { ConvexHttpClient } from "convex/browser";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -51,7 +52,7 @@ test.describe("Validation — bouton télécharger la vidéo soumise", () => {
     });
     const projectId = creator.projectId;
 
-    const formatId = await admin.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(admin, {
       name: `[E2E_TEST] Format DL ${ts}`,
       type: "short",
       rateModel: { basePerPost: 5 },

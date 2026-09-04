@@ -9,7 +9,6 @@
   "creators.ts::getCreatorDeletionImpact::...impact",
   "dashboardDecisions.ts::decisionDashboard::...d",
   "folders.ts::listFolders::...f",
-  "formats.ts::getFormat::...resolved",
   "hooks.ts::listHooksWithUsage::...h",
   "icps.ts::listIcps::...i",
   "inspirations.ts::getInspirationById::...row",

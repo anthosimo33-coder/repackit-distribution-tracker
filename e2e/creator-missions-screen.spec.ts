@@ -3,6 +3,7 @@ import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -57,7 +58,7 @@ test.describe("Créateur — écran « Mes missions »", () => {
     await cpage.waitForURL("**/app", { timeout: 20_000 });
 
     // ── Seed : 11 missions à produire → 6 de plus que le cap du dashboard. ──
-    const formatId = await admin.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(admin, {
       name: `[E2E_TEST] Format Missions ${ts}`,
       type: "short",
       rateModel: { basePerPost: 10 },

@@ -68,7 +68,6 @@ async function format(ts: number): Promise<Id<"formats">> {
   return admin.mutation(api.formats.createFormat, {
     name: `[E2E_TEST] Quota ${ts}`,
     type: "short",
-    rateModel: { basePerPost: 0 },
   });
 }
 

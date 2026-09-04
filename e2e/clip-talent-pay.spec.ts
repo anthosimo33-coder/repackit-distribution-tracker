@@ -5,6 +5,7 @@ import type { Id } from "../convex/_generated/dataModel";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { availableTarget } from "./helpers/targets";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -166,7 +167,7 @@ test.describe("Paie — clips et forfaits de talent", () => {
       platform: "TikTok",
       handle: `@e2epayreg${ts}`,
     });
-    const formatId = await admin.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(admin, {
       name: `[E2E_TEST] Format legacy ${ts}`,
       type: "short",
       // Modèle LEGACY : rateSnapshot, pas de pricingId → accrueBaseLineItem.
