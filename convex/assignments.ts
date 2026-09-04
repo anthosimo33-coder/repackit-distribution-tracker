@@ -17,6 +17,7 @@ import { withResolvedExamples } from "./formats";
 import { formatDayMonthFr } from "./dateFr";
 import { normalizeRemunere } from "./remunerate";
 import { isValidPostWindow } from "./postWindow";
+import { detectPostUrlPlatform, isAccountOnlyUrl } from "./postUrlShape";
 import { isFormatAllowedOnPlatform } from "./publications";
 import { tierLabel } from "./scriptTier";
 import { SNYTCH_SLUG } from "./projects";
@@ -82,15 +83,6 @@ export const targetInputValidator = v.object({
   accountId: v.id("comptes"),
 });
 
-/** Détection plateforme depuis l'URL (réplique serveur minimale, règle A6 —
- *  lib/inspiration-url ne peut pas être importée dans convex/). */
-function detectPlatform(url: string): Plateforme | undefined {
-  const u = url.toLowerCase();
-  if (u.includes("tiktok.com")) return "TikTok";
-  if (u.includes("instagram.com")) return "Instagram";
-  if (u.includes("youtube.com") || u.includes("youtu.be")) return "YouTube";
-  return undefined;
-}
 
 /**
  * Chantier C — valide les CIBLES d'un assignment à la création : 1 à 3 cibles,
@@ -2834,8 +2826,14 @@ async function confirmPublicationCore(
     if (!/^https?:\/\/.+/i.test(trimmed)) {
       throw err(ERR.POST_URL_INVALID, `URL du post invalide pour ${platform} (lien http(s) attendu).`, { platform });
     }
-    if (detectPlatform(trimmed) !== platform) {
+    if (detectPostUrlPlatform(trimmed) !== platform) {
       throw err(ERR.POST_URL_WRONG_PLATFORM, `L'URL fournie pour ${platform} ne correspond pas à cette plateforme.`, { platform });
+    }
+    // Lien de PROFIL collé à la place du lien de post : la plateforme est bonne,
+    // donc rien ne l'arrêtait — et la publication créée n'avait aucune vidéo
+    // derrière, donc aucune vue à relever, jamais (cf convex/postUrlShape.ts).
+    if (isAccountOnlyUrl(trimmed, platform)) {
+      throw err(ERR.POST_URL_IS_ACCOUNT, `L'URL fournie pour ${platform} est un lien de profil, pas un lien de publication.`, { platform });
     }
     urlByPlatform.set(platform, trimmed);
   }

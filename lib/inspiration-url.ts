@@ -31,10 +31,26 @@ const PATTERNS: Pattern[] = [
     plateforme: "TikTok",
     type: "video",
   },
-  // TikTok shortlinks — vm.tiktok.com / vt.tiktok.com. Pointent quasi
-  // toujours vers une vidéo ; on les classe video par défaut.
+  // TikTok carrousel PHOTO — /@user/photo/123. C'est un post, pas un profil.
   {
-    regex: /^https?:\/\/(?:vm|vt)\.tiktok\.com\/[A-Za-z0-9]+/i,
+    regex: /^https?:\/\/(?:www\.|m\.)?tiktok\.com\/@[^/]+\/photo\/\d+/i,
+    plateforme: "TikTok",
+    type: "video",
+  },
+  // TikTok shortlinks — vm./vt.tiktok.com ET tiktok.com/t/<code>, la forme que
+  // rend « Copier le lien » dans l'app iOS. Cette dernière manquait : la garde
+  // client refusait des liens TikTok en les annonçant non-TikTok (2026-09-03).
+  // Même famille que `isTikTokShortlink` (convex/postUrlDate.ts), qui la connaît
+  // depuis l'espace clippeur. Pointent quasi toujours vers une vidéo.
+  {
+    regex:
+      /^https?:\/\/(?:(?:vm|vt)\.tiktok\.com\/|(?:www\.)?tiktok\.com\/t\/)[A-Za-z0-9]+/i,
+    plateforme: "TikTok",
+    type: "video",
+  },
+  // TikTok — ancien lien mobile /v/<id>.html, encore servi par des partages.
+  {
+    regex: /^https?:\/\/(?:www\.|m\.)?tiktok\.com\/v\/\d+/i,
     plateforme: "TikTok",
     type: "video",
   },
@@ -51,11 +67,20 @@ const PATTERNS: Pattern[] = [
     plateforme: "Instagram",
     type: "video",
   },
+  // Instagram PARTAGE — /share/<code> et /share/reel/<code>, la forme que rend
+  // « Copier le lien » dans l'app depuis 2024. Testée AVANT le pattern account,
+  // sinon « share » se lirait comme un nom d'utilisateur.
+  {
+    regex:
+      /^https?:\/\/(?:www\.)?instagram\.com\/share\/(?:reel|reels|p)?\/?[A-Za-z0-9_-]+/i,
+    plateforme: "Instagram",
+    type: "video",
+  },
   // Instagram account avec exclusion explicite des paths réservés (par
   // sécurité, même si les patterns video ci-dessus matchent en premier).
   {
     regex:
-      /^https?:\/\/(?:www\.)?instagram\.com\/(?!p\/|reel\/|reels\/|stories\/|tv\/|explore\/|accounts\/)[A-Za-z0-9_.]+\/?(?:\?|#|$)/i,
+      /^https?:\/\/(?:www\.)?instagram\.com\/(?!p\/|reel\/|reels\/|stories\/|tv\/|explore\/|accounts\/|share\/)[A-Za-z0-9_.]+\/?(?:\?|#|$)/i,
     plateforme: "Instagram",
     type: "account",
   },
@@ -65,9 +90,17 @@ const PATTERNS: Pattern[] = [
     plateforme: "YouTube",
     type: "video",
   },
-  // YouTube long video — /watch?v=...
+  // YouTube long video — /watch?…v=… . `v` n'est PAS toujours le premier
+  // paramètre : l'app Android rend /watch?app=desktop&v=… .
   {
-    regex: /^https?:\/\/(?:www\.|m\.)?youtube\.com\/watch\?v=[A-Za-z0-9_-]+/i,
+    regex:
+      /^https?:\/\/(?:www\.|m\.)?youtube\.com\/watch\?(?:[^#]*&)?v=[A-Za-z0-9_-]+/i,
+    plateforme: "YouTube",
+    type: "video",
+  },
+  // YouTube — /live/<id> (rediffusion d'un direct, servie comme une vidéo).
+  {
+    regex: /^https?:\/\/(?:www\.|m\.)?youtube\.com\/live\/[A-Za-z0-9_-]+/i,
     plateforme: "YouTube",
     type: "video",
   },

@@ -106,6 +106,7 @@
     "convex/locales.ts",
     "convex/payWindow.ts",
     "convex/postUrlDate.ts",
+    "convex/postUrlShape.ts",
     "convex/postWindow.ts",
     "convex/roles.ts",
     "convex/rushScriptEligibility.ts",

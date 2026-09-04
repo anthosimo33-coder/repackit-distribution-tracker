@@ -19,6 +19,8 @@ import {
   type FallbackTarget,
 } from "./tiktokFallback";
 import { parisHour } from "./calendarStatus";
+import { unmatchableUrlReason } from "./postUrlShape";
+import { isTikTokShortlink } from "./postUrlDate";
 import { deliver, resolveNotifyContext } from "./notifications";
 import { buildSyncFailureMessage } from "./notificationMessage";
 import {
@@ -229,9 +231,32 @@ export const runNightlySync = internalAction({
           plateforme === "TikTok"
             ? tiktokPostId(p.postUrl)
             : instagramShortcode(p.postUrl);
-        // URL non rapprochable (shortlink tiktok.com/t/…) : ni relevable ni
-        // imputable à un échec de plateforme — on ne la compte pas du tout.
-        if (!key) continue;
+        // URL non rapprochable (shortlink tiktok.com/t/… non résolu, lien de
+        // profil, format inconnu) : le relevé n'a AUCUN identifiant à demander
+        // à Apify. Ce `continue` était MUET — la publication n'était ni relevée
+        // ni comptée en échec, donc affichée à 0 vue indéfiniment, sans que rien
+        // ne le signale. On l'inscrit maintenant comme échec de collecte, avec
+        // son motif : l'écran sait déjà dire « non mesuré — <motif> » plutôt que
+        // de peindre un zéro (cf convex/collectAvailability.ts).
+        if (!key) {
+          await ctx.runMutation(internal.apifySync.recordCollectFailure, {
+            publicationId: p._id,
+            at: now,
+            reason: unmatchableUrlReason(p.postUrl, plateforme),
+          });
+          // Un lien court non résolu est RATTRAPABLE : la résolution est un
+          // simple aller-retour de redirection, gratuit (aucun run Apify). On
+          // la relance ici — c'est le seul endroit qui repasse chaque nuit sur
+          // les publications restées non rapprochables.
+          if (plateforme === "TikTok" && isTikTokShortlink(p.postUrl)) {
+            await ctx.scheduler.runAfter(
+              0,
+              internal.postUrlResolution.resolvePublicationShortlink,
+              { publicationId: p._id },
+            );
+          }
+          continue;
+        }
         targets.push({
           publicationId: p._id,
           projectId: p.projectId,

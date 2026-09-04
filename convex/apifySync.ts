@@ -23,6 +23,8 @@ import {
 } from "./tiktokFallback";
 import { recomputeLatestMetrics } from "./metricSnapshots";
 import { TRACKING_WINDOW_DAYS } from "./syncScope";
+import { unmatchableUrlReason } from "./postUrlShape";
+import { isTikTokShortlink } from "./postUrlDate";
 import { syncBonusForPublication } from "./pricing";
 
 /**
@@ -548,7 +550,25 @@ export const runDailySync = internalAction({
       const urls: string[] = [];
       for (const p of pubs) {
         const key = keyFor(p.postUrl);
-        if (!key) continue; // shortlink / URL non rapprochable → loggué via matched
+        // URL non rapprochable : inscrite comme échec de collecte AVEC son motif
+        // (même traitement que le relevé nocturne, cf convex/nightlyViewsSync).
+        // Le `continue` d'origine ne laissait qu'un écart entre `scanned` et
+        // `matched` dans un log — invisible depuis l'application.
+        if (!key) {
+          await ctx.runMutation(internal.apifySync.recordCollectFailure, {
+            publicationId: p._id,
+            at: now,
+            reason: unmatchableUrlReason(p.postUrl, plateforme),
+          });
+          if (plateforme === "TikTok" && isTikTokShortlink(p.postUrl)) {
+            await ctx.scheduler.runAfter(
+              0,
+              internal.postUrlResolution.resolvePublicationShortlink,
+              { publicationId: p._id },
+            );
+          }
+          continue;
+        }
         targets.push({ publicationId: p._id, key, url: p.postUrl });
         urls.push(p.postUrl);
       }

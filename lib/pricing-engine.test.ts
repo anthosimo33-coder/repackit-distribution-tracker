@@ -538,3 +538,77 @@ describe("parité lib/ ↔ convex/ du moteur de paie (règle A6)", () => {
     expect(convexPricing.MAX_PAY_PER_VIDEO_EUR).toBe(MAX_PAY_PER_VIDEO_EUR);
   });
 });
+
+/**
+ * VUES FACTURÉES — l'assiette qui a réellement produit le CPM versé.
+ *
+ * Cas de prod (03/09/2026) : la vidéo `ms77fbjfaw5dev7wk84vgt2mms8dfv12` de
+ * Kelly, barème montantFixe=0 / nbVideosCible=60 / tauxCPM=1, avec 379 898 vues
+ * payables retenues. Le CPM brut vaut 379,90 $, plafonné à 150 $ — soit 229 898
+ * vues qui ne coûtent RIEN. Elles pesaient pourtant au dénominateur du RPM :
+ * +107 400 vues en 24 h avaient fait tomber le RPM d'août de 1,88 € à 1,69 €
+ * pour 0 $ de dépense.
+ */
+describe("billedViews — vues réellement facturées", () => {
+  const snap = (over: Partial<PricingSnapshot> = {}): PricingSnapshot => ({
+    pricingId: "p1",
+    montantFixe: 0,
+    nbVideosCible: 60,
+    tauxCPM: 1,
+    ...over,
+  });
+
+  it("vidéo PLAFONNÉE : ne facture que les vues jusqu'au plafond", () => {
+    const r = computeMonthlyPayout([
+      { assignmentId: "a1", snapshot: snap(), totalViews: 379_898 },
+    ]);
+    expect(r.perAssignment[0].cpm).toBe(MAX_PAY_PER_VIDEO_EUR);
+    // 150 $ à 1 $/1000 = 150 000 vues facturées, pas 379 898.
+    expect(r.perAssignment[0].billedViews).toBe(150_000);
+    // L'assiette AVANT plafond reste exposée telle quelle.
+    expect(r.perAssignment[0].totalViews).toBe(379_898);
+  });
+
+  it("vidéo SOUS le plafond : facture TOUTES ses vues (assertion de présence)", () => {
+    // Contre-test : une implémentation qui plafonnerait tout le monde le passerait
+    // si on ne vérifiait que le cas capé.
+    const r = computeMonthlyPayout([
+      { assignmentId: "a1", snapshot: snap(), totalViews: 12_100 },
+    ]);
+    expect(r.perAssignment[0].cpm).toBe(12.1);
+    expect(r.perAssignment[0].billedViews).toBe(12_100);
+  });
+
+  it("la part FIXE abaisse le seuil de facturation", () => {
+    // fixe 100/60 = 1,6667 $/vidéo → il ne reste que 148,3333 $ de CPM avant le
+    // plafond, soit 148 333 vues à 1 $/1000 (et non 150 000). Le SEUIL est exact,
+    // il ne se déduit pas du CPM arrondi au centime (148,33 rendrait 148 330).
+    const r = computeMonthlyPayout([
+      { assignmentId: "a1", snapshot: snap({ montantFixe: 100 }), totalViews: 300_000 },
+    ]);
+    expect(r.perAssignment[0].cpm).toBe(148.33);
+    expect(r.perAssignment[0].billedViews).toBe(148_333);
+  });
+
+  it("tauxCPM nul : AUCUNE vue n'est facturée (jamais de division par zéro)", () => {
+    const r = computeMonthlyPayout([
+      { assignmentId: "a1", snapshot: snap({ tauxCPM: 0, montantFixe: 150, nbVideosCible: 30 }), totalViews: 500_000 },
+    ]);
+    expect(r.perAssignment[0].cpm).toBe(0);
+    expect(r.perAssignment[0].billedViews).toBe(0);
+  });
+
+  it("zéro vue : zéro facturée (borne basse)", () => {
+    const r = computeMonthlyPayout([
+      { assignmentId: "a1", snapshot: snap(), totalViews: 0 },
+    ]);
+    expect(r.perAssignment[0].billedViews).toBe(0);
+  });
+
+  it("billedViews <= totalViews, TOUJOURS", () => {
+    for (const v of [0, 1, 999, 149_999, 150_000, 150_001, 379_898, 10_000_000]) {
+      const r = computeMonthlyPayout([{ assignmentId: "a", snapshot: snap(), totalViews: v }]);
+      expect(r.perAssignment[0].billedViews).toBeLessThanOrEqual(v);
+    }
+  });
+});

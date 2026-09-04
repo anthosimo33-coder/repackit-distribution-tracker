@@ -425,6 +425,10 @@
       "sentAwaiting": "Vidéo envoyée — en attente de validation par l'admin.",
       "resubmit": "Re-soumettre une vidéo",
       "urlWrongPlatform": "L'URL pour {platform} ne correspond pas à cette plateforme.",
+      "urlIsAccount": "Le lien {platform} est un lien de profil, pas un lien de publication.",
+      "profileLink": "C'est un lien de profil, pas le lien de la publication.",
+      "unknownLink": "Lien non reconnu. Si c'est bien celui de ta publication, envoie-le : il sera vérifié.",
+      "confirmPublish": "Confirmer la publication",
       "managedNotice": "— l'équipe publie ce contenu. Tu n'as rien à soumettre ni à publier ; le post et ses performances apparaîtront dans « Mes vidéos ».",
       "seePostOn": "Voir le post {platform}"
     },
@@ -1009,6 +1013,7 @@
     "ERR_ACCOUNT_NOT_APPROVED_TO_PUBLISH": "Le compte {handle} n'est pas validé pour publier (échauffement en cours ou compte à revalider par l'admin).",
     "ERR_POST_URL_INVALID": "URL du post invalide pour {platform} (lien http(s) attendu).",
     "ERR_POST_URL_WRONG_PLATFORM": "L'URL fournie pour {platform} ne correspond pas à cette plateforme.",
+    "ERR_POST_URL_IS_ACCOUNT": "L'URL fournie pour {platform} est un lien de profil, pas un lien de publication.",
     "ERR_POST_URL_MISSING": "URL manquante pour {platform} — toutes les plateformes sont obligatoires.",
     "ERR_ACCOUNT_RENAME_LOCKED": "{count, plural, one {Impossible de renommer ce compte : # publication l'utilise. Renommer le handle créerait des publications orphelines.} other {Impossible de renommer ce compte : # publications l'utilisent. Renommer le handle créerait des publications orphelines.}}",
     "ERR_ACCOUNT_ALREADY_EXISTS": "Le compte {handle} existe déjà sur {platform}.",

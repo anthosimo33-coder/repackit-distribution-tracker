@@ -57,8 +57,25 @@ export type PerPricing = {
 export type PerAssignment = {
   assignmentId: string;
   pricingId: string;
+  /** Assiette AVANT plafond (vues payables retenues). */
   totalViews: number;
   cpm: number;
+  /**
+   * Vues réellement FACTURÉES — celles qui ont produit le CPM versé.
+   *
+   * `totalViews` est l'assiette AVANT plafond ; au-delà du seuil où la vidéo
+   * atteint MAX_PAY_PER_VIDEO_EUR, chaque vue supplémentaire est GRATUITE. Les
+   * compter dans un ratio « par 1000 vues » fait baisser ce ratio sans qu'un
+   * centime ait été dépensé — mesuré en prod le 03/09/2026 : une vidéo de Kelly
+   * plafonnée à 150 $ a pris 107 400 vues en 24 h et a fait tomber le RPM d'août
+   * de 1,88 € à 1,69 € pour 0 $.
+   *
+   * = `min(vues, seuil)` où `seuil = (plafond − part fixe) / tauxCPM × 1000`.
+   * Sous le plafond, c'est exactement `totalViews` ; au-dessus, c'est le seuil.
+   * `tauxCPM = 0` → 0 (aucune vue n'est jamais facturée, et jamais de division
+   * par zéro) ; part fixe > plafond → 0 aussi, via le `max(0, …)`.
+   */
+  billedViews: number;
 };
 
 export interface MonthlyPayout {
@@ -273,11 +290,22 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
       fixedOverflow += excess - cpmOverflow;
       const cappedCpm = round2(cpm - cpmOverflow);
       groupCpm = round2(groupCpm + cappedCpm);
+      const views = Math.max(0, it.totalViews);
+      // Vues FACTURÉES = celles en deçà du seuil où la vidéo atteint le plafond.
+      // Calculé sur le SEUIL (exact), pas sur le ratio des montants arrondis au
+      // centime : `round2` sur le CPM ferait dériver la conversion inverse — la
+      // vidéo à 379 898 vues rendait 149 999 au lieu de 150 000.
+      const cpmBudget = MAX_PAY_PER_VIDEO_EUR - fixedShare;
+      const billableViews =
+        it.snapshot.tauxCPM > 0
+          ? Math.max(0, (cpmBudget / it.snapshot.tauxCPM) * 1000)
+          : 0;
       perAssignment.push({
         assignmentId: it.assignmentId,
         pricingId: it.snapshot.pricingId,
-        totalViews: Math.max(0, it.totalViews),
+        totalViews: views,
         cpm: cappedCpm,
+        billedViews: Math.round(Math.min(views, billableViews)),
       });
     }
     // Arrondi AU NIVEAU DU GROUPE, comme avant : à snapshots homogènes (le cas
