@@ -2,7 +2,7 @@
  * RADAR — veille TikTok, Brique 1 (comptes favoris + suivi de leurs vidéos).
  * Module ADMIN UNIQUEMENT, SILO séparé : ne touche NI creators NI publications NI
  * comptes (tracking créateurs = autre module). Toutes les fonctions publiques
- * passent par adminQuery/adminMutation → un créateur n'atteint AUCUNE fonction
+ * passent par des gardes de bloc → un créateur n'atteint AUCUNE fonction
  * Radar (rejet serveur). Scopé projet (ctx.projectId injecté par le wrapper).
  *
  * Source de données : Apify clockworks/tiktok-scraper en input PROFIL, via un
@@ -97,7 +97,7 @@ export const requireAdminForRadarAction = internalQuery({
 
 /**
  * Wrapper ACTION admin-only, LOCAL au module Radar (functions.ts non touché). Même
- * contrat que adminMutation (arg `projectId`, ctx.userId/projectId injectés) mais
+ * contrat qu'une mutation gardée (arg `projectId`, ctx.userId/projectId injectés) mais
  * pour les actions (I/O Apify) appelables directement et AWAITables côté client →
  * chargement « à la demande » propre. Gating via requireAdminForRadarAction.
  */

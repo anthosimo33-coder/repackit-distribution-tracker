@@ -45,8 +45,8 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
  * S1 — Système de scripts combinatoire (fondation). Refonte 3 briques : une
  * vidéo = 1 hook + 1 flux + 1 cta (le kind "corps" et le socle démo ont été
  * retirés du montage). CRUD admin des campagnes et de leurs bricks + import
- * (COPIE) de hooks depuis la bibliothèque. TOUT passe par adminQuery/
- * adminMutation → le rôle creator n'a aucun accès.
+ * (COPIE) de hooks depuis la bibliothèque. TOUT passe par des gardes de
+ * bloc → le rôle creator n'a aucun accès.
  *
  * L'assemblage (assembleScript) et le décompte (countCombinations) vivent dans
  * lib/scriptAssembly.ts (pur, testé) et sont consommés CÔTÉ CLIENT. La

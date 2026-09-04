@@ -15,7 +15,7 @@ import { passesWarmupMode, type WarmupMode } from "./warmupMode";
  * publications de script (raccordées par publications.scriptCombo, cf
  * validateAssignment) PAR BRIQUE, PAR TIER de hook, et PAR COMBO complet.
  *
- * 100 % adminQuery → le créateur n'a AUCUN accès (isolation, cf rappel S2 sur la
+ * 100 % administration → le créateur n'a AUCUN accès (isolation, cf rappel S2 sur la
  * fuite du label paiement). Lecture seule, aucune décision automatique (S4).
  *
  * ⚠️ A6 — réplique des stats de lib/scriptStats.ts (convex/ ne peut pas importer

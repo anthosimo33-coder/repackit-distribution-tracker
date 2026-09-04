@@ -5,6 +5,7 @@ import {
   diffCatalogues,
   findLegacyAdminFunctions,
   parseCatalogueFromDoc,
+  findLegacyWrapperExports,
   parseCatalogueFromModule,
   scanConvexDir,
 } from "./check-permission-coverage.mjs";
@@ -137,6 +138,23 @@ describe("sur le vrai dépôt", () => {
       stale,
       "entrée(s) de permission-coverage-baseline.json qui ne correspondent plus à rien — retire-les",
     ).toEqual([]);
+  });
+
+  it("adminQuery et adminMutation N'EXISTENT PLUS dans convex/functions.ts", () => {
+    // Ce qui garantit désormais qu'aucune fonction n'échappe au catalogue n'est
+    // plus le cliquet, c'est le COMPILATEUR : `adminQuery` n'existant plus, une
+    // fonction qui l'invoquerait ne compile pas. Recréer le wrapper « pour un cas
+    // particulier » rouvrirait d'un coup cette possibilité.
+    const src = readFileSync(
+      new URL("../convex/functions.ts", import.meta.url),
+      "utf8",
+    );
+    expect(findLegacyWrapperExports(src)).toEqual([]);
+    // Contrôle de PRÉSENCE : le détecteur voit bien un export quand il y en a un
+    // — sans ça, un détecteur cassé rendrait ce test vert pour la mauvaise raison.
+    expect(
+      findLegacyWrapperExports("export const adminQuery = customQuery(query, {}"),
+    ).toEqual(["adminQuery"]);
   });
 
   it("le baseline décroît à mesure que les blocs sont migrés", () => {

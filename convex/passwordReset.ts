@@ -23,7 +23,7 @@ import { ERR, err } from "./errorCodes";
  * L'admin ne voit JAMAIS de mot de passe en clair.
  *
  * Sécurité :
- *   - generatePasswordResetLink = adminMutation (admin du projet requis),
+ *   - generatePasswordResetLink = gardée par bloc (droit creators.manage requis),
  *     scopée projet, superadmin REFUSÉ (cohérent avec adminRecovery, PR #34).
  *   - Le mot de passe vit en hash scrypt dans authAccounts (provider
  *     "password", providerAccountId=email, secret=hash). Le reset re-hashe ce

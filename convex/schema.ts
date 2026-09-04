@@ -91,7 +91,7 @@ export default defineSchema({
     // confirmPublicationCore) reste sur `projects.isSnytchProject` et n'est PAS
     // concerné : les fusionner ferait cesser silencieusement d'être vrai
     // l'invariant « un compte non validé ne peut rien publier » (risque 8 du
-    // diagnostic). Posé via projects.setTalentSettings (adminMutation).
+    // diagnostic). Posé via projects.setTalentSettings (gardée par bloc).
     //
     // NB : la nav du portail PARTENAIRE (« Mes fichiers ») reste gatée sur le
     // slug côté client — le chantier talent ne change rien à l'écran partenaire.
@@ -127,7 +127,7 @@ export default defineSchema({
     //
     // MÊME NATURE que `warmupTargetDays` ci-dessus : une règle produit qui se
     // règle à l'usage, sans PR, et qui n'a pas à être la même d'un projet à
-    // l'autre. Édité par projects.setComboCooldownDays (adminMutation, écran
+    // l'autre. Édité par projects.setComboCooldownDays (gardée par bloc, écran
     // /scripts).
     //
     // ⚠️ NE TOUCHE PAS à l'unicité à vie (combo × créatrice × plateforme), qui
@@ -226,7 +226,7 @@ export default defineSchema({
     // un groupe) n'est pas un secret et vit en base — c'est précisément ce qui
     // rend le destinataire modifiable depuis l'écran admin SANS redéploiement.
     // Absent = AUCUNE notification pour ce projet. Édité par
-    // notifications.setNotifySettings (adminMutation, écran /notifications).
+    // notifications.setNotifySettings (gardée par bloc, écran /notifications).
     notify: v.optional(
       v.object({
         // Union d'un seul membre AUJOURD'HUI : le transport est isolé dans
@@ -2425,7 +2425,7 @@ export default defineSchema({
   // ─── RADAR — veille TikTok (Brique 1 : comptes favoris + leurs vidéos) ───────
   // Module ADMIN UNIQUEMENT, SILO séparé : aucun lien avec creators/publications/
   // comptes (le tracking créateurs est un autre module). Scopé projet via
-  // adminQuery/adminMutation (un créateur n'atteint AUCUNE fonction Radar). Source
+  // des gardes de bloc (un créateur n'atteint AUCUNE fonction Radar). Source
   // de données : Apify (clockworks/tiktok-scraper) avec un COMPTE Apify DISTINCT
   // (clé APIFY_RADAR_TOKEN) pour isoler les quotas du tracking créateurs.
 

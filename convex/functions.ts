@@ -83,7 +83,7 @@ export async function requireProjectAccess(
  *   - superadmin (users.role) : accès implicite (comme requireProjectAccess) ;
  *   - sinon : un membership (userId, projectId) de rôle "admin" est requis.
  * Un membership "creator" est REJETÉ — le rôle creator n'a accès à rien de
- * l'app interne (toutes ses fonctions passent par adminQuery/adminMutation).
+ * l'app interne (toutes ses fonctions sont gardées par un bloc).
  */
 export async function requireProjectAdmin(
   ctx: QueryCtx | MutationCtx,
@@ -311,23 +311,25 @@ export const projectMutation = customMutation(mutation, {
  * par ces wrappers. projectQuery/projectMutation restent la couche « accès
  * projet, tout rôle » (réservée à de futures fonctions creator-accessibles).
  */
-export const adminQuery = customQuery(query, {
-  args: { projectId: v.id("projects") },
-  input: async (ctx, { projectId }) => {
-    const userId = await requireUserId(ctx);
-    await requireProjectAdmin(ctx, userId, projectId);
-    return { ctx: { userId, projectId }, args: {} };
-  },
-});
-
-export const adminMutation = customMutation(mutation, {
-  args: { projectId: v.id("projects") },
-  input: async (ctx, { projectId }) => {
-    const userId = await requireUserId(ctx);
-    await requireProjectAdmin(ctx, userId, projectId);
-    return { ctx: { userId, projectId }, args: {} };
-  },
-});
+/**
+ * ⚠️ `adminQuery` / `adminMutation` ONT ÉTÉ RETIRÉS — ne les recréez pas.
+ *
+ * Ils posaient UNE garde unique (« es-tu admin de ce projet ? ») sur les 212
+ * fonctions d'administration. C'est ce qui rendait le rôle manager impossible :
+ * aucune permission ne pouvait séparer « gérer des créatrices » de « voir le
+ * chiffre d'affaires », puisque les deux franchissaient la même porte.
+ *
+ * Toute fonction d'administration déclare désormais SON bloc, via
+ * `permissionQuery("bloc")` / `permissionMutation("bloc")` (cf. plus haut). Le
+ * bloc étant un paramètre obligatoire typé `PermissionId`, une fonction sans
+ * bloc ne compile pas, et un bloc mal orthographié non plus : l'oubli n'est plus
+ * détecté, il est IMPOSSIBLE.
+ *
+ * Un admin garde tous ses accès — la cascade de `requirePermission` l'autorise
+ * avant même de regarder une permission. Rien n'a changé pour lui.
+ *
+ * `scripts/check-permission-coverage.mjs` échoue si ces exports réapparaissent.
+ */
 
 /**
  * P5 Comptes créateurs — exige le rôle "creator" sur le projet ET résout SA
@@ -486,7 +488,7 @@ export const clipperMutation = customMutation(mutation, {
  * Contrat : args publics obligatoires `projectId` + `creatorId`. Le wrapper :
  *   1. exige l'identité (session) ;
  *   2. exige le rôle ADMIN du projet (ou superadmin) — même barrière que
- *      adminQuery (requireProjectAdmin) : un admin ne peut viser QUE les
+ *      les gardes de bloc (requireProjectAdmin) : un admin ne peut viser QUE les
  *      créateurs d'un projet où il est admin ; le superadmin partout ;
  *   3. VÉRIFIE CÔTÉ SERVEUR que la fiche `creators` ciblée appartient bien à ce
  *      projet (`creator.projectId === projectId`). Un creatorId d'un AUTRE projet

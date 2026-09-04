@@ -16,7 +16,7 @@ import { moduleLocale, selectModulesForLocale } from "./guideModuleLocale";
  * guide mono-bloc projectGuide, désormais simple fallback). Liste plate de
  * modules : titre + contenu markdown + order + status (published|draft).
  *
- * Scoping STRICT (cf functions.ts) : adminQuery/adminMutation exigent le rôle
+ * Scoping STRICT (cf functions.ts) : les gardes par bloc exigent un droit
  * admin du projet ; chaque mutation re-vérifie `module.projectId === ctx.projectId`
  * (un moduleId d'un autre projet est introuvable → rejet, aucune fuite). Le
  * créateur (creatorQuery) ne voit que les modules `published`. La variante

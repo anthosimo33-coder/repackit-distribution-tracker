@@ -9,7 +9,7 @@ import { purgeAssetBlobs } from "./storageCleanup";
 /**
  * Assets — bibliothèque de FICHIERS en dossiers (matériel à télécharger par le
  * créateur) : IMAGES (jpg/png/webp ≤ 10 Mo) ET VIDÉOS courtes (mp4/mov/webm ≤
- * 100 Mo), en Convex file storage. TOUT passe par adminQuery/adminMutation (le
+ * 100 Mo), en Convex file storage. TOUT passe par des wrappers gardés par bloc (le
  * créateur lit via assignments.getMyAssignment). Scopé projet.
  *
  * ⚠️ A6 — la validation type/taille est RÉPLIQUÉE de lib/asset-file.ts (où

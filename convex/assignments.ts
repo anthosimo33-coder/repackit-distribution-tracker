@@ -65,7 +65,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
  * P7 Portail créateur — assignments. ISOLATION serveur non négociable : toutes
  * les fonctions creator (creatorQuery/creatorMutation) ne renvoient/touchent
  * QUE les rows du creator courant (ctx.creatorId). Les fonctions admin
- * (adminQuery/adminMutation) sont inaccessibles au rôle creator.
+ * (gardées par bloc) sont inaccessibles au rôle creator.
  */
 
 type Plateforme = "TikTok" | "Instagram" | "YouTube";

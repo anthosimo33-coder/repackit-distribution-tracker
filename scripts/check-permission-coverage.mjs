@@ -163,6 +163,23 @@ export function diffCatalogues(fromModule, fromDoc) {
   return problems;
 }
 
+/**
+ * Les anciens wrappers sont-ils bien ABSENTS de `convex/functions.ts` ?
+ *
+ * Le baseline est à zéro : plus aucune fonction n'échappe au catalogue. Ce qui
+ * tient cette propriété n'est plus le cliquet, c'est le COMPILATEUR — `adminQuery`
+ * n'existant plus, une fonction qui l'invoquerait ne compile pas. Ce contrôle
+ * garde la porte fermée : recréer le wrapper « pour un cas particulier »
+ * rouvrirait d'un coup la possibilité d'écrire une fonction sans bloc.
+ */
+export function findLegacyWrapperExports(source) {
+  return LEGACY_ADMIN_WRAPPERS.size === 0
+    ? []
+    : [...LEGACY_ADMIN_WRAPPERS].filter((w) =>
+        new RegExp(`export const ${w}\\s*=`).test(source),
+      );
+}
+
 function main() {
   let failed = false;
 
@@ -212,10 +229,27 @@ function main() {
     );
   }
 
+  // ── C ──
+  const revenants = findLegacyWrapperExports(
+    readFileSync(path.join("convex", "functions.ts"), "utf8"),
+  );
+  if (revenants.length > 0) {
+    failed = true;
+    console.error(
+      `\n✗ ${revenants.join(" et ")} ${revenants.length > 1 ? "ont été recréés" : "a été recréé"} dans convex/functions.ts.\n`,
+    );
+    console.error(
+      "  Ces wrappers posaient UNE garde unique sur toutes les fonctions",
+      "\n  d'administration — c'est ce qui rendait le rôle manager impossible.",
+      "\n  Une fonction d'administration déclare son bloc, ou n'existe pas.",
+    );
+  }
+
   if (failed) process.exit(1);
   console.log(
-    `✓ permissions : ${hits.length} fonctions restant à migrer (baseline), ` +
-      `${fromModule.length} blocs alignés module ↔ document.`,
+    `✓ permissions : ${hits.length} fonction(s) restant à migrer, ` +
+      `${fromModule.length} blocs alignés module ↔ document, ` +
+      `anciens wrappers absents.`,
   );
 }
 

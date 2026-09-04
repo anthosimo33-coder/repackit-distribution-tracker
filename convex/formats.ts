@@ -19,7 +19,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
  * jamais publiées) ; leur URL est résolue SERVEUR dans les queries (cf
  * publications → imageUrl). Les hooks sont embarqués en TEXTE (auto-suffisant).
  *
- * Ce module était 100 % adminQuery/adminMutation. Une seule exception depuis le
+ * Ce module était 100 % administration. Une seule exception depuis le
  * chantier talent : `getMyTalentBrief`, dont la sortie est réduite par une
  * allowlist (cf convex/talentBriefFields.ts) — un format porte des textes de
  * script et une grille de paie, il ne sort jamais entier hors de l'admin.

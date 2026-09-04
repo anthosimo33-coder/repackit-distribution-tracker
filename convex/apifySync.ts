@@ -629,7 +629,7 @@ export const runDailySync = internalAction({
  * Déclenchement MANUEL (admin) — « Synchroniser TikTok/Insta maintenant ».
  * Planifie le même relevé, SCOPÉ au projet de l'admin (ctx.projectId), sans
  * attendre le cron. Asynchrone : les snapshots apparaissent dans la seconde
- * (réactivité Convex). Gated adminMutation → le créateur est rejeté.
+ * (réactivité Convex). Gardée par un bloc de permission → le créateur est rejeté.
  *
  * ⚠️ TS7022 — référence internal.apifySync.runDailySync via le scheduler : type
  * de retour annoté.

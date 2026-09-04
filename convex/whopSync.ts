@@ -514,7 +514,7 @@ export const runHourlySync = internalAction({
 /**
  * Déclenchement MANUEL (admin) — « Synchroniser le revenu Whop maintenant ».
  * Planifie la sync SCOPÉE au projet courant, sans attendre le cron. Rejeté si le
- * projet n'est pas configuré. Gated adminMutation (créateur rejeté).
+ * projet n'est pas configuré. Gardée par un bloc de permission (créateur rejeté).
  */
 export const requestWhopSync = permissionMutation("business.read")({
   args: {},

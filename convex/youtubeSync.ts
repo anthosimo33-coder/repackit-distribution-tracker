@@ -318,7 +318,7 @@ export const runDailySync = internalAction({
  * Déclenchement MANUEL (admin) — « Synchroniser les vues YouTube maintenant ».
  * Planifie le même relevé, SCOPÉ au projet de l'admin (ctx.projectId), sans
  * attendre 8h. Asynchrone : les snapshots apparaissent dans la seconde
- * (réactivité Convex). Gated adminMutation → le créateur est rejeté.
+ * (réactivité Convex). Gardée par un bloc de permission → le créateur est rejeté.
  *
  * ⚠️ TS7022 — référence internal.youtubeSync.runDailySync via le scheduler :
  * type de retour annoté.

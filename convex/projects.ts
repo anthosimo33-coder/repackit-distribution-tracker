@@ -180,7 +180,7 @@ export const getProjectForCurrentUser = authedQuery({
     // (membership) mais PAS à l'app interne : le ProjectProvider le renvoie vers SON
     // portail (lib/portal-path). On renvoie le rôle plutôt qu'un booléen — avec trois
     // portails, un `isCreator` ne dit plus où rediriger. La vraie barrière reste
-    // serveur (adminQuery/adminMutation), ce champ n'est que du confort de routage.
+    // serveur (gardes de bloc), ce champ n'est que du confort de routage.
     return {
       status: "ok" as const,
       project: projectForClient(project),
@@ -332,7 +332,7 @@ export const setProjectCurrencyBySlug = internalMutation({
  * Réglages de l'espace TALENT d'un projet : quel format sert de brief permanent,
  * et le dépôt de fichiers est-il ouvert.
  *
- * `adminMutation` et non `internalMutation` : ce n'est pas de l'exploitation
+ * Gardée par bloc et non `internalMutation` : ce n'est pas de l'exploitation
  * ponctuelle comme les devises ou le mapping Whop, c'est un réglage qu'un admin
  * de projet ajuste (changer le brief = changer la consigne de tournage). L'écran
  * qui l'appellera arrive avec la revue des rushes ; le passer par un wrapper

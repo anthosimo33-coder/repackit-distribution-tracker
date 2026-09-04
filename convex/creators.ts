@@ -38,7 +38,7 @@ import { convexErrorText } from "./errorCodes";
  *
  * Couche d'accès :
  *   - listCreators / getCreator / inviteCreator / regenerateInvitation /
- *     updateCreator → adminQuery / adminMutation (admin du projet requis).
+ *     updateCreator → gardées par bloc (droit d'administration requis).
  *   - getInvitationPreview → publicQuery (pré-session : la page /join lit le
  *     token avant que le compte n'existe). NE LEAK PAS l'état d'un token.
  *   - getMyPortal → authedQuery (routage par rôle, cf /app et /).
@@ -566,7 +566,7 @@ export const updateCreator = permissionMutation("creators.manage")({
 // ni pouvoir changer son tarif.
 //
 // PREMIÈRES vraies `permissionQuery`/`permissionMutation` du dépôt, au-delà des
-// sondes : les 212 fonctions d'administration restent sur adminQuery/adminMutation
+// sondes ; depuis l'étape 5 toutes les fonctions d'administration sont gardées par bloc
 // jusqu'à l'étape 4.
 
 /**
@@ -1218,7 +1218,7 @@ export const listAddableProjectsForCreator = authedQuery({
 
 /**
  * ADMIN — rattache un créateur DÉJÀ inscrit (compte existant, identifié par son
- * userId) au projet courant (= projet cible, sur lequel l'adminMutation vérifie
+ * userId) au projet courant (= projet cible, sur lequel la garde vérifie
  * les droits de l'appelant). Crée une nouvelle fiche `creators` + un membership
  * "creator" pour ce compte sur ce projet. NE touche NI au login NI au mot de
  * passe (même compte). Identité (nom/email/téléphone) copiée depuis une fiche
@@ -1358,7 +1358,7 @@ export const e2eAddCreatorToProject = e2eMutation({
 /**
  * Exécute requireProjectAdmin pour le user (par email) sur projectId et
  * retourne { allowed, error? }. Preuve serveur que la garde des wrappers
- * adminQuery/adminMutation rejette un creator (sans avoir à ouvrir une session
+ * la garde rejette un creator (sans avoir à ouvrir une session
  * pour un user de test dépourvu de mot de passe). Cf e2eAssertAccess.
  */
 export const e2eAssertAdminAccess = e2eMutation({
@@ -1560,7 +1560,7 @@ async function assertRefSlugFree(
 /**
  * Pose la ref du chemin court snytch.co sur une créatrice, DEPUIS LE CLI.
  *
- * `updateCreator` est une adminMutation (session requise) — inatteignable
+ * `updateCreator` est gardée par bloc (session requise) — inatteignable
  * depuis `npx convex run`. Cette mutation interne sert l'amorçage : les
  * refSlug n'existaient sur aucune fiche après le déploiement de #72, et sans
  * elles la section « Ce que ça a rapporté » affiche « pas de ref configurée »

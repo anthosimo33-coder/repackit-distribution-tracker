@@ -862,7 +862,7 @@ export const getPaymentsAsAdmin = adminViewAsQuery({
 
 /**
  * Classement d'un projet sur les gains du cycle J+30 EN COURS de chaque créateur.
- * Logique PARTAGÉE entre l'adminQuery `leaderboard` (vue admin) et la creatorQuery
+ * Logique PARTAGÉE entre la query admin `leaderboard` et la creatorQuery
  * `projectLeaderboard` (portail créateur) — 0 duplication. Métrique = `totalDue`
  * du cycle courant (fixe/CPM + bonus paliers cash = le vrai « à payer »). Réutilise
  * `cyclePaymentsForCreator` (le cycle courant y est TOUJOURS présent, même à 0 $)
