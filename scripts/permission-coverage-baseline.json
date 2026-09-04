@@ -16,8 +16,6 @@
   "conversionSync.ts::readConversionAllTime",
   "creators.ts::deleteCreator",
   "creators.ts::getCreatorDeletionImpact",
-  "notifications.ts::getNotifySettings",
-  "notifications.ts::setNotifySettings",
   "payments.ts::getDueTotal",
   "payments.ts::leaderboard",
   "payments.ts::listPayments",
