@@ -1,11 +1,9 @@
 import {
-  adminMutation,
-  adminQuery,
   adminViewAsTalentQuery,
   e2eMutation,
-  talentQuery,
   permissionMutation,
   permissionQuery,
+  talentQuery,
 } from "./functions";
 import {
   pickTalentBrief,
@@ -155,7 +153,7 @@ async function deleteOrphanBlobs(
 
 // ─── Queries ─────────────────────────────────────────────────────────────────
 
-export const listFormats = adminQuery({
+export const listFormats = permissionQuery("scripts.manage")({
   args: {},
   handler: async (ctx) => {
     const formats = await ctx.db
@@ -191,7 +189,7 @@ export const listFormats = adminQuery({
   },
 });
 
-export const getFormat = adminQuery({
+export const getFormat = permissionQuery("scripts.manage")({
   args: { id: v.id("formats") },
   handler: async (ctx, { id }) => {
     const format = await ctx.db.get(id);
@@ -333,7 +331,7 @@ export const setFormatRateModel = permissionMutation("pricing.manage")({
   },
 });
 
-export const createFormat = adminMutation({
+export const createFormat = permissionMutation("scripts.manage")({
   args: {
     name: v.string(),
     type: typeValidator,
@@ -367,7 +365,7 @@ export const createFormat = adminMutation({
   },
 });
 
-export const updateFormat = adminMutation({
+export const updateFormat = permissionMutation("scripts.manage")({
   args: {
     id: v.id("formats"),
     name: v.optional(v.string()),
@@ -410,7 +408,7 @@ export const updateFormat = adminMutation({
   },
 });
 
-export const deleteFormat = adminMutation({
+export const deleteFormat = permissionMutation("scripts.manage")({
   args: { id: v.id("formats") },
   handler: async (ctx, { id }) => {
     const format = await ctx.db.get(id);

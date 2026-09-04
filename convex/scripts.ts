@@ -1,4 +1,9 @@
-import { adminMutation, adminQuery, e2eMutation } from "./functions";
+import {
+  adminMutation,
+  e2eMutation,
+  permissionMutation,
+  permissionQuery,
+} from "./functions";
 import { internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { CAMPAIGN_NAME, DEMO_BLOCK, SEED_BRICKS } from "./scriptSeedData";
@@ -569,7 +574,7 @@ async function assertComboFreeForCreatorPlatforms(
  * créateur × plateforme). Alimente la modale pour prévenir AVANT d'assigner s'il
  * manque des combos uniques. `available` = combos encore attribuables.
  */
-export const availableCombosForAssignment = adminQuery({
+export const availableCombosForAssignment = permissionQuery("scripts.manage")({
   args: {
     campaignId: v.id("scriptCampaigns"),
     creatorId: v.id("creators"),
@@ -628,7 +633,7 @@ export const availableCombosForAssignment = adminQuery({
  * la chaîne. Tant que ce n'est pas fait, la modale annonce l'aperçu indisponible
  * en lot plutôt que d'en montrer un approximatif.
  */
-export const previewCombosForAssignment = adminQuery({
+export const previewCombosForAssignment = permissionQuery("scripts.manage")({
   args: {
     campaignId: v.id("scriptCampaigns"),
     creatorId: v.id("creators"),
@@ -733,7 +738,7 @@ export const previewCombosForAssignment = adminQuery({
 });
 
 /** Campagnes du projet (actives d'abord, puis par nom). */
-export const listCampaigns = adminQuery({
+export const listCampaigns = permissionQuery("scripts.manage")({
   args: {},
   handler: async (ctx) => {
     const campaigns = await ctx.db
@@ -750,7 +755,7 @@ export const listCampaigns = adminQuery({
 });
 
 /** Détail d'une campagne + ses bricks (triés kind puis order/createdAt). */
-export const getCampaign = adminQuery({
+export const getCampaign = permissionQuery("scripts.manage")({
   args: { id: v.id("scriptCampaigns") },
   handler: async (ctx, { id }) => {
     const campaign = await ctx.db.get(id);
@@ -783,7 +788,7 @@ export const getCampaign = adminQuery({
  * projet. L'entrée ANALYTICS (combo agrégé) ne passe PAS par ici : elle n'a pas de
  * source unique (payload construit côté client depuis ComboPerf).
  */
-export const getReplaySource = adminQuery({
+export const getReplaySource = permissionQuery("scripts.manage")({
   args: {
     publicationId: v.optional(v.id("publications")),
     assignmentId: v.optional(v.id("assignments")),
@@ -866,7 +871,7 @@ export const getReplaySource = adminQuery({
 
 // ─── Mutations — campagnes ───────────────────────────────────────────────────
 
-export const createCampaign = adminMutation({
+export const createCampaign = permissionMutation("scripts.manage")({
   args: { name: v.string(), demoBlock: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const name = args.name.trim();
@@ -885,7 +890,7 @@ export const createCampaign = adminMutation({
   },
 });
 
-export const updateCampaign = adminMutation({
+export const updateCampaign = permissionMutation("scripts.manage")({
   args: {
     id: v.id("scriptCampaigns"),
     name: v.optional(v.string()),
@@ -912,7 +917,7 @@ export const updateCampaign = adminMutation({
  * est référencée par des assignments (le combo figé doit rester traçable) →
  * archiver plutôt que supprimer.
  */
-export const deleteCampaign = adminMutation({
+export const deleteCampaign = permissionMutation("scripts.manage")({
   args: { id: v.id("scriptCampaigns") },
   handler: async (ctx, { id }) => {
     await requireCampaign(ctx, id, ctx.projectId);
@@ -937,7 +942,7 @@ export const deleteCampaign = adminMutation({
 
 // ─── Mutations — bricks ──────────────────────────────────────────────────────
 
-export const createBrick = adminMutation({
+export const createBrick = permissionMutation("scripts.manage")({
   args: {
     campaignId: v.id("scriptCampaigns"),
     kind: KIND,
@@ -978,7 +983,7 @@ export const createBrick = adminMutation({
   },
 });
 
-export const updateBrick = adminMutation({
+export const updateBrick = permissionMutation("scripts.manage")({
   args: {
     id: v.id("scriptBricks"),
     label: v.optional(v.string()),
@@ -1027,7 +1032,7 @@ export const updateBrick = adminMutation({
   },
 });
 
-export const deleteBrick = adminMutation({
+export const deleteBrick = permissionMutation("scripts.manage")({
   args: { id: v.id("scriptBricks") },
   handler: async (ctx, { id }) => {
     const brick = await ctx.db.get(id);
@@ -1042,7 +1047,7 @@ export const deleteBrick = adminMutation({
  * COPIE : le texte du hook devient un brick indépendant (taggable par tier sans
  * toucher la biblio). La table hooks est seulement LUE → reste intacte.
  */
-export const importHooks = adminMutation({
+export const importHooks = permissionMutation("scripts.manage")({
   args: {
     campaignId: v.id("scriptCampaigns"),
     hookIds: v.array(v.id("hooks")),
@@ -1514,7 +1519,7 @@ function assertScriptEditable(a: Doc<"assignments">): void {
  * → AUCUNE donnée de perf/publication rattachée n'est jamais altérée (la
  * publication matérialise la perf ; avant, re-figer est sans conséquence).
  */
-export const editScriptCombo = adminMutation({
+export const editScriptCombo = permissionMutation("scripts.manage")({
   args: {
     id: v.id("assignments"),
     slot: SLOT,
@@ -1611,7 +1616,7 @@ const MAX_BRICK_TEXT = 2000;
  * comboKey (assembleNoLabels → rendu créateur labels:false). pricingSnapshot
  * INCHANGÉ. La brique forkée démarre vierge côté analytics (nouvelle brique).
  */
-export const editScriptBrickText = adminMutation({
+export const editScriptBrickText = permissionMutation("scripts.manage")({
   args: {
     id: v.id("assignments"),
     slot: SLOT,
@@ -2116,7 +2121,7 @@ async function hookRunsOf(
  * Les scores sont recalculés ICI, côté serveur : un journal d'audit alimenté par
  * des chiffres venus du client n'auditerait rien.
  */
-export const graduateHook = adminMutation({
+export const graduateHook = permissionMutation("scripts.manage")({
   args: { brickId: v.id("scriptBricks") },
   handler: async (
     ctx,
@@ -2224,7 +2229,7 @@ export const graduateHook = adminMutation({
  * quelle campagne il part. Query séparée pour que l'écran de confirmation
  * affiche des chiffres relus en base, jamais des chiffres portés par le clic.
  */
-export const getGraduationPreview = adminQuery({
+export const getGraduationPreview = permissionQuery("scripts.manage")({
   args: { brickId: v.id("scriptBricks") },
   handler: async (ctx, { brickId }) => {
     const brick = await ctx.db.get(brickId);
@@ -2279,7 +2284,7 @@ export const getGraduationPreview = adminQuery({
  * Un comboKey vaut « hook:flux:cta » (ou « hook:corps:flux:cta » en legacy) :
  * le hook est TOUJOURS le premier segment, dans les deux espaces de clés.
  */
-export const hookUsagesForCampaign = adminQuery({
+export const hookUsagesForCampaign = permissionQuery("scripts.manage")({
   args: { campaignId: v.id("scriptCampaigns") },
   handler: async (ctx, { campaignId }) => {
     await requireCampaign(ctx, campaignId, ctx.projectId);
