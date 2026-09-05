@@ -1221,6 +1221,38 @@ export const deletePricing = permissionMutation("pricing.manage")({
 });
 
 /** Pricings du projet (admin). includeArchived=false → actifs seuls. */
+/**
+ * BARÈMES SÉLECTIONNABLES À L'ASSIGNATION — bloc `assignments.manage`.
+ *
+ * POURQUOI CETTE QUERY EXISTE. `assignScriptCampaign` EXIGE un `pricingId` : sans
+ * barème, on n'assigne pas. Or lister les barèmes vivait sous `pricing.manage`,
+ * un bloc que le manager n'a pas — il ne pouvait donc pas accomplir le geste
+ * central de son rôle. Masquer le sélecteur n'aurait rien réglé : ça aurait rendu
+ * l'échec silencieux au lieu de bruyant.
+ *
+ * ⚠️ ELLE NE REND QUE `_id` ET `name` — aucun montant, aucun taux, aucun palier.
+ * C'est exactement ce que le sélecteur affiche, et c'est plus étroit que la
+ * frontière ne l'exige : le manager CHOISIT un barème par son nom, il n'en voit
+ * pas les termes, et il ne peut toujours ni en créer, ni en modifier, ni en
+ * archiver — tout cela reste sous `pricing.manage`.
+ *
+ * Actifs seulement : proposer un barème archivé serait offrir une impasse, le
+ * serveur le refuse ensuite (`buildPricingSnapshot`).
+ */
+export const listPricingsForAssignment = permissionQuery("assignments.manage")({
+  args: {},
+  handler: async (ctx) => {
+    const all = await ctx.db
+      .query("pricings")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    return all
+      .filter((p) => p.status === "active")
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((p) => ({ _id: p._id, name: p.name }));
+  },
+});
+
 export const listPricings = permissionQuery("pricing.manage")({
   args: { includeArchived: v.optional(v.boolean()) },
   handler: async (ctx, { includeArchived }) => {
