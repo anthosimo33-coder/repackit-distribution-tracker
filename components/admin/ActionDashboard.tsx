@@ -51,6 +51,7 @@ import {
 import { savesAvailability } from "@/convex/decisionThresholds";
 import { type ConversionDisplayRow } from "@/convex/conversionAttribution";
 import { formatMoney } from "@/lib/format-rate";
+import { usePermissions } from "@/components/project/use-permissions";
 import { POST_WINDOW_PRESETS } from "@/convex/postWindow";
 import { GraduateHookDialog } from "@/components/admin/GraduateHookDialog";
 import { AssignScriptCampaignDialog } from "@/components/admin/AssignScriptCampaignDialog";
@@ -129,14 +130,25 @@ export function ActionDashboard() {
   // réseau (montants par créatrice, lignes, ventilation du barème, coordonnées
   // bancaires) pour n'afficher qu'un nombre. Même ensemble, même ordre, même
   // arithmétique — cf convex/payments.getDueTotal.
-  const due = useProjectQuery(api.payments.getDueTotal, {});
+  // ⚠️ CES DEUX LECTURES SONT GARDÉES PAR UN BLOC QUE LE MANAGER N'A PAS.
+  // Sans `skipUnless`, elles LÈVENT et c'est le dashboard ENTIER qui tombe — pas
+  // seulement la carte. Le masquage n'est ici pas cosmétique : c'est ce qui rend
+  // l'écran utilisable pour un manager.
+  const droits = usePermissions();
+  const due = useProjectQuery(
+    api.payments.getDueTotal,
+    droits.skipUnless("payments.manage", {}),
+  );
   const creators = useProjectQuery(api.creators.listCreators, {});
 
   // Les deux sections décisionnelles lisent UNE query d'assemblage ; toute la
   // logique (seuils, détections) vit dans les modules purs testés.
   const decisions = useProjectQuery(api.dashboardDecisions.decisionDashboard, {});
   // Conversion par créatrice (ref snytch.co) — la veille, collectée à 23h50.
-  const conversion = useProjectQuery(api.conversionSync.readConversionAllTime, {});
+  const conversion = useProjectQuery(
+    api.conversionSync.readConversionAllTime,
+    droits.skipUnless("business.read", {}),
+  );
 
   // Dialogues des trois actions : graduer (modale existante), désactiver un
   // hook mort (confirmation), programmer une frappe (modale d'assignation
@@ -153,7 +165,7 @@ export function ActionDashboard() {
   const loading =
     assignments === undefined ||
     comptes === undefined ||
-    due === undefined ||
+    (droits.has("payments.manage") && due === undefined) ||
     creators === undefined ||
     decisions === undefined;
 
@@ -161,7 +173,7 @@ export function ActionDashboard() {
     if (
       assignments === undefined ||
       comptes === undefined ||
-      due === undefined ||
+      (droits.has("payments.manage") && due === undefined) ||
       creators === undefined
     ) {
       return null;
@@ -206,7 +218,8 @@ export function ActionDashboard() {
     // Carte 3 — total DÛ = tous les cycles non payés. Calculé SERVEUR sur le
     // même ensemble et dans le même ordre que le total de /paiements (les deux
     // passent par `collectProjectPaymentRows`).
-    const dueTotal = due.dueTotal;
+    // `null` quand le bloc n'est pas accordé : la carte n'est alors pas rendue.
+    const dueTotal = due?.dueTotal ?? null;
 
     // Carte 4 — assignments actionnables dont la deadline tombe sous 7 j.
     const deadlines7 = assignments.filter((a) => {
@@ -288,13 +301,18 @@ export function ActionDashboard() {
           hint="chauffe finie, en attente"
           accent={warmupReady.length > 0}
         />
-        <ActionCard
-          href={projectPath("/paiements")}
-          icon={WalletIcon}
-          label="Dû"
-          value={formatMoney(dueTotal, payCurrency)}
-          hint="cycles non payés"
-        />
+        {/* Carte d'ARGENT : rendue seulement avec le bloc. La query est skippée
+            en amont, donc `dueTotal` est `null` ici — et la carte mènerait de
+            toute façon à un écran refusé. */}
+        {dueTotal !== null && (
+          <ActionCard
+            href={projectPath("/paiements")}
+            icon={WalletIcon}
+            label="Dû"
+            value={formatMoney(dueTotal, payCurrency)}
+            hint="cycles non payés"
+          />
+        )}
         <ActionCard
           href={projectPath("/assignments")}
           icon={CalendarClockIcon}
@@ -336,9 +354,11 @@ export function ActionDashboard() {
           snytch.co/<créatrice>, la veille. L'attribution repose ENTIÈREMENT sur
           le chemin court (pas de referrer in-app TikTok) : une créatrice sans
           ref est un état à part, jamais un zéro. */}
-      <Section title="Ce que ça a rapporté">
-        <ConversionSection data={conversion} />
-      </Section>
+      {droits.has("business.read") && (
+        <Section title="Ce que ça a rapporté">
+          <ConversionSection data={conversion} />
+        </Section>
+      )}
 
       <GraduateHookDialog
         brickId={graduating}

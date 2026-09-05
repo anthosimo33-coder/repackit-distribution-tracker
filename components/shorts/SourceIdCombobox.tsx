@@ -23,6 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { normalizeSourceId } from "@/lib/source-id";
 import { CheckIcon, ChevronsUpDownIcon, FilmIcon, PlusIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { usePermissions } from "@/components/project/use-permissions";
 
 /**
  * SourceIdCombobox — sélection / saisie libre d'un sourceId de Short.
@@ -53,7 +54,14 @@ export function SourceIdCombobox({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
 
-  const sources = useProjectQuery(api.publications.listSources, {});
+  // Suggestions de sourceId — lecture sous `legacy.access`. Sans garde, la query
+  // lève et emporte l'étape. On dégrade : plus de suggestions, la saisie libre
+  // reste possible.
+  const droitsSrc = usePermissions();
+  const sources = useProjectQuery(
+    api.publications.listSources,
+    droitsSrc.skipUnless("legacy.access", {}),
+  );
 
   const trimmedQuery = query.trim();
   const normalizedQuery = normalizeSourceId(trimmedQuery);

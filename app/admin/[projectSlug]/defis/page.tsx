@@ -30,8 +30,10 @@ import {
   statusTone,
   winnerRuleLabel,
 } from "@/components/challenges/challenge-format";
+import { usePermissions } from "@/components/project/use-permissions";
 
 export default function ChallengesPage() {
+  const droitsNav = usePermissions();
   const challenges = useProjectQuery(api.challenges.listChallenges, {});
   const projectPath = useProjectPath();
   const payCurrency = useProject().project.payCurrency;
@@ -148,7 +150,12 @@ export default function ChallengesPage() {
         </Card>
       )}
 
-      <CreateChallengeDialog open={createOpen} onOpenChange={setCreateOpen} />
+      {/* Créer un défi, c'est fixer son BUDGET et son barème
+          (`challenges.money`). Animer un défi existant reste dans
+          `challenges.run`, que le manager a. */}
+      {droitsNav.has("challenges.money") && (
+        <CreateChallengeDialog open={createOpen} onOpenChange={setCreateOpen} />
+      )}
     </div>
   );
 }

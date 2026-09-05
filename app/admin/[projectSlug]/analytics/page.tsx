@@ -36,6 +36,7 @@ import {
   HubNotice,
   LastSyncIndicator,
 } from "@/components/analytics/hub/HubPrimitives";
+import { PermissionGate } from "@/components/project/PermissionGate";
 
 /**
  * HUB ANALYTICS (ADMIN) — données PRODUIT, distinct des surfaces créateurs.
@@ -50,7 +51,7 @@ const PERIODS = [
   { key: 90, label: "90 jours" },
 ] as const;
 
-export default function AnalyticsPage() {
+function AnalyticsPageContenu() {
   const analytics = useProjectQuery(api.posthogSync.getProductAnalytics, {});
   const attribution = useProjectQuery(api.analyticsHub.getAttribution, {});
   const revenue = useProjectQuery(api.analyticsHub.getRevenueBreakdown, {});
@@ -278,5 +279,21 @@ function NotConfigured() {
       title="PostHog non configuré"
       description="Relie ce projet à son projet PostHog pour alimenter les métriques produit (posthogSync:setPosthogConfigBySlug). Tant que la configuration est absente, aucun appel n'est effectué."
     />
+  );
+}
+
+/**
+ * Garde d'écran : business.read. Le menu ne propose plus cette page à qui n'a pas le
+ * bloc, mais son URL répond toujours — sans cette enveloppe, y arriver par un
+ * favori déclenche les queries de la page, qui lèvent, et on lit une erreur
+ * technique au lieu d'une phrase.
+ *
+ * ⚠️ Ce n'est PAS la barrière : le serveur refuse déjà chaque appel.
+ */
+export default function AnalyticsPage() {
+  return (
+    <PermissionGate bloc="business.read">
+      <AnalyticsPageContenu />
+    </PermissionGate>
   );
 }

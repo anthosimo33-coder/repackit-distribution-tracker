@@ -53,6 +53,16 @@ export type PermissionBlock = {
   description: string;
   /** Coché par défaut à la création d'un manager (frontière argent appliquée). */
   defaultForManager: boolean;
+  /**
+   * Écrans de l'app interne que ce bloc ouvre, en chemins RELATIFS au projet
+   * (« /paiements »). Sert à la NAVIGATION : la sidebar masque une entrée dont
+   * la personne n'a pas le bloc.
+   *
+   * ⚠️ Un bloc sans `routes` n'est pas une anomalie : la plupart gardent des
+   * gestes À L'INTÉRIEUR d'un écran (conditions de rémunération, budget d'un
+   * défi, réglages) et n'ont pas d'entrée de menu à eux.
+   */
+  routes?: readonly string[];
 };
 
 /**
@@ -72,6 +82,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionBlock[] = [
     description:
       "Consulter la liste et la fiche d'une créatrice : identité, statut, langue, fuseau.",
     defaultForManager: true,
+    routes: ["/createurs"],
   },
   {
     id: "creators.manage",
@@ -96,6 +107,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionBlock[] = [
     description:
       "Créer, modifier, valider, refuser, archiver des comptes ; piloter le protocole de chauffe.",
     defaultForManager: true,
+    routes: ["/comptes"],
   },
   // ─── Production ───────────────────────────────────────────────────────────
   {
@@ -105,6 +117,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionBlock[] = [
     description:
       "Confier des Assignments, fixer dates et créneaux, joindre consignes, exemples et Assets. Montre le tarif unitaire de la vidéo.",
     defaultForManager: true,
+    routes: ["/assignments"],
   },
   {
     id: "review.manage",
@@ -113,6 +126,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionBlock[] = [
     description:
       "Approuver ou refuser une vidéo soumise, trancher les Rushes déposés, publier à la place d'une créatrice.",
     defaultForManager: true,
+    routes: ["/validation", "/rushes"],
   },
   {
     id: "scripts.manage",
@@ -121,6 +135,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionBlock[] = [
     description:
       "Créer et modifier campagnes, briques et formats ; éditer un script sur une mission ; graduer un hook.",
     defaultForManager: true,
+    routes: ["/scripts"],
   },
   {
     id: "challenges.run",
@@ -129,6 +144,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionBlock[] = [
     description:
       "Ouvrir et clore un défi, fixer les participantes, suivre le classement, retirer une vidéo, annuler une victoire.",
     defaultForManager: true,
+    routes: ["/defis"],
   },
   // ─── Contenu ──────────────────────────────────────────────────────────────
   {
@@ -138,6 +154,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionBlock[] = [
     description:
       "Gérer les Inspirations et leurs dossiers, les ICP, la bibliothèque de hooks, les dossiers d'Assets et les filtres favoris.",
     defaultForManager: true,
+    routes: ["/inspirations", "/assets", "/biblio-hooks"],
   },
   {
     id: "guide.manage",
@@ -146,6 +163,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionBlock[] = [
     description:
       "Écrire et publier les modules du guide lu par les créatrices, dans les deux langues.",
     defaultForManager: true,
+    routes: ["/guide"],
   },
   {
     id: "tracker.manage",
@@ -162,6 +180,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionBlock[] = [
     description:
       "Lire le Tracker, les KPI du Dashboard, les verdicts par script, les courbes de vues et le taux de publication à l'heure.",
     defaultForManager: true,
+    routes: ["/dashboard"],
   },
   {
     id: "radar.use",
@@ -170,6 +189,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionBlock[] = [
     description:
       "Suivre des comptes TikTok, consulter les tendances, lancer une recherche d'outliers.",
     defaultForManager: true,
+    routes: ["/radar"],
   },
   // ─── Argent ───────────────────────────────────────────────────────────────
   {
@@ -187,6 +207,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionBlock[] = [
     description:
       "Créer et modifier les grilles de rémunération : fixe, CPM, paliers de bonus.",
     defaultForManager: false,
+    routes: ["/pricings"],
   },
   {
     id: "payments.manage",
@@ -195,6 +216,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionBlock[] = [
     description:
       "Voir les cycles et les totaux dus, calculer les bonus de vues, marquer un paiement comme payé.",
     defaultForManager: false,
+    routes: ["/paiements"],
   },
   {
     id: "business.read",
@@ -203,6 +225,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionBlock[] = [
     description:
       "Revenu Whop, marge, RPM, rétention et churn, conversions par créatrice, analytics produit.",
     defaultForManager: false,
+    routes: ["/analytics"],
   },
   {
     id: "challenges.money",
@@ -220,6 +243,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionBlock[] = [
     description:
       "Choisir les alertes Telegram de l'équipe et leur destinataire.",
     defaultForManager: false,
+    routes: ["/notifications"],
   },
   {
     id: "project.settings",
@@ -236,6 +260,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionBlock[] = [
     description:
       "Carrousels, Shorts et sources — des écrans retirés du menu dont les routes répondent encore.",
     defaultForManager: false,
+    routes: ["/carrousels", "/shorts", "/screenrecorder"],
   },
 ] as const;
 
@@ -301,6 +326,39 @@ export function grantedPermissions(
     if (isPermissionId(value)) out.add(value);
   }
   return out;
+}
+
+/**
+ * Le bloc qui ouvre un écran, ou `null` si aucun ne le déclare.
+ *
+ * ⚠️ `null` VEUT DIRE « VISIBLE », pas « caché ». C'est délibéré, et c'est
+ * l'inverse de la règle du contrôle d'accès : pour la NAVIGATION, se tromper en
+ * cachant est bien pire que se tromper en montrant. Un écran montré à tort coûte
+ * un refus propre au clic ; un écran caché à tort casse le rôle en silence — la
+ * personne ne peut pas faire son travail et ne sait même pas pourquoi.
+ *
+ * La barrière, elle, reste `requirePermission`, à chaque requête. Rien de ce qui
+ * est ici ne protège quoi que ce soit.
+ */
+export function blocForRoute(route: string): PermissionId | null {
+  for (const b of PERMISSION_CATALOGUE) {
+    if (b.routes?.includes(route) && isPermissionId(b.id)) return b.id;
+  }
+  return null;
+}
+
+/**
+ * La personne peut-elle atteindre cet écran ? `granted` vaut `null` tant que les
+ * droits ne sont pas chargés — on répond OUI, pour la raison ci-dessus : un
+ * clignotement où l'admin verrait son menu amputé serait un changement visible.
+ */
+export function canSeeRoute(
+  route: string,
+  granted: ReadonlySet<PermissionId> | null,
+): boolean {
+  if (granted === null) return true;
+  const bloc = blocForRoute(route);
+  return bloc === null ? true : granted.has(bloc);
 }
 
 /** Les blocs cochés à la création d'un manager (frontière argent appliquée). */

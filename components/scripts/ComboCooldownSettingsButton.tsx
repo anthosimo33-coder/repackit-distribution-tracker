@@ -11,6 +11,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { ComboCooldownSettingsCard } from "./ComboCooldownSettingsCard";
+import { usePermissions } from "@/components/project/use-permissions";
 
 /**
  * Réglage du cooldown de combo, ouvert depuis l'écran /scripts.
@@ -21,6 +22,9 @@ import { ComboCooldownSettingsCard } from "./ComboCooldownSettingsCard";
  * regardent.
  */
 export function ComboCooldownSettingsButton() {
+  // Réglage de PROJET (délai de réutilisation d'un combo) — même raison.
+  const droits = usePermissions();
+  if (!droits.has("project.settings")) return null;
   return (
     <Sheet>
       <SheetTrigger

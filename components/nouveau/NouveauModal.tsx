@@ -35,6 +35,7 @@ import { StepContenu } from "./steps/StepContenu";
 import { StepPublication } from "./steps/StepPublication";
 import { StepRecap } from "./steps/StepRecap";
 import { cn } from "@/lib/utils";
+import { usePermissions } from "@/components/project/use-permissions";
 
 const STEP_LABELS: Record<Step, string> = {
   1: "Format",
@@ -109,11 +110,19 @@ export function NouveauModal({
   // Pilote le pré-gate UI (StepPublication) + le gating du bouton Créer. Le
   // serveur revalide systématiquement (defense in depth).
   const sourceTrimmed = state.data.sourceId.trim();
+  // Cette lecture est sous `legacy.access` — un bloc que le manager n'a pas.
+  // Sans garde elle LÈVE et emporte la modale entière. On dégrade : le pré-gate
+  // anti-shadowban ne s'affiche plus, la création reste possible. Le serveur
+  // revalide de toute façon (defense in depth), donc rien n'est affaibli.
+  const droitsSrc = usePermissions();
   const sourceStatus = useProjectQuery(
     api.publications.getSourceStatus,
-    state.data.mediaType === "short" && sourceTrimmed
-      ? { sourceId: state.data.sourceId }
-      : "skip",
+    droitsSrc.skipUnless(
+      "legacy.access",
+      state.data.mediaType === "short" && sourceTrimmed
+        ? { sourceId: state.data.sourceId }
+        : "skip",
+    ),
   );
 
   const selectedHook = useMemo(

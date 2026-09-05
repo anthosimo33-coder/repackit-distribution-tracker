@@ -1,5 +1,6 @@
 "use client";
 
+import { Children } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { useTranslations } from "next-intl";
@@ -29,6 +30,7 @@ import {
 import { api } from "@/convex/_generated/api";
 import { useProject } from "@/components/project/ProjectProvider";
 import { useProjectQuery } from "@/components/project/use-project-convex";
+import { usePermissions } from "@/components/project/use-permissions";
 import { resolveSidebarLinkIcon } from "@/lib/sidebar-link-icon";
 import { Button } from "@/components/ui/button";
 import {
@@ -73,6 +75,9 @@ export function Sidebar({
   const projectPath = useProjectPath();
   const { project } = useProject();
   const me = useQuery(api.projects.getMe, {});
+  // Droits de la personne — sert UNIQUEMENT à ne pas proposer une porte fermée.
+  // Un admin les reçoit tous, donc son menu est strictement inchangé.
+  const droits = usePermissions();
   // Badge file de validation = nb de vidéos en attente de revue (video_submitted).
   const submittedCount = useProjectQuery(api.assignments.countVideoSubmitted, {});
   // Prises déposées par les talents et pas encore tranchées (chantier rushes).
@@ -95,6 +100,11 @@ export function Sidebar({
     href,
     isActive: pathname.startsWith(href),
   });
+
+  // « /admin/<slug>/paiements » → « /paiements ». Le catalogue déclare les
+  // routes RELATIVES au projet : le slug ne le regarde pas.
+  const routeOf = (href: string) =>
+    href.replace(projectPath(""), "").replace(/^\/?/, "/");
 
   // PILOTAGE — le quotidien : piloter validations, assignations et paie.
   const pilotageItems = [
@@ -229,6 +239,15 @@ export function Sidebar({
     external: true as const,
   }));
 
+  // MASQUAGE — la correspondance écran → bloc vit dans le CATALOGUE
+  // (convex/permissions.ts, champ `routes`), jamais ici : un bloc ajouté demain
+  // avec sa route masque son entrée sans qu'on touche à ce fichier.
+  //
+  // Un item dont AUCUN bloc ne déclare la route reste VISIBLE. C'est voulu :
+  // montrer à tort coûte un refus propre, cacher à tort casse le rôle en silence.
+  const visible = (it: { href: string; external?: true }) =>
+    it.external === true || droits.canSeeRoute(routeOf(it.href));
+
   const renderItem = (it: (typeof pilotageItems)[number]) => (
     <SidebarItem
       key={it.href}
@@ -264,16 +283,16 @@ export function Sidebar({
       {/* Sections nav */}
       <nav className="flex-1 space-y-6 overflow-y-auto px-3 pb-3">
         <SidebarSection collapsed={collapsed} label={t("section.pilotage")}>
-          {pilotageItems.map(renderItem)}
+          {pilotageItems.filter(visible).map(renderItem)}
         </SidebarSection>
         <SidebarSection collapsed={collapsed} label={t("section.createurs")}>
-          {creatorsItems.map(renderItem)}
+          {creatorsItems.filter(visible).map(renderItem)}
         </SidebarSection>
         <SidebarSection collapsed={collapsed} label={t("section.contenu")}>
-          {contenuItems.map(renderItem)}
+          {contenuItems.filter(visible).map(renderItem)}
         </SidebarSection>
         <SidebarSection collapsed={collapsed} label={t("section.veille")}>
-          {veilleItems.map(renderItem)}
+          {veilleItems.filter(visible).map(renderItem)}
         </SidebarSection>
         {administrationItems.length > 0 && (
           <SidebarSection
@@ -372,6 +391,9 @@ function SidebarSection({
   label: string;
   children: React.ReactNode;
 }) {
+  // Une section dont tous les items sont masqués ne doit pas laisser son
+  // en-tête orphelin — « PILOTAGE » suivi de rien se lit comme un écran cassé.
+  if (Children.count(children) === 0) return null;
   return (
     <div>
       {!collapsed && (
