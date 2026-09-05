@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { isPortalRole } from "@/convex/roles";
 import {
   useProjectMutation,
   useProjectQuery,
@@ -123,6 +124,11 @@ function LigneAutreMembre({ membre }: { membre: Membre }) {
   // permission). Le rétrograder n'est pas un geste de configuration : on ne
   // l'offre pas d'un clic depuis une liste, le serveur le refuse de toute façon.
   const intouchable = membre.role === "admin" || membre.isSuperadmin;
+  // Un rôle de PORTAIL : le promouvoir écraserait son espace, sans retour. Le
+  // serveur refuse (convex/team.promoteToManager) ; on retire le bouton pour ne
+  // pas proposer une porte fermée, JAMAIS pour fermer la porte. Même prédicat
+  // que le serveur (`isPortalRole`), pour que les deux ne puissent pas diverger.
+  const aUnEspace = isPortalRole(membre.role);
 
   async function go() {
     setBusy(true);
@@ -150,6 +156,14 @@ function LigneAutreMembre({ membre }: { membre: Membre }) {
         <Badge variant="outline" className="text-[10px]">
           tous les droits
         </Badge>
+      ) : aUnEspace ? (
+        // Pas un bouton grisé : une PHRASE. Un bouton désactivé fait chercher ce
+        // qui manque ; ici il n'y a rien à débloquer, c'est le geste lui-même
+        // qui n'existe pas encore.
+        <span className="max-w-[22rem] shrink-0 text-right text-xs text-slate-400">
+          A son propre espace — le cumul avec le rôle manager arrive dans une
+          prochaine étape.
+        </span>
       ) : (
         <Button size="sm" variant="outline" onClick={go} disabled={busy}>
           {busy && <Loader2Icon className="size-3.5 animate-spin" />}

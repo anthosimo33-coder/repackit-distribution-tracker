@@ -35,8 +35,29 @@ export type CreatorKind = (typeof CREATOR_KINDS)[number];
 /** Littéraux `memberships.role` qui donnent accès à UN portail (pas l'admin). */
 export type PortalRole = "creator" | "talent" | "clipper";
 
+/**
+ * Littéraux `memberships.role` qui donnent accès à L'APP INTERNE (`/admin/…`),
+ * par opposition à un portail. `manager` = admin restreint : ce qu'il peut y
+ * FAIRE est décidé bloc par bloc (convex/permissions.ts), mais l'endroit où il
+ * travaille est le même que celui de l'admin.
+ *
+ * ⚠️ CE GROUPE EXISTE PARCE QU'IL MANQUAIT. `getMyPortal` ne connaissait que
+ * `admin` et les trois portails : un manager n'était NI l'un NI l'autre, et
+ * recevait donc « aucun espace » à l'accueil — il ne pouvait travailler qu'avec
+ * l'URL du dashboard en favori. Le rôle était livré depuis #154 sans jamais
+ * avoir servi en production (0 manager en base au 2026-09-05), d'où un défaut
+ * armé mais jamais déclenché.
+ *
+ * L'ORDRE EST SIGNIFIANT : `admin` d'abord. Une personne qui serait admin sur un
+ * projet et manager sur un autre atterrit sur celui où elle peut tout — c'est
+ * l'ordre le moins surprenant, et le même que celui de la cascade de
+ * `requirePermission` (admin AVANT manager, cf convex/functions.ts).
+ */
+export const TEAM_ROLES = ["admin", "manager"] as const;
+export type TeamRole = (typeof TEAM_ROLES)[number];
+
 /** Tous les littéraux `memberships.role`. */
-export type MembershipRole = "admin" | PortalRole;
+export type MembershipRole = TeamRole | PortalRole;
 
 /**
  * `creators.kind` → population. ABSENT = "partner" : toutes les fiches
@@ -85,6 +106,25 @@ export function kindForRole(role: string | null | undefined): CreatorKind | null
 export function isPortalRole(role: string | null | undefined): role is PortalRole {
   return kindForRole(role) !== null;
 }
+
+/**
+ * Le rôle donne-t-il accès à L'APP INTERNE ?
+ *
+ * ⚠️ APPARTENANCE, PAS NÉGATION. On répond oui parce que la valeur est DANS
+ * `TEAM_ROLES`, jamais parce qu'elle n'est pas un rôle de portail. Écrit
+ * `!isPortalRole(role)`, un littéral inconnu — un rôle renommé, une valeur
+ * écrite à la main en base — ouvrirait l'app interne. Ici il n'ouvre rien : même
+ * discipline que `isPermissionId` face au catalogue de droits.
+ *
+ * ⚠️ ET CE N'EST PAS UNE BARRIÈRE. Cette fonction sert au ROUTAGE (où atterrit
+ * la personne). Ce qu'elle a le droit d'y faire reste décidé serveur, requête
+ * par requête, par `requirePermission`.
+ */
+export function isTeamRole(role: string | null | undefined): role is TeamRole {
+  return typeof role === "string" && TEAM_ROLE_SET.has(role);
+}
+
+const TEAM_ROLE_SET: ReadonlySet<string> = new Set(TEAM_ROLES);
 
 /** Libellés FR pour l'admin (aucun terme technique exposé à l'écran). */
 export const KIND_LABELS: Record<CreatorKind, { singular: string; plural: string }> =

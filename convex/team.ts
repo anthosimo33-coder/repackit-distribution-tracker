@@ -29,6 +29,7 @@ import {
 } from "./permissions";
 import { PERMISSION_COVERAGE } from "./permissionCoverage";
 import { traceDiff } from "./memberPermissions";
+import { KIND_LABELS, isPortalRole, kindForRole } from "./roles";
 
 /** Validateur des blocs : l'union du catalogue, jamais `v.string()`. */
 const PERMISSION_VALIDATOR = v.union(
@@ -181,6 +182,27 @@ export const setMemberPermissions = superadminMutation({
  * Refuse de toucher un `admin` : rétrograder quelqu'un qui administre le projet
  * n'est pas un geste de configuration, et le faire d'un clic depuis une liste
  * serait trop facile.
+ *
+ * ── ET REFUSE UN RÔLE DE PORTAIL. Ce refus-ci n'est pas une précaution ───────
+ *
+ * `memberships.role` ne porte QU'UNE valeur : promouvoir une créatrice écrivait
+ * `role: "manager"` PAR-DESSUS son `role: "creator"`. Trois conséquences, toutes
+ * silencieuses, et aucune annoncée à l'écran :
+ *   1. `requirePortalMember` la rejette de TOUTES les fonctions de son portail ;
+ *   2. sa fiche `creators` reste intacte, donc l'admin la voit normale pendant
+ *      qu'elle, de son côté, n'a plus rien ;
+ *   3. AUCUNE mutation ne sait reposer un rôle de portail — `updateCreator` ne
+ *      change le `kind` que d'une fiche VIERGE. Le geste était sans retour.
+ *
+ * Le bouton était pourtant proposé sur sa ligne. Il n'a jamais été cliqué en
+ * production (`permissionChanges` vide au 2026-09-05, or cette mutation écrit
+ * toujours dans ce journal) : le piège était armé, pas déclenché.
+ *
+ * ⚠️ CE REFUS EST TEMPORAIRE PAR DESTINATION. Le cumul créatrice + manager est
+ * le modèle de promotion interne visé ; il arrive avec le passage de
+ * `memberships.role` à un ENSEMBLE de rôles. D'ici là, mieux vaut un refus qui
+ * dit pourquoi qu'un succès qui casse. Le message doit donc rester lisible par
+ * la personne qui clique, pas par celle qui a écrit le code.
  */
 export const promoteToManager = superadminMutation({
   args: {
@@ -193,6 +215,14 @@ export const promoteToManager = superadminMutation({
     if (m.role === "admin") {
       throw new ConvexError(
         "Ce membre est administrateur du projet. Retire-lui ce rôle par un autre chemin avant d'en faire un manager.",
+      );
+    }
+    if (isPortalRole(m.role)) {
+      const espace = KIND_LABELS[kindForRole(m.role) ?? "partner"].singular;
+      throw new ConvexError(
+        `Ce membre a un espace « ${espace} » sur ce projet. Le passer manager le lui retirerait, ` +
+          "et ce geste est sans retour. Le cumul des deux rôles arrive dans une prochaine étape — " +
+          "en attendant, crée-lui un second compte si ce rôle lui est nécessaire tout de suite.",
       );
     }
     const after = [...new Set(permissions ?? defaultManagerPermissions())];
