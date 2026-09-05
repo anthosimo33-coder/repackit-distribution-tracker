@@ -70,10 +70,11 @@ export type PerAssignment = {
    * plafonnée à 150 $ a pris 107 400 vues en 24 h et a fait tomber le RPM d'août
    * de 1,88 € à 1,69 € pour 0 $.
    *
-   * = `min(vues, seuil)` où `seuil = (plafond − part fixe) / tauxCPM × 1000`.
-   * Sous le plafond, c'est exactement `totalViews` ; au-dessus, c'est le seuil.
-   * `tauxCPM = 0` → 0 (aucune vue n'est jamais facturée, et jamais de division
-   * par zéro) ; part fixe > plafond → 0 aussi, via le `max(0, …)`.
+   * Barème au CPM : `min(vues, seuil)`, `seuil = (plafond − part fixe) / tauxCPM
+   * × 1000`. Sous le plafond c'est exactement `totalViews` ; au-dessus, le seuil.
+   * Barème au FIXE SEUL : `totalViews` — la vidéo est un achat forfaitaire, ses
+   * vues sont toutes achetées (0 si le budget fixe est épuisé). Jamais de
+   * division par zéro : `tauxCPM = 0` ne passe pas par la branche qui divise.
    */
   billedViews: number;
 };
@@ -291,15 +292,27 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
       const cappedCpm = round2(cpm - cpmOverflow);
       groupCpm = round2(groupCpm + cappedCpm);
       const views = Math.max(0, it.totalViews);
-      // Vues FACTURÉES = celles en deçà du seuil où la vidéo atteint le plafond.
-      // Calculé sur le SEUIL (exact), pas sur le ratio des montants arrondis au
-      // centime : `round2` sur le CPM ferait dériver la conversion inverse — la
-      // vidéo à 379 898 vues rendait 149 999 au lieu de 150 000.
-      const cpmBudget = MAX_PAY_PER_VIDEO_EUR - fixedShare;
+      // Vues FACTURÉES.
+      //
+      // Barème au CPM (tauxCPM > 0) : les vues en deçà du SEUIL où la vidéo
+      // atteint le plafond. Au-delà, chaque vue est un EXCÉDENT gratuit. Le seuil
+      // est calculé exactement, PAS depuis le ratio des montants arrondis au
+      // centime — la conversion inverse dérivait (149 999 au lieu de 150 000).
+      //
+      // Barème au FIXE SEUL (tauxCPM = 0) : la paie ne scale PAS du tout avec les
+      // vues, la vidéo est un achat FORFAITAIRE. Toutes ses vues sont donc
+      // achetées — les exclure rendrait invisible une créatrice entière (cas
+      // « Cintia - Brazil », 5 $/vidéo, 30 vidéos au contrat), alors que son coût,
+      // lui, pèse sur la marge. C'est la différence avec l'excédent du plafond :
+      // là il reste une part scalante et on ne rogne que ce qui la dépasse.
+      // Budget fixe ÉPUISÉ (fixedShare = 0, p. ex. la 31ᵉ vidéo d'un barème à 30) :
+      // la vidéo n'est payée ni au fixe ni au CPM → aucune vue achetée.
       const billableViews =
         it.snapshot.tauxCPM > 0
-          ? Math.max(0, (cpmBudget / it.snapshot.tauxCPM) * 1000)
-          : 0;
+          ? Math.max(0, (MAX_PAY_PER_VIDEO_EUR - fixedShare) / it.snapshot.tauxCPM) * 1000
+          : fixedShare > 0
+            ? views
+            : 0;
       perAssignment.push({
         assignmentId: it.assignmentId,
         pricingId: it.snapshot.pricingId,
