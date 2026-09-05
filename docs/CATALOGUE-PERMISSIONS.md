@@ -45,7 +45,7 @@ Décisions actées :
 | 8 | `challenges.run` | Production | **Animer les Défis** | Ouvrir et clore un défi, fixer les participantes, suivre le classement, retirer une vidéo, annuler une victoire. | ✓ | 10 | 🟠 Moyen — annuler une victoire retire un gain acquis ; le budget, lui, reste hors de portée. |
 | 9 | `library.manage` | Contenu | **Inspirations, Assets et hooks** | Gérer les Inspirations et leurs dossiers, les ICP, la bibliothèque de hooks, les dossiers d'Assets et les filtres favoris. | ✓ | 28 | 🟢 Faible — matière première de production, ni donnée personnelle ni montant. |
 | 10 | `guide.manage` | Contenu | **Comment ça marche** | Écrire et publier les modules du guide lu par les créatrices, dans les deux langues. | ✓ | 8 | 🟢 Faible — contenu lu par les créatrices ; une erreur se corrige. |
-| 11 | `tracker.manage` | Contenu | **Tracker et publications** | Saisir et corriger des relevés, gérer les publications, déclencher un relevé de vues, marquer un post comme chauffe. | ✓ | 13 | 🟠 Moyen — le drapeau « chauffe » décide si un post est payé (tracé, cf. §4) ; les synchros sont facturées. |
+| 11 | `tracker.manage` | Contenu | **Tracker et publications** | Saisir et corriger des relevés, gérer les publications, déclencher un relevé de vues, marquer un post comme chauffe. | ✓ | 15 | 🟠 Moyen — le drapeau « chauffe » décide si un post est payé (tracé, cf. §4) ; les synchros sont facturées. |
 | 12 | `content.analytics` | Contenu | **Performance des contenus** | Lire le Tracker, les KPI du Dashboard, les verdicts par script, les courbes de vues et le taux de publication à l'heure. | ✓ | 14 | 🟢 Faible — vues et engagement, jamais d'euros. |
 | 13 | `radar.use` | Contenu | **Radar** | Suivre des comptes TikTok, consulter les tendances, lancer une recherche d'outliers. | ✓ | 11 | 🟠 Moyen — chaque synchro est **facturée à l'usage** (Apify). |
 | 14 | `creators.pay_terms` | Argent | **Conditions de rémunération** | Voir et modifier le tarif négocié, le forfait mensuel, la grille de bonus et les coordonnées de paiement d'une créatrice. | ✗ | 2 | 🔴 **Élevé** — RIB/PayPal en clair, et un tarif modifié change ce qui sera versé. |
@@ -55,7 +55,7 @@ Décisions actées :
 | 18 | `challenges.money` | Argent | **Budget des Défis** | Créer et modifier un défi : objectif, récompense, budget et barème associé. | ✗ | 4 | 🔴 **Élevé** — fixe un budget et un barème, donc ce que le défi va coûter. |
 | 19 | `notifications.manage` | Système | **Notifications** | Choisir les alertes Telegram de l'équipe et leur destinataire. | ✗ | 2 | 🔴 **Élevé** — le digest transporte le **total dû**, et on peut rediriger les alertes. |
 | 20 | `project.settings` | Système | **Réglages du projet** | Durée de chauffe, délai de réutilisation d'un combo, réglages de l'espace talent. | ✗ | 6 | 🟠 Moyen — règles structurantes qui s'appliquent à toutes les créatrices. |
-| 21 | `legacy.access` | Système | **Écrans historiques** | Carrousels, Shorts et sources — des écrans retirés du menu dont les routes répondent encore. | ✗ | 7 | 🟢 Faible — écrans hors menu, sans donnée financière. Décoché pour ne pas prolonger leur vie. |
+| 21 | `legacy.access` | Système | **Écrans historiques** | Carrousels, Shorts et sources — des écrans retirés du menu dont les routes répondent encore. | ✗ | 5 | 🟢 Faible — écrans hors menu, sans donnée financière. Décoché pour ne pas prolonger leur vie. |
 
 `creators.pay_terms` **n'est plus vide** : le découpage de l'étape 3 lui a donné `getCreatorPayTerms` et `updateCreatorPayTerms`, extraites de `getCreator` et `updateCreator`. Avant lui, « gérer une créatrice » signifiait littéralement « modifier sa rémunération » — aucune permission ne pouvait séparer les deux.
 
@@ -460,7 +460,7 @@ Signalements : 🟠 **mixte** (gestion + argent dans le même appel, §2.1) · �
 | `moveModule` | M | guideModules | Réordonne un module |  |
 | `updateModule` | M | guideModules | Modifie un module |  |
 
-### `tracker.manage` — 13 fonctions
+### `tracker.manage` — 15 fonctions
 
 | Fonction | T | Fichier | Ce qu'elle fait | |
 |---|---|---|---|---|
@@ -477,6 +477,8 @@ Signalements : 🟠 **mixte** (gestion + argent dans le même appel, §2.1) · �
 | `updateMetrics` | M | publications | Met à jour les métriques d'une publication |  |
 | `updatePublishedAccount` | M | publications | Corrige le compte d'une publication publiée | 🔵 à cheval |
 | `requestYouTubeSync` | M | youtubeSync | Bouton « relever les vues YouTube maintenant » |  |
+| `listSources` | Q | publications | Bibliothèque des sources Shorts | ⚪ orpheline |
+| `getSourceStatus` | Q | publications | Statut anti-shadowban d'une source | ⚪ orpheline |
 
 ### `content.analytics` — 14 fonctions
 
@@ -604,14 +606,12 @@ Dont deux nées du découpage de l'étape 3 : la grille de rémunération d'un f
 | `setTalentSettings` | M | projects | Modifie l'espace talent (brief, dépôt) |  |
 | `setWarmupSettings` | M | projects | Modifie la durée de chauffe |  |
 
-### `legacy.access` — 7 fonctions
+### `legacy.access` — 5 fonctions
 
 | Fonction | T | Fichier | Ce qu'elle fait | |
 |---|---|---|---|---|
 | `duplicateCarousel` | M | publications | Duplique un carrousel en brouillon | ⚪ orpheline |
 | `getByCarouselId` | Q | publications | Résout un identifiant vers son format | ⚪ orpheline |
 | `getNextCarouselId` | Q | publications | Ancien nom du précédent (compat) | ⚪ orpheline |
-| `getSourceStatus` | Q | publications | Statut anti-shadowban d'une source | ⚪ orpheline |
-| `listSources` | Q | publications | Bibliothèque des sources Shorts | ⚪ orpheline |
 | `renameSourceId` | M | publications | Renomme une source en cascade | ⚪ orpheline |
 | `updateDraft` | M | publications | Édite un brouillon de carrousel | ⚪ orpheline |

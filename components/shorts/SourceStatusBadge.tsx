@@ -6,7 +6,6 @@ import { api } from "@/convex/_generated/api";
 import { formatDate } from "@/lib/format";
 import { InfoIcon, TriangleAlertIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { usePermissions } from "@/components/project/use-permissions";
 
 /**
  * SourceStatusBadge — indicateur informatif du statut multi-plateforme d'un
@@ -18,15 +17,10 @@ import { usePermissions } from "@/components/project/use-permissions";
  *   est légitime mais doit être conscient (anti-shadowban).
  */
 export function SourceStatusBadge({ sourceId }: { sourceId: string }) {
-  // L'indicateur anti-shadowban lit `publications` sous `legacy.access`, un bloc
-  // que le manager n'a pas. Sans cette garde, la query LÈVE et emporte l'écran.
-  // On dégrade : l'indication disparaît, la création reste possible — retirer un
-  // conseil est acceptable, retirer un geste ne le serait pas.
-  const droitsSrc = usePermissions();
   const trimmed = sourceId.trim();
   const status = useProjectQuery(
     api.publications.getSourceStatus,
-    droitsSrc.skipUnless("legacy.access", trimmed ? { sourceId } : "skip"),
+    trimmed ? { sourceId } : "skip",
   );
 
   if (!trimmed) return null;

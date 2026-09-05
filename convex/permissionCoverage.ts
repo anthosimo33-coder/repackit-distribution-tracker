@@ -23,7 +23,7 @@ export const PERMISSION_COVERAGE: Record<string, BlocCoverage> = {
   "creators.pay_terms": { queries: 1, mutations: 1 },
   "creators.read": { queries: 3, mutations: 0 },
   "guide.manage": { queries: 3, mutations: 5 },
-  "legacy.access": { queries: 4, mutations: 3 },
+  "legacy.access": { queries: 2, mutations: 3 },
   "library.manage": { queries: 11, mutations: 17 },
   "notifications.manage": { queries: 1, mutations: 1 },
   "payments.manage": { queries: 4, mutations: 5 },
@@ -32,7 +32,7 @@ export const PERMISSION_COVERAGE: Record<string, BlocCoverage> = {
   "radar.use": { queries: 6, mutations: 5 },
   "review.manage": { queries: 6, mutations: 4 },
   "scripts.manage": { queries: 9, mutations: 13 },
-  "tracker.manage": { queries: 3, mutations: 10 },
+  "tracker.manage": { queries: 5, mutations: 10 },
 };
 
 /** Un bloc qui ne couvre AUCUNE écriture ne donne qu'un droit de consultation. */

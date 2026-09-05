@@ -1500,7 +1500,21 @@ export const updateDraft = permissionMutation("legacy.access")({
  * 1 entrée par sourceId normalisé distinct, avec la matrice de couverture par
  * plateforme. Shorts only, scopé projet (by_project).
  */
-export const listSources = permissionQuery("legacy.access")({
+/**
+ * ⚠️ RECLASSÉE DE `legacy.access` VERS `tracker.manage`.
+ *
+ * `legacy.access` est le MARQUEUR des écrans retirés du menu, pas un fourre-tout
+ * pour tout ce qui touche aux Shorts. Or cette lecture sert le flux VIVANT
+ * « Nouveau → Short » : la laisser là faisait mentir le marqueur sur ce qu'il
+ * reste à supprimer, et privait un manager d'un garde-fou anti-shadowban dont il
+ * a besoin pour faire son travail.
+ *
+ * Pas de version étroite ici, contrairement aux découpages financiers de
+ * l'étape 3 : un sourceId et sa couverture par plateforme ne portent ni argent
+ * ni donnée personnelle. Dupliquer la lecture aurait créé deux chemins vers la
+ * même information sans rien protéger de plus.
+ */
+export const listSources = permissionQuery("tracker.manage")({
   args: {},
   handler: async (ctx) => {
     const all = await ctx.db
@@ -1576,7 +1590,21 @@ export const listSources = permissionQuery("legacy.access")({
  * Source unique de vérité de l'UX ; la validation mutation reste le filet
  * defense-in-depth. sourceId vide/inédit → exists=false, tout disponible.
  */
-export const getSourceStatus = permissionQuery("legacy.access")({
+/**
+ * ⚠️ RECLASSÉE DE `legacy.access` VERS `tracker.manage`.
+ *
+ * `legacy.access` est le MARQUEUR des écrans retirés du menu, pas un fourre-tout
+ * pour tout ce qui touche aux Shorts. Or cette lecture sert le flux VIVANT
+ * « Nouveau → Short » : la laisser là faisait mentir le marqueur sur ce qu'il
+ * reste à supprimer, et privait un manager d'un garde-fou anti-shadowban dont il
+ * a besoin pour faire son travail.
+ *
+ * Pas de version étroite ici, contrairement aux découpages financiers de
+ * l'étape 3 : un sourceId et sa couverture par plateforme ne portent ni argent
+ * ni donnée personnelle. Dupliquer la lecture aurait créé deux chemins vers la
+ * même information sans rien protéger de plus.
+ */
+export const getSourceStatus = permissionQuery("tracker.manage")({
   args: { sourceId: v.string() },
   handler: async (ctx, args) => {
     const normalized = normalizeSourceId(args.sourceId);
