@@ -590,12 +590,29 @@ describe("billedViews — vues réellement facturées", () => {
     expect(r.perAssignment[0].billedViews).toBe(148_333);
   });
 
-  it("tauxCPM nul : AUCUNE vue n'est facturée (jamais de division par zéro)", () => {
+  it("FIXE SEUL (tauxCPM nul) : la vidéo est un forfait, TOUTES ses vues comptent", () => {
+    // Barème réel de « Cintia - Brazil » : 150 $ / 30 vidéos = 5 $/vidéo, 0 CPM.
+    // La paie ne bouge pas d'un centime avec les vues, mais elles sont bel et bien
+    // ACHETÉES par ce forfait : les exclure rendait la créatrice invisible au RPM
+    // alors que son coût pesait sur la marge.
     const r = computeMonthlyPayout([
       { assignmentId: "a1", snapshot: snap({ tauxCPM: 0, montantFixe: 150, nbVideosCible: 30 }), totalViews: 500_000 },
     ]);
     expect(r.perAssignment[0].cpm).toBe(0);
-    expect(r.perAssignment[0].billedViews).toBe(0);
+    expect(r.perAssignment[0].billedViews).toBe(500_000);
+  });
+
+  it("FIXE SEUL, budget ÉPUISÉ : plus rien n'est payé, donc aucune vue achetée", () => {
+    // Barème à 2 vidéos : la 3e ne touche ni fixe (budget consommé) ni CPM. Sans
+    // ce cas, la règle du forfait offrirait des vues gratuites au dénominateur.
+    const sn = snap({ tauxCPM: 0, montantFixe: 10, nbVideosCible: 2 });
+    const r = computeMonthlyPayout([
+      { assignmentId: "a1", snapshot: sn, totalViews: 1_000 },
+      { assignmentId: "a2", snapshot: sn, totalViews: 1_000 },
+      { assignmentId: "a3", snapshot: sn, totalViews: 1_000 },
+    ]);
+    expect(r.fixedTotal).toBe(10);
+    expect(r.perAssignment.map((a) => a.billedViews)).toEqual([1_000, 1_000, 0]);
   });
 
   it("zéro vue : zéro facturée (borne basse)", () => {
