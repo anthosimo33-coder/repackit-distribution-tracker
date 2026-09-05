@@ -80,6 +80,7 @@ import {
   utcOffsetLabel,
   zoneLabel,
 } from "@/lib/timezone-choices";
+import { usePermissions } from "@/components/project/use-permissions";
 
 /**
  * Valeur sentinelle du <Select> pour « non défini ».
@@ -112,6 +113,10 @@ export function CreatorDetailView({
    *  évite d'afficher des champs vides qu'on ne pourrait ni lire ni enregistrer. */
   canEditPayTerms: boolean;
 }) {
+  // La grille de bonus lit les BARÈMES (`pricing.manage`) : deux droits, pas un.
+  // Un manager peut porter `creators.pay_terms` sans `pricing.manage`.
+  const peutLireBaremesGrille = usePermissions().has("pricing.manage");
+  const peutSupprimer = usePermissions().has("creators.delete");
   // Population de la fiche — décide du tarif affiché (et de rien d'autre ici).
   const kind = resolveCreatorKind(creator.kind);
   const router = useRouter();
@@ -853,7 +858,7 @@ export function CreatorDetailView({
 
       {/* P5 — Comptes du créateur (alimenté). Assignments / Paiements restent
           des emplacements réservés (chantiers suivants). */}
-      {kind === "partner" && canEditPayTerms && (
+      {kind === "partner" && canEditPayTerms && peutLireBaremesGrille && (
         <BonusGridSection
           creatorId={creator._id}
           current={payTerms?.bonusPricingId ?? null}
@@ -869,6 +874,7 @@ export function CreatorDetailView({
 
       {/* Zone de danger — suppression définitive (cascade opérationnelle,
           historique conservé sous le nom du créateur). */}
+      {peutSupprimer && (
       <Card className="border-rose-200">
         <CardHeader>
           <CardTitle className="text-rose-700">Zone de danger</CardTitle>
@@ -885,14 +891,18 @@ export function CreatorDetailView({
           </Button>
         </CardContent>
       </Card>
+      )}
 
-      <DeleteCreatorDialog
+      {/* Suppression = bloc `creators.delete`, décoché par défaut : le manager
+          archive, il ne supprime pas. La zone de danger ET la modale partent
+          ensemble — un bouton sans modale serait pire qu'aucun bouton. */}
+      {peutSupprimer && <DeleteCreatorDialog
         creatorId={creator._id}
         creatorName={creator.name}
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
         onDeleted={() => router.push(projectPath("/createurs"))}
-      />
+      />}
     </div>
   );
 }
@@ -925,8 +935,21 @@ function BonusGridSection({
   /** Devise de la PAIE créatrices (dollars), threadée depuis CreatorDetailView. */
   currency?: string | null;
 }) {
-  const pricings = useProjectQuery(api.pricing.listPricings, {});
-  const bonus = useProjectQuery(api.pricing.getCreatorBonusStatus, { creatorId });
+  // ⚠️ CES DEUX LECTURES SONT SOUS `pricing.manage`, PAS sous `creators.pay_terms`.
+  // La section est rendue quand on peut éditer les conditions de rémunération —
+  // mais lire la LISTE DES BARÈMES et le statut de paliers est un autre droit.
+  // Sans cette garde, un manager qui aurait `creators.pay_terms` sans
+  // `pricing.manage` verrait la fiche entière tomber.
+  const droitsBonus = usePermissions();
+  const peutLireBaremes = droitsBonus.has("pricing.manage");
+  const pricings = useProjectQuery(
+    api.pricing.listPricings,
+    droitsBonus.skipUnless("pricing.manage", {}),
+  );
+  const bonus = useProjectQuery(
+    api.pricing.getCreatorBonusStatus,
+    droitsBonus.skipUnless("pricing.manage", { creatorId }),
+  );
   // La grille de bonus est de l'ARGENT : elle passe par la garde financière
   // (`creators.pay_terms`), jamais par `updateCreator`.
   const update = useProjectMutation(api.creators.updateCreatorPayTerms);

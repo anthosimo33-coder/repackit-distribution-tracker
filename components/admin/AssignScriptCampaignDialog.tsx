@@ -145,7 +145,13 @@ export function AssignScriptCampaignDialog({
       : "skip",
   );
   const assign = useProjectMutation(api.scripts.assignScriptCampaign);
-  const pricings = useProjectQuery(api.pricing.listPricings, open ? {} : "skip");
+  // Lecture ÉTROITE (id + nom), gardée par `assignments.manage` : assigner exige
+  // un barème, donc le droit d'assigner doit suffire à en choisir un. Les TERMES
+  // du barème restent sous `pricing.manage`.
+  const pricings = useProjectQuery(
+    api.pricing.listPricingsForAssignment,
+    open ? {} : "skip",
+  );
   // Pièces jointes optionnelles — MÊMES bibliothèques que l'attachement manuel :
   // dossiers d'assets (page Assets) + inspirations vidéo (« vidéos à reproduire »).
   // Chargées dans les DEUX modes (elles s'attachent à toutes les assignations).

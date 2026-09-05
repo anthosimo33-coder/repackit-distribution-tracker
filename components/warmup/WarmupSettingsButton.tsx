@@ -11,6 +11,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { WarmupSettingsCard } from "./WarmupSettingsCard";
+import { usePermissions } from "@/components/project/use-permissions";
 
 /**
  * Réglage des durées de warmup, ouvert depuis l'écran /comptes.
@@ -21,6 +22,10 @@ import { WarmupSettingsCard } from "./WarmupSettingsCard";
  * et suit le même pattern (Sheet latéral).
  */
 export function WarmupSettingsButton() {
+  // Réglage de PROJET (durée de chauffe) : le manager pilote les comptes,
+  // il ne fixe pas la règle qui s'applique à toutes les créatrices.
+  const droits = usePermissions();
+  if (!droits.has("project.settings")) return null;
   return (
     <Sheet>
       <SheetTrigger

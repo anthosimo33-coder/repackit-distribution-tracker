@@ -42,6 +42,8 @@ import {
   DownloadIcon,
   Loader2Icon,
 } from "lucide-react";
+import { PermissionGate } from "@/components/project/PermissionGate";
+import { usePermissions } from "@/components/project/use-permissions";
 
 /**
  * Paiements admin — CYCLES J+30 GLISSANTS par créateur (fenêtre de 30 j ancrée
@@ -132,7 +134,8 @@ const STATUS_BADGE: Record<string, { label: string; className: string }> = {
   },
 };
 
-export default function PaiementsPage() {
+function PaiementsPageContenu() {
+  const droitsNav = usePermissions();
   // Devise de la PAIE créatrices (dollars, projects.payCurrency) — appliquée à
   // TOUS les montants de cet écran (cumul, en attente, cycles, lignes).
   const payCurrency = useProject().project.payCurrency;
@@ -319,11 +322,13 @@ export default function PaiementsPage() {
 
       {/* Revenu Whop NET entrant (rentabilité P2) — visible si le projet a un
           mapping Whop. Le net (après frais Whop) est le chiffre de pilotage. */}
-      <WhopRevenueCard />
+      {/* Revenu et marge = `business.read`, un bloc DIFFÉRENT de celui de la
+          page. Quelqu'un peut porter la paie sans le chiffre d'affaires. */}
+      {droitsNav.has("business.read") && <WhopRevenueCard />}
 
       {/* Rentabilité (rentabilité P3) — revenu net vs coût créateurs → marge,
           RPM business, toggle warmup (recalcule les vues/RPM, pas le revenu). */}
-      <ProfitabilityCard />
+      {droitsNav.has("business.read") && <ProfitabilityCard />}
 
       {payments === undefined ? (
         <Skeleton className="h-64 w-full" />
@@ -684,5 +689,21 @@ function PaymentRow({
         </TableRow>
       )}
     </>
+  );
+}
+
+/**
+ * Garde d'écran : payments.manage. Le menu ne propose plus cette page à qui n'a pas le
+ * bloc, mais son URL répond toujours — sans cette enveloppe, y arriver par un
+ * favori déclenche les queries de la page, qui lèvent, et on lit une erreur
+ * technique au lieu d'une phrase.
+ *
+ * ⚠️ Ce n'est PAS la barrière : le serveur refuse déjà chaque appel.
+ */
+export default function PaiementsPage() {
+  return (
+    <PermissionGate bloc="payments.manage">
+      <PaiementsPageContenu />
+    </PermissionGate>
   );
 }

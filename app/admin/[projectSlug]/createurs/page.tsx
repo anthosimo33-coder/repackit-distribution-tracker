@@ -45,6 +45,7 @@ import { DeleteCreatorDialog } from "@/components/creators/DeleteCreatorDialog";
 import { joinUrl } from "@/components/creators/CopyableLink";
 import { CreatorLeaderboard } from "@/components/admin/leaderboard/CreatorLeaderboard";
 import { AppariementSection } from "@/components/creators/AppariementSection";
+import { usePermissions } from "@/components/project/use-permissions";
 
 /**
  * Pastilles de POPULATION — teintes délibérément DISJOINTES de celles du statut
@@ -69,6 +70,7 @@ const KIND_BADGE: Record<CreatorKind, { label: string; className: string }> = {
 };
 
 export default function CreateursPage() {
+  const droitsNav = usePermissions();
   const creators = useProjectQuery(api.creators.listCreators, {});
   const regenerate = useProjectMutation(api.creators.regenerateInvitation);
   const projectPath = useProjectPath();
@@ -150,7 +152,9 @@ export default function CreateursPage() {
         </Button>
       </header>
 
-      <CreatorLeaderboard />
+      {/* Classement par GAINS : bloc `payments.manage`. Sans lui, la query
+          lèverait et emporterait l'écran Créateurs entier. */}
+      {droitsNav.has("payments.manage") && <CreatorLeaderboard />}
 
       {/* Appariement clippeur ↔ talent. Ne s'affiche que sur un projet qui a des
           talents ou des clippeurs — invisible sur un projet 100 % partenaires. */}

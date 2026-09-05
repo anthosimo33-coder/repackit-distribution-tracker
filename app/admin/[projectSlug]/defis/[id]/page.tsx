@@ -48,8 +48,10 @@ import {
   statusTone,
   winnerRuleLabel,
 } from "@/components/challenges/challenge-format";
+import { usePermissions } from "@/components/project/use-permissions";
 
 export default function ChallengeDetailPage() {
+  const droitsNav = usePermissions();
   const params = useParams<{ id: string }>();
   const id = params.id as Id<"challenges">;
   const projectPath = useProjectPath();
@@ -131,6 +133,9 @@ export default function ChallengeDetailPage() {
         <div className="flex flex-wrap items-center gap-2">
           {c.status === "draft" && (
             <>
+              {/* Supprimer un brouillon de défi = `challenges.money` :
+                  c'est le geste qui défait un budget, pas de l'animation. */}
+              {droitsNav.has("challenges.money") && (
               <Button
                 variant="outline"
                 disabled={busy}
@@ -142,6 +147,7 @@ export default function ChallengeDetailPage() {
               >
                 Supprimer
               </Button>
+              )}
               <Button
                 disabled={busy}
                 onClick={() => act(() => open({ id }), "Défi ouvert")}

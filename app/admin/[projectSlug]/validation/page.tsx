@@ -56,6 +56,7 @@ import {
   ChevronDownIcon,
   CalendarClockIcon,
 } from "lucide-react";
+import { usePermissions } from "@/components/project/use-permissions";
 
 type VideoSubmittedRow =
   FunctionReturnType<typeof api.assignments.listVideoSubmitted>[number];
@@ -174,7 +175,14 @@ function ValidationPageInner() {
     {},
   );
   const published = useProjectQuery(api.assignments.listPublished, {});
-  const bonusRows = useProjectQuery(api.assignments.listValidatedForBonus, {});
+  // Bonus de vues = ARGENT (bloc `payments.manage`). Sans le bloc, la query
+  // lèverait et emporterait la page entière : on la skippe et on ne rend pas la
+  // section. Valider une vidéo, lui, reste dans `review.manage`.
+  const droits = usePermissions();
+  const bonusRows = useProjectQuery(
+    api.assignments.listValidatedForBonus,
+    droits.skipUnless("payments.manage", {}),
+  );
 
   return (
     <div className="space-y-8">
@@ -292,6 +300,7 @@ function ValidationPageInner() {
       )}
 
       {/* ─── Bonus de vues ─────────────────────────────────────────────────── */}
+      {droits.has("payments.manage") && (
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
           Bonus de vues
@@ -332,6 +341,7 @@ function ValidationPageInner() {
           </Card>
         )}
       </section>
+      )}
     </div>
   );
 }

@@ -42,6 +42,7 @@ import { currencySymbol } from "@/lib/currency";
 import { PayCurrencyWarning } from "@/components/PayCurrencyWarning";
 import type { FunctionReturnType } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
+import { PermissionGate } from "@/components/project/PermissionGate";
 
 type Pricing = FunctionReturnType<typeof api.pricing.listPricings>[number];
 
@@ -66,7 +67,7 @@ const EMPTY = {
  * archiver / supprimer (si non utilisé). Modèle : fixe mensuel par vidéo unique
  * + CPM ($/1000 vues) + bonus au seuil (cf lib/pricing-engine).
  */
-export default function PricingsPage() {
+function PricingsPageContenu() {
   // Devise de la PAIE créatrices (dollars) — montants ET symboles des libellés
   // (fixe, CPM, cash) dérivés de projects.payCurrency, jamais codés en dur.
   const payCurrency = useProject().project.payCurrency;
@@ -633,5 +634,21 @@ function Field({
       <Label htmlFor={id}>{label}</Label>
       {children}
     </div>
+  );
+}
+
+/**
+ * Garde d'écran : pricing.manage. Le menu ne propose plus cette page à qui n'a pas le
+ * bloc, mais son URL répond toujours — sans cette enveloppe, y arriver par un
+ * favori déclenche les queries de la page, qui lèvent, et on lit une erreur
+ * technique au lieu d'une phrase.
+ *
+ * ⚠️ Ce n'est PAS la barrière : le serveur refuse déjà chaque appel.
+ */
+export default function PricingsPage() {
+  return (
+    <PermissionGate bloc="pricing.manage">
+      <PricingsPageContenu />
+    </PermissionGate>
   );
 }
