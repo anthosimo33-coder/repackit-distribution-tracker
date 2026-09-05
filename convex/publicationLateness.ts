@@ -1,6 +1,8 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { adminQuery } from "./functions";
+import {
+  permissionQuery,
+} from "./functions";
 import {
   calendarStatus,
   onTimeTally,
@@ -228,7 +230,7 @@ async function missionLabelDe(
  * Écran — taux à l'heure par créatrice. Même source que les notifications, donc
  * le message du soir et le tableau ne peuvent pas annoncer deux chiffres.
  */
-export const getCreatorPublicationStats = adminQuery({
+export const getCreatorPublicationStats = permissionQuery("content.analytics")({
   args: {},
   handler: async (ctx) =>
     creatorPublicationStats(ctx, ctx.projectId, Date.now()),
@@ -242,7 +244,7 @@ export const getCreatorPublicationStats = adminQuery({
  * serait pire qu'aucun aperçu. C'est aussi ce qui rend le VERROU testable — les
  * manqués des jours précédents ne doivent jamais y apparaître.
  */
-export const previewEveningReport = adminQuery({
+export const previewEveningReport = permissionQuery("content.analytics")({
   args: {},
   handler: async (ctx) =>
     eveningUnpublishedReports(ctx, ctx.projectId, Date.now()),

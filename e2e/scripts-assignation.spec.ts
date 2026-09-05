@@ -4,6 +4,7 @@ import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -257,7 +258,7 @@ test.describe("S2 — assignation anti-coordination", () => {
     expect(adminRows[0].comboSummary).toMatch(/^(Argent|Autre) · /);
 
     // P7 — assignment de FORMAT classique fonctionne toujours.
-    const formatId = await admin.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(admin, {
       name: `[E2E_TEST] FmtAssign ${ts}`,
       type: "short",
       rateModel: { basePerPost: 7 },

@@ -5,6 +5,7 @@ import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -52,7 +53,7 @@ test.describe("Plafond J+30 — les vues au-delà de 30 j ne sont plus rémunér
       nbVideosCible: 60,
       tauxCPM: 2,
     });
-    const formatId = await admin.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(admin, {
       name: `[E2E_TEST] Format PayWindow ${ts}`,
       type: "short",
       rateModel: { basePerPost: 5 },

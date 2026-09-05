@@ -4,6 +4,7 @@ import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -31,7 +32,7 @@ test.describe("Validation — lien profond vers une soumission", () => {
       password: "deeplink-12345",
     });
 
-    const formatId = await admin.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(admin, {
       name: `[E2E_TEST] Format DL ${ts}`,
       type: "short",
       rateModel: { basePerPost: 5 },
@@ -98,7 +99,7 @@ test.describe("Validation — lien profond vers une soumission", () => {
       email: `e2e-creator-dlgone-${ts}@repackit.test`,
       password: "dlgone-12345",
     });
-    const formatId = await admin.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(admin, {
       name: `[E2E_TEST] Format DLG ${ts}`,
       type: "short",
       rateModel: { basePerPost: 5 },

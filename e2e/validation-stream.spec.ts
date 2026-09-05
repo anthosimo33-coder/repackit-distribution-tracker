@@ -6,6 +6,7 @@ import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import type { ConvexHttpClient } from "convex/browser";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -40,7 +41,7 @@ async function makeSubmission(tag: string): Promise<Id<"assignments">> {
     email: `e2e-creator-stream-${tag}-${ts}@repackit.test`,
     password: "creator-stream-12345",
   });
-  const formatId = await admin.mutation(api.formats.createFormat, {
+  const formatId = await createFormatWithRate(admin, {
     name: `[E2E_TEST] Format Stream ${tag} ${ts}`,
     type: "short",
     rateModel: { basePerPost: 5 },

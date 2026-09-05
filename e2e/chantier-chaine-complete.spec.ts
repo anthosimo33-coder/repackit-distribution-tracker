@@ -94,10 +94,16 @@ test.describe("Chantier talent/clippeur — la chaîne entière", () => {
     await admin.mutation(api.creators.updateCreator, {
       id: talent.creatorId,
       clipperId: clipper.creatorId,
-      cycleRetainer: FORFAIT,
       status: "active",
     });
-    await admin.mutation(api.creators.updateCreator, {
+    // Les TARIFS passent par la garde financière (`creators.pay_terms`), pas
+    // par `updateCreator` : depuis le découpage, gérer une fiche et fixer une
+    // rémunération sont deux droits distincts.
+    await admin.mutation(api.creators.updateCreatorPayTerms, {
+      id: talent.creatorId,
+      cycleRetainer: FORFAIT,
+    });
+    await admin.mutation(api.creators.updateCreatorPayTerms, {
       id: clipper.creatorId,
       clipRate: TARIF_CLIP,
     });

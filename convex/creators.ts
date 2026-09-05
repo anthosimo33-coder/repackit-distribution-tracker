@@ -1,11 +1,11 @@
 import {
-  adminMutation,
-  adminQuery,
   adminViewAsQuery,
   authedQuery,
   creatorMutation,
   creatorQuery,
   e2eMutation,
+  permissionMutation,
+  permissionQuery,
   publicQuery,
   requireCreatorViewableByAdmin,
   requireProjectAdmin,
@@ -38,7 +38,7 @@ import { convexErrorText } from "./errorCodes";
  *
  * Couche d'accès :
  *   - listCreators / getCreator / inviteCreator / regenerateInvitation /
- *     updateCreator → adminQuery / adminMutation (admin du projet requis).
+ *     updateCreator → gardées par bloc (droit d'administration requis).
  *   - getInvitationPreview → publicQuery (pré-session : la page /join lit le
  *     token avant que le compte n'existe). NE LEAK PAS l'état d'un token.
  *   - getMyPortal → authedQuery (routage par rôle, cf /app et /).
@@ -95,7 +95,7 @@ async function killInvitations(ctx: MutationCtx, creatorId: Id<"creators">) {
  * l'invitation active (token + expiresAt) quand le créateur est encore
  * "invited" — pour reconstruire le lien /join et le bouton régénérer côté UI.
  */
-export const listCreators = adminQuery({
+export const listCreators = permissionQuery("creators.read")({
   args: {},
   handler: async (ctx) => {
     const creators = await ctx.db
@@ -125,7 +125,34 @@ export const listCreators = adminQuery({
       // `resolveCreatorLocale` est le cœur PARTAGÉ avec `getCreatorLocale`
       // (convex/i18n.ts) : les deux ne peuvent pas diverger.
       rows.push({
-        ...c,
+        // PROJECTION EXPLICITE — surtout PAS `...c`. La fiche `creators` porte
+        // des données de RÉMUNÉRATION et des COORDONNÉES DE PAIEMENT ; un
+        // spread les diffusait à tous les écrans qui listent des créatrices
+        // (table Créateurs, tracker, appariement, sélecteur de propriétaire,
+        // assignation de campagne) alors qu'aucun ne les affiche. Ces champs
+        // sortent désormais par `getCreator` seule — la query de la FICHE, qui
+        // est le seul écran à les rendre. Cf docs/CHAMPS-SENSIBLES.md.
+        //
+        // ⚠️ Ajouter un champ ici est une DÉCISION : tout champ absent de cette
+        // liste ne quitte pas le serveur.
+        _id: c._id,
+        _creationTime: c._creationTime,
+        projectId: c.projectId,
+        userId: c.userId,
+        name: c.name,
+        email: c.email,
+        phone: c.phone,
+        timezone: c.timezone,
+        timezoneSource: c.timezoneSource,
+        kind: c.kind,
+        clipperId: c.clipperId,
+        status: c.status,
+        handlesToCreate: c.handlesToCreate,
+        driveFolderId: c.driveFolderId,
+        firstPostAt: c.firstPostAt,
+        payAnchorAt: c.payAnchorAt,
+        refSlug: c.refSlug,
+        createdAt: c.createdAt,
         invitation,
         locale: localeOrDefault(await resolveCreatorLocale(ctx, c)),
       });
@@ -135,15 +162,40 @@ export const listCreators = adminQuery({
 });
 
 /** Fiche détaillée d'un créateur + son invitation active éventuelle. */
-export const getCreator = adminQuery({
+export const getCreator = permissionQuery("creators.read")({
   args: { id: v.id("creators") },
   handler: async (ctx, { id }) => {
     const creator = await ctx.db.get(id);
     if (!creator || creator.projectId !== ctx.projectId) return null;
     const inv =
       creator.status === "invited" ? await activeInvitation(ctx, id) : null;
+    // PROJECTION EXPLICITE (pas de spread). Les champs de RÉMUNÉRATION ne
+    // sortent PLUS d'ici : ils ont leur propre query, `getCreatorPayTerms`,
+    // gardée par le bloc `creators.pay_terms`. C'est ce découpage qui fait
+    // exister la frontière argent — avant lui, « voir une fiche » suffisait à
+    // lire un RIB. Cf docs/CHAMPS-SENSIBLES.md.
     return {
-      ...creator,
+      _id: creator._id,
+      _creationTime: creator._creationTime,
+      projectId: creator.projectId,
+      userId: creator.userId,
+      name: creator.name,
+      email: creator.email,
+      phone: creator.phone,
+      locale: creator.locale,
+      timezone: creator.timezone,
+      timezoneSource: creator.timezoneSource,
+      kind: creator.kind,
+      clipperId: creator.clipperId,
+      status: creator.status,
+      handlesToCreate: creator.handlesToCreate,
+      driveFolderId: creator.driveFolderId,
+      firstPostAt: creator.firstPostAt,
+      payAnchorAt: creator.payAnchorAt,
+      refSlug: creator.refSlug,
+      createdAt: creator.createdAt,
+      // `adminNotes` reste ici : ce sont des notes d'équipe, pas de l'argent.
+      adminNotes: creator.adminNotes,
       invitation: inv ? { token: inv.token, expiresAt: inv.expiresAt } : null,
     };
   },
@@ -154,7 +206,7 @@ export const getCreator = adminQuery({
  * Retourne { creatorId, token } pour afficher le lien /join immédiatement.
  * Dedupe par email dans le projet.
  */
-export const inviteCreator = adminMutation({
+export const inviteCreator = permissionMutation("creators.manage")({
   args: {
     name: v.string(),
     email: v.string(),
@@ -238,7 +290,7 @@ export const inviteCreator = adminMutation({
  * Régénère le lien d'un créateur encore "invited" (lien expiré ou perdu) :
  * supprime les anciens tokens (l'ancien lien meurt) et en crée un neuf.
  */
-export const regenerateInvitation = adminMutation({
+export const regenerateInvitation = permissionMutation("creators.manage")({
   args: { creatorId: v.id("creators") },
   handler: async (ctx, { creatorId }) => {
     const creator = await ctx.db.get(creatorId);
@@ -301,14 +353,26 @@ function normalizeHandlesToCreate(
   return { tiktok, youtube, instagram };
 }
 
-export const updateCreator = adminMutation({
+/**
+ * Édition de la fiche — IDENTITÉ ET SUIVI, jamais la rémunération.
+ *
+ * Les cinq champs d'argent (`paymentMethod`, `paymentDetails`, `bonusPricingId`,
+ * `clipRate`, `cycleRetainer`) ont été SORTIS d'ici : ils vivent dans
+ * `updateCreatorPayTerms`, gardée par le bloc `creators.pay_terms`. Avant ce
+ * découpage, « pouvoir modifier une fiche » signifiait littéralement « pouvoir
+ * changer ce qu'on verse à quelqu'un », et aucune permission ne pouvait séparer
+ * les deux — c'est ce qui rendait le rôle manager fictif.
+ *
+ * ⚠️ NE PAS y ré-ajouter un champ de rémunération « pour la commodité de
+ * l'écran ». Deux points d'entrée avec chacun sa garde restent séparables ; un
+ * point d'entrée à deux gardes ne l'est plus (cf. convex/functions.ts).
+ */
+export const updateCreator = permissionMutation("creators.manage")({
   args: {
     id: v.id("creators"),
     name: v.optional(v.string()),
     phone: v.optional(v.string()),
     status: v.optional(CREATOR_STATUSES),
-    paymentMethod: v.optional(PAYMENT_METHODS),
-    paymentDetails: v.optional(v.string()),
     adminNotes: v.optional(v.string()),
     // LANGUE d'interface — corrigeable SANS régénérer l'invitation. Une valeur
     // « fr » explicite est normalisée en `undefined` (on ne stocke que la
@@ -324,8 +388,6 @@ export const updateCreator = adminMutation({
     timezone: v.optional(v.union(v.string(), v.null())),
     // Ref du chemin court snytch.co (attribution de conversion). null = retirer.
     refSlug: v.optional(v.union(v.string(), v.null())),
-    // Grille de paliers de bonus du créateur (cumul). null = détacher.
-    bonusPricingId: v.optional(v.union(v.id("pricings"), v.null())),
     // @ à créer par réseau (saisie libre admin). Absent = ne pas toucher ;
     // objet (réseaux vides) = effacer.
     handlesToCreate: v.optional(handlesToCreateValidator),
@@ -336,15 +398,6 @@ export const updateCreator = adminMutation({
     // inassignable et intestable. La cible est vérifiée : elle doit être un
     // CLIPPEUR du même projet, et le champ n'a de sens que sur un talent.
     clipperId: v.optional(v.union(v.id("creators"), v.null())),
-    // ─── TARIFS des deux nouvelles populations (chantier pricing) ────────────
-    // Scalaires, édités depuis l'écran Pricings. `null` = retirer le tarif,
-    // absent = ne pas toucher. Aucune validation croisée avec le `kind` : un
-    // tarif posé sur la mauvaise population est inerte (le moteur ne lit
-    // `clipRate` qu'à l'assignation d'un clip et `cycleRetainer` que sur un
-    // talent), et refuser ici obligerait à re-saisir après un changement de
-    // population.
-    clipRate: v.optional(v.union(v.number(), v.null())),
-    cycleRetainer: v.optional(v.union(v.number(), v.null())),
     // ─── CHANGEMENT DE POPULATION ────────────────────────────────────────────
     // Corrige une invitation faite avec la mauvaise population. Autorisé
     // UNIQUEMENT sur une fiche VIERGE (cf garde dans le handler) : basculer
@@ -360,17 +413,6 @@ export const updateCreator = adminMutation({
       throw new ConvexError("Créateur introuvable.");
     }
     const patch: Partial<Doc<"creators">> = {};
-    if (args.bonusPricingId !== undefined) {
-      if (args.bonusPricingId === null) {
-        patch.bonusPricingId = undefined;
-      } else {
-        const pricing = await ctx.db.get(args.bonusPricingId);
-        if (!pricing || pricing.projectId !== ctx.projectId) {
-          throw new ConvexError("Pricing de bonus introuvable dans le projet.");
-        }
-        patch.bonusPricingId = args.bonusPricingId;
-      }
-    }
     if (args.name !== undefined) {
       const name = args.name.trim();
       if (name.length === 0) throw new ConvexError("Le nom est requis.");
@@ -410,18 +452,6 @@ export const updateCreator = adminMutation({
       resolveCreatorKind(creator.kind) === "talent"
     ) {
       patch.payAnchorAt = Date.now();
-    }
-    for (const champ of ["clipRate", "cycleRetainer"] as const) {
-      const valeur = args[champ];
-      if (valeur === undefined) continue;
-      if (valeur !== null && (!Number.isFinite(valeur) || valeur < 0)) {
-        throw new ConvexError("Le tarif doit être un nombre ≥ 0.");
-      }
-      patch[champ] = valeur === null ? undefined : valeur;
-    }
-    if (args.paymentMethod !== undefined) patch.paymentMethod = args.paymentMethod;
-    if (args.paymentDetails !== undefined) {
-      patch.paymentDetails = args.paymentDetails.trim() || undefined;
     }
     if (args.adminNotes !== undefined) {
       patch.adminNotes = args.adminNotes.trim() || undefined;
@@ -525,6 +555,93 @@ export const updateCreator = adminMutation({
       }
     }
     await ctx.db.patch(args.id, patch);
+  },
+});
+
+// ─── RÉMUNÉRATION D'UNE CRÉATRICE — bloc `creators.pay_terms` ───────────────
+//
+// Les cinq champs d'argent de la fiche, extraits de `getCreator`/`updateCreator`
+// pour qu'un droit puisse les couvrir SEULS. C'est ce découpage qui fait exister
+// la frontière : un manager peut désormais gérer une créatrice sans voir son RIB
+// ni pouvoir changer son tarif.
+//
+// PREMIÈRES vraies `permissionQuery`/`permissionMutation` du dépôt, au-delà des
+// sondes ; depuis l'étape 5 toutes les fonctions d'administration sont gardées par bloc
+// jusqu'à l'étape 4.
+
+/**
+ * Les conditions de rémunération d'UNE créatrice. `null` si la fiche est
+ * introuvable ou hors projet — même contrat que `getCreator`.
+ *
+ * Sert la fiche admin, qui fait donc DEUX lectures : l'identité par `getCreator`,
+ * l'argent par celle-ci. C'est le prix du découpage, et il est assumé : une seule
+ * query ne peut pas porter deux droits sans devenir insécable.
+ */
+export const getCreatorPayTerms = permissionQuery("creators.pay_terms")({
+  args: { id: v.id("creators") },
+  handler: async (ctx, { id }) => {
+    const creator = await ctx.db.get(id);
+    if (!creator || creator.projectId !== ctx.projectId) return null;
+    return {
+      paymentMethod: creator.paymentMethod ?? null,
+      paymentDetails: creator.paymentDetails ?? null,
+      bonusPricingId: creator.bonusPricingId ?? null,
+      clipRate: creator.clipRate ?? null,
+      cycleRetainer: creator.cycleRetainer ?? null,
+    };
+  },
+});
+
+/**
+ * Écriture des mêmes cinq champs. Contrat de chaque champ INCHANGÉ par rapport à
+ * `updateCreator` : absent = ne pas toucher, `null` = retirer. Un tarif absent et
+ * un tarif nul ne veulent pas dire la même chose — sans tarif, aucune ligne de
+ * paie n'est créée du tout.
+ *
+ * Les validations déménagent AVEC les champs (pricing du projet, tarif ≥ 0), et
+ * la matérialisation des paliers de bonus aussi : changer la grille doit toujours
+ * refléter immédiatement les paliers déjà atteints, sinon l'écran de progression
+ * ment jusqu'au prochain cumul.
+ */
+export const updateCreatorPayTerms = permissionMutation("creators.pay_terms")({
+  args: {
+    id: v.id("creators"),
+    paymentMethod: v.optional(PAYMENT_METHODS),
+    paymentDetails: v.optional(v.string()),
+    bonusPricingId: v.optional(v.union(v.id("pricings"), v.null())),
+    clipRate: v.optional(v.union(v.number(), v.null())),
+    cycleRetainer: v.optional(v.union(v.number(), v.null())),
+  },
+  handler: async (ctx, args) => {
+    const creator = await ctx.db.get(args.id);
+    if (!creator || creator.projectId !== ctx.projectId) {
+      throw new ConvexError("Créateur introuvable.");
+    }
+    const patch: Partial<Doc<"creators">> = {};
+    if (args.bonusPricingId !== undefined) {
+      if (args.bonusPricingId === null) {
+        patch.bonusPricingId = undefined;
+      } else {
+        const pricing = await ctx.db.get(args.bonusPricingId);
+        if (!pricing || pricing.projectId !== ctx.projectId) {
+          throw new ConvexError("Pricing de bonus introuvable dans le projet.");
+        }
+        patch.bonusPricingId = args.bonusPricingId;
+      }
+    }
+    for (const champ of ["clipRate", "cycleRetainer"] as const) {
+      const valeur = args[champ];
+      if (valeur === undefined) continue;
+      if (valeur !== null && (!Number.isFinite(valeur) || valeur < 0)) {
+        throw new ConvexError("Le tarif doit être un nombre ≥ 0.");
+      }
+      patch[champ] = valeur === null ? undefined : valeur;
+    }
+    if (args.paymentMethod !== undefined) patch.paymentMethod = args.paymentMethod;
+    if (args.paymentDetails !== undefined) {
+      patch.paymentDetails = args.paymentDetails.trim() || undefined;
+    }
+    await ctx.db.patch(args.id, patch);
     // Changer la grille de bonus → matérialise immédiatement les paliers déjà
     // atteints par le cumul (idempotent).
     if (args.bonusPricingId !== undefined) {
@@ -593,7 +710,7 @@ async function creatorDeletionImpact(
  * Prévisualisation pour la confirmation de suppression : nom exact (saisie de
  * confirmation) + compteurs supprimé/conservé. null si introuvable / hors projet.
  */
-export const getCreatorDeletionImpact = adminQuery({
+export const getCreatorDeletionImpact = permissionQuery("creators.delete")({
   args: { id: v.id("creators") },
   handler: async (ctx, { id }) => {
     const creator = await ctx.db.get(id);
@@ -631,7 +748,7 @@ export const getCreatorDeletionImpact = adminQuery({
  * via purgeAndDeleteAssignment (idiome deleteAssignment) — un échec externe ne
  * casse pas la suppression DB (transactionnelle).
  */
-export const deleteCreator = adminMutation({
+export const deleteCreator = permissionMutation("creators.delete")({
   args: { id: v.id("creators") },
   handler: async (ctx, { id }) => {
     const creator = await ctx.db.get(id);
@@ -917,7 +1034,7 @@ export const getMyProfile = creatorQuery({
  * cette valeur à `Intl.DateTimeFormat().resolvedOptions().timeZone` (le fuseau
  * réel de son navigateur) et propose de confirmer ou de corriger.
  */
-export const getCreatorTimezone = adminQuery({
+export const getCreatorTimezone = permissionQuery("creators.read")({
   args: { id: v.id("creators") },
   handler: async (ctx, { id }) => {
     const creator = await ctx.db.get(id);
@@ -1101,7 +1218,7 @@ export const listAddableProjectsForCreator = authedQuery({
 
 /**
  * ADMIN — rattache un créateur DÉJÀ inscrit (compte existant, identifié par son
- * userId) au projet courant (= projet cible, sur lequel l'adminMutation vérifie
+ * userId) au projet courant (= projet cible, sur lequel la garde vérifie
  * les droits de l'appelant). Crée une nouvelle fiche `creators` + un membership
  * "creator" pour ce compte sur ce projet. NE touche NI au login NI au mot de
  * passe (même compte). Identité (nom/email/téléphone) copiée depuis une fiche
@@ -1111,7 +1228,7 @@ export const listAddableProjectsForCreator = authedQuery({
  * Pour un créateur JAMAIS inscrit (aucun compte), ce bouton ne s'applique pas :
  * c'est /join (invitation à token) qui crée un nouveau compte.
  */
-export const addCreatorToProject = adminMutation({
+export const addCreatorToProject = permissionMutation("creators.manage")({
   args: { creatorUserId: v.id("users") },
   handler: async (ctx, { creatorUserId }): Promise<{ creatorId: Id<"creators"> }> => {
     const user = await ctx.db.get(creatorUserId);
@@ -1241,7 +1358,7 @@ export const e2eAddCreatorToProject = e2eMutation({
 /**
  * Exécute requireProjectAdmin pour le user (par email) sur projectId et
  * retourne { allowed, error? }. Preuve serveur que la garde des wrappers
- * adminQuery/adminMutation rejette un creator (sans avoir à ouvrir une session
+ * la garde rejette un creator (sans avoir à ouvrir une session
  * pour un user de test dépourvu de mot de passe). Cf e2eAssertAccess.
  */
 export const e2eAssertAdminAccess = e2eMutation({
@@ -1443,7 +1560,7 @@ async function assertRefSlugFree(
 /**
  * Pose la ref du chemin court snytch.co sur une créatrice, DEPUIS LE CLI.
  *
- * `updateCreator` est une adminMutation (session requise) — inatteignable
+ * `updateCreator` est gardée par bloc (session requise) — inatteignable
  * depuis `npx convex run`. Cette mutation interne sert l'amorçage : les
  * refSlug n'existaient sur aucune fiche après le déploiement de #72, et sans
  * elles la section « Ce que ça a rapporté » affiche « pas de ref configurée »

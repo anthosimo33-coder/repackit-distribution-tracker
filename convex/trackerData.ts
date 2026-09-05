@@ -1,4 +1,6 @@
-import { adminQuery } from "./functions";
+import {
+  permissionQuery,
+} from "./functions";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
@@ -272,7 +274,7 @@ export function postLabel(p: Doc<"publications">): string {
   return p.hookText;
 }
 
-export const listTrackerPosts = adminQuery({
+export const listTrackerPosts = permissionQuery("content.analytics")({
   args: filterArgs,
   handler: async (ctx, args) => {
     const refs = await buildPublicationAssignmentMap(ctx);
@@ -421,7 +423,7 @@ export const listTrackerPosts = adminQuery({
  * MÊME règle d'inclusion que les deux autres queries (`publishedAndMatches`), le
  * warmup NEUTRALISÉ le temps du comptage. Mode « all » ⇒ rien, sans lire la base.
  */
-export const trackerWarmupHiddenDates = adminQuery({
+export const trackerWarmupHiddenDates = permissionQuery("content.analytics")({
   args: { ...filterArgs, since: v.number() },
   handler: async (ctx, args): Promise<number[]> => {
     const mode = args.warmup ?? "exclude";
@@ -450,7 +452,7 @@ export const trackerWarmupHiddenDates = adminQuery({
 // lib/tracker-data pour le client. Plus de réplique à tenir synchrone : c'est le
 // même code des deux côtés, testé en vitest (lib/views-daily.test.ts).
 
-export const trackerViewsDaily = adminQuery({
+export const trackerViewsDaily = permissionQuery("content.analytics")({
   args: filterArgs,
   handler: async (ctx, args) => {
     const refs = await buildPublicationAssignmentMap(ctx);

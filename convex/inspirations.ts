@@ -1,4 +1,8 @@
-import { e2eMutation, adminMutation, adminQuery } from "./functions";
+import {
+  e2eMutation,
+  permissionMutation,
+  permissionQuery,
+} from "./functions";
 import { internal } from "./_generated/api";
 import { v, ConvexError } from "convex/values";
 import { deleteStorageBestEffort } from "./storageCleanup";
@@ -48,7 +52,7 @@ function normalizeTags(raw: string[]): string[] {
  * args optionnels (backward compat avec appel sans args). Filtrage en
  * mémoire après le collect — N+1 acceptable au volume cible (< 200 rows).
  */
-export const listInspirations = adminQuery({
+export const listInspirations = permissionQuery("library.manage")({
   args: {
     folderIds: v.optional(v.array(v.id("folders"))),
     plateformes: v.optional(v.array(plateformeValidator)),
@@ -118,7 +122,7 @@ export const listInspirations = adminQuery({
  * Retourne null si non trouvée (idempotent côté UI). Enrichi thumbnailUrl
  * de la même façon que listInspirations.
  */
-export const getInspirationById = adminQuery({
+export const getInspirationById = permissionQuery("library.manage")({
   args: { id: v.id("inspirations") },
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.id);
@@ -132,7 +136,7 @@ export const getInspirationById = adminQuery({
   },
 });
 
-export const createInspiration = adminMutation({
+export const createInspiration = permissionMutation("library.manage")({
   args: {
     url: v.string(),
     type: typeValidator,
@@ -193,7 +197,7 @@ export const createInspiration = adminMutation({
  * tags : normalisés serveur (trim + lowercase + dedupe). Le client peut
  * envoyer ce qu'il veut, on garantit la cohérence en base.
  */
-export const updateInspiration = adminMutation({
+export const updateInspiration = permissionMutation("library.manage")({
   args: {
     id: v.id("inspirations"),
     url: v.optional(v.string()),
@@ -247,7 +251,7 @@ export const updateInspiration = adminMutation({
  * `autoThumbnailUrl` n'est pas concerné (URL externe, pas un blob). Idempotent :
  * suppression d'un id inexistant est silencieuse.
  */
-export const deleteInspiration = adminMutation({
+export const deleteInspiration = permissionMutation("library.manage")({
   args: { id: v.id("inspirations") },
   handler: async (ctx, args) => {
     const existing = await ctx.db.get(args.id);

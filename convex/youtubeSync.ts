@@ -4,7 +4,10 @@ import {
   internalQuery,
   type MutationCtx,
 } from "./_generated/server";
-import { adminMutation, e2eMutation } from "./functions";
+import {
+  e2eMutation,
+  permissionMutation,
+} from "./functions";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
@@ -315,12 +318,12 @@ export const runDailySync = internalAction({
  * Déclenchement MANUEL (admin) — « Synchroniser les vues YouTube maintenant ».
  * Planifie le même relevé, SCOPÉ au projet de l'admin (ctx.projectId), sans
  * attendre 8h. Asynchrone : les snapshots apparaissent dans la seconde
- * (réactivité Convex). Gated adminMutation → le créateur est rejeté.
+ * (réactivité Convex). Gardée par un bloc de permission → le créateur est rejeté.
  *
  * ⚠️ TS7022 — référence internal.youtubeSync.runDailySync via le scheduler :
  * type de retour annoté.
  */
-export const requestYouTubeSync = adminMutation({
+export const requestYouTubeSync = permissionMutation("tracker.manage")({
   args: {},
   handler: async (ctx): Promise<{ scheduled: true }> => {
     await ctx.scheduler.runAfter(0, internal.youtubeSync.runDailySync, {

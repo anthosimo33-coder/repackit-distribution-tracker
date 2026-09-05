@@ -103,11 +103,24 @@ function schemaLiterals(table: string, field: string): string[] {
 }
 
 describe("accord code ↔ schéma", () => {
-  it("memberships.role déclare admin + les 3 rôles de portail, rien d'autre", () => {
+  it("memberships.role déclare admin + manager + les 3 rôles de portail, rien d'autre", () => {
+    // `manager` est un rôle d'ADMINISTRATION RESTREINTE, pas une population :
+    // il n'a pas de fiche `creators`, donc il ne dérive d'aucun CREATOR_KIND et
+    // s'écrit à la main ici. C'est aussi pour ça que `isPortalRole` le rejette
+    // (test ci-dessous) : un manager n'a AUCUN portail où être redirigé.
     const literals = schemaLiterals("memberships", "role");
     expect(new Set(literals)).toEqual(
-      new Set(["admin", ...CREATOR_KINDS.map((k) => roleForKind(k))]),
+      new Set(["admin", "manager", ...CREATOR_KINDS.map((k) => roleForKind(k))]),
     );
+  });
+
+  it("« manager » n'est PAS un rôle de portail", () => {
+    // Garde de non-régression du routage : si `manager` devenait un PortalRole,
+    // `portalPathForRole` l'enverrait sur un portail créateur au lieu de l'app
+    // interne, et `getMyPortal` le sortirait de l'admin. Les deux se lisent
+    // comme un bug d'écran alors que c'est une erreur de classification.
+    expect(isPortalRole("manager")).toBe(false);
+    expect(kindForRole("manager")).toBeNull();
   });
 
   it("creators.kind déclare exactement CREATOR_KINDS", () => {

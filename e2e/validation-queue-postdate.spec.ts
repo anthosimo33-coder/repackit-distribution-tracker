@@ -4,6 +4,7 @@ import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -45,7 +46,7 @@ test.describe("Admin — file de validation triée par date de sortie", () => {
       email: `e2e-file-validation-${ts}@repackit.test`,
       password: "creator-file-12345",
     });
-    const formatId = await admin.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(admin, {
       name: `[E2E_TEST] Format File ${suffix}`,
       type: "short",
       rateModel: { basePerPost: 10 },

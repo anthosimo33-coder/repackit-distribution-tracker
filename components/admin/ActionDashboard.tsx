@@ -49,11 +49,7 @@ import {
   type AccountState,
 } from "@/convex/decisions";
 import { savesAvailability } from "@/convex/decisionThresholds";
-import {
-  shapeConversionDay,
-  refConflicts,
-  type ConversionDisplayRow,
-} from "@/convex/conversionAttribution";
+import { type ConversionDisplayRow } from "@/convex/conversionAttribution";
 import { formatMoney } from "@/lib/format-rate";
 import { POST_WINDOW_PRESETS } from "@/convex/postWindow";
 import { GraduateHookDialog } from "@/components/admin/GraduateHookDialog";
@@ -94,10 +90,19 @@ function tomorrowMidnightLocal(now: number): number {
 
 /**
  * Dashboard d'accueil orienté ACTION — agrège des queries DÉJÀ existantes
- * (listAssignments, listComptes, listPayments, listCreators) côté client. Aucune
- * nouvelle logique métier ni fonction Convex : chaque carte/section ne fait que
- * filtrer/compter l'existant (cf lib/warmup, lib/compte-status). Toutes les
- * cartes sont cliquables et mènent à la page concernée.
+ * (listAssignments, listComptes, listCreators) côté client : chaque carte ne
+ * fait que filtrer/compter l'existant (cf lib/warmup, lib/compte-status).
+ * Toutes les cartes sont cliquables et mènent à la page concernée.
+ *
+ * ⚠️ EXCEPTION ASSUMÉE — les deux blocs FINANCIERS sont agrégés SERVEUR :
+ *   - carte « à payer »  → `payments.getDueTotal` (un nombre) ;
+ *   - section « Ce que ça a rapporté » → `conversionSync.readConversionAllTime`
+ *     rend désormais les lignes DÉJÀ mises en forme.
+ * Ils lisaient auparavant `listPayments` et les lignes brutes d'attribution,
+ * c'est-à-dire que tous les cycles de paie du projet et toutes les refs
+ * mesurées arrivaient dans le navigateur pour afficher un total et une liste.
+ * Ne PAS les ramener côté client : un écran qui n'affiche pas une donnée ne
+ * doit pas la recevoir (cf AUDIT_ROLE_MANAGER.md, F1/F2).
  */
 
 function relativeAge(ts: number, now: number): string {
@@ -119,7 +124,12 @@ export function ActionDashboard() {
   const [now] = useState(() => Date.now());
   const assignments = useProjectQuery(api.assignments.listAssignments, {});
   const comptes = useProjectQuery(api.comptes.listComptes, {});
-  const payments = useProjectQuery(api.payments.listPayments, {});
+  // Carte 3 — le TOTAL DÛ, agrégé serveur. Le dashboard lisait `listPayments`
+  // et sommait côté client : tous les cycles de paie du projet traversaient le
+  // réseau (montants par créatrice, lignes, ventilation du barème, coordonnées
+  // bancaires) pour n'afficher qu'un nombre. Même ensemble, même ordre, même
+  // arithmétique — cf convex/payments.getDueTotal.
+  const due = useProjectQuery(api.payments.getDueTotal, {});
   const creators = useProjectQuery(api.creators.listCreators, {});
 
   // Les deux sections décisionnelles lisent UNE query d'assemblage ; toute la
@@ -143,7 +153,7 @@ export function ActionDashboard() {
   const loading =
     assignments === undefined ||
     comptes === undefined ||
-    payments === undefined ||
+    due === undefined ||
     creators === undefined ||
     decisions === undefined;
 
@@ -151,7 +161,7 @@ export function ActionDashboard() {
     if (
       assignments === undefined ||
       comptes === undefined ||
-      payments === undefined ||
+      due === undefined ||
       creators === undefined
     ) {
       return null;
@@ -193,11 +203,10 @@ export function ActionDashboard() {
       (c) => getEffectiveStatus(c) === "warmup" && c.warmupDone,
     );
 
-    // Carte 3 — total DÛ = tous les cycles non payés (même ensemble que le
-    // total de /paiements, les deux lisent listPayments).
-    const dueTotal = payments
-      .filter((p) => p.status !== "paid")
-      .reduce((sum, p) => sum + p.totalDue, 0);
+    // Carte 3 — total DÛ = tous les cycles non payés. Calculé SERVEUR sur le
+    // même ensemble et dans le même ordre que le total de /paiements (les deux
+    // passent par `collectProjectPaymentRows`).
+    const dueTotal = due.dueTotal;
 
     // Carte 4 — assignments actionnables dont la deadline tombe sous 7 j.
     const deadlines7 = assignments.filter((a) => {
@@ -214,7 +223,7 @@ export function ActionDashboard() {
       deadlines7,
       totalCreators: creators.length,
     };
-  }, [assignments, comptes, payments, creators, now]);
+  }, [assignments, comptes, due, creators, now]);
 
   if (loading || data === null) return <ActionSkeleton />;
 
@@ -1128,41 +1137,14 @@ function ConversionSection({ data }: { data: ConversionData | undefined }) {
     );
   }
 
-  // `collectedDays` donne son sens au vide : une ref sans ligne sur des jours
-  // COLLECTÉS est un zéro mesuré, pas une donnée manquante.
-  const d = shapeConversionDay(data.rows, data.creators, {
-    collectedDays: data.collectedDays,
-    influencers: data.influencers,
-  });
-  // Une ref ne peut appartenir qu'à UNE personne. Le garde-fou serveur empêche
-  // d'en créer un doublon ; celui-ci attrape ceux qui existeraient déjà — deux
-  // lignes afficheraient les mêmes chiffres sans que rien ne le signale.
-  const conflicts = refConflicts(data.creators, data.influencers);
-  // Plage réelle PAR REF : en all-time, « 146 visiteurs » ne veut pas dire la
-  // même chose sur 2 jours et sur 41.
-  const spanByRef = new Map(
-    data.rows
-      .filter((r) => r.ref !== undefined)
-      .map((r) => [r.ref as string, { first: r.firstDate, last: r.lastDate }]),
-  );
-  // Attribution DOUTEUSE : des conversions antérieures à l'existence de la
-  // créatrice ne peuvent pas être les siennes. Le refSlug est résolu au READ et
-  // sa date de pose n'est stockée nulle part — ce contrôle ne voit donc pas tout,
-  // mais il ne crie jamais à tort.
-  const createdAtByRef = new Map(
-    data.creators
-      .filter((c) => c.refSlug)
-      .map((c) => [c.refSlug as string, c.createdAt]),
-  );
-  const suspectRefs = new Set(
-    [...spanByRef.entries()]
-      .filter(([ref, span]) => {
-        const createdAt = createdAtByRef.get(ref);
-        if (createdAt === undefined) return false;
-        return span.first < new Date(createdAt).toISOString().slice(0, 10);
-      })
-      .map(([ref]) => ref),
-  );
+  // Tout est DÉJÀ mis en forme par le serveur (convex/conversionSync) : lignes
+  // affichées, totaux, conflits de refs, plages et attributions douteuses. Le
+  // composant ne dérive plus rien — il n'a donc plus besoin des lignes brutes
+  // par ref, ni de la liste des créatrices, ni de celle des influenceuses.
+  const d = data.display;
+  const conflicts = data.conflicts;
+  const spanByRef = new Map(Object.entries(data.spans));
+  const suspectRefs = new Set(data.suspectRefs);
 
   return (
     <div className="space-y-1">

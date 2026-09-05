@@ -1,4 +1,6 @@
-import { adminQuery } from "./functions";
+import {
+  permissionQuery,
+} from "./functions";
 import type { Doc, Id } from "./_generated/dataModel";
 import { buildPublicationAssignmentMap, postLabel } from "./trackerData";
 import {
@@ -50,7 +52,7 @@ import {
  *    exige les saves : tant que la collecte ne peuple pas, la liste est vide —
  *    dormance voulue, cf convex/decisions.ts.
  */
-export const decisionDashboard = adminQuery({
+export const decisionDashboard = permissionQuery("content.analytics")({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();

@@ -4,6 +4,7 @@ import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -70,7 +71,7 @@ test.describe("Admin — contrôle des comptes", () => {
       platform: "YouTube",
       handle: `@e2ed_used${ts}`,
     });
-    const formatId = await admin.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(admin, {
       name: `[E2E_TEST] CtrlFmt ${ts}`,
       type: "short",
       rateModel: { basePerPost: 10 },

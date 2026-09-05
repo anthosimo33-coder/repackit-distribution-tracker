@@ -4,6 +4,7 @@ import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -25,7 +26,7 @@ test.describe("Portail créateur — boucle assignment", () => {
 
     // Admin : format (brief + hook + vidéo YouTube + grille) puis invitation.
     const formatName = `[E2E_TEST] BoucleFmt ${ts}`;
-    const fid = (await admin.mutation(api.formats.createFormat, {
+    const fid = (await createFormatWithRate(admin, {
       name: formatName,
       type: "short",
       brief: `Brief E2E ${ts}`,

@@ -1,4 +1,8 @@
-import { e2eMutation, adminMutation, adminQuery } from "./functions";
+import {
+  e2eMutation,
+  permissionMutation,
+  permissionQuery,
+} from "./functions";
 import { v, ConvexError } from "convex/values";
 
 const MAX_NAME_LENGTH = 80;
@@ -7,7 +11,7 @@ const MAX_NAME_LENGTH = 80;
  * Dossiers d'inspirations — P2 scopé par ctx.projectId. inspirationCount ne
  * compte que les inspirations du même projet.
  */
-export const listFolders = adminQuery({
+export const listFolders = permissionQuery("library.manage")({
   args: {},
   handler: async (ctx) => {
     const folders = await ctx.db
@@ -29,7 +33,7 @@ export const listFolders = adminQuery({
   },
 });
 
-export const createFolder = adminMutation({
+export const createFolder = permissionMutation("library.manage")({
   args: {
     name: v.string(),
     description: v.optional(v.string()),
@@ -72,7 +76,7 @@ export const createFolder = adminMutation({
  * Patch partiel d'un dossier. name vérifié (1-80 char, dedupe case-insensitive
  * DANS le projet en excluant soi-même). updatedAt bumpé toujours.
  */
-export const updateFolder = adminMutation({
+export const updateFolder = permissionMutation("library.manage")({
   args: {
     id: v.id("folders"),
     name: v.optional(v.string()),
@@ -124,7 +128,7 @@ export const updateFolder = adminMutation({
  * Suppression avec cascade unset (les inspirations du dossier passent à "Non
  * classé"). Scope projet : on ne touche que les inspirations du même projet.
  */
-export const deleteFolder = adminMutation({
+export const deleteFolder = permissionMutation("library.manage")({
   args: { id: v.id("folders") },
   handler: async (ctx, args) => {
     const folder = await ctx.db.get(args.id);

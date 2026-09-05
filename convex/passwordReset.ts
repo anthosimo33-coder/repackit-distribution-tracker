@@ -1,4 +1,8 @@
-import { adminMutation, e2eMutation, publicQuery } from "./functions";
+import {
+  e2eMutation,
+  permissionMutation,
+  publicQuery,
+} from "./functions";
 import { action, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import {
@@ -19,7 +23,7 @@ import { ERR, err } from "./errorCodes";
  * L'admin ne voit JAMAIS de mot de passe en clair.
  *
  * Sécurité :
- *   - generatePasswordResetLink = adminMutation (admin du projet requis),
+ *   - generatePasswordResetLink = gardée par bloc (droit creators.manage requis),
  *     scopée projet, superadmin REFUSÉ (cohérent avec adminRecovery, PR #34).
  *   - Le mot de passe vit en hash scrypt dans authAccounts (provider
  *     "password", providerAccountId=email, secret=hash). Le reset re-hashe ce
@@ -61,7 +65,7 @@ async function passwordAccountFor(
  *   - compte superadmin → interdit (protège anthosimo972@gmail.com) ;
  *   - compte sans mot de passe (connexion externe) → reset impossible.
  */
-export const generatePasswordResetLink = adminMutation({
+export const generatePasswordResetLink = permissionMutation("creators.manage")({
   args: { creatorId: v.id("creators") },
   handler: async (ctx, { creatorId }) => {
     const creator = await ctx.db.get(creatorId);

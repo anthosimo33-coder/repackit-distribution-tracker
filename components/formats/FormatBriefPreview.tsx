@@ -30,7 +30,10 @@ export type FormatBrief = {
   hooks: string[];
   guidelines: { do: string[]; dont: string[] };
   exampleVideos: FormatExample[];
-  rateModel: RateModel;
+  /** ABSENTE ⇔ jamais renseignée (cf. schema.formats). La section rému n'est
+   *  alors pas rendue : afficher « 0 » ferait passer une décision non prise pour
+   *  une décision prise. */
+  rateModel?: RateModel | null;
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -54,7 +57,7 @@ export function FormatBriefPreview({
 }) {
   const tf = useTranslations("format");
   const loc = useIntlLocale();
-  const rate = rateSummary(format.rateModel, currency, loc);
+  const rate = format.rateModel ? rateSummary(format.rateModel, currency, loc) : null;
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
@@ -154,7 +157,7 @@ export function FormatBriefPreview({
         </Card>
       )}
 
-      {showRate && (
+      {showRate && rate !== null && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{tf("pay")}</CardTitle>

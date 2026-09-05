@@ -1,6 +1,4 @@
 import {
-  adminMutation,
-  adminQuery,
   adminViewAsClipperQuery,
   adminViewAsQuery,
   clipperMutation,
@@ -8,6 +6,8 @@ import {
   creatorMutation,
   creatorQuery,
   e2eMutation,
+  permissionMutation,
+  permissionQuery,
 } from "./functions";
 import {
   CLIPPER_ASSIGNMENT_FIELDS,
@@ -66,7 +66,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
  * P7 Portail créateur — assignments. ISOLATION serveur non négociable : toutes
  * les fonctions creator (creatorQuery/creatorMutation) ne renvoient/touchent
  * QUE les rows du creator courant (ctx.creatorId). Les fonctions admin
- * (adminQuery/adminMutation) sont inaccessibles au rôle creator.
+ * (gardées par bloc) sont inaccessibles au rôle creator.
  */
 
 type Plateforme = "TikTok" | "Instagram" | "YouTube";
@@ -181,7 +181,7 @@ export async function resolveManagedTargets(
  * Créateurs assignables : onboardés (userId posé) et au travail (status
  * active ou onboarding). Exclut invited (pas de compte), paused, churned.
  */
-export const listAssignableCreators = adminQuery({
+export const listAssignableCreators = permissionQuery("assignments.manage")({
   args: {},
   handler: async (ctx) => {
     const creators = await ctx.db
@@ -212,7 +212,7 @@ export const listAssignableCreators = adminQuery({
  * compte disponible sur les plateformes choisies est signalé INÉLIGIBLE côté UI
  * plutôt que de le laisser échouer à l'assignation.
  */
-export const listAssignableCreatorsWithAccounts = adminQuery({
+export const listAssignableCreatorsWithAccounts = permissionQuery("assignments.manage")({
   args: {},
   handler: async (ctx) => {
     const strict = await isSnytchProject(ctx, ctx.projectId);
@@ -295,7 +295,7 @@ export function normalizeInstructions(raw: string | undefined): string | undefin
   return t.length > INSTRUCTIONS_MAX_LENGTH ? t.slice(0, INSTRUCTIONS_MAX_LENGTH) : t;
 }
 
-export const assignFormat = adminMutation({
+export const assignFormat = permissionMutation("assignments.manage")({
   args: {
     formatId: v.id("formats"),
     creatorId: v.id("creators"),
@@ -364,6 +364,28 @@ export const assignFormat = adminMutation({
     const pricingSnapshot = args.pricingId
       ? await buildPricingSnapshot(ctx, ctx.projectId, args.pricingId)
       : undefined;
+    // ─── GARDE DE PAIE — un format sans grille ne s'assigne pas ──────────────
+    // `rateSnapshot` est figé ICI et jamais réécrit : ce qui est copié à cet
+    // instant est ce qui sera versé. Un format dont la grille n'a JAMAIS été
+    // renseignée (champ absent, cf. schema) produirait donc des missions à 0 €,
+    // découvertes au moment de payer — c'est-à-dire trop tard.
+    //
+    // Deux cas NE sont pas bloqués, et c'est délibéré :
+    //   - une grille posée EXPLICITEMENT à 0 (format volontairement gratuit) ;
+    //   - un `pricingId` fourni : l'argent vient alors du `pricingSnapshot`, et
+    //     `rateSnapshot` n'est qu'un placeholder neutre — même convention que
+    //     `assignScriptCampaign`.
+    const rateSnapshot =
+      format.rateModel ??
+      (pricingSnapshot !== undefined ? { basePerPost: 0 } : undefined);
+    if (rateSnapshot === undefined) {
+      throw err(
+        ERR.FORMAT_RATE_NOT_SET,
+        `La grille de rémunération du format « ${format.name} » n'a jamais été renseignée. ` +
+          "Renseigne-la avant d'assigner, sinon la mission serait figée à 0.",
+        { format: format.name },
+      );
+    }
     const overlayText = normalizeOverlayText(args.overlayText);
     const now = Date.now();
     let created = 0;
@@ -378,7 +400,7 @@ export const assignFormat = adminMutation({
         status: managed ? "to_publish" : "todo",
         // Dénormalisation D1 (undefined si non géré → 0 bruit sur les rows normales).
         managedByAdmin: managed ? true : undefined,
-        rateSnapshot: format.rateModel,
+        rateSnapshot,
         pricingSnapshot,
         overlayText,
         createdAt: now,
@@ -402,7 +424,7 @@ export const assignFormat = adminMutation({
  * Édite le texte overlay d'un assignment EXISTANT (ajout/modif/effacement).
  * Admin only, scopé projet. overlayText absent/vide → efface l'overlay (undefined).
  */
-export const setAssignmentOverlayText = adminMutation({
+export const setAssignmentOverlayText = permissionMutation("assignments.manage")({
   args: {
     id: v.id("assignments"),
     overlayText: v.optional(v.string()),
@@ -426,7 +448,7 @@ export const setAssignmentOverlayText = adminMutation({
  * absent/vide → efface (undefined → aucun bloc côté créatrice). Même patron que
  * setAssignmentOverlayText.
  */
-export const setAssignmentInstructions = adminMutation({
+export const setAssignmentInstructions = permissionMutation("assignments.manage")({
   args: {
     id: v.id("assignments"),
     instructions: v.optional(v.string()),
@@ -449,7 +471,7 @@ export const setAssignmentInstructions = adminMutation({
  * Distincte de dueDate (production) : les deux coexistent. Permet de replanifier
  * après coup depuis la page Assignments (édition simple par ligne).
  */
-export const setAssignmentPostDate = adminMutation({
+export const setAssignmentPostDate = permissionMutation("assignments.manage")({
   args: {
     id: v.id("assignments"),
     postDate: v.optional(v.number()),
@@ -478,7 +500,7 @@ export const setAssignmentPostDate = adminMutation({
  * N'affecte NI le statut calendrier NI le cooldown : les deux raisonnent au JOUR,
  * sur postDate, qui n'est pas touchée ici.
  */
-export const setAssignmentPostWindow = adminMutation({
+export const setAssignmentPostWindow = permissionMutation("assignments.manage")({
   args: {
     id: v.id("assignments"),
     postWindow: v.optional(
@@ -582,7 +604,7 @@ async function requireProjectAssignment(
 }
 
 /** Attache une vidéo modèle (lien) à un assignment. Admin only, scopé projet. */
-export const addModelVideoToAssignment = adminMutation({
+export const addModelVideoToAssignment = permissionMutation("assignments.manage")({
   args: {
     id: v.id("assignments"),
     url: v.string(),
@@ -620,7 +642,7 @@ export const addModelVideoToAssignment = adminMutation({
 });
 
 /** Retire une vidéo modèle d'un assignment (à l'unité). Admin only, scopé projet. */
-export const removeModelVideoFromAssignment = adminMutation({
+export const removeModelVideoFromAssignment = permissionMutation("assignments.manage")({
   args: { id: v.id("assignments"), videoId: v.string() },
   handler: async (ctx, args) => {
     const a = await requireProjectAssignment(ctx, args.id, ctx.projectId);
@@ -674,7 +696,7 @@ export async function validateProjectFolderIds(
  * only, scopé projet : chaque dossier doit appartenir au projet de l'assignment.
  * Dédoublonne et UNSET le legacy assetFolderId (la source devient assetFolderIds).
  */
-export const setAssetFolders = adminMutation({
+export const setAssetFolders = permissionMutation("assignments.manage")({
   args: {
     id: v.id("assignments"),
     folderIds: v.array(v.id("assetFolders")),
@@ -747,7 +769,7 @@ export const DELETABLE_STATUSES = new Set<string>([
  * Idempotent : ré-abandonner ne fait rien. Bornée aux mêmes statuts que le
  * hard-delete — on n'abandonne jamais un post publié ou payé.
  */
-export const cancelAssignment = adminMutation({
+export const cancelAssignment = permissionMutation("assignments.manage")({
   args: { id: v.id("assignments") },
   handler: async (ctx, { id }) => {
     const a = await ctx.db.get(id);
@@ -807,7 +829,7 @@ export async function purgeAndDeleteAssignment(
  *
  * IDEMPOTENT : id déjà supprimé / hors projet → no-op (`alreadyGone`), jamais de crash.
  */
-export const deleteAssignment = adminMutation({
+export const deleteAssignment = permissionMutation("assignments.manage")({
   args: { id: v.id("assignments") },
   handler: async (ctx, { id }) => {
     const a = await ctx.db.get(id);
@@ -842,7 +864,7 @@ export const deleteAssignment = adminMutation({
  */
 export { representativePostedAt };
 
-export const listAssignments = adminQuery({
+export const listAssignments = permissionQuery("assignments.manage")({
   args: {},
   handler: async (ctx) => {
     const assignments = await ctx.db
@@ -945,7 +967,64 @@ export const listAssignments = adminQuery({
         }));
         const linkedAssetFolderIds = effectiveAssetFolderIds(a);
         return {
-          ...a,
+          // PROJECTION EXPLICITE — surtout PAS `...a`. Le payload est le MÊME
+          // qu'avant, champ pour champ : l'objectif n'est pas de retirer une
+          // donnée (`rateSnapshot` reste servi — décision assumée, le tarif
+          // unitaire d'une vidéo fait partie du geste d'assignation) mais de
+          // rendre CONSCIENT l'ajout du prochain champ. Avec un spread, tout
+          // champ ajouté à la table `assignments` partait au navigateur sans
+          // que personne ne l'ait décidé — et la table en porte déjà trois de
+          // rémunération. Cf docs/CHAMPS-SENSIBLES.md.
+          //
+          // ⚠️ `targets` n'est PAS repris de `a` : la version enrichie
+          // (handle + pays + URL par plateforme) est posée plus bas.
+          _id: a._id,
+          _creationTime: a._creationTime,
+          projectId: a.projectId,
+          creatorId: a.creatorId,
+          creatorNameSnapshot: a.creatorNameSnapshot,
+          formatId: a.formatId,
+          scriptCombo: a.scriptCombo,
+          comboKey: a.comboKey,
+          comboImposed: a.comboImposed,
+          replayedFrom: a.replayedFrom,
+          replayVerbatim: a.replayVerbatim,
+          accountId: a.accountId,
+          dueDate: a.dueDate,
+          postDate: a.postDate,
+          postWindow: a.postWindow,
+          contentType: a.contentType,
+          remunerated: a.remunerated,
+          managedByAdmin: a.managedByAdmin,
+          status: a.status,
+          submittedVideoStorageId: a.submittedVideoStorageId,
+          submittedVideoMimeType: a.submittedVideoMimeType,
+          submittedVideoStreamUid: a.submittedVideoStreamUid,
+          submittedVideoStreamStatus: a.submittedVideoStreamStatus,
+          videoReviewFeedback: a.videoReviewFeedback,
+          deadlineReminderSentAt: a.deadlineReminderSentAt,
+          videoRejectedAt: a.videoRejectedAt,
+          lastNudgeAt: a.lastNudgeAt,
+          publishedUrl: a.publishedUrl,
+          publishedAt: a.publishedAt,
+          publishedBy: a.publishedBy,
+          submittedUrl: a.submittedUrl,
+          submittedAt: a.submittedAt,
+          submittedPlatform: a.submittedPlatform,
+          publicationId: a.publicationId,
+          adminFeedback: a.adminFeedback,
+          modelVideos: a.modelVideos,
+          assetFolderIds: a.assetFolderIds,
+          assetFolderId: a.assetFolderId,
+          overlayText: a.overlayText,
+          instructions: a.instructions,
+          // ── Rémunération — servie DÉLIBÉRÉMENT (cf en-tête) ──────────────
+          rateSnapshot: a.rateSnapshot,
+          pricingSnapshot: a.pricingSnapshot,
+          clipRateSnapshot: a.clipRateSnapshot,
+          challengeId: a.challengeId,
+          challengeRemovedAt: a.challengeRemovedAt,
+          createdAt: a.createdAt,
           creatorName: creatorMap.get(a.creatorId) ?? a.creatorNameSnapshot ?? "—",
           formatName: a.formatId ? (formatMap.get(a.formatId) ?? "—") : null,
           targets,
@@ -974,7 +1053,7 @@ export const listAssignments = adminQuery({
 });
 
 /** Compteur d'assignments "video_submitted" — badge sidebar de la file de revue. */
-export const countVideoSubmitted = adminQuery({
+export const countVideoSubmitted = permissionQuery("review.manage")({
   args: {},
   handler: async (ctx) => {
     const subs = await ctx.db
@@ -1110,7 +1189,7 @@ async function materializeTargetPublication(
 
 /** video_submitted → to_publish. Approuve la vidéo ; le paiement attend la
  *  publication (published). Idempotent. */
-export const reviewVideoApprove = adminMutation({
+export const reviewVideoApprove = permissionMutation("review.manage")({
   args: { id: v.id("assignments") },
   handler: async (ctx, { id }) => {
     const a = await ctx.db.get(id);
@@ -1140,7 +1219,7 @@ export const reviewVideoApprove = adminMutation({
 });
 
 /** video_submitted → video_rejected (feedback obligatoire, visible créateur). */
-export const reviewVideoReject = adminMutation({
+export const reviewVideoReject = permissionMutation("review.manage")({
   args: { id: v.id("assignments"), feedback: v.string() },
   handler: async (ctx, { id, feedback }) => {
     const a = await ctx.db.get(id);
@@ -1192,7 +1271,7 @@ export const NUDGE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
  * Ne relance QUE les missions où la balle est dans le camp du créateur
  * (UNFINISHED_STATUSES, partagé avec le cron de rappel).
  */
-export const nudgeAssignment = adminMutation({
+export const nudgeAssignment = permissionMutation("assignments.manage")({
   args: { assignmentId: v.id("assignments") },
   handler: async (ctx, { assignmentId }) => {
     const a = await ctx.db.get(assignmentId);
@@ -1254,7 +1333,7 @@ function compareByPostDate(
   return a.createdAt - b.createdAt;
 }
 
-export const listVideoSubmitted = adminQuery({
+export const listVideoSubmitted = permissionQuery("review.manage")({
   args: {},
   handler: async (ctx) => {
     const subs = await ctx.db
@@ -1366,7 +1445,7 @@ export const listVideoSubmitted = adminQuery({
 });
 
 /** « Publiées récemment » (admin) : assignments en published, URL + créateur. */
-export const listPublished = adminQuery({
+export const listPublished = permissionQuery("review.manage")({
   args: {},
   handler: async (ctx) => {
     const pubs = await ctx.db
@@ -1428,7 +1507,7 @@ export const listPublished = adminQuery({
  * valider ». Enrichi comme listPublished (créateur, format, cibles + handle) +
  * le script monté (à produire/publier par l'équipe).
  */
-export const listManagedToPublish = adminQuery({
+export const listManagedToPublish = permissionQuery("review.manage")({
   args: {},
   handler: async (ctx) => {
     const rows = await ctx.db
@@ -1718,7 +1797,7 @@ export const migrateAssignmentsToTargets = internalMutation({
  * enrichis des vues du dernier snapshot (préremplissage) et du bonus déjà
  * crédité s'il existe.
  */
-export const listValidatedForBonus = adminQuery({
+export const listValidatedForBonus = permissionQuery("payments.manage")({
   args: {},
   handler: async (ctx) => {
     const validated = (
@@ -1795,7 +1874,7 @@ export const listValidatedForBonus = adminQuery({
  * seul bonus par assignment : recalculer REMPLACE la ligne (cf
  * upsertBonusLineItem), jamais d'ajout → idempotent.
  */
-export const computeViewBonus = adminMutation({
+export const computeViewBonus = permissionMutation("payments.manage")({
   args: { id: v.id("assignments"), views: v.number() },
   handler: async (ctx, { id, views }) => {
     const a = await ctx.db.get(id);
@@ -3090,7 +3169,7 @@ export const confirmPublication = creatorMutation({
  * date de création dans le message, puis confirme) : la borne devient un
  * AVERTISSEMENT franchissable, pas une porte ouverte.
  */
-export const confirmPublicationAsAdmin = adminMutation({
+export const confirmPublicationAsAdmin = permissionMutation("review.manage")({
   args: {
     id: v.id("assignments"),
     urls: v.array(v.object({ platform: plateformeValidator, url: v.string() })),

@@ -4,6 +4,7 @@ import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -26,7 +27,7 @@ test.describe("Portail créateur — calendrier de publication (brique D)", () =
     test.setTimeout(90_000);
     const ts = Date.now();
     const formatName = `[E2E_TEST] PubBanner Fmt ${ts}`;
-    const fid = (await admin.mutation(api.formats.createFormat, {
+    const fid = (await createFormatWithRate(admin, {
       name: formatName,
       type: "short",
       rateModel: { basePerPost: 40 },

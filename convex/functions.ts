@@ -10,6 +10,11 @@ import { action, mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { roleForKind, type PortalRole } from "./roles";
+import {
+  grantedPermissions,
+  isPermissionId,
+  type PermissionId,
+} from "./permissions";
 import { ERR, err } from "./errorCodes";
 
 /**
@@ -78,7 +83,7 @@ export async function requireProjectAccess(
  *   - superadmin (users.role) : accès implicite (comme requireProjectAccess) ;
  *   - sinon : un membership (userId, projectId) de rôle "admin" est requis.
  * Un membership "creator" est REJETÉ — le rôle creator n'a accès à rien de
- * l'app interne (toutes ses fonctions passent par adminQuery/adminMutation).
+ * l'app interne (toutes ses fonctions sont gardées par un bloc).
  */
 export async function requireProjectAdmin(
   ctx: QueryCtx | MutationCtx,
@@ -103,6 +108,110 @@ export async function requireProjectAdmin(
   if (membership.role !== "admin") {
     throw err(ERR.ADMIN_ONLY, "Réservé aux administrateurs du projet.");
   }
+}
+
+/**
+ * PERMISSIONS — la couche fine au-dessus de `requireProjectAdmin`.
+ *
+ * ⚠️ LES PERMISSIONS S'AJOUTENT AU RÔLE, ELLES NE LE REMPLACENT PAS. La cascade
+ * ci-dessous s'arrête sur "admin" AVANT de regarder la moindre permission :
+ *
+ *   1. superadmin                → AUTORISÉ (inchangé, accès implicite partout)
+ *   2. pas de membership         → REFUSÉ
+ *   3. membership "admin"        → AUTORISÉ, sans lire `permissions`
+ *   4. membership "manager"      → AUTORISÉ ssi le bloc est accordé
+ *   5. tout le reste             → REFUSÉ
+ *
+ * POURQUOI CET ORDRE, ET PAS UN MODÈLE « TOUT EN PERMISSIONS ». Si les droits
+ * remplaçaient le rôle, il faudrait écrire les 21 blocs sur CHAQUE membership
+ * admin de la production avant de basculer la garde — une migration de données
+ * dans le même déploiement que le changement de contrôle d'accès, dont le moindre
+ * raté enferme dehors les gens qui font tourner la boîte. Ici, le jour du
+ * déploiement ne change RIEN pour personne : c'est la propriété la plus précieuse
+ * du dispositif, et elle vaut de porter deux mécanismes le temps de la bascule.
+ *
+ * FAIL-CLOSED, cas par cas :
+ *   - bloc inconnu passé par un appelant JS non typé  → refus (garde ci-dessous) ;
+ *   - `permissions` absent (manager jamais coché)      → ensemble vide → refus ;
+ *   - valeur en base hors catalogue (bloc renommé,
+ *     retiré, ou écrite à la main)                     → ignorée → refus ;
+ *   - rôle de membership inconnu                       → refus (pas de `else` permissif).
+ *
+ * Le troisième point est le seul qui ne se voit pas en lisant le code d'appel, et
+ * c'est le plus important : `grantedPermissions` FILTRE PAR LE CATALOGUE avant de
+ * comparer. On autorise parce qu'une chaîne APPARTIENT au catalogue, jamais parce
+ * qu'elle est PRÉSENTE en base — sinon un nom périmé continuerait d'ouvrir une
+ * porte que plus personne ne relit (cf. convex/permissions.ts).
+ */
+export async function requirePermission(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+  projectId: Id<"projects">,
+  permission: PermissionId,
+) {
+  // Défense en profondeur : le paramètre est typé, mais un appelant non typé
+  // (JS, test, appel dynamique) pourrait passer autre chose. Un bloc hors
+  // catalogue ne doit jamais atteindre la comparaison.
+  if (!isPermissionId(permission)) {
+    throw err(ERR.PERMISSION_DENIED, "Droit inconnu.", { permission: String(permission) });
+  }
+  const project = await ctx.db.get(projectId);
+  if (project === null) {
+    throw err(ERR.PROJECT_NOT_FOUND, "Projet introuvable.");
+  }
+  const user = await ctx.db.get(userId);
+  if (user?.role === "superadmin") return;
+  const membership = await ctx.db
+    .query("memberships")
+    .withIndex("by_user_project", (q) =>
+      q.eq("userId", userId).eq("projectId", projectId),
+    )
+    .first();
+  if (membership === null) {
+    throw err(ERR.PROJECT_ACCESS_DENIED, "Accès au projet refusé.");
+  }
+  // Accès historique : un admin de projet peut tout, sans qu'aucun droit ne soit
+  // écrit sur son membership. C'est ce qui rend la migration inutile.
+  if (membership.role === "admin") return;
+  if (membership.role !== "manager") {
+    throw err(ERR.ADMIN_ONLY, "Réservé aux administrateurs du projet.");
+  }
+  if (!grantedPermissions(membership.permissions).has(permission)) {
+    throw err(ERR.PERMISSION_DENIED, "Droit non accordé.", { permission });
+  }
+}
+
+/**
+ * Wrappers gardés PAR BLOC. Le bloc est un paramètre OBLIGATOIRE de la fabrique :
+ * une fonction qui n'en déclare pas ne peut pas s'écrire, et `PermissionId` étant
+ * une union de littéraux, une faute de frappe ne compile pas. C'est le premier
+ * étage du fail-closed — l'oubli est rendu impossible plutôt que détecté.
+ *
+ * Même contrat que `adminQuery`/`adminMutation` : arg `projectId` obligatoire,
+ * `ctx.userId` et `ctx.projectId` injectés. La migration d'une fonction consiste
+ * donc à remplacer `adminQuery({` par `permissionQuery("bloc")({`, sans toucher
+ * au handler.
+ */
+export function permissionQuery(permission: PermissionId) {
+  return customQuery(query, {
+    args: { projectId: v.id("projects") },
+    input: async (ctx, { projectId }) => {
+      const userId = await requireUserId(ctx);
+      await requirePermission(ctx, userId, projectId, permission);
+      return { ctx: { userId, projectId }, args: {} };
+    },
+  });
+}
+
+export function permissionMutation(permission: PermissionId) {
+  return customMutation(mutation, {
+    args: { projectId: v.id("projects") },
+    input: async (ctx, { projectId }) => {
+      const userId = await requireUserId(ctx);
+      await requirePermission(ctx, userId, projectId, permission);
+      return { ctx: { userId, projectId }, args: {} };
+    },
+  });
 }
 
 export const authedQuery = customQuery(
@@ -145,7 +254,29 @@ export const superadminMutation = customMutation(
     const userId = await requireUserId(ctx);
     const user = await ctx.db.get(userId);
     if (user?.role !== "superadmin") {
-      throw new ConvexError("Réservé aux superadmins.");
+      throw err(ERR.SUPERADMIN_ONLY, "Réservé aux superadmins.");
+    }
+    return { userId };
+  }),
+);
+
+/**
+ * Jumelle en LECTURE de `superadminMutation`. L'écran de gestion des rôles lit
+ * la composition d'une équipe et les droits de chacun : c'est le seul endroit de
+ * l'app où l'on voit qui peut quoi, et ça ne se regarde pas depuis un rôle qu'on
+ * pourrait soi-même s'être accordé.
+ *
+ * Volontairement PAS un bloc de permission : les blocs décrivent le travail sur
+ * un projet, pas l'administration des droits eux-mêmes. Un bloc « gérer les
+ * droits » serait un bloc qui permet de s'accorder tous les autres.
+ */
+export const superadminQuery = customQuery(
+  query,
+  customCtx(async (ctx) => {
+    const userId = await requireUserId(ctx);
+    const user = await ctx.db.get(userId);
+    if (user?.role !== "superadmin") {
+      throw err(ERR.SUPERADMIN_ONLY, "Réservé aux superadmins.");
     }
     return { userId };
   }),
@@ -202,23 +333,25 @@ export const projectMutation = customMutation(mutation, {
  * par ces wrappers. projectQuery/projectMutation restent la couche « accès
  * projet, tout rôle » (réservée à de futures fonctions creator-accessibles).
  */
-export const adminQuery = customQuery(query, {
-  args: { projectId: v.id("projects") },
-  input: async (ctx, { projectId }) => {
-    const userId = await requireUserId(ctx);
-    await requireProjectAdmin(ctx, userId, projectId);
-    return { ctx: { userId, projectId }, args: {} };
-  },
-});
-
-export const adminMutation = customMutation(mutation, {
-  args: { projectId: v.id("projects") },
-  input: async (ctx, { projectId }) => {
-    const userId = await requireUserId(ctx);
-    await requireProjectAdmin(ctx, userId, projectId);
-    return { ctx: { userId, projectId }, args: {} };
-  },
-});
+/**
+ * ⚠️ `adminQuery` / `adminMutation` ONT ÉTÉ RETIRÉS — ne les recréez pas.
+ *
+ * Ils posaient UNE garde unique (« es-tu admin de ce projet ? ») sur les 212
+ * fonctions d'administration. C'est ce qui rendait le rôle manager impossible :
+ * aucune permission ne pouvait séparer « gérer des créatrices » de « voir le
+ * chiffre d'affaires », puisque les deux franchissaient la même porte.
+ *
+ * Toute fonction d'administration déclare désormais SON bloc, via
+ * `permissionQuery("bloc")` / `permissionMutation("bloc")` (cf. plus haut). Le
+ * bloc étant un paramètre obligatoire typé `PermissionId`, une fonction sans
+ * bloc ne compile pas, et un bloc mal orthographié non plus : l'oubli n'est plus
+ * détecté, il est IMPOSSIBLE.
+ *
+ * Un admin garde tous ses accès — la cascade de `requirePermission` l'autorise
+ * avant même de regarder une permission. Rien n'a changé pour lui.
+ *
+ * `scripts/check-permission-coverage.mjs` échoue si ces exports réapparaissent.
+ */
 
 /**
  * P5 Comptes créateurs — exige le rôle "creator" sur le projet ET résout SA
@@ -377,7 +510,7 @@ export const clipperMutation = customMutation(mutation, {
  * Contrat : args publics obligatoires `projectId` + `creatorId`. Le wrapper :
  *   1. exige l'identité (session) ;
  *   2. exige le rôle ADMIN du projet (ou superadmin) — même barrière que
- *      adminQuery (requireProjectAdmin) : un admin ne peut viser QUE les
+ *      les gardes de bloc (requireProjectAdmin) : un admin ne peut viser QUE les
  *      créateurs d'un projet où il est admin ; le superadmin partout ;
  *   3. VÉRIFIE CÔTÉ SERVEUR que la fiche `creators` ciblée appartient bien à ce
  *      projet (`creator.projectId === projectId`). Un creatorId d'un AUTRE projet

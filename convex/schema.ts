@@ -91,7 +91,7 @@ export default defineSchema({
     // confirmPublicationCore) reste sur `projects.isSnytchProject` et n'est PAS
     // concerné : les fusionner ferait cesser silencieusement d'être vrai
     // l'invariant « un compte non validé ne peut rien publier » (risque 8 du
-    // diagnostic). Posé via projects.setTalentSettings (adminMutation).
+    // diagnostic). Posé via projects.setTalentSettings (gardée par bloc).
     //
     // NB : la nav du portail PARTENAIRE (« Mes fichiers ») reste gatée sur le
     // slug côté client — le chantier talent ne change rien à l'écran partenaire.
@@ -127,7 +127,7 @@ export default defineSchema({
     //
     // MÊME NATURE que `warmupTargetDays` ci-dessus : une règle produit qui se
     // règle à l'usage, sans PR, et qui n'a pas à être la même d'un projet à
-    // l'autre. Édité par projects.setComboCooldownDays (adminMutation, écran
+    // l'autre. Édité par projects.setComboCooldownDays (gardée par bloc, écran
     // /scripts).
     //
     // ⚠️ NE TOUCHE PAS à l'unicité à vie (combo × créatrice × plateforme), qui
@@ -226,7 +226,7 @@ export default defineSchema({
     // un groupe) n'est pas un secret et vit en base — c'est précisément ce qui
     // rend le destinataire modifiable depuis l'écran admin SANS redéploiement.
     // Absent = AUCUNE notification pour ce projet. Édité par
-    // notifications.setNotifySettings (adminMutation, écran /notifications).
+    // notifications.setNotifySettings (gardée par bloc, écran /notifications).
     notify: v.optional(
       v.object({
         // Union d'un seul membre AUJOURD'HUI : le transport est isolé dans
@@ -265,16 +265,94 @@ export default defineSchema({
     // clippeur est rejeté MÉCANIQUEMENT de toutes les fonctions créateur
     // existantes, sans qu'aucune d'elles soit modifiée. Le littéral dérive de
     // `creators.kind` au signup (cf convex/roles.roleForKind + convex/auth.ts).
+    // "manager" = ADMIN RESTREINT. Littéral AJOUTÉ à côté des autres, jamais
+    // en remplacement : les memberships existants gardent "admin" et donc leurs
+    // accès actuels, d'où ZÉRO migration. Même patron que l'ajout de "talent" et
+    // "clipper" en 2026. Ce que peut un manager est décidé par `permissions`
+    // ci-dessous ; "admin" reste « tout », sans permissions à écrire.
     role: v.union(
       v.literal("admin"),
+      v.literal("manager"),
       v.literal("creator"),
       v.literal("talent"),
       v.literal("clipper"),
     ),
+    // ─── DROITS D'UN MANAGER (convex/permissions.ts) ──────────────────────────
+    // Blocs du catalogue accordés à CETTE personne SUR CE PROJET. Le grain est
+    // celui du membership, et ce n'est pas un hasard : un droit vaut pour une
+    // personne × un projet, et ce document est DÉJÀ lu à chaque requête gardée
+    // (requireProjectAdmin) — les droits arrivent donc sans lecture de plus, là
+    // où une table dédiée en ajouterait une sur chacune des 212 fonctions.
+    //
+    // ⚠️ Ignoré pour "admin" (qui a tout) et pour les rôles de portail.
+    // ABSENT ⇒ AUCUN droit : un manager fraîchement créé ne peut rien tant que
+    // rien n'est coché. C'est le défaut voulu — le champ est optional pour que
+    // les documents existants restent valides, pas pour ouvrir une porte.
+    // Une valeur hors catalogue n'autorise RIEN (cf. isPermissionId).
+    permissions: v.optional(v.array(v.string())),
   })
     .index("by_user", ["userId"])
     .index("by_project", ["projectId"])
     .index("by_user_project", ["userId", "projectId"]),
+
+  // ─── TRACE DES CHANGEMENTS DE DROITS — EN AJOUT SEUL ──────────────────────
+  // Une ligne par (personne, bloc, sens). Jamais de patch, jamais de delete :
+  // c'est un journal, pas un état. L'état effectif vit sur `memberships`, et
+  // rejouer ce journal pour le reconstruire serait une lecture de plus à chaque
+  // requête — exactement ce qu'on a refusé en posant `permissions` sur le
+  // membership.
+  //
+  // Écrit par TOUT chemin qui change des droits, y compris les provisionnements
+  // en ligne de commande : un droit accordé hors écran doit laisser la même
+  // trace qu'un droit accordé à l'écran, sinon le journal ment par omission.
+  // ─── TRACE DES DRAPEAUX DE PAIE D'UN POST — EN AJOUT SEUL ─────────────────
+  // Jumelle de `permissionChanges`, et SÉPARÉE d'elle à dessein : le sujet n'est
+  // pas du même type (une publication, pas une personne), les index diffèrent, et
+  // les durées de vie aussi — ce registre-ci se relit avec un CYCLE DE PAIE.
+  //
+  // POURQUOI IL EXISTE. `setPublicationWarmup` et `setPublicationRemuneration`
+  // décident si une vidéo est PAYÉE. Le geste est quotidien, il est désormais
+  // délégable à un manager (bloc `tracker.manage`), et jusqu'ici il ne laissait
+  // aucune trace : on pouvait constater qu'un post n'était plus payé sans pouvoir
+  // dire qui l'avait décidé ni quand.
+  //
+  // Jamais de patch, jamais de delete : c'est un journal, pas un état. L'état
+  // vit sur `publications` (isWarmup / remunere).
+  publicationFlagChanges: defineTable({
+    projectId: v.id("projects"),
+    publicationId: v.id("publications"),
+    // "warmup"      — le fait ÉDITORIAL (le post ne mentionne pas l'app) ;
+    // "remunerated" — le fait FINANCIER (ce post est-il payé ?).
+    // Une bascule warmup écrit les DEUX quand elle change aussi la paie : sans
+    // la seconde ligne, il faudrait re-dériver la conséquence pour la lire.
+    flag: v.union(v.literal("warmup"), v.literal("remunerated")),
+    before: v.boolean(),
+    after: v.boolean(),
+    // Qui. Toujours présent : ces mutations sont gardées, donc il y a une session.
+    actorUserId: v.id("users"),
+    at: v.number(),
+  })
+    .index("by_publication", ["publicationId"])
+    .index("by_project_at", ["projectId", "at"]),
+
+  permissionChanges: defineTable({
+    projectId: v.id("projects"),
+    // La personne DONT les droits changent.
+    subjectUserId: v.id("users"),
+    // Le bloc. `v.string()` et non une union : un bloc retiré du catalogue doit
+    // rester LISIBLE dans l'historique. Un journal qui refuse de relire le passé
+    // parce que le présent a changé n'est pas un journal.
+    permission: v.string(),
+    // true = accordé, false = retiré.
+    granted: v.boolean(),
+    // Qui a fait le geste. ABSENT = hors session (ligne de commande, migration).
+    actorUserId: v.optional(v.id("users")),
+    // Étiquette lisible de l'auteur ("cli", ou l'e-mail de l'admin).
+    actorLabel: v.string(),
+    at: v.number(),
+  })
+    .index("by_project_subject", ["projectId", "subjectUserId"])
+    .index("by_at", ["at"]),
 
   hooks: defineTable({
     // P2 — projectId optional (phase migration) → resserré en required après
@@ -1363,18 +1441,32 @@ export default defineSchema({
         }),
       ),
     ),
-    rateModel: v.object({
-      basePerPost: v.number(),
-      viewBonusPer1k: v.optional(v.number()),
-      bounties: v.optional(
-        v.array(
-          v.object({
-            thresholdViews: v.number(),
-            amount: v.number(),
-          }),
+    // ─── GRILLE DE RÉMUNÉRATION — ABSENTE ⇔ JAMAIS RENSEIGNÉE ────────────────
+    // OPTIONNEL depuis que poser la grille est un geste à part
+    // (`setFormatRateModel`, bloc `pricing.manage`). L'absence n'est PAS un
+    // zéro : elle dit que personne n'a encore décidé combien ce format paie, et
+    // `assignFormat` REFUSE d'assigner dans cet état — sans quoi la mission
+    // figerait un `rateSnapshot` à 0 et la créatrice travaillerait gratuitement.
+    // Un format volontairement GRATUIT reste possible : on pose explicitement
+    // `{ basePerPost: 0 }`, et les deux cas cessent de se ressembler.
+    //
+    // Aucune migration : le champ était REQUIS jusqu'ici, donc tout format
+    // existant en porte une et se lit « renseignée ». Seuls les formats créés
+    // après ce changement naissent sans.
+    rateModel: v.optional(
+      v.object({
+        basePerPost: v.number(),
+        viewBonusPer1k: v.optional(v.number()),
+        bounties: v.optional(
+          v.array(
+            v.object({
+              thresholdViews: v.number(),
+              amount: v.number(),
+            }),
+          ),
         ),
-      ),
-    }),
+      }),
+    ),
     status: v.union(v.literal("active"), v.literal("archived")),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -2333,7 +2425,7 @@ export default defineSchema({
   // ─── RADAR — veille TikTok (Brique 1 : comptes favoris + leurs vidéos) ───────
   // Module ADMIN UNIQUEMENT, SILO séparé : aucun lien avec creators/publications/
   // comptes (le tracking créateurs est un autre module). Scopé projet via
-  // adminQuery/adminMutation (un créateur n'atteint AUCUNE fonction Radar). Source
+  // des gardes de bloc (un créateur n'atteint AUCUNE fonction Radar). Source
   // de données : Apify (clockworks/tiktok-scraper) avec un COMPTE Apify DISTINCT
   // (clé APIFY_RADAR_TOKEN) pour isoler les quotas du tracking créateurs.
 

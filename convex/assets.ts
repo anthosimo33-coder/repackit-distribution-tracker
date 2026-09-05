@@ -1,11 +1,15 @@
-import { adminMutation, adminQuery, e2eMutation } from "./functions";
+import {
+  e2eMutation,
+  permissionMutation,
+  permissionQuery,
+} from "./functions";
 import { ConvexError, v } from "convex/values";
 import { purgeAssetBlobs } from "./storageCleanup";
 
 /**
  * Assets — bibliothèque de FICHIERS en dossiers (matériel à télécharger par le
  * créateur) : IMAGES (jpg/png/webp ≤ 10 Mo) ET VIDÉOS courtes (mp4/mov/webm ≤
- * 100 Mo), en Convex file storage. TOUT passe par adminQuery/adminMutation (le
+ * 100 Mo), en Convex file storage. TOUT passe par des wrappers gardés par bloc (le
  * créateur lit via assignments.getMyAssignment). Scopé projet.
  *
  * ⚠️ A6 — la validation type/taille est RÉPLIQUÉE de lib/asset-file.ts (où
@@ -27,7 +31,7 @@ function maxBytesForAssetType(contentType: string): number | null {
 // ─── Dossiers ─────────────────────────────────────────────────────────────────
 
 /** Dossiers d'assets du projet + nombre d'images. */
-export const listAssetFolders = adminQuery({
+export const listAssetFolders = permissionQuery("library.manage")({
   args: {},
   handler: async (ctx) => {
     const folders = await ctx.db
@@ -47,7 +51,7 @@ export const listAssetFolders = adminQuery({
   },
 });
 
-export const createAssetFolder = adminMutation({
+export const createAssetFolder = permissionMutation("library.manage")({
   args: { name: v.string(), postprocessImages: v.optional(v.boolean()) },
   handler: async (ctx, args) => {
     const name = args.name.trim();
@@ -76,7 +80,7 @@ export const createAssetFolder = adminMutation({
  * N'AFFECTE QUE LES UPLOADS À VENIR : les fichiers déjà stockés ne sont pas
  * retraités — c'est le rôle du script scripts/postprocess-existing-assets.ts.
  */
-export const setAssetFolderPostprocess = adminMutation({
+export const setAssetFolderPostprocess = permissionMutation("library.manage")({
   args: { id: v.id("assetFolders"), postprocessImages: v.boolean() },
   handler: async (ctx, args) => {
     const folder = await ctx.db.get(args.id);
@@ -90,7 +94,7 @@ export const setAssetFolderPostprocess = adminMutation({
   },
 });
 
-export const renameAssetFolder = adminMutation({
+export const renameAssetFolder = permissionMutation("library.manage")({
   args: { id: v.id("assetFolders"), name: v.string() },
   handler: async (ctx, args) => {
     const folder = await ctx.db.get(args.id);
@@ -123,7 +127,7 @@ export const renameAssetFolder = adminMutation({
  * assignments qui le référençaient (retiré de assetFolderIds + legacy). Scopé
  * projet.
  */
-export const deleteAssetFolder = adminMutation({
+export const deleteAssetFolder = permissionMutation("library.manage")({
   args: { id: v.id("assetFolders") },
   handler: async (ctx, args) => {
     const folder = await ctx.db.get(args.id);
@@ -160,7 +164,7 @@ export const deleteAssetFolder = adminMutation({
 // ─── Images ───────────────────────────────────────────────────────────────────
 
 /** Images d'un dossier (du projet) + URL signée de téléchargement. */
-export const listAssets = adminQuery({
+export const listAssets = permissionQuery("library.manage")({
   args: { folderId: v.id("assetFolders") },
   handler: async (ctx, { folderId }) => {
     const folder = await ctx.db.get(folderId);
@@ -188,7 +192,7 @@ export const listAssets = adminQuery({
  * référencé par aucune row → on le purge, y compris sur les chemins de rejet,
  * pour ne jamais laisser derrière soi l'original porteur d'EXIF/C2PA.
  */
-export const createAsset = adminMutation({
+export const createAsset = permissionMutation("library.manage")({
   args: {
     folderId: v.id("assetFolders"),
     storageId: v.id("_storage"),
@@ -240,7 +244,7 @@ export const createAsset = adminMutation({
   },
 });
 
-export const deleteAsset = adminMutation({
+export const deleteAsset = permissionMutation("library.manage")({
   args: { id: v.id("assets") },
   handler: async (ctx, { id }) => {
     const asset = await ctx.db.get(id);

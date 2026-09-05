@@ -1,4 +1,8 @@
-import { adminMutation, adminQuery, e2eMutation } from "./functions";
+import {
+  e2eMutation,
+  permissionMutation,
+  permissionQuery,
+} from "./functions";
 import { buildPricingSnapshot } from "./pricing";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -373,7 +377,7 @@ export async function computeChallengeRanking(
 
 // ─── CRUD admin ──────────────────────────────────────────────────────────────
 
-export const createChallenge = adminMutation({
+export const createChallenge = permissionMutation("challenges.money")({
   args: {
     name: v.string(),
     description: v.optional(v.string()),
@@ -460,7 +464,7 @@ export const createChallenge = adminMutation({
  * modifiables : corriger une faute ou prolonger un défi ne trahit personne.
  * (Prolonger, oui ; raccourcir est refusé — cf validateDeadline ci-dessous.)
  */
-export const updateChallenge = adminMutation({
+export const updateChallenge = permissionMutation("challenges.money")({
   args: {
     id: v.id("challenges"),
     name: v.optional(v.string()),
@@ -557,7 +561,7 @@ export const updateChallenge = adminMutation({
  * Refuse un défi sans participante : un défi que personne ne voit n'est pas un
  * défi, et l'ouvrir vide donnerait un classement vide qu'on croirait cassé.
  */
-export const openChallenge = adminMutation({
+export const openChallenge = permissionMutation("challenges.run")({
   args: { id: v.id("challenges") },
   handler: async (ctx, { id }): Promise<{ ok: true }> => {
     const c = await requireChallenge(ctx, id, ctx.projectId);
@@ -585,7 +589,7 @@ export const openChallenge = adminMutation({
 });
 
 /** Clôture MANUELLE. La fin « de fait » (deadline, places prises) est dérivée. */
-export const closeChallenge = adminMutation({
+export const closeChallenge = permissionMutation("challenges.run")({
   args: { id: v.id("challenges") },
   handler: async (ctx, { id }): Promise<{ ok: true }> => {
     const c = await requireChallenge(ctx, id, ctx.projectId);
@@ -607,7 +611,7 @@ export const closeChallenge = adminMutation({
  * créatrices et peut porter des vidéos et des victoires ; le supprimer
  * effacerait des faits. On le clôt, on ne le supprime pas.
  */
-export const deleteChallenge = adminMutation({
+export const deleteChallenge = permissionMutation("challenges.money")({
   args: { id: v.id("challenges") },
   handler: async (ctx, { id }): Promise<{ ok: true }> => {
     const c = await requireChallenge(ctx, id, ctx.projectId);
@@ -638,7 +642,7 @@ export const deleteChallenge = adminMutation({
  * revanche, reste possible à tout moment — arriver en cours de défi est un choix
  * d'organisation, pas une incohérence.
  */
-export const setChallengeParticipants = adminMutation({
+export const setChallengeParticipants = permissionMutation("challenges.run")({
   args: { id: v.id("challenges"), creatorIds: v.array(v.id("creators")) },
   handler: async (ctx, { id, creatorIds }): Promise<{ ok: true }> => {
     const c = await requireChallenge(ctx, id, ctx.projectId);
@@ -865,7 +869,7 @@ export async function createChallengeAssignment(
  * le coup d'envoi) et à dépanner ; le chemin normal est la soumission libre
  * depuis l'espace de la créatrice, qui appelle le MÊME cœur.
  */
-export const assignChallengeVideo = adminMutation({
+export const assignChallengeVideo = permissionMutation("challenges.run")({
   args: {
     challengeId: v.id("challenges"),
     creatorId: v.id("creators"),
@@ -896,7 +900,7 @@ export const assignChallengeVideo = adminMutation({
  * reste acquise (cf challengeScore). Pour la reprendre, il y a l'annulation
  * explicite, avec motif.
  */
-export const setChallengeVideoRemoved = adminMutation({
+export const setChallengeVideoRemoved = permissionMutation("challenges.run")({
   args: { assignmentId: v.id("assignments"), removed: v.boolean() },
   handler: async (ctx, { assignmentId, removed }): Promise<{ ok: true }> => {
     const a = await ctx.db.get(assignmentId);
@@ -916,7 +920,7 @@ export const setChallengeVideoRemoved = adminMutation({
 // ─── Lectures admin ──────────────────────────────────────────────────────────
 
 /** Résumé d'un défi pour la liste admin (aucun calcul de score : c'est cher). */
-export const listChallenges = adminQuery({
+export const listChallenges = permissionQuery("challenges.run")({
   args: {},
   handler: async (ctx) => {
     const rows = await ctx.db
@@ -961,7 +965,7 @@ export const listChallenges = adminQuery({
 });
 
 /** Détail admin : réglages, participantes, classement, victoires, vidéos. */
-export const getChallenge = adminQuery({
+export const getChallenge = permissionQuery("challenges.run")({
   args: { id: v.id("challenges") },
   handler: async (ctx, { id }) => {
     const c = await ctx.db.get(id);
@@ -1039,7 +1043,7 @@ export const getChallenge = adminQuery({
  * modale — proposer un barème que la création refusera ensuite serait une
  * impasse offerte à l'admin.
  */
-export const listChallengePricings = adminQuery({
+export const listChallengePricings = permissionQuery("challenges.money")({
   args: {},
   handler: async (ctx) => {
     const rows = await ctx.db
@@ -1054,7 +1058,7 @@ export const listChallengePricings = adminQuery({
 });
 
 /** Ce que l'évaluation NOCTURNE appliquera — exposé pour l'écran admin. */
-export const previewChallengeWinners = adminQuery({
+export const previewChallengeWinners = permissionQuery("challenges.run")({
   args: { id: v.id("challenges") },
   handler: async (ctx, { id }) => {
     const c = await ctx.db.get(id);

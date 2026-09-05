@@ -1,5 +1,9 @@
 import { type MutationCtx } from "./_generated/server";
-import { e2eMutation, adminMutation, adminQuery } from "./functions";
+import {
+  e2eMutation,
+  permissionMutation,
+  permissionQuery,
+} from "./functions";
 import { syncBonusForPublication } from "./pricing";
 import { v, ConvexError } from "convex/values";
 import type { Id } from "./_generated/dataModel";
@@ -128,7 +132,7 @@ function readSnapshotMetric(
  * métrique par bucket de date (capturedAt), sur [dateFrom, dateTo], filtrée
  * optionnellement par mediaType. Retourne [{ date, value }] trié chronologique.
  */
-export const aggregateTimeseries = adminQuery({
+export const aggregateTimeseries = permissionQuery("content.analytics")({
   args: {
     metric: metricArg,
     dateFrom: v.number(),
@@ -192,7 +196,7 @@ export const aggregateTimeseries = adminQuery({
 });
 
 /** Snapshots d'une publication, triés par capturedAt desc (plus récent d'abord). */
-export const listSnapshotsByPublication = adminQuery({
+export const listSnapshotsByPublication = permissionQuery("content.analytics")({
   args: { publicationId: v.id("publications") },
   handler: async (ctx, args) => {
     const pub = await ctx.db.get(args.publicationId);
@@ -207,7 +211,7 @@ export const listSnapshotsByPublication = adminQuery({
   },
 });
 
-export const createSnapshot = adminMutation({
+export const createSnapshot = permissionMutation("tracker.manage")({
   args: {
     publicationId: v.id("publications"),
     capturedAt: v.number(),
@@ -257,7 +261,7 @@ export const createSnapshot = adminMutation({
   },
 });
 
-export const updateSnapshot = adminMutation({
+export const updateSnapshot = permissionMutation("tracker.manage")({
   args: {
     id: v.id("metricSnapshots"),
     vues: v.optional(v.number()),
@@ -302,7 +306,7 @@ export const updateSnapshot = adminMutation({
   },
 });
 
-export const deleteSnapshot = adminMutation({
+export const deleteSnapshot = permissionMutation("tracker.manage")({
   args: { id: v.id("metricSnapshots") },
   handler: async (ctx, args) => {
     const snap = await ctx.db.get(args.id);

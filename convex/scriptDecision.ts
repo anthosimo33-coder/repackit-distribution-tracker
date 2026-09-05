@@ -1,4 +1,6 @@
-import { adminQuery } from "./functions";
+import {
+  permissionQuery,
+} from "./functions";
 import { v } from "convex/values";
 import {
   gatherCampaignViews,
@@ -18,7 +20,7 @@ import { tierLabel } from "./scriptTier";
  * PAS les médianes from scratch) et en TIRE des verdicts par dimension + la
  * liste des signaux forts.
  *
- * 100 % adminQuery → le créateur n'a AUCUN accès aux décisions/verdicts/signaux
+ * 100 % administration → le créateur n'a AUCUN accès aux décisions/verdicts/signaux
  * (isolation, cf rappel S2/S3 sur la fuite de la mécanique combinatoire).
  *
  * S4 RECOMMANDE, il n'agit pas : « à pousser »/« à couper » sont des recos que
@@ -298,7 +300,7 @@ function buildDecisions(views: CampaignViews): CampaignDecisions {
  * par dimension (tier/corps/flux/cta) et les signaux forts à valider. Changer de
  * fenêtre recalcule tout (la médiane bouge avec la fenêtre).
  */
-export const campaignDecisions = adminQuery({
+export const campaignDecisions = permissionQuery("content.analytics")({
   args: { campaignId: v.id("scriptCampaigns"), window: WINDOW },
   handler: async (ctx, { campaignId, window }): Promise<CampaignDecisions> => {
     const views = await gatherCampaignViews(

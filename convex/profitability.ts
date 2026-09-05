@@ -1,4 +1,6 @@
-import { adminQuery } from "./functions";
+import {
+  permissionQuery,
+} from "./functions";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { computeLivePricingBreakdown, assignmentPublishedAt } from "./pricing";
@@ -112,7 +114,7 @@ async function creatorCostByMonth(
  * warmup (lib/profitability). `configured` = false → pas de mapping Whop (l'UI
  * masque la rentabilité). Ne lit QUE le projet courant.
  */
-export const getProjectProfitability = adminQuery({
+export const getProjectProfitability = permissionQuery("business.read")({
   args: {},
   handler: async (ctx) => {
     const project = await ctx.db.get(ctx.projectId);

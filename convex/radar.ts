@@ -2,7 +2,7 @@
  * RADAR — veille TikTok, Brique 1 (comptes favoris + suivi de leurs vidéos).
  * Module ADMIN UNIQUEMENT, SILO séparé : ne touche NI creators NI publications NI
  * comptes (tracking créateurs = autre module). Toutes les fonctions publiques
- * passent par adminQuery/adminMutation → un créateur n'atteint AUCUNE fonction
+ * passent par des gardes de bloc → un créateur n'atteint AUCUNE fonction
  * Radar (rejet serveur). Scopé projet (ctx.projectId injecté par le wrapper).
  *
  * Source de données : Apify clockworks/tiktok-scraper en input PROFIL, via un
@@ -23,7 +23,10 @@ import {
   internalQuery,
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { adminMutation, adminQuery } from "./functions";
+import {
+  permissionMutation,
+  permissionQuery,
+} from "./functions";
 import {
   apiFetchHashtagVideos,
   apiFetchSearchVideos,
@@ -94,7 +97,7 @@ export const requireAdminForRadarAction = internalQuery({
 
 /**
  * Wrapper ACTION admin-only, LOCAL au module Radar (functions.ts non touché). Même
- * contrat que adminMutation (arg `projectId`, ctx.userId/projectId injectés) mais
+ * contrat qu'une mutation gardée (arg `projectId`, ctx.userId/projectId injectés) mais
  * pour les actions (I/O Apify) appelables directement et AWAITables côté client →
  * chargement « à la demande » propre. Gating via requireAdminForRadarAction.
  */
@@ -118,7 +121,7 @@ const adminAction = customAction(action, {
  * Comptes favoris suivis du projet + la limite douce (pour le compteur UI).
  * Chaque compte porte son nb de vidéos connues (pour l'affichage des cartes).
  */
-export const listRadarAccounts = adminQuery({
+export const listRadarAccounts = permissionQuery("radar.use")({
   args: {},
   handler: async (ctx) => {
     const accounts = await ctx.db
@@ -157,7 +160,7 @@ export const listRadarAccounts = adminQuery({
  * simultanément populaire et récent). Engagement calculé serveur. Le tri/filtre
  * fin reste en JS côté client. Un accountId d'un AUTRE projet est rejeté.
  */
-export const listRadarVideos = adminQuery({
+export const listRadarVideos = permissionQuery("radar.use")({
   args: { accountId: v.optional(v.id("radarAccounts")) },
   handler: async (ctx, { accountId }) => {
     const accounts = await ctx.db
@@ -224,7 +227,7 @@ export const listRadarVideos = adminQuery({
  * NON bloquant sur la limite : si on l'atteint, on ajoute quand même et on
  * renvoie un `warning`. Déclenche un 1er sync immédiat du compte.
  */
-export const addRadarAccount = adminMutation({
+export const addRadarAccount = permissionMutation("radar.use")({
   args: { input: v.string(), note: v.optional(v.string()) },
   handler: async (
     ctx,
@@ -275,7 +278,7 @@ export const addRadarAccount = adminMutation({
 });
 
 /** Met à jour la note/tag libre d'un compte favori. */
-export const updateRadarAccountNote = adminMutation({
+export const updateRadarAccountNote = permissionMutation("radar.use")({
   args: { accountId: v.id("radarAccounts"), note: v.optional(v.string()) },
   handler: async (ctx, { accountId, note }): Promise<null> => {
     const account = await ctx.db.get(accountId);
@@ -288,7 +291,7 @@ export const updateRadarAccountNote = adminMutation({
 });
 
 /** Retire un compte favori ET toutes ses vidéos (silo, pas de lien externe). */
-export const removeRadarAccount = adminMutation({
+export const removeRadarAccount = permissionMutation("radar.use")({
   args: { accountId: v.id("radarAccounts") },
   handler: async (ctx, { accountId }): Promise<null> => {
     const account = await ctx.db.get(accountId);
@@ -308,7 +311,7 @@ export const removeRadarAccount = adminMutation({
 });
 
 /** Bouton « Synchroniser » : planifie le sync de TOUS les comptes du projet. */
-export const requestRadarSync = adminMutation({
+export const requestRadarSync = permissionMutation("radar.use")({
   args: {},
   handler: async (ctx): Promise<{ scheduled: true }> => {
     await ctx.scheduler.runAfter(0, internal.radar.runRadarSync, {
@@ -319,7 +322,7 @@ export const requestRadarSync = adminMutation({
 });
 
 /** Re-sync ciblé d'UN compte (bouton par carte). */
-export const requestRadarAccountSync = adminMutation({
+export const requestRadarAccountSync = permissionMutation("radar.use")({
   args: { accountId: v.id("radarAccounts") },
   handler: async (ctx, { accountId }): Promise<{ scheduled: true }> => {
     const account = await ctx.db.get(accountId);
@@ -589,7 +592,7 @@ export const runRadarSync = internalAction({
  * (fraîcheur, null si jamais chargé). Chaque hashtag porte `videosFetchedAt`
  * (null = ses vidéos pas encore chargées) pour le chargement paresseux.
  */
-export const listTrendHashtags = adminQuery({
+export const listTrendHashtags = permissionQuery("radar.use")({
   args: { countryCode: v.string() },
   handler: async (ctx, { countryCode }) => {
     const cc = assertCountry(countryCode);
@@ -618,7 +621,7 @@ export const listTrendHashtags = adminQuery({
 });
 
 /** Vidéos en cache d'un hashtag (déjà filtrées < 14 j), avec engagement calculé. */
-export const listTrendVideos = adminQuery({
+export const listTrendVideos = permissionQuery("radar.use")({
   args: { countryCode: v.string(), hashtag: v.string() },
   handler: async (ctx, { countryCode, hashtag }) => {
     const cc = assertCountry(countryCode);
@@ -641,7 +644,7 @@ export const listTrendVideos = adminQuery({
 });
 
 /** Liste des pays supportés (pour le sélecteur). */
-export const listTrendCountries = adminQuery({
+export const listTrendCountries = permissionQuery("radar.use")({
   args: {},
   handler: async (): Promise<string[]> => [...SUPPORTED_TREND_COUNTRIES],
 });
@@ -923,7 +926,7 @@ const rankedSearchVideoValidator = v.object({
  * Vidéos déjà filtrées (anglophone), scorées et triées par outlierRatio
  * décroissant, avec flags de récurrence — la query ne fait que lire le cache.
  */
-export const getRadarSearch = adminQuery({
+export const getRadarSearch = permissionQuery("radar.use")({
   args: { keyword: v.string() },
   handler: async (ctx, { keyword }) => {
     const norm = normalizeSearchKeyword(keyword);

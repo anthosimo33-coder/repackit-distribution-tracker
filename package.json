@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint && node scripts/i18n-scope-gen.mjs --check && node scripts/check-i18n.mjs",
+    "lint": "eslint && node scripts/i18n-scope-gen.mjs --check && node scripts/check-i18n.mjs && node scripts/check-db-spread.mjs && node scripts/check-permission-coverage.mjs",
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
     "test:e2e:summary": "./scripts/e2e-summary.sh",

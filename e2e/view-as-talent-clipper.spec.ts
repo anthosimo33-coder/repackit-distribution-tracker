@@ -5,6 +5,7 @@ import type { Id } from "../convex/_generated/dataModel";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { availableTarget } from "./helpers/targets";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -68,7 +69,7 @@ async function ouvrirLeDepot() {
 
 /** Brief permanent : un format du projet, désigné comme brief talent. */
 async function poserLeBrief(ts: number, texte: string) {
-  const formatId = await admin.mutation(api.formats.createFormat, {
+  const formatId = await createFormatWithRate(admin, {
     name: `[E2E_TEST] Brief observation ${ts}`,
     type: "short",
     brief: texte,

@@ -42,7 +42,7 @@ test.describe("Pricing v2 — paliers de bonus (cumul, cash/nature)", () => {
         { seuilVues: 5_000_000, rewardType: "cash", montant: 500 },
       ],
     });
-    await admin.mutation(api.creators.updateCreator, {
+    await admin.mutation(api.creators.updateCreatorPayTerms, {
       id: creator.creatorId,
       bonusPricingId: pricingId,
     });
@@ -51,7 +51,6 @@ test.describe("Pricing v2 — paliers de bonus (cumul, cash/nature)", () => {
     const formatId = await admin.mutation(api.formats.createFormat, {
       name: `[E2E_TEST] Format Tiers ${ts}`,
       type: "short",
-      rateModel: { basePerPost: 0 },
     });
     const target = await availableTarget({
       e2eClient: admin,

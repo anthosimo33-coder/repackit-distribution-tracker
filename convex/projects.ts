@@ -1,14 +1,19 @@
 import {
-  adminMutation,
-  adminQuery,
   authedQuery,
   e2eMutation,
+  permissionMutation,
+  permissionQuery,
   publicQuery,
   requireProjectAccess,
   superadminMutation,
 } from "./functions";
 import { internalMutation } from "./_generated/server";
 import { isPortalRole } from "./roles";
+import {
+  PERMISSION_ID_LITERALS,
+  grantedPermissions,
+  type PermissionId,
+} from "./permissions";
 import { normalizeRef } from "./conversionAttribution";
 import { warmupTargetDaysOf } from "./warmup";
 import {
@@ -175,7 +180,7 @@ export const getProjectForCurrentUser = authedQuery({
     // (membership) mais PAS à l'app interne : le ProjectProvider le renvoie vers SON
     // portail (lib/portal-path). On renvoie le rôle plutôt qu'un booléen — avec trois
     // portails, un `isCreator` ne dit plus où rediriger. La vraie barrière reste
-    // serveur (adminQuery/adminMutation), ce champ n'est que du confort de routage.
+    // serveur (gardes de bloc), ce champ n'est que du confort de routage.
     return {
       status: "ok" as const,
       project: projectForClient(project),
@@ -327,7 +332,7 @@ export const setProjectCurrencyBySlug = internalMutation({
  * Réglages de l'espace TALENT d'un projet : quel format sert de brief permanent,
  * et le dépôt de fichiers est-il ouvert.
  *
- * `adminMutation` et non `internalMutation` : ce n'est pas de l'exploitation
+ * Gardée par bloc et non `internalMutation` : ce n'est pas de l'exploitation
  * ponctuelle comme les devises ou le mapping Whop, c'est un réglage qu'un admin
  * de projet ajuste (changer le brief = changer la consigne de tournage). L'écran
  * qui l'appellera arrive avec la revue des rushes ; le passer par un wrapper
@@ -349,7 +354,7 @@ export const setProjectCurrencyBySlug = internalMutation({
  * champs de configuration de plus y seraient sans danger réel, mais la liste
  * blanche n'a de valeur que si on ne l'élargit pas par commodité.
  */
-export const getTalentSettings = adminQuery({
+export const getTalentSettings = permissionQuery("project.settings")({
   args: {},
   handler: async (
     ctx,
@@ -365,7 +370,7 @@ export const getTalentSettings = adminQuery({
   },
 });
 
-export const setTalentSettings = adminMutation({
+export const setTalentSettings = permissionMutation("project.settings")({
   args: {
     talentBriefFormatId: v.optional(v.union(v.id("formats"), v.null())),
     fileDropEnabled: v.optional(v.boolean()),
@@ -511,6 +516,60 @@ export const getMe = authedQuery({
  * #FF5200, payoutDay défaut 5 (borné 1–28). Aucun membership créé : le
  * superadmin a l'accès implicite ; le workspace reste 100 % vide.
  */
+/**
+ * MES DROITS sur un projet — ce que l'ÉCRAN a le droit de demander.
+ *
+ * Pourquoi cette query existe. Depuis le découpage financier, certains écrans
+ * appellent des fonctions gardées par un bloc que l'appelant ne porte pas
+ * forcément (la fiche créatrice et ses conditions de rémunération). Sans un
+ * moyen de SAVOIR, le client n'a que deux options : appeler et se prendre une
+ * erreur — un écran cassé pour un droit manquant — ou ne jamais appeler, et
+ * l'écran serait amputé pour tout le monde. Il lui faut la liste.
+ *
+ * ⚠️ Elle ne renvoie que les droits EFFECTIFS : les valeurs stockées hors
+ * catalogue sont écartées, exactement comme au contrôle d'accès
+ * (`grantedPermissions`). Un écran qui verrait « challenges.manage » — bloc
+ * retiré depuis — croirait pouvoir afficher quelque chose que le serveur
+ * refuserait ensuite. La liste que lit le client doit être la MÊME que celle qui
+ * décide, sans quoi elle ment poliment.
+ *
+ * ⚠️ Et ce n'est PAS une barrière : masquer un bouton n'a jamais protégé une
+ * donnée. La barrière reste `requirePermission`, à chaque requête. Ceci ne sert
+ * qu'à ne pas afficher un écran cassé.
+ *
+ * `admin` et `superadmin` reçoivent TOUT le catalogue : ils peuvent tout, et
+ * l'écran doit se comporter pour eux exactement comme avant.
+ */
+export const getMyPermissions = authedQuery({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }) => {
+    const user = await ctx.db.get(ctx.userId);
+    if (user?.role === "superadmin") {
+      return { role: "superadmin" as const, permissions: [...PERMISSION_ID_LITERALS] };
+    }
+    const membership = await ctx.db
+      .query("memberships")
+      .withIndex("by_user_project", (q) =>
+        q.eq("userId", ctx.userId).eq("projectId", projectId),
+      )
+      .first();
+    if (membership === null) {
+      return { role: null, permissions: [] as PermissionId[] };
+    }
+    if (membership.role === "admin") {
+      return { role: "admin" as const, permissions: [...PERMISSION_ID_LITERALS] };
+    }
+    if (membership.role !== "manager") {
+      // Rôle de portail : aucun droit d'administration, et c'est structurel.
+      return { role: membership.role, permissions: [] as PermissionId[] };
+    }
+    return {
+      role: "manager" as const,
+      permissions: [...grantedPermissions(membership.permissions)],
+    };
+  },
+});
+
 export const createProject = superadminMutation({
   args: {
     name: v.string(),
@@ -810,7 +869,7 @@ export const e2eDeleteProject = e2eMutation({
  * d'effet que sur les chauffes à venir — c'est dit à l'écran, pour qu'on ne
  * l'attende pas en vain.
  */
-export const getWarmupSettings = adminQuery({
+export const getWarmupSettings = permissionQuery("project.settings")({
   args: {},
   handler: async (
     ctx,
@@ -834,7 +893,7 @@ export const getWarmupSettings = adminQuery({
 const WARMUP_DAYS_MIN = 1;
 const WARMUP_DAYS_MAX = 60;
 
-export const setWarmupSettings = adminMutation({
+export const setWarmupSettings = permissionMutation("project.settings")({
   args: {
     tiktok: v.union(v.number(), v.null()),
     instagram: v.union(v.number(), v.null()),
@@ -880,7 +939,7 @@ export const setWarmupSettings = adminMutation({
  * NE TOUCHE PAS aux combos déjà attribués — ils sont figés sur leur assignation
  * et ne sont jamais rejugés. Le réglage n'agit que sur les tirages à venir.
  */
-export const getComboCooldownSettings = adminQuery({
+export const getComboCooldownSettings = permissionQuery("project.settings")({
   args: {},
   handler: async (
     ctx,
@@ -901,7 +960,7 @@ export const getComboCooldownSettings = adminQuery({
   },
 });
 
-export const setComboCooldownDays = adminMutation({
+export const setComboCooldownDays = permissionMutation("project.settings")({
   args: { days: v.union(v.number(), v.null()) },
   handler: async (ctx, { days }): Promise<{ updated: true }> => {
     // La validation vit dans le module pur (bornes + message), pas ici : c'est

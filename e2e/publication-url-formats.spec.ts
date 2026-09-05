@@ -5,6 +5,7 @@ import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -35,7 +36,7 @@ test.describe("Publication — formes d'URL", () => {
   test("lien court TikTok accepté, lien de profil et hôte imité refusés", async () => {
     test.setTimeout(90_000);
     const ts = Date.now();
-    const fid = await admin.mutation(api.formats.createFormat, {
+    const fid = await createFormatWithRate(admin, {
       name: `[E2E_TEST] UrlForms ${ts}`,
       type: "short",
       rateModel: RATE,
@@ -145,7 +146,7 @@ test.describe("Publication — formes d'URL", () => {
     test.setTimeout(120_000);
     const ts = Date.now();
     const password = "creator-urlui-12345";
-    const fid = await admin.mutation(api.formats.createFormat, {
+    const fid = await createFormatWithRate(admin, {
       name: `[E2E_TEST] UrlUI ${ts}`,
       type: "short",
       rateModel: RATE,

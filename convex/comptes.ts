@@ -1,15 +1,15 @@
 import { internalMutation } from "./_generated/server";
 import { passesWarmupMode } from "./warmupMode";
 import {
-  e2eMutation,
-  adminMutation,
-  adminQuery,
   adminViewAsClipperQuery,
   adminViewAsQuery,
-  creatorMutation,
-  creatorQuery,
   clipperMutation,
   clipperQuery,
+  creatorMutation,
+  creatorQuery,
+  e2eMutation,
+  permissionMutation,
+  permissionQuery,
 } from "./functions";
 import {
   defaultTargetDays,
@@ -240,7 +240,7 @@ async function compteUsage(
  * (handle + publications + vues + missions en cours). Le serveur re-vérifie de
  * toute façon dans deleteCompte — cette query n'est qu'un affichage.
  */
-export const getCompteUsage = adminQuery({
+export const getCompteUsage = permissionQuery("accounts.manage")({
   args: { id: v.id("comptes") },
   handler: async (ctx, { id }) => {
     const compte = await ctx.db.get(id);
@@ -251,7 +251,7 @@ export const getCompteUsage = adminQuery({
   },
 });
 
-export const listComptes = adminQuery({
+export const listComptes = permissionQuery("accounts.manage")({
   args: {
     actifOnly: v.optional(v.boolean()),
     statusFilter: v.optional(statusValidator),
@@ -341,7 +341,7 @@ export const listComptes = adminQuery({
  * désactivée. Gate STRICT pour Snytch (available = "actif" seulement) ; lenient
  * ailleurs (warmup terminé suffit).
  */
-export const listCreatorAvailableComptes = adminQuery({
+export const listCreatorAvailableComptes = permissionQuery("accounts.manage")({
   args: { creatorId: v.id("creators") },
   handler: async (ctx, { creatorId }) => {
     const strict = await isSnytchProject(ctx, ctx.projectId);
@@ -386,7 +386,7 @@ export const listCreatorAvailableComptes = adminQuery({
   },
 });
 
-export const createCompte = adminMutation({
+export const createCompte = permissionMutation("accounts.manage")({
   args: {
     handle: v.string(),
     plateforme: v.union(
@@ -454,7 +454,7 @@ export const createCompte = adminMutation({
   },
 });
 
-export const updateCompte = adminMutation({
+export const updateCompte = permissionMutation("accounts.manage")({
   args: {
     id: v.id("comptes"),
     handle: v.optional(v.string()),
@@ -647,7 +647,7 @@ export const updateCompte = adminMutation({
  * paiement). Sinon REJET (archivage à la place) — jamais de cascade qui
  * orphelinerait des publications/paiements.
  */
-export const deleteCompte = adminMutation({
+export const deleteCompte = permissionMutation("accounts.manage")({
   args: { id: v.id("comptes") },
   handler: async (ctx, args) => {
     const compte = await ctx.db.get(args.id);
@@ -676,7 +676,7 @@ export const deleteCompte = adminMutation({
  * (countMyWarmupDue) ; warmup GELÉ (warmupStartedAt unset). Données passées
  * (publications/paiements) intactes. Toujours autorisé (vierge ou utilisé).
  */
-export const archiveCompte = adminMutation({
+export const archiveCompte = permissionMutation("accounts.manage")({
   args: { id: v.id("comptes") },
   handler: async (ctx, { id }) => {
     const compte = await ctx.db.get(id);
@@ -711,7 +711,7 @@ export const archiveCompte = adminMutation({
  * SERVEUR parce qu'il a besoin du nom du projet et de la liste des talents, que
  * l'écran des comptes ne charge pas.
  */
-export const listComptesAValider = adminQuery({
+export const listComptesAValider = permissionQuery("accounts.manage")({
   args: {},
   handler: async (ctx) => {
     const project = await ctx.db.get(ctx.projectId);
@@ -774,7 +774,7 @@ export const listComptesAValider = adminQuery({
  * le premier refus est celui qui compte). Un compte déjà archivé pour une autre
  * raison peut être refusé : c'est une qualification, pas une transition.
  */
-export const refuseCompte = adminMutation({
+export const refuseCompte = permissionMutation("accounts.manage")({
   args: { id: v.id("comptes"), reason: v.string() },
   handler: async (ctx, { id, reason }) => {
     const compte = await ctx.db.get(id);
@@ -801,7 +801,7 @@ export const refuseCompte = adminMutation({
 });
 
 /** Réactive un compte archivé → "actif" (action ADMIN ; le créateur ne peut pas). */
-export const unarchiveCompte = adminMutation({
+export const unarchiveCompte = permissionMutation("accounts.manage")({
   args: { id: v.id("comptes") },
   handler: async (ctx, { id }) => {
     const compte = await ctx.db.get(id);
@@ -838,7 +838,7 @@ export const unarchiveCompte = adminMutation({
  * publication possible) tant que les N checks ne sont pas posés. NE TOUCHE NI
  * les publications NI les assignments existants : ça ne fait que ré-échauffer.
  */
-export const restartWarmup = adminMutation({
+export const restartWarmup = permissionMutation("accounts.manage")({
   args: { id: v.id("comptes") },
   handler: async (ctx, { id }) => {
     // Barème de warmup DU PROJET — `defaultTargetDays` l'exige.
@@ -890,7 +890,7 @@ function normalizeHandle(h: string): string {
  * comptes (la règle « unique par compte dans le projet » a été retirée — elle
  * bloquait l'admin qui assigne des niches communes aux comptes d'un créateur).
  */
-export const updateWarmupProtocol = adminMutation({
+export const updateWarmupProtocol = permissionMutation("accounts.manage")({
   args: {
     id: v.id("comptes"),
     keywords: v.optional(v.array(v.string())),
@@ -1003,7 +1003,7 @@ function computeBioPatch(
  * re-confirmer) ; re-sauver le même texte est un no-op ; vider la bio l'efface.
  * Garanti SERVEUR via computeBioPatch (pas seulement l'UI).
  */
-export const setAccountBio = adminMutation({
+export const setAccountBio = permissionMutation("accounts.manage")({
   args: { id: v.id("comptes"), bio: v.string() },
   handler: async (ctx, { id, bio }) => {
     const compte = await ctx.db.get(id);
@@ -1315,7 +1315,7 @@ export const listClipperComptesAsAdmin = adminViewAsClipperQuery({
  * warmup, soumet, publie). Créé en "warmup" (l'admin cochera puis activera) —
  * même init que declareCompte pour rester en phase avec le gate strict #98.
  */
-export const declareManagedCompte = adminMutation({
+export const declareManagedCompte = permissionMutation("accounts.manage")({
   args: {
     creatorId: v.id("creators"),
     plateforme: plateformeValidator,
@@ -1428,7 +1428,7 @@ export const markWarmupCheck = creatorMutation({
  * via updateCompte status:"actif" (déjà dispo) → le gate strict #98 reste le
  * VRAI passage warmup → disponible.
  */
-export const markWarmupCheckAsAdmin = adminMutation({
+export const markWarmupCheckAsAdmin = permissionMutation("accounts.manage")({
   args: { id: v.id("comptes") },
   handler: async (ctx, args) => {
     const compte = await ctx.db.get(args.id);

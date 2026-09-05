@@ -114,11 +114,18 @@ test.describe("Créateurs — changement de population", () => {
       id: c.creatorId,
       name: `[E2E_TEST] renommé ${ts}`,
       kind: "clipper",
+    });
+    await admin.mutation(api.creators.updateCreatorPayTerms, {
+      id: c.creatorId,
       clipRate: 9.9,
     });
     const fiche = (await admin.query(api.creators.getCreator, { id: c.creatorId }))!;
     expect(fiche.name).toContain("renommé");
-    expect(fiche.clipRate).toBe(9.9);
+    // Le tarif ne sort PLUS de `getCreator` : il a sa propre lecture, gardée.
+    const tarifs = (await admin.query(api.creators.getCreatorPayTerms, {
+      id: c.creatorId,
+    }))!;
+    expect(tarifs.clipRate).toBe(9.9);
     expect(E2E_SECRET.length).toBeGreaterThan(0);
   });
 });

@@ -3,7 +3,9 @@ import {
   internalMutation,
   internalQuery,
 } from "./_generated/server";
-import { adminQuery } from "./functions";
+import {
+  permissionQuery,
+} from "./functions";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
@@ -16,6 +18,8 @@ import { whopNetContribution } from "./whopRevenue";
 import {
   mergeDayRows,
   normalizeRef,
+  refConflicts,
+  shapeConversionDay,
   type DayRefRow,
   type PosthogDayResult,
   type WhopDayResult,
@@ -460,7 +464,7 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-export const readConversionAllTime = adminQuery({
+export const readConversionAllTime = permissionQuery("business.read")({
   args: {},
   handler: async (ctx) => {
     const all = await ctx.db
@@ -566,15 +570,91 @@ export const readConversionAllTime = adminQuery({
     // plus tôt.
     if (byRef.size === 0) return null;
 
-    // Bornes de la PLAGE DE DONNÉES, sur les deux sources réunies : un jour de
-    // vente est une donnée au même titre qu'un jour de trafic.
-    const spans = [...byRef.values()];
-    const firstDate = spans.reduce((a, r) => (r.firstDate < a ? r.firstDate : a), spans[0].firstDate);
-    const lastDate = spans.reduce((a, r) => (r.lastDate > a ? r.lastDate : a), spans[0].lastDate);
+    // Borne BASSE de la plage de données, sur les deux sources réunies : un jour
+    // de vente est une donnée au même titre qu'un jour de trafic. (La borne
+    // haute n'est plus calculée : elle n'était affichée nulle part — l'écran
+    // date la fraîcheur par `visitorsThroughDate` et `salesSyncMs`, pas par la
+    // fin de la plage.)
+    const accs = [...byRef.values()];
+    const firstDate = accs.reduce(
+      (a, r) => (r.firstDate < a ? r.firstDate : a),
+      accs[0].firstDate,
+    );
     const collectedSorted = [...days].sort();
+
+    // ── MISE EN FORME CÔTÉ SERVEUR ─────────────────────────────────────────
+    // Elle vivait dans le composant : le navigateur recevait les lignes BRUTES
+    // par ref, la liste des créatrices et celle des influenceuses, puis dérivait
+    // l'affichage. Trois listes traversaient le réseau pour en rendre une, et
+    // toute ref non affichée partait quand même. Le calcul est INCHANGÉ — mêmes
+    // fonctions pures (`shapeConversionDay`, `refConflicts`), mêmes entrées,
+    // même ordre — seul son LIEU d'exécution change.
+    const rows = [...byRef.values()].map((a) => ({
+      ref: a.ref,
+      visitors: a.visitors,
+      signups: a.signups,
+      sales: a.sales,
+      revenue:
+        a.revenue === undefined ? undefined : Math.round(a.revenue * 100) / 100,
+      currency: a.currency,
+      firstDate: a.firstDate,
+      lastDate: a.lastDate,
+    }));
+    // PLUS DE FILTRE `churned` (TD-027). Il écartait les fiches parties, donc
+    // tout leur travail retombait sous le slug nu et leur revenu sortait du
+    // « Total attribué » : en all-time, chaque départ réécrivait le passé.
+    // Simulé sur l'export de prod — le Total attribué tombait de 92,67 € à
+    // 37,08 € au départ de Kelly. Le tri de ce qui reste listé se fait
+    // désormais à l'affichage, sur la présence de DONNÉES (shapeConversionDay),
+    // pas sur le statut à la source.
+    //
+    // Effet de bord souhaitable : le bandeau de conflits de refs voit enfin
+    // les fiches parties. Le refus à l'écriture, lui, les couvrait déjà —
+    // `assertRefSlugFree` interroge toutes les fiches sans filtre de statut.
+    const creatorRefs = creators.map((c) => ({
+      creatorId: c._id as string,
+      name: c.name,
+      refSlug: c.refSlug ?? null,
+      status: c.status,
+      // Pour signaler une attribution DOUTEUSE : des données de conversion
+      // antérieures à l'existence même de la créatrice ne peuvent pas être
+      // les siennes (ref réaffectée, ou reprise d'un slug déjà utilisé).
+      // C'est le seul repère disponible — la DATE DE POSE du refSlug n'est
+      // stockée nulle part, donc une ref configurée tardivement sur une
+      // créatrice ancienne ne déclenchera PAS l'avertissement. Le contrôle
+      // ne crie jamais à tort ; il ne voit simplement pas tout.
+      createdAt: c.createdAt,
+    }));
+    // Refs d'influenceuses — nommées, sans fiche créatrice (cf schema).
+    const influencers = project?.influencerRefs ?? [];
+
+    // Plage réelle PAR REF : en all-time, « 146 visiteurs » ne veut pas dire la
+    // même chose sur 2 jours et sur 41.
+    const spans: Record<string, { first: string; last: string }> = {};
+    for (const r of rows) {
+      if (r.ref !== undefined) {
+        spans[r.ref] = { first: r.firstDate, last: r.lastDate };
+      }
+    }
+    // Attribution DOUTEUSE : des conversions antérieures à l'existence de la
+    // créatrice ne peuvent pas être les siennes. Le refSlug est résolu au READ
+    // et sa date de pose n'est stockée nulle part — ce contrôle ne voit donc
+    // pas tout, mais il ne crie jamais à tort.
+    const createdAtByRef = new Map(
+      creatorRefs
+        .filter((c) => c.refSlug)
+        .map((c) => [c.refSlug as string, c.createdAt]),
+    );
+    const suspectRefs = Object.entries(spans)
+      .filter(([ref, span]) => {
+        const createdAt = createdAtByRef.get(ref);
+        if (createdAt === undefined) return false;
+        return span.first < new Date(createdAt).toISOString().slice(0, 10);
+      })
+      .map(([ref]) => ref);
+
     return {
       firstDate,
-      lastDate,
       collectedDays: days.size,
       /** Dernier jour COLLECTÉ côté PostHog — fraîcheur des colonnes visiteurs
        *  et inscrits, arrêtées à ce jour-là. */
@@ -582,45 +662,16 @@ export const readConversionAllTime = adminQuery({
       /** Dernière synchro Whop — fraîcheur des colonnes ventes et revenu, lues
        *  en direct. Les deux cadences diffèrent, l'écran doit le dire. */
       salesSyncMs,
-      // Refs d'influenceuses — nommées, sans fiche créatrice (cf schema).
-      influencers: project?.influencerRefs ?? [],
-      rows: [...byRef.values()].map((a) => ({
-        ref: a.ref,
-        visitors: a.visitors,
-        signups: a.signups,
-        sales: a.sales,
-        revenue:
-          a.revenue === undefined ? undefined : Math.round(a.revenue * 100) / 100,
-        currency: a.currency,
-        firstDate: a.firstDate,
-        lastDate: a.lastDate,
-      })),
-      // PLUS DE FILTRE `churned` (TD-027). Il écartait les fiches parties, donc
-      // tout leur travail retombait sous le slug nu et leur revenu sortait du
-      // « Total attribué » : en all-time, chaque départ réécrivait le passé.
-      // Simulé sur l'export de prod — le Total attribué tombait de 92,67 € à
-      // 37,08 € au départ de Kelly. Le tri de ce qui reste listé se fait
-      // désormais à l'affichage, sur la présence de DONNÉES (shapeConversionDay),
-      // pas sur le statut à la source.
-      //
-      // Effet de bord souhaitable : le bandeau de conflits de refs voit enfin
-      // les fiches parties. Le refus à l'écriture, lui, les couvrait déjà —
-      // `assertRefSlugFree` interroge toutes les fiches sans filtre de statut.
-      creators: creators
-        .map((c) => ({
-          creatorId: c._id as string,
-          name: c.name,
-          refSlug: c.refSlug ?? null,
-          status: c.status,
-          // Pour signaler une attribution DOUTEUSE : des données de conversion
-          // antérieures à l'existence même de la créatrice ne peuvent pas être
-          // les siennes (ref réaffectée, ou reprise d'un slug déjà utilisé).
-          // C'est le seul repère disponible — la DATE DE POSE du refSlug n'est
-          // stockée nulle part, donc une ref configurée tardivement sur une
-          // créatrice ancienne ne déclenchera PAS l'avertissement. Le contrôle
-          // ne crie jamais à tort ; il ne voit simplement pas tout.
-          createdAt: c.createdAt,
-        })),
+      /** Les lignes RENDUES, et elles seules : `shapeConversionDay` a déjà
+       *  décidé qui s'affiche, sous quel libellé et avec quels totaux. */
+      display: shapeConversionDay(rows, creatorRefs, {
+        collectedDays: days.size,
+        influencers,
+      }),
+      /** Une ref ne peut appartenir qu'à UNE personne — bandeau d'alerte. */
+      conflicts: refConflicts(creatorRefs, influencers),
+      spans,
+      suspectRefs,
     };
   },
 });

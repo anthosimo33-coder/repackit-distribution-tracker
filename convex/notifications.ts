@@ -5,7 +5,10 @@ import {
   internalQuery,
   type ActionCtx,
 } from "./_generated/server";
-import { adminMutation, adminQuery } from "./functions";
+import {
+  permissionMutation,
+  permissionQuery,
+} from "./functions";
 import { customAction } from "convex-helpers/server/customFunctions";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
@@ -201,7 +204,7 @@ export async function resolveNotifyContext(
  * permet à l'écran d'afficher « canal non configuré » de façon actionnable sans
  * jamais exposer le secret à un navigateur.
  */
-export const getNotifySettings = adminQuery({
+export const getNotifySettings = permissionQuery("notifications.manage")({
   args: {},
   handler: async (ctx) => {
     const p = await ctx.db.get(ctx.projectId);
@@ -230,7 +233,7 @@ export const getNotifySettings = adminQuery({
  * obsolète, appel forgé) est écartée plutôt que persistée, sinon elle resterait
  * en base à ne rien activer et brouillerait la lecture.
  */
-export const setNotifySettings = adminMutation({
+export const setNotifySettings = permissionMutation("notifications.manage")({
   args: {
     chatId: v.string(),
     enabledEvents: v.array(v.string()),

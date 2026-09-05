@@ -10,6 +10,7 @@ import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -107,10 +108,13 @@ test.describe("Assets — PLUSIEURS dossiers liés à un assignment", () => {
     ).rejects.toThrow(/refus/i);
 
     // ── Assignment (format) pour A + LIER LES 2 DOSSIERS ─────────────────────
-    const formatId = await admin.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(admin, {
       name: `[E2E_TEST] MultiFmt ${ts}`,
       type: "short",
-    });
+      // Format volontairement GRATUIT : zéro EXPLICITE, pas une grille absente —
+    // sans quoi la garde de paie refuse l'assignation (et elle a raison).
+    rateModel: { basePerPost: 0 },
+  });
     const tA = await availableTarget({
       e2eClient: admin,
       creatorId: creatorA.creatorId,

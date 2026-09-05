@@ -97,6 +97,21 @@ export const ERR = {
   PUBLISHED_AT_BEFORE_CREATION: "ERR_PUBLISHED_AT_BEFORE_CREATION",
   /** Rôle de portail refusé (talent / clippeur / partenaire selon le contexte). */
   PORTAL_ROLE_REJECTED: "ERR_PORTAL_ROLE_REJECTED",
+  /**
+   * Droit manquant sur un BLOC du catalogue (convex/permissions.ts). Distinct
+   * d'ADMIN_ONLY : celui-ci dit « tu es bien de l'équipe, mais cette case n'est
+   * pas cochée pour toi », ce qui appelle une demande à un superadmin, pas une
+   * reconnexion. Le bloc manquant voyage en paramètre `permission`.
+   */
+  PERMISSION_DENIED: "ERR_PERMISSION_DENIED",
+  /**
+   * Format dont la GRILLE DE RÉMUNÉRATION n'a jamais été renseignée. Distinct
+   * d'une grille volontairement à 0 : ici personne n'a encore décidé combien ce
+   * format paie, et assigner figerait un tarif nul dans la mission.
+   */
+  FORMAT_RATE_NOT_SET: "ERR_FORMAT_RATE_NOT_SET",
+  /** Réservé au superadmin — administration des droits, pas travail sur un projet. */
+  SUPERADMIN_ONLY: "ERR_SUPERADMIN_ONLY",
 } as const;
 
 export type ErrCode = (typeof ERR)[keyof typeof ERR];

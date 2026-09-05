@@ -11,7 +11,8 @@
       "createurs": "Creators",
       "contenu": "Content",
       "veille": "Radar",
-      "outils": "Tools"
+      "outils": "Tools",
+      "administration": "Administration"
     },
     "item": {
       "dashboard": "Dashboard",
@@ -29,7 +30,8 @@
       "assets": "Assets",
       "guide": "How it works",
       "radar": "Radar",
-      "defis": "Challenges"
+      "defis": "Challenges",
+      "equipe": "Roles & permissions"
     },
     "action": {
       "new": "New",
@@ -1021,6 +1023,9 @@
     "ERR_CLIP_QUOTA_REACHED": "{count, plural, one {Quota reached for {date} on {handle}: # post out of {max} in {phase} phase.} other {Quota reached for {date} on {handle}: # posts out of {max} in {phase} phase.}}",
     "ERR_PUBLISHED_AT_BEFORE_CREATION": "The publication date precedes the assignment's creation.",
     "ERR_PORTAL_ROLE_REJECTED": "This space is reserved for a different population on the project.",
-    "generic": "Something went wrong."
+    "generic": "Something went wrong.",
+    "ERR_PERMISSION_DENIED": "You don't have this permission. Ask an administrator for access.",
+    "ERR_FORMAT_RATE_NOT_SET": "This format's pay grid has never been set. Set it before assigning, otherwise the mission would be locked at 0.",
+    "ERR_SUPERADMIN_ONLY": "Superadmin only."
   }
 }
