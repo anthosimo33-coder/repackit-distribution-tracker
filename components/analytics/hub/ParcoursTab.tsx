@@ -35,6 +35,7 @@ import {
   type SegmentPayload,
   type SplitRow,
 } from "@/lib/segment-funnel";
+import type { WindowedParcoursState } from "./useWindowedParcours";
 import type { ProductAnalyticsData, ReliabilityData,
   BillingCountriesData,
 } from "./types";
@@ -99,22 +100,49 @@ export function ParcoursTab({
   analytics,
   reliability,
   billing,
+  windowed,
   now,
 }: {
   analytics: ProductAnalyticsData;
   reliability: ReliabilityData | undefined;
   billing: BillingCountriesData | undefined;
+  /**
+   * Agrégats RECALCULÉS sur la période choisie. `data` absent = on sert le cache
+   * du cron (90 jours), soit parce que la période couvre tout, soit parce que le
+   * recalcul n'est pas revenu.
+   */
+  windowed: WindowedParcoursState;
   now: number;
 }) {
   const [recentOnly, setRecentOnly] = useState(false);
 
+  // Les quatre agrégats que la période peut changer. Les autres (pays facturés,
+  // fiabilité) viennent d'ailleurs et restent sur toute la profondeur.
+  //
+  // Pendant un recalcul on garde DÉLIBÉRÉMENT les chiffres précédents, grisés :
+  // vider l'écran à chaque changement de dates ferait clignoter la page une
+  // seconde sur deux, et un écran vide se lit comme « aucune donnée ».
+  const a = useMemo(
+    () =>
+      windowed.data
+        ? {
+            ...analytics,
+            funnels: windowed.data.funnels,
+            activation: windowed.data.activation,
+            checkoutReliability: windowed.data.checkoutReliability,
+            serverSideSplit: windowed.data.serverSideSplit,
+          }
+        : analytics,
+    [analytics, windowed.data],
+  );
+
   const seqSteps = useMemo(
-    () => analytics.funnels.sequential.segments[0]?.steps ?? [],
-    [analytics.funnels.sequential.segments],
+    () => a.funnels.sequential.segments[0]?.steps ?? [],
+    [a.funnels.sequential.segments],
   );
   const reachSteps = useMemo(
-    () => analytics.funnels.global.segments[0]?.steps ?? [],
-    [analytics.funnels.global.segments],
+    () => a.funnels.global.segments[0]?.steps ?? [],
+    [a.funnels.global.segments],
   );
 
   const funnel = useMemo(
@@ -140,46 +168,46 @@ export function ParcoursTab({
   const devices = useMemo(
     () =>
       computeConversion(
-        analytics.checkoutReliability.rows.map((r) => ({
+        a.checkoutReliability.rows.map((r) => ({
           key: r.device,
           label: DEVICE_LABELS[r.device] ?? r.device,
           n: r.checkouts,
           converted: r.paid,
         })),
       ),
-    [analytics.checkoutReliability.rows],
+    [a.checkoutReliability.rows],
   );
   const coverage = useMemo(() => {
-    const rows = analytics.checkoutReliability.rows;
+    const rows = a.checkoutReliability.rows;
     const total = rows.reduce((s, r) => s + r.checkouts, 0);
     const known = rows
       .filter((r) => r.device !== "inconnu")
       .reduce((s, r) => s + r.checkouts, 0);
     return total > 0 ? Math.round((known / total) * 1000) / 10 : null;
-  }, [analytics.checkoutReliability.rows]);
+  }, [a.checkoutReliability.rows]);
 
   // « Où se perdent les checkouts » — ventilation MUTUELLEMENT EXCLUSIVE des NON
   // payeurs (total = non payeurs). L'échec de paiement est une sous-part des
   // disparus, pas une 4e ligne additionnelle (l'ancienne carte double-comptait :
   // 78 + 28 + 20 = 126 = tous les checkouts, alors que les non payeurs sont 106).
   const loss = useMemo(() => {
-    const rows = analytics.checkoutReliability.rows;
+    const rows = a.checkoutReliability.rows;
     const disappeared = rows.reduce((s, r) => s + r.disappeared, 0);
     const divertedFree = rows.reduce((s, r) => s + r.divertedFree, 0);
     const failedPayment = rows.reduce((s, r) => s + (r.failedPayment ?? 0), 0);
     const total = disappeared + divertedFree + failedPayment;
     return { disappeared, divertedFree, failedPayment, total };
-  }, [analytics.checkoutReliability.rows]);
+  }, [a.checkoutReliability.rows]);
 
   // Délai médian/p90 jusqu'au paiement, tous appareils (le plus grand échantillon).
   const delay = useMemo(() => {
-    const rows = analytics.checkoutReliability.rows.filter(
+    const rows = a.checkoutReliability.rows.filter(
       (r) => r.paid > 0 && r.medPayMs !== null,
     );
     if (rows.length === 0) return { medMs: null, p90Ms: null };
     const top = [...rows].sort((a, b) => b.paid - a.paid)[0];
     return { medMs: top.medPayMs, p90Ms: top.p90PayMs };
-  }, [analytics.checkoutReliability.rows]);
+  }, [a.checkoutReliability.rows]);
 
   // « Paiements Whop sans abonnement applicatif » — en PERSONNES des deux côtés.
   // Cette carte affichait `whopMembers - dashboardClients`, soit des ABONNEMENTS
@@ -204,7 +232,7 @@ export function ParcoursTab({
   const activation = useMemo(() => {
     const agg = (recentFlag: boolean): ActivationRow[] => {
       const bySeg = new Map<string, ActivationRow>();
-      for (const r of analytics.activation.rows) {
+      for (const r of a.activation.rows) {
         if (r.segment === "hors_inscription") continue;
         if (recentFlag && r.recent !== 1) continue;
         const cur =
@@ -221,12 +249,28 @@ export function ParcoursTab({
       );
     };
     return { all: agg(false), recent: agg(true) };
-  }, [analytics.activation.rows]);
+  }, [a.activation.rows]);
   const activationRows = recentOnly ? activation.recent : activation.all;
   const hasRecent = activation.recent.length > 0;
 
   return (
     <div className="space-y-6">
+      {windowed.error !== null ? (
+        <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
+          <strong>Recalcul sur la période impossible.</strong> {windowed.error}{" "}
+          Les chiffres ci-dessous portent donc sur toute la profondeur, pas sur la
+          période choisie.
+        </HubNotice>
+      ) : null}
+      {/* Les chiffres du recalcul sont GRISÉS pendant qu'il tourne, jamais
+          effacés : un écran vide se lit comme « aucune donnée », et la volée
+          coûte une seconde en usage courant, dix à froid. */}
+      <div
+        className={
+          windowed.loading ? "space-y-6 opacity-50 transition-opacity" : "space-y-6"
+        }
+        aria-busy={windowed.loading}
+      >
       <WebhookFixNotice now={now} />
       <HubNotice className="border-sky-200 bg-sky-50/70 text-sky-900">
         <strong>Tunnel corrigé le 29/07.</strong> L&apos;ordre des étapes était faux
@@ -521,9 +565,9 @@ export function ParcoursTab({
         <SegmentFunnelCard
           title="Trafic par pays de connexion"
           subtitle="Le tunnel, coupé par le pays d'où le VISITEUR SE CONNECTE — lu sur l'event PostHog, donc sur l'adresse IP."
-          payload={analytics.funnels.country}
+          payload={a.funnels.country}
           colonne="Pays"
-          split={analytics.serverSideSplit.rows}
+          split={a.serverSideSplit.rows}
           libelle={isoCountryLabel}
           sansVentes
           note="Une personne qui visite depuis un pays et achète depuis un autre compte dans les deux : les lignes ne s'additionnent pas en un total."
@@ -531,7 +575,7 @@ export function ParcoursTab({
         <SegmentFunnelCard
           title="Trafic par langue"
           subtitle="Même tunnel, coupé par langue d'interface. Collectée depuis toujours, affichée seulement maintenant."
-          payload={analytics.funnels.language}
+          payload={a.funnels.language}
           colonne="Langue"
           note="La langue est une propriété de PERSONNE, posée à l'inscription : les visiteurs qui n'ont pas fini de s'inscrire restent en « inconnu »."
         />
@@ -638,6 +682,7 @@ export function ParcoursTab({
           </Table>
         </CardContent>
       </Card>
+    </div>
     </div>
   );
 }

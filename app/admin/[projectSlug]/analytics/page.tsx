@@ -31,6 +31,7 @@ import {
   type AnalyticsWindow,
 } from "@/lib/analytics-window";
 import { windowedAttribution } from "@/lib/attribution-window";
+import { useWindowedParcours } from "@/components/analytics/hub/useWindowedParcours";
 import { OverviewTab } from "@/components/analytics/hub/OverviewTab";
 import { ParcoursTab } from "@/components/analytics/hub/ParcoursTab";
 import { AcquisitionTab } from "@/components/analytics/hub/AcquisitionTab";
@@ -128,6 +129,14 @@ function AnalyticsPageContenu() {
     [window, dataRange],
   );
 
+  // Onglet PARCOURS : ses agrégats PostHog n'ont pas de jour, ils se
+  // RECALCULENT côté serveur (cf useWindowedParcours). Appelé ICI, au niveau de
+  // la page, pour deux raisons : la préchauffe démarre à l'ouverture du hub et
+  // non au premier clic sur l'onglet, et la fenêtre passée est la fenêtre
+  // BORNÉE aux données réelles — la même que les autres onglets, sinon deux
+  // écrans afficheraient deux périodes sous le même libellé.
+  const windowedParcours = useWindowedParcours(effectiveWindow, dataRange);
+
   const onSync = async () => {
     setSyncing(true);
     try {
@@ -190,13 +199,14 @@ function AnalyticsPageContenu() {
           sur la publication.
           <br />
           {/* Dire ce qui NE suit PAS est aussi important que de fenêtrer le
-              reste : ces onglets lisent des agrégats PostHog sans dates, il n'y a
-              rien à y découper tant que les requêtes HogQL ne rendent pas de
-              série quotidienne. Un sélecteur qui ne fait rien sur un onglet, sans
-              le dire, se lit comme un chiffre à jour. */}
+              reste : un sélecteur qui ne fait rien sur un onglet, sans le dire,
+              se lit comme un chiffre à jour. Les onglets restants lisent des
+              agrégats PostHog sans dates ; les fenêtrer veut dire les
+              RECALCULER (cf convex/analyticsWindowed), pas les trancher —
+              Parcours vient de passer, les autres suivront. */}
           <span className="text-slate-400/90">
-            La période s&apos;applique à Vue d&apos;ensemble et Acquisition.
-            Parcours, Santé produit, Offres &amp; tests, Rétention et Fiabilité
+            La période s&apos;applique à Vue d&apos;ensemble, Acquisition et
+            Parcours. Santé produit, Offres &amp; tests, Rétention et Fiabilité
             restent sur toute la profondeur disponible.
           </span>
         </p>
@@ -277,6 +287,7 @@ function AnalyticsPageContenu() {
                   analytics={analytics}
                   reliability={reliability}
                   billing={billing}
+                  windowed={windowedParcours}
                   now={now}
                 />
               ) : (
