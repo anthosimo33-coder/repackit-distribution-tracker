@@ -13,6 +13,7 @@ import {
   challengeNatureRewardsDue,
   natureRewardsDue,
   assignmentCostFromBreakdown,
+  type AssignmentViewsCache,
   type PricingBreakdown,
 } from "./pricing";
 import { cyclePaymentsForCreator } from "./payments";
@@ -298,6 +299,7 @@ export const getAttribution = permissionQuery("business.read")({
       }
     }
 
+    const viewsCache: AssignmentViewsCache = new Map();
     // Coût : un breakdown par (créatrice, mois EUROPE/PARIS), mémoïsé — le moteur
     // est la SEULE source du chiffre (aucun recalcul ici).
     const breakdowns = new Map<string, PricingBreakdown>();
@@ -320,16 +322,38 @@ export const getAttribution = permissionQuery("business.read")({
         // courant. Aucun argent en jeu ici : ce breakdown ne sert QU'À afficher,
         // jamais à payer (le paiement passe par markCyclePaid → cycles J+30).
         monthKeyParis,
+        viewsCache,
       );
       breakdowns.set(key, b);
       return b;
     };
 
+    // ── Budget d'opérations Convex ────────────────────────────────────────────
+    // Cette query ÉCHOUAIT en prod le 2026-09-06 (« too many system operations »),
+    // et avec elle l'écran entier — toutes les cartes à « — ». Deux redondances
+    // pures, aucune n'ayant d'effet sur un chiffre :
+    //   1. chaque publication était lue DEUX fois par `ctx.db.get` — une fois dans
+    //      assignmentViewsAndMetrics, une fois ici pour ses métadonnées. Un seul
+    //      `collect` indexé par projet remplace les N lectures unitaires.
+    //   2. les vues d'un assignment étaient calculées DEUX fois — pour sa ligne,
+    //      puis à nouveau dans le breakdown de paie de sa (créatrice, mois). Le
+    //      cache ci-dessous les partage sur toute la durée de la query.
+    // Le coût croît avec le nombre de publications (~20/jour) : sans ça, l'écran
+    // se recasse tout seul dans quelques jours.
+    const pubById = new Map(
+      (
+        await ctx.db
+          .query("publications")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect()
+      ).map((p) => [p._id as string, p]),
+    );
+
     const rows: AttributionRow[] = [];
     for (const a of assignments) {
       const publishedAt = assignmentPublishedAt(a);
       const period = monthKeyParis(publishedAt);
-      const views = await assignmentViewsAndMetrics(ctx, a);
+      const views = await assignmentViewsAndMetrics(ctx, a, Date.now(), viewsCache);
 
       // Métadonnées des posts de la vidéo (langue/plateformes/nombre).
       const pubIds = [
@@ -343,7 +367,7 @@ export const getAttribution = permissionQuery("business.read")({
       for (const pid of pubIds) {
         if (seen.has(pid)) continue;
         seen.add(pid);
-        const pub = await ctx.db.get(pid);
+        const pub = pubById.get(pid as string);
         if (!pub) continue;
         postCount += 1;
         if (!platforms.includes(pub.plateforme)) platforms.push(pub.plateforme);
@@ -2121,12 +2145,16 @@ export const getReliability = permissionQuery("business.read")({
       .query("creators")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
+    // Un seul cache pour TOUTE la boucle : sans lui, cette query échouait sur la
+    // limite d'opérations Convex (prod du 2026-09-06).
+    const cyclesViewsCache: AssignmentViewsCache = new Map();
     for (const cre of allCreators) {
       const cycles = await cyclePaymentsForCreator(
         ctx,
         ctx.projectId,
         cre._id,
         Date.now(),
+        cyclesViewsCache,
       );
       let touched = false;
       for (const cy of cycles) {

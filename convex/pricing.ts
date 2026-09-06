@@ -352,12 +352,24 @@ export function assignmentPublishedAt(a: Doc<"assignments">): number {
  * === totalViews et hasPayablePost === true → la paie est INCHANGÉE. Cf
  * lib/pricing-engine.payableAssignmentViews (A6).
  */
-export async function assignmentViewsAndMetrics(
-  ctx: QueryCtx | MutationCtx,
-  a: Doc<"assignments">,
-  /** Instant de référence — ne change AUCUN montant, seulement l'état affiché. */
-  now: number = Date.now(),
-): Promise<{
+/**
+ * Cache des vues d'un assignment, PARTAGÉ à l'échelle d'UNE query.
+ *
+ * `assignmentViewsAndMetrics` fait DEUX opérations Convex par publication (un
+ * `db.get` + une requête indexée sur `metricSnapshots`), et les mêmes vidéos sont
+ * traversées plusieurs fois dans la même query : une fois pour la ligne affichée,
+ * une fois dans le breakdown de paie de sa (créatrice, mois). Sur la prod du
+ * 2026-09-06, `getAttribution` et `getReliability` ont commencé à ÉCHOUER —
+ * « Your request timed out performing too many system operations » — parce que ce
+ * coût croît linéairement avec le nombre de publications (~20 de plus par jour).
+ *
+ * Le cache ne change AUCUN résultat : la clé est l'assignment, et `now` n'entre
+ * dans aucun montant (cf. la signature). Il est volontairement passé de l'appelant
+ * plutôt que global : une query le crée, l'utilise, le jette — jamais d'état qui
+ * survit à une transaction.
+ */
+/** Vues et métriques d'UN assignment — cf assignmentViewsAndMetrics. */
+export interface AssignmentViews {
   totalViews: number;
   payableViews: number;
   /** Vues RÉMUNÉRÉES et en PROMO — SEULE base du cumul de paliers. */
@@ -381,7 +393,20 @@ export async function assignmentViewsAndMetrics(
   payWindowClosed: boolean;
   /** Σ des vues RÉMUNÉRÉES acquises hors fenêtre (mesurées − retenues). */
   viewsOutsideWindow: number;
-}> {
+}
+
+export type AssignmentViewsCache = Map<string, AssignmentViews>;
+
+export async function assignmentViewsAndMetrics(
+  ctx: QueryCtx | MutationCtx,
+  a: Doc<"assignments">,
+  /** Instant de référence — ne change AUCUN montant, seulement l'état affiché. */
+  now: number = Date.now(),
+  /** Cache d'UNE query (cf AssignmentViewsCache). Absent = comportement d'avant. */
+  cache?: AssignmentViewsCache,
+): Promise<AssignmentViews> {
+  const cached = cache?.get(a._id as string);
+  if (cached) return cached;
   const pubIds = [
     ...(a.targets ?? []).map((t) => t.publicationId),
     a.publicationId,
@@ -451,7 +476,7 @@ export async function assignmentViewsAndMetrics(
     pubs.map((p) => ({ ...p, views: p.retained })),
   );
   const payWindow = aggregatePayWindow(windows);
-  return {
+  const out = {
     totalViews,
     payableViews,
     bonusTierViews,
@@ -463,6 +488,8 @@ export async function assignmentViewsAndMetrics(
     payWindowClosed: payWindow.closed,
     viewsOutsideWindow: payWindow.viewsOutsideWindow,
   };
+  cache?.set(a._id as string, out);
+  return out;
 }
 
 /** "YYYY-MM" → mois suivant ("YYYY-MM"), UTC (rollover Guard A). */
@@ -941,6 +968,8 @@ export async function computeLivePricingBreakdown(
   period: string,
   legacyAssignmentIds: Set<string>,
   periodKeyOf: (ts: number) => string = periodOf,
+  /** Cache de vues d'UNE query — cf AssignmentViewsCache. */
+  viewsCache?: AssignmentViewsCache,
 ): Promise<PricingBreakdown> {
   const assignments = (
     await ctx.db
@@ -959,7 +988,7 @@ export async function computeLivePricingBreakdown(
   let unmeasuredPayablePosts = 0;
   for (const a of assignments) {
     const { payableViews, hasPayablePost, unmeasuredPayablePosts: nonMesures } =
-      await assignmentViewsAndMetrics(ctx, a);
+      await assignmentViewsAndMetrics(ctx, a, Date.now(), viewsCache);
     // Vidéo ENTIÈREMENT warmup → exclue (ni fixe compté, ni CPM). Partiellement
     // warmup → CPM sur les seules vues payables ; compte une fois pour le fixe.
     if (!hasPayablePost) continue;
@@ -1034,6 +1063,8 @@ export async function computeCyclePricingBreakdown(
   firstPostAt: number,
   cycleIndex: number,
   legacyAssignmentIds: Set<string>,
+  /** Cache de vues d'UNE query — cf AssignmentViewsCache. */
+  viewsCache?: AssignmentViewsCache,
 ): Promise<PricingBreakdown> {
   const assignments = (
     await ctx.db
@@ -1052,7 +1083,7 @@ export async function computeCyclePricingBreakdown(
   let unmeasuredPayablePosts = 0;
   for (const a of assignments) {
     const { payableViews, hasPayablePost, unmeasuredPayablePosts: nonMesures } =
-      await assignmentViewsAndMetrics(ctx, a);
+      await assignmentViewsAndMetrics(ctx, a, Date.now(), viewsCache);
     // Vidéo ENTIÈREMENT warmup → exclue (ni fixe compté, ni CPM). Partiellement
     // warmup → CPM sur les seules vues payables ; compte une fois pour le fixe.
     if (!hasPayablePost) continue;

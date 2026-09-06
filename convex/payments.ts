@@ -9,6 +9,7 @@ import { internal } from "./_generated/api";
 import {
   computeLivePricingBreakdown,
   computeCyclePricingBreakdown,
+  type AssignmentViewsCache,
   assignmentPublishedAt,
   syncBonusUnlocks,
   MAX_PAY_PER_VIDEO_EUR,
@@ -598,6 +599,15 @@ export async function cyclePaymentsForCreator(
   projectId: Id<"projects">,
   creatorId: Id<"creators">,
   now: number,
+  /**
+   * Cache de vues d'UNE query (cf convex/pricing AssignmentViewsCache).
+   *
+   * Un appelant qui boucle sur TOUTES les créatrices — `getReliability`,
+   * `listPayments` — recalcule sinon les mêmes vues cycle après cycle. C'est
+   * `getReliability` qui a fini par ÉCHOUER en prod le 2026-09-06 (« too many
+   * system operations »). Absent = comportement d'avant, à l'identique.
+   */
+  viewsCache?: AssignmentViewsCache,
 ): Promise<CyclePayment[]> {
   const creator = await ctx.db.get(creatorId);
   // Ancre = payAnchorAt (talent) ?? firstPostAt (partenaire/clippeur). Pour un
@@ -699,6 +709,7 @@ export async function cyclePaymentsForCreator(
       firstPostAt,
       k,
       legacyIds,
+      viewsCache,
     );
     // Forfait du talent — MÊME source que le gel (retainerLineFor) : l'admin ne
     // peut pas lire un montant et en payer un autre. `null` pour toute autre
@@ -749,12 +760,16 @@ async function collectProjectPaymentRows(
   const now = Date.now();
   const liveIds = new Set(creators.map((c) => c._id));
   const out = [];
+  // Cache PARTAGÉ par toute la boucle : une créatrice = plusieurs cycles, et
+  // chacun recalculait les vues de ses vidéos. Cf AssignmentViewsCache.
+  const viewsCache: AssignmentViewsCache = new Map();
   for (const c of creators) {
     const cycles = await cyclePaymentsForCreator(
       ctx,
       projectId,
       c._id,
       now,
+      viewsCache,
     );
     for (const cy of cycles) {
       out.push({
