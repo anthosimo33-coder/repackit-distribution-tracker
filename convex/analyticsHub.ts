@@ -12,7 +12,7 @@ import {
   effectiveBonusPricing,
   challengeNatureRewardsDue,
   natureRewardsDue,
-  promoVideoCost,
+  assignmentCostFromBreakdown,
   type PricingBreakdown,
 } from "./pricing";
 import { cyclePaymentsForCreator } from "./payments";
@@ -350,7 +350,11 @@ export const getAttribution = permissionQuery("business.read")({
         if (langue === null) langue = pub.langue;
       }
 
-      // Coût réel de la vidéo : fixe/vidéo de son pricing + son CPM.
+      // Coût réel de la vidéo : fixe/vidéo de son pricing + son CPM. Le « on sait
+      // / on ne sait pas » est tranché par assignmentCostFromBreakdown (pure,
+      // testée) : une vidéo retirée de la paie à la main coûte ZÉRO, elle n'est
+      // pas de coût inconnu — la confondre avec le cas legacy éteignait trois
+      // cartes de la Vue d'ensemble d'un coup.
       let cost: number | null = null;
       let promoCost: number | null = null;
       if (a.pricingSnapshot) {
@@ -361,17 +365,14 @@ export const getAttribution = permissionQuery("business.read")({
         const perPricing = b.perPricing.find(
           (p) => p.pricingId === (a.pricingSnapshot!.pricingId as string),
         );
-        if (perAssignment || perPricing) {
-          const fixed = perPricing?.fixePerVideo ?? 0;
-          const cpm = perAssignment?.cpm ?? 0;
-          cost = round2(fixed + cpm);
-          promoCost = promoVideoCost(
-            fixed,
-            cpm,
-            views.payableViews,
-            views.bonusTierViews,
-          );
-        }
+        ({ cost, promoCost } = assignmentCostFromBreakdown({
+          hasPricingSnapshot: true,
+          fixePerVideo: perPricing?.fixePerVideo ?? null,
+          cpm: perAssignment?.cpm ?? null,
+          hasPayablePost: views.hasPayablePost,
+          payableViews: views.payableViews,
+          promoPaidViews: views.bonusTierViews,
+        }));
       }
 
       rows.push({

@@ -629,3 +629,79 @@ describe("billedViews — vues réellement facturées", () => {
     }
   });
 });
+
+/**
+ * COÛT D'UNE VIDÉO LU DEPUIS LE BREAKDOWN — le « on sait / on ne sait pas ».
+ *
+ * Cas de prod du 2026-09-05 : deux vidéos de Veljko (barème fixe 0 / CPM 1,5),
+ * dont les 4 posts promo ont été passés à `remunere = false` entre le 03 et le
+ * 05/09. Sans post rémunéré, le moteur de paie les exclut ; le hub concluait
+ * « coût inconnu » et posait `costs.promo = null`, ce qui éteignait d'un coup
+ * « Coût d'acquisition », « RPM coût » et « Écart ».
+ */
+describe("assignmentCostFromBreakdown", () => {
+  const base = {
+    hasPricingSnapshot: true,
+    fixePerVideo: null as number | null,
+    cpm: null as number | null,
+    hasPayablePost: true,
+    payableViews: 0,
+    promoPaidViews: 0,
+  };
+
+  it("vidéo RETIRÉE de la paie : coût CONNU, et il vaut zéro", () => {
+    // ms74vmvhyrw9 — 75 139 vues promo, aucun post rémunéré, absente du breakdown.
+    expect(
+      convexPricing.assignmentCostFromBreakdown({
+        ...base,
+        hasPayablePost: false,
+        payableViews: 0,
+        promoPaidViews: 0,
+      }),
+    ).toEqual({ cost: 0, promoCost: 0 });
+  });
+
+  it("vidéo LEGACY (aucun barème figé) : coût réellement inconnu", () => {
+    // Contre-test : le `null` doit survivre là où il est justifié, sinon on
+    // remplacerait une carte éteinte par un chiffre faux.
+    expect(
+      convexPricing.assignmentCostFromBreakdown({ ...base, hasPricingSnapshot: false }),
+    ).toEqual({ cost: null, promoCost: null });
+  });
+
+  it("anomalie : barème figé, posts rémunérés, mais absente du breakdown → inconnu", () => {
+    expect(
+      convexPricing.assignmentCostFromBreakdown({ ...base, hasPayablePost: true }),
+    ).toEqual({ cost: null, promoCost: null });
+  });
+
+  it("vidéo PRÉSENTE dans le breakdown : calcul inchangé (assertion de présence)", () => {
+    // Barème 100 $/60 vidéos = 1,6667 $/vidéo, CPM 42,83 $, toutes les vues
+    // payables sont promo → promoCost = cost.
+    expect(
+      convexPricing.assignmentCostFromBreakdown({
+        hasPricingSnapshot: true,
+        fixePerVideo: 1.67,
+        cpm: 42.83,
+        hasPayablePost: true,
+        payableViews: 42_829,
+        promoPaidViews: 42_829,
+      }),
+    ).toEqual({ cost: 44.5, promoCost: 44.5 });
+  });
+
+  it("vidéo MIXTE promo + warmup rémunéré : le CPM est proratisé, le fixe non", () => {
+    // La garde de promoVideoCost : seule la part promo du CPM entre au numérateur
+    // d'un ratio dont le dénominateur est en vues promo.
+    expect(
+      convexPricing.assignmentCostFromBreakdown({
+        hasPricingSnapshot: true,
+        fixePerVideo: 2,
+        cpm: 10,
+        hasPayablePost: true,
+        payableViews: 1_000,
+        promoPaidViews: 250,
+      }),
+    ).toEqual({ cost: 12, promoCost: 4.5 });
+  });
+});

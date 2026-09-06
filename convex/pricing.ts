@@ -856,6 +856,66 @@ async function challengeCashWins(
 }
 
 /**
+ * Coût d'UNE vidéo lu depuis un breakdown de paie — POINT DE DÉCISION UNIQUE du
+ * « on sait / on ne sait pas ».
+ *
+ * Le hub d'analytics cherche la vidéo dans le breakdown de sa (créatrice, mois).
+ * Trois situations s'y confondaient, et la troisième éteignait des cartes :
+ *
+ *  1. `hasPricingSnapshot = false` — assignation LEGACY, sans barème figé. Le coût
+ *     est réellement INCONNU → `null`. (Aucune en prod le 2026-09-05, mais le cas
+ *     reste possible sur l'historique.)
+ *  2. la vidéo (ou au moins son groupe de barème) est DANS le breakdown → coût
+ *     calculé, comportement inchangé.
+ *  3. barème figé, mais la vidéo est ABSENTE du breakdown parce qu'elle n'a AUCUN
+ *     post rémunéré (`hasPayablePost = false`). Elle en a été retirée par DÉCISION
+ *     — `remunere = false` posé à la main. Son coût n'est pas inconnu : il vaut
+ *     ZÉRO. Elle ne consomme pas non plus de budget fixe, puisque le moteur ne la
+ *     compte pas dans son groupe.
+ *
+ * Le cas 3 rendait `null` et contaminait tout : `getAttribution` pose
+ * `costs.promo = null` dès qu'UNE vidéo promo manque, ce qui éteint « Coût
+ * d'acquisition », « RPM coût » et « Écart » d'un coup. Constaté en prod le
+ * 2026-09-05 : deux vidéos de Veljko (02 et 03/09, 4 posts promo passés à
+ * `remunere = false` entre le 03 et le 05) suffisaient à vider les trois cartes.
+ *
+ * Reste `null` le cas vraiment anormal : barème figé, posts rémunérés, et pourtant
+ * absente du breakdown. Là, on ne sait effectivement pas — et il faut le voir.
+ */
+export function assignmentCostFromBreakdown(input: {
+  /** Un barème est-il FIGÉ sur l'assignation ? false = legacy. */
+  hasPricingSnapshot: boolean;
+  /** Part fixe/vidéo du groupe ; `null` si le groupe est absent du breakdown. */
+  fixePerVideo: number | null;
+  /** CPM plafonné de la vidéo ; `null` si la vidéo est absente du breakdown. */
+  cpm: number | null;
+  /** La vidéo a-t-elle au moins un post RÉMUNÉRÉ ? */
+  hasPayablePost: boolean;
+  /** Vues des posts rémunérés (assiette du CPM). */
+  payableViews: number;
+  /** Vues rémunérées ET en promo (cf viewCounters.paliers). */
+  promoPaidViews: number;
+}): { cost: number | null; promoCost: number | null } {
+  if (!input.hasPricingSnapshot) return { cost: null, promoCost: null };
+  if (input.fixePerVideo !== null || input.cpm !== null) {
+    const fixed = input.fixePerVideo ?? 0;
+    const cpm = input.cpm ?? 0;
+    return {
+      cost: round2(fixed + cpm),
+      promoCost: promoVideoCost(
+        fixed,
+        cpm,
+        input.payableViews,
+        input.promoPaidViews,
+      ),
+    };
+  }
+  // Retirée de la paie par décision : coût CONNU, et il vaut zéro.
+  if (!input.hasPayablePost) return { cost: 0, promoCost: 0 };
+  return { cost: null, promoCost: null };
+}
+
+/**
  * Paie PRICING (live) d'un (créateur, projet, mois) — SOURCE UNIQUE consommée
  * par la lecture (getMyPayments/listPayments) ET le gel au paiement. FIXE/CPM :
  * assignments publiés/payés à pricingSnapshot dont le mois de publication =
