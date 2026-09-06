@@ -193,6 +193,13 @@ export function OverviewTab({
   // RENOUVELLEMENTS/jour (Whop, billing_reason=subscription_cycle). Colonne jumelle :
   // `dailyPaidClients` ne compte que les PREMIERS paiements, donc une journée faite
   // uniquement de renouvellements y affiche 0 à côté d'un revenu non nul.
+  const membershipsByDay = useMemo(
+    () =>
+      new Map(
+        (coh?.dailyNewMemberships ?? []).map((d) => [d.day, d.memberships] as const),
+      ),
+    [coh],
+  );
   const renewalsByDay = useMemo(
     () =>
       new Map(
@@ -718,10 +725,17 @@ export function OverviewTab({
                             const ren = renewalsByDay.get(k) ?? 0;
                             const nouveaux = clientsByDay.get(k) ?? 0;
                             const pay = payCountByDay.get(k);
-                            // Écart = un paiement compté dans les DEUX colonnes.
+                            // Le contrôle se fait en ABONNEMENTS, pas en personnes :
+                            // `pay` compte des PAIEMENTS, et la colonne affichée
+                            // compte des personnes depuis que le dénominateur du hub
+                            // a été replié (une personne à deux abonnements le même
+                            // jour = 1 client, 2 paiements). Comparer les deux
+                            // faisait sonner l'alerte sur 14 jours sur 39 pour un
+                            // écart d'UNITÉ, pas pour une incohérence.
+                            const abos = membershipsByDay.get(k) ?? nouveaux;
                             const ecart =
-                              pay !== undefined && nouveaux + ren !== pay
-                                ? nouveaux + ren - pay
+                              pay !== undefined && abos + ren !== pay
+                                ? abos + ren - pay
                                 : 0;
                             return (
                               <>
@@ -735,7 +749,7 @@ export function OverviewTab({
                                 {ecart !== 0 ? (
                                   <span
                                     className="ml-1 cursor-help font-medium text-amber-700"
-                                    title={`${formatNumber(nouveaux)} nouveau(x) + ${formatNumber(ren)} renouvellement(s) = ${formatNumber(nouveaux + ren)}, pour ${formatNumber(pay as number)} paiement(s) composant le revenu net. Écart de ${formatNumber(Math.abs(ecart))} : un paiement est compté dans les deux colonnes (renouvellement qui est aussi le premier encaissement de son abonnement).`}
+                                    title={`${formatNumber(abos)} nouvel(s) abonnement(s) + ${formatNumber(ren)} renouvellement(s) = ${formatNumber(abos + ren)}, pour ${formatNumber(pay as number)} paiement(s) composant le revenu net. Écart de ${formatNumber(Math.abs(ecart))} : un paiement est compté dans les deux colonnes (renouvellement qui est aussi le premier encaissement de son abonnement).${abos !== nouveaux ? ` La colonne affiche ${formatNumber(nouveaux)} client(s) : ${formatNumber(abos - nouveaux)} abonnement(s) de plus que de personnes ce jour-là.` : ""}`}
                                   >
                                     ⚠
                                   </span>
