@@ -386,11 +386,39 @@ export function OverviewTab({
   const inscrits = daily.reduce((t, d) => t + d.signups, 0);
   const rate = (a: number, b: number) =>
     b > 0 ? Math.round((a / b) * 1000) / 10 : null;
+  // Les explications suivent le NOMBRE, pas la tuile qui le portait : « Clients
+  // payants » a perdu sa carte, son « i » vit désormais sur l'étape finale de
+  // l'entonnoir. Sans ça, la refonte aurait supprimé une explication utile —
+  // c'est exactement ce que la CI a attrapé.
   const funnelSteps = [
-    { key: "visiteurs", label: "Visiteurs", value: visiteurs, rate: null as number | null },
-    { key: "inscrits", label: "Inscrits", value: inscrits, rate: rate(inscrits, visiteurs) },
-    { key: "checkouts", label: "Checkouts", value: checkoutsWin, rate: rate(checkoutsWin, inscrits) },
-    { key: "clients", label: "Clients", value: subsWin, rate: rate(subsWin, checkoutsWin) },
+    {
+      key: "visiteurs",
+      label: "Visiteurs",
+      value: visiteurs,
+      rate: null as number | null,
+      info: EXPLAIN.visiteurs as React.ReactNode,
+    },
+    {
+      key: "inscrits",
+      label: "Inscrits",
+      value: inscrits,
+      rate: rate(inscrits, visiteurs),
+      info: EXPLAIN.inscrits as React.ReactNode,
+    },
+    {
+      key: "checkouts",
+      label: "Checkouts",
+      value: checkoutsWin,
+      rate: rate(checkoutsWin, inscrits),
+      info: EXPLAIN.completionCheckout as React.ReactNode,
+    },
+    {
+      key: "clients",
+      label: "Clients payants",
+      value: subsWin,
+      rate: rate(subsWin, checkoutsWin),
+      info: EXPLAIN.clientsPayants as React.ReactNode,
+    },
   ].map((st) => ({
     ...st,
     width: visiteurs > 0 ? Math.max(1.2, (st.value / visiteurs) * 100) : 0,
@@ -687,7 +715,9 @@ export function OverviewTab({
                     )}
                     style={{ width: `${st.width}%` }}
                   />
-                  <span className="text-xs text-slate-500">{st.label}</span>
+                  <span className="text-xs text-slate-500">
+                    <ColLabel label={st.label} info={st.info} />
+                  </span>
                 </div>
               </Fragment>
             ))}
