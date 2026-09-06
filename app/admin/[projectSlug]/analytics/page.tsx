@@ -30,6 +30,7 @@ import {
   parisDayKey,
   type AnalyticsWindow,
 } from "@/lib/analytics-window";
+import { windowedAttribution } from "@/lib/attribution-window";
 import { OverviewTab } from "@/components/analytics/hub/OverviewTab";
 import { ParcoursTab } from "@/components/analytics/hub/ParcoursTab";
 import { AcquisitionTab } from "@/components/analytics/hub/AcquisitionTab";
@@ -78,6 +79,45 @@ function AnalyticsPageContenu() {
   // Défaut = TOUT ce qui existe. L'ancien défaut « 90 jours » promettait une
   // profondeur que PostHog n'a pas (46 jours au 2026-09-06) : deux des trois
   // boutons rendaient le même écran.
+  // L'attribution FENÊTRÉE, dérivée UNE fois pour tous les onglets qui la lisent
+  // (Acquisition, Rétention). Sans ce point unique, chaque onglet referait le
+  // filtrage à sa façon — et deux écrans finiraient par montrer deux coûts pour
+  // la même période, ce que le hub et l'écran Paiements ont déjà fait pour le
+  // revenu Whop.
+  const windowedAttr = useMemo(() => {
+    if (!attribution) return undefined;
+    const w = clampWindow(
+      window ?? { from: "0000-01-01", to: "9999-12-31" },
+      dataRangeOf((analytics?.overview.daily ?? []).map((d) => parisDayKey(d.ts))),
+    );
+    const daily = (analytics?.overview.daily ?? []).map((d) => ({
+      day: parisDayKey(d.ts),
+      visitors: d.visitors,
+      signups: d.signups,
+      clients: d.subs,
+    }));
+    const win = windowedAttribution(
+      attribution.rows,
+      attribution.costs.promoBonusByDay,
+      daily,
+      w,
+    );
+    return {
+      ...attribution,
+      rows: win.rows,
+      soloDays: win.soloDays,
+      creators: win.creators,
+      costs: {
+        ...attribution.costs,
+        promo: win.costs.promo,
+        promoBonus:
+          win.costs.bonus === null
+            ? null
+            : Math.round(win.costs.bonus * 100) / 100,
+      },
+    };
+  }, [attribution, analytics, window]);
+
   const effectiveWindow = useMemo(
     () => clampWindow(window ?? { from: "0000-01-01", to: "9999-12-31" }, dataRange),
     [window, dataRange],
@@ -140,9 +180,20 @@ function AnalyticsPageContenu() {
           range={dataRange}
           onChange={setWindow}
         />
-        <p className="text-xs text-slate-400">
+        <p className="max-w-md text-xs text-slate-400">
           Conversions ancrées sur l&apos;inscription · revenu sur le paiement · vues
           sur la publication.
+          <br />
+          {/* Dire ce qui NE suit PAS est aussi important que de fenêtrer le
+              reste : ces onglets lisent des agrégats PostHog sans dates, il n'y a
+              rien à y découper tant que les requêtes HogQL ne rendent pas de
+              série quotidienne. Un sélecteur qui ne fait rien sur un onglet, sans
+              le dire, se lit comme un chiffre à jour. */}
+          <span className="text-slate-400/90">
+            La période s&apos;applique à Vue d&apos;ensemble, Acquisition et
+            Rétention. Parcours, Santé produit, Offres &amp; tests et Fiabilité
+            restent sur toute la profondeur disponible.
+          </span>
         </p>
       </div>
 
@@ -233,7 +284,7 @@ function AnalyticsPageContenu() {
                 <Skeleton className="h-64 w-full" />
               ) : (
                 <AcquisitionTab
-                  attribution={attribution}
+                  attribution={windowedAttr ?? attribution}
                   viewCounters={viewCounters}
                   natureRewards={natureRewards}
                   revenueCurrency={revenue?.currency}
@@ -257,7 +308,11 @@ function AnalyticsPageContenu() {
               {churn === undefined ? (
                 <Skeleton className="h-64 w-full" />
               ) : (
-                <RetentionTab churn={churn} attribution={attribution} now={now} />
+                <RetentionTab
+                  churn={churn}
+                  attribution={windowedAttr ?? attribution}
+                  now={now}
+                />
               )}
             </TabsContent>
 
