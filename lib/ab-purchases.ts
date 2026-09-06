@@ -12,9 +12,19 @@
  * Le prix vient de WHOP (`PlanEconomics`, joint par `plan_id`), jamais d'une
  * table écrite en dur : celle du dépôt (`EXPECTED_ARM_PRICING`) a dérivé deux
  * fois en un mois sans que rien ne le signale.
+ *
+ * ⚠️ LA MULTI-DEVISE EST ICI UNE RÈGLE PRODUIT, PAS UNE ANOMALIE. Depuis le
+ * 06/09 le catalogue sert la grille en euros aux résidents européens et la
+ * grille en dollars aux autres : un bras vendra donc DANS LES DEUX, en régime
+ * normal et pour toujours. Refuser le total serait laisser la colonne revenu
+ * vide en permanence. On rend donc les deux choses : les sous-totaux PAR DEVISE,
+ * exacts et sans hypothèse, et un total converti au taux du projet, marqué comme
+ * tel. Ce qui reste interdit, c'est d'ADDITIONNER deux devises sans le dire.
  */
 
 /** Une ligne de `AbPurchasesPayload`. */
+import { payAmountInRevenueCurrency, sameCurrency } from "./currency";
+
 export interface AbPurchaseInput {
   variant: string;
   plan: string;
@@ -31,6 +41,44 @@ export interface PlanPriceLike {
   price: number | null;
   currency: string | null;
   interval: string | null;
+}
+
+/**
+ * De quoi convertir un revenu vers la devise d'affichage du hub.
+ *
+ * `fxRateToRevenue` n'est PAS un taux universel : il est défini pour UNE paire
+ * (payCurrency → revenueCurrency, chez Snytch 1 $ = 0,86 €). L'appliquer à une
+ * troisième devise donnerait un montant faux d'apparence crédible, ce qui est
+ * pire qu'un tiret. `convertibleAmount` refuse ce cas explicitement.
+ */
+export interface RevenueContext {
+  /** Devise d'affichage du hub (celle du revenu Whop). */
+  revenueCurrency: string | null | undefined;
+  /** L'autre devise de la paire couverte par le taux. */
+  payCurrency: string | null | undefined;
+  /** 1 unité de `payCurrency` = ce nombre d'unités de `revenueCurrency`. */
+  fxRateToRevenue: number | null | undefined;
+}
+
+/**
+ * Un montant converti vers la devise d'affichage, ou `null` si le taux du projet
+ * ne couvre pas cette devise. C'est la GARDE qui empêche d'appliquer le taux
+ * dollar à une livre sterling.
+ */
+export function convertibleAmount(
+  amount: number,
+  currency: string | null | undefined,
+  ctx: RevenueContext,
+): number | null {
+  if (sameCurrency(currency, ctx.revenueCurrency)) return amount;
+  if (!sameCurrency(currency, ctx.payCurrency)) return null;
+  const d = payAmountInRevenueCurrency(
+    amount,
+    currency,
+    ctx.revenueCurrency,
+    ctx.fxRateToRevenue,
+  );
+  return d.converted ? d.value : null;
 }
 
 export interface AbPurchaseRow extends AbPurchaseInput {
@@ -60,12 +108,25 @@ export interface AbArmPurchases {
    * deux compteurs ne parlent pas de la même population.
    */
   doubleCounted: number;
-  /** Revenu du 1er cycle, plans à prix connu seulement. `null` si multi-devise. */
+  /**
+   * Revenu du 1er cycle PAR DEVISE, exact et sans hypothèse. C'est le chiffre de
+   * référence : il ne dépend d'aucun taux, donc il ne vieillit pas.
+   */
+  revenueByCurrency: { currency: string; amount: number }[];
+  /**
+   * Total converti dans la devise d'affichage. `null` dès qu'une devise vendue
+   * n'est pas couverte par le taux du projet — un total partiel se lirait comme
+   * un total.
+   */
   firstCycleRevenue: number | null;
-  /** Devise du total. `null` si aucune, ou si plusieurs coexistent. */
+  /** Devise de `firstCycleRevenue`. */
   currency: string | null;
-  /** Devises rencontrées — plus d'une interdit la somme. */
+  /** Vrai si au moins un montant a été converti (l'écran doit le dire). */
+  converted: boolean;
+  /** Devises rencontrées, triées. */
   currencies: string[];
+  /** Celles que le taux du projet ne couvre pas — la raison d'un total absent. */
+  unconvertibleCurrencies: string[];
   /** Clients écartés du total faute de prix Whop sur leur plan. */
   clientsWithoutPrice: number;
 }
@@ -89,6 +150,7 @@ function armFieldOf(
 export function armPurchases(
   rows: readonly AbPurchaseInput[],
   plans: readonly PlanPriceLike[],
+  ctx: RevenueContext,
 ): AbArmPurchases[] {
   const priceOf = new Map(plans.map((p) => [p.planId, p] as const));
   const byArm = new Map<string, AbPurchaseInput[]>();
@@ -123,6 +185,18 @@ export function armPurchases(
       const currencies = [
         ...new Set(priced.map((r) => r.currency).filter((c): c is string => !!c)),
       ].sort();
+      const byCurrency = currencies.map((currency) => ({
+        currency,
+        amount:
+          Math.round(
+            priced
+              .filter((r) => r.currency === currency)
+              .reduce((t, r) => t + (r.firstCycleRevenue ?? 0), 0) * 100,
+          ) / 100,
+      }));
+      const unconvertible = byCurrency
+        .filter((b) => convertibleAmount(b.amount, b.currency, ctx) === null)
+        .map((b) => b.currency);
       const rowSum = list.reduce((t, r) => t + r.clients, 0);
       return {
         variant,
@@ -130,14 +204,23 @@ export function armPurchases(
         armClients,
         armMultiPlan: armFieldOf(list, (r) => r.armMultiPlan),
         doubleCounted: rowSum - armClients,
+        revenueByCurrency: byCurrency,
         firstCycleRevenue:
-          priced.length === 0 || currencies.length > 1
+          byCurrency.length === 0 || unconvertible.length > 0
             ? null
             : Math.round(
-                priced.reduce((t, r) => t + (r.firstCycleRevenue ?? 0), 0) * 100,
+                byCurrency.reduce(
+                  (t, b) => t + (convertibleAmount(b.amount, b.currency, ctx) ?? 0),
+                  0,
+                ) * 100,
               ) / 100,
-        currency: currencies.length === 1 ? currencies[0] : null,
+        currency:
+          byCurrency.length === 0 || unconvertible.length > 0
+            ? null
+            : (ctx.revenueCurrency ?? null),
+        converted: currencies.some((c) => !sameCurrency(c, ctx.revenueCurrency)),
         currencies,
+        unconvertibleCurrencies: unconvertible,
         clientsWithoutPrice: enriched
           .filter((r) => r.firstCycleRevenue === null)
           .reduce((t, r) => t + r.clients, 0),

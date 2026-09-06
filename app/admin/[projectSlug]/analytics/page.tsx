@@ -301,7 +301,12 @@ function AnalyticsPageContenu() {
             </TabsContent>
 
             <TabsContent value="offres" className="mt-6">
-              <OffresTab analytics={analytics} revenue={revenue} now={now} />
+              <OffresTab
+                analytics={analytics}
+                revenue={revenue}
+                attribution={attribution}
+                now={now}
+              />
             </TabsContent>
 
             <TabsContent value="retention" className="mt-6">
