@@ -272,7 +272,17 @@ export function OverviewTab({
   const acquisitionCost = toDisplayAmount(perClient(promoPlusBonus), fxCtx);
   // Bonus inclus EN ENTIER : un palier ne se gagne que sur des vues promo, donc
   // tout bonus débloqué est un coût promo (plus de prorata, cf getAttribution).
+  // `promoBonus` porte AUSSI les primes de défi ; le libellé les nomme séparément
+  // quand il y en a, sinon « bonus de paliers » désignerait une dépense qui n'en
+  // est pas une.
   const acquisitionBonus = toDisplayAmount(c?.promoBonus, fxCtx);
+  const challengePrizes = toDisplayAmount(c?.challengeTotal ?? 0, fxCtx);
+  const hasChallenge =
+    challengePrizes !== null && challengePrizes.sourceValue > 0;
+  const hasTiers =
+    acquisitionBonus !== null &&
+    challengePrizes !== null &&
+    acquisitionBonus.sourceValue - challengePrizes.sourceValue > 0;
   // Carte 2 — coût complet du moteur : toute la paie (warmup + 100 % du bonus cash
   // + les récompenses en NATURE déjà dues) / clients. Une récompense en nature sans
   // coût réel renseigné est ABSENTE du total : on le dit, plutôt que de présenter
@@ -395,7 +405,13 @@ export function OverviewTab({
           delta={null}
           hint={joinHint([
             acquisitionBonus !== null && acquisitionBonus.sourceValue > 0
-              ? `dont ${convertedValue(acquisitionBonus)} de bonus de paliers, débloqué sur des vues promo`
+              ? `dont ${convertedValue(acquisitionBonus)} de ${
+                  hasChallenge && hasTiers
+                    ? "bonus de paliers et de primes de défi"
+                    : hasChallenge
+                      ? "primes de défi"
+                      : "bonus de paliers"
+                }, débloqué sur des vues promo`
               : "publications promo",
             clients !== null ? `÷ ${denominateurLabel(clients, coh?.whopMembersTotal)}` : null,
             conversionNote(acquisitionCost),
