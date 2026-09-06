@@ -48,11 +48,7 @@ export function isConclusive(n: number): boolean {
  */
 
 /** Jour Europe/Paris d'un ts (ms) → "YYYY-MM-DD" (clé de jointure, tri). */
-export function parisDayKey(ts: number): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(
-    new Date(ts),
-  );
-}
+export { parisDayKey } from "./analytics-window";
 
 /**
  * Étiquette d'axe/infobulle : jour Europe/Paris d'un ts → "28 juil.". Ancrée

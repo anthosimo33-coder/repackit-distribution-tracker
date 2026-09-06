@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   useProjectQuery,
   useProjectMutation,
@@ -10,7 +10,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
 import { convexErrorMessage } from "@/lib/convex-error";
 import {
   ActivityIcon,
@@ -24,6 +23,13 @@ import {
   ShieldCheckIcon,
   TargetIcon,
 } from "lucide-react";
+import { PeriodPicker } from "@/components/analytics/hub/PeriodPicker";
+import {
+  clampWindow,
+  dataRangeOf,
+  parisDayKey,
+  type AnalyticsWindow,
+} from "@/lib/analytics-window";
 import { OverviewTab } from "@/components/analytics/hub/OverviewTab";
 import { ParcoursTab } from "@/components/analytics/hub/ParcoursTab";
 import { AcquisitionTab } from "@/components/analytics/hub/AcquisitionTab";
@@ -45,12 +51,6 @@ import { PermissionGate } from "@/components/project/PermissionGate";
  * la phase A ; elle ne calcule pas. Jamais un 0 trompeur — un tiret et la raison.
  */
 
-const PERIODS = [
-  { key: 7, label: "7 jours" },
-  { key: 30, label: "30 jours" },
-  { key: 90, label: "90 jours" },
-] as const;
-
 function AnalyticsPageContenu() {
   const analytics = useProjectQuery(api.posthogSync.getProductAnalytics, {});
   const attribution = useProjectQuery(api.analyticsHub.getAttribution, {});
@@ -63,8 +63,25 @@ function AnalyticsPageContenu() {
   const billing = useProjectQuery(api.analyticsHub.getBillingCountries, {});
   const requestSync = useProjectMutation(api.posthogSync.requestPosthogSync);
   const [syncing, setSyncing] = useState(false);
-  const [periodDays, setPeriodDays] = useState<number>(90);
   const [now] = useState(() => Date.now());
+  // Fenêtre d'analyse : bornes de JOURS Europe/Paris, inclusives. `null` tant que
+  // la série quotidienne n'est pas chargée — on n'invente pas une fenêtre sur des
+  // données absentes, les cartes affichent un tiret.
+  const [window, setWindow] = useState<AnalyticsWindow | null>(null);
+  const dataRange = useMemo(
+    () =>
+      dataRangeOf(
+        (analytics?.overview.daily ?? []).map((d) => parisDayKey(d.ts)),
+      ),
+    [analytics],
+  );
+  // Défaut = TOUT ce qui existe. L'ancien défaut « 90 jours » promettait une
+  // profondeur que PostHog n'a pas (46 jours au 2026-09-06) : deux des trois
+  // boutons rendaient le même écran.
+  const effectiveWindow = useMemo(
+    () => clampWindow(window ?? { from: "0000-01-01", to: "9999-12-31" }, dataRange),
+    [window, dataRange],
+  );
 
   const onSync = async () => {
     setSyncing(true);
@@ -118,26 +135,11 @@ function AnalyticsPageContenu() {
 
       {/* Sélecteur de période global (B4) — filtre les KPI de conversion. */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-1">
-          <span className="mr-1 text-xs font-medium uppercase tracking-wide text-slate-400">
-            Période
-          </span>
-          {PERIODS.map((p) => (
-            <button
-              key={p.key}
-              type="button"
-              onClick={() => setPeriodDays(p.key)}
-              className={cn(
-                "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
-                periodDays === p.key
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
-              )}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
+        <PeriodPicker
+          window={effectiveWindow}
+          range={dataRange}
+          onChange={setWindow}
+        />
         <p className="text-xs text-slate-400">
           Conversions ancrées sur l&apos;inscription · revenu sur le paiement · vues
           sur la publication.
@@ -207,7 +209,8 @@ function AnalyticsPageContenu() {
                 attribution={attribution}
                 viewCounters={viewCounters}
                 dayDetail={dayDetail}
-                periodDays={periodDays}
+                window={effectiveWindow}
+                dataRange={dataRange}
                 now={now}
               />
             </TabsContent>

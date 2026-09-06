@@ -50,6 +50,7 @@ import {
 // par collectProjectWhopPayments (point de passage unique).
 import { isInternalWhopMembership } from "./internalAccounts";
 import { collectProjectWhopPayments } from "./whopPaymentsAccess";
+import { countPersons, dailyNewPersons } from "./whopClients";
 import { normalizeRef } from "./conversionAttribution";
 import {
   computeViewCounters,
@@ -230,6 +231,12 @@ export interface AttributionResult {
      * l'opération, l'omettre rendait un défi gratuit à l'écran.
      */
     challengeTotal: number;
+    /**
+     * Bonus de paliers + primes de défi, DATÉS (jour Europe/Paris). Σ =
+     * `promoBonus`. Sert au FENÊTRAGE du coût d'acquisition : un total ne se
+     * découpe pas, une série datée oui.
+     */
+    promoBonusByDay: { day: string; amount: number }[];
     /**
      * Récompenses en NATURE déjà DUES (paliers franchis), valorisées à leur coût
      * réel figé. Incluses dans `total`, JAMAIS dans `promo`/`promoBonus` : un
@@ -501,6 +508,37 @@ export const getAttribution = permissionQuery("business.read")({
     // vidéos de promo, sa prime est donc un coût d'acquisition au même titre.
     const promoBonus = round2(bonusTotal + challengeTotal);
 
+    // ── Bonus et primes DATÉS — pour que le coût d'acquisition soit fenêtrable ──
+    // `bonusTotal`/`challengeTotal` sont des TOTAUX : sur une fenêtre de 7 jours,
+    // ils feraient entrer au numérateur une dépense de juillet. Un total ne se
+    // découpe pas, une série datée oui. Deux `collect` indexés par projet (1 ligne
+    // en prod) — pas de lecture par créatrice : le budget d'opérations de cette
+    // query vient d'être ramené sous la limite, on n'y remet rien de linéaire.
+    const bonusByDay = new Map<string, number>();
+    const addBonus = (at: number, amount: number) => {
+      if (!(amount > 0)) return;
+      const d = parisDay(at);
+      bonusByDay.set(d, round2((bonusByDay.get(d) ?? 0) + amount));
+    };
+    for (const u of await ctx.db
+      .query("bonusUnlocks")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect()) {
+      if (u.rewardType === "cash") addBonus(u.unlockedAt, u.montant ?? 0);
+    }
+    for (const w of await ctx.db
+      .query("challengeWins")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect()) {
+      // Une victoire ANNULÉE n'est plus due : elle ne doit pas peser sur une
+      // fenêtre alors qu'elle est déjà hors du total.
+      if (w.cancelledAt !== undefined) continue;
+      if (w.reward.type === "cash") addBonus(w.wonAt, w.reward.amount ?? 0);
+    }
+    const promoBonusByDay = [...bonusByDay.entries()]
+      .map(([day, amount]) => ({ day, amount }))
+      .sort((a, b) => (a.day < b.day ? -1 : 1));
+
     // Récompenses en NATURE déjà dues (iPhone, MacBook, voiture…) : une dépense
     // réelle, invisible jusqu'ici parce que `bonusTierCashTotal` ne somme que le
     // cash. Elles entrent dans le coût COMPLET du moteur et nulle part ailleurs —
@@ -537,6 +575,7 @@ export const getAttribution = permissionQuery("business.read")({
         promoViewShare: Math.round(promoViewShare * 1000) / 1000,
         bonusTotal,
         challengeTotal,
+        promoBonusByDay,
         natureDue,
         natureDueMissingCost,
       },
@@ -2286,17 +2325,6 @@ export const getReliability = permissionQuery("business.read")({
       }
       whopMembersTotal = firstPaid.size;
       whopMembers = comparableIds.length;
-      // Nouveaux clients payants Whop PAR JOUR Paris = série « Clients payants »
-      // (source de vérité). firstPaid = 1er paiement encaissé par membership,
-      // internes déjà exclus → un membership compte le JOUR de son premier paiement.
-      const paidClientsByDay = new Map<string, number>();
-      for (const first of firstPaid.values()) {
-        const day = parisDay(first);
-        paidClientsByDay.set(day, (paidClientsByDay.get(day) ?? 0) + 1);
-      }
-      dailyPaidClients = [...paidClientsByDay.entries()]
-        .map(([day, clients]) => ({ day, clients }))
-        .sort((a, b) => (a.day < b.day ? -1 : 1));
       whopFirstPaidDay = [...firstPaid.entries()].map(([membershipId, ms]) => ({
         membershipId,
         day: parisDay(ms),
@@ -2363,18 +2391,15 @@ export const getReliability = permissionQuery("business.read")({
       for (const m of memberships) {
         if (m.whopUserId) userOf.set(m.whopMembershipId, m.whopUserId);
       }
-      /**
-       * Personnes derrière un lot d'abonnements. Un abonnement dont la personne
-       * n'est pas résolue (`whopUserId` pas encore synchronisé) compte POUR
-       * LUI-MÊME : on ne fusionne jamais deux inconnus en un seul client, donc
-       * le compte ne peut que SURESTIMER — jamais perdre un client acquis. Le
-       * nombre de non-résolus est exposé pour que la dégradation se lise.
-       */
-      const clientsOf = (ids: Iterable<string>): number => {
-        const keys = new Set<string>();
-        for (const id of ids) keys.add(userOf.get(id) ?? `mem:${id}`);
-        return keys.size;
-      };
+      // Personnes derrière un lot d'abonnements — règle unique, cf convex/whopClients.
+      const clientsOf = (ids: Iterable<string>): number => countPersons(ids, userOf);
+      // Nouveaux clients payants Whop PAR JOUR Paris = série « Clients payants ».
+      // Comptée en PERSONNES, comme `whopClientsTotal` et comme le dénominateur
+      // des cartes de coût : les deux dérivent du MÊME repliement (convex/
+      // whopClients), donc Σ des jours = whopClientsTotal par construction. La
+      // série était comptée par ABONNEMENT : la sommer sur une fenêtre aurait
+      // affiché « ÷ 351 personnes » sous une courbe qui somme à 375.
+      dailyPaidClients = dailyNewPersons(firstPaid, userOf, parisDay);
       whopClientsTotal = clientsOf(firstPaid.keys());
       whopClients = clientsOf(comparableIds);
       whopSecuredClients = clientsOf(secured);

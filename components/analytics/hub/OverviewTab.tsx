@@ -31,6 +31,13 @@ import { EXPLAIN } from "./explanations";
 import { PromoRpmCard } from "./PromoRpmCard";
 import { buildDayDetail } from "@/lib/day-detail";
 import {
+  coversEverything,
+  rowsInWindow,
+  sumInWindow,
+  type AnalyticsWindow,
+  type DataRange,
+} from "@/lib/analytics-window";
+import {
   toDisplayAmount,
   convertedValue,
   conversionNote,
@@ -97,7 +104,8 @@ export function OverviewTab({
   attribution,
   viewCounters,
   dayDetail,
-  periodDays,
+  window,
+  dataRange,
   now,
 }: {
   analytics: ProductAnalyticsData;
@@ -106,14 +114,29 @@ export function OverviewTab({
   attribution: AttributionData | undefined;
   viewCounters: ViewCountersData | undefined;
   dayDetail: DayDetailData | undefined;
-  periodDays: number;
+  /** Fenêtre d'analyse (jours Paris, bornes incluses). null = aucune donnée. */
+  window: AnalyticsWindow | null;
+  /** Étendue réelle des données — sert à savoir si la fenêtre vaut le cumul. */
+  dataRange: DataRange | null;
   now: number;
 }) {
-  // Fenêtre : les N derniers jours de la série quotidienne.
+  // La série quotidienne, restreinte à la fenêtre. Toutes les tuiles en dérivent :
+  // c'est la seule définition de « la période » sur cet écran.
   const daily = useMemo(() => {
     const all = [...analytics.overview.daily].sort((a, b) => a.ts - b.ts);
-    return all.slice(Math.max(0, all.length - periodDays));
-  }, [analytics.overview.daily, periodDays]);
+    return rowsInWindow(all, window, (d) => parisDayKey(d.ts));
+  }, [analytics.overview.daily, window]);
+
+  // Fenêtre couvrant TOUT : « sur la période » et « cumulé » sont alors le même
+  // chiffre, on n'affiche pas deux fois la même chose.
+  const isAllTime = coversEverything(window, dataRange);
+
+  // Complétion sur la fenêtre : la série quotidienne porte checkouts ET subs, donc
+  // le taux se recalcule sans passer par le funnel (qui, lui, n'est pas daté).
+  const checkoutsWin = daily.reduce((t, d) => t + d.checkouts, 0);
+  const subsWin = daily.reduce((t, d) => t + d.subs, 0);
+  const completionWin =
+    checkoutsWin > 0 ? Math.round((subsWin / checkoutsWin) * 1000) / 10 : null;
 
   const visitorsPts: TrendPoint[] = daily.map((d) => ({ ts: d.ts, value: d.visitors }));
   const signupsPts: TrendPoint[] = daily.map((d) => ({ ts: d.ts, value: d.signups }));
@@ -263,6 +286,72 @@ export function OverviewTab({
   const canDivide = clients !== null && clients > 0 && !dashboardWhopViolation;
   const perClient = (n: number | null | undefined): number | null =>
     n != null && canDivide ? Math.round((n / (clients as number)) * 100) / 100 : null;
+
+  // ── Fenêtrage ─────────────────────────────────────────────────────────────
+  // Toutes les séries datées reçues du serveur, restreintes à la fenêtre. Le
+  // dénominateur `clientsWin` est en PERSONNES (cf convex/whopClients) : Σ des
+  // jours = whopClientsTotal par construction, donc « ÷ N clients » garde la
+  // MÊME unité que le cumul. C'était l'obstacle — la série était par abonnement.
+  const clientsWin = sumInWindow(
+    coh?.dailyPaidClients ?? [],
+    window,
+    (d) => d.day,
+    (d) => d.clients,
+  );
+  const netWin =
+    revenue?.configured && !revenue.mixedCurrency
+      ? sumInWindow(revenue.dailyNet, window, (d) => d.day, (d) => d.net)
+      : null;
+  const rowsWin = rowsInWindow(attribution?.rows ?? [], window, (r) => r.day);
+  const promoRows = rowsWin.filter((r) => r.hasPromoPost);
+  // `promoCost`/`cost` valent null quand un coût par vidéo est inconnu : une seule
+  // vidéo suffit à rendre la somme non fiable, on refuse alors le chiffre plutôt
+  // que de sommer autour du trou (même règle que `costs.promo` côté serveur).
+  const promoCostWin = promoRows.some((r) => r.promoCost === null)
+    ? null
+    : promoRows.reduce((t, r) => t + (r.promoCost ?? 0), 0);
+  const fullCostWin = rowsWin.some((r) => r.cost === null)
+    ? null
+    : rowsWin.reduce((t, r) => t + (r.cost ?? 0), 0);
+  const bonusWin = sumInWindow(
+    attribution?.costs.promoBonusByDay ?? [],
+    window,
+    (b) => b.day,
+    (b) => b.amount,
+  );
+  const promoViewsWin = promoRows.reduce((t, r) => t + r.promoViews, 0);
+  const canDivideWin =
+    clientsWin !== null && clientsWin > 0 && !dashboardWhopViolation;
+  const perClientWin = (n: number | null): number | null =>
+    n !== null && canDivideWin
+      ? Math.round((n / (clientsWin as number)) * 100) / 100
+      : null;
+  /** « sur la période » + le cumul en second, comme demandé. */
+  const withCumul = (cumul: string | null): string | null =>
+    isAllTime || cumul === null ? null : `${cumul} au total`;
+
+  // Les six valeurs fenêtrées. Elles n'existent QUE parce que chaque terme a une
+  // série datée : sans ça on diviserait un numérateur de 7 jours par un
+  // dénominateur de toujours — le piège que ce chantier cherchait à éviter.
+  const acquisitionCostWin = toDisplayAmount(
+    promoCostWin !== null && bonusWin !== null
+      ? perClientWin(promoCostWin + bonusWin)
+      : null,
+    fxCtx,
+  );
+  // Le coût COMPLET fenêtré n'inclut PAS les récompenses en nature : elles sont
+  // dues sans date d'exigibilité exploitable. Le cumul, lui, les porte — l'écart
+  // entre les deux est donc attendu et se lit dans le sous-titre.
+  const fullEngineCostWin = toDisplayAmount(
+    fullCostWin !== null && bonusWin !== null
+      ? perClientWin(fullCostWin + bonusWin)
+      : null,
+    fxCtx,
+  );
+  const viewsPerClientWin =
+    canDivideWin && promoViewsWin > 0
+      ? Math.round(promoViewsWin / (clientsWin as number))
+      : null;
   // Carte 1 — coût d'acquisition : (fixe + CPM promo + PART du bonus) / clients. Le
   // bonus débloqué est une dépense réelle, réparti au prorata des vues promo (part
   // affichée sous la carte). Tiret seulement si un coût par vidéo manque (legacy).
@@ -401,7 +490,7 @@ export function OverviewTab({
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <KpiTile
           label="Coût d'acquisition"
-          value={convertedValue(acquisitionCost)}
+          value={convertedValue(isAllTime ? acquisitionCost : acquisitionCostWin)}
           delta={null}
           hint={joinHint([
             acquisitionBonus !== null && acquisitionBonus.sourceValue > 0
@@ -415,12 +504,13 @@ export function OverviewTab({
               : "publications promo",
             clients !== null ? `÷ ${denominateurLabel(clients, coh?.whopMembersTotal)}` : null,
             conversionNote(acquisitionCost),
+            withCumul(convertedValue(acquisitionCost)),
           ])}
           info={EXPLAIN.coutAcquisition}
         />
         <KpiTile
           label="Coût complet du moteur"
-          value={convertedValue(fullEngineCost)}
+          value={convertedValue(isAllTime ? fullEngineCost : fullEngineCostWin)}
           delta={null}
           hint={joinHint([
             natureMissing > 0
@@ -430,6 +520,7 @@ export function OverviewTab({
                 : "warmup inclus",
             clients !== null ? `÷ ${denominateurLabel(clients, coh?.whopMembersTotal)}` : null,
             conversionNote(fullEngineCost),
+            withCumul(convertedValue(fullEngineCost)),
           ])}
           info={EXPLAIN.coutComplet}
         />
@@ -479,30 +570,51 @@ export function OverviewTab({
           <>
             <KpiTile
               label="Clients payants"
-              value={dash(coh?.whopClientsTotal ?? null)}
+              value={dash(isAllTime ? (coh?.whopClientsTotal ?? null) : clientsWin)}
               delta={null}
               points={paidClientsPts}
-              hint={clientsHint}
+              hint={joinHint([
+                clientsHint,
+                withCumul(
+                  coh?.whopClientsTotal != null
+                    ? formatNumber(coh.whopClientsTotal)
+                    : null,
+                ),
+              ])}
               info={EXPLAIN.clientsPayants}
             />
             <KpiTile
               label="Revenu net encaissé"
-              value={totalNet === null ? "—" : formatMoney(totalNet, currency)}
-              delta={null}
-              hint={
-                revenue?.feeRate != null
-                  ? `frais ${formatNumber(Math.round(revenue.feeRate * 1000) / 10)} % · cumulé`
-                  : "cumulé · ancré sur le paiement"
+              value={
+                (isAllTime ? totalNet : netWin) === null
+                  ? "—"
+                  : formatMoney((isAllTime ? totalNet : netWin) as number, currency)
               }
+              delta={null}
+              hint={joinHint([
+                revenue?.feeRate != null
+                  ? `frais ${formatNumber(Math.round(revenue.feeRate * 1000) / 10)} %`
+                  : "ancré sur le paiement",
+                withCumul(totalNet === null ? null : formatMoney(totalNet, currency)),
+              ])}
               info={EXPLAIN.revenuNet}
             />
           </>
         )}
         <KpiTile
           label="Vues promo → abonné"
-          value={viewsPerClient === null ? "—" : `1 / ${formatViews(viewsPerClient)}`}
+          value={
+            (isAllTime ? viewsPerClient : viewsPerClientWin) === null
+              ? "—"
+              : `1 / ${formatViews((isAllTime ? viewsPerClient : viewsPerClientWin) as number)}`
+          }
           delta={null}
-          hint="métrique de pilotage · vues à la publication"
+          hint={joinHint([
+            "métrique de pilotage · vues à la publication",
+            withCumul(
+              viewsPerClient === null ? null : `1 / ${formatViews(viewsPerClient)}`,
+            ),
+          ])}
           info={EXPLAIN.vuesPromoClient}
         />
       </div>
@@ -510,13 +622,16 @@ export function OverviewTab({
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <KpiTile
           label="Complétion checkout"
-          value={pct(completion)}
+          value={pct(isAllTime ? completion : completionWin)}
           delta={null}
-          hint={
-            checkoutN !== null && paidN !== null
-              ? `${formatNumber(paidN)} / ${formatNumber(checkoutN)} checkouts`
-              : "—"
-          }
+          hint={joinHint([
+            isAllTime
+              ? checkoutN !== null && paidN !== null
+                ? `${formatNumber(paidN)} / ${formatNumber(checkoutN)} checkouts`
+                : null
+              : `${formatNumber(subsWin)} / ${formatNumber(checkoutsWin)} checkouts`,
+            withCumul(completion === null ? null : `${completion} %`),
+          ])}
           info={EXPLAIN.completionCheckout}
         />
         <KpiTile
