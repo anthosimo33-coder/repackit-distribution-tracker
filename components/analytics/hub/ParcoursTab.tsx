@@ -35,7 +35,7 @@ import {
   type SegmentPayload,
   type SplitRow,
 } from "@/lib/segment-funnel";
-import type { WindowedParcoursState } from "./useWindowedParcours";
+import type { WindowedAnalyticsState } from "./useWindowedAnalytics";
 import type { ProductAnalyticsData, ReliabilityData,
   BillingCountriesData,
 } from "./types";
@@ -111,7 +111,7 @@ export function ParcoursTab({
    * du cron (90 jours), soit parce que la période couvre tout, soit parce que le
    * recalcul n'est pas revenu.
    */
-  windowed: WindowedParcoursState;
+  windowed: WindowedAnalyticsState;
   now: number;
 }) {
   const [recentOnly, setRecentOnly] = useState(false);

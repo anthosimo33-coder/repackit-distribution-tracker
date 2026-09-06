@@ -189,19 +189,7 @@ const AB_EXPERIMENT_CTE = `(SELECT argMax(toString(properties.experiment_id), ti
 /** Vrai si l'event porte un bras DE L'EXPÉRIENCE COURANTE. */
 const AB_ARMED = `isNotNull(properties.experiment_variant) AND toString(properties.experiment_id) = ab_exp`;
 
-/**
- * Vue de paywall DANS la fenêtre du test — la seule source de l'offre servie.
- * `paywall_viewed` et non `paywall_shown` : c'est l'event que `abArms` compte
- * déjà, et deux cartes qui compteraient deux events différents divergeraient.
- */
-const AB_PAYWALL = `event = 'paywall_viewed' AND timestamp >= ab_start`;
 
-/**
- * Achat effectif DANS la fenêtre du test, plan émis. Le plan vide est écarté :
- * une ligne « plan inconnu » sans identifiant Whop n'aurait aucun prix, et un
- * client sans prix fausserait le revenu du bras dans le sens flatteur.
- */
-const AB_BOUGHT = `event = 'subscription_completed' AND timestamp >= ab_start AND toString(properties.plan) != ''`;
 
 /** Clés d'agrégat stockées dans posthogCache (une row par (projet, key)). */
 export const POSTHOG_CACHE_KEYS = {
@@ -841,8 +829,61 @@ export function buildQueries(
   notCounted: string,
   internalMarker: string,
   window: string = DEFAULT_WINDOW,
+  /**
+   * La MÊME fenêtre, exprimée sur la colonne `t_first_sub` (la date du premier
+   * abonnement). Obligatoire dès que `window` n'est pas le défaut : la déduire
+   * par substitution de texte dans le prédicat serait une chirurgie qui casse en
+   * silence le jour où le prédicat change de forme.
+   */
+  windowOnFirstSub?: string,
 ) {
   const WINDOW = window;
+  const fenetree = window !== DEFAULT_WINDOW;
+
+  /**
+   * ⚠️ LES REQUÊTES D'A/B TEST NE SE FENÊTRENT PAS COMME LES AUTRES.
+   *
+   * Leur balayage extérieur doit RESTER sur 90 jours : c'est lui qui fournit
+   * `t_first_sub`, le tout premier abonnement d'une personne, seule chose qui
+   * sépare un nouveau client d'un renouvellement. Mesuré en prod le 06/09 sur
+   * une fenêtre de sept jours : 58 personnes sur 203 ont leur premier
+   * abonnement HORS de la fenêtre. Rétrécir le balayage les aurait toutes
+   * comptées comme des clients de la semaine — une surestimation de 29 %.
+   *
+   * Ce qui suit la fenêtre, ce sont les COMPTEURS :
+   *  - `AB_MEASURE` borne les expositions (paywalls, checkouts, abonnements) ;
+   *  - `AB_ACQUIRED` borne la DATE D'ACQUISITION, pas l'activité : « nouveaux
+   *    clients de la période » = ceux dont le premier abonnement TOMBE dedans,
+   *    pas ceux qui ont un abonnement actif dedans.
+   */
+  const AB_MEASURE = fenetree
+    ? `timestamp >= ab_start AND ${window}`
+    : `timestamp >= ab_start`;
+  if (fenetree && !windowOnFirstSub) {
+    throw new Error(
+      "buildQueries : une fenêtre personnalisée exige windowOnFirstSub, sinon les renouvellements passent pour des nouveaux clients.",
+    );
+  }
+  const AB_ACQUIRED = fenetree
+    ? `t_first_sub >= ab_start AND ${windowOnFirstSub}`
+    : `t_first_sub >= ab_start`;
+  /**
+   * Personne ASSIGNÉE et présente DANS la période. C'est le dénominateur des
+   * taux « par assigné » : le laisser sur 90 jours pendant que les numérateurs
+   * suivent la fenêtre écraserait tous les taux — le défaut exact qui vient
+   * d'être corrigé sur le coût d'acquisition de l'onglet Rétention.
+   *
+   * La STABILITÉ du bras, elle, continue de se juger sur 90 jours : avoir
+   * changé de bras est un fait historique, pas une activité de la période.
+   */
+  const AB_ARMED_IN = fenetree ? `${AB_ARMED} AND ${window}` : AB_ARMED;
+  const AB_PAYWALL = `event = 'paywall_viewed' AND ${AB_MEASURE}`;
+  const AB_BOUGHT = `event = 'subscription_completed' AND ${AB_MEASURE} AND toString(properties.plan) != ''`;
+  // Construit DEHORS du littéral de requête : une backtick imbriquée refermerait
+  // le template et le SQL deviendrait du TypeScript invalide (déjà vu deux fois
+  // sur ce fichier, dont une dans un simple commentaire SQL).
+  const AB_TARGET_TS = dedupedTimestamps("target_added", ` AND ${AB_MEASURE}`);
+
   return {
   /**
    * Série quotidienne : visiteurs uniques, inscriptions, abonnements. Bucketisée
@@ -1130,7 +1171,12 @@ FROM (
       WHERE isNotNull(properties.paywall_id)
         AND ${WINDOW}) AS started
   FROM events
-  WHERE timestamp >= (SELECT min(timestamp) FROM events
+  -- La BORNE HAUTE manquait : l'ancrage sur la 1re émission de paywall_id ne
+  -- pose qu'un plancher. Sur les 90 jours glissants c'était sans effet (rien
+  -- n'existe après « maintenant »), mais sur une plage libre tout ce qui suit
+  -- la fin de la période entrait dans le compte.
+  WHERE ${WINDOW}
+    AND timestamp >= (SELECT min(timestamp) FROM events
       WHERE isNotNull(properties.paywall_id)
         AND ${WINDOW})${notCounted}
     AND event IN ('paywall_viewed', 'subscription_completed')
@@ -1180,10 +1226,13 @@ WITH ${AB_EXPERIMENT_CTE}
 SELECT bras AS variant, uniqIf(person_id, stable) AS exposed,
   uniqIf(person_id, stable AND n_paywalls > 0) AS paywall_viewers,
   uniqIf(person_id, stable AND n_checkouts > 0) AS checkouts,
-  uniqIf(person_id, stable AND n_subs > 0 AND t_first_sub >= ab_start) AS paid,
+  uniqIf(person_id, stable AND n_subs > 0 AND ${AB_ACQUIRED}) AS paid,
+  -- t_first_sub < ab_start reste HORS fenêtre, volontairement : être un
+  -- renouvellement est un fait historique, pas une activité de la période. La
+  -- période, elle, filtre déjà n_subs via AB_MEASURE.
   uniqIf(person_id, stable AND n_subs > 0 AND t_first_sub < ab_start) AS renewals,
-  uniqIf(person_id, stable AND n_subs > 0 AND t_first_sub >= ab_start AND n_checkouts = 0) AS paid_without_checkout,
-  sum(if(stable AND n_subs > 0 AND t_first_sub >= ab_start, arrayCount(x -> x >= t_first_sub, target_ts), 0)) AS client_targets,
+  uniqIf(person_id, stable AND n_subs > 0 AND ${AB_ACQUIRED} AND n_checkouts = 0) AS paid_without_checkout,
+  sum(if(stable AND n_subs > 0 AND ${AB_ACQUIRED}, arrayCount(x -> x >= t_first_sub, target_ts), 0)) AS client_targets,
   sum(if(stable, length(target_ts), 0)) AS arm_targets,
   -- Écartées faute de bras stable. Rangées sous leur DERNIER bras (argMaxIf) :
   -- c'est celui que la carte leur aurait attribué, donc la ligne qu'elles
@@ -1202,21 +1251,21 @@ FROM (
     -- une bascule : ~24 des 52 exclusions mesurées le 22/08 étaient cet artefact.
     uniqIf(toString(properties.experiment_variant), ${AB_ARMED}) = 1 AS stable,
     uniq(toString(properties.$device_id)) AS n_devices,
-    countIf(event = 'paywall_viewed' AND timestamp >= ab_start) AS n_paywalls,
-    countIf(event = 'checkout_started' AND timestamp >= ab_start) AS n_checkouts,
-    countIf(event = 'subscription_completed' AND timestamp >= ab_start) AS n_subs,
+    countIf(event = 'paywall_viewed' AND ${AB_MEASURE}) AS n_paywalls,
+    countIf(event = 'checkout_started' AND ${AB_MEASURE}) AS n_checkouts,
+    countIf(event = 'subscription_completed' AND ${AB_MEASURE}) AS n_subs,
     -- 1er abonnement sur TOUTE la fenêtre 90 j (pas seulement depuis le test) :
     -- c'est ce qui sépare un nouveau client d'un renouvellement. minIf sans
     -- correspondance rend l'epoch 0, jamais null → toujours gardé par n_subs > 0.
     minIf(timestamp, event = 'subscription_completed') AS t_first_sub,
     -- Cibles DÉDUPLIQUÉES : la double émission client+serveur doublait
     -- client_targets et arm_targets (1,85 cible/client affiché pour 0,93 réel).
-    ${dedupedTimestamps("target_added", " AND timestamp >= ab_start")} AS target_ts,
+    ${AB_TARGET_TS} AS target_ts,
     ab_start AS started
   FROM events
-  WHERE ${WINDOW}${notCounted}
+  WHERE ${DEFAULT_WINDOW}${notCounted}
   GROUP BY person_id
-  HAVING countIf(${AB_ARMED}) > 0
+  HAVING countIf(${AB_ARMED_IN}) > 0
 )
 WHERE isNotNull(bras) AND bras != '' AND bras != 'NULL'
 GROUP BY variant
@@ -1245,7 +1294,8 @@ SELECT bras AS variant,
   attribuee,
   count() AS paywall_viewers,
   countIf(n_checkouts > 0) AS checkouts,
-  countIf(n_subs > 0 AND t_first_sub >= ab_start) AS paid,
+  countIf(n_subs > 0 AND ${AB_ACQUIRED}) AS paid,
+  -- Hors fenêtre volontairement (cf abArms) : historique, pas activité.
   countIf(n_subs > 0 AND t_first_sub < ab_start) AS renewals,
   min(t_first_paywall) AS first_seen,
   max(t_last_paywall) AS last_seen
@@ -1259,15 +1309,15 @@ FROM (
       AS attribuee,
     minIf(timestamp, ${AB_PAYWALL}) AS t_first_paywall,
     maxIf(timestamp, ${AB_PAYWALL}) AS t_last_paywall,
-    countIf(event = 'checkout_started' AND timestamp >= ab_start) AS n_checkouts,
-    countIf(event = 'subscription_completed' AND timestamp >= ab_start) AS n_subs,
+    countIf(event = 'checkout_started' AND ${AB_MEASURE}) AS n_checkouts,
+    countIf(event = 'subscription_completed' AND ${AB_MEASURE}) AS n_subs,
     -- 1er abonnement sur TOUTE la fenêtre : c'est ce qui sépare un nouveau
     -- client d'un renouvellement (cf abArms).
     minIf(timestamp, event = 'subscription_completed') AS t_first_sub
   FROM events
-  WHERE ${WINDOW}${notCounted}
+  WHERE ${DEFAULT_WINDOW}${notCounted}
   GROUP BY person_id
-  HAVING countIf(${AB_ARMED}) > 0 AND countIf(${AB_PAYWALL}) > 0
+  HAVING countIf(${AB_ARMED_IN}) > 0 AND countIf(${AB_PAYWALL}) > 0
 )
 WHERE isNotNull(bras) AND bras != '' AND bras != 'NULL'
 GROUP BY variant, plan_out, prix_out, attribuee
@@ -1313,14 +1363,14 @@ FROM (
         concat(toString(properties.plan), '|', toString(properties.plan_id)),
         ${AB_BOUGHT}) AS paires,
       groupUniqArrayIf(toString(properties.plan), ${AB_BOUGHT}) AS plans,
-      countIf(event = 'subscription_completed' AND timestamp >= ab_start) AS n_subs,
+      countIf(event = 'subscription_completed' AND ${AB_MEASURE}) AS n_subs,
       minIf(timestamp, event = 'subscription_completed') AS t_first_sub
     FROM events
-    WHERE ${WINDOW}${notCounted}
+    WHERE ${DEFAULT_WINDOW}${notCounted}
     GROUP BY person_id
-    HAVING countIf(${AB_ARMED}) > 0
+    HAVING countIf(${AB_ARMED_IN}) > 0
   )
-  WHERE stable AND n_subs > 0 AND t_first_sub >= ab_start
+  WHERE stable AND n_subs > 0 AND ${AB_ACQUIRED}
     AND isNotNull(bras) AND bras != '' AND bras != 'NULL'
 )
 GROUP BY variant, plan_achete, whop_plan_id
@@ -1982,7 +2032,7 @@ export function shapeFunnel(rows: unknown[][]): FunnelPayload {
 }
 
 /** Lignes (seg, n, converted) → lignes de conversion. */
-function shapeConversion(rows: unknown[][]): ConversionPayload {
+export function shapeConversion(rows: unknown[][]): ConversionPayload {
   return {
     rows: rows.map((r) => ({
       key: cellStr(r, 0),
@@ -2040,6 +2090,95 @@ function shapeCountryDaily(rows: unknown[][]): CountryDailyPayload {
  * charge que le cron, sinon le même onglet afficherait deux formes selon qu'une
  * période est choisie ou non.
  */
+export function shapeAbArms(rows: unknown[][]): AbArmsPayload {
+  return {
+    rows: rows.map((r) => ({
+      variant: cellStr(r, 0),
+      exposed: cellNum(r, 1),
+      paywallViewers: cellNum(r, 2),
+      checkouts: cellNum(r, 3),
+      paid: cellNum(r, 4),
+      renewals: cellNum(r, 5),
+      paidWithoutCheckout: cellNum(r, 6),
+      clientTargets: cellNum(r, 7),
+      armTargets: cellNum(r, 8),
+      excludedFlippers: cellNum(r, 9),
+      excludedFlippersMultiDevice: cellNum(r, 10),
+      excludedFlippersSameDevice: cellNum(r, 11),
+    })),
+    startMs: rows.length > 0 ? cellTimeMs(rows[0], 12) : null,
+  };
+}
+
+export function shapeAbOffers(rows: unknown[][]): AbOffersPayload {
+  return {
+    rows: rows.map((r) => ({
+      variant: cellStr(r, 0),
+      plan: cellStr(r, 1),
+      price: cellStr(r, 2),
+      // HogQL rend le booléen en 0/1 : cellNum puis comparaison, pas
+      // Boolean(cellStr(...)) — la chaîne "0" est vraie en JS.
+      attributed: cellNum(r, 3) === 1,
+      paywallViewers: cellNum(r, 4),
+      checkouts: cellNum(r, 5),
+      paid: cellNum(r, 6),
+      renewals: cellNum(r, 7),
+      firstMs: cellTimeMs(r, 8),
+      lastMs: cellTimeMs(r, 9),
+    })),
+  };
+}
+
+export function shapeAbPurchases(rows: unknown[][]): AbPurchasesPayload {
+  return {
+    rows: rows.map((r) => ({
+      variant: cellStr(r, 0),
+      plan: cellStr(r, 1),
+      whopPlanId: cellStr(r, 2),
+      clients: cellNum(r, 3),
+      armClients: cellNum(r, 4),
+      armMultiPlan: cellNum(r, 5),
+    })),
+  };
+}
+
+export function shapeFreePlan(rows: unknown[][]): FreePlanPayload {
+  const r = rows[0] ?? [];
+  return {
+    signups: cellNum(r, 0),
+    used: cellNum(r, 1),
+    convertedPaid: cellNum(r, 2),
+  };
+}
+
+export function shapeAbVariants(rows: unknown[][]): AbVariantsPayload {
+  return {
+    rows: rows.map((r) => ({
+      variant: cellStr(r, 0),
+      exposed: cellNum(r, 1),
+      checkouts: cellNum(r, 2),
+      paid: cellNum(r, 3),
+      clientTargets: cellNum(r, 4),
+    })),
+  };
+}
+
+export function shapeScanCost(rows: unknown[][]): ScanCostPayload {
+  return {
+    rows: rows.map((r) => {
+      const withCost = cellNum(r, 2);
+      return {
+        kind: cellStr(r, 0),
+        runs: cellNum(r, 1),
+        withCost,
+        sumCostUsd: cellNum(r, 3),
+        // avg n'a de sens que si des scans portent un cost_usd.
+        avgCostUsd: withCost > 0 ? cellNum(r, 4) : null,
+      };
+    }),
+  };
+}
+
 export function shapeActivation(rows: unknown[][]): ActivationPayload {
   return {
     rows: rows.map((r) => ({
@@ -2283,61 +2422,21 @@ export const runHourlySync = internalAction({
           apiKey,
           target,
           QUERIES.abArms,
-          (rows): AbArmsPayload => ({
-            rows: rows.map((r) => ({
-              variant: cellStr(r, 0),
-              exposed: cellNum(r, 1),
-              paywallViewers: cellNum(r, 2),
-              checkouts: cellNum(r, 3),
-              paid: cellNum(r, 4),
-              renewals: cellNum(r, 5),
-              paidWithoutCheckout: cellNum(r, 6),
-              clientTargets: cellNum(r, 7),
-              armTargets: cellNum(r, 8),
-              excludedFlippers: cellNum(r, 9),
-              excludedFlippersMultiDevice: cellNum(r, 10),
-              excludedFlippersSameDevice: cellNum(r, 11),
-            })),
-            startMs: rows.length > 0 ? cellTimeMs(rows[0], 12) : null,
-          }),
+          shapeAbArms,
         ),
         await collect(
           POSTHOG_CACHE_KEYS.abPurchases,
           apiKey,
           target,
           QUERIES.abPurchases,
-          (rows): AbPurchasesPayload => ({
-            rows: rows.map((r) => ({
-              variant: cellStr(r, 0),
-              plan: cellStr(r, 1),
-              whopPlanId: cellStr(r, 2),
-              clients: cellNum(r, 3),
-              armClients: cellNum(r, 4),
-              armMultiPlan: cellNum(r, 5),
-            })),
-          }),
+          shapeAbPurchases,
         ),
         await collect(
           POSTHOG_CACHE_KEYS.abOffers,
           apiKey,
           target,
           QUERIES.abOffers,
-          (rows): AbOffersPayload => ({
-            rows: rows.map((r) => ({
-              variant: cellStr(r, 0),
-              plan: cellStr(r, 1),
-              price: cellStr(r, 2),
-              // HogQL rend le booléen en 0/1 : `cellNum` puis comparaison, pas
-              // `Boolean(cellStr(...))` — la chaîne "0" est vraie en JS.
-              attributed: cellNum(r, 3) === 1,
-              paywallViewers: cellNum(r, 4),
-              checkouts: cellNum(r, 5),
-              paid: cellNum(r, 6),
-              renewals: cellNum(r, 7),
-              firstMs: cellTimeMs(r, 8),
-              lastMs: cellTimeMs(r, 9),
-            })),
-          }),
+          shapeAbOffers,
         ),
         await collect(
           POSTHOG_CACHE_KEYS.abPersonArms,
@@ -2491,19 +2590,7 @@ export const runHourlySync = internalAction({
           apiKey,
           target,
           QUERIES.scanCost,
-          (rows): ScanCostPayload => ({
-            rows: rows.map((r) => {
-              const withCost = cellNum(r, 2);
-              return {
-                kind: cellStr(r, 0),
-                runs: cellNum(r, 1),
-                withCost,
-                sumCostUsd: cellNum(r, 3),
-                // avg n'a de sens que si des scans portent un cost_usd.
-                avgCostUsd: withCost > 0 ? cellNum(r, 4) : null,
-              };
-            }),
-          }),
+          shapeScanCost,
         ),
         await collect(
           POSTHOG_CACHE_KEYS.friction,
@@ -2535,29 +2622,14 @@ export const runHourlySync = internalAction({
           apiKey,
           target,
           QUERIES.abVariants,
-          (rows): AbVariantsPayload => ({
-            rows: rows.map((r) => ({
-              variant: cellStr(r, 0),
-              exposed: cellNum(r, 1),
-              checkouts: cellNum(r, 2),
-              paid: cellNum(r, 3),
-              clientTargets: cellNum(r, 4),
-            })),
-          }),
+          shapeAbVariants,
         ),
         await collect(
           POSTHOG_CACHE_KEYS.freePlan,
           apiKey,
           target,
           QUERIES.freePlan,
-          (rows): FreePlanPayload => {
-            const r = rows[0] ?? [];
-            return {
-              signups: cellNum(r, 0),
-              used: cellNum(r, 1),
-              convertedPaid: cellNum(r, 2),
-            };
-          },
+          shapeFreePlan,
         ),
         await collect(
           POSTHOG_CACHE_KEYS.firstSearchAfterPay,

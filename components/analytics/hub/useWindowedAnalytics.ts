@@ -12,7 +12,11 @@ import { hogWindowClause } from "@/lib/hog-window";
 import type { WindowedParcours } from "@/convex/analyticsWindowed";
 
 /**
- * RECALCUL À LA DEMANDE des agrégats de l'onglet Parcours, sur une plage libre.
+ * RECALCUL À LA DEMANDE des agrégats PostHog, sur une plage libre.
+ *
+ * UNE seule volée sert Parcours ET Offres & tests : deux appels séparés
+ * paieraient deux fois la latence de démarrage, et pourraient rendre deux
+ * périodes différentes si l'utilisateur change de dates entre les deux.
  *
  * ⚠️ CE HOOK EXISTE POUR CACHER UNE LATENCE, PAS POUR L'IGNORER. Mesuré sur la
  * vraie API PostHog le 06/09/2026 : une volée coûte 10,6 s à froid (plus de deux
@@ -33,7 +37,7 @@ import type { WindowedParcours } from "@/convex/analyticsWindowed";
 
 const DEBOUNCE_MS = 600;
 
-export interface WindowedParcoursState {
+export interface WindowedAnalyticsState {
   /** `undefined` = servez-vous du cache 90 jours (fenêtre totale, ou pas encore prêt). */
   data: WindowedParcours | undefined;
   /** Un recalcul est en cours. Les chiffres affichés sont ceux d'avant. */
@@ -42,13 +46,13 @@ export interface WindowedParcoursState {
   error: string | null;
 }
 
-export function useWindowedParcours(
+export function useWindowedAnalytics(
   window: AnalyticsWindow | null,
   range: DataRange | null,
-): WindowedParcoursState {
+): WindowedAnalyticsState {
   // `useProjectAction` injecte le projet courant : le même chemin que le reste
   // du hub, plutôt qu'un projectId threadé à la main jusqu'ici.
-  const run = useProjectAction(api.analyticsWindowed.getWindowedParcours);
+  const run = useProjectAction(api.analyticsWindowed.getWindowedAnalytics);
   /**
    * Cache de session, en ÉTAT et non en ref : les règles React du dépôt
    * interdisent de lire une ref au rendu, et c'est justifié ici — une ref ne
@@ -79,13 +83,19 @@ export function useWindowedParcours(
     }
     const t = setTimeout(() => {
       const clause = hogWindowClause(window.from, window.to);
-      if (clause === null) {
+      const sur = hogWindowClause(window.from, window.to, "t_first_sub");
+      if (clause === null || sur === null) {
         setPending({ key, error: "Période illisible." });
         return;
       }
       inFlight.current = key;
       setPending({ key, error: null });
-      void run({ window: clause, from: window.from, to: window.to })
+      void run({
+        window: clause,
+        windowOnFirstSub: sur,
+        from: window.from,
+        to: window.to,
+      })
         .then((res) => {
           // Rangée même si la période a changé entre-temps : le calcul est fait,
           // le jeter obligerait à le repayer au retour. C'est la clé COURANTE
@@ -111,8 +121,14 @@ export function useWindowedParcours(
     if (preheated.current || !range) return;
     preheated.current = true;
     const clause = hogWindowClause(range.first, range.last);
-    if (clause === null) return;
-    void run({ window: clause, from: range.first, to: range.last }).catch(() => {
+    const sur = hogWindowClause(range.first, range.last, "t_first_sub");
+    if (clause === null || sur === null) return;
+    void run({
+      window: clause,
+      windowOnFirstSub: sur,
+      from: range.first,
+      to: range.last,
+    }).catch(() => {
       // Silencieux : une préchauffe ratée n'est pas une panne, elle coûte juste
       // la lenteur qu'on cherchait à éviter.
     });

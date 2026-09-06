@@ -79,10 +79,21 @@ export function hogDateTime(ms: number): string {
  * Le prédicat de fenêtre à injecter dans les requêtes, ou `null` si les jours
  * sont illisibles ou dans le désordre — l'appelant retombe alors sur la fenêtre
  * par défaut plutôt que d'interroger sur des bornes absurdes.
+ *
+ * `column` existe pour les requêtes d'A/B test, qui doivent borner autre chose
+ * que `timestamp` : la date du PREMIER abonnement d'une personne, calculée sur
+ * quatre-vingt-dix jours d'historique. Mesuré en prod le 06/09 sur une fenêtre
+ * de sept jours : 58 personnes sur 203 ont leur premier abonnement HORS de la
+ * fenêtre. Sans cette borne appliquée à la bonne colonne, elles passeraient
+ * toutes pour de nouveaux clients de la semaine.
  */
-export function hogWindowClause(from: string, to: string): string | null {
+export function hogWindowClause(
+  from: string,
+  to: string,
+  column = "timestamp",
+): string | null {
   const start = parisDayStartMs(from);
   const end = parisDayStartMs(nextDay(to));
   if (Number.isNaN(start) || Number.isNaN(end) || start >= end) return null;
-  return `timestamp >= toDateTime('${hogDateTime(start)}') AND timestamp < toDateTime('${hogDateTime(end)}')`;
+  return `${column} >= toDateTime('${hogDateTime(start)}') AND ${column} < toDateTime('${hogDateTime(end)}')`;
 }

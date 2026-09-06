@@ -63,6 +63,17 @@ describe("hogWindowClause", () => {
     expect(duree).toBe(25);
   });
 
+  it("peut borner une AUTRE colonne que timestamp", () => {
+    // Les requêtes d'A/B test bornent la date du PREMIER abonnement, calculée
+    // sur 90 jours d'historique : borner `timestamp` ne dirait rien d'elle.
+    const c = hogWindowClause("2026-09-01", "2026-09-06", "t_first_sub")!;
+    expect(c).toBe(
+      "t_first_sub >= toDateTime('2026-08-31 22:00:00') AND t_first_sub < toDateTime('2026-09-06 22:00:00')",
+    );
+    // Contre-test : sans argument, c'est bien `timestamp` qui est borné.
+    expect(hogWindowClause("2026-09-01", "2026-09-06")).toContain("timestamp >=");
+  });
+
   it("des bornes à l'envers ou illisibles rendent null, pas une fenêtre absurde", () => {
     expect(hogWindowClause("2026-09-06", "2026-09-01")).toBeNull();
     expect(hogWindowClause("n'importe quoi", "2026-09-01")).toBeNull();
