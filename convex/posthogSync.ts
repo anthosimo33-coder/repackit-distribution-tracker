@@ -63,6 +63,13 @@ const RETENTION_WEEKS = 9;
 /** Borne des segments listés (sources, variants, langues) — anti-explosion d'UI. */
 const SEGMENT_LIMIT = 20;
 /**
+ * Limite PROPRE à `abOffers` : ses lignes sont (bras × offre), et une ligne
+ * tronquée ne se voit pas — elle emporte ses conversions avec elle. Douze lignes
+ * en prod le 06/09 après trois changements d'offre ; à 20 on aurait déjà été à
+ * portée du plafond au changement suivant.
+ */
+const OFFER_SEGMENT_LIMIT = 60;
+/**
  * Borne PROPRE aux pays. 20 suffit pour des langues ou des bras d'A/B ; pour des
  * pays c'est une troncature de fait — et `SEGMENT_LIMIT` est partagé par six
  * requêtes, le monter reviendrait à en changer six pour une. La borne reste
@@ -168,6 +175,13 @@ const AB_EXPERIMENT_CTE = `(SELECT argMax(toString(properties.experiment_id), ti
 /** Vrai si l'event porte un bras DE L'EXPÉRIENCE COURANTE. */
 const AB_ARMED = `isNotNull(properties.experiment_variant) AND toString(properties.experiment_id) = ab_exp`;
 
+/**
+ * Vue de paywall DANS la fenêtre du test — la seule source de l'offre servie.
+ * `paywall_viewed` et non `paywall_shown` : c'est l'event que `abArms` compte
+ * déjà, et deux cartes qui compteraient deux events différents divergeraient.
+ */
+const AB_PAYWALL = `event = 'paywall_viewed' AND timestamp >= ab_start`;
+
 /** Clés d'agrégat stockées dans posthogCache (une row par (projet, key)). */
 export const POSTHOG_CACHE_KEYS = {
   overview: "overview",
@@ -201,6 +215,7 @@ export const POSTHOG_CACHE_KEYS = {
   activation: "activation",
   abVariants: "abVariants",
   abArms: "abArms",
+  abOffers: "abOffers",
   abPersonArms: "abPersonArms",
   abFlippers: "abFlippers",
   freePlan: "freePlan",
@@ -329,6 +344,78 @@ export interface AbArmsPayload {
  */
 export interface AbFlippersPayload {
   distinctIds: string[];
+}
+
+/**
+ * TEST A/B par (BRAS × OFFRE SERVIE) — la dimension qui manquait à `abArms`.
+ *
+ * ⚠️ POURQUOI CE SECOND AGRÉGAT PLUTÔT QU'UNE COLONNE DE PLUS SUR `abArms`.
+ * `abArms.exposed` compte les personnes ASSIGNÉES, et une assignation n'a pas
+ * d'offre : plus de la moitié des assignés ne verront jamais de paywall. Ajouter
+ * l'offre à ce GROUP BY aurait éclaté le dénominateur de l'intention de traiter
+ * entre une vraie offre et un « pas d'offre » fourre-tout. L'offre n'existe qu'à
+ * partir de `paywall_viewed` : cet agrégat part donc des VUES de paywall, et la
+ * carte des bras reste ce qu'elle est.
+ *
+ * ⚠️ POURQUOI PAS UNE FENÊTRE DE DATES. Le besoin (« on vient de changer l'offre
+ * du bras A, il faut savoir la fenêtre ») se règle mieux par l'offre RÉELLEMENT
+ * SERVIE que par des bornes saisies à la main : les bornes se périment au
+ * changement suivant, l'offre servie non. Mesuré en prod le 06/09 : l'expérience
+ * courante a servi CINQ offres depuis le 08/08 (bascule mensuel → hebdo des deux
+ * bras le 18/08, puis bras soft repassé au mensuel le 06/09), que la carte
+ * agrégeait en deux lignes.
+ */
+export interface AbOffersPayload {
+  rows: {
+    variant: string;
+    /** `plan_preselected`. Vide = l'app ne l'a pas émis (trou d'instrumentation). */
+    plan: string;
+    /** Prix affiché, tel qu'émis. Vide = non émis. '16.9' et '16.99' sont DEUX offres. */
+    price: string;
+    /**
+     * Faux = personne ÉCARTÉE de l'attribution (bras instable, ou DEUX offres
+     * vues). Ces lignes portent un plan et un prix vides et ne sont jamais
+     * comparées : elles existent pour que l'exclusion soit VISIBLE, comme
+     * `excludedFlippers` sur la carte des bras.
+     */
+    attributed: boolean;
+    /** Personnes ayant vu cette offre (dénominateur de tous les taux ci-dessous). */
+    paywallViewers: number;
+    checkouts: number;
+    /** Nouveaux clients (1er abonnement APRÈS le début du test). */
+    paid: number;
+    /** Personnes payantes dont l'abonnement PRÉCÈDE le test (renouvellements). */
+    renewals: number;
+    /** Première et dernière vue de paywall sur cette offre — LA fenêtre. */
+    firstMs: number | null;
+    lastMs: number | null;
+  }[];
+}
+
+/**
+ * Recale une charge `abOffers` lue du cache. Même raison que `normalizeAbArms` :
+ * entre le déploiement et le prochain cron, le cache porte la forme précédente,
+ * et un `undefined` deviendrait NaN à l'écran.
+ */
+export function normalizeAbOffers(payload: AbOffersPayload): AbOffersPayload {
+  const num = (v: unknown): number =>
+    typeof v === "number" && Number.isFinite(v) ? v : 0;
+  const ms = (v: unknown): number | null =>
+    typeof v === "number" && Number.isFinite(v) ? v : null;
+  return {
+    rows: (payload.rows ?? []).map((r) => ({
+      variant: typeof r.variant === "string" ? r.variant : "",
+      plan: typeof r.plan === "string" ? r.plan : "",
+      price: typeof r.price === "string" ? r.price : "",
+      attributed: r.attributed !== false,
+      paywallViewers: num(r.paywallViewers),
+      checkouts: num(r.checkouts),
+      paid: num(r.paid),
+      renewals: num(r.renewals),
+      firstMs: ms(r.firstMs),
+      lastMs: ms(r.lastMs),
+    })),
+  };
 }
 
 /**
@@ -1045,6 +1132,58 @@ WHERE isNotNull(bras) AND bras != '' AND bras != 'NULL'
 GROUP BY variant
 ORDER BY exposed DESC
 LIMIT ${SEGMENT_LIMIT}`,
+
+  /**
+   * TEST A/B par (BRAS × OFFRE SERVIE) — cf AbOffersPayload.
+   *
+   * Part des VUES DE PAYWALL, pas des assignations : l'offre n'existe pas avant.
+   * Une personne qui a vu DEUX offres (elle traversait un changement de prix) est
+   * inattribuable, exactement comme une personne à deux bras — et pour la même
+   * raison : la comparaison ne tient que si chaque personne a subi UN traitement.
+   * Elle n'est pas jetée en silence, elle sort en ligne `attribuee = 0`.
+   *
+   * `plan` et `prix` viennent de DEUX argMaxIf sur la même condition et la même
+   * clé de tri : ils désignent donc le même event. La stabilité, elle, est
+   * mesurée sur la clé COMBINÉE — un même prix sous deux plans reste un
+   * changement d'offre.
+   */
+  abOffers: `
+WITH ${AB_EXPERIMENT_CTE}
+SELECT bras AS variant,
+  if(attribuee, plan, '') AS plan_out,
+  if(attribuee, prix, '') AS prix_out,
+  attribuee,
+  count() AS paywall_viewers,
+  countIf(n_checkouts > 0) AS checkouts,
+  countIf(n_subs > 0 AND t_first_sub >= ab_start) AS paid,
+  countIf(n_subs > 0 AND t_first_sub < ab_start) AS renewals,
+  min(t_first_paywall) AS first_seen,
+  max(t_last_paywall) AS last_seen
+FROM (
+  SELECT person_id,
+    argMaxIf(toString(properties.experiment_variant), timestamp, ${AB_ARMED}) AS bras,
+    argMaxIf(toString(properties.plan_preselected), timestamp, ${AB_PAYWALL}) AS plan,
+    argMaxIf(toString(properties.price), timestamp, ${AB_PAYWALL}) AS prix,
+    uniqIf(toString(properties.experiment_variant), ${AB_ARMED}) = 1
+      AND uniqIf(concat(toString(properties.plan_preselected), '@', toString(properties.price)), ${AB_PAYWALL}) = 1
+      AS attribuee,
+    minIf(timestamp, ${AB_PAYWALL}) AS t_first_paywall,
+    maxIf(timestamp, ${AB_PAYWALL}) AS t_last_paywall,
+    countIf(event = 'checkout_started' AND timestamp >= ab_start) AS n_checkouts,
+    countIf(event = 'subscription_completed' AND timestamp >= ab_start) AS n_subs,
+    -- 1er abonnement sur TOUTE la fenêtre : c'est ce qui sépare un nouveau
+    -- client d'un renouvellement (cf abArms).
+    minIf(timestamp, event = 'subscription_completed') AS t_first_sub
+  FROM events
+  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+  GROUP BY person_id
+  HAVING countIf(${AB_ARMED}) > 0 AND countIf(${AB_PAYWALL}) > 0
+)
+WHERE isNotNull(bras) AND bras != '' AND bras != 'NULL'
+GROUP BY variant, plan_out, prix_out, attribuee
+ORDER BY variant, last_seen DESC
+LIMIT ${OFFER_SEGMENT_LIMIT}`,
+
 
   /**
    * `distinct_id → bras` pour le REPLI de rattachement (cf AbPersonArmsPayload).
@@ -2001,6 +2140,28 @@ export const runHourlySync = internalAction({
           }),
         ),
         await collect(
+          POSTHOG_CACHE_KEYS.abOffers,
+          apiKey,
+          target,
+          QUERIES.abOffers,
+          (rows): AbOffersPayload => ({
+            rows: rows.map((r) => ({
+              variant: cellStr(r, 0),
+              plan: cellStr(r, 1),
+              price: cellStr(r, 2),
+              // HogQL rend le booléen en 0/1 : `cellNum` puis comparaison, pas
+              // `Boolean(cellStr(...))` — la chaîne "0" est vraie en JS.
+              attributed: cellNum(r, 3) === 1,
+              paywallViewers: cellNum(r, 4),
+              checkouts: cellNum(r, 5),
+              paid: cellNum(r, 6),
+              renewals: cellNum(r, 7),
+              firstMs: cellTimeMs(r, 8),
+              lastMs: cellTimeMs(r, 9),
+            })),
+          }),
+        ),
+        await collect(
           POSTHOG_CACHE_KEYS.abPersonArms,
           apiKey,
           target,
@@ -2363,6 +2524,8 @@ export interface ProductAnalytics {
   paywallById: ConversionPayload;
   /** Test A/B par bras (sessions forcées exclues). */
   abArms: AbArmsPayload;
+  /** Test A/B par (bras × offre servie) — cf AbOffersPayload. */
+  abOffers: AbOffersPayload;
   sources: ConversionPayload;
   cohorts: CohortsPayload;
   predictors: PredictorsPayload;
@@ -2425,6 +2588,7 @@ export const getProductAnalytics = permissionQuery("business.read")({
       paywall: EMPTY_CONVERSION,
       paywallById: EMPTY_CONVERSION,
       abArms: { rows: [], startMs: null },
+      abOffers: { rows: [] },
       sources: EMPTY_CONVERSION,
       cohorts: { segments: [] },
       predictors: { total: 0, totalConverted: 0, behaviors: [] },
@@ -2497,6 +2661,9 @@ export const getProductAnalytics = permissionQuery("business.read")({
           rows: [],
           startMs: null,
         }),
+      ),
+      abOffers: normalizeAbOffers(
+        read<AbOffersPayload>(POSTHOG_CACHE_KEYS.abOffers, { rows: [] }),
       ),
       sources: read(POSTHOG_CACHE_KEYS.sources, EMPTY_CONVERSION),
       cohorts: read(POSTHOG_CACHE_KEYS.cohorts, empty.cohorts),
