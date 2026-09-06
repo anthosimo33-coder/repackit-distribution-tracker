@@ -329,42 +329,47 @@ export const EXPECTED_RESULT_VALUES: { event: string; value: string; notYetEmitt
  * les montants de l'autre invalide la comparaison, et l'écart ne se voit pas
  * dans un agrégat (les deux prix existent tous les deux au catalogue).
  *
- * Prix vérifiés côté Whop le 03/08 — les quatre existent avec la BONNE cadence
- * (4,99 €/7 j, 16,99 €/30 j, 9,99 €/7 j, 29,99 €/30 j). Le piège : 9,99 € existe
- * AUSSI en mensuel au catalogue, donc un montant seul ne prouve pas la cadence —
- * c'est le couple (plan, prix) qui fait foi.
+ * ⚠️ CETTE TABLE DÉRIVE, ET SA DÉRIVE NE SE VOIT PAS. Écrite le 03/08, elle est
+ * restée fausse du 18/08 au 06/09 sans qu'aucun test ne rougisse : les deux bras
+ * avaient changé de plan présélectionné, puis le bras A a perdu son palier
+ * gratuit. Elle ne sert donc PLUS de référence de prix — c'est `abOffers` et
+ * `abPurchases` qui lisent l'offre servie et le plan acheté dans la donnée, et
+ * Whop qui donne les prix. Ce qui reste ici est ce qu'aucun agrégat ne dit :
+ * l'IDENTITÉ des bras (quel catalogue, combien de cibles) et `asOf`, la date à
+ * laquelle un humain l'a vérifiée.
+ *
+ * Chaque bras vend un MENU, pas un prix : lire `offer` comme « le prix du bras »
+ * est l'erreur que la carte des achats existe pour empêcher.
  */
 export const EXPECTED_ARM_PRICING: {
   variant: "soft" | "hard";
   label: string;
-  planWeekly: string;
-  planMonthly: string;
-  priceWeekly: number;
-  priceMonthly: number;
+  /** Ce que le bras vend, en clair. Un menu, pas un prix. */
+  offer: string;
   maxTargets: number;
   freeTier: boolean;
+  /** Date de la dernière vérification HUMAINE (AAAA-MM-JJ). */
+  asOf: string;
 }[] = [
   {
     variant: "soft",
-    label: "A — paywall souple",
-    planWeekly: "snytch_target_weekly",
-    planMonthly: "snytch_target_monthly",
-    priceWeekly: 4.99,
-    priceMonthly: 16.99,
+    // « souple » est mort le 06/09 : ce bras n'a plus de palier gratuit, c'est
+    // un paywall bloquant lui aussi. Les VALEURS émises restent soft/hard — les
+    // renommer casserait l'appariement avec 30 jours d'historique — mais
+    // l'écran ne doit plus dire « souple » d'un bras qui ne l'est plus.
+    label: "A — 1 cible",
+    offer: "16,90 €/mois ou 49,90 €/an",
     maxTargets: 1,
-    // Le plan gratuit N'EXISTE QUE dans ce bras : un free_tier_started portant
-    // experiment_variant=hard signale une fuite d'offre, pas un choix produit.
-    freeTier: true,
+    freeTier: false,
+    asOf: "2026-09-06",
   },
   {
     variant: "hard",
-    label: "B — paywall bloquant",
-    planWeekly: "snytch_trio_weekly",
-    planMonthly: "snytch_trio_monthly",
-    priceWeekly: 9.99,
-    priceMonthly: 29.99,
+    label: "B — 3 cibles",
+    offer: "9,99 €/semaine ou 29,99 €/mois",
     maxTargets: 3,
     freeTier: false,
+    asOf: "2026-09-06",
   },
 ];
 
