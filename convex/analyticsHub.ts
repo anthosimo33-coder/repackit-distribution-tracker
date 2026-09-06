@@ -50,6 +50,7 @@ import {
 // par collectProjectWhopPayments (point de passage unique).
 import { isInternalWhopMembership } from "./internalAccounts";
 import { collectProjectWhopPayments } from "./whopPaymentsAccess";
+import { countPersons, dailyNewPersons } from "./whopClients";
 import { normalizeRef } from "./conversionAttribution";
 import {
   computeViewCounters,
@@ -2324,17 +2325,6 @@ export const getReliability = permissionQuery("business.read")({
       }
       whopMembersTotal = firstPaid.size;
       whopMembers = comparableIds.length;
-      // Nouveaux clients payants Whop PAR JOUR Paris = série « Clients payants »
-      // (source de vérité). firstPaid = 1er paiement encaissé par membership,
-      // internes déjà exclus → un membership compte le JOUR de son premier paiement.
-      const paidClientsByDay = new Map<string, number>();
-      for (const first of firstPaid.values()) {
-        const day = parisDay(first);
-        paidClientsByDay.set(day, (paidClientsByDay.get(day) ?? 0) + 1);
-      }
-      dailyPaidClients = [...paidClientsByDay.entries()]
-        .map(([day, clients]) => ({ day, clients }))
-        .sort((a, b) => (a.day < b.day ? -1 : 1));
       whopFirstPaidDay = [...firstPaid.entries()].map(([membershipId, ms]) => ({
         membershipId,
         day: parisDay(ms),
@@ -2401,18 +2391,15 @@ export const getReliability = permissionQuery("business.read")({
       for (const m of memberships) {
         if (m.whopUserId) userOf.set(m.whopMembershipId, m.whopUserId);
       }
-      /**
-       * Personnes derrière un lot d'abonnements. Un abonnement dont la personne
-       * n'est pas résolue (`whopUserId` pas encore synchronisé) compte POUR
-       * LUI-MÊME : on ne fusionne jamais deux inconnus en un seul client, donc
-       * le compte ne peut que SURESTIMER — jamais perdre un client acquis. Le
-       * nombre de non-résolus est exposé pour que la dégradation se lise.
-       */
-      const clientsOf = (ids: Iterable<string>): number => {
-        const keys = new Set<string>();
-        for (const id of ids) keys.add(userOf.get(id) ?? `mem:${id}`);
-        return keys.size;
-      };
+      // Personnes derrière un lot d'abonnements — règle unique, cf convex/whopClients.
+      const clientsOf = (ids: Iterable<string>): number => countPersons(ids, userOf);
+      // Nouveaux clients payants Whop PAR JOUR Paris = série « Clients payants ».
+      // Comptée en PERSONNES, comme `whopClientsTotal` et comme le dénominateur
+      // des cartes de coût : les deux dérivent du MÊME repliement (convex/
+      // whopClients), donc Σ des jours = whopClientsTotal par construction. La
+      // série était comptée par ABONNEMENT : la sommer sur une fenêtre aurait
+      // affiché « ÷ 351 personnes » sous une courbe qui somme à 375.
+      dailyPaidClients = dailyNewPersons(firstPaid, userOf, parisDay);
       whopClientsTotal = clientsOf(firstPaid.keys());
       whopClients = clientsOf(comparableIds);
       whopSecuredClients = clientsOf(secured);
