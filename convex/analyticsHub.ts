@@ -231,6 +231,12 @@ export interface AttributionResult {
      */
     challengeTotal: number;
     /**
+     * Bonus de paliers + primes de défi, DATÉS (jour Europe/Paris). Σ =
+     * `promoBonus`. Sert au FENÊTRAGE du coût d'acquisition : un total ne se
+     * découpe pas, une série datée oui.
+     */
+    promoBonusByDay: { day: string; amount: number }[];
+    /**
      * Récompenses en NATURE déjà DUES (paliers franchis), valorisées à leur coût
      * réel figé. Incluses dans `total`, JAMAIS dans `promo`/`promoBonus` : un
      * iPhone ou une voiture n'est pas un coût par client, c'est un engagement
@@ -501,6 +507,37 @@ export const getAttribution = permissionQuery("business.read")({
     // vidéos de promo, sa prime est donc un coût d'acquisition au même titre.
     const promoBonus = round2(bonusTotal + challengeTotal);
 
+    // ── Bonus et primes DATÉS — pour que le coût d'acquisition soit fenêtrable ──
+    // `bonusTotal`/`challengeTotal` sont des TOTAUX : sur une fenêtre de 7 jours,
+    // ils feraient entrer au numérateur une dépense de juillet. Un total ne se
+    // découpe pas, une série datée oui. Deux `collect` indexés par projet (1 ligne
+    // en prod) — pas de lecture par créatrice : le budget d'opérations de cette
+    // query vient d'être ramené sous la limite, on n'y remet rien de linéaire.
+    const bonusByDay = new Map<string, number>();
+    const addBonus = (at: number, amount: number) => {
+      if (!(amount > 0)) return;
+      const d = parisDay(at);
+      bonusByDay.set(d, round2((bonusByDay.get(d) ?? 0) + amount));
+    };
+    for (const u of await ctx.db
+      .query("bonusUnlocks")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect()) {
+      if (u.rewardType === "cash") addBonus(u.unlockedAt, u.montant ?? 0);
+    }
+    for (const w of await ctx.db
+      .query("challengeWins")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect()) {
+      // Une victoire ANNULÉE n'est plus due : elle ne doit pas peser sur une
+      // fenêtre alors qu'elle est déjà hors du total.
+      if (w.cancelledAt !== undefined) continue;
+      if (w.reward.type === "cash") addBonus(w.wonAt, w.reward.amount ?? 0);
+    }
+    const promoBonusByDay = [...bonusByDay.entries()]
+      .map(([day, amount]) => ({ day, amount }))
+      .sort((a, b) => (a.day < b.day ? -1 : 1));
+
     // Récompenses en NATURE déjà dues (iPhone, MacBook, voiture…) : une dépense
     // réelle, invisible jusqu'ici parce que `bonusTierCashTotal` ne somme que le
     // cash. Elles entrent dans le coût COMPLET du moteur et nulle part ailleurs —
@@ -537,6 +574,7 @@ export const getAttribution = permissionQuery("business.read")({
         promoViewShare: Math.round(promoViewShare * 1000) / 1000,
         bonusTotal,
         challengeTotal,
+        promoBonusByDay,
         natureDue,
         natureDueMissingCost,
       },

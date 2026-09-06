@@ -31,6 +31,12 @@ import { EXPLAIN } from "./explanations";
 import { PromoRpmCard } from "./PromoRpmCard";
 import { buildDayDetail } from "@/lib/day-detail";
 import {
+  coversEverything,
+  rowsInWindow,
+  type AnalyticsWindow,
+  type DataRange,
+} from "@/lib/analytics-window";
+import {
   toDisplayAmount,
   convertedValue,
   conversionNote,
@@ -97,7 +103,8 @@ export function OverviewTab({
   attribution,
   viewCounters,
   dayDetail,
-  periodDays,
+  window,
+  dataRange,
   now,
 }: {
   analytics: ProductAnalyticsData;
@@ -106,14 +113,28 @@ export function OverviewTab({
   attribution: AttributionData | undefined;
   viewCounters: ViewCountersData | undefined;
   dayDetail: DayDetailData | undefined;
-  periodDays: number;
+  /** Fenêtre d'analyse (jours Paris, bornes incluses). null = aucune donnée. */
+  window: AnalyticsWindow | null;
+  /** Étendue réelle des données — sert à savoir si la fenêtre vaut le cumul. */
+  dataRange: DataRange | null;
   now: number;
 }) {
-  // Fenêtre : les N derniers jours de la série quotidienne.
+  // La série quotidienne, restreinte à la fenêtre. Toutes les tuiles en dérivent :
+  // c'est la seule définition de « la période » sur cet écran.
   const daily = useMemo(() => {
     const all = [...analytics.overview.daily].sort((a, b) => a.ts - b.ts);
-    return all.slice(Math.max(0, all.length - periodDays));
-  }, [analytics.overview.daily, periodDays]);
+    return rowsInWindow(all, window, (d) => parisDayKey(d.ts));
+  }, [analytics.overview.daily, window]);
+
+
+  // Les tuiles de COÛT et de REVENU sont encore cumulées : leur dénominateur est
+  // un nombre de PERSONNES, et il n'existe aucune série quotidienne de personnes
+  // (seulement d'abonnements). Les fenêtrer sur les abonnements ferait passer
+  // « ÷ 351 personnes » à « ÷ 375 abonnements » sans le dire. Tant que ce n'est
+  // pas tranché, l'écran l'ANNONCE au lieu de laisser croire qu'elles suivent.
+  const cumulNote = coversEverything(window, dataRange)
+    ? null
+    : "cumulé — ne suit pas la période";
 
   const visitorsPts: TrendPoint[] = daily.map((d) => ({ ts: d.ts, value: d.visitors }));
   const signupsPts: TrendPoint[] = daily.map((d) => ({ ts: d.ts, value: d.signups }));
@@ -415,6 +436,7 @@ export function OverviewTab({
               : "publications promo",
             clients !== null ? `÷ ${denominateurLabel(clients, coh?.whopMembersTotal)}` : null,
             conversionNote(acquisitionCost),
+            cumulNote,
           ])}
           info={EXPLAIN.coutAcquisition}
         />
@@ -430,6 +452,7 @@ export function OverviewTab({
                 : "warmup inclus",
             clients !== null ? `÷ ${denominateurLabel(clients, coh?.whopMembersTotal)}` : null,
             conversionNote(fullEngineCost),
+            cumulNote,
           ])}
           info={EXPLAIN.coutComplet}
         />
