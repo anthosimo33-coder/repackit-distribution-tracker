@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import {
+  formatDayShort,
   formatWindow,
   PRESET_LABELS,
   presetWindow,
@@ -28,6 +29,11 @@ const PRESETS: WindowPreset[] = ["7d", "14d", "30d", "all"];
 function dayToDate(day: string): Date {
   const [y, m, d] = day.split("-").map(Number);
   return new Date(y, (m ?? 1) - 1, d ?? 1, 12);
+}
+
+/** Le mois précédent — pour ouvrir sur [mois-1, mois courant] et non sur un mois vide. */
+function monthBefore(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth() - 1, 1, 12);
 }
 
 /** Date choisie dans le calendrier → clé de jour, sans passer par UTC. */
@@ -58,6 +64,18 @@ export function PeriodPicker({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  /**
+   * Sélection EN COURS dans le calendrier. Deux clics : le premier pose l'ancre,
+   * le second referme la plage — dans n'importe quel ordre chronologique.
+   *
+   * Pourquoi piloter les clics nous-mêmes plutôt que laisser `mode="range"` s'en
+   * charger : avec une plage DÉJÀ complète en `selected`, react-day-picker
+   * étend la sélection existante au lieu d'en commencer une nouvelle. Un clic
+   * sur un jour au milieu de la plage courante donnait donc une plage inattendue,
+   * ou rien. Ici, un clic sur un jour quand la plage est complète repart TOUJOURS
+   * de ce jour — c'est ce qu'on attend d'un sélecteur de dates.
+   */
+  const [anchor, setAnchor] = useState<Date | null>(null);
   const [draft, setDraft] = useState<DateRange | undefined>(undefined);
 
   const activePreset =
@@ -97,6 +115,11 @@ export function PeriodPicker({
         open={open}
         onOpenChange={(o) => {
           setOpen(o);
+          // À l'ouverture on montre la fenêtre courante, ancre remise à zéro :
+          // le prochain clic commence une NOUVELLE plage. À la fermeture sans
+          // avoir refermé la plage, rien n'est appliqué — une sélection à moitié
+          // faite ne doit pas changer l'écran.
+          setAnchor(null);
           if (o && window) {
             setDraft({ from: dayToDate(window.from), to: dayToDate(window.to) });
           }
@@ -125,19 +148,34 @@ export function PeriodPicker({
           <Calendar
             mode="range"
             numberOfMonths={2}
-            defaultMonth={
-              window ? dayToDate(window.from) : range ? dayToDate(range.last) : undefined
-            }
+            // Les jours des mois voisins sont MASQUÉS : affichés, le 31 août
+            // apparaissait deux fois — dans la grille d'août et dans la première
+            // semaine de septembre — et les deux se peignaient en « sélectionné ».
+            showOutsideDays={false}
+            // Ouvrir sur [mois-1, dernier mois] : avec deux mois affichés et un
+            // `endMonth` borné aux données, ancrer sur le dernier mois montrerait
+            // une grille vide à droite.
+            defaultMonth={range ? monthBefore(dayToDate(range.last)) : undefined}
             selected={draft}
-            onSelect={(r) => {
-              setDraft(r);
-              // On ne remonte la plage qu'une fois les DEUX bornes posées : un
-              // premier clic seul enverrait une fenêtre d'un jour et ferait
-              // clignoter tout l'écran entre les deux clics.
-              if (r?.from && r?.to) {
-                onChange({ from: dateToDay(r.from), to: dateToDay(r.to) });
-                setOpen(false);
+            // `onSelect` est neutralisé : c'est `onDayClick` qui décide (cf `anchor`).
+            onSelect={() => {}}
+            onDayClick={(d) => {
+              // Un jour hors des données ne doit RIEN faire : selon la version,
+              // react-day-picker laisse passer le clic sur un jour désactivé.
+              const key = dateToDay(d);
+              if (range && (key < range.first || key > range.last)) return;
+              if (anchor === null) {
+                setAnchor(d);
+                setDraft({ from: d, to: d });
+                return;
               }
+              // Deuxième clic : la plage se referme, quel que soit l'ordre des
+              // deux dates cliquées.
+              const [a, b] = anchor <= d ? [anchor, d] : [d, anchor];
+              onChange({ from: dateToDay(a), to: dateToDay(b) });
+              setDraft({ from: a, to: b });
+              setAnchor(null);
+              setOpen(false);
             }}
             disabled={
               range
@@ -148,9 +186,12 @@ export function PeriodPicker({
             endMonth={range ? dayToDate(range.last) : undefined}
           />
           <p className="border-t border-slate-100 px-3 py-2 text-[11px] text-slate-500">
-            Données disponibles du{" "}
+            {anchor === null
+              ? "Cliquez le premier jour de la période."
+              : `Départ le ${formatDayShort(dateToDay(anchor))} — cliquez le dernier jour.`}
+            {" · "}
+            Données du{" "}
             {range ? formatWindow({ from: range.first, to: range.last }) : "—"}.
-            Cliquez le premier puis le dernier jour.
           </p>
         </PopoverContent>
       </Popover>
