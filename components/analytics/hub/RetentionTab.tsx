@@ -15,6 +15,8 @@ import { formatNumber } from "@/lib/format";
 import { formatMoney } from "@/lib/format-rate";
 import { toDisplayAmount, conversionNote } from "@/lib/currency-display";
 import { computeChurn } from "@/lib/churn";
+import { acquisitionCostPerClient } from "@/lib/retention-cost";
+import type { AnalyticsWindow, DataRange } from "@/lib/analytics-window";
 import {
   HubCardHeader,
   HubNotice,
@@ -71,10 +73,26 @@ function frDateTime(ms: number | null): string {
 export function RetentionTab({
   churn,
   attribution,
+  dataRange,
   now,
 }: {
   churn: ChurnData;
-  attribution: AttributionData | undefined;
+  /**
+   * NON fenêtrée. Tout ce que cet onglet compare porte sur toute la profondeur ;
+   * `acquisitionCostPerClient` refuse d'ailleurs une attribution fenêtrée.
+   */
+  attribution:
+    | (AttributionData & {
+        /**
+         * Présent UNIQUEMENT sur l'attribution fenêtrée. Déclaré ici pour que le
+         * jour où quelqu'un la rebranche sur cet onglet, la garde le voie et
+         * rende un tiret plutôt qu'un quotient de deux populations.
+         */
+        costWindow?: AnalyticsWindow | null;
+      })
+    | undefined;
+  /** Profondeur réellement collectée — sert à prouver qu'une fenêtre couvre tout. */
+  dataRange: DataRange | null;
   now: number;
 }) {
   const result = useMemo(
@@ -140,16 +158,20 @@ export function RetentionTab({
   // Coût d'acquisition : MÊME dénominateur que le revenu par client (les clients
   // payants Whop), et converti dans la devise du revenu — le comparer brut
   // reviendrait à opposer des dollars à des euros.
-  const acqCostPayCur =
-    attribution?.costs.promo != null && attribution.costs.promoBonus != null && renewals
-      ? renewals.payingMembers > 0
-        ? Math.round(
-            ((attribution.costs.promo + attribution.costs.promoBonus) /
-              renewals.payingMembers) *
-              100,
-          ) / 100
-        : null
-      : null;
+  // Passage OBLIGÉ par lib/retention-cost : le calcul refuse de diviser un coût
+  // fenêtré par les clients payants Whop, qui ne le sont jamais. Écrit à la main
+  // ici, il l'a fait pendant une journée en prod (#167).
+  const acqCostPayCur = renewals
+    ? acquisitionCostPerClient(
+        {
+          promo: attribution?.costs.promo ?? null,
+          promoBonus: attribution?.costs.promoBonus ?? null,
+          window: attribution?.costWindow ?? null,
+        },
+        renewals.payingMembers,
+        dataRange ?? null,
+      )
+    : null;
   // Passage par le module partagé (cf ConvertedAmount) plutôt qu'une
   // multiplication locale. Deux raisons : un seul site du hub formate un montant
   // de paie, et surtout ce calcul lisait `fxRateToRevenue` BRUT — si paie et
