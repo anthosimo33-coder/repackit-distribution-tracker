@@ -1747,6 +1747,13 @@ export interface ReliabilityResult {
      *  internes exclus) — série « Clients payants », SOURCE DE VÉRITÉ affichée sur
      *  la courbe + la colonne (remplace PostHog subs, décalé). */
     dailyPaidClients: { day: string; clients: number }[];
+    /**
+     * Nouveaux ABONNEMENTS par jour — même décompte que `dailyPaidClients` mais
+     * dans l'unité des PAIEMENTS. Sert au seul contrôle de cohérence du tableau
+     * par jour : `nouveaux + renouvellements` s'y compare à un nombre de
+     * paiements, donc il lui faut des abonnements, pas des personnes.
+     */
+    dailyNewMemberships: { day: string; memberships: number }[];
     /** RENOUVELLEMENTS encaissés par jour Paris — colonne jumelle de « Nouveaux
      *  clients », qui ne compte QUE les premiers paiements. Source Whop. */
     dailyRenewals: { day: string; renewals: number }[];
@@ -2256,6 +2263,7 @@ export const getReliability = permissionQuery("business.read")({
     let whopExcludedPre = 0;
     let whopExcludedAfter = 0;
     let dailyPaidClients: { day: string; clients: number }[] = [];
+    let dailyNewMemberships: { day: string; memberships: number }[] = [];
     let whopFirstPaidDay: { membershipId: string; day: string }[] = [];
     let dailyRenewals: { day: string; renewals: number }[] = [];
     let dailyPaymentCount: { day: string; payments: number }[] = [];
@@ -2400,6 +2408,20 @@ export const getReliability = permissionQuery("business.read")({
       // série était comptée par ABONNEMENT : la sommer sur une fenêtre aurait
       // affiché « ÷ 351 personnes » sous une courbe qui somme à 375.
       dailyPaidClients = dailyNewPersons(firstPaid, userOf, parisDay);
+      // Le MÊME décompte en ABONNEMENTS. Il ne sert pas aux tuiles (qui comptent
+      // des personnes) mais au contrôle de cohérence du tableau « Détail par
+      // jour », qui compare `nouveaux + renouvellements` à un nombre de
+      // PAIEMENTS : comparer des personnes à des paiements faisait sonner
+      // l'alerte sur tout jour où quelqu'un ouvre deux abonnements — 14 jours sur
+      // 39 en prod, pour un écart d'unité et non une incohérence.
+      const membershipsByDay = new Map<string, number>();
+      for (const at of firstPaid.values()) {
+        const d = parisDay(at);
+        membershipsByDay.set(d, (membershipsByDay.get(d) ?? 0) + 1);
+      }
+      dailyNewMemberships = [...membershipsByDay.entries()]
+        .map(([day, memberships]) => ({ day, memberships }))
+        .sort((a, b) => (a.day < b.day ? -1 : 1));
       whopClientsTotal = clientsOf(firstPaid.keys());
       whopClients = clientsOf(comparableIds);
       whopSecuredClients = clientsOf(secured);
@@ -2548,6 +2570,7 @@ export const getReliability = permissionQuery("business.read")({
         whopExcludedPre,
         whopExcludedAfter,
         dailyPaidClients,
+        dailyNewMemberships,
         dailyRenewals,
         dailyPaymentCount,
         whopSecuredMembers,
