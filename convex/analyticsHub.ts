@@ -225,6 +225,12 @@ export interface AttributionResult {
     /** Bonus paliers cash TOTAL (niveau créatrice) — 100 % dans `total`. */
     bonusTotal: number;
     /**
+     * Primes CASH de victoire de DÉFI attribuées — dans `total` ET dans
+     * `promoBonus`. Un défi impose un barème à fixe NUL : la prime EST le coût de
+     * l'opération, l'omettre rendait un défi gratuit à l'écran.
+     */
+    challengeTotal: number;
+    /**
      * Récompenses en NATURE déjà DUES (paliers franchis), valorisées à leur coût
      * réel figé. Incluses dans `total`, JAMAIS dans `promo`/`promoBonus` : un
      * iPhone ou une voiture n'est pas un coût par client, c'est un engagement
@@ -448,8 +454,18 @@ export const getAttribution = permissionQuery("business.read")({
     // d'acquisition — réparti au prorata de la part de vues payables qui sont promo
     // (hypothèse assumée, affichée). Le coût COMPLET, lui, prend 100 % du bonus.
     let bonusTotal = 0;
+    // Primes de DÉFI — comptées à part parce qu'elles ne se répartissent pas comme
+    // un palier, mais comptées. Elles étaient jusqu'ici ABSENTES de toutes ces
+    // cartes : ni du coût d'acquisition, ni du coût complet du moteur. Un défi
+    // impose un barème à fixe NUL (cf chantier DÉFIS), donc la vidéo ne coûte rien
+    // par le fixe/CPM — la prime EST le coût, et l'omettre rendait une opération
+    // nominative littéralement gratuite à l'écran. Zéro victoire en prod le
+    // 2026-09-06, donc aucun chiffre ne bouge aujourd'hui ; le trou se refermait
+    // silencieusement au premier défi payé.
+    let challengeTotal = 0;
     for (const b of breakdowns.values()) {
       bonusTotal = round2(bonusTotal + b.bonusTierCashTotal);
+      challengeTotal = round2(challengeTotal + b.challengeTotal);
     }
     const payableCost = rows.reduce((s, r) => s + (r.cost ?? 0), 0);
     const promoRows = rows.filter((r) => r.hasPromoPost);
@@ -481,7 +497,9 @@ export const getAttribution = permissionQuery("business.read")({
     // jour a révoqué le seul palier existant) et les 10 paiements sont tous
     // `accruing`, lineItems vides — aucun bonus n'a donc jamais été débloqué, a
     // fortiori aucun sur des vues warmup. Rien à conserver sous l'ancienne clé.
-    const promoBonus = bonusTotal;
+    // Le bonus promo porte AUSSI les primes de défi : une victoire se gagne sur des
+    // vidéos de promo, sa prime est donc un coût d'acquisition au même titre.
+    const promoBonus = round2(bonusTotal + challengeTotal);
 
     // Récompenses en NATURE déjà dues (iPhone, MacBook, voiture…) : une dépense
     // réelle, invisible jusqu'ici parce que `bonusTierCashTotal` ne somme que le
@@ -513,11 +531,12 @@ export const getAttribution = permissionQuery("business.read")({
       payCurrency: project?.payCurrency ?? null,
       fxRateToRevenue: project?.fxRateToRevenue ?? null,
       costs: {
-        total: round2(payableCost + bonusTotal + natureDue),
+        total: round2(payableCost + bonusTotal + challengeTotal + natureDue),
         promo: promoNullCost ? null : promoFixeCpm,
         promoBonus: promoNullCost ? null : promoBonus,
         promoViewShare: Math.round(promoViewShare * 1000) / 1000,
         bonusTotal,
+        challengeTotal,
         natureDue,
         natureDueMissingCost,
       },
