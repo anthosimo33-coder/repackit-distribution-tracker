@@ -16,6 +16,11 @@ import { formatNumber } from "@/lib/format";
 import { formatMoney } from "@/lib/format-rate";
 import { computeConversion, abArmCoherenceChecks } from "@/lib/analytics-hub";
 import {
+  armComparability,
+  attributedOffers,
+  excludedViewers,
+} from "@/lib/ab-offers";
+import {
   EXPECTED_ARM_PRICING,
   EXPECTED_PAYWALL_IDS,
 } from "@/convex/analyticsContract";
@@ -49,6 +54,24 @@ const AB_ARM_LABELS: Record<string, string> = {
 /** Ratio en % tolérant au 0. */
 function ratePct(num: number, den: number): number | null {
   return den > 0 ? Math.round((num / den) * 1000) / 10 : null;
+}
+
+/**
+ * Fenêtre d'une offre, EN HEURE DE PARIS. Le runtime Convex est en UTC et le
+ * navigateur au fuseau du lecteur : sans l'épinglage, la bascule du 06/09 à
+ * 15h39 se lirait 13h39 chez la moitié des gens (cf convex/dateFr.ts).
+ */
+function offerWindowLabel(firstMs: number | null, lastMs: number | null): string {
+  const day = (ms: number) =>
+    new Intl.DateTimeFormat("fr-FR", {
+      timeZone: "Europe/Paris",
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(ms));
+  if (firstMs === null) return "—";
+  return lastMs === null ? day(firstMs) : `${day(firstMs)} → ${day(lastMs)}`;
 }
 
 /** Type de scan (coût d'infrastructure) → libellé. */
@@ -223,6 +246,29 @@ export function OffresTab({
           month: "long",
         })
       : null;
+
+  // ─── Offres RÉELLEMENT servies (bras × offre) ─────────────────────────────
+  // Une carte « bras A vs bras B » ment dès que le contenu d'un bras change, et
+  // il a changé trois fois : les deux bras sont passés du mensuel à l'hebdo le
+  // 18/08, puis le bras souple est repassé au mensuel le 06/09. Ce tableau lit
+  // l'offre SERVIE au lieu de la supposer — il n'a rien à remettre à jour au
+  // prochain changement, contrairement à EXPECTED_ARM_PRICING plus bas.
+  // La devise vient du projet (revenu Whop) : `properties.price` est un nombre
+  // nu côté PostHog. `revenue` est chargé après `analytics` — tant qu'il manque,
+  // les montants sortent sans symbole plutôt qu'avec un « € » supposé.
+  const offerCurrency = revenue?.currency ?? null;
+  const offers = useMemo(
+    () => attributedOffers(analytics.abOffers.rows, offerCurrency),
+    [analytics.abOffers.rows, offerCurrency],
+  );
+  const offerComparability = useMemo(
+    () => armComparability(analytics.abOffers.rows, offerCurrency),
+    [analytics.abOffers.rows, offerCurrency],
+  );
+  const offerExcluded = useMemo(
+    () => excludedViewers(analytics.abOffers.rows),
+    [analytics.abOffers.rows],
+  );
 
   // La carte ne se pilote plus par la présence d'`experiment_id` mais par les
   // BRAS réellement assignés : une propriété émise par un seul compte de test ne
@@ -676,6 +722,104 @@ export function OffresTab({
               </p>
             </div>
           )}
+          {offers.length > 0 ? (
+            <div className="space-y-3 border-t border-slate-200 pt-3">
+              <p className="text-sm font-medium text-slate-700">
+                Offres réellement servies
+              </p>
+              {!offerComparability.comparable ? (
+                <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
+                  <strong>Les bras ne servent plus la même chose.</strong> En ce
+                  moment :{" "}
+                  {offerComparability.current
+                    .map(
+                      (o) =>
+                        `${AB_ARM_LABELS[o.variant] ?? o.variant} → ${o.label}`,
+                    )
+                    .join(" · ")}
+                  . Le test ne mesure donc plus un <strong>prix</strong> : il
+                  mélange le prix et le <strong>rythme de facturation</strong>, et
+                  aucune colonne ne sépare ces deux effets. Les lignes ci-dessous
+                  restent lisibles UNE PAR UNE ; c&apos;est leur comparaison
+                  d&apos;un bras à l&apos;autre qui ne conclut plus.
+                </HubNotice>
+              ) : null}
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Bras</TableHead>
+                    <TableHead>Offre servie</TableHead>
+                    <TableHead>Période (Paris)</TableHead>
+                    <TableHead className="text-right">Vu le paywall</TableHead>
+                    <TableHead className="text-right">Checkouts</TableHead>
+                    <TableHead className="text-right">Clients</TableHead>
+                    <TableHead className="text-right">Conversion</TableHead>
+                    <TableHead className="text-right">
+                      Revenu 1er cycle / 1 000 vus
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {offers.map((o) => (
+                    <TableRow key={`${o.variant}-${o.plan}-${o.price}`}>
+                      <TableCell className="whitespace-nowrap">
+                        {AB_ARM_LABELS[o.variant] ?? o.variant}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap font-medium">
+                        {o.label}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-xs text-slate-500">
+                        {offerWindowLabel(o.firstMs, o.lastMs)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatNumber(o.paywallViewers)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatNumber(o.checkouts)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatNumber(o.paid)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {pct(o.conversionPct)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {dash(o.firstCycleRevenuePer1000, (n) =>
+                          formatMoney(n, offerCurrency),
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              <p className="text-xs text-slate-500">
+                <strong>Revenu 1er cycle / 1 000 vus</strong> = prix de
+                l&apos;offre × clients ÷ vues du paywall × 1 000. Le PREMIER cycle
+                seulement : annualiser supposerait une rétention qu&apos;aucune de
+                ces colonnes ne mesure. Une ligne hebdomadaire et une ligne
+                mensuelle ne se comparent donc pas sur cette colonne — c&apos;est
+                exactement ce que dit l&apos;avertissement quand il s&apos;allume.
+              </p>
+              {offerExcluded > 0 ? (
+                <p className="text-xs text-slate-500">
+                  <strong>{formatNumber(offerExcluded)} personne(s) écartée(s)</strong>{" "}
+                  de ce tableau : elles ont vu DEUX offres (elles traversaient un
+                  changement de prix) ou changé de bras. Une comparaison ne tient
+                  que si chaque personne a subi UN traitement. Elles sont comptées
+                  ici plutôt que retirées en silence.
+                </p>
+              ) : null}
+              {offers.some((o) => o.interval === null) ? (
+                <p className="text-xs text-slate-500">
+                  Une ou plusieurs lignes sont à <strong>rythme non émis</strong> :
+                  l&apos;app envoie <code>paywall_viewed</code> sans{" "}
+                  <code>plan_preselected</code>. Le prix est connu, le rythme non —
+                  ces vues et leurs conversions sont bien réelles, elles ne peuvent
+                  simplement pas être rangées avec une offre nommée.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           <div className="space-y-1 text-xs text-slate-500">
             <p className="font-medium text-slate-600">
               Offre attendue par bras (vérifiée chez Whop) :
