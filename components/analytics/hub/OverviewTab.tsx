@@ -39,6 +39,7 @@ import {
   type AnalyticsWindow,
   type DataRange,
 } from "@/lib/analytics-window";
+import { windowCosts } from "@/lib/attribution-window";
 import {
   toDisplayAmount,
   convertedValue,
@@ -313,23 +314,15 @@ export function OverviewTab({
       revenue?.configured && !revenue.mixedCurrency
         ? sumInWindow(revenue.dailyNet, w, (d) => d.day, (d) => d.net)
         : null;
-    const rows = rowsInWindow(attribution?.rows ?? [], w, (r) => r.day);
-    const promo = rows.filter((r) => r.hasPromoPost);
-    // Une seule vidéo à coût inconnu rend la somme non fiable : on refuse le
-    // chiffre plutôt que de sommer autour du trou (règle de `costs.promo`).
-    const promoCost = promo.some((r) => r.promoCost === null)
-      ? null
-      : promo.reduce((t, r) => t + (r.promoCost ?? 0), 0);
-    const fullCost = rows.some((r) => r.cost === null)
-      ? null
-      : rows.reduce((t, r) => t + (r.cost ?? 0), 0);
-    const bonus = sumInWindow(
-      attribution?.costs.promoBonusByDay ?? [],
-      w,
-      (b) => b.day,
-      (b) => b.amount,
-    );
-    const promoViews = promo.reduce((t, r) => t + r.promoViews, 0);
+    // Les coûts viennent du POINT UNIQUE (lib/attribution-window) : les autres
+    // onglets lisent le même calcul, donc deux écrans ne peuvent pas afficher
+    // deux coûts pour la même période.
+    const {
+      promo: promoCost,
+      full: fullCost,
+      bonus,
+      promoViews,
+    } = windowCosts(attribution?.rows ?? [], attribution?.costs.promoBonusByDay ?? [], w);
     // Coût TOTAL en devise du REVENU : c'est le seul terme soustractible du net.
     const costAll =
       fullCost !== null && bonus !== null
