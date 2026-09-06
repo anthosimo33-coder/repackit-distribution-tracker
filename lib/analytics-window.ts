@@ -171,3 +171,27 @@ export function formatWindow(w: AnalyticsWindow | null): string {
   if (w.from === w.to) return formatDayShort(w.from);
   return `${formatDayShort(w.from, w.to)} → ${formatDayShort(w.to)}`;
 }
+
+/**
+ * Fenêtre PRÉCÉDENTE de même longueur, pour un delta honnête.
+ *
+ * Rend `null` dès que la période de comparaison n'est PAS entièrement couverte
+ * par les données. C'est le point de toute la fonction : comparer les 46 jours
+ * disponibles aux 12 jours qui les précèdent produirait un « ▲ 280 % » qui ne
+ * mesure que la profondeur d'historique. Mieux vaut aucun delta qu'un delta
+ * calculé sur deux durées différentes — c'est exactement ce que faisait le badge
+ * « stable », affiché sur neuf tuiles qui ne comparaient rien.
+ */
+export function previousWindow(
+  w: AnalyticsWindow | null,
+  range: DataRange | null,
+): AnalyticsWindow | null {
+  if (w === null || range === null) return null;
+  const n = windowLengthDays(w);
+  if (n <= 0) return null;
+  const to = shiftDay(w.from, -1);
+  const from = shiftDay(to, -(n - 1));
+  // Couverture COMPLÈTE exigée : une comparaison tronquée n'en est pas une.
+  if (from < range.first || to < range.first) return null;
+  return { from, to };
+}

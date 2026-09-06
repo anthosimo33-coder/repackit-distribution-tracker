@@ -23,6 +23,8 @@ export const EXPLAIN = {
     "L'argent qui reste une fois retirés les frais de Whop et de la banque, additionné sur toute la période. C'est ce que le projet gagne réellement, pas le prix affiché au client. Le symbole de la monnaie vient des paiements, il n'est jamais fixé à la main.",
   vuesPromoClient:
     "Combien de vues des vidéos promo il faut en moyenne pour obtenir un client payant. On n'utilise que les vidéos promo, car ce sont les seules qui parlent de l'app. Sert à mesurer l'efficacité de l'acquisition, pas à payer les créatrices.",
+  margeNette:
+    "Ce qui reste une fois les créateurs payés : le revenu net encaissé chez Whop, moins le coût créateurs converti dans la devise du revenu. C'est le seul chiffre qui répond à « est-ce que ça rapporte ». Il suit la période choisie en haut de page.",
   coutAcquisition:
     "Ce qu'on paie pour les vidéos promo divisé par le nombre de clients payants : le vrai coût pour gagner un client. Il additionne le fixe et le CPM des publications promo, plus la totalité du bonus de paliers. Le bonus y entre en entier parce qu'un palier ne se gagne que sur des vues promo : une vidéo de chauffe ne fait plus avancer le compteur, donc tout bonus débloqué a bien été gagné par de la promo.",
   coutComplet:

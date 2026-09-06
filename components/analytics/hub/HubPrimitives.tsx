@@ -412,9 +412,27 @@ export function Sparkline({
   );
 }
 
-/** Variation vs période précédente (flèche + valeur, « — » si non calculable). */
-export function DeltaBadge({ delta }: { delta: Delta | null }) {
-  if (delta === null || delta.direction === "flat") {
+/**
+ * Variation vs période précédente.
+ *
+ * `null` = AUCUNE comparaison possible (pas de période précédente entièrement
+ * couverte) → on n'affiche RIEN. Avant, `null` rendait « stable », affiché sur
+ * neuf tuiles qui ne comparaient rien : le badge décorait au lieu d'informer.
+ * « stable » est désormais réservé à une vraie variation nulle.
+ *
+ * `invert` : pour une grandeur dont la HAUSSE est une mauvaise nouvelle (un
+ * coût). La flèche garde le sens de la variation, seule la couleur s'inverse —
+ * peindre une hausse de coût en vert serait un contresens.
+ */
+export function DeltaBadge({
+  delta,
+  invert = false,
+}: {
+  delta: Delta | null;
+  invert?: boolean;
+}) {
+  if (delta === null) return null;
+  if (delta.direction === "flat") {
     return <span className="text-xs text-slate-400">stable</span>;
   }
   const up = delta.direction === "up";
@@ -423,7 +441,7 @@ export function DeltaBadge({ delta }: { delta: Delta | null }) {
     <span
       className={cn(
         "inline-flex items-center gap-1 text-xs font-medium tabular-nums",
-        up ? "text-emerald-600" : "text-red-600",
+        (invert ? !up : up) ? "text-emerald-600" : "text-red-600",
       )}
     >
       <Icon className="size-3" />
