@@ -31,7 +31,7 @@ import {
   type AnalyticsWindow,
 } from "@/lib/analytics-window";
 import { windowedAttribution } from "@/lib/attribution-window";
-import { useWindowedParcours } from "@/components/analytics/hub/useWindowedParcours";
+import { useWindowedAnalytics } from "@/components/analytics/hub/useWindowedAnalytics";
 import { OverviewTab } from "@/components/analytics/hub/OverviewTab";
 import { ParcoursTab } from "@/components/analytics/hub/ParcoursTab";
 import { AcquisitionTab } from "@/components/analytics/hub/AcquisitionTab";
@@ -130,12 +130,12 @@ function AnalyticsPageContenu() {
   );
 
   // Onglet PARCOURS : ses agrégats PostHog n'ont pas de jour, ils se
-  // RECALCULENT côté serveur (cf useWindowedParcours). Appelé ICI, au niveau de
+  // RECALCULENT côté serveur (cf useWindowedAnalytics). Appelé ICI, au niveau de
   // la page, pour deux raisons : la préchauffe démarre à l'ouverture du hub et
   // non au premier clic sur l'onglet, et la fenêtre passée est la fenêtre
   // BORNÉE aux données réelles — la même que les autres onglets, sinon deux
   // écrans afficheraient deux périodes sous le même libellé.
-  const windowedParcours = useWindowedParcours(effectiveWindow, dataRange);
+  const windowedAnalytics = useWindowedAnalytics(effectiveWindow, dataRange);
 
   const onSync = async () => {
     setSyncing(true);
@@ -205,8 +205,8 @@ function AnalyticsPageContenu() {
               RECALCULER (cf convex/analyticsWindowed), pas les trancher —
               Parcours vient de passer, les autres suivront. */}
           <span className="text-slate-400/90">
-            La période s&apos;applique à Vue d&apos;ensemble, Acquisition et
-            Parcours. Santé produit, Offres &amp; tests, Rétention et Fiabilité
+            La période s&apos;applique à Vue d&apos;ensemble, Acquisition,
+            Parcours et Offres &amp; tests. Santé produit, Rétention et Fiabilité
             restent sur toute la profondeur disponible.
           </span>
         </p>
@@ -287,7 +287,7 @@ function AnalyticsPageContenu() {
                   analytics={analytics}
                   reliability={reliability}
                   billing={billing}
-                  windowed={windowedParcours}
+                  windowed={windowedAnalytics}
                   now={now}
                 />
               ) : (
@@ -321,6 +321,7 @@ function AnalyticsPageContenu() {
                 analytics={analytics}
                 revenue={revenue}
                 attribution={attribution}
+                windowed={windowedAnalytics}
                 now={now}
               />
             </TabsContent>

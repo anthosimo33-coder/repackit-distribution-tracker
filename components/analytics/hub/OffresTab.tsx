@@ -34,6 +34,7 @@ import {
 } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import { AlertTriangleIcon, ReceiptTextIcon } from "lucide-react";
+import type { WindowedAnalyticsState } from "./useWindowedAnalytics";
 import type { AttributionData, ProductAnalyticsData, RevenueData } from "./types";
 
 /**
@@ -118,6 +119,7 @@ export function OffresTab({
   analytics,
   revenue,
   attribution,
+  windowed,
   now,
 }: {
   analytics: ProductAnalyticsData;
@@ -128,23 +130,39 @@ export function OffresTab({
    * convertir sans le taux du projet inventerait un montant.
    */
   attribution: AttributionData | undefined;
+  /** Agrégats RECALCULÉS sur la période (cf useWindowedAnalytics). */
+  windowed: WindowedAnalyticsState;
   now: number;
 }) {
+  // Les sept agrégats PostHog que la période peut changer. Le revenu Whop
+  // (offres, litiges, périodes) vient d'ailleurs et reste sur toute la
+  // profondeur — le fenêtrer demanderait de refaire l'ingestion Whop, pas une
+  // requête HogQL.
+  //
+  // Pendant un recalcul on garde les chiffres précédents, grisés : un écran vide
+  // se lit comme « aucune donnée ».
+  const analyticsW = useMemo(
+    () =>
+      windowed.data
+        ? { ...analytics, ...windowed.data.offres }
+        : analytics,
+    [analytics, windowed.data],
+  );
   const paywallTypes = useMemo(
     () =>
-      analytics.abVariants.rows.map((v) => ({
+      analyticsW.abVariants.rows.map((v) => ({
         ...v,
         completion: ratePct(v.paid, v.checkouts),
         targetsPerClient: v.paid > 0 ? Math.round((v.clientTargets / v.paid) * 10) / 10 : null,
       })),
-    [analytics.abVariants.rows],
+    [analyticsW.abVariants.rows],
   );
-  const free = analytics.freePlan;
+  const free = analyticsW.freePlan;
 
   // Coût d'infrastructure des scans, léger (cible gratuite) vs complet. Le tableau
   // ne se chiffre que si cost_usd est émis ; il sépare toujours les deux tarifs.
   const scanCost = useMemo(() => {
-    const rows = analytics.scanCost.rows;
+    const rows = analyticsW.scanCost.rows;
     const order = ["light", "full", "(autre)"];
     return {
       rows: [...rows].sort(
@@ -153,9 +171,9 @@ export function OffresTab({
       anyRuns: rows.some((r) => r.runs > 0),
       anyCost: rows.some((r) => r.withCost > 0),
     };
-  }, [analytics.scanCost.rows]);
+  }, [analyticsW.scanCost.rows]);
 
-  const paywallRows = analytics.paywallById.rows;
+  const paywallRows = analyticsW.paywallById.rows;
   const paywallReady = paywallRows.some(
     (r) => r.key !== "(inconnu)" && r.key !== "(absent)",
   );
@@ -166,8 +184,8 @@ export function OffresTab({
   // pas sur les 90 jours. Un taux calculé sur une autre fenêtre que celle
   // annoncée est un chiffre faux — on écrit donc la date à l'écran.
   const paywallStart =
-    analytics.paywallById.startMs != null
-      ? new Date(analytics.paywallById.startMs).toLocaleDateString("fr-FR", {
+    analyticsW.paywallById.startMs != null
+      ? new Date(analyticsW.paywallById.startMs).toLocaleDateString("fr-FR", {
           day: "numeric",
           month: "long",
         })
@@ -181,7 +199,7 @@ export function OffresTab({
   // une erreur d'unité (la complétion sortait un ratio dans un formateur de %).
   const arms = useMemo(
     () =>
-      analytics.abArms.rows.map((a) => ({
+      analyticsW.abArms.rows.map((a) => ({
         ...a,
         completion: ratePct(a.paid, a.checkouts),
         // Cibles PAYANTES par client : cibles ajoutées par les clients APRÈS
@@ -192,7 +210,7 @@ export function OffresTab({
             ? Math.round((a.clientTargets / a.paid) * 100) / 100
             : null,
       })),
-    [analytics.abArms.rows],
+    [analyticsW.abArms.rows],
   );
   const armChecks = useMemo(
     () =>
@@ -256,8 +274,8 @@ export function OffresTab({
     (abRev?.rows ?? []).map((r) => [r.variant, r] as const),
   );
   const abStart =
-    analytics.abArms.startMs != null
-      ? new Date(analytics.abArms.startMs).toLocaleDateString("fr-FR", {
+    analyticsW.abArms.startMs != null
+      ? new Date(analyticsW.abArms.startMs).toLocaleDateString("fr-FR", {
           day: "numeric",
           month: "long",
         })
@@ -274,16 +292,16 @@ export function OffresTab({
   // les montants sortent sans symbole plutôt qu'avec un « € » supposé.
   const offerCurrency = revenue?.currency ?? null;
   const offers = useMemo(
-    () => attributedOffers(analytics.abOffers.rows, offerCurrency),
-    [analytics.abOffers.rows, offerCurrency],
+    () => attributedOffers(analyticsW.abOffers.rows, offerCurrency),
+    [analyticsW.abOffers.rows, offerCurrency],
   );
   const offerComparability = useMemo(
-    () => armComparability(analytics.abOffers.rows, offerCurrency),
-    [analytics.abOffers.rows, offerCurrency],
+    () => armComparability(analyticsW.abOffers.rows, offerCurrency),
+    [analyticsW.abOffers.rows, offerCurrency],
   );
   const offerExcluded = useMemo(
-    () => excludedViewers(analytics.abOffers.rows),
-    [analytics.abOffers.rows],
+    () => excludedViewers(analyticsW.abOffers.rows),
+    [analyticsW.abOffers.rows],
   );
 
   // ─── Ce que les clients ont RÉELLEMENT acheté ─────────────────────────────
@@ -291,13 +309,13 @@ export function OffresTab({
   // dérivé deux fois en un mois sans que rien ne le signale.
   const purchases = useMemo(
     () =>
-      armPurchases(analytics.abPurchases.rows, revenue?.plans ?? [], {
+      armPurchases(analyticsW.abPurchases.rows, revenue?.plans ?? [], {
         revenueCurrency: revenue?.currency ?? null,
         payCurrency: attribution?.payCurrency ?? null,
         fxRateToRevenue: attribution?.fxRateToRevenue ?? null,
       }),
     [
-      analytics.abPurchases.rows,
+      analyticsW.abPurchases.rows,
       revenue?.plans,
       revenue?.currency,
       attribution?.payCurrency,
@@ -308,9 +326,9 @@ export function OffresTab({
     () =>
       purchaseCoherenceIssues(
         purchases,
-        new Map(analytics.abArms.rows.map((a) => [a.variant, a.paid] as const)),
+        new Map(analyticsW.abArms.rows.map((a) => [a.variant, a.paid] as const)),
       ),
-    [purchases, analytics.abArms.rows],
+    [purchases, analyticsW.abArms.rows],
   );
 
   // La carte ne se pilote plus par la présence d'`experiment_id` mais par les
@@ -358,6 +376,29 @@ export function OffresTab({
 
   return (
     <div className="space-y-6">
+      {windowed.error !== null ? (
+        <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
+          <strong>Recalcul sur la période impossible.</strong> {windowed.error}{" "}
+          Les chiffres PostHog ci-dessous portent donc sur toute la profondeur.
+        </HubNotice>
+      ) : null}
+      {/* Le REVENU WHOP (offres vendues, litiges, périodes) ne suit PAS la
+          période : il vient de l'ingestion Whop, pas d'une requête HogQL. Le
+          dire une fois, en tête, plutôt que de laisser croire que tout bouge. */}
+      {windowed.data !== undefined ? (
+        <HubNotice className="border-slate-200 bg-slate-50 text-slate-600">
+          La période choisie s&apos;applique aux mesures PostHog (test A/B,
+          paywalls, plan gratuit, coût des scans). Le <strong>revenu Whop</strong>{" "}
+          plus bas — offres vendues, litiges, remboursements — reste sur toute la
+          profondeur.
+        </HubNotice>
+      ) : null}
+      <div
+        className={
+          windowed.loading ? "space-y-6 opacity-50 transition-opacity" : "space-y-6"
+        }
+        aria-busy={windowed.loading}
+      >
       {/* A5 — chaque ligne d'offre porte SA devise, mais les pieds de tableau
           les additionnent : le signal doit être en tête d'onglet. */}
       <MixedCurrencyNotice
@@ -1455,6 +1496,7 @@ export function OffresTab({
           )}
         </CardContent>
       </Card>
+    </div>
     </div>
   );
 }

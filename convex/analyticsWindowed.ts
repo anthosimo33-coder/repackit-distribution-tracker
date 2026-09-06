@@ -13,12 +13,18 @@
  * médiane de trente médianes quotidiennes n'est pas la médiane des trente jours.
  * Fenêtrer ces chiffres veut dire les RECALCULER, pas les trancher.
  *
- * COÛT MESURÉ (06/09/2026, 24 requêtes, concurrence 6, API PostHog réelle) :
- *   - première volée après > 2 min de silence : 10,6 s (8,7 – 11,8)
- *   - volées suivantes, dans la foulée : 1,4 s en moyenne, 0,8 s en médiane
- * La LARGEUR de la fenêtre ne change rien (7 j et 90 j prennent le même temps) :
- * ce qui coûte, c'est de repartir à froid. Au-delà de 8 requêtes simultanées
- * PostHog met en file et tout se dégrade — 45 s mesurées à 12. D'où SIX.
+ * COÛT MESURÉ (06/09/2026, API PostHog réelle, concurrence 6) :
+ *   - première volée après > 2 min de silence : 10,6 s (8,7 - 11,8)
+ *   - volées suivantes : 1,4 s pour un jeu léger, 2,8 à 5,8 s pour les quinze
+ *     requêtes servies ici
+ * La LARGEUR de la fenêtre ne change rien : ce qui coûte, c'est de repartir à
+ * froid. Au-delà de 8 requêtes simultanées PostHog met en file et tout se
+ * dégrade — 45 s mesurées à 12. D'où SIX.
+ *
+ * Les trois requêtes d'A/B test ne profitent PAS du rétrécissement : leur
+ * balayage reste sur quatre-vingt-dix jours par nécessité (cf buildQueries),
+ * seuls leurs compteurs se bornent. Choisir une période ne les rend donc pas
+ * plus rapides, et c'est le prix d'un « nouveau client » qui reste juste.
  */
 
 import { v } from "convex/values";
@@ -26,17 +32,31 @@ import { authedAction } from "./functions";
 import { internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { requirePermission } from "./functions";
-import { runHogQL, type PosthogTarget } from "./posthogApi";
+import { cellTimeMs, runHogQL, type PosthogTarget } from "./posthogApi";
 import {
   buildQueries,
+  shapeAbArms,
+  shapeAbOffers,
+  shapeAbPurchases,
+  shapeAbVariants,
   shapeActivation,
   shapeCheckoutReliability,
+  shapeConversion,
+  shapeFreePlan,
   shapeFunnel,
+  shapeScanCost,
   shapeServerSideSplit,
   WINDOW_DAYS,
+  type AbArmsPayload,
+  type AbOffersPayload,
+  type AbPurchasesPayload,
+  type AbVariantsPayload,
   type ActivationPayload,
   type CheckoutReliabilityPayload,
+  type ConversionPayload,
+  type FreePlanPayload,
   type FunnelPayload,
+  type ScanCostPayload,
   type ServerSideSplitPayload,
 } from "./posthogSync";
 import {
@@ -83,6 +103,16 @@ async function parLots<T>(
   return out;
 }
 
+export interface WindowedOffres {
+  abVariants: AbVariantsPayload;
+  abArms: AbArmsPayload;
+  abOffers: AbOffersPayload;
+  abPurchases: AbPurchasesPayload;
+  paywallById: ConversionPayload;
+  freePlan: FreePlanPayload;
+  scanCost: ScanCostPayload;
+}
+
 export interface WindowedParcours {
   funnels: {
     global: FunnelPayload;
@@ -94,6 +124,13 @@ export interface WindowedParcours {
   activation: ActivationPayload;
   checkoutReliability: CheckoutReliabilityPayload;
   serverSideSplit: ServerSideSplitPayload;
+  /**
+   * Onglet OFFRES & TESTS, servi par la MÊME volée. Deux appels séparés
+   * paieraient deux fois la latence de démarrage (10,6 s mesurées à froid) et
+   * pourraient rendre deux périodes différentes si l'utilisateur change de dates
+   * entre les deux.
+   */
+  offres: WindowedOffres;
   /** Fenêtre effectivement interrogée — l'écran doit pouvoir la RÉ-AFFICHER. */
   from: string;
   to: string;
@@ -113,17 +150,19 @@ export interface WindowedParcours {
  * l'appelant recevrait des chiffres qui ne correspondent pas à ce qu'il a
  * demandé, sans rien pour s'en apercevoir. Elle lève.
  */
-export const getWindowedParcours = authedAction({
+export const getWindowedAnalytics = authedAction({
   args: {
     projectId: v.id("projects"),
     /** Prédicat HogQL complet, produit par `hogWindowClause`. */
     window: v.string(),
+    /** Le même, exprimé sur `t_first_sub` — voir buildQueries. */
+    windowOnFirstSub: v.string(),
     from: v.string(),
     to: v.string(),
   },
   handler: async (
     ctx,
-    { projectId, window, from, to },
+    { projectId, window, windowOnFirstSub, from, to },
   ): Promise<WindowedParcours> => {
     await ctx.runQuery(internal.analyticsWindowed.assertBusinessRead, {
       userId: ctx.userId,
@@ -151,6 +190,7 @@ export const getWindowedParcours = authedAction({
       notInternalClause(internalCfg) + notForcedExperimentClause(WINDOW_DAYS),
       internalMarkerHogQL(internalCfg),
       window,
+      windowOnFirstSub,
     );
     // Une requête en erreur ne doit pas passer pour un résultat VIDE : un
     // entonnoir à zéro et un entonnoir non mesuré se ressemblent à l'écran, et
@@ -161,20 +201,42 @@ export const getWindowedParcours = authedAction({
       return res.rows;
     };
     const t0 = Date.now();
-    const [global, sequential, source, language, country, act, chk, split] =
-      await parLots(
-        [
-          run(Q.funnelGlobal),
-          run(Q.funnelSequential),
-          run(Q.funnelSource),
-          run(Q.funnelLanguage),
-          run(Q.funnelCountry),
-          run(Q.activation),
-          run(Q.checkoutReliability),
-          run(Q.serverSideSplit),
-        ],
-        CONCURRENCE,
-      );
+    const [
+      global,
+      sequential,
+      source,
+      language,
+      country,
+      act,
+      chk,
+      split,
+      abVar,
+      abArms,
+      abOff,
+      abPur,
+      payById,
+      free,
+      scan,
+    ] = await parLots(
+      [
+        run(Q.funnelGlobal),
+        run(Q.funnelSequential),
+        run(Q.funnelSource),
+        run(Q.funnelLanguage),
+        run(Q.funnelCountry),
+        run(Q.activation),
+        run(Q.checkoutReliability),
+        run(Q.serverSideSplit),
+        run(Q.abVariants),
+        run(Q.abArms),
+        run(Q.abOffers),
+        run(Q.abPurchases),
+        run(Q.paywallById),
+        run(Q.freePlan),
+        run(Q.scanCost),
+      ],
+      CONCURRENCE,
+    );
     return {
       funnels: {
         global: shapeFunnel(global),
@@ -186,6 +248,20 @@ export const getWindowedParcours = authedAction({
       activation: shapeActivation(act),
       checkoutReliability: shapeCheckoutReliability(chk),
       serverSideSplit: shapeServerSideSplit(split),
+      offres: {
+        abVariants: shapeAbVariants(abVar),
+        abArms: shapeAbArms(abArms),
+        abOffers: shapeAbOffers(abOff),
+        abPurchases: shapeAbPurchases(abPur),
+        // La colonne « début de fenêtre » vient de la 1re émission de
+        // paywall_id, identique sur chaque ligne : lue une fois.
+        paywallById: {
+          ...shapeConversion(payById),
+          startMs: payById.length > 0 ? cellTimeMs(payById[0], 3) : null,
+        },
+        freePlan: shapeFreePlan(free),
+        scanCost: shapeScanCost(scan),
+      },
       from,
       to,
       elapsedMs: Date.now() - t0,
