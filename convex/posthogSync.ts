@@ -182,6 +182,13 @@ const AB_ARMED = `isNotNull(properties.experiment_variant) AND toString(properti
  */
 const AB_PAYWALL = `event = 'paywall_viewed' AND timestamp >= ab_start`;
 
+/**
+ * Achat effectif DANS la fenêtre du test, plan émis. Le plan vide est écarté :
+ * une ligne « plan inconnu » sans identifiant Whop n'aurait aucun prix, et un
+ * client sans prix fausserait le revenu du bras dans le sens flatteur.
+ */
+const AB_BOUGHT = `event = 'subscription_completed' AND timestamp >= ab_start AND toString(properties.plan) != ''`;
+
 /** Clés d'agrégat stockées dans posthogCache (une row par (projet, key)). */
 export const POSTHOG_CACHE_KEYS = {
   overview: "overview",
@@ -216,6 +223,7 @@ export const POSTHOG_CACHE_KEYS = {
   abVariants: "abVariants",
   abArms: "abArms",
   abOffers: "abOffers",
+  abPurchases: "abPurchases",
   abPersonArms: "abPersonArms",
   abFlippers: "abFlippers",
   freePlan: "freePlan",
@@ -414,6 +422,60 @@ export function normalizeAbOffers(payload: AbOffersPayload): AbOffersPayload {
       renewals: num(r.renewals),
       firstMs: ms(r.firstMs),
       lastMs: ms(r.lastMs),
+    })),
+  };
+}
+
+/**
+ * TEST A/B par (BRAS × PLAN RÉELLEMENT ACHETÉ).
+ *
+ * ⚠️ CE QUE `abOffers` NE PEUT PAS DIRE. `plan_preselected` est le plan
+ * PRÉ-COCHÉ à l'ouverture du paywall — pas l'offre. Chaque bras présente un
+ * MENU : le bras B vend 9,99 €/semaine ou 29,99 €/mois, le bras A 16,90 €/mois
+ * ou 49,90 €/an. Ce que la personne achète pour de bon ne se lit que sur
+ * `subscription_completed`, et c'est ce qui détermine le revenu : mesuré en prod
+ * le 06/09, le bras B fait 147 hebdomadaires, 10 mensuels et 1 offre ponctuelle
+ * de 3 mois — trois prix que la présélection montrait comme un seul.
+ *
+ * `whopPlanId` est là pour que le PRIX vienne de Whop (PlanEconomics.price) et
+ * non d'une constante : une table de prix écrite en dur a déjà dérivé deux fois
+ * en un mois sans que rien ne le signale.
+ */
+export interface AbPurchasesPayload {
+  rows: {
+    variant: string;
+    /** Slug lisible (`snytch_trio_weekly`). Vide = l'app ne l'a pas émis. */
+    plan: string;
+    /** Identifiant Whop (`plan_…`) — la clé de jointure vers le prix réel. */
+    whopPlanId: string;
+    /** NOUVEAUX clients du bras ayant acheté ce plan. */
+    clients: number;
+    /**
+     * Total des nouveaux clients du bras, répété sur chaque ligne (lu une fois).
+     * Il ne vaut PAS la somme de la colonne `clients` : une personne qui a
+     * acheté deux plans compte dans deux lignes.
+     */
+    armClients: number;
+    /** Combien, parmi eux, ont acheté PLUSIEURS plans — l'écart est là, pas ailleurs. */
+    armMultiPlan: number;
+  }[];
+}
+
+/** Recale une charge `abPurchases` lue du cache (cf `normalizeAbArms`). */
+export function normalizeAbPurchases(
+  payload: AbPurchasesPayload,
+): AbPurchasesPayload {
+  const num = (v: unknown): number =>
+    typeof v === "number" && Number.isFinite(v) ? v : 0;
+  const str = (v: unknown): string => (typeof v === "string" ? v : "");
+  return {
+    rows: (payload.rows ?? []).map((r) => ({
+      variant: str(r.variant),
+      plan: str(r.plan),
+      whopPlanId: str(r.whopPlanId),
+      clients: num(r.clients),
+      armClients: num(r.armClients),
+      armMultiPlan: num(r.armMultiPlan),
     })),
   };
 }
@@ -1182,6 +1244,59 @@ FROM (
 WHERE isNotNull(bras) AND bras != '' AND bras != 'NULL'
 GROUP BY variant, plan_out, prix_out, attribuee
 ORDER BY variant, last_seen DESC
+LIMIT ${OFFER_SEGMENT_LIMIT}`,
+
+  /**
+   * TEST A/B par (BRAS × PLAN ACHETÉ) — cf AbPurchasesPayload.
+   *
+   * Ne compte que les NOUVEAUX clients (1er abonnement après le début du test),
+   * même définition que la colonne « Clients » de la carte des bras, et le MÊME
+   * filtre de bras stable : sans lui, les deux tableaux compteraient deux
+   * populations et leur écart passerait pour un défaut de mesure.
+   *
+   * `groupUniqArrayIf` + `arrayJoin` : une personne qui a acheté deux plans sort
+   * sur DEUX lignes. C'est voulu — le mélange de plans est l'information — mais
+   * ça interdit de sommer la colonne pour retrouver les clients du bras, d'où
+   * `arm_clients` et `arm_multi_plan` rendus à côté.
+   */
+  abPurchases: `
+WITH ${AB_EXPERIMENT_CTE}
+SELECT bras AS variant,
+  splitByChar('|', arrayJoin(paires))[1] AS plan_achete,
+  splitByChar('|', arrayJoin(paires))[2] AS whop_plan_id,
+  uniq(person_id) AS clients,
+  any(arm_clients) AS arm_clients,
+  any(arm_multi) AS arm_multi
+FROM (
+  SELECT person_id, bras, paires,
+    -- Totaux du bras, calculés AVANT l'éclatement par plan : après arrayJoin,
+    -- une personne à deux plans serait comptée deux fois.
+    count() OVER (PARTITION BY bras) AS arm_clients,
+    countIf(length(plans) > 1) OVER (PARTITION BY bras) AS arm_multi
+  FROM (
+    SELECT person_id,
+      argMaxIf(toString(properties.experiment_variant), timestamp, ${AB_ARMED}) AS bras,
+      uniqIf(toString(properties.experiment_variant), ${AB_ARMED}) = 1 AS stable,
+      -- Le slug et l'identifiant Whop sont appariés DANS LA MÊME valeur : deux
+      -- groupUniqArray séparés rendent des tableaux dédupliqués dont les index
+      -- ne correspondent plus. Vérifié sur la prod, ça donnait le plan_id de
+      -- l'hebdomadaire au mensuel — donc son prix.
+      groupUniqArrayIf(
+        concat(toString(properties.plan), '|', toString(properties.plan_id)),
+        ${AB_BOUGHT}) AS paires,
+      groupUniqArrayIf(toString(properties.plan), ${AB_BOUGHT}) AS plans,
+      countIf(event = 'subscription_completed' AND timestamp >= ab_start) AS n_subs,
+      minIf(timestamp, event = 'subscription_completed') AS t_first_sub
+    FROM events
+    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+    GROUP BY person_id
+    HAVING countIf(${AB_ARMED}) > 0
+  )
+  WHERE stable AND n_subs > 0 AND t_first_sub >= ab_start
+    AND isNotNull(bras) AND bras != '' AND bras != 'NULL'
+)
+GROUP BY variant, plan_achete, whop_plan_id
+ORDER BY variant, clients DESC
 LIMIT ${OFFER_SEGMENT_LIMIT}`,
 
 
@@ -2140,6 +2255,22 @@ export const runHourlySync = internalAction({
           }),
         ),
         await collect(
+          POSTHOG_CACHE_KEYS.abPurchases,
+          apiKey,
+          target,
+          QUERIES.abPurchases,
+          (rows): AbPurchasesPayload => ({
+            rows: rows.map((r) => ({
+              variant: cellStr(r, 0),
+              plan: cellStr(r, 1),
+              whopPlanId: cellStr(r, 2),
+              clients: cellNum(r, 3),
+              armClients: cellNum(r, 4),
+              armMultiPlan: cellNum(r, 5),
+            })),
+          }),
+        ),
+        await collect(
           POSTHOG_CACHE_KEYS.abOffers,
           apiKey,
           target,
@@ -2526,6 +2657,8 @@ export interface ProductAnalytics {
   abArms: AbArmsPayload;
   /** Test A/B par (bras × offre servie) — cf AbOffersPayload. */
   abOffers: AbOffersPayload;
+  /** Test A/B par (bras × plan réellement acheté) — cf AbPurchasesPayload. */
+  abPurchases: AbPurchasesPayload;
   sources: ConversionPayload;
   cohorts: CohortsPayload;
   predictors: PredictorsPayload;
@@ -2589,6 +2722,7 @@ export const getProductAnalytics = permissionQuery("business.read")({
       paywallById: EMPTY_CONVERSION,
       abArms: { rows: [], startMs: null },
       abOffers: { rows: [] },
+      abPurchases: { rows: [] },
       sources: EMPTY_CONVERSION,
       cohorts: { segments: [] },
       predictors: { total: 0, totalConverted: 0, behaviors: [] },
@@ -2664,6 +2798,9 @@ export const getProductAnalytics = permissionQuery("business.read")({
       ),
       abOffers: normalizeAbOffers(
         read<AbOffersPayload>(POSTHOG_CACHE_KEYS.abOffers, { rows: [] }),
+      ),
+      abPurchases: normalizeAbPurchases(
+        read<AbPurchasesPayload>(POSTHOG_CACHE_KEYS.abPurchases, { rows: [] }),
       ),
       sources: read(POSTHOG_CACHE_KEYS.sources, EMPTY_CONVERSION),
       cohorts: read(POSTHOG_CACHE_KEYS.cohorts, empty.cohorts),

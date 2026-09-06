@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { Fragment, useMemo } from "react";
 import { MixedCurrencyNotice } from "@/components/MixedCurrencyNotice";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +20,7 @@ import {
   attributedOffers,
   excludedViewers,
 } from "@/lib/ab-offers";
+import { armPurchases, purchaseCoherenceIssues } from "@/lib/ab-purchases";
 import {
   EXPECTED_ARM_PRICING,
   EXPECTED_PAYWALL_IDS,
@@ -46,9 +47,17 @@ import type { ProductAnalyticsData, RevenueData } from "./types";
  * Libellés des bras du test. `soft`/`hard` sont les valeurs émises ; l'écran
  * dit ce que chaque bras SERT, sinon « hard » ne veut rien dire pour qui lit.
  */
+/**
+ * `soft`/`hard` sont les valeurs ÉMISES depuis le 08/08 : les renommer casserait
+ * l'appariement avec l'historique. Mais les mots ne décrivent plus rien — le
+ * 06/09 le bras « souple » a perdu son palier gratuit et est devenu bloquant lui
+ * aussi. L'écran ne nomme donc plus le TRAITEMENT (qui change), il nomme ce qui
+ * ne change pas : le nombre de cibles. Ce que le bras vend est lu dans la donnée,
+ * juste en dessous.
+ */
 const AB_ARM_LABELS: Record<string, string> = {
-  soft: "A — souple (1 cible, plan gratuit)",
-  hard: "B — bloquant (3 cibles, sans gratuit)",
+  soft: "A — 1 cible",
+  hard: "B — 3 cibles",
 };
 
 /** Ratio en % tolérant au 0. */
@@ -268,6 +277,22 @@ export function OffresTab({
   const offerExcluded = useMemo(
     () => excludedViewers(analytics.abOffers.rows),
     [analytics.abOffers.rows],
+  );
+
+  // ─── Ce que les clients ont RÉELLEMENT acheté ─────────────────────────────
+  // Le prix vient de Whop, joint par plan_id : la table de prix du dépôt a
+  // dérivé deux fois en un mois sans que rien ne le signale.
+  const purchases = useMemo(
+    () => armPurchases(analytics.abPurchases.rows, revenue?.plans ?? []),
+    [analytics.abPurchases.rows, revenue?.plans],
+  );
+  const purchaseIssues = useMemo(
+    () =>
+      purchaseCoherenceIssues(
+        purchases,
+        new Map(analytics.abArms.rows.map((a) => [a.variant, a.paid] as const)),
+      ),
+    [purchases, analytics.abArms.rows],
   );
 
   // La carte ne se pilote plus par la présence d'`experiment_id` mais par les
@@ -725,7 +750,13 @@ export function OffresTab({
           {offers.length > 0 ? (
             <div className="space-y-3 border-t border-slate-200 pt-3">
               <p className="text-sm font-medium text-slate-700">
-                Offres réellement servies
+                Plan présélectionné au paywall
+              </p>
+              <p className="text-xs text-slate-500">
+                Le plan PRÉ-COCHÉ à l&apos;ouverture, celui qui part au checkout
+                si la personne ne touche à rien — pas l&apos;offre du bras, qui
+                est un menu. Ce que les gens achètent pour de bon est dans le
+                tableau suivant.
               </p>
               {!offerComparability.comparable ? (
                 <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
@@ -748,7 +779,7 @@ export function OffresTab({
                 <TableHeader>
                   <TableRow>
                     <TableHead>Bras</TableHead>
-                    <TableHead>Offre servie</TableHead>
+                    <TableHead>Plan présélectionné</TableHead>
                     <TableHead>Période (Paris)</TableHead>
                     <TableHead className="text-right">Vu le paywall</TableHead>
                     <TableHead className="text-right">Checkouts</TableHead>
@@ -820,19 +851,146 @@ export function OffresTab({
               ) : null}
             </div>
           ) : null}
+          {purchases.length > 0 ? (
+            <div className="space-y-3 border-t border-slate-200 pt-3">
+              <p className="text-sm font-medium text-slate-700">
+                Ce que les clients ont réellement acheté
+              </p>
+              <p className="text-xs text-slate-500">
+                Chaque bras vend un MENU, pas un prix : lire le seul plan
+                présélectionné fait croire qu&apos;un bras a un tarif unique. Le
+                plan acheté vient de <code>subscription_completed</code>, son prix
+                de Whop — jointure par <code>plan_id</code>, jamais par le nom du
+                plan.
+              </p>
+              {purchaseIssues.length > 0 ? (
+                <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
+                  <strong>Contrôle de cohérence en écart.</strong>{" "}
+                  {purchaseIssues.join(" · ")}. Les deux tableaux devraient
+                  compter la même population : un écart veut dire que l&apos;un
+                  des deux agrégats a changé de définition sans l&apos;autre.
+                </HubNotice>
+              ) : null}
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Bras</TableHead>
+                    <TableHead>Plan acheté</TableHead>
+                    <TableHead className="text-right">Prix</TableHead>
+                    <TableHead className="text-right">Clients</TableHead>
+                    <TableHead className="text-right">Part du bras</TableHead>
+                    <TableHead className="text-right">Revenu 1er cycle</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {purchases.map((arm) => (
+                    <Fragment key={arm.variant}>
+                      {arm.rows.map((r) => (
+                        <TableRow key={`${arm.variant}-${r.whopPlanId}-${r.plan}`}>
+                          <TableCell className="whitespace-nowrap">
+                            {AB_ARM_LABELS[arm.variant] ?? arm.variant}
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            {r.label}
+                            {r.interval ? (
+                              <span className="text-slate-400"> · {r.interval}</span>
+                            ) : null}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {dash(r.price, (n) => formatMoney(n, r.currency))}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatNumber(r.clients)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {pct(r.sharePct)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {dash(r.firstCycleRevenue, (n) =>
+                              formatMoney(n, r.currency),
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      <TableRow className="border-t-2 border-slate-200">
+                        <TableCell className="whitespace-nowrap font-medium">
+                          {AB_ARM_LABELS[arm.variant] ?? arm.variant} — total
+                        </TableCell>
+                        <TableCell className="text-xs text-slate-500">
+                          {arm.armMultiPlan > 0
+                            ? `dont ${formatNumber(arm.armMultiPlan)} client(s) sur plusieurs plans`
+                            : "un seul plan par client"}
+                        </TableCell>
+                        <TableCell />
+                        <TableCell className="text-right font-medium">
+                          {formatNumber(arm.armClients)}
+                        </TableCell>
+                        <TableCell />
+                        <TableCell className="text-right font-medium">
+                          {dash(arm.firstCycleRevenue, (n) =>
+                            formatMoney(n, arm.currency),
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    </Fragment>
+                  ))}
+                </TableBody>
+              </Table>
+              <p className="text-xs text-slate-500">
+                <strong>Clients</strong> du total = personnes DISTINCTES, pas la
+                somme de la colonne : qui a acheté deux plans compte une fois au
+                total et une fois par ligne. <strong>Revenu 1er cycle</strong> =
+                clients × prix du plan, premier cycle seulement — annualiser
+                supposerait une rétention qu&apos;aucune de ces colonnes ne mesure.
+              </p>
+              {purchases.some((a) => a.clientsWithoutPrice > 0) ? (
+                <p className="text-xs text-slate-500">
+                  {purchases
+                    .filter((a) => a.clientsWithoutPrice > 0)
+                    .map(
+                      (a) =>
+                        `${AB_ARM_LABELS[a.variant] ?? a.variant} : ${formatNumber(a.clientsWithoutPrice)}`,
+                    )
+                    .join(" · ")}{" "}
+                  client(s) <strong>écarté(s) du total</strong> — leur plan
+                  n&apos;a pas de prix chez Whop (offre ponctuelle). Ils ne sont
+                  pas comptés à zéro, ils sont retirés du calcul.
+                </p>
+              ) : null}
+              {purchases.some((a) => a.currencies.length > 1) ? (
+                <HubNotice className="border-amber-200 bg-amber-50/70 text-amber-900">
+                  <strong>Un bras vend dans plusieurs devises</strong> (
+                  {purchases
+                    .filter((a) => a.currencies.length > 1)
+                    .flatMap((a) => a.currencies)
+                    .join(", ")}
+                  ) : son total est refusé plutôt qu&apos;additionné. La
+                  répartition en clients, elle, reste juste.
+                </HubNotice>
+              ) : null}
+            </div>
+          ) : null}
           <div className="space-y-1 text-xs text-slate-500">
             <p className="font-medium text-slate-600">
-              Offre attendue par bras (vérifiée chez Whop) :
+              Ce que chaque bras est censé vendre, dernière vérification humaine
+              le{" "}
+              {EXPECTED_ARM_PRICING.map((a) => a.asOf).sort().slice(-1)[0] ??
+                "—"}{" "}
+              :
             </p>
             {EXPECTED_ARM_PRICING.map((arm) => (
               <p key={arm.variant}>
-                <strong>{arm.label}</strong> :{" "}
-                {arm.freeTier ? "plan gratuit, puis " : "pas de plan gratuit, "}
-                {formatMoney(arm.priceWeekly, currency)} par semaine et{" "}
-                {formatMoney(arm.priceMonthly, currency)} par mois, pour{" "}
+                <strong>{arm.label}</strong> : {arm.offer},{" "}
+                {arm.freeTier ? "avec palier gratuit" : "sans palier gratuit"},{" "}
                 {arm.maxTargets} {arm.maxTargets > 1 ? "cibles" : "cible"}.
               </p>
             ))}
+            <p>
+              Cette ligne est écrite à la main et a déjà été fausse trois semaines
+              sans que rien ne le signale. Ce qui fait foi, ce sont les deux
+              tableaux au-dessus : ils lisent l&apos;offre servie et le plan
+              acheté dans la donnée.
+            </p>
             <p>
               Décision sur le <strong>revenu net par personne assignée</strong>, fenêtre
               de 14 jours.
