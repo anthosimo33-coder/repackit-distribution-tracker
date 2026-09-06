@@ -33,6 +33,9 @@ const PROD = {
   dailySignupsSum: 4909,
   dailySubs: [{ day: "2026-07-28", subs: 11 }],
   dailyPaidClients: [{ day: "2026-07-28", clients: 8 }],
+  // Même valeur que `dailyPaidClients` ici : la fixture modélise un jour où
+  // personne n'a deux abonnements (cf `whopFirstPaidDay`, 8 abonnements).
+  dailyNewMemberships: [{ day: "2026-07-28", memberships: 8 }],
   // Le 28/07 : 6 appariés, 3 rejeux de la veille, 3 remboursés, 1 sans id.
   subsByMembership: [
     ...["m1", "m2", "m3", "m4", "m5", "m6"].map((membershipId) => ({ day: "2026-07-28", membershipId, persons: 1 })),

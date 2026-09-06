@@ -300,6 +300,15 @@ export interface CoherenceInputs {
   whopFirstPaidDay?: { membershipId: string; day: string }[];
   /** Nouveaux clients payants Whop par jour Paris — l'autre côté du contrôle croisé. */
   dailyPaidClients?: { day: string; clients: number }[];
+  /**
+   * Nouveaux ABONNEMENTS par jour. C'est CETTE série que le contrôle croisé
+   * doit lire : PostHog émet un `subscription_completed` par ABONNEMENT, et
+   * `dailyPaidClients` compte des PERSONNES depuis que le dénominateur du hub a
+   * été replié. Comparer les deux faisait sonner l'alerte sur l'écart d'unité —
+   * le 2026-09-05, « PostHog 23 vs Whop 19 » était 23 abonnements contre 19
+   * personnes, pas une incohérence de données.
+   */
+  dailyNewMemberships?: { day: string; memberships: number }[];
   // NB : les renouvellements Whop par jour ne sont PLUS une entrée des contrôles.
   // Ils restent dans le payload `coherence` (colonne jumelle de « Nouveaux
   // clients » à l'écran), mais les deux séries croisées ne comptent désormais que
@@ -527,7 +536,11 @@ export function buildCoherenceChecks(i: CoherenceInputs): CoherenceCheck[] {
   pushDailyCrossCheck(
     checks,
     i.dailySubs,
-    i.dailyPaidClients,
+    // En ABONNEMENTS : même unité que les events PostHog. Repli sur les personnes
+    // si la série n'est pas encore servie (déploiement en cours).
+    i.dailyNewMemberships
+      ? i.dailyNewMemberships.map((d) => ({ day: d.day, clients: d.memberships }))
+      : i.dailyPaidClients,
     i.todayParis,
     i.subsByMembership && i.whopFirstPaidDay
       ? reconcileDailyClients(i.subsByMembership, i.whopFirstPaidDay)

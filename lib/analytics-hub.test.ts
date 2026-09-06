@@ -1445,3 +1445,38 @@ describe("contrôle croisé par jour — un jour expliqué n'est pas divergent",
     expect(c?.detail).toContain("1 jour(s) divergent(s)");
   });
 });
+
+describe("Clients/jour PostHog vs Whop — unité du contrôle croisé", () => {
+  /**
+   * Cas de prod du 2026-09-05 : PostHog comptait 23 (un event par ABONNEMENT),
+   * la carte Whop 19 (des PERSONNES, depuis le repli du dénominateur). L'alerte
+   * sonnait sur un écart d'UNITÉ, pas sur une incohérence.
+   */
+  const base: Parameters<typeof buildCoherenceChecks>[0] = {
+    sequentialSteps: [],
+    reachSteps: [],
+    currencyCount: 1,
+    dashboardClients: null,
+    whopMembers: null,
+    whopClients: null,
+    dailySubs: [{ day: "2026-09-05", subs: 23 }],
+    dailyPaidClients: [{ day: "2026-09-05", clients: 19 }],
+    dailyNewMemberships: [{ day: "2026-09-05", memberships: 23 }],
+    todayParis: "2026-09-06",
+  };
+  const crossCheck = (i: Parameters<typeof buildCoherenceChecks>[0]) =>
+    buildCoherenceChecks(i).find((c) => c.label.startsWith("Clients/jour"));
+
+  it("ne sonne PAS quand les abonnements concordent", () => {
+    expect(crossCheck(base)?.status).not.toBe("violation");
+  });
+
+  it("sonne encore sur un VRAI écart d'abonnements (assertion de présence)", () => {
+    // Contre-test : sans lui, un contrôle désactivé passerait le test précédent.
+    const faux = {
+      ...base,
+      dailyNewMemberships: [{ day: "2026-09-05", memberships: 12 }],
+    };
+    expect(crossCheck(faux)?.status).toBe("violation");
+  });
+});

@@ -38,6 +38,8 @@ type CoherencePayload = {
   dailySignupsSum: number | null;
   dailySubs: { day: string; subs: number }[];
   dailyPaidClients: { day: string; clients: number }[];
+  /** Nouveaux ABONNEMENTS/jour — unité des events PostHog (cf pushDailyCrossCheck). */
+  dailyNewMemberships?: { day: string; memberships: number }[];
   subsByMembership: { day: string; membershipId: string; persons: number }[];
   whopFirstPaidDay: { membershipId: string; day: string }[];
   windowReconciliation: CoherenceInputs["windowReconciliation"] | null;
@@ -85,6 +87,7 @@ export function coherenceInputsFrom(
     dailySignupsSum: c.dailySignupsSum,
     dailySubs: c.dailySubs,
     dailyPaidClients: c.dailyPaidClients,
+    dailyNewMemberships: c.dailyNewMemberships,
     // LES DEUX ENTRÉES QUI MANQUAIENT à la Vue d'ensemble.
     subsByMembership: c.subsByMembership,
     whopFirstPaidDay: c.whopFirstPaidDay,
