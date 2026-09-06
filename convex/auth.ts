@@ -144,10 +144,12 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
       // vérité : l'invitation ne porte aucun rôle, donc régénérer un lien ne peut
       // pas dériver du rôle réel. Fiche sans `kind` (toutes les existantes) →
       // "creator", soit exactement le comportement d'avant. Cf convex/roles.ts.
+      // Un compte NEUF : l'ensemble ne contient donc que son rôle de portail.
+      // (Le cumul se pose ensuite depuis l'écran de gestion — cf team.addRole.)
       await db.insert("memberships", {
         userId,
         projectId: invitation.projectId,
-        role: roleForKind(creator.kind),
+        roles: [roleForKind(creator.kind)],
       });
       await db.patch(invitation.creatorId, {
         userId,

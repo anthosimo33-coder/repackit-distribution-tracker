@@ -54,9 +54,16 @@ export function usePortalGate(expected: PortalRole): PortalGate {
   // rôle de portail, donc `portalPathForRole` lui rendait `null` — aucune
   // redirection, et il restait bloqué sur le shell d'un portail qui n'est pas le
   // sien. Même défaut que celui de `getMyPortal`, un cran plus loin.
+  //
+  // ⚠️ ET ON REGARDE L'ENSEMBLE, pas le rôle principal. Une créatrice-manager
+  // atterrit côté équipe (l'équipe prime), mais ce portail EST le sien : testé
+  // sur `role`, ce gate la renverrait vers l'app interne dès qu'elle ouvre /app,
+  // pendant que `ProjectProvider` la renverrait vers /app depuis l'app interne.
+  // Les deux gardes se seraient renvoyé la personne l'une à l'autre.
   const role = portal?.role;
+  const aCePortail = portal?.roles?.includes(expected) ?? false;
   const foreignPath =
-    portal === undefined || role === expected || role === "none"
+    portal === undefined || aCePortail || role === "none"
       ? null
       : isTeamRole(role)
         ? portal.slug
@@ -70,18 +77,9 @@ export function usePortalGate(expected: PortalRole): PortalGate {
 
   if (portal === undefined || foreignPath !== null) return { state: "pending" };
   if (portal.role === "none") return { state: "empty" };
-  if (portal.role === "admin" || portal.role === "manager") {
-    // À ce point le rôle EST celui attendu (tout autre a produit un foreignPath) :
-    // ces deux littéraux sont là pour que TS écarte la forme de retour d'ÉQUIPE
-    // (qui n'a pas de projectId) avant le `state: "ok"` ci-dessous, pas parce
-    // qu'ils sont atteignables. Ils rendent "pending" — jamais le portail.
-    //
-    // ⚠️ Écrits en littéraux et non via `isTeamRole` : c'est un narrowing TS sur
-    // le discriminant de l'union, et un prédicat de type ne rétrécit pas l'objet
-    // porteur. Si un rôle d'équipe est ajouté un jour, `tsc` casse ICI — ce qui
-    // est le comportement voulu.
-    return { state: "pending" };
-  }
+  // À ce point le portail EST le sien (tout autre cas a produit un foreignPath).
+  // Le contexte vient de `getMyPortal`, qui le calcule DÈS qu'elle a un rôle de
+  // portail — y compris quand son rôle principal est un rôle d'équipe.
   return {
     state: "ok",
     projectId: portal.projectId ?? null,

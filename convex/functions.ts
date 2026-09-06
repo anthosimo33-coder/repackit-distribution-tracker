@@ -9,7 +9,7 @@ import { ConvexError, v } from "convex/values";
 import { action, mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { roleForKind, type PortalRole } from "./roles";
+import { hasRole, roleForKind, rolesOf, type PortalRole } from "./roles";
 import {
   grantedPermissions,
   isPermissionId,
@@ -105,7 +105,7 @@ export async function requireProjectAdmin(
   if (membership === null) {
     throw err(ERR.PROJECT_ACCESS_DENIED, "Accès au projet refusé.");
   }
-  if (membership.role !== "admin") {
+  if (!hasRole(membership, "admin")) {
     throw err(ERR.ADMIN_ONLY, "Réservé aux administrateurs du projet.");
   }
 }
@@ -170,12 +170,22 @@ export async function requirePermission(
   if (membership === null) {
     throw err(ERR.PROJECT_ACCESS_DENIED, "Accès au projet refusé.");
   }
-  // Accès historique : un admin de projet peut tout, sans qu'aucun droit ne soit
-  // écrit sur son membership. C'est ce qui rend la migration inutile.
-  if (membership.role === "admin") return;
-  if (membership.role !== "manager") {
+  // ⚠️ LA CASCADE RESTE SÉQUENTIELLE — trois `if` dans cet ordre, jamais un
+  // `.some()` ni un `||` qui mélangerait les marches. Écrite en une expression
+  // du genre `roles.some(r => r === "admin" || (r === "manager" && aLeBloc))`,
+  // elle donnerait AUJOURD'HUI le même résultat, mais un rôle inconnu n'y
+  // tomberait plus dans le refus final : il serait juste « pas trouvé ». Le
+  // point de chute doit rester le `throw`, pas l'absence de correspondance.
+  const roles = rolesOf(membership);
+  // Marche 1 — accès historique : un admin peut tout, sans qu'aucun droit ne
+  // soit écrit sur son membership. C'est ce qui a rendu la migration inutile.
+  if (roles.has("admin")) return;
+  // Marche 2 — tout ce qui n'est pas manager s'arrête ici. Un rôle de portail
+  // avec des `permissions` écrites sur son membership ne les lit JAMAIS.
+  if (!roles.has("manager")) {
     throw err(ERR.ADMIN_ONLY, "Réservé aux administrateurs du projet.");
   }
+  // Marche 3 — et seulement alors, le bloc.
   if (!grantedPermissions(membership.permissions).has(permission)) {
     throw err(ERR.PERMISSION_DENIED, "Droit non accordé.", { permission });
   }
@@ -398,7 +408,11 @@ async function requirePortalMember(
       q.eq("userId", userId).eq("projectId", projectId),
     )
     .first();
-  if (membership === null || membership.role !== role) {
+  // APPARTENANCE À L'ENSEMBLE, et non égalité : une créatrice-manager porte
+  // « creator » ET « manager », et son portail doit continuer de lui répondre.
+  // ⚠️ Ne PAS resserrer en « l'ensemble ne contient QUE ce rôle » : ce serait
+  // enfermer dehors exactement la personne qu'on cherche à servir.
+  if (!hasRole(membership, role)) {
     throw err(ERR.PORTAL_ROLE_REJECTED, PORTAL_REJECTION[role], { role });
   }
   const fiches = await ctx.db

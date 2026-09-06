@@ -349,12 +349,48 @@ export default defineSchema({
     // accès actuels, d'où ZÉRO migration. Même patron que l'ajout de "talent" et
     // "clipper" en 2026. Ce que peut un manager est décidé par `permissions`
     // ci-dessous ; "admin" reste « tout », sans permissions à écrire.
-    role: v.union(
-      v.literal("admin"),
-      v.literal("manager"),
-      v.literal("creator"),
-      v.literal("talent"),
-      v.literal("clipper"),
+    //
+    // ⚠️ CHAMP D'HÉRITAGE, EN LECTURE SEULE DEPUIS LE MULTI-RÔLES. La vérité est
+    // `roles` ci-dessous. Ce champ est devenu `optional` pour qu'une écriture
+    // puisse l'EFFACER en posant `roles` : un document ne doit jamais porter les
+    // deux, sans quoi on aurait deux sources de vérité qui divergent en silence.
+    // Les documents d'avant, eux, ne portent que lui — `rolesOf` les lit comme un
+    // ensemble d'un élément, d'où ZÉRO migration ici aussi.
+    // NE PAS écrire ce champ dans du code neuf : passer par `roles`.
+    role: v.optional(
+      v.union(
+        v.literal("admin"),
+        v.literal("manager"),
+        v.literal("creator"),
+        v.literal("talent"),
+        v.literal("clipper"),
+      ),
+    ),
+    // ─── LES RÔLES DE CETTE PERSONNE SUR CE PROJET (convex/roles.ts) ──────────
+    // Une personne peut être manager ET créatrice : c'est le modèle de promotion
+    // interne. Une LISTE sur la ligne existante, et pas une seconde ligne de
+    // membership — `memberships` se lit par `.first()` sur `by_user_project` à 22
+    // endroits, et deux lignes y rendraient une ligne ARBITRAIRE. En liste, chaque
+    // comparaison scalaire cesse de compiler : l'oubli ferme la porte au lieu de
+    // produire du hasard (cf l'en-tête de convex/roles.ts).
+    //
+    // ⚠️ Les combinaisons ne sont PAS libres — `roleSetProblem` refuse les trois
+    // cumuls de populations (structurels : `creators.kind` pilote la chauffe et la
+    // paie) ainsi qu'admin + autre chose. La règle vit dans convex/roles.ts, et
+    // toute écriture y passe.
+    //
+    // Une valeur hors liste fermée n'ouvre RIEN (cf. isMembershipRole), et un
+    // ensemble vide n'ouvre rien non plus : le défaut est le refus.
+    roles: v.optional(
+      v.array(
+        v.union(
+          v.literal("admin"),
+          v.literal("manager"),
+          v.literal("creator"),
+          v.literal("talent"),
+          v.literal("clipper"),
+        ),
+      ),
     ),
     // ─── DROITS D'UN MANAGER (convex/permissions.ts) ──────────────────────────
     // Blocs du catalogue accordés à CETTE personne SUR CE PROJET. Le grain est

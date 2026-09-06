@@ -8,7 +8,7 @@ import {
   superadminMutation,
 } from "./functions";
 import { internalMutation } from "./_generated/server";
-import { isPortalRole } from "./roles";
+import { portalRoleOf, rolesOf, teamRoleOf } from "./roles";
 import {
   PERMISSION_ID_LITERALS,
   grantedPermissions,
@@ -181,10 +181,18 @@ export const getProjectForCurrentUser = authedQuery({
     // portail (lib/portal-path). On renvoie le rôle plutôt qu'un booléen — avec trois
     // portails, un `isCreator` ne dit plus où rediriger. La vraie barrière reste
     // serveur (gardes de bloc), ce champ n'est que du confort de routage.
+    //
+    // ⚠️ SEULEMENT SI ELLE N'A QUE ÇA. Une créatrice-manager porte un rôle de
+    // portail ET un rôle d'équipe : renvoyée sur la foi du premier, elle serait
+    // sortie de l'app interne à chaque navigation et ne pourrait JAMAIS faire son
+    // travail de manager. Le champ répond donc « à renvoyer chez elle ? », pas
+    // « a-t-elle un portail ? » — deux questions qui se confondaient tant qu'une
+    // personne n'avait qu'un rôle.
     return {
       status: "ok" as const,
       project: projectForClient(project),
-      portalRole: isPortalRole(membership.role) ? membership.role : null,
+      portalRole:
+        teamRoleOf(membership) === null ? portalRoleOf(membership) : null,
     };
   },
 });
@@ -556,12 +564,19 @@ export const getMyPermissions = authedQuery({
     if (membership === null) {
       return { role: null, permissions: [] as PermissionId[] };
     }
-    if (membership.role === "admin") {
+    // MÊME ORDRE QUE LA CASCADE de `requirePermission` (admin, puis manager,
+    // puis refus) : cet écran doit annoncer EXACTEMENT ce que le serveur
+    // accordera. Une liste qui diverge de la garde ment poliment.
+    const roles = rolesOf(membership);
+    if (roles.has("admin")) {
       return { role: "admin" as const, permissions: [...PERMISSION_ID_LITERALS] };
     }
-    if (membership.role !== "manager") {
-      // Rôle de portail : aucun droit d'administration, et c'est structurel.
-      return { role: membership.role, permissions: [] as PermissionId[] };
+    if (!roles.has("manager")) {
+      // Rôle de portail seul : aucun droit d'administration, et c'est structurel.
+      return {
+        role: portalRoleOf(membership),
+        permissions: [] as PermissionId[],
+      };
     }
     return {
       role: "manager" as const,
@@ -667,7 +682,7 @@ export const e2eEnsureProjectForEmail = e2eMutation({
       await ctx.db.insert("memberships", {
         userId: user._id,
         projectId,
-        role: args.role ?? "admin",
+        roles: [args.role ?? "admin"],
       });
     }
     return { projectId };
@@ -708,7 +723,7 @@ export const e2eEnsureMemberUser = e2eMutation({
       await ctx.db.insert("memberships", {
         userId,
         projectId: args.projectId,
-        role: args.role ?? "creator",
+        roles: [args.role ?? "creator"],
       });
     }
     return { userId };

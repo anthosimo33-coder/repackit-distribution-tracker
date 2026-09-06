@@ -90,7 +90,7 @@ async function ensureCreatorMembership(
     )
     .first();
   if (!existing) {
-    await ctx.db.insert("memberships", { userId, projectId, role: "creator" });
+    await ctx.db.insert("memberships", { userId, projectId, roles: ["creator"] });
   }
 }
 

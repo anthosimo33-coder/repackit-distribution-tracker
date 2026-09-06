@@ -27,6 +27,16 @@ import {
   requirePermission,
 } from "./functions";
 import { isPermissionId } from "./permissions";
+import { MEMBERSHIP_ROLES, rolesOf } from "./roles";
+
+/** L'union fermée des rôles, partagée par les helpers ci-dessous. */
+const ROLE = v.union(
+  v.literal("admin"),
+  v.literal("manager"),
+  v.literal("creator"),
+  v.literal("talent"),
+  v.literal("clipper"),
+);
 
 /** Sonde sur un bloc COCHÉ par défaut pour un manager. */
 export const probeCreatorsRead = permissionQuery("creators.read")({
@@ -109,16 +119,21 @@ export const e2eSetMembershipRole = e2eMutation({
   args: {
     email: v.string(),
     projectId: v.id("projects"),
-    role: v.union(
-      v.literal("admin"),
-      v.literal("manager"),
-      v.literal("creator"),
-      v.literal("talent"),
-      v.literal("clipper"),
-    ),
+    role: ROLE,
+    /** Rôles SUPPLÉMENTAIRES — le cumul (créatrice-manager, etc.). */
+    extraRoles: v.optional(v.array(ROLE)),
+    /**
+     * Écrit la FORME D'AVANT (le scalaire `role`, sans `roles`). C'est le seul
+     * moyen de fabriquer un document tel que la production en porte encore, et
+     * donc de prouver la promesse « zéro migration » plutôt que de la supposer.
+     */
+    legacy: v.optional(v.boolean()),
     permissions: v.optional(v.array(v.string())),
   },
-  handler: async (ctx, { email, projectId, role, permissions }) => {
+  handler: async (
+    ctx,
+    { email, projectId, role, extraRoles, legacy, permissions },
+  ) => {
     const user = await ctx.db
       .query("users")
       .withIndex("email", (q) => q.eq("email", email))
@@ -130,17 +145,52 @@ export const e2eSetMembershipRole = e2eMutation({
         q.eq("userId", user._id).eq("projectId", projectId),
       )
       .first();
+    // La forme d'HÉRITAGE ne porte qu'un rôle, par construction.
+    const champs = legacy
+      ? { role, roles: undefined, permissions }
+      : {
+          roles: MEMBERSHIP_ROLES.filter(
+            (r) => r === role || (extraRoles ?? []).includes(r),
+          ),
+          role: undefined,
+          permissions,
+        };
     if (membership === null) {
       await ctx.db.insert("memberships", {
         userId: user._id,
         projectId,
-        role,
-        permissions,
+        ...champs,
       });
     } else {
-      await ctx.db.patch(membership._id, { role, permissions });
+      await ctx.db.patch(membership._id, champs);
     }
-    return { userId: user._id, role, permissions: permissions ?? [] };
+    return { userId: user._id, legacy: legacy === true };
+  },
+});
+
+/** Les rôles EFFECTIFS d'un membre, lus comme la garde les lit. */
+export const e2eReadMembership = e2eMutation({
+  args: { email: v.string(), projectId: v.id("projects") },
+  handler: async (ctx, { email, projectId }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", email))
+      .first();
+    if (user === null) return null;
+    const m = await ctx.db
+      .query("memberships")
+      .withIndex("by_user_project", (q) =>
+        q.eq("userId", user._id).eq("projectId", projectId),
+      )
+      .first();
+    if (m === null) return null;
+    return {
+      // La FORME stockée (pour distinguer un document d'héritage d'un neuf)…
+      stockeScalaire: m.role !== undefined,
+      stockeListe: m.roles !== undefined,
+      // …et ce que la garde en LIT réellement.
+      effectifs: [...rolesOf(m)],
+    };
   },
 });
 

@@ -9,6 +9,7 @@
 // opérateur ayant accès au deployment.
 import { ConvexError, v } from "convex/values";
 import { internalMutation } from "./_generated/server";
+import { rolesOf } from "./roles";
 import type { Id } from "./_generated/dataModel";
 
 const RESET_TTL_MS = 48 * 60 * 60 * 1000; // 48 h (aligné convex/passwordReset.ts)
@@ -97,7 +98,7 @@ export const grantProjectAdmin = internalMutation({
   handler: async (
     ctx,
     { userId, projectId },
-  ): Promise<{ created: boolean; role: string }> => {
+  ): Promise<{ created: boolean; roles: string[] }> => {
     const user = await ctx.db.get(userId);
     if (user === null) throw new ConvexError("User introuvable.");
     const project = await ctx.db.get(projectId);
@@ -108,8 +109,10 @@ export const grantProjectAdmin = internalMutation({
         q.eq("userId", userId).eq("projectId", projectId),
       )
       .first();
-    if (existing !== null) return { created: false, role: existing.role };
-    await ctx.db.insert("memberships", { userId, projectId, role: "admin" });
-    return { created: true, role: "admin" };
+    if (existing !== null) {
+      return { created: false, roles: [...rolesOf(existing)] };
+    }
+    await ctx.db.insert("memberships", { userId, projectId, roles: ["admin"] });
+    return { created: true, roles: ["admin"] };
   },
 });

@@ -27,7 +27,12 @@ import type { MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { ConvexError } from "convex/values";
 import { PERMISSION_ID_LITERALS, defaultManagerPermissions, isPermissionId } from "./permissions";
-import { promotionToAdminDecision } from "./roles";
+import {
+  MEMBERSHIP_ROLES,
+  promotionToAdminDecision,
+  roleSetProblem,
+  rolesOf,
+} from "./roles";
 
 /** Résout (user, projet) ou rejette avec un message qui dit lequel manque. */
 async function resolveMember(
@@ -113,12 +118,24 @@ export const grantProjectManager = internalMutation({
       .first();
     const before = membership?.permissions ?? [];
     if (membership) {
-      await ctx.db.patch(membership._id, { role: "manager", permissions: next });
+      // AJOUT, jamais remplacement : provisionner un manager en ligne de
+      // commande ne doit pas retirer à quelqu'un son espace créatrice — c'est
+      // le même invariant que `team.addRole`, sur l'autre chemin d'écriture.
+      const apres = MEMBERSHIP_ROLES.filter(
+        (r) => rolesOf(membership).has(r) || r === "manager",
+      );
+      const probleme = roleSetProblem(apres);
+      if (probleme !== null) throw new ConvexError(probleme);
+      await ctx.db.patch(membership._id, {
+        roles: apres,
+        role: undefined,
+        permissions: next,
+      });
     } else {
       await ctx.db.insert("memberships", {
         userId,
         projectId,
-        role: "manager",
+        roles: ["manager"],
         permissions: next,
       });
     }
@@ -157,9 +174,10 @@ export const setMemberPermissions = internalMutation({
     if (!membership) {
       throw new ConvexError(`« ${email} » n'est pas membre de « ${projectSlug} ».`);
     }
-    if (membership.role !== "manager") {
+    if (!rolesOf(membership).has("manager")) {
       throw new ConvexError(
-        `« ${email} » a le rôle « ${membership.role} » sur ce projet : les droits ne s'appliquent qu'à « manager ».`,
+        `« ${email} » n'a pas le rôle manager sur ce projet (${[...rolesOf(membership)].join(", ") || "aucun rôle"}) : ` +
+          "les droits ne s'appliquent qu'à « manager ».",
       );
     }
     const before = membership.permissions ?? [];
@@ -205,7 +223,7 @@ export const describeMember = internalQuery({
     return {
       email,
       globalRole: user.role ?? "member",
-      projectRole: membership?.role ?? null,
+      projectRoles: [...rolesOf(membership)],
       stored,
       // Ce qui est RÉELLEMENT accordé : les valeurs hors catalogue disparaissent
       // ici, exactement comme au contrôle d'accès.
@@ -275,10 +293,10 @@ export const promoteToProjectAdmin = internalMutation({
         `« ${email} » n'est pas membre de « ${projectSlug} » — rien à promouvoir.`,
       );
     }
-    const decision = promotionToAdminDecision(membership.role);
+    const decision = promotionToAdminDecision(membership);
     if (decision === "refuse") {
       throw new ConvexError(
-        `« ${email} » a le rôle « ${membership.role} » sur « ${projectSlug} » : ` +
+        `« ${email} » a le rôle « ${[...rolesOf(membership)].join(", ") || "aucun"} » sur « ${projectSlug} » : ` +
           "seul un « manager » se promeut en administrateur.",
       );
     }
@@ -291,7 +309,10 @@ export const promoteToProjectAdmin = internalMutation({
         traced: 0,
       };
     }
-    await ctx.db.patch(membership._id, { role: "admin" });
+    // Meme forme d'ecriture que partout ailleurs depuis la bascule : on pose la
+    // LISTE et on efface le scalaire, sinon `rolesOf` continuerait de lire
+    // l'ancienne valeur et la promotion serait sans effet.
+    await ctx.db.patch(membership._id, { roles: ["admin"], role: undefined });
     // Réécrit par le MÊME écrivain que les droits cochés à l'écran : une seule
     // fonction connaît la forme d'une ligne de journal.
     const traced = await traceDiff(
