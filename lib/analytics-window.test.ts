@@ -12,6 +12,7 @@ import {
   inWindow,
   parisDayKey,
   presetWindow,
+  previousWindow,
   rowsInWindow,
   shiftDay,
   sumInWindow,
@@ -178,5 +179,36 @@ describe("formatWindow", () => {
     expect(formatWindow({ from: "2025-12-30", to: "2026-01-02" })).toBe(
       "30/12/25 → 02/01",
     );
+  });
+});
+
+describe("previousWindow", () => {
+  it("rend la période immédiatement précédente, de MÊME longueur", () => {
+    const w = { from: "2026-08-31", to: "2026-09-06" }; // 7 jours
+    expect(previousWindow(w, RANGE)).toEqual({ from: "2026-08-24", to: "2026-08-30" });
+    expect(windowLengthDays(previousWindow(w, RANGE)!)).toBe(7);
+  });
+
+  it("rend null si la comparaison n'est PAS entièrement couverte", () => {
+    // « Tout » (46 j) n'a que 0 jour avant lui : comparer donnerait un delta qui
+    // ne mesure que la profondeur d'historique.
+    expect(previousWindow(presetWindow("all", RANGE), RANGE)).toBeNull();
+    // 30 jours sur une profondeur de 46 : il n'en reste que 16 avant → refusé.
+    expect(previousWindow(presetWindow("30d", RANGE), RANGE)).toBeNull();
+  });
+
+  it("accepte dès que la profondeur suffit (assertion de présence)", () => {
+    // Contre-test : sans lui, un `return null` systématique passerait le test
+    // précédent.
+    const profond = { first: "2026-01-01", last: "2026-09-06" };
+    expect(previousWindow(presetWindow("30d", profond), profond)).toEqual({
+      from: "2026-07-09",
+      to: "2026-08-07",
+    });
+  });
+
+  it("rend null sans fenêtre ni données", () => {
+    expect(previousWindow(null, RANGE)).toBeNull();
+    expect(previousWindow({ from: "2026-09-01", to: "2026-09-06" }, null)).toBeNull();
   });
 });

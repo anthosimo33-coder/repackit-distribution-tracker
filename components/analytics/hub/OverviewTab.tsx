@@ -10,6 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/format";
 import { formatMoney, formatViews } from "@/lib/format-rate";
 import { coherenceInputsFrom } from "@/lib/coherence-inputs";
@@ -17,21 +18,22 @@ import {
   buildCoherenceChecks,
   parisDayKey,
   parisShortDate,
+  computeDelta,
 } from "@/lib/analytics-hub";
 import {
-  KpiTile,
+  ColLabel,
+  DeltaBadge,
   HubCardHeader,
   HubNotice,
   WebhookFixNotice,
   disputeDeadlineLabel,
   dash,
-  pct,
 } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import { PromoRpmCard } from "./PromoRpmCard";
 import { buildDayDetail } from "@/lib/day-detail";
 import {
-  coversEverything,
+  previousWindow,
   rowsInWindow,
   sumInWindow,
   type AnalyticsWindow,
@@ -46,7 +48,7 @@ import {
 } from "@/lib/currency-display";
 import { PayCurrencyWarning } from "@/components/PayCurrencyWarning";
 import { MixedCurrencyNotice } from "@/components/MixedCurrencyNotice";
-import type { TrendPoint } from "./HubTrendChart";
+import { HubTrendChart, type TrendPoint } from "./HubTrendChart";
 import type {
   ProductAnalyticsData,
   RevenueData,
@@ -88,14 +90,49 @@ function joinHint(parts: (string | null | undefined | false)[]): string {
   return parts.filter((p): p is string => typeof p === "string" && p !== "").join(" · ");
 }
 
-function stepCount(steps: { key: string; count: number }[], key: string): number | null {
-  const s = steps.find((x) => x.key === key);
-  return s ? s.count : null;
-}
 
 // Jour Europe/Paris (`parisDayKey`) et étiquette (`parisShortDate`) : SOURCE
 // UNIQUE partagée avec la courbe (HubTrendChart). La série PostHog est bucketisée
 // Paris et le net Whop joint par jour Paris — voir lib/analytics-hub.
+
+/** Une cellule de l'équation unitaire — même gabarit d'une cellule à l'autre. */
+function UnitCell({
+  label,
+  value,
+  accent = false,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex min-w-0 flex-1 basis-36 flex-col gap-0.5 p-4",
+        accent && "bg-primary/5",
+      )}
+    >
+      <span className="text-xs text-slate-500">{label}</span>
+      <span
+        className={cn(
+          "text-xl font-semibold tabular-nums tracking-tight",
+          accent ? "text-primary" : "text-slate-900",
+        )}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+/** L'opérateur entre deux cellules : il porte le sens de lecture de la ligne. */
+function UnitOp({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-center px-2 text-sm text-slate-400">
+      {children}
+    </div>
+  );
+}
 
 export function OverviewTab({
   analytics,
@@ -129,17 +166,12 @@ export function OverviewTab({
 
   // Fenêtre couvrant TOUT : « sur la période » et « cumulé » sont alors le même
   // chiffre, on n'affiche pas deux fois la même chose.
-  const isAllTime = coversEverything(window, dataRange);
 
   // Complétion sur la fenêtre : la série quotidienne porte checkouts ET subs, donc
   // le taux se recalcule sans passer par le funnel (qui, lui, n'est pas daté).
   const checkoutsWin = daily.reduce((t, d) => t + d.checkouts, 0);
   const subsWin = daily.reduce((t, d) => t + d.subs, 0);
-  const completionWin =
-    checkoutsWin > 0 ? Math.round((subsWin / checkoutsWin) * 1000) / 10 : null;
 
-  const visitorsPts: TrendPoint[] = daily.map((d) => ({ ts: d.ts, value: d.visitors }));
-  const signupsPts: TrendPoint[] = daily.map((d) => ({ ts: d.ts, value: d.signups }));
 
   // Deux devises : le REVENU Whop (€, currency de la donnée) et la PAIE créatrices
   // ($, payCurrency). Jamais l'une pour l'autre — ici on les affiche CÔTE À CÔTE,
@@ -219,10 +251,6 @@ export function OverviewTab({
       ),
     [coh],
   );
-  const paidClientsPts: TrendPoint[] = daily.map((d) => ({
-    ts: d.ts,
-    value: clientsByDay.get(parisDayKey(d.ts)) ?? 0,
-  }));
   // Tentatives de paiement ÉCHOUÉES par jour (Whop) → colonne « Échecs ». Un échec
   // n'est PAS un client (0 au net) mais doit être visible à côté des réussites.
   const failedByDay = useMemo(
@@ -250,31 +278,6 @@ export function OverviewTab({
   // au-delà des deux seuils, « Clients payants » suspendu — pour un écart réel
   // NUL (153 abonnements = 144 personnes). Ce n'était pas une dérive à
   // surveiller, c'était une unité ; l'écart ne pouvait que croître avec le volume.
-  const clientEcart =
-    coh && coh.dashboardClients !== null && coh.whopClients !== null
-      ? Math.abs(coh.dashboardClients - coh.whopClients)
-      : null;
-  const dup = reliability?.membershipDuplicates;
-  const dupGap =
-    dup && dup.memberships > dup.users ? dup.memberships - dup.users : 0;
-  const clientsHint =
-    coh?.whopClientsTotal == null || clientEcart === null
-      ? "personnes distinctes, ancré sur le paiement Whop"
-      : clientEcart === 0
-        ? "aligné avec le dashboard"
-        : `écart de ${clientEcart} avec le dashboard${
-            dupGap > 0
-              ? ` · ${dup!.memberships} abonnements pour ${dup!.users} personnes`
-              : ""
-          }${
-            coh.whopExcludedPre > 0
-              ? ` · ${coh.whopExcludedPre} antérieur(s) à l'instrumentation`
-              : ""
-          }${
-            coh.whopClientsUnresolved > 0
-              ? ` · ${coh.whopClientsUnresolved} abonnement(s) sans personne résolue (comptés à part)`
-              : ""
-          }`;
   const dashboardWhopViolation = checks.some(
     (c) => c.key === "dashboard_vs_whop" && c.status === "violation",
   );
@@ -290,82 +293,148 @@ export function OverviewTab({
   // carte « Clients payants » affichait « chiffres suspendus » deux lignes plus
   // bas pendant que celles-ci imprimaient « ÷ 154 clients acquis ». Un nombre
   // suspendu et utilisé comme diviseur dans le même écran.
-  const canDivide = clients !== null && clients > 0 && !dashboardWhopViolation;
-  const perClient = (n: number | null | undefined): number | null =>
-    n != null && canDivide ? Math.round((n / (clients as number)) * 100) / 100 : null;
 
   // ── Fenêtrage ─────────────────────────────────────────────────────────────
-  // Toutes les séries datées reçues du serveur, restreintes à la fenêtre. Le
-  // dénominateur `clientsWin` est en PERSONNES (cf convex/whopClients) : Σ des
-  // jours = whopClientsTotal par construction, donc « ÷ N clients » garde la
-  // MÊME unité que le cumul. C'était l'obstacle — la série était par abonnement.
-  const clientsWin = sumInWindow(
-    coh?.dailyPaidClients ?? [],
-    window,
-    (d) => d.day,
-    (d) => d.clients,
-  );
-  const netWin =
-    revenue?.configured && !revenue.mixedCurrency
-      ? sumInWindow(revenue.dailyNet, window, (d) => d.day, (d) => d.net)
-      : null;
-  const rowsWin = rowsInWindow(attribution?.rows ?? [], window, (r) => r.day);
-  const promoRows = rowsWin.filter((r) => r.hasPromoPost);
-  // `promoCost`/`cost` valent null quand un coût par vidéo est inconnu : une seule
-  // vidéo suffit à rendre la somme non fiable, on refuse alors le chiffre plutôt
-  // que de sommer autour du trou (même règle que `costs.promo` côté serveur).
-  const promoCostWin = promoRows.some((r) => r.promoCost === null)
-    ? null
-    : promoRows.reduce((t, r) => t + (r.promoCost ?? 0), 0);
-  const fullCostWin = rowsWin.some((r) => r.cost === null)
-    ? null
-    : rowsWin.reduce((t, r) => t + (r.cost ?? 0), 0);
-  const bonusWin = sumInWindow(
-    attribution?.costs.promoBonusByDay ?? [],
-    window,
-    (b) => b.day,
-    (b) => b.amount,
-  );
-  const promoViewsWin = promoRows.reduce((t, r) => t + r.promoViews, 0);
-  const canDivideWin =
-    clientsWin !== null && clientsWin > 0 && !dashboardWhopViolation;
-  const perClientWin = (n: number | null): number | null =>
-    n !== null && canDivideWin
-      ? Math.round((n / (clientsWin as number)) * 100) / 100
-      : null;
-  /** « sur la période » + le cumul en second, comme demandé. */
-  const withCumul = (cumul: string | null): string | null =>
-    isAllTime || cumul === null ? null : `${cumul} au total`;
+  // UNE fonction, appelée pour la fenêtre COURANTE et pour la PRÉCÉDENTE. C'est
+  // ce qui garantit qu'un delta compare deux choses calculées à l'identique — le
+  // badge « stable » affiché sur neuf tuiles ne comparait, lui, rien du tout.
+  //
+  // Le dénominateur `clients` est en PERSONNES (cf convex/whopClients) : Σ des
+  // jours = whopClientsTotal par construction, donc « ÷ N clients » garde la MÊME
+  // unité que le cumul.
+  const aggregatesFor = (w: AnalyticsWindow | null) => {
+    const clients = sumInWindow(
+      coh?.dailyPaidClients ?? [],
+      w,
+      (d) => d.day,
+      (d) => d.clients,
+    );
+    const net =
+      revenue?.configured && !revenue.mixedCurrency
+        ? sumInWindow(revenue.dailyNet, w, (d) => d.day, (d) => d.net)
+        : null;
+    const rows = rowsInWindow(attribution?.rows ?? [], w, (r) => r.day);
+    const promo = rows.filter((r) => r.hasPromoPost);
+    // Une seule vidéo à coût inconnu rend la somme non fiable : on refuse le
+    // chiffre plutôt que de sommer autour du trou (règle de `costs.promo`).
+    const promoCost = promo.some((r) => r.promoCost === null)
+      ? null
+      : promo.reduce((t, r) => t + (r.promoCost ?? 0), 0);
+    const fullCost = rows.some((r) => r.cost === null)
+      ? null
+      : rows.reduce((t, r) => t + (r.cost ?? 0), 0);
+    const bonus = sumInWindow(
+      attribution?.costs.promoBonusByDay ?? [],
+      w,
+      (b) => b.day,
+      (b) => b.amount,
+    );
+    const promoViews = promo.reduce((t, r) => t + r.promoViews, 0);
+    // Coût TOTAL en devise du REVENU : c'est le seul terme soustractible du net.
+    const costAll =
+      fullCost !== null && bonus !== null
+        ? toDisplayAmount(fullCost + bonus, fxCtx)
+        : null;
+    const marge =
+      net !== null && costAll !== null
+        ? Math.round((net - costAll.value) * 100) / 100
+        : null;
+    const canDivide = clients !== null && clients > 0 && !dashboardWhopViolation;
+    const per = (n: number | null): number | null =>
+      n !== null && canDivide
+        ? Math.round((n / (clients as number)) * 100) / 100
+        : null;
+    return {
+      clients,
+      net,
+      costAll,
+      marge,
+      promoViews,
+      canDivide,
+      acquisition: toDisplayAmount(
+        promoCost !== null && bonus !== null ? per(promoCost + bonus) : null,
+        fxCtx,
+      ),
+      // Le coût complet fenêtré n'inclut PAS les récompenses en nature : dues
+      // sans date d'exigibilité exploitable. Le cumul, lui, les porte.
+      fullEngine: toDisplayAmount(
+        fullCost !== null && bonus !== null ? per(fullCost + bonus) : null,
+        fxCtx,
+      ),
+      revenuePer: net !== null && canDivide ? per(net) : null,
+      viewsPer:
+        canDivide && promoViews > 0
+          ? Math.round(promoViews / (clients as number))
+          : null,
+    };
+  };
+  const cur = aggregatesFor(window);
+  const prev = aggregatesFor(previousWindow(window, dataRange));
+  /** Delta seulement si les DEUX termes existent — sinon rien, jamais « stable ». */
+  const deltaOf = (a: number | null, b: number | null) =>
+    a !== null && b !== null && b !== 0 ? computeDelta(a, b) : null;
 
-  // Les six valeurs fenêtrées. Elles n'existent QUE parce que chaque terme a une
-  // série datée : sans ça on diviserait un numérateur de 7 jours par un
-  // dénominateur de toujours — le piège que ce chantier cherchait à éviter.
-  const acquisitionCostWin = toDisplayAmount(
-    promoCostWin !== null && bonusWin !== null
-      ? perClientWin(promoCostWin + bonusWin)
-      : null,
-    fxCtx,
-  );
-  // Le coût COMPLET fenêtré n'inclut PAS les récompenses en nature : elles sont
-  // dues sans date d'exigibilité exploitable. Le cumul, lui, les porte — l'écart
-  // entre les deux est donc attendu et se lit dans le sous-titre.
-  const fullEngineCostWin = toDisplayAmount(
-    fullCostWin !== null && bonusWin !== null
-      ? perClientWin(fullCostWin + bonusWin)
-      : null,
-    fxCtx,
-  );
-  const viewsPerClientWin =
-    canDivideWin && promoViewsWin > 0
-      ? Math.round(promoViewsWin / (clientsWin as number))
+  // L'équation du rang 2. `margePerClient` se calcule sur les MÊMES termes que
+  // ceux affichés, jamais sur la marge globale divisée : sinon la ligne ne se
+  // vérifierait pas de tête.
+  const margePerClient =
+    cur.revenuePer !== null && cur.acquisition !== null
+      ? Math.round((cur.revenuePer - cur.acquisition.value) * 100) / 100
       : null;
+  const roas =
+    cur.revenuePer !== null && cur.acquisition !== null && cur.acquisition.value > 0
+      ? Math.round((cur.revenuePer / cur.acquisition.value) * 10) / 10
+      : null;
+
+  // L'entonnoir : chaque étape porte son taux de passage depuis la précédente,
+  // et une barre à l'échelle des VISITEURS (pas de barre normalisée par étape,
+  // qui masquerait l'effondrement réel).
+  const visiteurs = daily.reduce((t, d) => t + d.visitors, 0);
+  const inscrits = daily.reduce((t, d) => t + d.signups, 0);
+  const rate = (a: number, b: number) =>
+    b > 0 ? Math.round((a / b) * 1000) / 10 : null;
+  // Les explications suivent le NOMBRE, pas la tuile qui le portait : « Clients
+  // payants » a perdu sa carte, son « i » vit désormais sur l'étape finale de
+  // l'entonnoir. Sans ça, la refonte aurait supprimé une explication utile —
+  // c'est exactement ce que la CI a attrapé.
+  const funnelSteps = [
+    {
+      key: "visiteurs",
+      label: "Visiteurs",
+      value: visiteurs,
+      rate: null as number | null,
+      info: EXPLAIN.visiteurs as React.ReactNode,
+    },
+    {
+      key: "inscrits",
+      label: "Inscrits",
+      value: inscrits,
+      rate: rate(inscrits, visiteurs),
+      info: EXPLAIN.inscrits as React.ReactNode,
+    },
+    {
+      key: "checkouts",
+      label: "Checkouts",
+      value: checkoutsWin,
+      rate: rate(checkoutsWin, inscrits),
+      info: EXPLAIN.completionCheckout as React.ReactNode,
+    },
+    {
+      key: "clients",
+      label: "Clients payants",
+      value: subsWin,
+      rate: rate(subsWin, checkoutsWin),
+      info: EXPLAIN.clientsPayants as React.ReactNode,
+    },
+  ].map((st) => ({
+    ...st,
+    width: visiteurs > 0 ? Math.max(1.2, (st.value / visiteurs) * 100) : 0,
+  }));
+
   // Carte 1 — coût d'acquisition : (fixe + CPM promo + PART du bonus) / clients. Le
   // bonus débloqué est une dépense réelle, réparti au prorata des vues promo (part
   // affichée sous la carte). Tiret seulement si un coût par vidéo manque (legacy).
   const c = attribution?.costs;
-  const promoPlusBonus =
-    c && c.promo !== null && c.promoBonus !== null ? c.promo + c.promoBonus : null;
-  const acquisitionCost = toDisplayAmount(perClient(promoPlusBonus), fxCtx);
   // Bonus inclus EN ENTIER : un palier ne se gagne que sur des vues promo, donc
   // tout bonus débloqué est un coût promo (plus de prorata, cf getAttribution).
   // `promoBonus` porte AUSSI les primes de défi ; le libellé les nomme séparément
@@ -383,34 +452,17 @@ export function OverviewTab({
   // + les récompenses en NATURE déjà dues) / clients. Une récompense en nature sans
   // coût réel renseigné est ABSENTE du total : on le dit, plutôt que de présenter
   // un coût incomplet comme entier.
-  const fullEngineCost = toDisplayAmount(perClient(attribution?.costs.total), fxCtx);
   const natureDue = toDisplayAmount(attribution?.costs.natureDue ?? 0, fxCtx);
   const natureMissing = attribution?.costs.natureDueMissingCost ?? 0;
 
-  const seq = analytics.funnels.sequential.segments[0]?.steps ?? [];
-  const checkoutN = stepCount(seq, "checkout_started");
-  const paidN = stepCount(seq, "subscription_completed");
-  const completion =
-    checkoutN !== null && checkoutN > 0 && paidN !== null
-      ? Math.round((paidN / checkoutN) * 1000) / 10
-      : null;
 
   // A5 — la garde du serveur est posée PAR PÉRIODE ; cette somme la traverse.
   // Deux mois encaissés dans deux devises passent chacun la garde puis sont
   // additionnés ici. `revenue.mixedCurrency` est global (calculé sur TOUS les
   // paiements) : s'y adosser referme le trou. null ⇒ la tuile affiche « — ».
-  const totalNet =
-    revenue?.configured && !revenue.mixedCurrency
-      ? Math.round(revenue.periods.reduce((s, p) => s + p.net, 0) * 100) / 100
-      : null;
   // Vues promo par client : MÊME référence que les coûts unitaires (clients
   // acquis, personnes, Whop fait foi) — c'était le compteur PostHog, une
   // quatrième définition de « client » sur le même écran.
-  const totalClients = coh?.whopClientsTotal ?? null;
-  const viewsPerClient =
-    viewCounters && totalClients !== null && totalClients > 0
-      ? Math.round(viewCounters.promo / totalClients)
-      : null;
   // Carte 3 — revenu net (€) par client. Dénominateur = clients au net SÉCURISÉ,
   // PAS tous les clients acquis : le numérateur (totalNet) exclut les litiges en
   // cours, donc les compter au dénominateur tirerait la moyenne vers le bas sans
@@ -420,16 +472,20 @@ export function OverviewTab({
   const securedClients = coh?.whopSecuredClients ?? null;
   const atRiskClients =
     clients !== null && securedClients !== null ? clients - securedClients : 0;
-  const revenuePerClient =
-    totalNet != null && securedClients !== null && securedClients > 0
-      ? Math.round((totalNet / securedClients) * 100) / 100
-      : null;
 
-  // Table « Détail par jour » : net Whop joint par jour Europe/Paris, plus récent d'abord.
+  // Net Whop joint par jour Europe/Paris — sert au tableau « Détail par jour »
+  // ET à la courbe du rang 1. Une seule courbe sur l'écran, sur le REVENU :
+  // c'est la trajectoire qui décide. Les sparklines de visiteurs et d'inscrits
+  // vivaient sur des tuiles que le rang 3 remplace ; leur tendance se lit
+  // désormais dans le tableau.
   const netByDay = useMemo(
     () => new Map((revenue?.dailyNet ?? []).map((d) => [d.day, d.net])),
     [revenue],
   );
+  const netPts: TrendPoint[] = daily.map((d) => ({
+    ts: d.ts,
+    value: netByDay.get(parisDayKey(d.ts)) ?? 0,
+  }));
   const dailyRows = useMemo(() => [...daily].reverse(), [daily]);
   /** Jour déplié — un seul à la fois : deux décompositions ouvertes côte à côte
    *  se comparent mal, les sous-lignes n'étant pas alignées verticalement. */
@@ -492,14 +548,110 @@ export function OverviewTab({
         currencies={revenue?.currenciesPresent}
       />
 
-      {/* Éco unitaire — les TROIS montants dans la devise du revenu. Les deux
-          coûts sont convertis depuis la paie ; leur provenance est écrite. */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <KpiTile
-          label="Coût d'acquisition"
-          value={convertedValue(isAllTime ? acquisitionCost : acquisitionCostWin)}
-          delta={null}
-          hint={joinHint([
+      {/* ── RANG 1 · Le verdict ────────────────────────────────────────────
+          Un seul chiffre domine. Revenu et coût le flanquent en plus petit :
+          ils l'EXPLIQUENT, ils ne le concurrencent pas. Avant, dix tuiles de
+          poids identique — donc aucune ne se lisait en premier. */}
+      <Card className="overflow-hidden p-0">
+        <div className="grid grid-cols-1 divide-y divide-slate-100 sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-[1.4fr_1fr_1fr]">
+          <div className="flex flex-col gap-1 p-5 sm:col-span-2 lg:col-span-1">
+            <div className="flex items-center gap-2 text-sm text-slate-600">
+              <ColLabel label="Marge nette" info={EXPLAIN.margeNette} />
+              <DeltaBadge delta={deltaOf(cur.marge, prev.marge)} />
+            </div>
+            <div
+              className={cn(
+                "text-4xl font-semibold tabular-nums tracking-tight lg:text-5xl",
+                (cur.marge ?? 0) < 0 ? "text-red-700" : "text-emerald-700",
+              )}
+            >
+              {cur.marge === null ? "—" : formatMoney(cur.marge, currency)}
+            </div>
+            <p className="text-xs text-slate-400">
+              revenu net encaissé − coût créateurs converti
+            </p>
+          </div>
+          <div className="flex flex-col gap-1 p-5">
+            <div className="flex items-center gap-2 text-sm text-slate-600">
+              Revenu net
+              <DeltaBadge delta={deltaOf(cur.net, prev.net)} />
+            </div>
+            <div className="text-2xl font-semibold tabular-nums tracking-tight text-slate-900">
+              {cur.net === null ? "—" : formatMoney(cur.net, currency)}
+            </div>
+            <p className="text-xs text-slate-400">
+              {revenue?.feeRate != null
+                ? `après frais Whop · ${formatNumber(Math.round(revenue.feeRate * 1000) / 10)} %`
+                : "après frais Whop"}
+            </p>
+            {netPts.length > 1 ? (
+              <HubTrendChart
+                points={netPts}
+                height={44}
+                maxTicks={2}
+                ariaLabel="Revenu net par jour"
+                formatValue={(n: number) => formatMoney(n, currency)}
+                className="mt-1"
+              />
+            ) : null}
+          </div>
+          <div className="flex flex-col gap-1 p-5">
+            <div className="flex items-center gap-2 text-sm text-slate-600">
+              Coût créateurs
+              {/* Un coût qui MONTE n'est pas une bonne nouvelle : on inverse le
+                  sens de lecture plutôt que de peindre une hausse en vert. */}
+              <DeltaBadge
+                delta={deltaOf(cur.costAll?.value ?? null, prev.costAll?.value ?? null)}
+                invert
+              />
+            </div>
+            <div className="text-2xl font-semibold tabular-nums tracking-tight text-slate-900">
+              {cur.costAll === null ? "—" : formatMoney(cur.costAll.value, cur.costAll.currency)}
+            </div>
+            <p className="text-xs text-slate-400">fixe + CPM + bonus + défis</p>
+          </div>
+        </div>
+      </Card>
+
+      {/* Le garde-fou reste AU-DESSUS de l'équation : sans lui, les tirets du
+          rang 2 s'afficheraient sans que rien n'en donne la raison. */}
+      {dashboardWhopViolation ? (
+        <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
+          <strong>Chiffres par client suspendus.</strong> L&apos;écart
+          dashboard/Whop dépasse À LA FOIS 5 % ET 5 clients. Un chiffre faux est
+          pire qu&apos;un chiffre absent : on affiche le contrôle, pas le nombre.
+        </HubNotice>
+      ) : null}
+
+      {/* ── RANG 2 · L'unitaire, écrit comme une équation ───────────────────
+          La soustraction est déjà dans la tête du lecteur ; l'écran la fait.
+          Le dénominateur est écrit UNE fois sous le bloc — il est le même pour
+          les quatre cellules, et il occupait trois sous-titres de trois lignes. */}
+      <Card className="overflow-hidden p-0">
+        <div className="flex flex-wrap items-stretch divide-x divide-slate-100">
+          <UnitCell
+            label="Revenu par client"
+            value={cur.revenuePer === null ? "—" : formatMoney(cur.revenuePer, currency)}
+          />
+          <UnitOp>−</UnitOp>
+          <UnitCell label="Coût d'acquisition" value={convertedValue(cur.acquisition)} />
+          <UnitOp>=</UnitOp>
+          <UnitCell
+            label="Marge par client"
+            value={margePerClient === null ? "—" : formatMoney(margePerClient, currency)}
+            accent
+          />
+          <UnitOp>soit</UnitOp>
+          <UnitCell
+            label="Retour sur acquisition"
+            value={roas === null ? "—" : `${formatNumber(roas)}×`}
+          />
+        </div>
+        <p className="border-t border-slate-100 px-4 py-2.5 text-xs text-slate-500">
+          {joinHint([
+            cur.clients !== null
+              ? `tous ÷ ${denominateurLabel(cur.clients, coh?.whopMembersTotal)}`
+              : null,
             acquisitionBonus !== null && acquisitionBonus.sourceValue > 0
               ? `dont ${convertedValue(acquisitionBonus)} de ${
                   hasChallenge && hasTiers
@@ -507,157 +659,85 @@ export function OverviewTab({
                     : hasChallenge
                       ? "primes de défi"
                       : "bonus de paliers"
-                }, débloqué sur des vues promo`
-              : "publications promo",
-            clients !== null ? `÷ ${denominateurLabel(clients, coh?.whopMembersTotal)}` : null,
-            conversionNote(acquisitionCost),
-            withCumul(convertedValue(acquisitionCost)),
-          ])}
-          info={EXPLAIN.coutAcquisition}
-        />
-        <KpiTile
-          label="Coût complet du moteur"
-          value={convertedValue(isAllTime ? fullEngineCost : fullEngineCostWin)}
-          delta={null}
-          hint={joinHint([
-            natureMissing > 0
-              ? `warmup inclus · sous-estimé : ${formatNumber(natureMissing)} récompense(s) en nature sans coût réel`
-              : natureDue !== null && natureDue.sourceValue > 0
-                ? `warmup + ${convertedValue(natureDue)} de récompenses en nature dues`
-                : "warmup inclus",
-            clients !== null ? `÷ ${denominateurLabel(clients, coh?.whopMembersTotal)}` : null,
-            conversionNote(fullEngineCost),
-            withCumul(convertedValue(fullEngineCost)),
-          ])}
-          info={EXPLAIN.coutComplet}
-        />
-        <KpiTile
-          label="Revenu net par client"
-          value={revenuePerClient === null ? "—" : formatMoney(revenuePerClient, currency)}
-          delta={null}
-          hint={
-            securedClients === null
-              ? "monte au renouvellement (une seule acquisition)"
-              : `÷ ${formatNumber(securedClients)} clients au net sécurisé${
-                  atRiskClients > 0
-                    ? ` · ${formatNumber(atRiskClients)} hors ratio (argent en litige)`
-                    : ""
                 }`
-          }
-          info={EXPLAIN.revenuParClient}
-        />
-      </div>
+              : null,
+            cur.fullEngine !== null
+              ? `coût complet du moteur, warmup inclus : ${convertedValue(cur.fullEngine)}/client`
+              : null,
+            natureDue !== null && natureDue.sourceValue > 0
+              ? `+ ${convertedValue(natureDue)} de récompenses en nature dues (dans le coût complet, cumulé)`
+              : null,
+            natureMissing > 0
+              ? `sous-estimé : ${formatNumber(natureMissing)} récompense(s) en nature sans coût réel`
+              : null,
+            // Le numérateur du revenu par client EXCLUT les litiges en cours ; le
+            // dénominateur fenêtré, lui, compte tous les clients acquis. L'écart
+            // tire la moyenne vers le bas — on le DIT plutôt que de le taire.
+            atRiskClients > 0
+              ? `${formatNumber(atRiskClients)} client(s) en litige : leur revenu est hors du numérateur`
+              : null,
+            conversionNote(cur.acquisition),
+            rateNote(fxCtx) !== "" ? rateNote(fxCtx) : null,
+          ])}
+        </p>
+      </Card>
 
-      {/* Le taux, écrit UNE fois pour les trois cartes : sans lui, un lecteur ne
-          peut pas savoir que deux d'entre elles sont converties depuis la paie. */}
-      {rateNote(fxCtx) !== "" ? (
-        <p className="-mt-2 text-xs text-slate-400">{rateNote(fxCtx)}</p>
-      ) : null}
+      {/* ── RANG 3 · L'entonnoir ────────────────────────────────────────────
+          Visiteurs → inscrits → checkouts → clients est un ENCHAÎNEMENT : les
+          taux de passage disent en un coup d'œil où ça fuit. « Complétion
+          checkout » était isolée de ses propres termes, sur une autre ligne. */}
+      <Card>
+        <CardContent className="space-y-4 p-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <HubCardHeader
+              title="Du visiteur au client"
+              subtitle=""
+              info={EXPLAIN.completionCheckout}
+            />
+            <p className="text-xs text-slate-500">
+              {joinHint([
+                cur.viewsPer !== null
+                  ? `1 client pour ${formatViews(cur.viewsPer)} vues promo`
+                  : null,
+                "RPM détaillé plus bas",
+              ])}
+            </p>
+          </div>
+          <div className="flex items-end gap-1 overflow-x-auto pb-1">
+            {funnelSteps.map((st, i) => (
+              <Fragment key={st.key}>
+                {i > 0 ? (
+                  <span className="shrink-0 pb-6 font-mono text-[11px] text-slate-400">
+                    {st.rate === null ? "—" : `${formatNumber(st.rate)} %`} →
+                  </span>
+                ) : null}
+                <div className="flex min-w-[6.5rem] flex-1 flex-col gap-1.5">
+                  <span className="text-base font-semibold tabular-nums text-slate-900">
+                    {dash(st.value)}
+                  </span>
+                  <span
+                    className={cn(
+                      "h-1.5 rounded-sm",
+                      st.key === "clients" ? "bg-emerald-600" : "bg-primary/80",
+                    )}
+                    style={{ width: `${st.width}%` }}
+                  />
+                  <span className="text-xs text-slate-500">
+                    <ColLabel label={st.label} info={st.info} />
+                  </span>
+                </div>
+              </Fragment>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
-      {/* RPM promo — revenu, coût et écart pour 1 000 vues promo. Placée avec
-          l'éco unitaire : c'est le même bloc « ce que rapporte / ce que coûte ». */}
+      {/* RPM promo — revenu, coût et écart pour 1 000 vues promo. */}
       <PromoRpmCard
         revenue={revenue}
         attribution={attribution}
         viewCounters={viewCounters}
       />
-
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {dashboardWhopViolation ? (
-          <Card className="sm:col-span-2">
-            <CardContent className="flex h-full items-center p-4">
-              <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
-                <strong>Clients payants — chiffres suspendus.</strong> L&apos;écart
-                dashboard/Whop dépasse À LA FOIS 5 % ET 5 clients. Un chiffre faux est
-                pire qu&apos;un chiffre absent : on affiche le contrôle, pas le nombre.
-              </HubNotice>
-            </CardContent>
-          </Card>
-        ) : (
-          <>
-            <KpiTile
-              label="Clients payants"
-              value={dash(isAllTime ? (coh?.whopClientsTotal ?? null) : clientsWin)}
-              delta={null}
-              points={paidClientsPts}
-              hint={joinHint([
-                clientsHint,
-                withCumul(
-                  coh?.whopClientsTotal != null
-                    ? formatNumber(coh.whopClientsTotal)
-                    : null,
-                ),
-              ])}
-              info={EXPLAIN.clientsPayants}
-            />
-            <KpiTile
-              label="Revenu net encaissé"
-              value={
-                (isAllTime ? totalNet : netWin) === null
-                  ? "—"
-                  : formatMoney((isAllTime ? totalNet : netWin) as number, currency)
-              }
-              delta={null}
-              hint={joinHint([
-                revenue?.feeRate != null
-                  ? `frais ${formatNumber(Math.round(revenue.feeRate * 1000) / 10)} %`
-                  : "ancré sur le paiement",
-                withCumul(totalNet === null ? null : formatMoney(totalNet, currency)),
-              ])}
-              info={EXPLAIN.revenuNet}
-            />
-          </>
-        )}
-        <KpiTile
-          label="Vues promo → abonné"
-          value={
-            (isAllTime ? viewsPerClient : viewsPerClientWin) === null
-              ? "—"
-              : `1 / ${formatViews((isAllTime ? viewsPerClient : viewsPerClientWin) as number)}`
-          }
-          delta={null}
-          hint={joinHint([
-            "métrique de pilotage · vues à la publication",
-            withCumul(
-              viewsPerClient === null ? null : `1 / ${formatViews(viewsPerClient)}`,
-            ),
-          ])}
-          info={EXPLAIN.vuesPromoClient}
-        />
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <KpiTile
-          label="Complétion checkout"
-          value={pct(isAllTime ? completion : completionWin)}
-          delta={null}
-          hint={joinHint([
-            isAllTime
-              ? checkoutN !== null && paidN !== null
-                ? `${formatNumber(paidN)} / ${formatNumber(checkoutN)} checkouts`
-                : null
-              : `${formatNumber(subsWin)} / ${formatNumber(checkoutsWin)} checkouts`,
-            withCumul(completion === null ? null : `${completion} %`),
-          ])}
-          info={EXPLAIN.completionCheckout}
-        />
-        <KpiTile
-          label="Visiteurs (période)"
-          value={dash(daily.reduce((s, d) => s + d.visitors, 0))}
-          delta={null}
-          points={visitorsPts}
-          hint="ancré sur l'événement"
-          info={EXPLAIN.visiteurs}
-        />
-        <KpiTile
-          label="Inscrits (période)"
-          value={dash(daily.reduce((s, d) => s + d.signups, 0))}
-          delta={null}
-          points={signupsPts}
-          hint="ancré sur l'inscription"
-          info={EXPLAIN.inscrits}
-        />
-      </div>
 
       {/* Détail par jour — la lecture du matin. */}
       <Card>
