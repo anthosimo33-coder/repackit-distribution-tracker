@@ -34,7 +34,7 @@ import {
 } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import { AlertTriangleIcon, ReceiptTextIcon } from "lucide-react";
-import type { ProductAnalyticsData, RevenueData } from "./types";
+import type { AttributionData, ProductAnalyticsData, RevenueData } from "./types";
 
 /**
  * Onglet OFFRES & TESTS (B3) — les TYPES de paywall émis aujourd'hui (gate/upsell,
@@ -117,10 +117,17 @@ const PAYWALL_TYPE_LABELS: Record<string, string> = {
 export function OffresTab({
   analytics,
   revenue,
+  attribution,
   now,
 }: {
   analytics: ProductAnalyticsData;
   revenue: RevenueData | undefined;
+  /**
+   * Uniquement pour le CONTEXTE DEVISES (payCurrency + taux du projet) : depuis
+   * le 06/09 un bras vend en euros ET en dollars selon la géographie, et
+   * convertir sans le taux du projet inventerait un montant.
+   */
+  attribution: AttributionData | undefined;
   now: number;
 }) {
   const paywallTypes = useMemo(
@@ -283,8 +290,19 @@ export function OffresTab({
   // Le prix vient de Whop, joint par plan_id : la table de prix du dépôt a
   // dérivé deux fois en un mois sans que rien ne le signale.
   const purchases = useMemo(
-    () => armPurchases(analytics.abPurchases.rows, revenue?.plans ?? []),
-    [analytics.abPurchases.rows, revenue?.plans],
+    () =>
+      armPurchases(analytics.abPurchases.rows, revenue?.plans ?? [], {
+        revenueCurrency: revenue?.currency ?? null,
+        payCurrency: attribution?.payCurrency ?? null,
+        fxRateToRevenue: attribution?.fxRateToRevenue ?? null,
+      }),
+    [
+      analytics.abPurchases.rows,
+      revenue?.plans,
+      revenue?.currency,
+      attribution?.payCurrency,
+      attribution?.fxRateToRevenue,
+    ],
   );
   const purchaseIssues = useMemo(
     () =>
@@ -927,9 +945,23 @@ export function OffresTab({
                         </TableCell>
                         <TableCell />
                         <TableCell className="text-right font-medium">
-                          {dash(arm.firstCycleRevenue, (n) =>
-                            formatMoney(n, arm.currency),
-                          )}
+                          {/* Les sous-totaux PAR DEVISE d'abord : ils ne
+                              dépendent d'aucun taux, donc ils ne vieillissent
+                              pas. Le total converti vient après, marqué. */}
+                          <div className="space-y-0.5">
+                            {arm.revenueByCurrency.map((b) => (
+                              <div key={b.currency}>
+                                {formatMoney(b.amount, b.currency)}
+                              </div>
+                            ))}
+                            {arm.converted ? (
+                              <div className="text-xs font-normal text-slate-500">
+                                {arm.firstCycleRevenue === null
+                                  ? "total non converti"
+                                  : `≈ ${formatMoney(arm.firstCycleRevenue, arm.currency)} au total`}
+                              </div>
+                            ) : null}
+                          </div>
                         </TableCell>
                       </TableRow>
                     </Fragment>
@@ -957,15 +989,30 @@ export function OffresTab({
                   pas comptés à zéro, ils sont retirés du calcul.
                 </p>
               ) : null}
-              {purchases.some((a) => a.currencies.length > 1) ? (
+              {purchases.some((a) => a.converted) ? (
+                <p className="text-xs text-slate-500">
+                  <strong>Deux devises, c&apos;est normal</strong> : la grille en
+                  euros est servie aux résidents européens, celle en dollars aux
+                  autres. Les sous-totaux par devise sont exacts ; le{" "}
+                  <strong>≈ total</strong> les ramène à la devise du revenu au
+                  taux du projet, posé à la main et jamais rafraîchi. C&apos;est
+                  un ordre de grandeur, pas une comptabilité.
+                </p>
+              ) : null}
+              {purchases.some((a) => a.unconvertibleCurrencies.length > 0) ? (
                 <HubNotice className="border-amber-200 bg-amber-50/70 text-amber-900">
-                  <strong>Un bras vend dans plusieurs devises</strong> (
-                  {purchases
-                    .filter((a) => a.currencies.length > 1)
-                    .flatMap((a) => a.currencies)
-                    .join(", ")}
-                  ) : son total est refusé plutôt qu&apos;additionné. La
-                  répartition en clients, elle, reste juste.
+                  <strong>Total combiné indisponible</strong> :{" "}
+                  {[
+                    ...new Set(
+                      purchases.flatMap((a) => a.unconvertibleCurrencies),
+                    ),
+                  ]
+                    .join(", ")
+                    .toUpperCase()}{" "}
+                  n&apos;est pas couvert par le taux du projet, qui ne vaut que
+                  pour une seule paire de devises. Les sous-totaux restent
+                  justes ; appliquer ce taux à une autre devise donnerait un
+                  montant faux d&apos;apparence crédible.
                 </HubNotice>
               ) : null}
             </div>
