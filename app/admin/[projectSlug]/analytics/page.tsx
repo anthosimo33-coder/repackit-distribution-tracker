@@ -104,6 +104,11 @@ function AnalyticsPageContenu() {
     );
     return {
       ...attribution,
+      // La fenêtre VOYAGE avec les coûts qu'elle a filtrés. Sans elle, un écran
+      // qui divise ces coûts par un dénominateur non fenêtré produit un chiffre
+      // faux que rien ne peut détecter — c'est ce qui est arrivé au coût
+      // d'acquisition de l'onglet Rétention (#167).
+      costWindow: w,
       rows: win.rows,
       soloDays: win.soloDays,
       creators: win.creators,
@@ -190,8 +195,8 @@ function AnalyticsPageContenu() {
               série quotidienne. Un sélecteur qui ne fait rien sur un onglet, sans
               le dire, se lit comme un chiffre à jour. */}
           <span className="text-slate-400/90">
-            La période s&apos;applique à Vue d&apos;ensemble, Acquisition et
-            Rétention. Parcours, Santé produit, Offres &amp; tests et Fiabilité
+            La période s&apos;applique à Vue d&apos;ensemble et Acquisition.
+            Parcours, Santé produit, Offres &amp; tests, Rétention et Fiabilité
             restent sur toute la profondeur disponible.
           </span>
         </p>
@@ -309,8 +314,14 @@ function AnalyticsPageContenu() {
                 <Skeleton className="h-64 w-full" />
               ) : (
                 <RetentionTab
+                  // NON fenêtrée, délibérément : tout ce que cet onglet compare
+                  // (revenu à ce jour, renouvellements, clients payants Whop)
+                  // porte sur toute la profondeur. Lui passer des coûts
+                  // fenêtrés mettait un numérateur de sept jours au-dessus d'un
+                  // dénominateur de six semaines.
+                  attribution={attribution}
                   churn={churn}
-                  attribution={windowedAttr ?? attribution}
+                  dataRange={dataRange}
                   now={now}
                 />
               )}
