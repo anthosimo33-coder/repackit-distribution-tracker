@@ -1,9 +1,9 @@
 import { test, expect } from "./fixtures/auth-fixture";
 import { api } from "../convex/_generated/api";
+import { minuitParis } from "./helpers/paris-day";
 import type { Id } from "../convex/_generated/dataModel";
 import { createE2eClient } from "./helpers/authed-client";
 import { availableTarget } from "./helpers/targets";
-import { parisDayIndex } from "../convex/calendarStatus";
 import { config } from "dotenv";
 import { createFormatWithRate } from "./helpers/formats";
 
@@ -24,19 +24,6 @@ const convex = createE2eClient(convexUrl);
  */
 
 const JOUR = 86_400_000;
-
-/** Minuit PARIS du jour contenant `at` — la forme réelle de `postDate`. */
-function minuitParis(at: number): number {
-  const i = parisDayIndex(at);
-  const y = Math.floor(i / 10000);
-  const m = Math.floor((i % 10000) / 100);
-  const d = i % 100;
-  // Minuit Paris = 22:00 ou 23:00 UTC la veille ; on part de midi UTC du jour
-  // et on redescend jusqu'à trouver l'instant dont le jour Paris bascule.
-  let t = Date.UTC(y, m, d, 12);
-  while (parisDayIndex(t - 3_600_000) === i) t -= 3_600_000;
-  return t;
-}
 
 async function creerCreatrice(ts: number, quoi: string) {
   const email = `e2e-creator-retard-${quoi}-${ts}@repackit.test`;
