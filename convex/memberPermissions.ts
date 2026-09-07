@@ -27,6 +27,7 @@ import type { MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { ConvexError } from "convex/values";
 import { PERMISSION_ID_LITERALS, defaultManagerPermissions, isPermissionId } from "./permissions";
+import { promotionToAdminDecision } from "./roles";
 
 /** Résout (user, projet) ou rejette avec un message qui dit lequel manque. */
 async function resolveMember(
@@ -219,6 +220,96 @@ export const describeMember = internalQuery({
           actorLabel: c.actorLabel,
           at: c.at,
         })),
+    };
+  },
+});
+
+/**
+ * Étiquette de journal d'une promotion. Ce n'est PAS un bloc du catalogue, et
+ * c'est assumé : `permissionChanges.permission` est un `v.string()` justement
+ * pour qu'une valeur hors catalogue reste LISIBLE à la relecture. Un bloc ne
+ * décrirait pas le geste — devenir admin n'est pas cocher vingt cases, c'est
+ * passer avant l'endroit où on les lit.
+ */
+const ROLE_ADMIN_TRACE = "role:admin";
+
+/**
+ * PASSE UN MANAGER EN ADMINISTRATEUR DU PROJET — le chemin manquant, et
+ * délibérément hors écran.
+ *
+ * `convex/team.ts` sait faire descendre (promoteToManager) mais refuse de
+ * toucher un `admin` : « rétrograder quelqu'un qui administre le projet n'est
+ * pas un geste de configuration ». La montée obéit à la même règle, dans l'autre
+ * sens — accorder d'un clic, depuis une liste, le rôle qui passe AVANT toute
+ * permission serait exactement le geste qu'on ne veut pas voir fait par
+ * inadvertance. D'où la ligne de commande, avec la cible nommée :
+ *
+ *   ./scripts/convex-prod.sh run memberPermissions:promoteToProjectAdmin \
+ *     '{"email":"…","projectSlug":"snytch"}'
+ *
+ * CE QU'ELLE NE FAIT PAS :
+ *   - elle ne CRÉE pas de membership (un accès qui n'existe pas ne se « promeut »
+ *     pas ; c'est le travail de provisionAdmin:grantProjectAdmin) ;
+ *   - elle ne touche PAS `permissions`. Les blocs stockés n'ouvrent ni ne
+ *     limitent plus rien une fois le rôle `admin` posé (la cascade de
+ *     `requirePermission` s'arrête avant de les lire), et les EFFACER écrirait au
+ *     journal treize retraits de droits — un journal qui raconterait une
+ *     rétrogradation le jour d'une promotion. Ils restent donc en place, et
+ *     redeviennent l'état de départ si quelqu'un repasse la personne en manager.
+ *
+ * Le journal reçoit UNE ligne, signée « cli » : un droit accordé hors écran doit
+ * laisser la même trace qu'un droit accordé à l'écran.
+ */
+export const promoteToProjectAdmin = internalMutation({
+  args: { email: v.string(), projectSlug: v.string() },
+  handler: async (ctx, { email, projectSlug }) => {
+    const { userId, projectId } = await resolveMember(ctx, email, projectSlug);
+    const membership = await ctx.db
+      .query("memberships")
+      .withIndex("by_user_project", (q) =>
+        q.eq("userId", userId).eq("projectId", projectId),
+      )
+      .first();
+    if (!membership) {
+      throw new ConvexError(
+        `« ${email} » n'est pas membre de « ${projectSlug} » — rien à promouvoir.`,
+      );
+    }
+    const decision = promotionToAdminDecision(membership.role);
+    if (decision === "refuse") {
+      throw new ConvexError(
+        `« ${email} » a le rôle « ${membership.role} » sur « ${projectSlug} » : ` +
+          "seul un « manager » se promeut en administrateur.",
+      );
+    }
+    if (decision === "noop") {
+      return {
+        email,
+        projectSlug,
+        role: "admin" as const,
+        changed: false,
+        traced: 0,
+      };
+    }
+    await ctx.db.patch(membership._id, { role: "admin" });
+    // Réécrit par le MÊME écrivain que les droits cochés à l'écran : une seule
+    // fonction connaît la forme d'une ligne de journal.
+    const traced = await traceDiff(
+      ctx,
+      projectId,
+      userId,
+      [],
+      [ROLE_ADMIN_TRACE],
+      "cli",
+    );
+    return {
+      email,
+      projectSlug,
+      role: "admin" as const,
+      changed: true,
+      // Les blocs restés en base — ils n'ouvrent ni ne limitent plus rien.
+      dormantPermissions: membership.permissions ?? [],
+      traced: traced.length,
     };
   },
 });

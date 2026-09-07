@@ -94,3 +94,28 @@ export const KIND_LABELS: Record<CreatorKind, { singular: string; plural: string
     talent: { singular: "Talent", plural: "Talents" },
     clipper: { singular: "Clippeur", plural: "Clippeurs" },
   };
+
+/**
+ * PROMOTION EN ADMINISTRATEUR D'UN PROJET — décision pure, tirée du seul rôle
+ * courant. Trois issues, et pas une de plus :
+ *
+ *   - "promote" : un `manager` monte en `admin`. C'est le seul chemin voulu, et
+ *     il n'existe qu'en ligne de commande (cf convex/memberPermissions.ts).
+ *   - "noop"    : déjà `admin` — la commande est rejouable sans rien réécrire.
+ *   - "refuse"  : TOUT rôle de portail (creator/talent/clipper), et toute valeur
+ *     inconnue ou absente. Promouvoir le membership d'une créatrice ne lui
+ *     AJOUTERAIT pas l'admin : ça lui RETIRERAIT son portail, puisque
+ *     `requireCreator` exige le littéral "creator" — elle perdrait son espace en
+ *     échange d'un accès qu'elle n'a pas demandé. Quelqu'un qui doit avoir les
+ *     deux a besoin de deux comptes, pas d'un rôle qui en écrase un autre.
+ *
+ * Le défaut est donc le REFUS : un littéral ajouté demain à `memberships.role`
+ * n'est pas promouvable tant que personne ne l'a décidé ici.
+ */
+export function promotionToAdminDecision(
+  role: string | null | undefined,
+): "promote" | "noop" | "refuse" {
+  if (role === "admin") return "noop";
+  if (role === "manager") return "promote";
+  return "refuse";
+}

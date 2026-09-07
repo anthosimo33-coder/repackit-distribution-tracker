@@ -5,6 +5,7 @@ import {
   KIND_LABELS,
   isPortalRole,
   kindForRole,
+  promotionToAdminDecision,
   resolveCreatorKind,
   roleForKind,
   type CreatorKind,
@@ -134,5 +135,47 @@ describe("accord code ↔ schéma", () => {
       expect(label.singular.length).toBeGreaterThan(0);
       expect(label.plural.length).toBeGreaterThan(0);
     }
+  });
+});
+
+/**
+ * PROMOTION EN ADMIN — la seule porte qui donne accès à tout un projet sans
+ * cocher une case. Elle vit en ligne de commande (convex/memberPermissions.ts) ;
+ * ces assertions sont ce qui l'empêche de s'ouvrir sur la mauvaise personne.
+ */
+describe("promotionToAdminDecision — qui se promeut, et qui pas", () => {
+  it("seul « manager » monte ; « admin » est un no-op rejouable", () => {
+    expect(promotionToAdminDecision("manager")).toBe("promote");
+    expect(promotionToAdminDecision("admin")).toBe("noop");
+  });
+
+  it("AUCUN rôle de portail ne se promeut (le rôle est écrasé, pas ajouté)", () => {
+    // Promouvoir le membership d'une créatrice lui RETIRERAIT son espace :
+    // `requireCreator` exige le littéral "creator". Le refus est donc la seule
+    // issue correcte — et il vaut pour les trois populations.
+    for (const kind of CREATOR_KINDS) {
+      expect(promotionToAdminDecision(roleForKind(kind))).toBe("refuse");
+    }
+  });
+
+  it("valeur absente, vide ou inconnue → refus (défaut fermé)", () => {
+    expect(promotionToAdminDecision(undefined)).toBe("refuse");
+    expect(promotionToAdminDecision(null)).toBe("refuse");
+    expect(promotionToAdminDecision("")).toBe("refuse");
+    expect(promotionToAdminDecision("Manager")).toBe("refuse"); // casse ≠ littéral
+    expect(promotionToAdminDecision("superadmin")).toBe("refuse"); // ≠ memberships
+  });
+
+  it("chaque littéral du SCHÉMA a une décision, et une seule est « promote »", () => {
+    // Le jour où `memberships.role` gagne un littéral, il arrive ici en "refuse"
+    // et ce test tombe : ajouter un rôle oblige à DIRE s'il se promeut.
+    const literals = schemaLiterals("memberships", "role");
+    const promouvables = literals.filter(
+      (r) => promotionToAdminDecision(r) === "promote",
+    );
+    expect(promouvables).toEqual(["manager"]);
+    expect(literals.filter((r) => promotionToAdminDecision(r) === "noop")).toEqual(
+      ["admin"],
+    );
   });
 });
