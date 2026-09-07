@@ -76,6 +76,7 @@ import {
 } from "@/components/scripts/ScriptDestinationZones";
 import { GraduateHookDialog } from "@/components/admin/GraduateHookDialog";
 import { HookAvailabilityBadge } from "@/components/admin/HookAvailabilityBadge";
+import { BrickSparkline } from "@/components/admin/BrickSparkline";
 import {
   hookAvailabilityFor,
   isHookAvailable,
@@ -612,7 +613,11 @@ function BrickRow({
   checked: boolean;
   onCheck: (on: boolean) => void;
   onSelect: () => void;
-  perf?: { viewsMedian: number | null; postCount: number };
+  perf?: {
+    viewsMedian: number | null;
+    postCount: number;
+    lastRunViews: number[];
+  };
   /** Disponibilité pour la créatrice sélectionnée ; absent = aucune sélection. */
   availability?: HookAvailability;
 }) {
@@ -706,8 +711,8 @@ function BrickRow({
           si le bloc analytics n'est pas accordé. */}
       {perf && (
         <div
-          className="w-20 shrink-0 text-right tabular-nums"
-          title="Médiane des vues, au dernier relevé de chaque post"
+          className="flex w-20 shrink-0 flex-col items-end tabular-nums"
+          title="Médiane des vues, au dernier relevé de chaque post, et pente des derniers runs"
           data-testid="brick-perf"
         >
           {/* Aucun run : un « — » seul, sans « 0 run » sous chaque ligne — une
@@ -720,6 +725,13 @@ function BrickRow({
               {perf.postCount} run{perf.postCount > 1 ? "s" : ""}
             </p>
           )}
+          {/* La pente des derniers runs, sous la médiane : elle sépare le hook
+              régulier de celui qui a explosé une fois avant de s'effondrer —
+              deux profils que la médiane range côte à côte. */}
+          <BrickSparkline
+            values={perf.lastRunViews}
+            className="ml-auto mt-0.5 text-primary"
+          />
         </div>
       )}
     </div>
