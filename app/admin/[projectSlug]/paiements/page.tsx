@@ -63,6 +63,17 @@ import { usePermissions } from "@/components/project/use-permissions";
 
 type Payment = FunctionReturnType<typeof api.payments.listPayments>[number];
 
+/** Les cycles OUVERTS d'une créatrice, réunis : c'est l'unité du virement. */
+type CreatorGroup = {
+  creatorId: string;
+  creatorName: string;
+  paymentMethod: string | null;
+  paymentDetails: string | null;
+  cycles: Payment[];
+  /** Somme des restes à verser de ses cycles ouverts (acomptes déduits). */
+  remaining: number;
+};
+
 /** Rows ORPHELINES de listPayments (créateur supprimé) : leur clé est préfixée
  *  ainsi et leur ancre de cycle est perdue (cycleIndex synthétique = 0). */
 const ORPHAN_KEY_PREFIX = "orphan:";
@@ -140,15 +151,10 @@ function PaiementsPageContenu() {
   // Devise de la PAIE créatrices (dollars, projects.payCurrency) — appliquée à
   // TOUS les montants de cet écran (cumul, en attente, cycles, lignes).
   const payCurrency = useProject().project.payCurrency;
+  const [now] = useState(() => Date.now());
   const payments = useProjectQuery(api.payments.listPayments, {});
   const rows = payments ?? [];
   const total = rows.reduce((s, p) => s + p.totalDue, 0);
-  // RESTE à verser : `remainingDue` déduit les acomptes déjà versés. Sommer
-  // `totalDue` re-compterait l'argent déjà parti (et divergerait du dashboard,
-  // qui somme le même champ — cf getDueTotal).
-  const unpaidTotal = rows
-    .filter((p) => p.status !== "paid")
-    .reduce((s, p) => s + p.remainingDue, 0);
 
   // ── Paiement EN MASSE ──────────────────────────────────────────────────────
   // On boucle sur markCyclePaid (la mutation unitaire déjà en place) : c'est le
@@ -183,6 +189,84 @@ function PaiementsPageContenu() {
   const selectedCreators = new Set(selectedRows.map((p) => p.creatorId)).size;
   const allSelected =
     payableRows.length > 0 && selectedRows.length === payableRows.length;
+
+  // ─── Regroupement PAR CRÉATRICE des cycles encore ouverts ──────────────────
+  // Un virement se fait à une PERSONNE : ses cycles, sa méthode et son total
+  // tiennent ensemble. Trié par montant dû décroissant — l'écran répond « qui
+  // dois-je payer, combien », pas « qu'est-ce qui s'est passé quand ».
+  const groupes = useMemo(() => {
+    const m = new Map<string, CreatorGroup>();
+    for (const p of rows) {
+      if (p.status === "paid") continue;
+      const k = p.creatorId as string;
+      const g = m.get(k) ?? {
+        creatorId: k,
+        creatorName: p.creatorName,
+        paymentMethod: p.creatorPaymentMethod,
+        paymentDetails: p.creatorPaymentDetails,
+        cycles: [],
+        remaining: 0,
+      };
+      g.cycles.push(p);
+      g.remaining = Math.round((g.remaining + p.remainingDue) * 100) / 100;
+      m.set(k, g);
+    }
+    return [...m.values()].sort(
+      (a, b) =>
+        b.remaining - a.remaining ||
+        a.creatorName.localeCompare(b.creatorName, "fr"),
+    );
+  }, [rows]);
+  // Les zéros ne disparaissent pas — ils se replient. Une créatrice à 0 $ qui
+  // devrait être payée est une information ; elle ne mérite juste pas une
+  // ligne pleine largeur au milieu de celles qui portent 276 $.
+  const groupesAvecDu = groupes.filter((g) => g.remaining > 0);
+  const groupesAZero = groupes.filter((g) => g.remaining <= 0);
+  const [zerosOuverts, setZerosOuverts] = useState(false);
+  const cyclesDus = groupesAvecDu.reduce(
+    (n, g) => n + g.cycles.filter((c) => c.remainingDue > 0).length,
+    0,
+  );
+  // Depuis combien de jours traîne le plus ancien cycle qui doit encore de
+  // l'argent — le seul repère d'urgence de cet écran. `now` est figé au montage
+  // (comme ailleurs dans l'app) : une horloge lue en plein rendu n'est pas pure,
+  // et le compilateur React refuse de mémoriser autour.
+  const debutsDus = groupesAvecDu.flatMap((g) =>
+    g.cycles.filter((c) => c.remainingDue > 0).map((c) => c.cycleStart),
+  );
+  const ageDuPlusVieux =
+    debutsDus.length === 0
+      ? null
+      : Math.floor((now - Math.min(...debutsDus)) / 86_400_000);
+  // Historique : le plus récemment payé d'abord.
+  const reglees = useMemo(
+    () =>
+      rows
+        .filter((p) => p.status === "paid")
+        .sort((a, b) => (b.paidAt ?? 0) - (a.paidAt ?? 0)),
+    [rows],
+  );
+
+  /** « Tout payer » : sélectionne SES cycles dus puis ouvre la confirmation —
+   *  jamais de virement sans le récap chiffré, quel que soit le bouton cliqué. */
+  function payAll(g: CreatorGroup) {
+    setSelected(new Set(g.cycles.filter(isBulkPayable).map((c) => c.key)));
+    setConfirmOpen(true);
+  }
+
+  /** Coche/décoche d'un coup tous les cycles payables d'une créatrice. */
+  function toggleCreator(g: CreatorGroup) {
+    const keys = g.cycles.filter(isBulkPayable).map((c) => c.key);
+    const tous = keys.every((k) => selected.has(k));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const k of keys) {
+        if (tous) next.delete(k);
+        else next.add(k);
+      }
+      return next;
+    });
+  }
 
   function toggleRow(key: string) {
     setSelected((prev) => {
@@ -260,7 +344,7 @@ function PaiementsPageContenu() {
               ? "Chargement…"
               : rows.length === 0
                 ? "Aucun paiement pour l'instant."
-                : `${rows.length} cycle${rows.length > 1 ? "s" : ""} · ${formatMoney(total, payCurrency)} dû (${formatMoney(unpaidTotal, payCurrency)} en attente)`}
+                : `${rows.length} cycle${rows.length > 1 ? "s" : ""} · ${formatMoney(total, payCurrency)} au total sur l'historique`}
           </p>
           <p className="text-xs text-slate-400">
             Cycles de 30 jours propres à chaque créateur (ancrés sur son 1er
@@ -345,34 +429,45 @@ function PaiementsPageContenu() {
         </Card>
       ) : (
         <>
-          {/* Barre de paiement en masse — visible dès qu'au moins un cycle est
-              dû. « Tout ce qui est dû » sélectionne tous les cycles payables. */}
+          {/* ─── BANDEAU DU DÛ ───────────────────────────────────────────────
+              La question de l'ouverture : combien je dois sortir, à combien de
+              personnes, et depuis combien de temps ça traîne. Le reste (ce qui
+              est déjà réglé) vit plus bas. */}
           {payableRows.length > 0 && (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3">
-              <p className="text-sm text-slate-600">
-                {selectedRows.length === 0 ? (
-                  <>
-                    {payableRows.length} cycle
-                    {payableRows.length > 1 ? "s" : ""} dû
-                    {payableRows.length > 1 ? "s" : ""} ·{" "}
-                    <span className="font-medium text-slate-900">
-                      {formatMoney(payableTotal, payCurrency)}
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span className="font-medium text-slate-900">
-                      {selectedRows.length}
-                    </span>{" "}
-                    cycle{selectedRows.length > 1 ? "s" : ""} sélectionné
-                    {selectedRows.length > 1 ? "s" : ""} ·{" "}
-                    <span className="font-medium text-slate-900">
-                      {formatMoney(selectedTotal, payCurrency)}
-                    </span>
-                  </>
-                )}
-              </p>
-              <div className="flex items-center gap-2">
+            <div
+              className="flex flex-wrap items-end justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4"
+              data-testid="due-banner"
+            >
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Reste à payer
+                </p>
+                <p className="text-3xl font-semibold tabular-nums text-slate-900">
+                  {formatMoney(payableTotal, payCurrency)}
+                </p>
+                <p className="mt-0.5 text-sm text-slate-500">
+                  <span className="font-medium text-slate-900">
+                    {groupesAvecDu.length}
+                  </span>{" "}
+                  créatrice{groupesAvecDu.length > 1 ? "s" : ""} ·{" "}
+                  <span className="font-medium text-slate-900">
+                    {cyclesDus}
+                  </span>{" "}
+                  cycle{cyclesDus > 1 ? "s" : ""}
+                  {/* « depuis 0 jour » ne dit rien : le repère d'ancienneté
+                      n'apparaît qu'à partir d'un jour entier. */}
+                  {ageDuPlusVieux !== null && ageDuPlusVieux >= 1 && (
+                    <>
+                      {" "}
+                      · le plus ancien ouvert depuis{" "}
+                      <span className="font-medium text-slate-900">
+                        {ageDuPlusVieux} jour{ageDuPlusVieux > 1 ? "s" : ""}
+                      </span>
+                    </>
+                  )}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"
@@ -393,52 +488,107 @@ function PaiementsPageContenu() {
                   {bulkBusy && (
                     <Loader2Icon className="mr-2 size-4 animate-spin" />
                   )}
-                  Marquer payé ({selectedRows.length})
+                  {selectedRows.length === 0
+                    ? "Marquer payé"
+                    : `Payer les ${selectedRows.length} sélectionnés · ${formatMoney(selectedTotal, payCurrency)}`}
                 </Button>
               </div>
             </div>
           )}
 
-          <Card>
-            <CardContent className="overflow-x-auto p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-8">
-                      {payableRows.length > 0 && (
-                        <Checkbox
-                          checked={allSelected}
-                          onCheckedChange={toggleAll}
-                          disabled={bulkBusy}
-                          aria-label="Sélectionner tous les cycles dus"
-                        />
-                      )}
-                    </TableHead>
-                    <TableHead className="w-8" />
-                    <TableHead>Créateur</TableHead>
-                    <TableHead>Cycle</TableHead>
-                    <TableHead>Méthode</TableHead>
-                    <TableHead>Statut</TableHead>
-                    <TableHead className="text-right">Total dû</TableHead>
-                    <TableHead className="w-32" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((p) => (
-                    <PaymentRow
-                      key={p.key}
-                      p={p}
+          {/* ─── À PAYER — un bloc par créatrice ────────────────────────────
+              Un virement se fait à une PERSONNE, pas à un cycle : ses cycles
+              ouverts, sa méthode et son total tiennent dans le même bloc. */}
+          {groupesAvecDu.length > 0 && (
+            <section className="space-y-3" aria-label="Cycles à payer">
+              <div className="flex items-baseline justify-between gap-3">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                  À payer
+                </h2>
+                <p className="text-xs text-slate-400">
+                  Trié par montant dû.
+                </p>
+              </div>
+              {groupesAvecDu.map((g) => (
+                <CreatorCard
+                  key={g.creatorId}
+                  group={g}
+                  currency={payCurrency}
+                  selected={selected}
+                  onToggleCycle={toggleRow}
+                  onToggleCreator={() => toggleCreator(g)}
+                  onPayAll={() => payAll(g)}
+                  selectionDisabled={bulkBusy}
+                />
+              ))}
+            </section>
+          )}
+
+          {/* ─── LES ZÉROS ──────────────────────────────────────────────────
+              Repliés, pas supprimés : une créatrice à 0 $ qui devrait être
+              payée est une information — elle ne mérite juste pas douze lignes. */}
+          {groupesAZero.length > 0 && (
+            <div>
+              <button
+                type="button"
+                onClick={() => setZerosOuverts((v) => !v)}
+                aria-expanded={zerosOuverts}
+                className="flex w-full items-center gap-1.5 rounded-lg px-1 py-2 text-left text-sm text-slate-400 hover:text-slate-700"
+                data-testid="zeros-fold"
+              >
+                <ChevronRightIcon
+                  className={cn(
+                    "size-4 transition-transform",
+                    zerosOuverts && "rotate-90",
+                  )}
+                />
+                {groupesAZero.length} créatrice
+                {groupesAZero.length > 1 ? "s" : ""} à{" "}
+                {formatMoney(0, payCurrency)} sur leur cycle en cours
+                <span className="truncate text-slate-300">
+                  — {groupesAZero.map((g) => g.creatorName).join(", ")}
+                </span>
+              </button>
+              {zerosOuverts && (
+                <div className="space-y-3">
+                  {groupesAZero.map((g) => (
+                    <CreatorCard
+                      key={g.creatorId}
+                      group={g}
                       currency={payCurrency}
-                      selectable={isBulkPayable(p)}
-                      checked={selected.has(p.key)}
-                      onToggle={() => toggleRow(p.key)}
+                      selected={selected}
+                      onToggleCycle={toggleRow}
+                      onToggleCreator={() => toggleCreator(g)}
+                      onPayAll={() => payAll(g)}
                       selectionDisabled={bulkBusy}
                     />
                   ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ─── RÉGLÉ ──────────────────────────────────────────────────────
+              L'historique, hors du chemin. C'est ici que vit l'annulation. */}
+          {reglees.length > 0 && (
+            <section className="space-y-2" aria-label="Cycles réglés">
+              <div className="flex items-baseline justify-between gap-3">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                  Réglé
+                </h2>
+                <p className="text-xs text-slate-400">
+                  Une annulation par cycle, et une seule.
+                </p>
+              </div>
+              <Card>
+                <CardContent className="divide-y divide-slate-100 p-0">
+                  {reglees.map((p) => (
+                    <PaidRow key={p.key} p={p} currency={payCurrency} />
+                  ))}
+                </CardContent>
+              </Card>
+            </section>
+          )}
         </>
       )}
 
@@ -700,7 +850,106 @@ function RevertButton({
   );
 }
 
-function PaymentRow({
+/**
+ * UN BLOC PAR CRÉATRICE — son total dû, sa méthode de virement, et ses cycles
+ * ouverts en dessous.
+ *
+ * C'est le groupement que l'écran plat n'avait pas : un virement se fait à une
+ * PERSONNE. Ses trois cycles ouverts éparpillés dans une liste triée par date
+ * obligeaient à additionner de tête avant d'ouvrir sa banque — et à faire trois
+ * virements là où un seul suffit.
+ */
+function CreatorCard({
+  group,
+  currency,
+  selected,
+  onToggleCycle,
+  onToggleCreator,
+  onPayAll,
+  selectionDisabled,
+}: {
+  group: CreatorGroup;
+  currency?: string | null;
+  selected: Set<string>;
+  onToggleCycle: (key: string) => void;
+  onToggleCreator: () => void;
+  onPayAll: () => void;
+  selectionDisabled: boolean;
+}) {
+  const payables = group.cycles.filter(isBulkPayable);
+  const tousChoisis =
+    payables.length > 0 && payables.every((c) => selected.has(c.key));
+
+  return (
+    <Card data-testid={`creator-card-${group.creatorId}`}>
+      <CardContent className="p-0">
+        <header className="flex flex-wrap items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-3 py-2.5">
+          {payables.length > 0 && (
+            <Checkbox
+              checked={tousChoisis}
+              onCheckedChange={onToggleCreator}
+              disabled={selectionDisabled}
+              aria-label={`Sélectionner les cycles dus de ${group.creatorName}`}
+            />
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-medium text-slate-900">
+              {group.creatorName}
+            </p>
+            <p className="truncate text-xs text-slate-500">
+              {group.paymentMethod
+                ? (PAYMENT_METHOD_LABELS[group.paymentMethod] ??
+                  group.paymentMethod)
+                : "méthode non renseignée"}
+              {group.paymentDetails ? ` · ${group.paymentDetails}` : ""}
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="font-semibold tabular-nums text-slate-900">
+              {formatMoney(group.remaining, currency)}
+            </p>
+            <p className="text-[11px] text-slate-400">
+              {group.cycles.length} cycle
+              {group.cycles.length > 1 ? "s" : ""} ouvert
+              {group.cycles.length > 1 ? "s" : ""}
+            </p>
+          </div>
+          {/* « Tout payer » n'apparaît qu'à partir de DEUX cycles dus : avec un
+              seul, il ferait doublon avec le bouton de la ligne juste en
+              dessous, pour exactement le même geste. */}
+          {payables.length > 1 && (
+            <Button
+              size="sm"
+              onClick={onPayAll}
+              disabled={selectionDisabled}
+              data-testid={`pay-all-${group.creatorId}`}
+            >
+              Tout payer
+            </Button>
+          )}
+        </header>
+        <div className="divide-y divide-slate-100">
+          {group.cycles.map((p) => (
+            <CycleRow
+              key={p.key}
+              p={p}
+              currency={currency}
+              selectable={isBulkPayable(p)}
+              checked={selected.has(p.key)}
+              onToggle={() => onToggleCycle(p.key)}
+              selectionDisabled={selectionDisabled}
+            />
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** UN CYCLE OUVERT dans le bloc d'une créatrice : ce qu'il reste, ce qui rend
+ *  le montant incertain, et les deux gestes (acompte, solde). Le détail des
+ *  lignes s'ouvre au clic — il ne sert qu'à vérifier, pas à décider. */
+function CycleRow({
   p,
   currency,
   selectable,
@@ -709,206 +958,239 @@ function PaymentRow({
   selectionDisabled,
 }: {
   p: Payment;
-  /** Devise de la PAIE créatrices (dollars) — montant du cycle + lignes. */
   currency?: string | null;
-  /** false pour un cycle déjà payé ou une row orpheline (cf isBulkPayable). */
   selectable: boolean;
   checked: boolean;
   onToggle: () => void;
   selectionDisabled: boolean;
 }) {
   const markCyclePaid = useProjectMutation(api.payments.markCyclePaid);
-  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const badge = STATUS_BADGE[p.status] ?? STATUS_BADGE.accruing;
+  const [open, setOpen] = useState(false);
+  const avances = p.advances.reduce((s, a) => s + a.amount, 0);
+  const nonMesurees = p.pricingBreakdown?.unmeasuredPayablePosts ?? 0;
 
   async function onMarkPaid() {
     setBusy(true);
     try {
       await markCyclePaid({ creatorId: p.creatorId, cycleIndex: p.cycleIndex });
-      toast.success(`${p.creatorName} — cycle marqué payé.`);
+      toast.success("Cycle marqué payé.");
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Paiement impossible"));
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <>
-      <TableRow
-        className="cursor-pointer"
-        onClick={() => setOpen((o) => !o)}
-        data-testid={`payment-${p.key}`}
-      >
-        <TableCell onClick={(e) => e.stopPropagation()}>
-          {selectable && (
-            <Checkbox
-              checked={checked}
-              onCheckedChange={onToggle}
-              disabled={selectionDisabled}
-              aria-label={`Sélectionner le cycle de ${p.creatorName}`}
-              data-testid={`select-${p.key}`}
+    <div data-testid={`cycle-${p.key}`}>
+      <div className="flex flex-wrap items-center gap-3 px-3 py-2.5">
+        {selectable ? (
+          <Checkbox
+            checked={checked}
+            onCheckedChange={onToggle}
+            disabled={selectionDisabled}
+            aria-label={`Sélectionner le cycle du ${formatCycleRange(p.cycleStart, p.cycleEnd)}`}
+          />
+        ) : (
+          <span className="size-4" />
+        )}
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="min-w-0 flex-1 text-left"
+        >
+          <p className="flex items-center gap-1.5 text-sm text-slate-800">
+            <ChevronRightIcon
+              className={cn(
+                "size-3.5 shrink-0 text-slate-300 transition-transform",
+                open && "rotate-90",
+              )}
             />
+            {formatCycleRange(p.cycleStart, p.cycleEnd)}
+          </p>
+          <span className="mt-1 flex flex-wrap items-center gap-1.5 pl-5">
+            {avances > 0 && (
+              <span
+                className="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary"
+                title={p.advances
+                  .map(
+                    (a) =>
+                      `${formatMoney(a.amount, currency)} le ${new Date(a.at).toLocaleDateString("fr-FR")}`,
+                  )
+                  .join(" · ")}
+                data-testid={`advance-badge-${p.key}`}
+              >
+                acompte {formatMoney(avances, currency)} · sur{" "}
+                {formatMoney(p.totalDue, currency)}
+              </span>
+            )}
+            {nonMesurees > 0 && (
+              // Repère AVANT la sélection : la modale dit le total, cette
+              // pastille dit CHEZ QUI. Sans elle, l'avertissement serait vrai
+              // mais inutile.
+              <span
+                className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] text-amber-900"
+                title={`${nonMesurees} vidéo(s) rémunérée(s) sans vue mesurée — comptée(s) 0 vue dans le CPM`}
+              >
+                {nonMesurees} non mesurée{nonMesurees > 1 ? "s" : ""}
+              </span>
+            )}
+            {/* TALENTS — ce que le cycle a produit, à côté de ce qu'il coûte.
+                Le forfait est dû parce que le cycle a couru ; « 0 rush » est le
+                cas qui compte, c'est celui où l'admin ne paiera pas. */}
+            {p.rushCount !== null && (
+              <span className="text-[11px] text-slate-400">
+                {p.rushCount} rush{p.rushCount > 1 ? "es" : ""}
+              </span>
+            )}
+          </span>
+        </button>
+        <p className="text-right font-medium tabular-nums text-slate-900">
+          {formatMoney(p.remainingDue, currency)}
+          {avances > 0 && (
+            <span className="block text-[11px] font-normal text-slate-400">
+              sur {formatMoney(p.totalDue, currency)}
+            </span>
           )}
-        </TableCell>
-        <TableCell>
+        </p>
+        <div className="flex items-center justify-end gap-1.5">
+          <AdvanceButton row={p} currency={currency} />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onMarkPaid}
+            disabled={busy}
+            data-testid={`mark-paid-${p.key}`}
+          >
+            {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+            {avances > 0 ? "Solder" : "Marquer payé"}
+          </Button>
+        </div>
+      </div>
+      {open && <CycleDetail p={p} currency={currency} />}
+    </div>
+  );
+}
+
+/** UN CYCLE RÉGLÉ : montant versé, date, et l'annulation (une fois). */
+function PaidRow({ p, currency }: { p: Payment; currency?: string | null }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div data-testid={`cycle-${p.key}`}>
+      <div className="flex flex-wrap items-center gap-3 px-3 py-2.5">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+        >
           <ChevronRightIcon
             className={cn(
-              "size-4 text-slate-400 transition-transform",
+              "size-3.5 shrink-0 text-slate-300 transition-transform",
               open && "rotate-90",
             )}
           />
-        </TableCell>
-        <TableCell className="font-medium text-slate-900">
-          {p.creatorName}
-        </TableCell>
-        <TableCell className="text-sm text-slate-600">
-          {formatCycleRange(p.cycleStart, p.cycleEnd)}
-        </TableCell>
-        <TableCell className="text-sm text-slate-600">
-          {p.creatorPaymentMethod
-            ? (PAYMENT_METHOD_LABELS[p.creatorPaymentMethod] ??
-              p.creatorPaymentMethod)
-            : "—"}
-        </TableCell>
-        <TableCell>
-          <span
-            className={cn(
-              "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold",
-              badge.className,
-            )}
-          >
-            {badge.label}
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-medium text-slate-800">
+              {p.creatorName}
+            </span>
+            <span className="block truncate text-xs text-slate-500">
+              {formatCycleRange(p.cycleStart, p.cycleEnd)}
+              {p.paidAt !== null && (
+                <> · payé le {new Date(p.paidAt).toLocaleDateString("fr-FR")}</>
+              )}
+            </span>
           </span>
-        </TableCell>
-        <TableCell className="text-right font-medium tabular-nums text-slate-900">
-          {/* Ce qu'il RESTE à verser. Quand un acompte a été versé, le montant
-              du cycle reste lisible juste en dessous : sans lui, l'admin ne
-              saurait plus ce que le cycle vaut, seulement ce qu'il lui doit. */}
-          {formatMoney(p.status === "paid" ? p.totalDue : p.remainingDue, currency)}
-          {p.advances.length > 0 && p.status !== "paid" && (
-            <span
-              className="ml-2 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-normal text-primary"
-              title={p.advances
-                .map(
-                  (a) =>
-                    `${formatMoney(a.amount, currency)} le ${new Date(a.at).toLocaleDateString("fr-FR")}`,
-                )
-                .join(" · ")}
-              data-testid={`advance-badge-${p.key}`}
-            >
-              acompte{" "}
-              {formatMoney(
-                p.advances.reduce((s, a) => s + a.amount, 0),
-                currency,
-              )}{" "}
-              · sur {formatMoney(p.totalDue, currency)}
-            </span>
+        </button>
+        <p className="text-right font-medium tabular-nums text-slate-900">
+          {formatMoney(p.totalDue, currency)}
+        </p>
+        <RevertButton row={p} currency={currency} />
+      </div>
+      {open && <CycleDetail p={p} currency={currency} />}
+    </div>
+  );
+}
+
+/** Le DÉTAIL d'un cycle : ventilation du barème puis lignes de paie. Identique
+ *  pour un cycle ouvert et un cycle réglé — c'est la même donnée. */
+function CycleDetail({
+  p,
+  currency,
+}: {
+  p: Payment;
+  currency?: string | null;
+}) {
+  return (
+    <div className="space-y-2 border-t border-slate-100 bg-slate-50/60 px-3 py-2.5 pl-12">
+      {p.pricingBreakdown.total > 0 && (
+        <ul className="space-y-1 text-sm">
+          <BreakdownLine
+            label="Fixe (vidéos publiées)"
+            amount={p.pricingBreakdown.fixedTotal}
+            currency={currency}
+          />
+          <BreakdownLine
+            label="CPM (vues cumulées)"
+            amount={p.pricingBreakdown.cpmTotal}
+            currency={currency}
+          />
+          {p.pricingBreakdown.bonusTierCashTotal > 0 && (
+            <BreakdownLine
+              label="Bonus paliers (cash)"
+              amount={p.pricingBreakdown.bonusTierCashTotal}
+              currency={currency}
+            />
           )}
-          {(p.pricingBreakdown?.unmeasuredPayablePosts ?? 0) > 0 && (
-            // Repère AVANT la sélection : la modale dit le total, cette pastille
-            // dit CHEZ QUI. Sans elle, l'avertissement serait vrai mais inutile.
-            <span
-              className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-normal text-amber-900"
-              title={`${p.pricingBreakdown.unmeasuredPayablePosts} vidéo(s) rémunérée(s) sans vue mesurée — comptée(s) 0 vue dans le CPM`}
-            >
-              {p.pricingBreakdown.unmeasuredPayablePosts} non mesurée
-              {p.pricingBreakdown.unmeasuredPayablePosts > 1 ? "s" : ""}
-            </span>
-          )}
-          {/*
-            TALENTS — ce que le cycle a effectivement produit, à côté de ce
-            qu'il coûte. Le forfait est dû parce que le cycle a couru, PAS parce
-            qu'un nombre de rushes a été atteint : ce compte n'entre dans aucun
-            calcul, il donne à l'admin de quoi décider avant de marquer payé.
-            « 0 rush » est le cas qui compte — c'est celui où il ne paiera pas.
-          */}
-          {p.rushCount !== null && (
-            <span className="ml-2 text-xs font-normal text-slate-400">
-              {p.rushCount} rush{p.rushCount > 1 ? "es" : ""}
-            </span>
-          )}
-        </TableCell>
-        <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-          {p.status === "paid" ? (
-            <RevertButton row={p} currency={currency} />
-          ) : (
-            <div className="flex items-center justify-end gap-1.5">
-              <AdvanceButton row={p} currency={currency} />
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={onMarkPaid}
-                disabled={busy}
-                data-testid={`mark-paid-${p.key}`}
-              >
-                {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-                {p.advances.length > 0 ? "Solder" : "Marquer payé"}
-              </Button>
-            </div>
-          )}
-        </TableCell>
-      </TableRow>
-      {open && (
-        <TableRow className="bg-slate-50/60">
-          {/* 2 cellules vides = colonnes sélection + chevron (8 au total). */}
-          <TableCell />
-          <TableCell />
-          <TableCell colSpan={6} className="space-y-2 py-2">
-            {p.pricingBreakdown.total > 0 && (
-              <ul className="space-y-1 text-sm">
-                <BreakdownLine
-                  label="Fixe (vidéos publiées)"
-                  amount={p.pricingBreakdown.fixedTotal}
-                  currency={currency}
-                />
-                <BreakdownLine
-                  label="CPM (vues cumulées)"
-                  amount={p.pricingBreakdown.cpmTotal}
-                  currency={currency}
-                />
-                {p.pricingBreakdown.bonusTierCashTotal > 0 && (
-                  <BreakdownLine
-                    label="Bonus paliers (cash)"
-                    amount={p.pricingBreakdown.bonusTierCashTotal}
-                    currency={currency}
-                  />
-                )}
-              </ul>
-            )}
-            {p.lineItems.length > 0 && (
-              <ul className="space-y-1">
-                {p.lineItems.map((li, i) => (
-                  <li
-                    key={i}
-                    className="flex items-center justify-between gap-4 text-sm"
-                  >
-                    <span className="flex items-center gap-2 text-slate-600">
-                      <span
-                        className={cn(
-                          "inline-flex rounded px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase",
-                          KIND_BADGE[li.kind] ?? KIND_BADGE.base,
-                        )}
-                      >
-                        {KIND_LABEL[li.kind] ?? "Base"}
-                      </span>
-                      {li.label}
-                    </span>
-                    <span className="tabular-nums text-slate-700">
-                      {formatMoney(li.amount, currency)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {p.lineItems.length === 0 && p.pricingBreakdown.total <= 0 && (
-              <p className="text-sm text-slate-400">Aucune ligne.</p>
-            )}
-          </TableCell>
-        </TableRow>
+        </ul>
       )}
-    </>
+      {p.lineItems.length > 0 && (
+        <ul className="space-y-1">
+          {p.lineItems.map((li, i) => (
+            <li
+              key={i}
+              className="flex items-center justify-between gap-4 text-sm"
+            >
+              <span className="flex items-center gap-2 text-slate-600">
+                <span
+                  className={cn(
+                    "inline-flex rounded px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase",
+                    KIND_BADGE[li.kind] ?? KIND_BADGE.base,
+                  )}
+                >
+                  {KIND_LABEL[li.kind] ?? "Base"}
+                </span>
+                {li.label}
+              </span>
+              <span className="tabular-nums text-slate-700">
+                {formatMoney(li.amount, currency)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {p.advances.length > 0 && (
+        <ul className="space-y-1 border-t border-slate-200 pt-2">
+          {p.advances.map((a, i) => (
+            <li
+              key={i}
+              className="flex items-center justify-between gap-4 text-sm text-primary"
+            >
+              <span>
+                Acompte versé le{" "}
+                {new Date(a.at).toLocaleDateString("fr-FR")}
+              </span>
+              <span className="tabular-nums">
+                − {formatMoney(a.amount, currency)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {p.lineItems.length === 0 && p.pricingBreakdown.total <= 0 && (
+        <p className="text-sm text-slate-400">Aucune ligne.</p>
+      )}
+    </div>
   );
 }
 
