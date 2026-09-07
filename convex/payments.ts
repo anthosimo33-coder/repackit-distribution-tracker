@@ -736,7 +736,9 @@ export async function cyclePaymentsForCreator(
         // Un cycle payé ne reste rien : le solde a été versé, quels qu'aient
         // été les acomptes qui l'ont précédé.
         remainingDue: 0,
-        canRevert: paid.undo !== undefined,
+        // L'annulation ne dépend PAS du reçu : sans lui, elle se reconstruit
+        // (cf revertCyclePayment). Elle dépend de ne pas avoir déjà servi.
+        canRevert: paid.revertedAt === undefined,
       });
       continue;
     }
@@ -880,7 +882,7 @@ async function collectProjectPaymentRows(
         p.status === "paid"
           ? 0
           : Math.max(0, round2(p.totalDue - advancedTotalOf(p))),
-      canRevert: p.status === "paid" && p.undo !== undefined,
+      canRevert: p.status === "paid" && p.revertedAt === undefined,
       creatorId: p.creatorId,
       creatorName: p.creatorNameSnapshot ?? "—",
       creatorEmail: "",
@@ -1208,6 +1210,24 @@ export const markCyclePaid = permissionMutation("payments.manage")({
 });
 
 /**
+ * Les kinds de ligne CALCULÉS AU PAIEMENT (gelés depuis le barème) — par
+ * opposition à ceux ACCRUS À LA PUBLICATION (`base`, `bonus` legacy, `clip`),
+ * qui existaient DÉJÀ sur la row avant qu'on la marque payée.
+ *
+ * C'est la frontière qui rend une annulation possible SANS reçu : on retire ce
+ * que le paiement a posé, on garde ce qui était là avant. Toute nouvelle
+ * lineItem gelée au paiement doit être ajoutée ici, sinon elle survivrait à
+ * l'annulation et le cycle compterait double.
+ */
+const FROZEN_AT_PAYMENT: ReadonlySet<LineItem["kind"]> = new Set([
+  "fixed",
+  "cpm",
+  "bonus_tier",
+  "retainer",
+  "challenge",
+]);
+
+/**
  * ANNULER un paiement posé par erreur — UNE fois, et une seule.
  *
  * Ce n'est pas un « repasser en dû » : le marquage payé GÈLE des lignes (fixe,
@@ -1235,47 +1255,71 @@ export const revertCyclePayment = permissionMutation("payments.manage")({
     if (p.status !== "paid") {
       throw err(ERR.PAYMENT_NOT_PAID, "Ce cycle n'est pas marqué payé.");
     }
-    if (!p.undo) {
+    if (p.revertedAt !== undefined) {
       throw err(
         ERR.PAYMENT_REVERT_USED,
-        p.revertedAt !== undefined
-          ? "Ce cycle a déjà été annulé une fois : la seconde annulation n'existe pas."
-          : "Ce paiement est antérieur à l'annulation — aucun état d'avant n'a été conservé.",
+        "Ce cycle a déjà été annulé une fois : la seconde annulation n'existe pas.",
       );
     }
     const undo = p.undo;
+    const montantVerse = undo?.paidTotal ?? p.totalDue;
 
-    // 1. Rendre à chaque row source les lignes qui lui avaient été PRISES.
-    for (const m of undo.movedFrom) {
-      const src = await ctx.db.get(m.paymentId);
-      if (!src || src.projectId !== ctx.projectId) continue;
-      const lineItems = [...src.lineItems, ...m.lineItems];
-      await ctx.db.patch(m.paymentId, {
-        lineItems,
-        totalDue: recomputeTotal(lineItems),
+    if (undo) {
+      // ── CHEMIN EXACT — un reçu a été posé au paiement ─────────────────────
+      // 1. Rendre à chaque row source les lignes qui lui avaient été PRISES.
+      for (const m of undo.movedFrom) {
+        const src = await ctx.db.get(m.paymentId);
+        if (!src || src.projectId !== ctx.projectId) continue;
+        const lineItems = [...src.lineItems, ...m.lineItems];
+        await ctx.db.patch(m.paymentId, {
+          lineItems,
+          totalDue: recomputeTotal(lineItems),
+        });
+      }
+      // 2. Restaurer la row elle-même, et CONSOMMER le reçu.
+      await ctx.db.patch(id, {
+        status: undo.previousStatus,
+        lineItems: undo.previousLineItems,
+        totalDue: undo.previousTotalDue,
+        paidAt: undefined,
+        undo: undefined,
+        revertedAt: Date.now(),
+      });
+    } else {
+      // ── CHEMIN RECONSTRUIT — paiement ANTÉRIEUR au reçu ───────────────────
+      // Tous les cycles payés avant la mise en place du reçu n'en ont pas, et
+      // ce sont précisément ceux qu'on découvre payés par erreur. Refuser
+      // rendrait la fonction inutile là où elle sert le plus.
+      //
+      // La reconstruction est bornée par une frontière NETTE : on retire les
+      // lignes CALCULÉES AU PAIEMENT (elles seront recalculées live) et on
+      // garde celles ACCRUES À LA PUBLICATION, qui étaient là avant.
+      //
+      // Ce qu'elle ne sait PAS faire, et qu'il faut assumer : rendre à une
+      // autre période les lignes legacy que le paiement lui avait prises. Elles
+      // restent sur CE cycle — celui auquel leur date de publication les
+      // rattache, donc l'endroit où le calcul live les attend de toute façon.
+      const gardees = p.lineItems.filter((li) => !FROZEN_AT_PAYMENT.has(li.kind));
+      await ctx.db.patch(id, {
+        status: "accruing",
+        lineItems: gardees,
+        totalDue: recomputeTotal(gardees),
+        paidAt: undefined,
+        revertedAt: Date.now(),
       });
     }
 
-    // 2. Restaurer la row elle-même, et CONSOMMER le reçu.
-    await ctx.db.patch(id, {
-      status: undo.previousStatus,
-      lineItems: undo.previousLineItems,
-      totalDue: undo.previousTotalDue,
-      paidAt: undefined,
-      undo: undefined,
-      revertedAt: Date.now(),
-    });
-
-    // 3. Prévenir la créatrice — l'e-mail de paiement, lui, est déjà parti.
+    // Prévenir la créatrice — l'e-mail de paiement, lui, est déjà parti.
     const w = await cycleWindowOfPayment(ctx, p);
     await ctx.scheduler.runAfter(0, internal.emails.sendPaymentReverted, {
       creatorId: p.creatorId,
-      amount: undo.paidTotal,
+      amount: montantVerse,
       cycleStart: w.cycleStart,
       cycleEnd: w.cycleEnd,
     });
 
-    return { ok: true as const, restoredTotal: undo.previousTotalDue };
+    const restauree = await ctx.db.get(id);
+    return { ok: true as const, restoredTotal: restauree?.totalDue ?? 0 };
   },
 });
 
@@ -1471,6 +1515,20 @@ export const backfillFirstPostAt = internalMutation({
 // ─── Cleanup e2e (gated E2E_SECRET) ──────────────────────────────────────────
 
 /** Supprime les paiements liés à un créateur de test ([E2E_TEST] / e2e-creator). */
+/**
+ * TEST — retire le reçu d'annulation d'une row payée, pour rejouer le cas des
+ * paiements ANTÉRIEURS au reçu (toute la prod du 7 septembre 2026). Sans ce
+ * backdoor, le chemin reconstruit ne serait jamais exercé : un test ne peut pas
+ * remonter le temps avant le déploiement.
+ */
+export const e2eForgetUndoReceipt = e2eMutation({
+  args: { id: v.id("payments") },
+  handler: async (ctx, { id }) => {
+    await ctx.db.patch(id, { undo: undefined });
+    return { ok: true as const };
+  },
+});
+
 export const cleanupTestPayments = e2eMutation({
   args: {},
   handler: async (ctx) => {

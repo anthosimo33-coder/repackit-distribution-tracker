@@ -30,7 +30,9 @@ const DAY = 86_400_000;
  *  3. ANNULATION — le cycle repasse dû, avec le total et les lignes d'AVANT ;
  *  4. une seule fois : la deuxième annulation est refusée ;
  *  5. un cycle jamais payé ne s'annule pas ;
- *  6. un acompte sur un cycle soldé est refusé, et un montant négatif aussi.
+ *  6. un acompte sur un cycle soldé est refusé, et un montant négatif aussi ;
+ *  7. un paiement ANTÉRIEUR au reçu d'annulation (toute la prod d'avant ce
+ *     chantier) s'annule quand même, par reconstruction.
  */
 test.describe("Paiements — acompte et annulation", () => {
   test("acompte sans figer, lignes intactes, annulation unique et fidèle", async () => {
@@ -191,5 +193,127 @@ test.describe("Paiements — acompte et annulation", () => {
         id: repaye.paymentId!,
       }),
     ).rejects.toThrow(/annul/i);
+  });
+
+  test("un paiement antérieur au reçu s'annule quand même", async () => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+    const creator = await createCreatorSession(url, {
+      name: `[E2E_TEST] SansRecu ${ts}`,
+      email: `e2e-sansrecu-${ts}@repackit.test`,
+      password: "sansrecu-12345",
+    });
+
+    // Modèle PRICING (et non un format à fixe par post) : c'est LUI qui produit
+    // les lignes GELÉES au paiement (« Fixe », « CPM »). Avec le modèle legacy,
+    // la ligne existe déjà avant le paiement et le chemin reconstruit n'aurait
+    // rien à retirer — le test serait vert sans rien prouver.
+    const campaignId = await admin.mutation(api.scripts.createCampaign, {
+      name: `[E2E_TEST] SansRecu ${ts}`,
+    });
+    for (const [kind, label] of [
+      ["hook", "H1"],
+      ["flux", "F1"],
+      ["cta", "C1"],
+    ] as const) {
+      await admin.mutation(api.scripts.createBrick, {
+        campaignId,
+        kind,
+        label: `${label} ${ts}`,
+        content: `${label} contenu`,
+      });
+    }
+    const { pricingId } = await admin.mutation(api.pricing.createPricing, {
+      name: `[E2E_TEST] PricingSansRecu ${ts}`,
+      montantFixe: 100,
+      nbVideosCible: 10,
+      tauxCPM: 2,
+    });
+    const target = await availableTarget({
+      e2eClient: admin,
+      creatorId: creator.creatorId,
+      platform: "TikTok",
+      handle: `@e2esansrecu${ts}`,
+    });
+    await admin.mutation(api.scripts.assignScriptCampaign, {
+      campaignId,
+      creatorId: creator.creatorId,
+      targets: [target],
+      videosPerCreator: 1,
+      dueDate: ts + 7 * DAY,
+      pricingId,
+    });
+    const a = (await admin.query(api.assignments.listAssignments, {})).find(
+      (x) => x.creatorId === creator.creatorId,
+    )!;
+    await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
+      secret: E2E_SECRET,
+      id: a._id,
+      status: "to_publish",
+    });
+    await creator.client.mutation(api.assignments.confirmPublication, {
+      projectId: creator.projectId,
+      id: a._id,
+      urls: [
+        { platform: "TikTok", url: `https://www.tiktok.com/@s/video/sr${ts}` },
+      ],
+    });
+
+    const cycleOf = async () =>
+      (await admin.query(api.payments.listPayments, {})).find(
+        (p) => p.creatorId === creator.creatorId && p.cycleIndex === 0,
+      )!;
+
+    const avant = await cycleOf();
+    const duAvant = avant.totalDue;
+    // PRÉSENCE : le cycle vaut bien quelque chose avant qu'on le paie, sinon
+    // tout ce qui suit serait vrai par vacuité.
+    expect(duAvant).toBeGreaterThan(0);
+    expect(avant.lineItems.filter((li) => li.kind === "fixed")).toHaveLength(0);
+
+    await admin.mutation(api.payments.markCyclePaid, {
+      creatorId: creator.creatorId,
+      cycleIndex: 0,
+    });
+    const paye = await cycleOf();
+    expect(paye.status).toBe("paid");
+    // Le paiement a bien GELÉ une ligne « Fixe » : c'est elle que l'annulation
+    // reconstruite devra retirer.
+    expect(
+      paye.lineItems.filter((li) => li.kind === "fixed").length,
+    ).toBeGreaterThan(0);
+
+    // On efface le reçu : la row ressemble maintenant à un paiement fait AVANT
+    // que le reçu existe — c'est-à-dire à tout l'historique de production.
+    await admin.mutation(api.payments.e2eForgetUndoReceipt, {
+      secret: E2E_SECRET,
+      id: paye.paymentId!,
+    });
+    const sansRecu = await cycleOf();
+    // L'annulation reste offerte : c'est TOUT l'objet de la reconstruction.
+    expect(sansRecu.canRevert).toBe(true);
+
+    await admin.mutation(api.payments.revertCyclePayment, {
+      id: sansRecu.paymentId!,
+    });
+    const annule = await cycleOf();
+    expect(annule.status).toBe("accruing");
+    // Le cycle retrouve exactement son montant d'avant — recalculé live.
+    expect(annule.totalDue).toBe(duAvant);
+    // Et toujours une seule fois.
+    expect(annule.canRevert).toBe(false);
+
+    // LE PIÈGE que le retrait des lignes gelées évite : re-payer ne doit pas
+    // RE-empiler celles de la première fois. Sans lui, la row garderait son
+    // « Fixe » et le second paiement en ajouterait un autre — le double versé
+    // pour une seule vidéo. Invisible tant qu'on ne re-paie pas, d'où cette
+    // assertion plutôt qu'une lecture des lignes.
+    await admin.mutation(api.payments.markCyclePaid, {
+      creatorId: creator.creatorId,
+      cycleIndex: 0,
+    });
+    const repaye = await cycleOf();
+    expect(repaye.status).toBe("paid");
+    expect(repaye.totalDue).toBe(duAvant);
   });
 });
