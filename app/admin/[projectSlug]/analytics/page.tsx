@@ -60,7 +60,6 @@ function AnalyticsPageContenu() {
   const reliability = useProjectQuery(api.analyticsHub.getReliability, {});
   const viewCounters = useProjectQuery(api.analyticsHub.getViewCounters, {});
   const natureRewards = useProjectQuery(api.analyticsHub.getNatureRewards, {});
-  const churn = useProjectQuery(api.analyticsHub.getChurn, {});
   const dayDetail = useProjectQuery(api.analyticsHub.getDayDetail, {});
   const billing = useProjectQuery(api.analyticsHub.getBillingCountries, {});
   const requestSync = useProjectMutation(api.posthogSync.requestPosthogSync);
@@ -70,6 +69,13 @@ function AnalyticsPageContenu() {
   // la série quotidienne n'est pas chargée — on n'invente pas une fenêtre sur des
   // données absentes, les cartes affichent un tiret.
   const [window, setWindow] = useState<AnalyticsWindow | null>(null);
+  // Rétention : la période réduit les clients à leur COHORTE D'ACQUISITION,
+  // côté serveur. C'est une requête Convex (notre base), pas PostHog : elle est
+  // réactive et coûte une lecture, aucune latence à masquer.
+  const churn = useProjectQuery(
+    api.analyticsHub.getChurn,
+    window ? { from: window.from, to: window.to } : {},
+  );
   const dataRange = useMemo(
     () =>
       dataRangeOf(
@@ -206,8 +212,9 @@ function AnalyticsPageContenu() {
               Parcours vient de passer, les autres suivront. */}
           <span className="text-slate-400/90">
             La période s&apos;applique à Vue d&apos;ensemble, Acquisition,
-            Parcours et Offres &amp; tests. Santé produit, Rétention et Fiabilité
-            restent sur toute la profondeur disponible.
+            Parcours, Offres &amp; tests et Rétention (par cohorte
+            d&apos;acquisition). Santé produit et Fiabilité restent sur toute la
+            profondeur disponible.
           </span>
         </p>
       </div>
@@ -331,13 +338,14 @@ function AnalyticsPageContenu() {
                 <Skeleton className="h-64 w-full" />
               ) : (
                 <RetentionTab
-                  // NON fenêtrée, délibérément : tout ce que cet onglet compare
-                  // (revenu à ce jour, renouvellements, clients payants Whop)
-                  // porte sur toute la profondeur. Lui passer des coûts
-                  // fenêtrés mettait un numérateur de sept jours au-dessus d'un
-                  // dénominateur de six semaines.
-                  attribution={attribution}
+                  // Fenêtrée À NOUVEAU, mais seulement parce que `churn` l'est
+                  // aussi désormais, sur la MÊME période : les deux côtés du
+                  // coût par client portent enfin sur la même population. La
+                  // garde de lib/retention-cost vérifie que les deux fenêtres
+                  // coïncident et rend un tiret sinon.
+                  attribution={windowedAttr ?? attribution}
                   churn={churn}
+                  clientWindow={window}
                   dataRange={dataRange}
                   now={now}
                 />
