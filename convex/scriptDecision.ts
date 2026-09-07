@@ -4,19 +4,17 @@ import {
 import { v } from "convex/values";
 import {
   gatherCampaignViews,
-  aggregateByTier,
   aggregateByBrick,
   aggregateByCombo,
   campaignMedianOf,
   median,
   type CampaignViews,
 } from "./scriptAnalytics";
-import { tierLabel } from "./scriptTier";
 
 /**
  * S4 — Query de DÉCISION du bulk testing. campaignDecisions COMPOSE sur les
  * agrégats S3 (scriptAnalytics) : une seule passe gatherCampaignViews, puis
- * réutilise aggregateByTier / aggregateByBrick / aggregateByCombo (NE recalcule
+ * réutilise aggregateByBrick / aggregateByCombo (NE recalcule
  * PAS les médianes from scratch) et en TIRE des verdicts par dimension + la
  * liste des signaux forts.
  *
@@ -190,7 +188,7 @@ const WINDOW = v.union(
   v.literal("j30"),
 );
 
-export type DecisionDimensionKind = "tier" | "flux" | "cta";
+export type DecisionDimensionKind = "hook" | "flux" | "cta";
 
 export interface DecisionDimension {
   kind: DecisionDimensionKind;
@@ -199,7 +197,7 @@ export interface DecisionDimension {
 
 export interface CampaignDecisions {
   found: boolean;
-  /** Verdicts par dimension, ordre tier → corps → flux → cta. */
+  /** Verdicts par dimension, ordre hook → flux → cta. */
   dimensions: DecisionDimension[];
   /** Signaux forts (combos/briques sous le seuil mais explosifs) à valider à la main. */
   strongSignals: StrongSignal[];
@@ -224,59 +222,45 @@ function brickInputs(
 }
 
 function buildDecisions(views: CampaignViews): CampaignDecisions {
-  const tiers = aggregateByTier(views);
   const bricks = aggregateByBrick(views);
   const combos = aggregateByCombo(views);
   const globalMedian = campaignMedianOf(views);
 
-  // Dimension TIER : on juge les 3 tiers de hook les uns contre les autres
-  // (un tier accumule 50 posts bien plus vite qu'une brique de hook précise).
-  const tierInputs: BrickInput[] = tiers.map((t) => ({
-    key: t.tier,
-    label: tierLabel(t.tier),
-    kind: "tier",
-    postCount: t.postCount,
-    viewsMedian: t.viewsMedian,
-  }));
-
-  // Refonte 3 briques : dimensions tier / flux / cta (la dimension corps a
-  // disparu — les ex-corps sont des hooks, jugés via la dimension tier).
+  // Retrait du TIER : les hooks se jugent désormais UN À UN, comme les flux et
+  // les cta. Le tier de hook regroupait les accroches en deux paquets qui
+  // atteignaient le seuil de 50 posts bien plus vite qu'une accroche précise —
+  // au prix d'un verdict qui ne désignait aucun texte à pousser ou à couper.
+  // Conséquence assumée : un hook reste « en test » plus longtemps.
+  const hooks = bricks.filter((b) => b.kind === "hook");
   const flux = bricks.filter((b) => b.kind === "flux");
   const cta = bricks.filter((b) => b.kind === "cta");
 
   const dimensions: DecisionDimension[] = [
-    { kind: "tier", decisions: decideKind(tierInputs) },
+    { kind: "hook", decisions: decideKind(brickInputs(hooks, "hook")) },
     { kind: "flux", decisions: decideKind(brickInputs(flux, "flux")) },
     { kind: "cta", decisions: decideKind(brickInputs(cta, "cta")) },
   ];
 
-  // SIGNAUX FORTS — combos précis ET briques/tiers : tout ce qui explose le
-  // seuil haut sous 50 posts. Le combo donne le grain le plus fin.
+  // SIGNAUX FORTS — combos précis ET briques : tout ce qui explose le seuil haut
+  // sous 50 posts. Le combo donne le grain le plus fin. Les HOOKS y entrent
+  // maintenant (ils étaient exclus parce que la dimension tier les couvrait) :
+  // c'est le seul endroit où une accroche explosive se voit avant 50 posts.
   const comboSignals: SignalInput[] = combos.map((c) => ({
     key: c.comboKey,
-    label: `${tierLabel(c.tier)} · ${c.fluxLabel} · ${c.ctaLabel}`,
+    label: `${c.hookLabel} · ${c.fluxLabel} · ${c.ctaLabel}`,
     kind: "combo",
     postCount: c.postCount,
     viewsMedian: c.viewsMedian,
   }));
-  const tierSignals: SignalInput[] = tiers.map((t) => ({
-    key: `tier:${t.tier}`,
-    label: tierLabel(t.tier),
-    kind: "tier",
-    postCount: t.postCount,
-    viewsMedian: t.viewsMedian,
+  const brickSignals: SignalInput[] = bricks.map((b) => ({
+    key: `brick:${b.brickId}`,
+    label: b.label,
+    kind: b.kind,
+    postCount: b.postCount,
+    viewsMedian: b.viewsMedian,
   }));
-  const brickSignals: SignalInput[] = bricks
-    .filter((b) => b.kind !== "hook")
-    .map((b) => ({
-      key: `brick:${b.brickId}`,
-      label: b.label,
-      kind: b.kind,
-      postCount: b.postCount,
-      viewsMedian: b.viewsMedian,
-    }));
   const strongSignals = detectStrongSignals(
-    [...comboSignals, ...tierSignals, ...brickSignals],
+    [...comboSignals, ...brickSignals],
     globalMedian,
   );
 
@@ -297,7 +281,7 @@ function buildDecisions(views: CampaignViews): CampaignDecisions {
 
 /**
  * campaignDecisions — pour une campagne + une fenêtre J+X, renvoie les verdicts
- * par dimension (tier/corps/flux/cta) et les signaux forts à valider. Changer de
+ * par dimension (hook/flux/cta) et les signaux forts à valider. Changer de
  * fenêtre recalcule tout (la médiane bouge avec la fenêtre).
  */
 export const campaignDecisions = permissionQuery("content.analytics")({

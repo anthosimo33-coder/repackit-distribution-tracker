@@ -14,7 +14,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/format";
-import { tierLabel } from "@/lib/script-tier";
 import { JUGEABLE_THRESHOLD } from "@/lib/scriptStats";
 import { parseComboKey } from "@/lib/scriptCombos";
 import { KIND_LABELS } from "@/lib/scriptAssembly";
@@ -48,7 +47,6 @@ const WINDOWS: { key: Window; label: string }[] = [
 ];
 
 type BrickPerf = FunctionReturnType<typeof api.scriptAnalytics.perfByBrick>[number];
-type TierPerf = FunctionReturnType<typeof api.scriptAnalytics.perfByTier>[number];
 type ComboPerf = FunctionReturnType<typeof api.scriptAnalytics.perfByCombo>[number];
 type Decisions = FunctionReturnType<typeof api.scriptDecision.campaignDecisions>;
 type Dimension = Decisions["dimensions"][number];
@@ -60,7 +58,7 @@ type StrongSignal = Decisions["strongSignals"][number];
 const KIND_LABEL: Record<string, string> = { ...KIND_LABELS };
 
 const DIMENSION_LABEL: Record<string, string> = {
-  tier: "Tiers de hook",
+  hook: KIND_LABELS.hook,
   flux: KIND_LABELS.flux,
   cta: KIND_LABELS.cta,
 };
@@ -72,10 +70,6 @@ export default function ScriptAnalyticsPage() {
   const [window, setWindow] = useState<Window>("j7");
 
   const campaign = useProjectQuery(api.scripts.getCampaign, { id: campaignId });
-  const tiers = useProjectQuery(api.scriptAnalytics.perfByTier, {
-    campaignId,
-    window,
-  });
   const bricks = useProjectQuery(api.scriptAnalytics.perfByBrick, {
     campaignId,
     window,
@@ -90,7 +84,6 @@ export default function ScriptAnalyticsPage() {
   });
 
   const loading =
-    tiers === undefined ||
     bricks === undefined ||
     combos === undefined ||
     decisions === undefined;
@@ -142,8 +135,7 @@ export default function ScriptAnalyticsPage() {
                   ci-dessus en sont tirées.
                 </p>
               </div>
-              <TierSection tiers={tiers} />
-              {(["flux", "cta"] as const).map((kind) => (
+              {(["hook", "flux", "cta"] as const).map((kind) => (
                 <BrickSection
                   key={kind}
                   kind={kind}
@@ -555,48 +547,6 @@ function winnerIndex(rows: { median: number | null; jugeable: boolean }[]): numb
   return best;
 }
 
-function TierSection({ tiers }: { tiers: TierPerf[] }) {
-  const rows = tiers.map((t) => ({
-    median: t.viewsMedian,
-    jugeable: t.status === "jugeable",
-  }));
-  const wIdx = winnerIndex(rows);
-  const maxMedian = Math.max(0, ...tiers.map((t) => t.viewsMedian ?? 0));
-  const winner = wIdx >= 0 ? tiers[wIdx] : null;
-
-  return (
-    <section className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Tiers de hook
-        </h2>
-      </div>
-      {winner && (
-        <p className="text-sm text-emerald-700">
-          <span className="font-semibold">
-            {tierLabel(winner.tier)} surperforme
-          </span>{" "}
-          — médiane {formatNumber(winner.viewsMedian)} vues sur{" "}
-          {winner.postCount} posts.
-        </p>
-      )}
-      <div className="grid gap-2 sm:grid-cols-2">
-        {tiers.map((t, i) => (
-          <MetricRow
-            key={t.tier}
-            label={tierLabel(t.tier)}
-            median={t.viewsMedian}
-            postCount={t.postCount}
-            status={t.status}
-            maxMedian={maxMedian}
-            winner={i === wIdx}
-          />
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function BrickSection({
   kind,
   bricks,
@@ -811,9 +761,8 @@ function ComboSection({
             >
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-slate-900">
-                  {tierLabel(c.tier)} · {c.fluxLabel} · {c.ctaLabel}
+                  {c.hookLabel} · {c.fluxLabel} · {c.ctaLabel}
                 </p>
-                <p className="truncate text-xs text-slate-400">{c.hookLabel}</p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <span className="tabular-nums text-sm font-semibold text-slate-900">

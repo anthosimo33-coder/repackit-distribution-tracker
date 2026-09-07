@@ -37,19 +37,18 @@ test.describe("Assignments — filtre par campagne de scripts", () => {
     slug: string,
   ): Promise<Id<"scriptCampaigns">> {
     const campaignId = await admin.mutation(api.scripts.createCampaign, { name });
-    const brick = (kind: "hook" | "flux" | "cta", label: string, tier?: "S") =>
+    const brick = (kind: "hook" | "flux" | "cta", label: string) =>
       admin.mutation(api.scripts.createBrick, {
         campaignId,
         kind,
         label,
         content: `${label} ${name}`,
-        ...(tier ? { tier } : {}),
       });
     // `count` HOOKS (× 1 flux × 1 cta) = `count` combos distincts. C'est le
     // nombre de combos qui borne le nombre de vidéos attribuables (anti-
     // coordination : un créateur ne reçoit jamais deux fois le même combo) — avec
     // un seul hook, demander 3 vidéos n'en produirait qu'une, en pénurie.
-    for (let i = 0; i < count; i++) await brick("hook", `H${i}`, "S");
+    for (let i = 0; i < count; i++) await brick("hook", `H${i}`);
     await brick("flux", "F");
     await brick("cta", "C");
     // ⚠️ `targets` = les PLATEFORMES D'UNE vidéo (1 cible par plateforme, 1 à 3),

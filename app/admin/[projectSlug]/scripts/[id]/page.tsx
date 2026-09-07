@@ -56,18 +56,17 @@ import {
   SCRIPT_KINDS,
   usefulShortLabel,
   type ScriptKind,
-  type ScriptTier,
 } from "@/lib/scriptAssembly";
-import { SCRIPT_TIERS, tierLabel } from "@/lib/script-tier";
 import {
   BRICK_MODE_OPTIONS,
   resolveBrickMode,
   brickModeDisplay,
   type BrickMode,
 } from "@/lib/script-mode";
-import { ScriptDestinationZones } from "@/components/scripts/ScriptDestinationZones";
-import { TierBadge } from "@/components/admin/TierBadge";
-import { AngleFamilyInput } from "@/components/admin/AngleFamilyInput";
+import {
+  ScriptDestinationZones,
+  ScriptInstructionList,
+} from "@/components/scripts/ScriptDestinationZones";
 import { GraduateHookDialog } from "@/components/admin/GraduateHookDialog";
 import { HookAvailabilityBadge } from "@/components/admin/HookAvailabilityBadge";
 import {
@@ -431,20 +430,6 @@ function BrickRow({
       toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     }
   }
-  async function setTier(tier: ScriptTier | "none") {
-    try {
-      await update({ id: brick._id, tier: tier === "none" ? null : tier });
-    } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
-    }
-  }
-  async function setAngleFamily(angleFamily: string | null) {
-    try {
-      await update({ id: brick._id, angleFamily });
-    } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
-    }
-  }
   async function onDelete() {
     try {
       await remove({ id: brick._id });
@@ -477,35 +462,19 @@ function BrickRow({
               note : {note}
             </p>
           )}
+          {/* CONSIGNE — ce que la créatrice lira sous ce bloc. Affichée ICI
+              plutôt que derrière la modale : une consigne qu'on ne voit pas
+              sans ouvrir chaque brique ne se relit jamais. */}
+          {brick.instruction && (
+            <p
+              className="line-clamp-2 text-xs text-amber-700"
+              data-testid="brick-instruction"
+            >
+              <span aria-hidden>💡</span> {brick.instruction}
+            </p>
+          )}
         </div>
         {availability && <HookAvailabilityBadge availability={availability} />}
-        {brick.kind === "hook" && (
-          <AngleFamilyInput
-            value={brick.angleFamily}
-            onCommit={setAngleFamily}
-            className="w-32 shrink-0"
-          />
-        )}
-        {brick.kind === "hook" && (
-          <Select
-            value={brick.tier ?? "none"}
-            onValueChange={(v) => v && setTier(v as ScriptTier | "none")}
-          >
-            <SelectTrigger className="h-8 w-28" aria-label="Tier du hook">
-              <SelectValue>
-                {brick.tier ? <TierBadge tier={brick.tier} /> : "Tier"}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">—</SelectItem>
-              {SCRIPT_TIERS.map((t) => (
-                <SelectItem key={t} value={t}>
-                  {tierLabel(t)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
         {showMode && (
           <span
             className="mt-0.5 shrink-0 text-base leading-none"
@@ -569,8 +538,7 @@ function BrickDialog({
   const isEdit = brick !== null;
   const [label, setLabel] = useState("");
   const [content, setContent] = useState("");
-  const [tier, setTier] = useState<ScriptTier | "none">("none");
-  const [angleFamily, setAngleFamily] = useState<string | null>(null);
+  const [instruction, setInstruction] = useState("");
   const [mode, setMode] = useState<BrickMode>("les_deux");
   const [busy, setBusy] = useState(false);
   // Mode (zone vidéo) : Snytch + hook/flux uniquement.
@@ -583,8 +551,7 @@ function BrickDialog({
     if (open) {
       setLabel(brick?.label ?? "");
       setContent(brick?.content ?? "");
-      setTier(brick?.tier ?? "none");
-      setAngleFamily(brick?.angleFamily ?? null);
+      setInstruction(brick?.instruction ?? "");
       setMode(resolveBrickMode(brick?.mode));
     }
   }
@@ -601,9 +568,9 @@ function BrickDialog({
           id: brick._id,
           label,
           content,
-          ...(kind === "hook"
-            ? { tier: tier === "none" ? null : tier, angleFamily }
-            : {}),
+          // Toujours envoyée : vider le champ EFFACE la consigne (le serveur
+          // ramène une saisie blanche à l'absence).
+          instruction,
           ...(showMode ? { mode } : {}),
         });
         toast.success("Brique mise à jour");
@@ -613,8 +580,7 @@ function BrickDialog({
           kind,
           label,
           content,
-          ...(kind === "hook" && tier !== "none" ? { tier } : {}),
-          ...(kind === "hook" && angleFamily ? { angleFamily } : {}),
+          ...(instruction.trim() ? { instruction } : {}),
           ...(showMode ? { mode } : {}),
         });
         toast.success("Brique ajoutée");
@@ -636,7 +602,7 @@ function BrickDialog({
           </DialogTitle>
           <DialogDescription>
             {kind === "hook"
-              ? "Un hook accroche la vidéo. Classe sa puissance par tier."
+              ? "Un hook accroche la vidéo."
               : "Le texte de la brique (markdown)."}
           </DialogDescription>
         </DialogHeader>
@@ -659,43 +625,23 @@ function BrickDialog({
               rows={5}
             />
           </div>
-          {kind === "hook" && (
-            <div className="space-y-1.5">
-              <Label htmlFor="brick-tier">Tier</Label>
-              <Select
-                value={tier}
-                onValueChange={(v) => v && setTier(v as ScriptTier | "none")}
-              >
-                <SelectTrigger id="brick-tier" className="w-32">
-                  <SelectValue>
-                    {tier === "none" ? "—" : tierLabel(tier)}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">—</SelectItem>
-                  {SCRIPT_TIERS.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {tierLabel(t)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-          {kind === "hook" && (
-            <div className="space-y-1.5">
-              <Label>Famille d&apos;angle</Label>
-              <AngleFamilyInput
-                value={angleFamily}
-                onCommit={setAngleFamily}
-                className="w-56"
-              />
-              <p className="text-xs text-slate-400">
-                Champ libre — les suggestions ne sont qu&apos;un point de
-                départ.
-              </p>
-            </div>
-          )}
+          {/* CONSIGNE — texte libre OPTIONNEL, lu par la créatrice sous ce
+              bloc dans sa fiche. Ce n'est PAS du script : rien n'en part dans
+              la vidéo ni dans la description. */}
+          <div className="space-y-1.5">
+            <Label htmlFor="brick-instruction">Instruction (optionnelle)</Label>
+            <Textarea
+              id="brick-instruction"
+              value={instruction}
+              onChange={(e) => setInstruction(e.target.value)}
+              rows={2}
+              placeholder="Ex. l'élément précis qui justifie la vérification."
+            />
+            <p className="text-xs text-slate-400">
+              Affichée à la créatrice sous ce bloc, jamais dans le texte à dire
+              ni dans la description. Vider le champ retire la consigne.
+            </p>
+          </div>
           {/* SNYTCH — mode d'usage dans la vidéo (hook/flux) : dire / afficher /
               les deux. Ce que la créatrice verra étiqueté sur ce bloc. */}
           {showMode && (
@@ -803,7 +749,7 @@ function ImportHooksDialog({
           <DialogTitle>Importer des hooks</DialogTitle>
           <DialogDescription>
             Les hooks sélectionnés sont COPIÉS comme briques (la bibliothèque
-            reste intacte). Classe-les ensuite par tier.
+            reste intacte).
           </DialogDescription>
         </DialogHeader>
         <div className="max-h-[50vh] space-y-1.5 overflow-y-auto">
@@ -904,6 +850,20 @@ function PreviewDialog({
       })
     : "";
 
+  // Les CONSIGNES des trois briques choisies, dans l'ordre de montage — même
+  // rendu que côté créatrice (encart ambre sous le bloc), pour que l'aperçu
+  // continue de tenir sa promesse : « ce que verra la créatrice ».
+  const previewInstructions = (
+    [
+      ["hook", hook],
+      ["flux", flux],
+      ["cta", cta],
+    ] as const
+  ).flatMap(([slot, b]) => {
+    const text = b?.instruction?.trim();
+    return text ? [{ slot, text }] : [];
+  });
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-hidden sm:max-w-2xl">
@@ -969,9 +929,13 @@ function PreviewDialog({
                   },
                 ]}
                 descriptionScript={cta.content.trim()}
+                instructions={previewInstructions}
               />
             ) : (
-              <SimpleMarkdown content={assembled} />
+              <div className="space-y-3">
+                <SimpleMarkdown content={assembled} />
+                <ScriptInstructionList items={previewInstructions} />
+              </div>
             )
           ) : (
             <p className="text-sm text-slate-500">

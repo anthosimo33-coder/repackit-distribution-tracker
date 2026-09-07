@@ -50,13 +50,16 @@ test.describe("Graduation d'un hook", () => {
 
     const lab = await campagne(LAB_CAMPAIGN_NAME);
 
-    async function hookDansLab(content: string): Promise<Id<"scriptBricks">> {
+    async function hookDansLab(
+      content: string,
+      instruction?: string,
+    ): Promise<Id<"scriptBricks">> {
       return (await admin.mutation(api.scripts.createBrick, {
         campaignId: lab,
         kind: "hook",
         label: `[E2E] hook ${ts}`,
         content,
-        angleFamily: "vérification",
+        ...(instruction ? { instruction } : {}),
       })) as Id<"scriptBricks">;
     }
 
@@ -83,7 +86,9 @@ test.describe("Graduation d'un hook", () => {
     // ── 2. Avec la cible : copie + désactivation ─────────────────────────────
     const prouvees = await campagne(PROVEN_CAMPAIGN_NAME);
 
-    const source = await hookDansLab(texte);
+    const consigne =
+      "Montre l'écran de notifications AVANT de parler — c'est l'élément qui justifie la vérification.";
+    const source = await hookDansLab(texte, consigne);
     const res = await admin.mutation(api.scripts.graduateHook, {
       brickId: source,
     });
@@ -101,8 +106,9 @@ test.describe("Graduation d'un hook", () => {
     const copie = prouveesApres?.bricks.find((b) => b._id === res.targetBrickId);
     expect(copie?.content).toBe(texte);
     expect(copie?.active, "la copie doit être ACTIVE").toBe(true);
-    // La famille d'angle suit le texte, pas la campagne.
-    expect(copie?.angleFamily).toBe("vérification");
+    // La CONSIGNE suit le texte, pas la campagne : graduer un hook ne doit pas
+    // vider la consigne que la créatrice lit sous ce bloc.
+    expect(copie?.instruction).toBe(consigne);
 
     // ── 3. IDEMPOTENCE — même texte, réécrit à la casse/espaces près ─────────
     // Le doublon qu'on cherche à éviter n'arrive pas par un re-clic (le bouton

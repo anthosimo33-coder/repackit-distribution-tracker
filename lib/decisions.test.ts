@@ -44,7 +44,6 @@ const post = (o: Partial<PostSignal> = {}): PostSignal => ({
   saves: 312,
   delta24h: 6_100,
   followersDelta: 143,
-  angleFamily: "vérification",
   hookBrickId: "hook_1",
   ...o,
 });

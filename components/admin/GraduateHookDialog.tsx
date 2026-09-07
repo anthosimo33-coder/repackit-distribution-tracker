@@ -16,7 +16,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
@@ -97,13 +96,6 @@ export function GraduateHookDialog({
             <blockquote className="rounded-md border-l-2 border-primary/40 bg-slate-50 px-3 py-2 text-sm text-slate-800">
               {preview.content}
             </blockquote>
-
-            {preview.angleFamily && (
-              <div className="flex items-center gap-2 text-xs text-slate-500">
-                Famille d&apos;angle
-                <Badge variant="outline">{preview.angleFamily}</Badge>
-              </div>
-            )}
 
             <div className="grid grid-cols-4 gap-2 text-center">
               <Score label="Vues" value={best ? formatNumber(best.vues) : "—"} />

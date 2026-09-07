@@ -22,37 +22,26 @@ function median(values: number[]): number | null {
   return s.length % 2 === 0 ? (s[mid - 1] + s[mid]) / 2 : s[mid];
 }
 
-/** Campagne 3 hooks (S/A/B) × 2 flux × 2 cta (refonte 3 briques). */
+/** Campagne 3 hooks × 2 flux × 2 cta (refonte 3 briques). */
 async function makeCampaign(ts: number) {
   const campaignId = await admin.mutation(api.scripts.createCampaign, {
     name: `[E2E_TEST] Decision ${ts}`,
   });
-  const add = (
-    kind: "hook" | "flux" | "cta",
-    label: string,
-    tier?: "S" | "A" | "B",
-  ) =>
+  const add = (kind: "hook" | "flux" | "cta", label: string) =>
     admin.mutation(api.scripts.createBrick, {
       campaignId,
       kind,
       label,
       content: `${label} contenu`,
-      ...(tier ? { tier } : {}),
     });
-  const hookS = await add("hook", "H-S", "S");
-  const hookA = await add("hook", "H-A", "A");
-  // 3e hook créé en "B" LEGACY : la dimension tier le replie sur « Autre » (A).
-  const hookB = await add("hook", "H-B", "B");
+  await add("hook", "H-1");
+  await add("hook", "H-2");
+  await add("hook", "H-3");
   await add("flux", "F1");
   await add("flux", "F2");
   await add("cta", "T1");
   await add("cta", "T2");
-  const tierByHook: Record<string, "S" | "A"> = {
-    [hookS]: "S",
-    [hookA]: "A",
-    [hookB]: "A", // ex-"B" → « Autre »
-  };
-  return { campaignId, tierByHook };
+  return { campaignId };
 }
 
 test.describe("S4 — moteur de décision (campaignDecisions)", () => {
@@ -67,7 +56,7 @@ test.describe("S4 — moteur de décision (campaignDecisions)", () => {
       password: "decision-12345",
     });
     const projectId = creator.projectId;
-    const { campaignId, tierByHook } = await makeCampaign(ts);
+    const { campaignId } = await makeCampaign(ts);
     const { pricingId } = await admin.mutation(api.pricing.createPricing, {
       name: `[E2E_TEST] Pricing ${ts}`,
       montantFixe: 100,
@@ -81,7 +70,7 @@ test.describe("S4 — moteur de décision (campaignDecisions)", () => {
       platform: "TikTok",
       handle: `@e2edec${ts}`,
     });
-    // 9 vidéos → round-robin par hook → 3 par tier, 1 post / combo (anti-coord).
+    // 9 vidéos → round-robin par hook → 3 par hook, 1 post / combo (anti-coord).
     const r = await admin.mutation(api.scripts.assignScriptCampaign, {
       campaignId,
       creatorId: creator.creatorId,
@@ -102,7 +91,6 @@ test.describe("S4 — moteur de décision (campaignDecisions)", () => {
     expect(rows.length).toBe(9);
 
     type Post = {
-      tier: "S" | "A";
       hookBrickId: string;
       fluxBrickId: string;
       ctaBrickId: string;
@@ -136,7 +124,6 @@ test.describe("S4 — moteur de décision (campaignDecisions)", () => {
       );
       expect(res.publicationIds[0]).toBeTruthy();
       posts.push({
-        tier: tierByHook[combo.hookBrickId],
         hookBrickId: combo.hookBrickId,
         fluxBrickId: combo.fluxBrickId,
         ctaBrickId: combo.ctaBrickId,
@@ -172,7 +159,7 @@ test.describe("S4 — moteur de décision (campaignDecisions)", () => {
     expect(dec7.totalPosts).toBe(9);
     // 9 < 50 → AUCUN verdict, tout en_test, rien de jugeable.
     expect(dec7.anyJudgeable).toBe(false);
-    expect(dec7.dimensions.map((d) => d.kind)).toEqual(["tier", "flux", "cta"]);
+    expect(dec7.dimensions.map((d) => d.kind)).toEqual(["hook", "flux", "cta"]);
     for (const dim of dec7.dimensions) {
       for (const d of dim.decisions) {
         expect(d.verdict).toBe("en_test");
@@ -183,28 +170,11 @@ test.describe("S4 — moteur de décision (campaignDecisions)", () => {
 
     // ── Cohérence : les décisions COMPOSENT sur les agrégats S3 (mêmes
     //    postCount + médianes, pas de recalcul divergent). ───────────────────
-    const tier7 = await admin.query(api.scriptAnalytics.perfByTier, {
-      campaignId,
-      window: "j7",
-    });
-    const tierDim = dec7.dimensions.find((d) => d.kind === "tier")!;
-    expect(tierDim.decisions.length).toBe(2); // 2 tiers (Argent/Autre)
-    for (const t of ["S", "A"] as const) {
-      const s3 = tier7.find((x) => x.tier === t)!;
-      const dec = tierDim.decisions.find((x) => x.key === t)!;
-      expect(dec.postCount).toBe(s3.postCount);
-      expect(dec.viewsMedian).toBe(s3.viewsMedian);
-      // Recoupe l'attendu local.
-      expect(dec.viewsMedian).toBe(
-        median(posts.filter((p) => p.tier === t).map((p) => p.vues7)),
-      );
-    }
-
     const brick7 = await admin.query(api.scriptAnalytics.perfByBrick, {
       campaignId,
       window: "j7",
     });
-    for (const kind of ["flux", "cta"] as const) {
+    for (const kind of ["hook", "flux", "cta"] as const) {
       const dim = dec7.dimensions.find((d) => d.kind === kind)!;
       expect(dim.decisions.length).toBeGreaterThan(0);
       for (const dec of dim.decisions) {
@@ -230,12 +200,14 @@ test.describe("S4 — moteur de décision (campaignDecisions)", () => {
       campaignId,
       window: "j3",
     });
-    const tDim3 = dec3.dimensions.find((d) => d.kind === "tier")!;
+    const hookDim3 = dec3.dimensions.find((d) => d.kind === "hook")!;
+    const hookDim7 = dec7.dimensions.find((d) => d.kind === "hook")!;
+    expect(hookDim3.decisions.length).toBe(3); // 3 hooks jugés UN À UN
     expect(
-      (["S", "A", "B"] as const).some(
-        (t) =>
-          tDim3.decisions.find((x) => x.key === t)!.viewsMedian !==
-          tierDim.decisions.find((x) => x.key === t)!.viewsMedian,
+      hookDim3.decisions.some(
+        (d3) =>
+          d3.viewsMedian !==
+          hookDim7.decisions.find((d7) => d7.key === d3.key)!.viewsMedian,
       ),
     ).toBe(true);
 

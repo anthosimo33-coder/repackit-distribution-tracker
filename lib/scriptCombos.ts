@@ -14,7 +14,7 @@
  * historiques gardent leur clé 4 segments — espaces de clés DISJOINTS, donc
  * aucune collision sur l'index anti-coordination by_creator_combo.
  */
-import { assembleScript, type ScriptKind, type ScriptTier } from "./scriptAssembly";
+import { assembleScript, type ScriptKind } from "./scriptAssembly";
 
 /**
  * La DURÉE du cooldown ne vit plus ici : c'est un réglage PAR PROJET
@@ -130,7 +130,6 @@ export interface ComboBrick {
   kind: ScriptKind;
   content: string;
   active: boolean;
-  tier?: ScriptTier | null;
 }
 
 export interface Combo {

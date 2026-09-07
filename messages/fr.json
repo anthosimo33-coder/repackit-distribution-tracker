@@ -239,7 +239,8 @@
       "inVideo": "Dans la vidéo",
       "inVideoHint": "Chaque partie précise si c'est à dire, à afficher, ou les deux.",
       "inDescription": "En description",
-      "inDescriptionHint": "Copie-colle ça en légende de ton post (hashtags inclus)."
+      "inDescriptionHint": "Copie-colle ça en légende de ton post (hashtags inclus).",
+      "instruction": "Instruction"
     },
     "copy": {
       "copy": "Copier",

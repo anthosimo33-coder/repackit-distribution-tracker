@@ -3,7 +3,7 @@
  *
  * Module PUR (aucun import Convex) : importable depuis `convex/` et le client,
  * testable en vitest via `lib/graduation.test.ts`. Même arrangement que
- * `convex/angleFamily.ts`.
+ * `convex/dateFr.ts`.
  *
  * ── La règle ─────────────────────────────────────────────────────────────────
  * Un hook du LAB qui a fait ses preuves SUR UN RUN (une publication réelle, pas

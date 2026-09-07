@@ -293,3 +293,23 @@ Ce fichier liste les anti-patterns repérés dans la zone touchée par chaque fe
   ligne devenait « (kelly) · ref rattachée à personne » et le « Total attribué »
   tombait de 92,67 € à 37,08 € — 60 % du revenu attribué évaporé à l'instant où
   l'on enregistre un départ. Après : 92,67 €, inchangé.
+
+## Détecté pendant le retrait du tier et de la famille d'angle (septembre 2026)
+
+### TD-028 — `scriptBricks.tier` et `scriptBricks.angleFamily` survivent au schéma le temps d'une migration
+- **Fichiers** : `convex/schema.ts` (table `scriptBricks`, deux lignes marquées
+  LEGACY), `convex/scripts.ts` (`stripBrickTaxonomy` / `e2eStripBrickTaxonomy`).
+- **Constat** : les deux champs ne sont plus ni écrits ni lus par une seule ligne
+  de code — écrans, agrégats, moteur de décision et tirage les ont perdus dans la
+  même PR. Ils restent DÉCLARÉS parce qu'un `convex deploy` refuse tout document
+  portant un champ absent du schéma : retirer les lignes avant que la prod ne
+  soit nettoyée casserait le déploiement.
+- **Conséquence** : deux champs morts dans le schéma, et un lecteur du fichier qui
+  doit lire le commentaire pour savoir qu'ils ne veulent plus rien dire.
+- **Forme du correctif** : lancer la migration en prod
+  (`./scripts/convex-prod.sh run scripts:stripBrickTaxonomy`), vérifier qu'elle
+  rend `migrated: 0` au second passage, puis supprimer les deux lignes du schéma
+  et la migration elle-même.
+- **Ce qui rendrait ça urgent** : rien avant la prochaine évolution de
+  `scriptBricks` — le risque est qu'un futur champ soit modelé sur ces deux-là,
+  ou qu'une requête les relise « puisqu'ils sont là ».

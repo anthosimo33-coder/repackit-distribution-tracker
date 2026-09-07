@@ -143,7 +143,6 @@ test.describe("Défis — la prime dans la paie", () => {
         kind,
         label,
         content: `${label} texte`,
-        ...(kind === "hook" ? { tier: "S" as const } : {}),
       });
     // Quatre hooks : de quoi donner 3 combos distincts à Kelly + 1 à Marine.
     const h1 = await add("hook", "H1");
@@ -368,7 +367,6 @@ test.describe("Défis — la prime dans la paie", () => {
         kind,
         label,
         content: `${label} texte`,
-        ...(kind === "hook" ? { tier: "S" as const } : {}),
       });
     const h1 = await add("hook", "H1");
     const flux = await add("flux", "F1");

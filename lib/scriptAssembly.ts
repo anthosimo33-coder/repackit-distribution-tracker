@@ -11,8 +11,6 @@
  */
 
 export type ScriptKind = "hook" | "flux" | "cta";
-export type ScriptTier = "S" | "A" | "B";
-
 /** Les 3 kinds combinables, dans l'ordre de montage. */
 export const SCRIPT_KINDS: readonly ScriptKind[] = [
   "hook",

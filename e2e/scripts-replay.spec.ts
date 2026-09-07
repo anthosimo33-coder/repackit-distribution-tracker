@@ -21,18 +21,16 @@ async function makeCampaign(ts: number) {
   const add = (
     kind: "hook" | "flux" | "cta",
     label: string,
-    content: string,
-    tier?: "S" | "A",
+    content: string
   ) =>
     admin.mutation(api.scripts.createBrick, {
       campaignId,
       kind,
       label,
       content,
-      ...(tier ? { tier } : {}),
     });
-  await add("hook", "H-S", "Hook S contenu", "S");
-  await add("hook", "H-A", "Hook A contenu", "A");
+  await add("hook", "H-S", "Hook S contenu");
+  await add("hook", "H-A", "Hook A contenu");
   await add("flux", "F1", "Flux 1 contenu");
   await add("cta", "T1", "Cta 1 contenu");
   await add("cta", "T2", "Cta 2 contenu");

@@ -37,7 +37,6 @@ import {
   qualifiesForGraduation,
   type GraduationOutcome,
 } from "./graduation";
-import { normalizeAngleFamily } from "./angleFamily";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 
@@ -57,10 +56,6 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 // Kinds créables : refonte → hook/flux/cta. "corps" n'est plus créable (les
 // corps existants sont reclassés en hook par migrateCorpsToHooks).
 const KIND = v.union(v.literal("hook"), v.literal("flux"), v.literal("cta"));
-// 2 tiers visuels : "S" → « Argent », "A" → « Autre » (cf lib/script-tier).
-// "B" reste TOLÉRÉ par les args (legacy back-compat / seed de migration), mais
-// l'UI ne le propose plus jamais ; migrateTierBToA reclasse les "B" en "A".
-const TIER = v.union(v.literal("S"), v.literal("A"), v.literal("B"));
 
 // SNYTCH — mode d'usage d'une brique DANS LA VIDÉO (hook / flux) : à dire / à
 // afficher / les deux. Stocké UNIQUEMENT pour hook/flux (cf create/updateBrick).
@@ -568,7 +563,7 @@ async function assertComboFreeForCreatorPlatforms(
 
 /**
  * Combos UNIQUES disponibles pour assigner un créateur sur des plateformes
- * données : total des combos de la campagne (après filtre tier) MOINS ceux déjà
+ * données : total des combos de la campagne MOINS ceux déjà
  * pris par ce créateur sur l'une des plateformes ciblées (unicité comboKey ×
  * créateur × plateforme). Alimente la modale pour prévenir AVANT d'assigner s'il
  * manque des combos uniques. `available` = combos encore attribuables.
@@ -584,7 +579,6 @@ export const availableCombosForAssignment = permissionQuery("scripts.manage")({
         v.literal("YouTube"),
       ),
     ),
-    tier: v.optional(TIER),
   },
   handler: async (ctx, args) => {
     await requireCampaign(ctx, args.campaignId, ctx.projectId);
@@ -592,11 +586,7 @@ export const availableCombosForAssignment = permissionQuery("scripts.manage")({
       .query("scriptBricks")
       .withIndex("by_campaign", (q) => q.eq("campaignId", args.campaignId))
       .collect();
-    const bricks =
-      args.tier === undefined
-        ? allBricks
-        : allBricks.filter((b) => b.kind !== "hook" || b.tier === args.tier);
-    const combos = generateCombosServer(bricks);
+    const combos = generateCombosServer(allBricks);
     const existing = await ctx.db
       .query("assignments")
       .withIndex("by_creator", (q) => q.eq("creatorId", args.creatorId))
@@ -639,7 +629,6 @@ export const previewCombosForAssignment = permissionQuery("scripts.manage")({
     targets: v.array(targetInputValidator),
     videosPerCreator: v.number(),
     postDates: v.optional(v.array(v.number())),
-    tier: v.optional(TIER),
     excludedComboKeys: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
@@ -648,11 +637,7 @@ export const previewCombosForAssignment = permissionQuery("scripts.manage")({
       .query("scriptBricks")
       .withIndex("by_campaign", (q) => q.eq("campaignId", args.campaignId))
       .collect();
-    const bricks =
-      args.tier === undefined
-        ? allBricks
-        : allBricks.filter((b) => b.kind !== "hook" || b.tier === args.tier);
-    const combos = generateCombosServer(bricks);
+    const combos = generateCombosServer(allBricks);
     if (combos.length === 0) {
       return {
         combos: [],
@@ -939,6 +924,19 @@ export const deleteCampaign = permissionMutation("scripts.manage")({
   },
 });
 
+/**
+ * Consigne STOCKÉE pour une saisie quelconque : bords rognés, `undefined` pour
+ * une saisie vide, blanche, nulle ou absente. « Pas de consigne » est une
+ * ABSENCE, jamais la chaîne vide — sans quoi la fiche créatrice afficherait un
+ * encart « Instruction » vide sous le bloc.
+ */
+function normalizeInstruction(
+  input: string | null | undefined,
+): string | undefined {
+  const trimmed = input?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
 // ─── Mutations — bricks ──────────────────────────────────────────────────────
 
 export const createBrick = permissionMutation("scripts.manage")({
@@ -947,10 +945,11 @@ export const createBrick = permissionMutation("scripts.manage")({
     kind: KIND,
     label: v.string(),
     content: v.string(),
-    tier: v.optional(TIER),
     mode: v.optional(MODE),
-    // Famille d'angle — chaîne LIBRE (cf convex/angleFamily.ts), hooks seulement.
-    angleFamily: v.optional(v.string()),
+    // Consigne de tournage LIBRE et OPTIONNELLE, lue par la créatrice sous ce
+    // bloc. Blanche = absence (jamais la chaîne vide, qui afficherait un encart
+    // vide côté créatrice).
+    instruction: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await requireCampaign(ctx, args.campaignId, ctx.projectId);
@@ -964,18 +963,11 @@ export const createBrick = permissionMutation("scripts.manage")({
       kind: args.kind,
       label,
       content: args.content,
-      // tier UNIQUEMENT pour les hooks.
-      tier: args.kind === "hook" ? args.tier : undefined,
       // mode (zone vidéo) UNIQUEMENT pour hook/flux ; absent = défaut "les_deux"
       // au read (Snytch). Ignoré pour cta.
       mode:
         args.kind === "hook" || args.kind === "flux" ? args.mode : undefined,
-      // Famille d'angle UNIQUEMENT pour les hooks (même règle que `tier`).
-      // Normalisée à l'écriture : une saisie blanche vaut ABSENCE, jamais "".
-      angleFamily:
-        args.kind === "hook"
-          ? (normalizeAngleFamily(args.angleFamily) ?? undefined)
-          : undefined,
+      instruction: normalizeInstruction(args.instruction),
       active: true,
       createdAt: Date.now(),
     });
@@ -987,14 +979,12 @@ export const updateBrick = permissionMutation("scripts.manage")({
     id: v.id("scriptBricks"),
     label: v.optional(v.string()),
     content: v.optional(v.string()),
-    // null = retirer le tier ; "S"|"A" = définir (ignoré si non-hook). "B"
-    // encore accepté par TIER (legacy) mais l'UI ne l'envoie plus.
-    tier: v.optional(v.union(TIER, v.null())),
     active: v.optional(v.boolean()),
     order: v.optional(v.number()),
     mode: v.optional(MODE),
-    // null = retirer la famille ; chaîne = définir (ignoré si non-hook).
-    angleFamily: v.optional(v.union(v.string(), v.null())),
+    // null = retirer la consigne ; chaîne = définir. Une saisie blanche vaut
+    // `null` (normalizeInstruction) : effacer le champ EFFACE la consigne.
+    instruction: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
     const brick = await ctx.db.get(args.id);
@@ -1010,9 +1000,6 @@ export const updateBrick = permissionMutation("scripts.manage")({
     if (args.content !== undefined) patch.content = args.content;
     if (args.active !== undefined) patch.active = args.active;
     if (args.order !== undefined) patch.order = args.order;
-    if (args.tier !== undefined && brick.kind === "hook") {
-      patch.tier = args.tier === null ? undefined : args.tier;
-    }
     // mode (zone vidéo) : hook/flux uniquement.
     if (
       args.mode !== undefined &&
@@ -1020,11 +1007,8 @@ export const updateBrick = permissionMutation("scripts.manage")({
     ) {
       patch.mode = args.mode;
     }
-    // Famille d'angle : hooks uniquement. `null` ET saisie blanche retirent la
-    // famille — la normalisation ramène les deux à `undefined`, donc effacer en
-    // vidant le champ marche comme choisir « — ».
-    if (args.angleFamily !== undefined && brick.kind === "hook") {
-      patch.angleFamily = normalizeAngleFamily(args.angleFamily) ?? undefined;
+    if (args.instruction !== undefined) {
+      patch.instruction = normalizeInstruction(args.instruction);
     }
     await ctx.db.patch(args.id, patch);
     return { ok: true };
@@ -1043,8 +1027,8 @@ export const deleteBrick = permissionMutation("scripts.manage")({
 
 /**
  * Importe des hooks de la BIBLIOTHÈQUE (table hooks) en scriptBricks kind="hook".
- * COPIE : le texte du hook devient un brick indépendant (taggable par tier sans
- * toucher la biblio). La table hooks est seulement LUE → reste intacte.
+ * COPIE : le texte du hook devient un brick indépendant (éditable sans toucher
+ * la biblio). La table hooks est seulement LUE → reste intacte.
  */
 export const importHooks = permissionMutation("scripts.manage")({
   args: {
@@ -1067,7 +1051,6 @@ export const importHooks = permissionMutation("scripts.manage")({
         kind: "hook",
         label,
         content: hook.text,
-        tier: undefined,
         active: true,
         createdAt: now,
       });
@@ -1098,7 +1081,6 @@ export const assignScriptCampaign = permissionMutation("assignments.manage")({
     targets: v.array(targetInputValidator),
     videosPerCreator: v.number(),
     dueDate: v.number(),
-    tier: v.optional(TIER),
     // Pricing OBLIGATOIRE (barème de paie). Validator `optional` UNIQUEMENT pour
     // émettre un ConvexError lisible si absent (sinon erreur validator brute) ;
     // le handler le rend requis. Plus aucun mode "sans pricing" (legacy retiré).
@@ -1217,8 +1199,8 @@ export const assignScriptCampaign = permissionMutation("assignments.manage")({
     await validateTargets(ctx, ctx.projectId, args.creatorId, args.targets);
 
     // Bricks de la campagne — servent au tirage AUTO (generateCombos) ET à valider
-    // un combo IMPOSÉ (validateImposedCombo). Le filtre tier et la génération ne
-    // s'appliquent qu'au chemin auto (cf branche de sélection ci-dessous).
+    // un combo IMPOSÉ (validateImposedCombo). La génération ne s'applique qu'au
+    // chemin auto (cf branche de sélection ci-dessous).
     const allBricks = await ctx.db
       .query("scriptBricks")
       .withIndex("by_campaign", (q) => q.eq("campaignId", args.campaignId))
@@ -1302,14 +1284,10 @@ export const assignScriptCampaign = permissionMutation("assignments.manage")({
       picked = Array.from({ length: args.videosPerCreator }, () => combo);
       totalCombos = 1;
     } else {
-      const bricks =
-        args.tier === undefined
-          ? allBricks
-          : allBricks.filter((b) => b.kind !== "hook" || b.tier === args.tier);
-      const combos = generateCombosServer(bricks);
+      const combos = generateCombosServer(allBricks);
       if (combos.length === 0) {
         throw new ConvexError(
-          "Aucun combo disponible (un type de brique manque, ou aucun hook actif pour ce tier).",
+          "Aucun combo disponible (un type de brique manque, ou aucun hook actif).",
         );
       }
       totalCombos = combos.length;
@@ -1607,7 +1585,7 @@ const MAX_BRICK_TEXT = 2000;
 
 /**
  * Édite le TEXTE d'UNE brique (hook | flux | cta) sur un assignment : FORKE une
- * NOUVELLE brique en bibliothèque (même kind + tier, texte modifié, active,
+ * NOUVELLE brique en bibliothèque (même kind, texte modifié, active,
  * même campagne) et l'applique au combo. La brique d'origine reste INTACTE.
  *
  * MÊME garde que editScriptCombo : autorisé TANT QUE le post n'est pas publié
@@ -1639,7 +1617,7 @@ export const editScriptBrickText = permissionMutation("scripts.manage")({
       throw new ConvexError(`Texte trop long (max ${MAX_BRICK_TEXT} caractères).`);
     }
 
-    // Brique d'origine du slot → on en HÉRITE kind + tier (jamais écrasée).
+    // Brique d'origine du slot → on en HÉRITE le kind (jamais écrasée).
     const currentId =
       args.slot === "hook"
         ? combo.hookBrickId
@@ -1651,14 +1629,17 @@ export const editScriptBrickText = permissionMutation("scripts.manage")({
       throw new ConvexError("Brique d'origine introuvable.");
     }
 
-    // FORK : nouvelle brique en bibliothèque (même kind + tier, texte modifié).
+    // FORK : nouvelle brique en bibliothèque (même kind, texte modifié). La
+    // CONSIGNE suit le texte : elle décrit ce que la créatrice doit faire de ce
+    // bloc, pas la version du texte — la perdre à chaque correction de coquille
+    // viderait silencieusement les fiches.
     const forkedId = await ctx.db.insert("scriptBricks", {
       projectId: ctx.projectId,
       campaignId: combo.campaignId,
       kind: orig.kind,
       label: `${orig.label} (variante)`,
       content: text,
-      tier: orig.tier, // hérite (undefined si non-hook)
+      instruction: orig.instruction,
       active: true,
       createdAt: Date.now(),
     });
@@ -1755,8 +1736,6 @@ export const seedRepackitScriptCampaign = internalMutation({
         kind: b.kind,
         label: b.label,
         content: b.content,
-        // Schéma : tier optional (S|A|B) — null (non-hook / non taggé) → undefined.
-        tier: b.tier ?? undefined,
         active: b.active,
         createdAt: now,
       });
@@ -1768,7 +1747,7 @@ export const seedRepackitScriptCampaign = internalMutation({
 
 /**
  * REFONTE 3 briques — migration data : reclasse TOUTES les briques kind="corps"
- * en kind="hook" tier "A" (l'audit confirme que les corps sont des hooks). PATCH
+ * en kind="hook" (l'audit confirme que les corps sont des hooks). PATCH
  * uniquement (même _id), JAMAIS de delete → 0 perte d'historique. Les combos
  * figés (assignments.scriptCombo.assembledScript) sont du TEXTE autonome : ils
  * ne bougent pas. Les publications.scriptCombo.corpsBrickId historiques pointent
@@ -1786,7 +1765,7 @@ export const migrateCorpsToHooks = internalMutation({
     let migrated = 0;
     for (const b of all) {
       if (b.kind !== "corps") continue;
-      await ctx.db.patch(b._id, { kind: "hook", tier: "A" });
+      await ctx.db.patch(b._id, { kind: "hook" });
       migrated++;
     }
     return { migrated };
@@ -1794,38 +1773,41 @@ export const migrateCorpsToHooks = internalMutation({
 });
 
 /**
- * Passage à 2 tiers (Argent/Autre) : reclasse TOUS les hooks tier "B" en "A".
- * PATCH du seul champ `tier` (même _id) → n'altère AUCUN assembledScript figé,
- * combo, assignment ni snapshot analytics (le tier d'une pub est re-résolu à
- * l'affichage depuis hookBrickId : un ex-"B" affichera « Autre », ce qui est
- * voulu). Tourne sur TOUS les projets (internalMutation, pas de ctx.projectId).
+ * RETRAIT de la taxonomie de hook (`tier` + `angleFamily`) : efface les DEUX
+ * champs de TOUTES les briques. Plus rien ne les écrit ni ne les lit — mais un
+ * `convex deploy` refuse tout document portant un champ absent du schéma, donc
+ * cette migration doit passer AVANT la PR de resserrage qui retire les deux
+ * lignes de `convex/schema.ts`.
  *
- * IDEMPOTENTE : relançable sans effet (no-op s'il ne reste aucun "B"). À lancer
- * APRÈS le deploy du code 2-tiers (même PR) :
- *   npx convex run scripts:migrateTierBToA --prod
+ * PATCH du seul couple de champs (même _id) → n'altère AUCUN assembledScript
+ * figé, combo, assignment ni publication : le texte des briques, leur kind et
+ * leur mode ne bougent pas.
+ *
+ * IDEMPOTENTE : relançable sans effet (no-op quand plus aucune brique n'en
+ * porte). Tourne sur TOUS les projets (internalMutation, pas de ctx.projectId).
+ * À lancer APRÈS le deploy de cette PR :
+ *   ./scripts/convex-prod.sh run scripts:stripBrickTaxonomy
  */
-async function reclassTierBToA(
-  ctx: MutationCtx,
-): Promise<{ migrated: number }> {
+async function stripTaxonomy(ctx: MutationCtx): Promise<{ migrated: number }> {
   const all = await ctx.db.query("scriptBricks").collect();
   let migrated = 0;
   for (const b of all) {
-    if (b.tier !== "B") continue;
-    await ctx.db.patch(b._id, { tier: "A" });
+    if (b.tier === undefined && b.angleFamily === undefined) continue;
+    await ctx.db.patch(b._id, { tier: undefined, angleFamily: undefined });
     migrated++;
   }
   return { migrated };
 }
 
-export const migrateTierBToA = internalMutation({
+export const stripBrickTaxonomy = internalMutation({
   args: {},
-  handler: (ctx) => reclassTierBToA(ctx),
+  handler: (ctx) => stripTaxonomy(ctx),
 });
 
 /** Variante e2e (gated E2E_SECRET) pour prouver la migration en test. */
-export const e2eMigrateTierBToA = e2eMutation({
+export const e2eStripBrickTaxonomy = e2eMutation({
   args: {},
-  handler: (ctx) => reclassTierBToA(ctx),
+  handler: (ctx) => stripTaxonomy(ctx),
 });
 
 /** Supprime les campagnes de test ([E2E_TEST]) + leurs bricks (cascade). */
@@ -1880,7 +1862,6 @@ export const assignScriptToRush = permissionMutation("assignments.manage")({
     campaignId: v.id("scriptCampaigns"),
     targets: v.array(targetInputValidator),
     dueDate: v.number(),
-    tier: v.optional(TIER),
     overlayText: v.optional(v.string()),
     // Consigne de montage libre, propre à ce clip (champ partagé avec le flux
     // partenaire, déjà classé dans les deux allowlists).
@@ -1981,20 +1962,18 @@ export const assignScriptToRush = permissionMutation("assignments.manage")({
         }
       }
     } else {
-      // D7 : filtrage AVANT le tirage. Le tier ne filtre que les hooks, comme
-      // dans le chemin partenaire.
-      const tiered =
-        args.tier === undefined
-          ? allBricks
-          : allBricks.filter((b) => b.kind !== "hook" || b.tier === args.tier);
-      const eligible = eligibleBricksForRush(tiered);
+      // D7 : filtrage AVANT le tirage (un rush est muet — seul ce qui s'affiche
+      // est assignable), comme dans le chemin partenaire.
+      const eligible = eligibleBricksForRush(allBricks);
       const combos = generateCombosServer(eligible);
       if (combos.length === 0) {
         // Message qui NOMME les briques à corriger — « aucun combo disponible »
         // tout court laisse l'admin sans geste possible.
         throw new ConvexError(
           describeNoEligibleCombo(
-            tiered.filter((b) => isGuardedKind(b.kind) && !isBrickRushEligible(b)),
+            allBricks.filter(
+              (b) => isGuardedKind(b.kind) && !isBrickRushEligible(b),
+            ),
           ),
         );
       }
@@ -2188,11 +2167,10 @@ export const graduateHook = permissionMutation("scripts.manage")({
       kind: "hook",
       label: brick.label,
       content: brick.content,
-      tier: brick.tier,
       mode: brick.mode,
-      // La famille d'angle SUIT le hook : c'est une propriété du texte, pas de
-      // la campagne qui l'héberge.
-      angleFamily: brick.angleFamily,
+      // La CONSIGNE suit le hook : c'est une propriété du texte, pas de la
+      // campagne qui l'héberge.
+      instruction: brick.instruction,
       active: true,
       createdAt: Date.now(),
     });
@@ -2259,7 +2237,6 @@ export const getGraduationPreview = permissionQuery("scripts.manage")({
 
     return {
       content: brick.content,
-      angleFamily: brick.angleFamily ?? null,
       targetCampaignName: target?.name ?? null,
       runs: runs.length,
       best: meilleur,

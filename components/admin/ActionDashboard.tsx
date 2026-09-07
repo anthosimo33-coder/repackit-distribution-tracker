@@ -435,7 +435,6 @@ function DecideList({
                   `${formatPercent(d.likeRate)} likes`,
                   `${formatNumber(d.post.saves ?? 0)} saves`,
                   `+${formatNumber(d.post.followersDelta ?? 0)} abonnés`,
-                  ...(d.post.angleFamily ? [d.post.angleFamily] : []),
                 ].join(" · ")}
                 action={
                   d.post.creatorId !== null && provenCampaign !== null ? (
@@ -473,7 +472,6 @@ function DecideList({
                     ? `${formatPercent(rateOf(g.best.saves, g.best.vues) ?? 0)} saves`
                     : "saves —",
                   `${g.runs} run${g.runs > 1 ? "s" : ""}`,
-                  ...(g.angleFamily ? [g.angleFamily] : []),
                 ].join(" · ")}
                 action={
                   <InlineAction
@@ -753,11 +751,6 @@ function PostRow({ post: p, now }: { post: Post48h; now: number }) {
             {p.label || "(sans titre)"}
           </span>
           <TypeBadge type={p.type} />
-          {p.angleFamily && (
-            <Badge variant="outline" className="shrink-0 text-[10px]">
-              {p.angleFamily}
-            </Badge>
-          )}
         </div>
         <div className="truncate text-xs text-slate-400">
           {p.compte} · {relativeAge(p.postedAt, now)}

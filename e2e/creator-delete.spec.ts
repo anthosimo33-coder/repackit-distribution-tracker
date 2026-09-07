@@ -47,7 +47,6 @@ test.describe("Suppression d'un créateur — cascade + historique conservé", (
       kind: "hook",
       label: "H1",
       content: "H1 contenu",
-      tier: "S",
     });
     await admin.mutation(api.scripts.createBrick, {
       campaignId,

@@ -101,7 +101,6 @@ async function makeChallenge(ts: number, tag: string, targetViews: number) {
       kind,
       label,
       content: `${label} texte`,
-      ...(kind === "hook" ? { tier: "S" as const } : {}),
     });
   const h1 = await add("hook", "H1");
   const flux = await add("flux", "F1");

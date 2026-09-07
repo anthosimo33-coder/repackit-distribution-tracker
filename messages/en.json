@@ -239,7 +239,8 @@
       "inVideo": "In the video",
       "inVideoHint": "Each part says whether to say it, show it, or both.",
       "inDescription": "In the description",
-      "inDescriptionHint": "Copy and paste this as your post caption (hashtags included)."
+      "inDescriptionHint": "Copy and paste this as your post caption (hashtags included).",
+      "instruction": "Instruction"
     },
     "copy": {
       "copy": "Copy",

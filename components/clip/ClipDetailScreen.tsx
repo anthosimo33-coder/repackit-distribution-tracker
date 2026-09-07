@@ -9,7 +9,10 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { useClipperProject } from "@/components/clip/ClipperProjectProvider";
 import { useClipperBase, useMyClip } from "@/components/clip/clipper-data";
 import { useReadOnly } from "@/components/portal/ViewAsContext";
-import { ScriptDestinationZones } from "@/components/scripts/ScriptDestinationZones";
+import {
+  ScriptDestinationZones,
+  ScriptInstructionList,
+} from "@/components/scripts/ScriptDestinationZones";
 import { ModelVideoEmbed } from "@/components/portal/ModelVideoEmbed";
 import { ClipPublishForm } from "@/components/clip/ClipPublishForm";
 import { VideoUploader, type UploadedVideo } from "@/components/VideoUploader";
@@ -188,20 +191,23 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
         </Card>
       )}
 
-      {/* SCRIPT MONTÉ. Le clippeur reçoit le TEXTE, jamais la décomposition
-          (briques, tier, campagne) : elle sert à l'anti-coordination. */}
+      {/* SCRIPT MONTÉ. Le clippeur reçoit le TEXTE et les consignes de ses
+          blocs, jamais la décomposition (briques, campagne) : elle sert à
+          l'anti-coordination. */}
       {clip.scriptZones ? (
         <ScriptDestinationZones
           videoBlocks={clip.scriptZones.videoBlocks}
           descriptionScript={clip.scriptZones.descriptionScript}
+          instructions={clip.scriptInstructions}
         />
       ) : clip.assembledScript ? (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{tc("scriptToEdit")}</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
             <SimpleMarkdown content={clip.assembledScript} />
+            <ScriptInstructionList items={clip.scriptInstructions} />
           </CardContent>
         </Card>
       ) : null}

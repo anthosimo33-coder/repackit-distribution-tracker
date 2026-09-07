@@ -68,7 +68,6 @@ test.describe("Cooldown de combo — réglage par projet", () => {
         kind,
         label,
         content: `${label} contenu`,
-        ...(kind === "hook" ? { tier: "S" as const } : {}),
       });
     await add("hook", "H1");
     await add("flux", "F1");

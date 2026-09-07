@@ -38,7 +38,6 @@ import {
 } from "@/convex/postWindow";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { Loader2Icon, VideoIcon } from "lucide-react";
-import { SCRIPT_TIERS, tierLabel } from "@/lib/script-tier";
 import { AssignmentPlanningCalendar } from "@/components/admin/AssignmentPlanningCalendar";
 import { useLabel } from "@/lib/use-label";
 import {
@@ -56,7 +55,6 @@ import {
  * pricingSnapshot ; les anciens champs tarif de base / bonus aux vues sont retirés.
  */
 
-const TIER_ALL = "__all__";
 const NONE = "__none__";
 const PLATFORMS = ["TikTok", "YouTube", "Instagram"] as const;
 type Platform = (typeof PLATFORMS)[number];
@@ -201,7 +199,6 @@ export function AssignScriptCampaignDialog({
   const [remunerated, setRemunerated] = useState<boolean | null>(null);
   const [qualifTouched, setQualifTouched] = useState(false);
   const [due, setDue] = useState(defaultDue());
-  const [tier, setTier] = useState<string>(TIER_ALL);
   const [pricingId, setPricingId] = useState<string>(NONE);
   const [overlayText, setOverlayText] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -244,7 +241,6 @@ export function AssignScriptCampaignDialog({
       setVideos(String(DEFAULT_VIDEOS));
       setSlotDates(Array(DEFAULT_VIDEOS).fill(null));
       setDue(defaultDue());
-      setTier(TIER_ALL);
       setPricingId(NONE);
       setOverlayText("");
       setSelectedFolderIds(new Set());
@@ -338,7 +334,6 @@ export function AssignScriptCampaignDialog({
           campaignId,
           creatorId: creatorId as Id<"creators">,
           platforms: targets.map((t) => t.platform),
-          tier: tier === TIER_ALL ? undefined : (tier as "S" | "A"),
         }
       : "skip",
   );
@@ -382,7 +377,6 @@ export function AssignScriptCampaignDialog({
         targets,
         videosPerCreator,
         dueDate: dueMs,
-        tier: tier === TIER_ALL ? undefined : (tier as "S" | "A"),
         pricingId: pricingId as Id<"pricings">,
         overlayText: overlayText.trim() || undefined,
         assetFolderIds:
@@ -554,7 +548,6 @@ export function AssignScriptCampaignDialog({
           targets: b.targets,
           videosPerCreator: videosNum,
           dueDate: dueMs,
-          tier: tier === TIER_ALL ? undefined : (tier as "S" | "A"),
           pricingId: pricingId as Id<"pricings">,
           overlayText: overlayText.trim() || undefined,
           assetFolderIds:
@@ -666,7 +659,6 @@ export function AssignScriptCampaignDialog({
           targets,
           videosPerCreator: videosNum,
           postDates: postDatesPayload,
-          tier: tier === TIER_ALL ? undefined : (tier as "S" | "A"),
           excludedComboKeys: rejetes.length > 0 ? rejetes : undefined,
         }
       : "skip",
@@ -675,7 +667,7 @@ export function AssignScriptCampaignDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* Modale ÉLARGIE : beaucoup de champs (créateur, dates, planification,
-          tier, barème, overlay, assets, vidéos exemples). max-w-3xl évite la
+          barème, overlay, assets, vidéos exemples). max-w-3xl évite la
           troncation horizontale ; le contenu scrolle verticalement (max-h). */}
       <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
@@ -1240,29 +1232,8 @@ export function AssignScriptCampaignDialog({
             </div>
           )}
 
-          {/* Filtre tier de hook (AUTO uniquement — sans objet quand le hook est
-              explicitement choisi) + barème de paie (pricing OBLIGATOIRE). */}
-          <div className={comboMode === "auto" ? "grid grid-cols-2 gap-4" : ""}>
-            {comboMode === "auto" && (
-            <div className="space-y-1.5">
-              <Label htmlFor="tier">Tier de hook</Label>
-              <Select value={tier} onValueChange={(v) => v && setTier(v)}>
-                <SelectTrigger id="tier">
-                  <SelectValue>
-                    {tier === TIER_ALL ? "Tous" : tierLabel(tier)}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={TIER_ALL}>Tous</SelectItem>
-                  {SCRIPT_TIERS.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {tierLabel(t)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            )}
+          {/* Barème de paie (pricing OBLIGATOIRE). */}
+          <div>
             <div className="space-y-1.5">
               <Label htmlFor="pricing">Pricing (barème de paie)</Label>
               <Select

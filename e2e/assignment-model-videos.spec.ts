@@ -35,17 +35,15 @@ test.describe("Vidéos modèles liées à un assignment", () => {
     });
     const addBrick = (
       kind: "hook" | "flux" | "cta",
-      label: string,
-      tier?: "S",
+      label: string
     ) =>
       admin.mutation(api.scripts.createBrick, {
         campaignId,
         kind,
         label,
         content: `${label} contenu`,
-        ...(tier ? { tier } : {}),
       });
-    await addBrick("hook", "H", "S");
+    await addBrick("hook", "H");
     await addBrick("flux", "F");
     await addBrick("cta", "C");
     const { pricingId } = await admin.mutation(api.pricing.createPricing, {

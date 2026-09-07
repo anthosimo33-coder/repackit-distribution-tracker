@@ -50,7 +50,6 @@ test.describe("Barèmes — dérive des snapshots figés", () => {
         kind,
         label,
         content: `${label} drift ${ts}`,
-        ...(kind === "hook" ? { tier: "S" as const } : {}),
       });
     }
     const target = await availableTarget({
