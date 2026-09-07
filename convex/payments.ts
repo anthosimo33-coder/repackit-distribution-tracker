@@ -542,7 +542,45 @@ export type CyclePayment = {
    * n'aurait de toute façon pas déplacé.
    */
   computedBeforePayWindow: boolean;
+  /**
+   * ID de la row Convex — `null` pour un cycle qui n'a pas encore de row (il est
+   * calculé live). Les gestes qui portent sur la ROW (annulation) en ont besoin.
+   */
+  paymentId: Id<"payments"> | null;
+  /**
+   * ACOMPTES déjà versés sur ce cycle, du plus ancien au plus récent. Un cycle
+   * sans acompte rend `[]` — l'écran ne montre alors rien de plus qu'avant.
+   */
+  advances: { amount: number; at: number; note?: string }[];
+  /**
+   * Ce qu'il RESTE à verser : `totalDue − acomptes`, jamais négatif. Sur un
+   * cycle payé, il vaut 0. C'est ce nombre que l'écran additionne — `totalDue`
+   * reste « ce que vaut le cycle », et les deux ne se confondent pas.
+   */
+  remainingDue: number;
+  /**
+   * L'annulation est-elle encore disponible ? Elle l'est UNE fois, tant que le
+   * reçu posé au paiement n'a pas été consommé. `false` sur un cycle non payé,
+   * sur un cycle déjà annulé une fois, et sur les paiements antérieurs au reçu.
+   */
+  canRevert: boolean;
 };
+
+/** Acomptes d'une row, prêts pour l'écran (sans l'auteur, qui ne s'affiche pas). */
+function advancesOf(
+  row: Doc<"payments"> | undefined,
+): { amount: number; at: number; note?: string }[] {
+  return (row?.advances ?? []).map((a) => ({
+    amount: a.amount,
+    at: a.at,
+    ...(a.note !== undefined ? { note: a.note } : {}),
+  }));
+}
+
+/** Somme des acomptes versés sur une row (0 si aucune, ou aucun acompte). */
+function advancedTotalOf(row: Doc<"payments"> | undefined): number {
+  return round2((row?.advances ?? []).reduce((s, a) => s + a.amount, 0));
+}
 
 /** LineItems GELÉES (fixed/cpm + bonus_tier cash) construites depuis un breakdown. */
 function frozenLineItemsFromBreakdown(b: PricingBreakdown): LineItem[] {
@@ -693,9 +731,18 @@ export async function cyclePaymentsForCreator(
           paidAt: paid.paidAt,
           lineItemKinds: paid.lineItems.map((li) => li.kind),
         }),
+        paymentId: paid._id,
+        advances: advancesOf(paid),
+        // Un cycle payé ne reste rien : le solde a été versé, quels qu'aient
+        // été les acomptes qui l'ont précédé.
+        remainingDue: 0,
+        canRevert: paid.undo !== undefined,
       });
       continue;
     }
+    const openRow = rows.find(
+      (r) => r.period === period && r.status !== "paid",
+    );
     const legacyItems = legacyByCycle.get(k) ?? [];
     const legacyIds = new Set(
       legacyItems
@@ -733,6 +780,17 @@ export async function cyclePaymentsForCreator(
         : null,
       // Cycle EN COURS : il se calcule live, donc sous la règle actuelle.
       computedBeforePayWindow: false,
+      paymentId: openRow?._id ?? null,
+      advances: advancesOf(openRow),
+      // « Dû du jour − déjà versé » : le montant continue de suivre les vues,
+      // donc le reste bouge avec lui. Jamais négatif — un acompte plus gros que
+      // le dû (vues retombées, correction de lien) laisse un cycle à 0, pas une
+      // créance de l'admin sur la créatrice.
+      remainingDue: Math.max(
+        0,
+        round2(round2(legacyTotal + breakdown.total) - advancedTotalOf(openRow)),
+      ),
+      canRevert: false,
     });
   }
   return out.filter(
@@ -810,6 +868,19 @@ async function collectProjectPaymentRows(
       // Row ORPHELINE (fiche supprimée) : on ne sait plus si c'était un talent,
       // et ses rushes ont disparu avec la fiche. `null` = rien à afficher.
       rushCount: null as number | null,
+      // Mêmes champs que les cycles vivants — une row orpheline reste une LIGNE
+      // de cet écran, et un champ absent y devient `undefined` à l'affichage.
+      computedBeforePayWindow: paidBeforePayWindow({
+        paidAt: p.paidAt ?? null,
+        lineItemKinds: p.lineItems.map((li) => li.kind),
+      }),
+      paymentId: p._id,
+      advances: advancesOf(p),
+      remainingDue:
+        p.status === "paid"
+          ? 0
+          : Math.max(0, round2(p.totalDue - advancedTotalOf(p))),
+      canRevert: p.status === "paid" && p.undo !== undefined,
       creatorId: p.creatorId,
       creatorName: p.creatorNameSnapshot ?? "—",
       creatorEmail: "",
@@ -855,9 +926,11 @@ export const getDueTotal = permissionQuery("payments.manage")({
   handler: async (ctx) => {
     const rows = await collectProjectPaymentRows(ctx, ctx.projectId);
     return {
+      // RESTE à verser, acomptes déduits : c'est le nombre que l'admin doit
+      // sortir de sa banque. Sommer `totalDue` re-compterait l'argent déjà viré.
       dueTotal: rows
         .filter((p) => p.status !== "paid")
-        .reduce((sum, p) => sum + p.totalDue, 0),
+        .reduce((sum, p) => sum + p.remainingDue, 0),
     };
   },
 });
@@ -1032,10 +1105,13 @@ export const markCyclePaid = permissionMutation("payments.manage")({
       ]),
     );
     const legacyOfCycle: LineItem[] = [];
+    // D'OÙ viennent les lignes déplacées : sans ça, l'annulation les rendrait à
+    // personne et le total de la row source resterait amputé.
+    const movedFrom: { paymentId: Id<"payments">; lineItems: LineItem[] }[] = [];
     for (const r of rows) {
       if (r.status === "paid" || r.period === period) continue;
       const keep: LineItem[] = [];
-      let moved = false;
+      const taken: LineItem[] = [];
       for (const li of r.lineItems) {
         const cyc =
           li.assignmentId !== undefined
@@ -1043,12 +1119,13 @@ export const markCyclePaid = permissionMutation("payments.manage")({
             : undefined;
         if (li.assignmentId !== undefined && cyc === cycleIndex) {
           legacyOfCycle.push(li);
-          moved = true;
+          taken.push(li);
         } else {
           keep.push(li);
         }
       }
-      if (moved) {
+      if (taken.length > 0) {
+        movedFrom.push({ paymentId: r._id, lineItems: taken });
         await ctx.db.patch(r._id, {
           lineItems: keep,
           totalDue: recomputeTotal(keep),
@@ -1072,6 +1149,26 @@ export const markCyclePaid = permissionMutation("payments.manage")({
         paidAt: now,
         lineItems,
         totalDue: paidTotal,
+        // Reçu d'ANNULATION — l'état exact d'avant, y compris ce qui a été
+        // déplacé depuis d'autres rows.
+        //
+        // UNE SEULE ANNULATION PAR CYCLE, et c'est ici que la règle tient : un
+        // cycle déjà annulé une fois ne reçoit PLUS de reçu, même re-payé.
+        // Sans cette ligne, « annuler / re-payer » rendrait l'annulation à
+        // l'infini — et la limite promise à l'écran serait fausse.
+        undo:
+          target.revertedAt === undefined
+            ? {
+                previousStatus: (target.status === "scheduled"
+                  ? "scheduled"
+                  : "accruing") as "scheduled" | "accruing",
+                previousLineItems: target.lineItems,
+                previousTotalDue: target.totalDue,
+                movedFrom,
+                paidAt: now,
+                paidTotal,
+              }
+            : undefined,
       });
     } else {
       paidTotal = recomputeTotal(frozen);
@@ -1083,6 +1180,16 @@ export const markCyclePaid = permissionMutation("payments.manage")({
         totalDue: paidTotal,
         status: "paid",
         paidAt: now,
+        // La row n'existait pas : l'état d'avant est une row VIDE en accrual —
+        // exactement ce que `getOrCreatePayment` aurait produit.
+        undo: {
+          previousStatus: "accruing",
+          previousLineItems: [],
+          previousTotalDue: 0,
+          movedFrom,
+          paidAt: now,
+          paidTotal,
+        },
         createdAt: now,
       });
     }
@@ -1097,6 +1204,165 @@ export const markCyclePaid = permissionMutation("payments.manage")({
       cycleEnd: w.cycleEnd,
     });
     return { ok: true, alreadyPaid: false };
+  },
+});
+
+/**
+ * ANNULER un paiement posé par erreur — UNE fois, et une seule.
+ *
+ * Ce n'est pas un « repasser en dû » : le marquage payé GÈLE des lignes (fixe,
+ * CPM, paliers, forfait) et en DÉPLACE d'autres depuis les rows d'autres
+ * périodes. Repasser le statut sans défaire tout ça laisserait des lignes gelées
+ * dans un cycle qui se recalcule live — donc un montant compté deux fois — et
+ * des rows sources amputées. L'annulation restaure donc le REÇU posé au
+ * paiement : lignes d'avant, total d'avant, statut d'avant, et rend à chaque row
+ * source ce qui lui avait été pris.
+ *
+ * UNE SEULE FOIS, parce que le reçu est CONSOMMÉ : après annulation, il n'y a
+ * plus d'état d'avant à restaurer, et un second passage inventerait le sien.
+ * `revertedAt` garde la trace du geste pour l'écran.
+ *
+ * La créatrice a déjà reçu l'e-mail « tu as été payée » : un e-mail de
+ * CORRECTION part (hors transaction, comme celui du paiement).
+ */
+export const revertCyclePayment = permissionMutation("payments.manage")({
+  args: { id: v.id("payments") },
+  handler: async (ctx, { id }) => {
+    const p = await ctx.db.get(id);
+    if (!p || p.projectId !== ctx.projectId) {
+      throw err(ERR.PAYMENT_NOT_FOUND, "Paiement introuvable.");
+    }
+    if (p.status !== "paid") {
+      throw err(ERR.PAYMENT_NOT_PAID, "Ce cycle n'est pas marqué payé.");
+    }
+    if (!p.undo) {
+      throw err(
+        ERR.PAYMENT_REVERT_USED,
+        p.revertedAt !== undefined
+          ? "Ce cycle a déjà été annulé une fois : la seconde annulation n'existe pas."
+          : "Ce paiement est antérieur à l'annulation — aucun état d'avant n'a été conservé.",
+      );
+    }
+    const undo = p.undo;
+
+    // 1. Rendre à chaque row source les lignes qui lui avaient été PRISES.
+    for (const m of undo.movedFrom) {
+      const src = await ctx.db.get(m.paymentId);
+      if (!src || src.projectId !== ctx.projectId) continue;
+      const lineItems = [...src.lineItems, ...m.lineItems];
+      await ctx.db.patch(m.paymentId, {
+        lineItems,
+        totalDue: recomputeTotal(lineItems),
+      });
+    }
+
+    // 2. Restaurer la row elle-même, et CONSOMMER le reçu.
+    await ctx.db.patch(id, {
+      status: undo.previousStatus,
+      lineItems: undo.previousLineItems,
+      totalDue: undo.previousTotalDue,
+      paidAt: undefined,
+      undo: undefined,
+      revertedAt: Date.now(),
+    });
+
+    // 3. Prévenir la créatrice — l'e-mail de paiement, lui, est déjà parti.
+    const w = await cycleWindowOfPayment(ctx, p);
+    await ctx.scheduler.runAfter(0, internal.emails.sendPaymentReverted, {
+      creatorId: p.creatorId,
+      amount: undo.paidTotal,
+      cycleStart: w.cycleStart,
+      cycleEnd: w.cycleEnd,
+    });
+
+    return { ok: true as const, restoredTotal: undo.previousTotalDue };
+  },
+});
+
+/**
+ * Fenêtre de cycle d'une row de paiement, pour les libellés d'e-mail. La row
+ * porte sa `period` (= début de cycle) ; on retombe sur `createdAt` quand la
+ * fiche créatrice n'a plus d'ancre — un e-mail avec une période approximative
+ * vaut mieux qu'une annulation qui échoue.
+ */
+async function cycleWindowOfPayment(
+  ctx: MutationCtx,
+  p: Doc<"payments">,
+): Promise<{ cycleStart: number; cycleEnd: number }> {
+  const creator = await ctx.db.get(p.creatorId);
+  const anchor = creator ? payAnchorOf(creator) : undefined;
+  if (anchor !== undefined) {
+    const parsed = Date.parse(p.period);
+    if (!Number.isNaN(parsed)) {
+      return { cycleStart: parsed, cycleEnd: parsed + CYCLE_LENGTH_MS };
+    }
+  }
+  return { cycleStart: p.createdAt, cycleEnd: p.createdAt + CYCLE_LENGTH_MS };
+}
+
+/**
+ * ACOMPTE — enregistre un versement PARTIEL sur un cycle encore ouvert.
+ *
+ * Le cycle NE se ferme PAS et son montant continue de suivre les vues : le reste
+ * dû est recalculé à chaque lecture (« dû du jour − déjà versé »). C'est
+ * l'arbitrage produit — un reste ferme exigerait de geler le cycle au premier
+ * versement, donc de payer d'avance des vues pas encore faites.
+ *
+ * Un acompte n'est PAS une ligne de paie : les `lineItems` disent ce qui est
+ * GAGNÉ, les `advances` ce qui est VERSÉ. Les mélanger ferait baisser le montant
+ * gagné du cycle à chaque virement — et le grand livre deviendrait illisible.
+ */
+export const recordAdvance = permissionMutation("payments.manage")({
+  args: {
+    creatorId: v.id("creators"),
+    cycleIndex: v.number(),
+    amount: v.number(),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { creatorId, cycleIndex, amount, note }) => {
+    if (!(amount > 0)) {
+      throw err(ERR.ADVANCE_INVALID, "Le montant d'un acompte doit être positif.");
+    }
+    const creator = await ctx.db.get(creatorId);
+    if (!creator || creator.projectId !== ctx.projectId) {
+      throw err(ERR.CREATOR_NOT_FOUND, "Créateur introuvable.");
+    }
+    const anchor = payAnchorOf(creator);
+    if (anchor === undefined) {
+      throw err(ERR.NO_PAY_CYCLE, "Aucun cycle : ce créateur n'a ni publication ni date d'activation.");
+    }
+    if (!Number.isInteger(cycleIndex) || cycleIndex < 0) {
+      throw err(ERR.CYCLE_INVALID, "Cycle invalide.");
+    }
+    const w = cycleWindow(anchor, cycleIndex);
+    const period = cyclePeriodKey(w.cycleStart);
+    const now = Date.now();
+    const row = await getOrCreatePayment(ctx, {
+      projectId: ctx.projectId,
+      creatorId,
+      period,
+      now,
+    });
+    if (row.status === "paid") {
+      throw err(
+        ERR.PAYMENT_ALREADY_PAID,
+        "Ce cycle est déjà soldé : un acompte n'a plus d'objet.",
+      );
+    }
+    const advances = [
+      ...(row.advances ?? []),
+      {
+        amount: round2(amount),
+        at: now,
+        actorUserId: ctx.userId,
+        ...(note?.trim() ? { note: note.trim() } : {}),
+      },
+    ];
+    await ctx.db.patch(row._id, { advances });
+    return {
+      ok: true as const,
+      advancedTotal: round2(advances.reduce((s, a) => s + a.amount, 0)),
+    };
   },
 });
 

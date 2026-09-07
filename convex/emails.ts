@@ -21,6 +21,7 @@ import {
   approvedEmailCopy,
   rejectedEmailCopy,
   paidEmailCopy,
+  revertedEmailCopy,
   assignedEmailCopy,
   nudgeEmailCopy,
   reminderEmailCopy,
@@ -318,6 +319,56 @@ export const sendVideoRejected = internalAction({
 });
 
 // ─── 4. Paiement effectué ────────────────────────────────────────────────────
+
+/**
+ * ANNULATION d'un paiement — e-mail de correction. Jumeau exact de
+ * `sendPaymentPaid` (mêmes gardes : e-mail désactivé, destinataire de test,
+ * fiche introuvable), parce que c'est le MÊME événement vu à l'envers et qu'il
+ * doit se comporter pareil quand rien n'est configuré.
+ */
+export const sendPaymentReverted = internalAction({
+  args: {
+    creatorId: v.id("creators"),
+    amount: v.number(),
+    cycleStart: v.number(),
+    cycleEnd: v.number(),
+  },
+  handler: async (
+    ctx,
+    { creatorId, amount, cycleStart, cycleEnd },
+  ): Promise<Outcome> => {
+    const cfg = emailConfig();
+    if (!cfg) return warnDisabled("paiement annulé");
+    const c = await ctx.runQuery(internal.emails.getCreatorContact, {
+      creatorId,
+    });
+    if (!c) return { ok: false, reason: "not-found" };
+    if (isNonNotifiableRecipient(c.email, c.name)) {
+      return { ok: false, reason: "test-recipient" };
+    }
+    const url = `${cfg.appBaseUrl}/app/paiements`;
+    const copy = revertedEmailCopy(c.locale);
+    const period = copy.period(
+      emailDate(cycleStart, c.locale),
+      emailDate(cycleEnd - 86_400_000, c.locale),
+    );
+    const money = emailAmount(amount, c.locale);
+    const html = renderEmail({
+      title: copy.subject,
+      bodyHtml:
+        p(copy.greeting(escapeHtml(c.name))) +
+        p(
+          copy.body(
+            `<strong>${escapeHtml(period)}</strong>`,
+            `<strong>${escapeHtml(money)}</strong>`,
+          ),
+        ) +
+        p(copy.detail),
+      cta: { label: copy.ctaLabel, url },
+    });
+    return deliver(cfg, "paiement annulé", c.email, copy.subject, html);
+  },
+});
 
 export const sendPaymentPaid = internalAction({
   args: {

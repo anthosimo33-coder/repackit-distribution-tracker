@@ -1027,6 +1027,11 @@
     "generic": "Une erreur est survenue.",
     "ERR_PERMISSION_DENIED": "Cette action ne t'est pas accordée. Demande le droit à un administrateur.",
     "ERR_FORMAT_RATE_NOT_SET": "La grille de rémunération de ce format n'a jamais été renseignée. Renseigne-la avant d'assigner, sinon la mission serait figée à 0.",
-    "ERR_SUPERADMIN_ONLY": "Réservé au superadmin."
+    "ERR_SUPERADMIN_ONLY": "Réservé au superadmin.",
+    "ERR_PAYMENT_NOT_FOUND": "Paiement introuvable.",
+    "ERR_PAYMENT_NOT_PAID": "Ce cycle n'est pas marqué payé.",
+    "ERR_PAYMENT_ALREADY_PAID": "Ce cycle est déjà soldé : un acompte n'a plus d'objet.",
+    "ERR_PAYMENT_REVERT_USED": "Ce cycle a déjà été annulé une fois : la seconde annulation n'existe pas.",
+    "ERR_ADVANCE_INVALID": "Le montant d'un acompte doit être positif."
   }
 }

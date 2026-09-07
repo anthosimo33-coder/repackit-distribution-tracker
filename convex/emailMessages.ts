@@ -193,6 +193,43 @@ const PAID: Record<Locale, PaidCopy> = {
   },
 };
 
+/**
+ * ANNULATION d'un paiement posé par erreur. L'e-mail existe parce que celui du
+ * paiement, lui, est DÉJÀ parti : laisser une créatrice sur « tu as été payée »
+ * pendant qu'on lui redevient débiteur, c'est le pire des deux mondes. Ton
+ * volontairement sobre et non alarmant — une erreur de saisie n'est pas un
+ * litige, et le montant réapparaît dans son espace.
+ */
+export interface RevertedCopy {
+  subject: string;
+  greeting: (name: string) => string;
+  period: (from: string, to: string) => string;
+  body: (periodStrong: string, moneyStrong: string) => string;
+  detail: string;
+  ctaLabel: string;
+}
+
+const REVERTED: Record<Locale, RevertedCopy> = {
+  fr: {
+    subject: "Correction sur ton dernier paiement",
+    greeting: (name) => `Salut ${name},`,
+    period: (from, to) => `${from} au ${to}`,
+    body: (p, m) =>
+      `Petite erreur de ma part : j'avais marqué ton cycle du ${p} comme payé (${m}), alors qu'il ne l'était pas encore. Le montant redevient dû, rien n'est perdu.`,
+    detail: "Il réapparaît dans ton espace, et je te le verse au prochain virement.",
+    ctaLabel: "Voir mes paiements",
+  },
+  en: {
+    subject: "A correction on your last payment",
+    greeting: (name) => `Hi ${name},`,
+    period: (from, to) => `${from} to ${to}`,
+    body: (p, m) =>
+      `My mistake: I marked your cycle from ${p} as paid (${m}) when it hadn't been paid yet. The amount is due again — nothing is lost.`,
+    detail: "It's back in your space, and I'll send it with the next payout.",
+    ctaLabel: "View my payments",
+  },
+};
+
 export interface AssignedCopy {
   subject: (count: number) => string;
   greeting: (name: string) => string;
@@ -349,6 +386,8 @@ export const approvedEmailCopy = (l: unknown): ApprovedCopy =>
 export const rejectedEmailCopy = (l: unknown): RejectedCopy =>
   REJECTED[localeOrDefault(l)];
 export const paidEmailCopy = (l: unknown): PaidCopy => PAID[localeOrDefault(l)];
+export const revertedEmailCopy = (l: unknown): RevertedCopy =>
+  REVERTED[localeOrDefault(l)];
 export const assignedEmailCopy = (l: unknown): AssignedCopy =>
   ASSIGNED[localeOrDefault(l)];
 export const nudgeEmailCopy = (l: unknown): NudgeCopy => NUDGE[localeOrDefault(l)];

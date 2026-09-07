@@ -1027,6 +1027,11 @@
     "generic": "Something went wrong.",
     "ERR_PERMISSION_DENIED": "You don't have this permission. Ask an administrator for access.",
     "ERR_FORMAT_RATE_NOT_SET": "This format's pay grid has never been set. Set it before assigning, otherwise the mission would be locked at 0.",
-    "ERR_SUPERADMIN_ONLY": "Superadmin only."
+    "ERR_SUPERADMIN_ONLY": "Superadmin only.",
+    "ERR_PAYMENT_NOT_FOUND": "Payment not found.",
+    "ERR_PAYMENT_NOT_PAID": "This cycle isn't marked as paid.",
+    "ERR_PAYMENT_ALREADY_PAID": "This cycle is already settled: a partial payment no longer applies.",
+    "ERR_PAYMENT_REVERT_USED": "This cycle has already been reverted once: there is no second revert.",
+    "ERR_ADVANCE_INVALID": "A partial payment must be a positive amount."
   }
 }

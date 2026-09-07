@@ -19,6 +19,85 @@ import { countryValidator } from "./countries";
  *  Reste différé : TD-017 (comptes.actif) — encore lu par lib/compte-status.ts
  *  et ~12 specs e2e.
  */
+/**
+ * UNE LIGNE de paie. Extrait de la table `payments` parce qu'un SECOND endroit
+ * en a besoin : le reçu d'annulation (`undo`), qui garde l'état exact d'avant le
+ * paiement. Deux copies de ce validateur, c'est la certitude qu'un jour l'une
+ * acceptera un `kind` que l'autre refuse — et l'annulation échouerait alors sur
+ * une ligne parfaitement valide.
+ */
+const paymentLineItem = v.object({
+  // Optionnel : un palier de bonus CUMULÉ (bonus_tier) n'est lié à aucun
+  // assignment précis (récompense créateur-niveau).
+  assignmentId: v.optional(v.id("assignments")),
+  // PHRASE FIGÉE au paiement, en français. Historique : ne jamais la
+  // réécrire. Elle reste le REPLI d'affichage des lignes écrites avant
+  // `detail`.
+  label: v.string(),
+  // Données STRUCTURÉES de la ligne, pour recomposer le libellé À
+  // L'AFFICHAGE, dans la langue du lecteur. Une créatrice US voyait
+  // « Fixe — 3 vidéos publiées » sur son écran de paie, et aucune
+  // extraction ne pouvait le corriger : c'est de la donnée, pas de
+  // l'interface. Optionnel → 0 migration ; absent ⇒ on rend `label`.
+  detail: v.optional(
+    v.object({
+      /** kind « fixed » : nombre de vidéos publiées du groupe. */
+      videoCount: v.optional(v.number()),
+      /** kind « cpm » : vues retenues pour le calcul. */
+      views: v.optional(v.number()),
+      /** kind « retainer » : index de cycle, 1-indexé à l'affichage. */
+      cycleIndex: v.optional(v.number()),
+      /** kind « challenge » : nom du défi gagné, figé au paiement. Le
+       *  libellé se recompose autour dans la langue de la lectrice. */
+      challengeName: v.optional(v.string()),
+    }),
+  ),
+  amount: v.number(),
+  // base/bonus = LEGACY (accrual à l'écriture ; bonus = bonus PAR VIDÉO v1).
+  // fixed/cpm = pricing par vidéo, GELÉS au paiement. bonus_tier = palier
+  // de bonus CASH sur cumul (v2), GELÉ au paiement — DISJOINT de `bonus`
+  // (aucune période ne peut double-compter les deux).
+  // clip = montant fixe par clip d'un CLIPPEUR (accru à la publication,
+  // 1 ligne par clip et non par cible). retainer = forfait de cycle d'un
+  // TALENT (gelé au paiement du cycle). Les deux sont ADDITIFS : quatre
+  // modèles de rémunération, quatre kinds lisibles dans le grand livre.
+  // Réutiliser `clip` pour un talent ferait mentir l'écran et tout export ;
+  // réutiliser `base` mettrait un forfait dans le seau de l'accrual legacy
+  // par post, et « base = une vidéo publiée » deviendrait faux pour une
+  // population qui ne publie rien.
+  // challenge = PRIME d'une victoire de défi. Un kind À PART, et non un
+  // `bonus_tier` recyclé : une prime de défi n'est pas un palier de
+  // cumul, elle ne se déclenche pas sur les mêmes faits, et le grand
+  // livre doit pouvoir les distinguer six mois plus tard. C'est la règle
+  // que ce même commentaire pose déjà pour `clip` et `retainer`.
+  //
+  // ⚠️ UNE LIGNE PAR VICTOIRE, jamais agrégée — à la différence de
+  // `bonus_tier`, gelé en une ligne unique dont le commentaire d'origine
+  // reconnaît qu'« aucun détail par palier n'est récupérable », ce qui
+  // force `unlockIsFrozen` à raisonner par fenêtre. Ici chaque ligne
+  // nomme son défi : l'annulation reste vérifiable, et l'écran lisible.
+  kind: v.union(
+    v.literal("base"),
+    v.literal("bonus"),
+    v.literal("fixed"),
+    v.literal("cpm"),
+    v.literal("bonus_tier"),
+    v.literal("clip"),
+    v.literal("retainer"),
+    v.literal("challenge"),
+  ),
+  // Chantier C — plateforme du post (paiement PAR POST : N lineItems base
+  // par assignment, 1 par cible). Optional : le bonus (1/assignment) et
+  // les lineItems legacy n'en portent pas.
+  platform: v.optional(
+    v.union(
+      v.literal("TikTok"),
+      v.literal("Instagram"),
+      v.literal("YouTube"),
+    ),
+  ),
+});
+
 export default defineSchema({
   // ─── Remédiation sécurité — tables Convex Auth ───────────────────────────
   // authSessions / authAccounts / authRefreshTokens / authVerificationCodes /
@@ -1994,79 +2073,7 @@ export default defineSchema({
     creatorNameSnapshot: v.optional(v.string()),
     // Période d'accrual, "YYYY-MM" (UTC, cf periodOf dans convex/payments.ts).
     period: v.string(),
-    lineItems: v.array(
-      v.object({
-        // Optionnel : un palier de bonus CUMULÉ (bonus_tier) n'est lié à aucun
-        // assignment précis (récompense créateur-niveau).
-        assignmentId: v.optional(v.id("assignments")),
-        // PHRASE FIGÉE au paiement, en français. Historique : ne jamais la
-        // réécrire. Elle reste le REPLI d'affichage des lignes écrites avant
-        // `detail`.
-        label: v.string(),
-        // Données STRUCTURÉES de la ligne, pour recomposer le libellé À
-        // L'AFFICHAGE, dans la langue du lecteur. Une créatrice US voyait
-        // « Fixe — 3 vidéos publiées » sur son écran de paie, et aucune
-        // extraction ne pouvait le corriger : c'est de la donnée, pas de
-        // l'interface. Optionnel → 0 migration ; absent ⇒ on rend `label`.
-        detail: v.optional(
-          v.object({
-            /** kind « fixed » : nombre de vidéos publiées du groupe. */
-            videoCount: v.optional(v.number()),
-            /** kind « cpm » : vues retenues pour le calcul. */
-            views: v.optional(v.number()),
-            /** kind « retainer » : index de cycle, 1-indexé à l'affichage. */
-            cycleIndex: v.optional(v.number()),
-            /** kind « challenge » : nom du défi gagné, figé au paiement. Le
-             *  libellé se recompose autour dans la langue de la lectrice. */
-            challengeName: v.optional(v.string()),
-          }),
-        ),
-        amount: v.number(),
-        // base/bonus = LEGACY (accrual à l'écriture ; bonus = bonus PAR VIDÉO v1).
-        // fixed/cpm = pricing par vidéo, GELÉS au paiement. bonus_tier = palier
-        // de bonus CASH sur cumul (v2), GELÉ au paiement — DISJOINT de `bonus`
-        // (aucune période ne peut double-compter les deux).
-        // clip = montant fixe par clip d'un CLIPPEUR (accru à la publication,
-        // 1 ligne par clip et non par cible). retainer = forfait de cycle d'un
-        // TALENT (gelé au paiement du cycle). Les deux sont ADDITIFS : quatre
-        // modèles de rémunération, quatre kinds lisibles dans le grand livre.
-        // Réutiliser `clip` pour un talent ferait mentir l'écran et tout export ;
-        // réutiliser `base` mettrait un forfait dans le seau de l'accrual legacy
-        // par post, et « base = une vidéo publiée » deviendrait faux pour une
-        // population qui ne publie rien.
-        // challenge = PRIME d'une victoire de défi. Un kind À PART, et non un
-        // `bonus_tier` recyclé : une prime de défi n'est pas un palier de
-        // cumul, elle ne se déclenche pas sur les mêmes faits, et le grand
-        // livre doit pouvoir les distinguer six mois plus tard. C'est la règle
-        // que ce même commentaire pose déjà pour `clip` et `retainer`.
-        //
-        // ⚠️ UNE LIGNE PAR VICTOIRE, jamais agrégée — à la différence de
-        // `bonus_tier`, gelé en une ligne unique dont le commentaire d'origine
-        // reconnaît qu'« aucun détail par palier n'est récupérable », ce qui
-        // force `unlockIsFrozen` à raisonner par fenêtre. Ici chaque ligne
-        // nomme son défi : l'annulation reste vérifiable, et l'écran lisible.
-        kind: v.union(
-          v.literal("base"),
-          v.literal("bonus"),
-          v.literal("fixed"),
-          v.literal("cpm"),
-          v.literal("bonus_tier"),
-          v.literal("clip"),
-          v.literal("retainer"),
-          v.literal("challenge"),
-        ),
-        // Chantier C — plateforme du post (paiement PAR POST : N lineItems base
-        // par assignment, 1 par cible). Optional : le bonus (1/assignment) et
-        // les lineItems legacy n'en portent pas.
-        platform: v.optional(
-          v.union(
-            v.literal("TikTok"),
-            v.literal("Instagram"),
-            v.literal("YouTube"),
-          ),
-        ),
-      }),
-    ),
+    lineItems: v.array(paymentLineItem),
     totalDue: v.number(),
     status: v.union(
       v.literal("accruing"),
@@ -2075,6 +2082,52 @@ export default defineSchema({
     ),
     scheduledDate: v.optional(v.number()),
     paidAt: v.optional(v.number()),
+    // ─── ACOMPTES — versements PARTIELS sur un cycle encore ouvert ────────────
+    // « Je vire 100 $ maintenant, le reste plus tard. » Chaque versement est une
+    // ligne : le cumul se déduit, l'historique reste lisible (« acompte 10 $ le
+    // 04/10 »), et deux acomptes du même jour ne se confondent pas.
+    //
+    // ⚠️ Un acompte NE FIGE RIEN : le cycle reste `accruing`, son montant
+    // continue de suivre les vues, et le reste dû est TOUJOURS recalculé
+    // (« dû du jour − déjà versé »). C'est l'arbitrage produit : un reste ferme
+    // exigerait de geler le cycle au premier versement, ce qui reviendrait à
+    // payer d'avance des vues pas encore faites.
+    advances: v.optional(
+      v.array(
+        v.object({
+          amount: v.number(),
+          at: v.number(),
+          actorUserId: v.optional(v.id("users")),
+          note: v.optional(v.string()),
+        }),
+      ),
+    ),
+    // ─── REÇU D'ANNULATION — l'état exact d'AVANT le paiement ────────────────
+    // Posé par le marquage payé, CONSOMMÉ par l'annulation. Sa présence est ce
+    // qui autorise l'annulation : une fois consommé, le bouton n'existe plus.
+    // C'est aussi ce qui rend l'annulation FIDÈLE — le paiement ne se contente
+    // pas d'ajouter des lignes, il en DÉPLACE depuis les rows d'autres périodes
+    // (lineItems legacy du cycle) ; sans savoir d'où elles venaient, une
+    // annulation les laisserait orphelines et le total de l'autre période
+    // resterait faux.
+    undo: v.optional(
+      v.object({
+        previousStatus: v.union(v.literal("accruing"), v.literal("scheduled")),
+        previousLineItems: v.array(paymentLineItem),
+        previousTotalDue: v.number(),
+        /** Lignes RETIRÉES d'autres rows au paiement, à leur rendre. */
+        movedFrom: v.array(
+          v.object({
+            paymentId: v.id("payments"),
+            lineItems: v.array(paymentLineItem),
+          }),
+        ),
+        paidAt: v.number(),
+        paidTotal: v.number(),
+      }),
+    ),
+    /** Quand l'annulation a été utilisée (elle ne l'est qu'une fois). */
+    revertedAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_project_period", ["projectId", "period"])
