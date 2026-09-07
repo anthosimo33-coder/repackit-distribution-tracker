@@ -6,7 +6,7 @@
  * Les labels/contenus des CTA viennent du cahier des charges (normalisés) et
  * sont les seuls textes définis ici plutôt qu'extraits du doc.
  *
- * Refonte 3 briques : les CORPS du doc sont seedés comme HOOKS (tier A) — l'audit
+ * Refonte 3 briques : les CORPS du doc sont seedés comme HOOKS — l'audit
  * a confirmé que ce sont des accroches+promesses — et le socle DÉMO n'est plus
  * monté (DEMO_BLOCK = ""). Le seed sert aux NOUVEAUX environnements/démo ; la
  * prod existante est migrée par scripts:migrateCorpsToHooks (idempotent).
@@ -68,58 +68,55 @@ assertCount("TIER B", tierB.length, 10);
 assertCount("À RETRAVAILLER", retravailler.length, 2);
 assertCount("FORMAT PARTICULIER", special.length, 3);
 
-// ── Corps (→ hooks tier A) / Flux (verbatim depuis le doc) ───────────────────
+// ── Corps (→ hooks) / Flux (verbatim depuis le doc) ───────────────────
 const corpsA = firstQuoteUnder("### CORPS A");
 const corpsB = firstQuoteUnder("### CORPS B");
 const flux1 = firstQuoteUnder("### FLUX 1");
 const flux2 = firstQuoteUnder("### FLUX 2");
 
-type Tier = "S" | "A" | "B" | null;
 const trunc60 = (s: string) => (s.length > 60 ? s.slice(0, 60) : s);
-const hookBrick = (content: string, tier: Tier, active: boolean) => ({
+const hookBrick = (content: string, active: boolean) => ({
   kind: "hook" as const,
   label: trunc60(content),
   content,
-  tier,
   active,
 });
 
 const SEED_BRICKS = [
   // Flux (verbatim du doc).
-  { kind: "flux", label: "Flux 1 — Upload", content: flux1, tier: null, active: true },
-  { kind: "flux", label: "Flux 2 — Scan & clone", content: flux2, tier: null, active: true },
+  { kind: "flux", label: "Flux 1 — Upload", content: flux1, active: true },
+  { kind: "flux", label: "Flux 2 — Scan & clone", content: flux2, active: true },
   // CTA (cahier des charges).
-  { kind: "cta", label: "CTA direct", content: "Va sur RepackIt.io.", tier: null, active: true },
+  { kind: "cta", label: "CTA direct", content: "Va sur RepackIt.io.", active: true },
   {
     kind: "cta",
     label: "CTA capture de lead",
     content:
       "Si tu veux la marche à suivre complète, commente Go. / Commente App si tu la veux.",
-    tier: null,
     active: true,
   },
   // Hooks actifs.
-  ...tierS.map((c) => hookBrick(c, "S", true)),
-  ...tierA.map((c) => hookBrick(c, "A", true)),
-  ...tierB.map((c) => hookBrick(c, "B", true)),
-  // Refonte 3 briques — les anciens CORPS sont des hooks tier A (contenu verbatim
+  ...tierS.map((c) => hookBrick(c, true)),
+  ...tierA.map((c) => hookBrick(c, true)),
+  ...tierB.map((c) => hookBrick(c, true)),
+  // Refonte 3 briques — les anciens CORPS sont des hooks (contenu verbatim
   // du doc). Labels conservés pour parité avec scripts:migrateCorpsToHooks.
-  { kind: "hook", label: "Corps A — Aspirationnel", content: corpsA, tier: "A", active: true },
-  { kind: "hook", label: "Corps B — Mécanique", content: corpsB, tier: "A", active: true },
+  { kind: "hook", label: "Corps A — Aspirationnel", content: corpsA, active: true },
+  { kind: "hook", label: "Corps B — Mécanique", content: corpsB, active: true },
   // Hooks inactifs (présents mais hors combos).
-  ...retravailler.map((c) => hookBrick(c, "B", false)),
-  ...special.map((c) => hookBrick(c, null, false)),
+  ...retravailler.map((c) => hookBrick(c, false)),
+  ...special.map((c) => hookBrick(c, false)),
 ];
 
 const activeHooks = SEED_BRICKS.filter(
   (b) => b.kind === "hook" && b.active,
 ).length;
-// 24 hooks actifs d'origine + 2 ex-corps reclassés tier A = 26.
+// 24 hooks actifs d'origine + 2 ex-corps reclassés en hooks = 26.
 assertCount("hooks actifs", activeHooks, 26);
 
 const header = `/* AUTO-GÉNÉRÉ par scripts/gen-bulk-seed.ts depuis
    scripts/systeme-scripts-bulk-testing.md — NE PAS ÉDITER À LA MAIN.
-   Refonte 3 briques : les CORPS du doc sont seedés comme hooks (tier A) et le
+   Refonte 3 briques : les CORPS du doc sont seedés comme hooks et le
    socle démo n'est plus monté (DEMO_BLOCK = ""). Contenu VERBATIM du doc.
    Régénérer : npx tsx scripts/gen-bulk-seed.ts */
 
@@ -129,7 +126,6 @@ export type SeedBrick = {
   kind: "hook" | "flux" | "cta";
   label: string;
   content: string;
-  tier: "S" | "A" | "B" | null;
   active: boolean;
 };
 

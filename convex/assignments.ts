@@ -19,7 +19,6 @@ import { normalizeRemunere } from "./remunerate";
 import { isValidPostWindow } from "./postWindow";
 import { detectPostUrlPlatform, isAccountOnlyUrl } from "./postUrlShape";
 import { isFormatAllowedOnPlatform } from "./publications";
-import { tierLabel } from "./scriptTier";
 import { SNYTCH_SLUG } from "./projects";
 import {
   CREATOR_ASSIGNMENT_FIELDS,
@@ -951,7 +950,7 @@ export const listAssignments = permissionQuery("assignments.manage")({
           const hook = brickMap.get(a.scriptCombo.hookBrickId);
           const flux = brickMap.get(a.scriptCombo.fluxBrickId);
           const cta = brickMap.get(a.scriptCombo.ctaBrickId);
-          comboSummary = `${tierLabel(hook?.tier)} · ${flux?.label ?? "?"} · ${cta?.label ?? "?"}`;
+          comboSummary = `${hook?.label ?? "?"} · ${flux?.label ?? "?"} · ${cta?.label ?? "?"}`;
         }
         // Chantier C — cibles enrichies (handle + pays + URL par plateforme).
         const targets = (a.targets ?? []).map((t) => ({
@@ -1380,14 +1379,14 @@ export const listVideoSubmitted = permissionQuery("review.manage")({
         .sort(compareByPostDate)
         .map(async (a) => {
           const combo = a.scriptCombo;
-          // Résumé combo (Tier · Flux · CTA) — contexte ADMIN, comme la modale
+          // Résumé combo (Hook · Flux · CTA) — contexte ADMIN, comme la modale
           // « Voir le script » côté Assignments. Null hors origine script.
           let comboSummary: string | null = null;
           if (combo) {
             const hook = brickMap.get(combo.hookBrickId);
             const flux = brickMap.get(combo.fluxBrickId);
             const cta = brickMap.get(combo.ctaBrickId);
-            comboSummary = `${tierLabel(hook?.tier)} · ${flux?.label ?? "?"} · ${cta?.label ?? "?"}`;
+            comboSummary = `${hook?.label ?? "?"} · ${flux?.label ?? "?"} · ${cta?.label ?? "?"}`;
           }
           return {
             _id: a._id,
@@ -1921,7 +1920,7 @@ export const computeViewBonus = permissionMutation("payments.manage")({
 
 /**
  * Enrichit un assignment pour le CRÉATEUR. ISOLATION : on retire `scriptCombo`
- * et `comboKey` (décomposition/brick ids/tier/perf) — le créateur ne reçoit QUE
+ * et `comboKey` (décomposition/brick ids/perf) — le créateur ne reçoit QUE
  * le script monté (`assembledScript`) et le NOM DE CAMPAGNE (via missionLabelFor),
  * jamais les briques ni le tier. Le nom de campagne est le libellé de la mission
  * côté créateur (ex. « Format 3 - POV Demo »), pour qu'elle sache quel format
@@ -2017,7 +2016,7 @@ type ScriptZones = { videoBlocks: VideoBlock[]; descriptionScript: string };
  * 4-briques (corps), ou cta vide — renvoie null : la fiche retombe alors sur la
  * carte unique « Vidéo à tourner » (le texte figé RESTE la source de vérité, cf.
  * scriptAssembly). Gate Snytch : rien n'est calculé/renvoyé hors Snytch. Aucune
- * brique/id/tier/campagne n'est exposé — UNIQUEMENT le texte, comme assembledScript.
+ * brique/id/campagne n'est exposé — UNIQUEMENT le texte, comme assembledScript.
  */
 async function splitScriptZones(
   ctx: QueryCtx,
@@ -2051,10 +2050,45 @@ async function splitScriptZones(
   };
 }
 
+/** Une consigne de tournage attachée à un bloc du script. */
+type ScriptInstruction = { slot: "hook" | "flux" | "cta"; text: string };
+
+/**
+ * CONSIGNES des briques du combo, dans l'ordre de montage — ce que l'admin a
+ * écrit sous chaque bloc (« l'élément précis qui justifie la vérification »).
+ *
+ * Lues LIVE sur les briques, VOLONTAIREMENT : corriger une consigne fausse doit
+ * réparer les missions déjà assignées. C'est l'inverse du TEXTE du script, figé
+ * dans `assembledScript` — la consigne n'entre ni dans ce texte, ni dans la
+ * garde anti-divergence de splitScriptZones, ni dans le comboKey.
+ *
+ * AUCUNE gate projet ici (contrairement aux zones de destination, propres à
+ * Snytch) : un créateur dont la fiche retombe sur la carte unique doit voir ses
+ * consignes lui aussi. Rien de la décomposition n'est exposé — pas d'id, pas de
+ * label de brique, pas de campagne : le SLOT et le TEXTE, rien d'autre.
+ */
+async function scriptInstructionsOf(
+  ctx: QueryCtx,
+  combo: NonNullable<Doc<"assignments">["scriptCombo"]>,
+): Promise<ScriptInstruction[]> {
+  const bricks = await Promise.all([
+    ctx.db.get(combo.hookBrickId),
+    ctx.db.get(combo.fluxBrickId),
+    ctx.db.get(combo.ctaBrickId),
+  ]);
+  const slots = ["hook", "flux", "cta"] as const;
+  const out: ScriptInstruction[] = [];
+  bricks.forEach((b, i) => {
+    const text = b?.instruction?.trim();
+    if (text) out.push({ slot: slots[i], text });
+  });
+  return out;
+}
+
 /**
  * Libellé de mission RÉEXPOSÉ au créateur — le SEUL élément du `scriptCombo`
  * qu'il reçoit. Script → NOM DE CAMPAGNE (ex. « Format 3 - POV Demo ») ; format
- * → nom + type du format. La décomposition (bricks/tier/comboKey) et les données
+ * → nom + type du format. La décomposition (bricks/comboKey) et les données
  * de perf restent STRICTEMENT côté admin : on ne lit ici que le `name` de la
  * campagne. `formatType` est null pour un script (le type de contenu est porté
  * par le nom de campagne, pas par un champ dédié). Fallback « Vidéo à tourner »
@@ -2374,7 +2408,7 @@ async function enrichForClipper(ctx: QueryCtx, a: Doc<"assignments">) {
   return {
     ...safe,
     targets,
-    // Le TEXTE monté, jamais la décomposition (briques/ids/tier/campagne) : elle
+    // Le TEXTE monté, jamais la décomposition (briques/ids/campagne) : elle
     // sert à l'anti-coordination et aux analytics, pas au montage.
     assembledScript: a.scriptCombo ? a.scriptCombo.assembledScript : null,
   };
@@ -2421,12 +2455,16 @@ async function clipDetailFor(
   const scriptZones = a.scriptCombo
     ? await splitScriptZones(ctx, a, a.scriptCombo)
     : null;
+  const scriptInstructions = a.scriptCombo
+    ? await scriptInstructionsOf(ctx, a.scriptCombo)
+    : [];
   return {
     ...base,
     submittedVideoUrl,
     submittedVideoMimeType: a.submittedVideoMimeType ?? "video/mp4",
     assets,
     scriptZones,
+    scriptInstructions,
   };
 }
 
@@ -2457,8 +2495,8 @@ export const getClipDetailAsAdmin = adminViewAsClipperQuery({
 /**
  * Fiche assignment côté créateur. null si pas la mienne. ISOLATION : `scriptCombo`
  * et `comboKey` sont RETIRÉS de l'objet renvoyé — pour un assignment script, le
- * créateur reçoit le script monté (`assembledScript`) et la rému, JAMAIS la
- * décomposition (briques/ids/tiers/campagne).
+ * créateur reçoit le script monté (`assembledScript`), les consignes de ses
+ * blocs et la rému, JAMAIS la décomposition (briques/ids/campagne).
  */
 /**
  * Fiche assignment d'un créateur DONNÉ (helper de lecture partagé). MÊME corps
@@ -2494,12 +2532,14 @@ async function assignmentDetailFor(
   const label = await missionLabelFor(ctx, a);
   if (a.scriptCombo) {
     const scriptZones = await splitScriptZones(ctx, a, a.scriptCombo);
+    const scriptInstructions = await scriptInstructionsOf(ctx, a.scriptCombo);
     return {
       assignment: safe,
       ...label,
       format: null,
       assembledScript: a.scriptCombo.assembledScript,
       scriptZones,
+      scriptInstructions,
       targets,
       submittedVideoUrl,
       submittedVideoMimeType,
@@ -2514,6 +2554,7 @@ async function assignmentDetailFor(
     format: brief,
     assembledScript: null as string | null,
     scriptZones: null as ScriptZones | null,
+    scriptInstructions: [] as ScriptInstruction[],
     targets,
     submittedVideoUrl,
     submittedVideoMimeType,

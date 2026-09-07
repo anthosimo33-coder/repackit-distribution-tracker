@@ -43,7 +43,6 @@ async function campaignWithBricks(ts: number) {
       kind,
       label,
       content: `${label} contenu`,
-      ...(kind === "hook" ? { tier: "S" as const } : {}),
     });
   const h1 = await add("hook", "Défi H1");
   const h2 = await add("hook", "Défi H2");
@@ -298,7 +297,6 @@ test.describe("Défis — administration", () => {
           kind,
           label,
           content: `${label} contenu`,
-          ...(kind === "hook" ? { tier: "S" as const } : {}),
         });
       const h1 = await addMono("hook", "Mono H1");
       const flux = await addMono("flux", "Mono F1");

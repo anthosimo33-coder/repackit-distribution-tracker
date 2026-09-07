@@ -14,28 +14,22 @@ const admin = createE2eClient(url);
 
 const DAY = 86_400_000;
 
-/** Crée une campagne de test avec 3 hooks (S/A/B) + 2 flux + 2 cta
+/** Crée une campagne de test avec 3 hooks + 2 flux + 2 cta
  *  → 3×2×2 = 12 combos (refonte 3 briques). Retourne campaignId. */
 async function makeCampaign(ts: number) {
   const campaignId = await admin.mutation(api.scripts.createCampaign, {
     name: `[E2E_TEST] Assign ${ts}`,
   });
-  const add = (
-    kind: "hook" | "flux" | "cta",
-    label: string,
-    content: string,
-    tier?: "S" | "A" | "B",
-  ) =>
+  const add = (kind: "hook" | "flux" | "cta", label: string, content: string) =>
     admin.mutation(api.scripts.createBrick, {
       campaignId,
       kind,
       label,
       content,
-      ...(tier ? { tier } : {}),
     });
-  await add("hook", "H-S", "Hook S contenu", "S");
-  await add("hook", "H-A", "Hook A contenu", "A");
-  await add("hook", "H-B", "Hook B contenu", "B");
+  await add("hook", "H-1", "Hook 1 contenu");
+  await add("hook", "H-2", "Hook 2 contenu");
+  await add("hook", "H-3", "Hook 3 contenu");
   await add("flux", "F1", "Flux 1");
   await add("flux", "F2", "Flux 2");
   await add("cta", "T1", "Cta 1");
@@ -199,9 +193,8 @@ test.describe("S2 — assignation anti-coordination", () => {
     expect(
       (myA!.assignment as Record<string, unknown>).comboKey,
     ).toBeUndefined();
-    // Script naturel : pas d'étiquette de section ni de tier.
+    // Script naturel : pas d'étiquette de section.
     expect(myA!.assembledScript).not.toContain("## Hook");
-    expect(myA!.assembledScript).not.toContain("Tier");
     // Le NOM DE CAMPAGNE est réexposé comme libellé de mission (pour savoir quel
     // format produire) — SANS la décomposition. Fiche détail : formatName + origin.
     expect(myA!.formatName).toBe(`[E2E_TEST] Assign ${ts}`);
@@ -254,8 +247,10 @@ test.describe("S2 — assignation anti-coordination", () => {
     // ADMIN : la décomposition du combo est visible (résumé).
     const adminRows = await forCampaign(a.creatorId);
     expect(adminRows[0].scriptCampaignName).toContain("[E2E_TEST] Assign");
-    // Résumé combo en libellés visuels (2 tiers) : « Argent »/« Autre » · …
-    expect(adminRows[0].comboSummary).toMatch(/^(Argent|Autre) · /);
+    // Résumé combo en LABELS de briques : « Hook · Flux · CTA ». Contrôle de
+    // PRÉSENCE des trois segments, pas d'un simple « contient un point ».
+    expect(adminRows[0].comboSummary!.split(" · ")).toHaveLength(3);
+    expect(adminRows[0].comboSummary).not.toMatch(/^(Argent|Autre) · /);
 
     // P7 — assignment de FORMAT classique fonctionne toujours.
     const formatId = await createFormatWithRate(admin, {

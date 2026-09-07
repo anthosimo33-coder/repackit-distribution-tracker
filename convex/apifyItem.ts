@@ -5,7 +5,7 @@
  *
  * Module PUR (aucun import Convex) : importable des deux côtés et testable en
  * vitest via `lib/apify-item.test.ts`. Même arrangement que
- * `convex/angleFamily.ts`.
+ * `convex/dateFr.ts`.
  *
  * ── Pourquoi ce module existe ────────────────────────────────────────────────
  * L'acteur renvoie DÉJÀ, sur chaque item vidéo, deux informations que le relevé

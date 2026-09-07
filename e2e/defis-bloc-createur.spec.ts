@@ -115,7 +115,6 @@ async function makeChallenge(
       kind,
       label,
       content: `${label} texte`,
-      ...(kind === "hook" ? { tier: "S" as const } : {}),
     });
   const h1 = await add("hook", `${tag} H1`);
   const flux = await add("flux", `${tag} F1`);

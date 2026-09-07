@@ -38,7 +38,6 @@ import {
   type WarmupFilter,
   shapeCampaignRows,
   CAMPAIGN_NONE_LABEL,
-  ANGLE_FAMILY_NONE_LABEL,
 } from "@/lib/tracker-data";
 import { QuadrantChart } from "./QuadrantChart";
 import {
@@ -54,7 +53,6 @@ import {
 } from "@/components/PublicationDetailDialog";
 import { PublicationEditDialog } from "@/components/PublicationEditDialog";
 import { formatNumber, formatPercent } from "@/lib/format";
-import { angleFamilyKey } from "@/convex/angleFamily";
 import { MAX_QUADRANT_PERIOD_DAYS } from "@/convex/quadrantSettings";
 import { cn } from "@/lib/utils";
 import { BarChart3Icon, ListIcon } from "lucide-react";
@@ -63,7 +61,6 @@ const PLATFORMS = ["TikTok", "Instagram", "YouTube"] as const;
 const CREATOR_NONE = "__none__";
 const FORMAT_NONE = "__none__";
 const CAMPAIGN_NONE = "__none__";
-const ANGLE_FAMILY_NONE = "__none__";
 
 type ViewMode = "list" | "charts";
 
@@ -302,38 +299,6 @@ export function TrackerDataView() {
     [posts, warmup],
   );
 
-  // "Vues par famille d'angle" — MÊME mise en forme que « Vues par campagne »
-  // (shapeCampaignRows, top N + « Autres », bucket « sans » toujours en dernier).
-  // La famille vit sur la brique HOOK du combo : un post sans combo, dont le hook
-  // a été supprimé, ou dont la famille n'est pas renseignée tombe dans « Sans
-  // famille » — dans les trois cas on ignore de quelle famille il relève.
-  //
-  // Regroupement par CLÉ pliée (casse + accents) et affichage de la 1re
-  // orthographe rencontrée : « Nostalgie » et « nostalgie » sont une seule barre.
-  const byAngleFamily = useMemo(
-    () =>
-      shapeCampaignRows(
-        aggregateByCategory(
-          (posts ?? []).map(
-            (p): CategoryItem => ({
-              key: p.angleFamily
-                ? angleFamilyKey(p.angleFamily)
-                : ANGLE_FAMILY_NONE,
-              label: p.angleFamily ?? ANGLE_FAMILY_NONE_LABEL,
-              vues: p.vues,
-              likes: p.likes,
-              comments: p.comments,
-              isWarmup: p.isWarmup,
-            }),
-          ),
-          warmup,
-        ),
-        undefined,
-        ANGLE_FAMILY_NONE_LABEL,
-      ),
-    [posts, warmup],
-  );
-
   const sortedPosts = useMemo(
     () => sortTrackerPosts(posts ?? [], sortKey, sortDir),
     [posts, sortKey, sortDir],
@@ -513,7 +478,6 @@ export function TrackerDataView() {
           byCreator={byCreator}
           byFormat={byFormat}
           byCampaign={byCampaign}
-          byAngleFamily={byAngleFamily}
         />
       )}
 
@@ -640,7 +604,6 @@ function ChartsPanel({
   byCreator,
   byFormat,
   byCampaign,
-  byAngleFamily,
 }: {
   daily: DailyPoint[] | undefined;
   posts: TrackerPost[];
@@ -651,7 +614,6 @@ function ChartsPanel({
   byCreator: CategoryAggregate[];
   byFormat: CategoryAggregate[];
   byCampaign: CategoryAggregate[];
-  byAngleFamily: CategoryAggregate[];
 }) {
   return (
     <div className="space-y-4">
@@ -765,11 +727,6 @@ function ChartsPanel({
         <ComparisonChart
           title="Vues par campagne"
           rows={byCampaign}
-          metric="vues"
-        />
-        <ComparisonChart
-          title="Vues par famille d'angle"
-          rows={byAngleFamily}
           metric="vues"
         />
       </div>

@@ -48,7 +48,6 @@ async function setupChallenge(ts: number, tag: string, hooks: 1 | 2) {
       kind,
       label,
       content: `${label} texte`,
-      ...(kind === "hook" ? { tier: "S" as const } : {}),
     });
   const h1 = await add("hook", `${tag} H1`);
   const h2 = hooks === 2 ? await add("hook", `${tag} H2`) : null;

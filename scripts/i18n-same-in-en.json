@@ -33,6 +33,7 @@
     "portal.profil.email",
     "portal.profil.method.paypal",
     "portal.profil.method.usdt",
+    "portal.script.instruction",
     "status.compte.shadowban",
     "tracker.quadrant.axisY",
     "tracker.quadrant.legendQualification.promo",

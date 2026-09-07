@@ -275,8 +275,6 @@ export {
 
 /** Libellé du bucket des publications sans campagne rattachée. */
 export const CAMPAIGN_NONE_LABEL = "Hors campagne";
-/** Libellé du bucket des posts dont le hook n'a pas de famille d'angle. */
-export { ANGLE_FAMILY_NONE_LABEL } from "../convex/angleFamily";
 /** Libellé du bucket d'agrégation au-delà du top N. */
 export const CAMPAIGN_OTHERS_LABEL = "Autres";
 /** Au-delà de ce nombre de campagnes AVEC des vues, le reste est agrégé. */

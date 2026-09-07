@@ -2270,10 +2270,12 @@ export default defineSchema({
     ),
     label: v.string(),
     content: v.string(),
-    // Tier de hook. Affichage : "S" → « Argent », "A" → « Autre » (cf
-    // lib/script-tier). "B" = LEGACY toléré dans l'union : migré en "A" par
-    // migrateTierBToA, plus jamais proposé par l'UI. Conservé ici pour que le
-    // deploy ne casse pas tant que des "B" subsistent (migration post-deploy).
+    // LEGACY — TIER de hook (« Argent »/« Autre »), RETIRÉ du produit : plus
+    // jamais écrit, plus jamais lu par aucun écran ni aucun agrégat. Le champ
+    // reste DÉCLARÉ le temps que `scripts:stripBrickTaxonomy` le retire des
+    // documents en base : un `convex deploy` refuse tout document portant un
+    // champ absent du schéma. Retrait de ces deux lignes = PR de resserrage,
+    // une fois la migration passée en prod.
     tier: v.optional(v.union(v.literal("S"), v.literal("A"), v.literal("B"))),
     // SNYTCH — mode d'usage du texte DANS LA VIDÉO (zone 🎬), PAR BRIQUE (hook /
     // flux) : "dire" = à dire à l'oral ; "afficher" = à afficher en texte à
@@ -2286,13 +2288,21 @@ export default defineSchema({
     mode: v.optional(
       v.union(v.literal("dire"), v.literal("afficher"), v.literal("les_deux")),
     ),
-    // FAMILLE D'ANGLE du hook (« vérification », « trahison », …). CHAÎNE LIBRE
-    // et non un enum : la taxonomie éditoriale se découvre à l'usage, la figer
-    // imposerait un déploiement pour nommer un angle qui marche. Suggestions +
-    // normalisation dans convex/angleFamily.ts. Renseignée pour les HOOKS
-    // uniquement (comme `tier`) ; absente = « Sans famille ». Optional →
-    // 0 migration.
+    // LEGACY — FAMILLE D'ANGLE du hook, RETIRÉE du produit en même temps que
+    // `tier` (même raison de survie : la migration doit passer avant le retrait
+    // du champ). Cf. le commentaire de `tier` ci-dessus.
     angleFamily: v.optional(v.string()),
+    // INSTRUCTION de tournage attachée à la brique — texte LIBRE et OPTIONNEL,
+    // écrit par l'admin, LU PAR LA CRÉATRICE sous le bloc correspondant de sa
+    // fiche (« l'élément précis qui justifie la vérification »). Vaut pour les
+    // trois kinds (hook / flux / cta) : chaque bloc peut porter sa consigne.
+    //
+    // ORTHOGONALE au texte du script : elle n'entre PAS dans `assembledScript`
+    // (donc ni dans la garde anti-divergence de splitScriptZones, ni dans
+    // l'unicité de combo) et se lit LIVE à l'affichage — la corriger met à jour
+    // les missions déjà assignées, ce qui est bien l'intention (« la consigne
+    // était fausse, je la répare »). Absente ou vide = aucun encart affiché.
+    instruction: v.optional(v.string()),
     active: v.boolean(),
     order: v.optional(v.number()),
     createdAt: v.number(),

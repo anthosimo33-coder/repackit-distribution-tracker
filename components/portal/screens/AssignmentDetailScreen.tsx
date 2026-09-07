@@ -15,7 +15,10 @@ import { EarningsCalculator } from "@/components/portal/EarningsCalculator";
 import { PricingEstimator } from "@/components/portal/PricingEstimator";
 import { AssignmentActions } from "@/components/portal/AssignmentActions";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
-import { ScriptDestinationZones } from "@/components/scripts/ScriptDestinationZones";
+import {
+  ScriptDestinationZones,
+  ScriptInstructionList,
+} from "@/components/scripts/ScriptDestinationZones";
 import { useTranslations } from "next-intl";
 
 /**
@@ -121,7 +124,7 @@ export default function AssignmentDetailScreen({
 
           {/* Script monté (assignment de script) OU brief de format. Pour un
               script, le créateur ne voit que le texte fini — aucune brique,
-              aucun tier, aucune campagne. SNYTCH : le script est éclaté en DEUX
+              aucune campagne. SNYTCH : le script est éclaté en DEUX
               zones de destination (🎬 dans la vidéo = hook+flux / 📝 en
               description = cta) pour lever la confusion « qu'est-ce qui va où ».
               Hors Snytch (scriptZones absent) : carte unique inchangée. */}
@@ -130,14 +133,20 @@ export default function AssignmentDetailScreen({
               <ScriptDestinationZones
                 videoBlocks={data.scriptZones.videoBlocks}
                 descriptionScript={data.scriptZones.descriptionScript}
+                instructions={data.scriptInstructions}
               />
             ) : (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">{ta("videoToShoot")}</CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="space-y-3">
                   <SimpleMarkdown content={data.assembledScript} />
+                  {/* Zones de destination indisponibles (hors Snytch, ou combo
+                      dont le texte figé a divergé) : les consignes des blocs se
+                      rendent en LISTE sous le script, plutôt que de disparaître
+                      avec le découpage. */}
+                  <ScriptInstructionList items={data.scriptInstructions} />
                 </CardContent>
               </Card>
             )

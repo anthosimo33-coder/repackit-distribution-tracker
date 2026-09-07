@@ -92,7 +92,6 @@ async function campagneAffichable(ts: number) {
     kind: "hook",
     label: `hook ${ts}`,
     content: `Accroche affichée ${ts}`,
-    tier: "S",
     mode: "afficher",
   });
   await admin.mutation(api.scripts.createBrick, {

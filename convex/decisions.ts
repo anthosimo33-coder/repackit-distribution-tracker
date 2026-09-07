@@ -59,8 +59,6 @@ export type PostSignal = {
   delta24h: number | null;
   /** Abonnés gagnés par le COMPTE sur la fenêtre ; `null` = pas encore deux relevés. */
   followersDelta: number | null;
-  /** Famille d'angle du hook du combo, si connue. */
-  angleFamily: string | null;
   /** Hook du combo — sert aux décisions par hook. */
   hookBrickId: string | null;
 };

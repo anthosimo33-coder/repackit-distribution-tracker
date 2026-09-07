@@ -55,17 +55,15 @@ test.describe("Validation — script monté à côté de la vidéo", () => {
     const addBrick = (
       kind: "hook" | "flux" | "cta",
       label: string,
-      content: string,
-      tier?: "S",
+      content: string
     ) =>
       admin.mutation(api.scripts.createBrick, {
         campaignId,
         kind,
         label,
         content,
-        ...(tier ? { tier } : {}),
       });
-    await addBrick("hook", "H", "HOOK ACCROCHE VALSCRIPT", "S");
+    await addBrick("hook", "H", "HOOK ACCROCHE VALSCRIPT");
     await addBrick("flux", "F", "FLUX CORPS VALSCRIPT UNIQUE");
     await addBrick("cta", "C", "CTA ABONNE VALSCRIPT");
     const { pricingId } = await admin.mutation(api.pricing.createPricing, {

@@ -38,17 +38,15 @@ test.describe("Voir le script monté + vidéo modèle depuis inspiration", () =>
     const addBrick = (
       kind: "hook" | "flux" | "cta",
       label: string,
-      content: string,
-      tier?: "S",
+      content: string
     ) =>
       admin.mutation(api.scripts.createBrick, {
         campaignId,
         kind,
         label,
         content,
-        ...(tier ? { tier } : {}),
       });
-    await addBrick("hook", "H", "HOOK CONTENU", "S");
+    await addBrick("hook", "H", "HOOK CONTENU");
     await addBrick("flux", "F", "FLUX CONTENU UNIQUE");
     await addBrick("cta", "C", "CTA CONTENU");
     const { pricingId } = await admin.mutation(api.pricing.createPricing, {

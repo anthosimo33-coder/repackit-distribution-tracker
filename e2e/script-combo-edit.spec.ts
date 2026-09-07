@@ -36,19 +36,17 @@ test.describe("Modifier une brique du combo", () => {
     const addBrick = (
       kind: "hook" | "flux" | "cta",
       label: string,
-      content: string,
-      tier?: "S",
+      content: string
     ) =>
       admin.mutation(api.scripts.createBrick, {
         campaignId,
         kind,
         label,
         content,
-        ...(tier ? { tier } : {}),
       });
-    await addBrick("hook", "H1", "HOOK UN", "S");
-    await addBrick("hook", "H2", "HOOK DEUX", "S");
-    await addBrick("hook", "H3", "HOOK TROIS", "S");
+    await addBrick("hook", "H1", "HOOK UN");
+    await addBrick("hook", "H2", "HOOK DEUX");
+    await addBrick("hook", "H3", "HOOK TROIS");
     await addBrick("flux", "F1", "FLUX UNIQUE");
     await addBrick("cta", "C1", "CTA UNIQUE");
     const { pricingId } = await admin.mutation(api.pricing.createPricing, {
@@ -164,7 +162,6 @@ test.describe("Modifier une brique du combo", () => {
       kind: "hook",
       label: "HX",
       content: "HOOK AILLEURS",
-      tier: "S",
     });
     await expect(
       admin.mutation(api.scripts.editScriptCombo, {

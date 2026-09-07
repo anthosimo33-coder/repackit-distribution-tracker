@@ -14,13 +14,13 @@ const admin = createE2eClient(url);
 const DAY = 86_400_000;
 
 /**
- * Éditer le texte d'une brique = FORK une nouvelle brique (même kind+tier) et
+ * Éditer le texte d'une brique = FORK une nouvelle brique (même kind) et
  * l'applique. RÉPÉTABLE tant que le post n'est pas publié (plus de verrou "une
  * seule fois" ni de verrou partagé) ; le SEUL verrou est le lien de publication.
  * Pricing intact, original intact.
  */
 test.describe("Éditer le texte d'une brique (fork)", () => {
-  test("fork même kind+tier, original intact, répétable, publié rejeté, pricing intact", async () => {
+  test("fork même kind + consigne, original intact, répétable, publié rejeté, pricing intact", async () => {
     test.setTimeout(160_000);
     const ts = Date.now();
     const creator = await createCreatorSession(url, {
@@ -30,26 +30,29 @@ test.describe("Éditer le texte d'une brique (fork)", () => {
     });
     const projectId = creator.projectId;
 
-    // Campagne : 3 hooks (tier A) + 1 flux + 1 cta → 3 combos.
+    // Campagne : 3 hooks + 1 flux + 1 cta → 3 combos.
     const campaignId = await admin.mutation(api.scripts.createCampaign, {
       name: `[E2E_TEST] TextEdit ${ts}`,
     });
+    // Les trois hooks portent la MÊME consigne : quel que soit celui que le
+    // tirage sort, le fork doit la conserver (corriger une coquille dans le
+    // texte ne doit pas vider la consigne lue par la créatrice).
+    const consigne = "Filme l'écran verrouillé, jamais la conversation.";
     const add = (
       kind: "hook" | "flux" | "cta",
       label: string,
       content: string,
-      tier?: "A",
     ) =>
       admin.mutation(api.scripts.createBrick, {
         campaignId,
         kind,
         label,
         content,
-        ...(tier ? { tier } : {}),
+        ...(kind === "hook" ? { instruction: consigne } : {}),
       });
-    await add("hook", "H1", "HOOK UN", "A");
-    await add("hook", "H2", "HOOK DEUX", "A");
-    await add("hook", "H3", "HOOK TROIS", "A");
+    await add("hook", "H1", "HOOK UN");
+    await add("hook", "H2", "HOOK DEUX");
+    await add("hook", "H3", "HOOK TROIS");
     await add("flux", "F1", "FLUX UNIQUE");
     await add("cta", "C1", "CTA UNIQUE");
     const { pricingId } = await admin.mutation(api.pricing.createPricing, {
@@ -123,14 +126,14 @@ test.describe("Éditer le texte d'une brique (fork)", () => {
     // PRICING strictement inchangé.
     expect(aAfter.pricingSnapshot).toEqual(pricingBefore);
 
-    // Bibliothèque : +1 brique forkée (même kind+tier), original INTACT.
+    // Bibliothèque : +1 brique forkée (même kind), original INTACT.
     const campAfter = await admin.query(api.scripts.getCampaign, {
       id: campaignId,
     });
     expect(campAfter!.bricks.length).toBe(bricksCountBefore + 1);
     const forked = campAfter!.bricks.find((b) => b._id === res.forkedBrickId)!;
     expect(forked.kind).toBe("hook");
-    expect(forked.tier).toBe("A"); // hérite du tier
+    expect(forked.instruction).toBe(consigne); // hérite de la consigne
     expect(forked.content).toBe(newText);
     expect(forked.active).toBe(true);
     expect(forked.label).toContain("(variante)");

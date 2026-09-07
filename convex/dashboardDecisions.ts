@@ -140,7 +140,6 @@ export const decisionDashboard = permissionQuery("content.analytics")({
     ): Promise<PostSignal & { label: string; type: string; snapshotAt: number | null }> => {
       const ref = refs.get(p._id as string);
       const hookBrickId = (p.scriptCombo?.hookBrickId as string) ?? null;
-      const hook = hookBrickId ? brickById.get(hookBrickId) : undefined;
       const vuesLatest = p.vuesLatest ?? 0;
       // Historique de CETTE publication (≤ 48 h de vie → une poignée de rows).
       const snaps = await ctx.db
@@ -161,7 +160,6 @@ export const decisionDashboard = permissionQuery("content.analytics")({
         saves: p.savesLatest ?? null,
         delta24h: computeDelta24h(p.datePubli, vuesLatest, snaps, now),
         followersDelta: followersByHandle.get(p.compte) ?? null,
-        angleFamily: hook?.angleFamily ?? null,
         hookBrickId,
         label: postLabel(p),
         type: typeOf(p),
@@ -205,7 +203,6 @@ export const decisionDashboard = permissionQuery("content.analytics")({
         saves: p.savesLatest ?? null,
         delta24h: null,
         followersDelta: null,
-        angleFamily: null,
         hookBrickId: (p.scriptCombo?.hookBrickId as string) ?? null,
       });
       byCompteDesc.set(p.compte, arr);
@@ -229,7 +226,6 @@ export const decisionDashboard = permissionQuery("content.analytics")({
         saves: null,
         delta24h: null,
         followersDelta: null,
-        angleFamily: null,
         hookBrickId: p.scriptCombo?.hookBrickId as string,
       })),
     );
@@ -277,7 +273,6 @@ export const decisionDashboard = permissionQuery("content.analytics")({
               {
                 brickId: b._id as Id<"scriptBricks">,
                 content: b.content,
-                angleFamily: b.angleFamily ?? null,
                 best,
                 runs: runs.length,
               },
