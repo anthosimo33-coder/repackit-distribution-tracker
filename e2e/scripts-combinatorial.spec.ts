@@ -131,7 +131,7 @@ test.describe("S1 — campagnes & bricks combinatoires", () => {
       (b) => b.kind === "hook" && b.content === libHooks[0].text,
     );
     expect(imported).toBeTruthy(); // copie indépendante
-    expect(imported!.tier ?? null).toBeNull(); // taggable plus tard
+    expect(imported!.instruction ?? null).toBeNull(); // consigne à écrire ensuite
     // 3 hooks × 2 flux × 2 cta = 12.
     expect(camp.bricks.filter((b) => b.kind === "hook").length).toBe(3);
     expect(countCombinations(camp.bricks).total).toBe(12);
