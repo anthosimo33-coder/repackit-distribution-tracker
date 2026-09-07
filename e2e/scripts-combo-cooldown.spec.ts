@@ -3,6 +3,7 @@ import { createE2eClient } from "./helpers/authed-client";
 import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
+import { minuitParisDecale } from "./helpers/paris-day";
 import { config } from "dotenv";
 
 config({ path: ".env.local" });
@@ -16,11 +17,10 @@ const admin = createE2eClient(url);
 
 const DAY = 86_400_000;
 
-/** Minuit local + N jours — la convention de stockage réelle de `postDate`. */
+/** Minuit PARIS + N jours — la convention de stockage réelle de `postDate`.
+ *  Cf e2e/helpers/paris-day : `setHours` prendrait le fuseau du runner. */
 function dayMs(offsetDays: number): number {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.getTime() + offsetDays * DAY;
+  return minuitParisDecale(offsetDays);
 }
 
 /**

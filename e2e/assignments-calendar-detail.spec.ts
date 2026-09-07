@@ -3,6 +3,7 @@ import { createE2eClient } from "./helpers/authed-client";
 import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
+import { minuitParis } from "./helpers/paris-day";
 import { config } from "dotenv";
 
 config({ path: ".env.local" });
@@ -12,11 +13,9 @@ if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
 const admin = createE2eClient(convexUrl);
 
 const DAY = 86_400_000;
-const todayMidnight = () => {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-};
+/** Minuit PARIS d'aujourd'hui — cf e2e/helpers/paris-day (le calendrier
+ *  découpe ses journées à Paris, pas dans le fuseau du runner). */
+const todayMidnight = () => minuitParis();
 
 /**
  * Panneau de DÉTAIL au clic sur un post du calendrier de pilotage (page
