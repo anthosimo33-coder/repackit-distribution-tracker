@@ -5,7 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { computeLivePricingBreakdown, assignmentPublishedAt } from "./pricing";
 import { monthKeyParis } from "./dateFr";
-import { summarizeWhopRevenue } from "./whopRevenue";
+import { projectFx, summarizeWhopRevenue } from "./whopRevenue";
 import { collectProjectWhopPayments } from "./whopPaymentsAccess";
 
 /**
@@ -164,12 +164,15 @@ export const getProjectProfitability = permissionQuery("business.read")({
     // mois par mois côté client, un mois bi-devise doit donc pouvoir s'abstenir
     // seul, sans effacer les mois voisins qui sont parfaitement calculables.
     const mixedByMonth = new Map<string, boolean>();
+    // Même taux que l'écran Paiements : sans lui, un mois bi-devise sortait un
+    // revenu nul, donc une marge égale à l'opposé du coût créateurs.
+    const fx = projectFx(project);
     for (const [m, list] of revByMonth) {
-      const s = summarizeWhopRevenue(list);
+      const s = summarizeWhopRevenue(list, fx);
       revenueNetByMonth.set(m, s.net);
       mixedByMonth.set(m, s.mixedCurrency);
     }
-    const totalRevenue = summarizeWhopRevenue(whopRows);
+    const totalRevenue = summarizeWhopRevenue(whopRows, fx);
 
     // ─── Coût créateurs par mois (MÊME moteur que les Paiements) ───────────────
     const creators = await ctx.db
@@ -290,6 +293,8 @@ export const getProjectProfitability = permissionQuery("business.read")({
       // zéroïsé (donc une marge très négative) comme s'il s'agissait d'un vrai
       // montant. Un chiffre faux est pire qu'un chiffre absent.
       mixedCurrency: totalRevenue.mixedCurrency,
+      convertedFrom: totalRevenue.convertedFrom,
+      fxRate: totalRevenue.fxRate,
       mixedCurrencyPresent: totalRevenue.mixedCurrencyPresent,
       currenciesPresent: totalRevenue.currenciesPresent,
       total: {

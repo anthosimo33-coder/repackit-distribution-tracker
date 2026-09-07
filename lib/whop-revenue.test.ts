@@ -168,6 +168,9 @@ describe("summarizeWhopRevenue — agrégation période", () => {
       currenciesPresent: [],
       mixedCurrencyPresent: false,
       byCurrency: [],
+      // Ajoutés avec la conversion bi-devise : une liste vide n'a rien converti.
+      convertedFrom: null,
+      fxRate: null,
     });
   });
 

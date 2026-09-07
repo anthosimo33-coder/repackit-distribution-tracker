@@ -538,6 +538,10 @@ export function OverviewTab({
       <MixedCurrencyNotice
         mixed={revenue?.mixedCurrency}
         present={revenue?.mixedCurrencyPresent}
+        converted={revenue?.convertedFrom != null}
+        convertedFrom={revenue?.convertedFrom}
+        fxRate={revenue?.fxRate}
+        currency={revenue?.currency}
         currencies={revenue?.currenciesPresent}
       />
 
