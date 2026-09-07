@@ -247,10 +247,30 @@ function slotOf(s: ViewSample, kind: string): Id<"scriptBricks"> {
 
 // ─── Queries ─────────────────────────────────────────────────────────────────
 
+/**
+ * Nombre de runs rendus dans la SÉRIE d'une brique (courbe miniature de la
+ * liste). Huit points : assez pour lire une pente, assez peu pour tenir dans
+ * 50 px sans devenir un gribouillis. La MÉDIANE, elle, reste calculée sur TOUS
+ * les runs — la série est un ordre de lecture, pas un échantillon de calcul.
+ */
+export const BRICK_SERIES_MAX = 8;
+
 export interface BrickPerf extends Distribution {
   brickId: Id<"scriptBricks">;
   kind: "hook" | "flux" | "cta";
   label: string;
+  /**
+   * Vues des DERNIERS runs de la brique, du plus ancien au plus récent (au plus
+   * BRICK_SERIES_MAX). Série RUN PAR RUN, jamais jour par jour : la question
+   * posée par la liste est « cette accroche tient-elle d'une vidéo à l'autre ? ».
+   * Une médiane range à égalité un hook régulier et un hook qui a explosé une
+   * fois avant de s'effondrer — la série les sépare.
+   *
+   * GRATUIT : les échantillons de la passe portent déjà `views` et `datePubli`,
+   * on ne relit RIEN de plus (une série par jour, elle, imposerait de rouvrir
+   * les metricSnapshots de chaque post de chaque brique).
+   */
+  lastRunViews: number[];
 }
 
 /**
@@ -267,13 +287,20 @@ export function aggregateByBrick(views: CampaignViews): BrickPerf[] {
     .filter((b) => b.kind !== "corps")
     .map((b) => {
       const kind = b.kind as "hook" | "flux" | "cta";
-      const values = samples
-        .filter((s) => slotOf(s, kind) === b._id)
+      const mine = samples.filter((s) => slotOf(s, kind) === b._id);
+      const values = mine.map((s) => s.views);
+      // Série run par run : ordre de PUBLICATION (les échantillons arrivent dans
+      // l'ordre de lecture des publications, qui n'est pas le leur), puis les
+      // derniers. `slice` sur un tableau plus court rend le tableau entier.
+      const lastRunViews = [...mine]
+        .sort((x, y) => x.datePubli - y.datePubli)
+        .slice(-BRICK_SERIES_MAX)
         .map((s) => s.views);
       return {
         brickId: b._id,
         kind,
         label: b.label,
+        lastRunViews,
         ...summarize(values),
       };
     });

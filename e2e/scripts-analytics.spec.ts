@@ -190,6 +190,30 @@ test.describe("S3 — analytics par variable de script", () => {
       expect(hookRow3.viewsMedian).not.toBe(hookRow.viewsMedian);
     }
 
+    // ── SÉRIE run par run (courbe miniature de la liste des briques) ─────────
+    // L'attendu est reconstruit depuis le DRILL-DOWN, qui rend les mêmes posts
+    // dans un AUTRE ordre (vues décroissantes) : le test trie lui-même par date
+    // et ne relit donc pas l'ordre qu'il vérifie.
+    for (const hookId of new Set(posts.map((p) => p.hookBrickId))) {
+      const drill = await admin.query(api.scriptAnalytics.postsForBrick, {
+        campaignId,
+        brickId: hookId as Id<"scriptBricks">,
+        window: "j7",
+      });
+      const attendu = [...drill]
+        .sort((a, b) => a.datePubli - b.datePubli)
+        .map((x) => x.vues)
+        .slice(-8);
+      const serie = brick7.find((b) => b.brickId === hookId)!.lastRunViews;
+      expect(serie).toEqual(attendu);
+      // Contrôle de FORME : trois runs distincts (vues7 = 1000×i), donc une
+      // série de 3 valeurs différentes — une implémentation qui rendrait trois
+      // fois la même vue, ou une série vide, passerait l'égalité ci-dessus si
+      // le drill-down était lu de travers.
+      expect(serie).toHaveLength(3);
+      expect(new Set(serie).size).toBe(3);
+    }
+
     // ── perfByCombo J+7 : 1 post/combo (anti-coord) → tous en test, aucun signal.
     const combo7 = await admin.query(api.scriptAnalytics.perfByCombo, {
       campaignId,
