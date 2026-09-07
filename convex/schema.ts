@@ -335,6 +335,37 @@ export default defineSchema({
     .index("by_publication", ["publicationId"])
     .index("by_project_at", ["projectId", "at"]),
 
+  // ─── Journal des CORRECTIONS de lien de suivi ────────────────────────────
+  // Une ligne par lien de post corrigé après coup par l'admin (la créatrice
+  // s'était trompée de vidéo). Ce n'est pas un confort d'audit : la correction
+  // SUPPRIME les relevés de vues accumulés sur la mauvaise vidéo — un geste
+  // destructeur, sur une donnée qui alimente la paie. Sans journal, personne ne
+  // peut plus expliquer six semaines plus tard pourquoi un post est passé de
+  // 423 000 vues à 35 000 en une nuit.
+  publicationUrlChanges: defineTable({
+    projectId: v.id("projects"),
+    publicationId: v.optional(v.id("publications")),
+    assignmentId: v.id("assignments"),
+    platform: v.union(
+      v.literal("TikTok"),
+      v.literal("Instagram"),
+      v.literal("YouTube"),
+    ),
+    /** Les deux liens, VERBATIM. L'ancien reste lisible : c'est lui qui permet
+     *  de retrouver la vidéo réellement suivie par erreur. */
+    beforeUrl: v.string(),
+    afterUrl: v.string(),
+    /** Combien de relevés ont été effacés avec l'ancien lien (0 = aucun encore
+     *  collecté). Le chiffre qui explique la chute des vues. */
+    deletedSnapshots: v.number(),
+    /** Dernières vues connues AVANT correction — ce que l'écran affichait. */
+    viewsBefore: v.optional(v.number()),
+    actorUserId: v.id("users"),
+    at: v.number(),
+  })
+    .index("by_publication", ["publicationId"])
+    .index("by_project_at", ["projectId", "at"]),
+
   permissionChanges: defineTable({
     projectId: v.id("projects"),
     // La personne DONT les droits changent.

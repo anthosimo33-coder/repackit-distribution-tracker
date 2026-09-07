@@ -10,6 +10,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
 import { internal } from "./_generated/api";
 import { coerceSnapshotAge } from "./snapshotMatching";
+import { recomputeLatestMetrics } from "./metricSnapshots";
 import { resolveDisplayMetrics } from "./metricsDisplay";
 import { formatDateFr } from "./dateFr";
 import { isTikTokShortlink } from "./modelVideoEmbeds";
@@ -805,7 +806,7 @@ export const updatePublishedAccount = permissionMutation("tracker.manage")({
  * Les BORNES du cycle et la date de paiement remontent avec : un refus doit
  * pouvoir dire POURQUOI et DEPUIS QUAND, pas seulement « impossible ».
  */
-async function publicationPayContext(
+export async function publicationPayContext(
   ctx: QueryCtx | MutationCtx,
   pub: Doc<"publications">,
 ): Promise<{
@@ -870,7 +871,7 @@ function frDate(ms: number): string {
  * Message de refus DATÉ. « Impossible » n'apprend rien : on dit quel cycle est
  * en cause, sur quelles bornes, et depuis quand il est payé.
  */
-function lockedMessage(
+export function lockedMessage(
   quoi: string,
   ctxInfo: { cycleStart: number | null; cycleEnd: number | null; paidAt: number | null },
 ): string {
@@ -949,6 +950,60 @@ export const getPublicationPayFlags = permissionQuery("tracker.manage")({
  * journal ne consigne que de vrais événements. Un journal qui enregistre les
  * non-événements devient illisible, et c'est comme ça qu'on cesse de le lire.
  */
+/**
+ * RE-CIBLE une publication sur une AUTRE vidéo : c'est le geste « la créatrice
+ * s'est trompée de lien ».
+ *
+ * ⚠️ DESTRUCTEUR, et il doit l'être. Les relevés déjà accumulés décrivent la
+ * MAUVAISE vidéo : les garder mélangerait deux courbes sans aucun moyen de les
+ * séparer ensuite, et laisserait la médiane, le J+X, le RPM et le CPM se
+ * calculer sur des vues qui n'ont jamais appartenu à ce post (423 000 au lieu
+ * de 35 000, cas réel). On efface donc l'historique du post, on remet ses
+ * valeurs « latest » à zéro via le recalcul standard, et le prochain relevé
+ * repart de la bonne vidéo.
+ *
+ * Ce qui NE bouge PAS, volontairement :
+ *  - `datePubli` et l'ancre de paie : la correction dit QUELLE vidéo suivre,
+ *    pas QUAND elle a été publiée. Déplacer la date ferait glisser le post dans
+ *    un autre cycle de paie — éventuellement déjà payé.
+ *  - la qualification (warmup / rémunéré) : elle porte sur la mission, pas sur
+ *    le lien.
+ *
+ * L'appelant DOIT avoir vérifié le verrou de paie (publicationPayContext) : un
+ * cycle payé a figé son montant sur les vues de l'ancienne vidéo.
+ */
+export async function retrackPublication(
+  ctx: MutationCtx,
+  pub: Doc<"publications">,
+  url: string,
+): Promise<{ deletedSnapshots: number; viewsBefore: number | undefined }> {
+  const snapshots = await ctx.db
+    .query("metricSnapshots")
+    .withIndex("by_publication_and_capturedAt", (q) =>
+      q.eq("publicationId", pub._id),
+    )
+    .collect();
+  for (const snap of snapshots) await ctx.db.delete(snap._id);
+
+  await ctx.db.patch(pub._id, { postUrl: url });
+  // Remet les champs dénormalisés en cohérence : plus aucun snapshot ⇒ tous les
+  // « latest » sont effacés (le helper le fait déjà, on ne le redouble pas ici).
+  await recomputeLatestMetrics(ctx, pub._id);
+  // Le cumul PAYABLE du créateur vient de perdre ces vues → re-sync des paliers.
+  await syncBonusForPublication(ctx, pub._id);
+  // Shortlink TikTok (vm./vt./tiktok.com/t/) : résolution canonique async, sans
+  // quoi la synchro des métriques ne rapproche jamais le post. Même traitement
+  // qu'à la saisie initiale (updateMetrics).
+  if (pub.plateforme === "TikTok" && isTikTokShortlink(url)) {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.postUrlResolution.resolvePublicationShortlink,
+      { publicationId: pub._id },
+    );
+  }
+  return { deletedSnapshots: snapshots.length, viewsBefore: pub.vuesLatest };
+}
+
 async function traceFlagChange(
   ctx: MutationCtx,
   projectId: Id<"projects">,
@@ -978,6 +1033,17 @@ async function traceFlagChange(
  * suite qui a le droit de le lire, alors que la question ne se pose pas encore.
  * Le jour où un écran l'affichera, ce sera une décision à elle seule.
  */
+/** LECTURE DE TEST du journal des corrections de lien — même arrangement (et
+ *  mêmes raisons) que `e2eReadFlagChanges` juste en dessous. */
+export const e2eReadUrlChanges = e2eMutation({
+  args: { publicationId: v.id("publications") },
+  handler: async (ctx, { publicationId }) =>
+    await ctx.db
+      .query("publicationUrlChanges")
+      .withIndex("by_publication", (q) => q.eq("publicationId", publicationId))
+      .collect(),
+});
+
 export const e2eReadFlagChanges = e2eMutation({
   args: { publicationId: v.id("publications") },
   handler: async (ctx, { publicationId }) => {
