@@ -94,6 +94,10 @@ export function WhopRevenueCard() {
         <MixedCurrencyNotice
           mixed={mixedCurrency}
           present={mixedPresent}
+          converted={(current ?? data.total).convertedFrom != null}
+          convertedFrom={(current ?? data.total).convertedFrom}
+          fxRate={(current ?? data.total).fxRate}
+          currency={(current ?? data.total).currency}
           currencies={data.total.currenciesPresent}
         />
         <div className="flex items-start justify-between gap-4">

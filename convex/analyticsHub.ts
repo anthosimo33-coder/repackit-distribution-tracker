@@ -24,6 +24,8 @@ import { monthKeyParis } from "./dateFr";
 import {
   summarizeWhopRevenue,
   whopNetContribution,
+  whopNetInSummaryCurrency,
+  projectFx,
   whopCollectedAmount,
   splitRevenueByOrigin,
   renewalsByPlan,
@@ -826,8 +828,16 @@ export interface DisputeEntry {
 export interface RevenueBreakdown {
   configured: boolean;
   currency: string | null;
-  /** A5 — true = revenu multi-devise : les totaux ne sont PAS additionnés. */
+  /**
+   * A5 — true = revenu multi-devise NON CONVERTIBLE : les totaux ne sont pas
+   * additionnés. Faux dès que le taux du projet a pu les ramener à une seule
+   * devise (cf convertedFrom).
+   */
   mixedCurrency: boolean;
+  /** Devise convertie vers `currency` au taux du projet, ou null. */
+  convertedFrom: string | null;
+  /** Taux appliqué (1 unité de convertedFrom = ce nombre d'unités de currency). */
+  fxRate: number | null;
   /** Devises PRÉSENTES (tout statut) — cf whopRevenue.currenciesPresent. */
   currenciesPresent: string[];
   /** Plusieurs devises en base, même si une seule encaissée. Ne zéroïse rien. */
@@ -925,6 +935,8 @@ export const getRevenueBreakdown = permissionQuery("business.read")({
         configured: false,
         currency: null,
         mixedCurrency: false,
+        convertedFrom: null,
+        fxRate: null,
         currenciesPresent: [],
         mixedCurrencyPresent: false,
         feeRate: null,
@@ -978,14 +990,24 @@ export const getRevenueBreakdown = permissionQuery("business.read")({
       byPeriod.set(k, list);
     }
 
+    // Le taux du projet : il rend le total BI-DEVISE additionnable. Sans lui,
+    // TOUS les montants de cet écran retombent à zéro — c'est ce qui s'est
+    // produit en prod le 06/09, revenu, marge et RPM compris.
+    const fx = projectFx(project);
+
     const periods: RevenuePeriod[] = [...byPeriod.entries()]
       .map(([period, list]) => {
+        // Le résumé du MOIS, calculé une fois : il porte la conversion, donc la
+        // devise dans laquelle les trois sous-totaux ci-dessous sont exprimés.
+        // Les sommer en net BRUT pendant que `net` est converti aurait fait un
+        // mois dont les parts ne font pas le tout.
+        const sPeriod = summarizeWhopRevenue(list, fx);
         let newNet = 0;
         let returningNet = 0;
         let unattributedNet = 0;
         const members = new Set<string>();
         for (const p of list) {
-          const net = whopNetContribution(p);
+          const net = whopNetInSummaryCurrency(p, sPeriod);
           if (net <= 0) continue;
           if (!p.membershipId) {
             unattributedNet += net;
@@ -998,7 +1020,7 @@ export const getRevenueBreakdown = permissionQuery("business.read")({
         const round2 = (n: number) => Math.round(n * 100) / 100;
         return {
           period,
-          net: summarizeWhopRevenue(list).net,
+          net: sPeriod.net,
           newNet: round2(newNet),
           returningNet: round2(returningNet),
           unattributedNet: round2(unattributedNet),
@@ -1064,7 +1086,7 @@ export const getRevenueBreakdown = permissionQuery("business.read")({
     const plans: PlanEconomics[] = [...byPlan.entries()]
       .map(([planId, x]) => {
         const list = paymentsByPlan.get(planId) ?? [];
-        const s = summarizeWhopRevenue(list);
+        const s = summarizeWhopRevenue(list, fx);
         const { price, currency } = modalPrice(list);
         const active = s.paymentCount > 0;
         const label = planLabels.get(planId);
@@ -1101,12 +1123,18 @@ export const getRevenueBreakdown = permissionQuery("business.read")({
           Number(b.active) - Number(a.active) || b.netTotal - a.netTotal,
       );
 
+    // Le taux du projet rend le total BI-DEVISE additionnable (cf projectFx).
+    // Sans lui, tous les montants de cet écran retombent à zéro.
+    const summary = summarizeWhopRevenue(payments, fx);
+
     // Revenu net par JOUR Europe/Paris (colonne « Détail par jour »). En multi-
-    // devise on ne somme pas : série vide (la carte affiche alors un tiret).
+    // devise NON convertible on ne somme pas : série vide (tiret à l'écran).
+    // Convertible, on somme les nets RAMENÉS à la devise d'affichage — sommer
+    // les nets bruts additionnerait des dollars à des euros.
     const netByDay = new Map<string, number>();
-    if (!summarizeWhopRevenue(payments).mixedCurrency) {
+    if (!summary.mixedCurrency) {
       for (const p of payments) {
-        const net = whopNetContribution(p);
+        const net = whopNetInSummaryCurrency(p, summary);
         if (net <= 0) continue;
         const day = parisDay(p.paidAt);
         netByDay.set(day, round2((netByDay.get(day) ?? 0) + net));
@@ -1123,7 +1151,6 @@ export const getRevenueBreakdown = permissionQuery("business.read")({
       0,
     );
 
-    const summary = summarizeWhopRevenue(payments);
 
     // Litiges (chargebacks) EN COURS — argent À RISQUE, déjà EXCLU du net. Le plus
     // URGENT d'abord (échéance de réponse la plus proche ; sans échéance en dernier).
@@ -1297,6 +1324,9 @@ export const getRevenueBreakdown = permissionQuery("business.read")({
       configured: true,
       currency: summary.currency,
       mixedCurrency: summary.mixedCurrency,
+      // Ramené à une seule devise au taux du projet : l'écran DOIT le dire.
+      convertedFrom: summary.convertedFrom,
+      fxRate: summary.fxRate,
       currenciesPresent: summary.currenciesPresent,
       mixedCurrencyPresent: summary.mixedCurrencyPresent,
       feeRate: summary.feeRate,
@@ -1586,7 +1616,7 @@ export const getChurn = permissionQuery("business.read")({
     const nonInternalPayments = payments.filter(
       (p) => !isInternalWhopMembership(p.membershipId, internalCfg),
     );
-    const summary = summarizeWhopRevenue(nonInternalPayments);
+    const summary = summarizeWhopRevenue(nonInternalPayments, projectFx(project));
     // En multi-devise, summarizeWhopRevenue met `net` à 0 mais garde
     // `paymentCount` à sa vraie valeur (un compte est sans dimension) : la
     // division rendait « 0,00 € », un montant plausible et faux, là où la

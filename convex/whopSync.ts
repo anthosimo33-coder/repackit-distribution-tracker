@@ -16,7 +16,8 @@ import {
   fetchWhopPlans,
   fetchWhopMemberships,
 } from "./whopApi";
-import { summarizeWhopRevenue } from "./whopRevenue";
+import { projectFx,
+  summarizeWhopRevenue } from "./whopRevenue";
 import { monthKeyParis } from "./dateFr";
 import {
   shouldNotifyDispute,
@@ -556,6 +557,11 @@ export const getWhopRevenue = permissionQuery("business.read")({
       project?.slug ?? "",
     );
 
+    // Le taux du projet rend le total bi-devise additionnable. Sans lui, la
+    // carte « Revenu Whop » de l'écran Paiements affichait 0,00 sur 231
+    // paiements bien réels (constaté en prod le 06/09).
+    const fx = projectFx(project);
+
     const byMonth = new Map<string, Doc<"whopPayments">[]>();
     for (const r of rows) {
       const period = monthKeyParis(r.paidAt);
@@ -564,14 +570,14 @@ export const getWhopRevenue = permissionQuery("business.read")({
       else byMonth.set(period, [r]);
     }
     const months = [...byMonth.entries()]
-      .map(([period, list]) => ({ period, summary: summarizeWhopRevenue(list) }))
+      .map(([period, list]) => ({ period, summary: summarizeWhopRevenue(list, fx) }))
       .sort((a, b) => (a.period < b.period ? 1 : -1)); // plus récent d'abord
 
     return {
       configured: project?.whop !== undefined,
       companyId: project?.whop?.companyId ?? null,
       currentPeriod: monthKeyParis(Date.now()),
-      total: summarizeWhopRevenue(rows),
+      total: summarizeWhopRevenue(rows, fx),
       months,
     };
   },

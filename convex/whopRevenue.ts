@@ -166,6 +166,68 @@ export interface WhopRevenueSummary {
    */
   mixedCurrencyPresent: boolean;
   byCurrency: WhopCurrencyRevenue[];
+  /**
+   * Devise CONVERTIE vers `currency` pour rendre le total additionnable, ou
+   * `null` si aucune conversion n'a eu lieu. L'écran DOIT le dire : un montant
+   * converti à un taux posé à la main n'est pas une comptabilité.
+   */
+  convertedFrom: string | null;
+  /** Taux appliqué (1 unité de `convertedFrom` = ce nombre d'unités de `currency`). */
+  fxRate: number | null;
+}
+
+/**
+ * Le taux du projet, et la devise qu'il sait convertir.
+ *
+ * ⚠️ IL NE VAUT QUE POUR UNE PAIRE. `projects.fxRateToRevenue` est défini comme
+ * « 1 unité de payCurrency = X unités de la devise du revenu ». L'appliquer à
+ * une troisième devise donnerait un montant faux d'apparence crédible, ce qui
+ * est pire qu'un tiret : la conversion n'a donc lieu QUE sur exactement deux
+ * devises encaissées dont l'une est `from`.
+ */
+/**
+ * Net d'un paiement EXPRIMÉ dans la devise d'affichage du résumé.
+ *
+ * ⚠️ À UTILISER PARTOUT OÙ DES PAIEMENTS SONT SOMMÉS UN PAR UN. `whopNetContribution`
+ * rend le net dans la devise DU PAIEMENT : l'accumuler sur un lot bi-devise
+ * additionne des dollars à des euros. Tant que le résumé zéroïsait, ces boucles
+ * étaient protégées par une garde en amont ; dès qu'il convertit, elles ne le
+ * sont plus.
+ */
+export function whopNetInSummaryCurrency(
+  p: WhopPaymentLike,
+  summary: Pick<WhopRevenueSummary, "convertedFrom" | "fxRate">,
+): number {
+  const net = whopNetContribution(p);
+  if (summary.convertedFrom === null || summary.fxRate === null) return net;
+  const cur = p.currency?.trim().toLowerCase();
+  return cur === summary.convertedFrom
+    ? Math.round(net * summary.fxRate * 100) / 100
+    : net;
+}
+
+/**
+ * Le contexte de change d'un PROJET, ou `null` s'il n'en a pas.
+ *
+ * Point de passage unique : sept appelants construisaient sinon le même objet à
+ * la main, et le premier qui l'aurait oublié aurait re-vidé les écrans sans que
+ * rien ne le signale.
+ */
+export function projectFx(project: {
+  payCurrency?: string;
+  fxRateToRevenue?: number;
+} | null | undefined): WhopFx | null {
+  const from = project?.payCurrency?.trim().toLowerCase();
+  const rate = project?.fxRateToRevenue;
+  if (!from || typeof rate !== "number" || !(rate > 0)) return null;
+  return { from, rate };
+}
+
+export interface WhopFx {
+  /** Devise source (projects.payCurrency), en minuscules. */
+  from: string;
+  /** 1 unité de `from` = ce nombre d'unités de la devise cible. */
+  rate: number;
 }
 
 /**
@@ -175,6 +237,7 @@ export interface WhopRevenueSummary {
  */
 export function summarizeWhopRevenue(
   payments: WhopPaymentLike[],
+  fx?: WhopFx | null,
 ): WhopRevenueSummary {
   type Acc = {
     gross: number;
@@ -254,6 +317,58 @@ export function summarizeWhopRevenue(
   const refundCount = byCurrency.reduce((s, c) => s + c.refundCount, 0);
   const disputedCount = byCurrency.reduce((s, c) => s + c.disputedCount, 0);
 
+  // ─── Multi-devise : on CONVERTIT quand on sait le faire ────────────────────
+  // Vendre en euros ET en dollars est le régime NORMAL depuis le 06/09 : la
+  // grille en euros va aux résidents européens, celle en dollars aux autres.
+  // Le zérotage d'origine traitait ce cas comme une anomalie et vidait TOUS les
+  // écrans financiers — revenu, marge, RPM — dès la première vente hors Europe.
+  //
+  // La conversion n'a lieu que sur la paire EXACTE que le taux du projet
+  // couvre : deux devises encaissées, dont l'une est `fx.from`. Trois devises,
+  // ou une devise que le taux ne connaît pas, retombent sur le zérotage.
+  const converti =
+    fx && fx.rate > 0 && collected.length === 2
+      ? (() => {
+          const src = collected.find((c) => c.currency === fx.from);
+          const dst = collected.find((c) => c.currency !== fx.from);
+          return src && dst ? { src, dst } : null;
+        })()
+      : null;
+  if (currencies.length > 1 && converti) {
+    const { src, dst } = converti;
+    const r = fx!.rate;
+    return {
+      net: round2(dst.net + src.net * r),
+      gross: round2(dst.gross + src.gross * r),
+      fees: round2(dst.fees + src.fees * r),
+      // Le taux de frais est un RATIO : il survit à la conversion, contrairement
+      // aux montants. Recalculé sur les totaux convertis plutôt que moyenné.
+      feeRate:
+        dst.gross + src.gross * r > 0
+          ? round2(
+              (dst.gross + src.gross * r - (dst.net + src.net * r)) /
+                (dst.gross + src.gross * r),
+            )
+          : null,
+      refunded: round2(dst.refunded + src.refunded * r),
+      disputed: round2(dst.disputed + src.disputed * r),
+      paymentCount,
+      refundCount,
+      disputedCount,
+      currency: dst.currency,
+      currencies,
+      // FAUX, délibérément : les montants ci-dessus SONT additionnables. Le fait
+      // qu'il y ait deux devises reste lisible dans `currencies` et `byCurrency`,
+      // et `convertedFrom` oblige l'écran à le dire.
+      mixedCurrency: false,
+      currenciesPresent,
+      mixedCurrencyPresent,
+      byCurrency,
+      convertedFrom: src.currency,
+      fxRate: r,
+    };
+  }
+
   if (currencies.length > 1) {
     return {
       net: 0,
@@ -271,6 +386,8 @@ export function summarizeWhopRevenue(
       currenciesPresent,
       mixedCurrencyPresent,
       byCurrency,
+      convertedFrom: null,
+      fxRate: null,
     };
   }
 
@@ -309,6 +426,8 @@ export function summarizeWhopRevenue(
     currenciesPresent,
     mixedCurrencyPresent,
     byCurrency,
+    convertedFrom: null,
+    fxRate: null,
   };
 }
 

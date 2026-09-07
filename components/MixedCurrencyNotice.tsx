@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangleIcon } from "lucide-react";
+import { AlertTriangleIcon, InfoIcon } from "lucide-react";
 
 /**
  * Signalement VISIBLE d'un mélange de devises sur le revenu Whop. Calqué sur
@@ -12,34 +12,56 @@ import { AlertTriangleIcon } from "lucide-react";
  * symbole, sans explication — ce qui se lit « ce projet ne gagne rien ». Le zéro
  * de la garde n'est pas un montant : c'est une abstention, et elle doit se dire.
  *
- * Deux niveaux, volontairement distincts :
- *   `mixed`   — plusieurs devises ENCAISSÉES. Les montants sont zéroïsés et donc
- *               inexploitables : avertissement franc.
- *   `present` — plusieurs devises PRÉSENTES mais une seule encaissée (échec,
- *               remboursement ou litige dans une autre devise). Les montants
- *               restent justes ; on prévient seulement que le périmètre n'est
- *               pas mono-devise, sans crier au loup.
- * `mixed` l'emporte sur `present`.
+ * TROIS niveaux, du plus grave au plus anodin :
+ *   `mixed`     — plusieurs devises encaissées ET non convertibles. Les montants
+ *                 sont zéroïsés, donc inexploitables : avertissement franc.
+ *   `converted` — plusieurs devises encaissées, ramenées à une seule au taux du
+ *                 projet. Les montants SONT exploitables ; on dit d'où ils
+ *                 viennent, parce qu'un taux posé à la main n'est pas une
+ *                 comptabilité.
+ *   `present`   — plusieurs devises présentes mais une seule encaissée (échec,
+ *                 remboursement ou litige ailleurs). Montants justes, simple
+ *                 signalement de périmètre.
+ *
+ * ⚠️ POURQUOI `converted` A ÉTÉ AJOUTÉ. Le 06/09/2026, TROIS paiements en
+ * dollars sur 515 ont vidé tout l'écran Paiements : revenu, marge et RPM à
+ * 0,00, alors que 512 paiements en euros étaient parfaitement calculables. La
+ * garde traitait le bi-devise comme une anomalie ; c'est devenu une règle
+ * produit (grille en euros en Europe, en dollars ailleurs).
  */
 export function MixedCurrencyNotice({
   mixed,
   present,
+  converted,
+  convertedFrom,
+  fxRate,
+  currency,
   currencies,
   className,
 }: {
   mixed?: boolean;
   present?: boolean;
+  /** Les montants ont été RAMENÉS à une seule devise au taux du projet. */
+  converted?: boolean;
+  /** Devise convertie (ex. "usd"). */
+  convertedFrom?: string | null;
+  /** Taux appliqué. */
+  fxRate?: number | null;
+  /** Devise d'affichage après conversion. */
+  currency?: string | null;
   currencies?: string[];
   className?: string;
 }) {
-  if (!mixed && !present) return null;
+  if (!mixed && !present && !converted) return null;
   const list =
     currencies && currencies.length > 0
       ? currencies.map((c) => c.toUpperCase()).join(", ")
       : null;
   const tone = mixed
     ? "border-red-200 bg-red-50/70 text-red-900"
-    : "border-amber-200 bg-amber-50/70 text-amber-900";
+    : converted
+      ? "border-slate-200 bg-slate-50 text-slate-600"
+      : "border-amber-200 bg-amber-50/70 text-amber-900";
   return (
     <div
       className={
@@ -47,9 +69,27 @@ export function MixedCurrencyNotice({
         (className ? ` ${className}` : "")
       }
     >
-      <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" />
+      {converted && !mixed ? (
+        <InfoIcon className="mt-0.5 size-3.5 shrink-0" />
+      ) : (
+        <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" />
+      )}
       <div>
-        {mixed ? (
+        {converted && !mixed ? (
+          <>
+            <strong>
+              Plusieurs devises encaissées{list ? ` (${list})` : ""}.
+            </strong>{" "}
+            Les montants sont ramenés en{" "}
+            {(currency ?? "").toUpperCase() || "une seule devise"} au taux du
+            projet
+            {convertedFrom && fxRate
+              ? ` (1 ${convertedFrom.toUpperCase()} = ${fxRate} ${(currency ?? "").toUpperCase()})`
+              : ""}
+            , posé à la main et jamais rafraîchi : lisez-les comme un ordre de
+            grandeur. Le détail par devise, lui, est exact.
+          </>
+        ) : mixed ? (
           <>
             <strong>Plusieurs devises encaissées{list ? ` (${list})` : ""}.</strong>{" "}
             Les montants ne sont pas additionnables : ils sont volontairement
