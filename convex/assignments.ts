@@ -18,7 +18,12 @@ import { formatDayMonthFr } from "./dateFr";
 import { normalizeRemunere } from "./remunerate";
 import { isValidPostWindow } from "./postWindow";
 import { detectPostUrlPlatform, isAccountOnlyUrl } from "./postUrlShape";
-import { isFormatAllowedOnPlatform } from "./publications";
+import {
+  isFormatAllowedOnPlatform,
+  publicationPayContext,
+  lockedMessage,
+  retrackPublication,
+} from "./publications";
 import { SNYTCH_SLUG } from "./projects";
 import {
   CREATOR_ASSIGNMENT_FIELDS,
@@ -2796,6 +2801,32 @@ async function assertClipperDailyQuota(
   }
 }
 
+/**
+ * Forme d'un lien de post, pour UNE plateforme. Rend le lien nettoyé, ou lève.
+ *
+ * Extrait de `confirmPublicationCore` parce qu'un SECOND chemin l'exige : la
+ * correction d'un lien après coup (`correctPublishedUrl`). Deux copies de ces
+ * trois contrôles, c'est la garantie qu'un jour l'une acceptera ce que l'autre
+ * refuse — et le contrôle qui saute en premier est toujours le lien de profil,
+ * celui qui crée un post dont aucune vue ne sera jamais relevée.
+ */
+function assertPostUrlShape(url: string, platform: Plateforme): string {
+  const trimmed = url.trim();
+  if (!/^https?:\/\/.+/i.test(trimmed)) {
+    throw err(ERR.POST_URL_INVALID, `URL du post invalide pour ${platform} (lien http(s) attendu).`, { platform });
+  }
+  if (detectPostUrlPlatform(trimmed) !== platform) {
+    throw err(ERR.POST_URL_WRONG_PLATFORM, `L'URL fournie pour ${platform} ne correspond pas à cette plateforme.`, { platform });
+  }
+  // Lien de PROFIL collé à la place du lien de post : la plateforme est bonne,
+  // donc rien ne l'arrêtait — et la publication créée n'avait aucune vidéo
+  // derrière, donc aucune vue à relever, jamais (cf convex/postUrlShape.ts).
+  if (isAccountOnlyUrl(trimmed, platform)) {
+    throw err(ERR.POST_URL_IS_ACCOUNT, `L'URL fournie pour ${platform} est un lien de profil, pas un lien de publication.`, { platform });
+  }
+  return trimmed;
+}
+
 async function confirmPublicationCore(
   ctx: MutationCtx & { projectId: Id<"projects"> },
   a: Doc<"assignments">,
@@ -2863,20 +2894,7 @@ async function confirmPublicationCore(
   // Index des URLs par plateforme + validation de chaque lien (format + plateforme).
   const urlByPlatform = new Map<Plateforme, string>();
   for (const { platform, url } of urls) {
-    const trimmed = url.trim();
-    if (!/^https?:\/\/.+/i.test(trimmed)) {
-      throw err(ERR.POST_URL_INVALID, `URL du post invalide pour ${platform} (lien http(s) attendu).`, { platform });
-    }
-    if (detectPostUrlPlatform(trimmed) !== platform) {
-      throw err(ERR.POST_URL_WRONG_PLATFORM, `L'URL fournie pour ${platform} ne correspond pas à cette plateforme.`, { platform });
-    }
-    // Lien de PROFIL collé à la place du lien de post : la plateforme est bonne,
-    // donc rien ne l'arrêtait — et la publication créée n'avait aucune vidéo
-    // derrière, donc aucune vue à relever, jamais (cf convex/postUrlShape.ts).
-    if (isAccountOnlyUrl(trimmed, platform)) {
-      throw err(ERR.POST_URL_IS_ACCOUNT, `L'URL fournie pour ${platform} est un lien de profil, pas un lien de publication.`, { platform });
-    }
-    urlByPlatform.set(platform, trimmed);
+    urlByPlatform.set(platform, assertPostUrlShape(url, platform));
   }
 
   // TOUTES les cibles doivent avoir une URL (publication groupée, même jour).
@@ -3258,6 +3276,106 @@ export const confirmPublicationAsAdmin = permissionMutation("review.manage")({
       // publié hors app) → passage direct en `published`, pas de gate to_publish.
       fromAnyStatus: true,
     });
+  },
+});
+
+/**
+ * CORRIGER LE LIEN DE SUIVI d'une cible DÉJÀ publiée — « elle s'est trompée de
+ * vidéo ».
+ *
+ * Le cas réel : la créatrice colle le lien d'une autre de ses vidéos. Le suivi
+ * s'accroche alors à un post qui n'a rien à voir, et tout ce qui en découle est
+ * faux ensemble — vues (423 000 au lieu de 35 000), médiane de la brique,
+ * analytics de campagne, RPM, et le CPM de sa paie. Rien dans l'app ne
+ * permettait de le réparer : `confirmPublication` est idempotent (« déjà
+ * publiée → conservée telle quelle »), et l'édition tracker ne touchait que la
+ * publication, laissant l'assignation pointer l'ancien lien.
+ *
+ * CE QUE ÇA FAIT, en une transaction :
+ *  1. remplace le lien sur la CIBLE (ce que voit la créatrice) ;
+ *  2. re-cible la PUBLICATION liée : nouveau postUrl, relevés de l'ancienne
+ *     vidéo SUPPRIMÉS, valeurs « latest » recalculées, paliers de bonus
+ *     re-synchronisés (cf. publications.retrackPublication) ;
+ *  3. journalise le geste, avec le nombre de relevés effacés.
+ *
+ * CE QUE ÇA NE FAIT PAS :
+ *  - ça ne déplace ni `datePubli` ni l'ancre de paie. La correction dit QUELLE
+ *    vidéo suivre, pas QUAND elle a été publiée ; bouger la date ferait glisser
+ *    le post dans un autre cycle, éventuellement déjà payé ;
+ *  - ça ne touche à AUCUN montant déjà versé — d'où le verrou ci-dessous.
+ *
+ * VERROU : refusé si le cycle de paie du post est déjà payé. Le montant y est
+ * gelé sur les vues de l'ancienne vidéo ; le corriger après coup ferait diverger
+ * l'écran de ce qui a réellement été viré. Même verrou, même message que la
+ * bascule warmup — un seul endroit décide de ce qui est figé.
+ */
+export const correctPublishedUrl = permissionMutation("review.manage")({
+  args: {
+    id: v.id("assignments"),
+    platform: plateformeValidator,
+    url: v.string(),
+  },
+  handler: async (ctx, { id, platform, url }) => {
+    const a = await ctx.db.get(id);
+    if (!a || a.projectId !== ctx.projectId) {
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
+    }
+    const targets = a.targets ?? [];
+    const target = targets.find((t) => t.platform === platform);
+    if (!target || !target.publishedUrl) {
+      throw err(
+        ERR.POST_URL_MISSING,
+        `Aucun lien publié pour ${platform} — il n'y a rien à corriger.`,
+        { platform },
+      );
+    }
+    const clean = assertPostUrlShape(url, platform);
+    if (clean === target.publishedUrl) {
+      return { ok: true as const, changed: false, deletedSnapshots: 0 };
+    }
+
+    const pub = target.publicationId
+      ? await ctx.db.get(target.publicationId)
+      : null;
+    // Verrou de paie — porté par la PUBLICATION (c'est elle qui alimente le
+    // montant). Une cible sans publication (format custom) n'a pas de vues,
+    // donc rien à figer : le lien reste corrigeable.
+    if (pub) {
+      const payCtx = await publicationPayContext(ctx, pub);
+      if (payCtx.locked) {
+        throw new ConvexError(lockedMessage("le lien de suivi", payCtx));
+      }
+    }
+
+    const before = target.publishedUrl;
+    await ctx.db.patch(id, {
+      targets: targets.map((t) =>
+        t.platform === platform ? { ...t, publishedUrl: clean } : t,
+      ),
+    });
+
+    let deletedSnapshots = 0;
+    let viewsBefore: number | undefined;
+    if (pub) {
+      const r = await retrackPublication(ctx, pub, clean);
+      deletedSnapshots = r.deletedSnapshots;
+      viewsBefore = r.viewsBefore;
+    }
+
+    await ctx.db.insert("publicationUrlChanges", {
+      projectId: ctx.projectId,
+      publicationId: pub?._id,
+      assignmentId: id,
+      platform,
+      beforeUrl: before,
+      afterUrl: clean,
+      deletedSnapshots,
+      viewsBefore,
+      actorUserId: ctx.userId,
+      at: Date.now(),
+    });
+
+    return { ok: true as const, changed: true, deletedSnapshots };
   },
 });
 

@@ -48,6 +48,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import type { Id } from "@/convex/_generated/dataModel";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { cn } from "@/lib/utils";
 import { convexErrorMessage } from "@/lib/convex-error";
@@ -679,16 +688,25 @@ function PublicationSection({ row }: { row: AssignmentRow }) {
           {row.status === "paid" ? "Publié et payé ✓" : "Publié ✓"}
         </div>
         {publishedTargets.map((t) => (
-          <a
-            key={t.platform}
-            href={t.publishedUrl ?? undefined}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
-          >
-            Voir le post {t.platform}
-            <ExternalLinkIcon className="size-3.5" />
-          </a>
+          <div key={t.platform} className="flex flex-wrap items-center gap-2">
+            <a
+              href={t.publishedUrl ?? undefined}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+            >
+              Voir le post {t.platform}
+              <ExternalLinkIcon className="size-3.5" />
+            </a>
+            {/* « Elle s'est trompée de vidéo » — le seul geste qui répare un
+                suivi accroché au mauvais post. Refusé côté serveur si le cycle
+                de paie est déjà payé. */}
+            <CorrectUrlButton
+              assignmentId={row._id}
+              platform={t.platform}
+              currentUrl={t.publishedUrl ?? ""}
+            />
+          </div>
         ))}
         <PublishedByLine publishedBy={row.publishedBy} at={row.postedAt} />
       </div>
@@ -709,6 +727,100 @@ function PublicationSection({ row }: { row: AssignmentRow }) {
       notReady={row.status !== "to_publish"}
       buttonTestId={`detail-${managed ? "managed" : "creator-backup"}-publish-${row._id}`}
     />
+  );
+}
+
+/**
+ * Corriger le LIEN DE SUIVI d'un post déjà publié.
+ *
+ * La modale dit ce que le geste détruit AVANT de le faire : les relevés de vues
+ * accumulés sur l'ancienne vidéo sont effacés. Ce n'est pas une précaution de
+ * style — sans ce texte, l'admin voit les vues du post s'effondrer le lendemain
+ * et croit à une panne de synchro.
+ */
+function CorrectUrlButton({
+  assignmentId,
+  platform,
+  currentUrl,
+}: {
+  assignmentId: Id<"assignments">;
+  platform: "TikTok" | "Instagram" | "YouTube";
+  currentUrl: string;
+}) {
+  const correct = useProjectMutation(api.assignments.correctPublishedUrl);
+  const [open, setOpen] = useState(false);
+  const [url, setUrl] = useState(currentUrl);
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    setBusy(true);
+    try {
+      const r = await correct({ id: assignmentId, platform, url });
+      toast.success(
+        !r.changed
+          ? "Lien inchangé."
+          : r.deletedSnapshots > 0
+            ? `Lien corrigé — ${r.deletedSnapshots} relevé${r.deletedSnapshots > 1 ? "s" : ""} de l'ancienne vidéo effacé${r.deletedSnapshots > 1 ? "s" : ""}.`
+            : "Lien corrigé.",
+      );
+      setOpen(false);
+    } catch (e) {
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="xs"
+        className="h-6 gap-1 px-1.5 text-xs text-slate-500 hover:text-slate-900"
+        onClick={() => {
+          setUrl(currentUrl);
+          setOpen(true);
+        }}
+        data-testid={`correct-url-${platform}`}
+      >
+        <PencilIcon className="size-3" />
+        Corriger le lien
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Corriger le lien {platform}</DialogTitle>
+            <DialogDescription>
+              À utiliser quand la créatrice a collé le lien d&apos;une AUTRE
+              vidéo. Les relevés de vues accumulés sur l&apos;ancienne vidéo
+              seront effacés — le suivi repart de zéro sur la bonne. La date de
+              publication et le cycle de paie, eux, ne bougent pas.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <p className="text-xs text-slate-500">Lien actuellement suivi</p>
+            <p className="break-all rounded-md bg-slate-50 p-2 text-xs text-slate-600">
+              {currentUrl}
+            </p>
+          </div>
+          <Input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder={`Nouveau lien ${platform}`}
+            aria-label={`Nouveau lien ${platform}`}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={busy}>
+              Annuler
+            </Button>
+            <Button onClick={submit} disabled={busy || url.trim().length === 0}>
+              {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+              Corriger
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
