@@ -41,6 +41,8 @@ type CalRow = {
   postDate?: number;
   postWindow?: { startMin: number; endMin: number };
   managedByAdmin?: boolean;
+  /** SON fuseau (servi par la query) — la journée se termine chez elle. */
+  creatorTimezone?: string | null;
   targets: { publishedAt?: number | null }[];
   publishedAt?: number | null;
 };
@@ -74,6 +76,9 @@ export function CreatorPublicationCalendar({
             postDate: a.postDate,
             postedAt: representativePostedAt(a),
             now,
+            // Sa journée à elle : publier le 8 au soir à New York n'est pas un
+            // retard parce qu'il est déjà le 9 à Paris.
+            timeZone: a.creatorTimezone,
           }) as CalendarStatusVisual,
         })),
     [list, now],
