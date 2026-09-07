@@ -14,9 +14,9 @@
  * un RATIO entre les deux — un ratio faux dès que la fenêtre n'était pas « tout ».
  *
  * La règle tenue ici : un numérateur ne se divise que par un dénominateur de la
- * MÊME population. Tant que Whop ne rend pas ses clients par jour sur cet
- * onglet, le coût doit être celui de TOUTE la profondeur, comme son
- * dénominateur. Passer une attribution fenêtrée rend `null`, pas un chiffre.
+ * MÊME population. Depuis que l'onglet sait réduire ses clients à une COHORTE
+ * D'ACQUISITION, les deux peuvent être fenêtrés ensemble — et c'est la seule
+ * autre combinaison acceptée. Toute autre rend `null`, pas un chiffre.
  */
 
 import { coversEverything, type AnalyticsWindow, type DataRange } from "./analytics-window";
@@ -37,18 +37,36 @@ export interface AcquisitionCostInput {
 /**
  * Coût d'acquisition par client payant, dans la devise de PAIE.
  *
- * `payingMembers` vient de Whop et vaut pour TOUTE la profondeur : le coût doit
- * donc porter sur la même. Rend `null` quand ce n'est pas le cas — un tiret dit
- * la vérité, un quotient de deux populations différentes ment.
+ * LA RÈGLE : le coût et les clients doivent porter sur LA MÊME PÉRIODE. Deux
+ * façons d'y arriver, toutes deux acceptées :
+ *  - les deux sur toute la profondeur (aucune fenêtre nulle part) ;
+ *  - les deux sur la MÊME fenêtre — le coût filtré par le sélecteur, et les
+ *    clients réduits à la cohorte acquise dans cette même période.
+ *
+ * Tout le reste rend `null`. Un coût de sept jours divisé par six semaines de
+ * clients a été affiché en prod (#167) : il sortait douze fois trop bas, à côté
+ * d'un « revenu à ce jour » cumulé, avec un ratio entre les deux.
  */
 export function acquisitionCostPerClient(
   costs: AcquisitionCostInput,
   payingMembers: number,
   range: DataRange | null,
+  /**
+   * Fenêtre de la COHORTE de clients. `null` = les clients comptés sont ceux de
+   * toute la profondeur.
+   */
+  clientWindow: AnalyticsWindow | null = null,
 ): number | null {
-  if (costs.window !== null && !coversEverything(costs.window, range)) {
-    return null;
-  }
+  const coutTotal =
+    costs.window === null || coversEverything(costs.window, range);
+  const clientsTotal =
+    clientWindow === null || coversEverything(clientWindow, range);
+  const memeFenetre =
+    costs.window !== null &&
+    clientWindow !== null &&
+    costs.window.from === clientWindow.from &&
+    costs.window.to === clientWindow.to;
+  if (!((coutTotal && clientsTotal) || memeFenetre)) return null;
   if (costs.promo === null || costs.promoBonus === null) return null;
   if (payingMembers <= 0) return null;
   return Math.round(((costs.promo + costs.promoBonus) / payingMembers) * 100) / 100;

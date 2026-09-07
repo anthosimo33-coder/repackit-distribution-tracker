@@ -27,6 +27,42 @@ describe("acquisitionCostPerClient", () => {
     expect(acquisitionCostPerClient(septJours, 272, RANGE)).toBeNull();
   });
 
+  it("coût ET clients sur la MÊME fenêtre : accepté", () => {
+    // C'est le cas devenu possible avec la cohorte d'acquisition : les deux
+    // côtés du quotient portent sur la même période.
+    const w = { from: "2026-08-31", to: "2026-09-06" };
+    const septJours = { promo: 460.2, promoBonus: 40, window: w };
+    // 500,20 / 40 clients acquis cette semaine-là = 12,51 $.
+    expect(acquisitionCostPerClient(septJours, 40, RANGE, w)).toBe(12.51);
+  });
+
+  it("deux fenêtres DIFFÉRENTES restent refusées", () => {
+    const coutSemaine = {
+      promo: 460.2,
+      promoBonus: 40,
+      window: { from: "2026-08-31", to: "2026-09-06" },
+    };
+    const clientsMois = { from: "2026-08-01", to: "2026-09-06" };
+    expect(
+      acquisitionCostPerClient(coutSemaine, 120, RANGE, clientsMois),
+    ).toBeNull();
+    // Contre-test : la même fenêtre des deux côtés passe.
+    expect(
+      acquisitionCostPerClient(coutSemaine, 40, RANGE, coutSemaine.window),
+    ).toBe(12.51);
+  });
+
+  it("un coût fenêtré sur des clients NON fenêtrés reste refusé", () => {
+    // Le défaut de #167, toujours interdit : c'est le cas le plus insidieux
+    // parce que les deux nombres existent et se divisent sans broncher.
+    const septJours = {
+      promo: 460.2,
+      promoBonus: 40,
+      window: { from: "2026-08-31", to: "2026-09-06" },
+    };
+    expect(acquisitionCostPerClient(septJours, 272, RANGE, null)).toBeNull();
+  });
+
   it("une fenêtre qui couvre TOUT est acceptée", () => {
     // Contre-test de la condition : sans lui, un refus systématique passerait le
     // test précédent sans rien mesurer. Le sélecteur sur « Tout » doit rendre le

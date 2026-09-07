@@ -16,6 +16,7 @@ import { formatMoney } from "@/lib/format-rate";
 import { toDisplayAmount, conversionNote } from "@/lib/currency-display";
 import { computeChurn } from "@/lib/churn";
 import { acquisitionCostPerClient } from "@/lib/retention-cost";
+import { formatDayShort } from "@/lib/analytics-window";
 import type { AnalyticsWindow, DataRange } from "@/lib/analytics-window";
 import {
   HubCardHeader,
@@ -73,6 +74,7 @@ function frDateTime(ms: number | null): string {
 export function RetentionTab({
   churn,
   attribution,
+  clientWindow,
   dataRange,
   now,
 }: {
@@ -91,6 +93,12 @@ export function RetentionTab({
         costWindow?: AnalyticsWindow | null;
       })
     | undefined;
+  /**
+   * Période de la COHORTE servie par `churn` — les clients comptés sont ceux
+   * acquis dedans. Doit coïncider avec la fenêtre des coûts, sinon le coût par
+   * client rend un tiret plutôt qu'un quotient de deux populations.
+   */
+  clientWindow: AnalyticsWindow | null;
   /** Profondeur réellement collectée — sert à prouver qu'une fenêtre couvre tout. */
   dataRange: DataRange | null;
   now: number;
@@ -170,6 +178,7 @@ export function RetentionTab({
         },
         renewals.payingMembers,
         dataRange ?? null,
+        clientWindow,
       )
     : null;
   // Passage par le module partagé (cf ConvertedAmount) plutôt qu'une
@@ -199,18 +208,48 @@ export function RetentionTab({
       />
     );
   }
+  // Une cohorte VIDE n'est pas une absence de synchro : le dire, sinon on part
+  // vérifier Whop pour rien.
   if (churn.memberships.length === 0) {
     return (
       <HubEmptyState
         icon={UsersIcon}
-        title="En attente des abonnements Whop"
-        description="Aucun abonnement n'a encore été synchronisé depuis Whop. La carte s'alimentera dès la première synchro des memberships (cron horaire ou Actualiser)."
+        title={
+          churn.cohortFrom
+            ? "Aucun client acquis sur cette période"
+            : "En attente des abonnements Whop"
+        }
+        description={
+          churn.cohortFrom
+            ? `Personne n'a payé pour la première fois entre le ${formatDayShort(churn.cohortFrom)} et le ${formatDayShort(churn.cohortTo ?? churn.cohortFrom)}. Élargissez la période : les abonnements existent, ils ont simplement démarré ailleurs.`
+            : "Aucun abonnement n'a encore été synchronisé depuis Whop. La carte s'alimentera dès la première synchro des memberships (cron horaire ou Actualiser)."
+        }
       />
     );
   }
 
   return (
     <div className="space-y-6">
+      {/* De QUI parle cet onglet. « 40 clients » sans dire lesquels se lit comme
+          un total — et la rétention d'une cohorte jeune n'a rien à voir avec
+          celle de toute la base. */}
+      {churn.cohortFrom ? (
+        <HubNotice className="border-slate-200 bg-slate-50 text-slate-600">
+          <strong>
+            Cohorte du {formatDayShort(churn.cohortFrom)} au{" "}
+            {formatDayShort(churn.cohortTo ?? churn.cohortFrom)}
+          </strong>{" "}
+          : {formatNumber(churn.memberships.length)} abonnement(s) dont le{" "}
+          <strong>premier encaissement</strong> tombe dans cette période, suivis{" "}
+          <strong>jusqu&apos;à aujourd&apos;hui</strong> — renouvellements
+          postérieurs compris. Les abonnements qui n&apos;ont JAMAIS encaissé
+          (essais, paiements refusés) n&apos;appartiennent à aucune cohorte : ils
+          sortent du compte, ce qui déplace aussi le taux de résiliation. Et une
+          cohorte récente a mécaniquement moins d&apos;historique qu&apos;une
+          ancienne : sa durée de vie et son revenu par client sont des planchers,
+          pas des verdicts.
+        </HubNotice>
+      ) : null}
       {/* Avertissement — échantillon (premiers renouvellements ~2 août) */}
       {!result.sampleSufficient ? (
         <HubNotice>

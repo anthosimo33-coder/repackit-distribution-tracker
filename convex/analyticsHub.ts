@@ -1551,8 +1551,24 @@ export interface RenewalsPayload {
 }
 
 export const getChurn = permissionQuery("business.read")({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    /**
+     * COHORTE D'ACQUISITION, en jours Europe/Paris inclusifs. Absente = toute
+     * la profondeur.
+     *
+     * ⚠️ LA RÉTENTION NE SE FENÊTRE PAS COMME UNE CONVERSION. Filtrer sur
+     * l'ACTIVITÉ de la période donnerait des cartes qui ne parlent pas de la
+     * même population : « taux de renouvellement » regarderait les échéances
+     * tombées dedans, « revenu par client » un cumul depuis toujours, et le
+     * délai avant résiliation des gens acquis n'importe quand. On retient donc
+     * les CLIENTS ACQUIS dans la période, avec tout ce qui leur est arrivé
+     * depuis : une seule population, une seule question — « comment se
+     * comportent les clients gagnés à ce moment-là ? »
+     */
+    from: v.optional(v.string()),
+    to: v.optional(v.string()),
+  },
+  handler: async (ctx, { from, to }) => {
     const project = await ctx.db.get(ctx.projectId);
     if (!project?.whop) {
       return {
@@ -1563,6 +1579,9 @@ export const getChurn = permissionQuery("business.read")({
         memberships: [] as MembershipEntry[],
         planLabels: [] as { planId: string; name: string | null }[],
         renewals: null as RenewalsPayload | null,
+        cohortFrom: null as string | null,
+        cohortTo: null as string | null,
+        cohortSize: null as number | null,
       };
     }
     const [members, collected, plans] = await Promise.all([
@@ -1592,12 +1611,33 @@ export const getChurn = permissionQuery("business.read")({
       payAgg.set(p.membershipId, cur);
     }
 
+    // ─── Cohorte d'acquisition ─────────────────────────────────────────────
+    // Un abonnement appartient à la cohorte si son PREMIER encaissement tombe
+    // dans la fenêtre. Les paiements retenus sont ensuite TOUS les siens, y
+    // compris postérieurs à la fenêtre : c'est le propre d'une cohorte, on suit
+    // les gens dans le temps. Borner aussi les paiements ferait disparaître les
+    // renouvellements — donc précisément ce que cet onglet mesure.
+    const cohorte =
+      from !== undefined && to !== undefined
+        ? new Set(
+            [...payAgg.entries()]
+              .filter(([, a]) => {
+                const j = parisDay(a.first);
+                return j >= from && j <= to;
+              })
+              .map(([id]) => id),
+          )
+        : null;
+    const dansCohorte = (membershipId: string | null | undefined): boolean =>
+      cohorte === null || (!!membershipId && cohorte.has(membershipId));
+
     const intervalByPlan = new Map(
       plans.map((pl) => [pl.planId, intervalToDaysServer(pl.interval ?? null)]),
     );
 
     const memberships: MembershipEntry[] = members
       .filter((m) => !isInternalWhopMembership(m.whopMembershipId, internalCfg))
+      .filter((m) => dansCohorte(m.whopMembershipId))
       .map((m) => {
         const pa = payAgg.get(m.whopMembershipId);
         return {
@@ -1614,7 +1654,9 @@ export const getChurn = permissionQuery("business.read")({
       });
 
     const nonInternalPayments = payments.filter(
-      (p) => !isInternalWhopMembership(p.membershipId, internalCfg),
+      (p) =>
+        !isInternalWhopMembership(p.membershipId, internalCfg) &&
+        dansCohorte(p.membershipId),
     );
     const summary = summarizeWhopRevenue(nonInternalPayments, projectFx(project));
     // En multi-devise, summarizeWhopRevenue met `net` à 0 mais garde
@@ -1636,7 +1678,11 @@ export const getChurn = permissionQuery("business.read")({
     const stats = computeRenewalStats(
       nonInternalPayments,
       members
-        .filter((m) => !isInternalWhopMembership(m.whopMembershipId, internalCfg))
+        .filter(
+          (m) =>
+            !isInternalWhopMembership(m.whopMembershipId, internalCfg) &&
+            dansCohorte(m.whopMembershipId),
+        )
         .map((m) => ({
           whopMembershipId: m.whopMembershipId,
           planId: m.planId,
@@ -1667,6 +1713,13 @@ export const getChurn = permissionQuery("business.read")({
       memberships,
       planLabels: plans.map((pl) => ({ planId: pl.planId, name: pl.name ?? null })),
       renewals,
+      /**
+       * La cohorte réellement appliquée. L'écran DOIT pouvoir dire de qui il
+       * parle : « 40 clients » sans préciser lesquels se lit comme un total.
+       */
+      cohortFrom: cohorte === null ? null : (from ?? null),
+      cohortTo: cohorte === null ? null : (to ?? null),
+      cohortSize: cohorte === null ? null : cohorte.size,
     };
   },
 });
