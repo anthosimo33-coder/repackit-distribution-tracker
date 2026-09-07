@@ -1026,6 +1026,90 @@ export const deleteBrick = permissionMutation("scripts.manage")({
 });
 
 /**
+ * ACTIONS EN LOT sur une sélection de briques (banc de montage).
+ *
+ * Pourquoi côté serveur plutôt qu'une boucle de mutations dans l'écran : douze
+ * appels séparés, ce sont douze transactions dont n'importe laquelle peut
+ * échouer au milieu — l'admin se retrouve avec sept briques désactivées sur
+ * douze et aucun moyen de savoir lesquelles. Ici, une seule transaction : tout
+ * passe ou rien.
+ *
+ * ISOLATION : chaque brique est re-vérifiée dans le projet courant et IGNORÉE
+ * sinon (même règle que les mutations unitaires, qui ne lèvent pas non plus).
+ * `touched` dit combien ont réellement bougé.
+ *
+ * PLAFOND : une sélection est un geste humain sur un écran ; au-delà de
+ * MAX_BULK_BRICKS c'est un script, et une transaction Convex a des limites de
+ * lecture/écriture qu'on ne veut pas découvrir en production.
+ */
+const MAX_BULK_BRICKS = 200;
+
+function assertBulkSize(ids: readonly unknown[]) {
+  if (ids.length === 0) throw new ConvexError("Aucune brique sélectionnée.");
+  if (ids.length > MAX_BULK_BRICKS) {
+    throw new ConvexError(
+      `Trop de briques d'un coup (${ids.length} > ${MAX_BULK_BRICKS}).`,
+    );
+  }
+}
+
+/** Active / désactive TOUTES les briques de la sélection. */
+export const setBricksActive = permissionMutation("scripts.manage")({
+  args: { ids: v.array(v.id("scriptBricks")), active: v.boolean() },
+  handler: async (ctx, args) => {
+    assertBulkSize(args.ids);
+    let touched = 0;
+    for (const id of args.ids) {
+      const brick = await ctx.db.get(id);
+      if (!brick || brick.projectId !== ctx.projectId) continue;
+      if (brick.active === args.active) continue;
+      await ctx.db.patch(id, { active: args.active });
+      touched++;
+    }
+    return { touched };
+  },
+});
+
+/**
+ * Pose (ou retire, avec `null`/blanc) la MÊME consigne sur toute la sélection.
+ * Même normalisation que l'édition unitaire : une saisie blanche EFFACE.
+ */
+export const setBricksInstruction = permissionMutation("scripts.manage")({
+  args: {
+    ids: v.array(v.id("scriptBricks")),
+    instruction: v.union(v.string(), v.null()),
+  },
+  handler: async (ctx, args) => {
+    assertBulkSize(args.ids);
+    const instruction = normalizeInstruction(args.instruction);
+    let touched = 0;
+    for (const id of args.ids) {
+      const brick = await ctx.db.get(id);
+      if (!brick || brick.projectId !== ctx.projectId) continue;
+      await ctx.db.patch(id, { instruction });
+      touched++;
+    }
+    return { touched };
+  },
+});
+
+/** Supprime TOUTES les briques de la sélection. */
+export const deleteBricks = permissionMutation("scripts.manage")({
+  args: { ids: v.array(v.id("scriptBricks")) },
+  handler: async (ctx, args) => {
+    assertBulkSize(args.ids);
+    let deleted = 0;
+    for (const id of args.ids) {
+      const brick = await ctx.db.get(id);
+      if (!brick || brick.projectId !== ctx.projectId) continue;
+      await ctx.db.delete(id);
+      deleted++;
+    }
+    return { deleted };
+  },
+});
+
+/**
  * Importe des hooks de la BIBLIOTHÈQUE (table hooks) en scriptBricks kind="hook".
  * COPIE : le texte du hook devient un brick indépendant (éditable sans toucher
  * la biblio). La table hooks est seulement LUE → reste intacte.
