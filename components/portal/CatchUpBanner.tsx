@@ -4,7 +4,7 @@ import Link from "next/link";
 import { AlertTriangleIcon, ArrowRightIcon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { portalHref } from "@/lib/view-as";
-import { formatDate } from "@/lib/format";
+import { formatPlannedDay } from "@/lib/calendar-status";
 import { isToCatchUp, sortBySchedule } from "@/lib/creator-schedule";
 import { formatPostWindow } from "@/convex/postWindow";
 import { representativePostedAt } from "@/lib/calendar-status";
@@ -37,6 +37,15 @@ export type CatchUpRow = {
   publishedAt?: number | null;
   targets: { platform: string; publishedAt?: number | null }[];
 };
+
+/** Jour prévu, format court — l'étiquette, jamais l'heure locale du lecteur. */
+function jourPrevu(ts: number, locale: string): string {
+  return formatPlannedDay(ts, locale, {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+  });
+}
 
 export function CatchUpBanner({
   list,
@@ -99,11 +108,15 @@ export function CatchUpBanner({
                     <span className="block text-xs text-rose-700">
                       {plage !== null
                         ? tcu("plannedOnWindow", {
-                            date: formatDate(a.postDate!, loc),
+                            // Jour PRÉVU = étiquette : rendu sans conversion de
+                            // fuseau, sinon il recule d'un jour à l'ouest de Paris.
+                            date: jourPrevu(a.postDate!, loc),
                             window: plage,
                           })
                         : tcu("plannedOn", {
-                            date: formatDate(a.postDate!, loc),
+                            // Jour PRÉVU = étiquette : rendu sans conversion de
+                            // fuseau, sinon il recule d'un jour à l'ouest de Paris.
+                            date: jourPrevu(a.postDate!, loc),
                           })}
                     </span>
                   </span>

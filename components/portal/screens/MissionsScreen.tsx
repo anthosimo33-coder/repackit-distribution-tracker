@@ -8,7 +8,7 @@ import {
   MissionListItem,
   type CreatorAssignment,
 } from "@/components/portal/MissionListItem";
-import { groupBySchedule } from "@/lib/creator-schedule";
+import { startOfDayUtcFromLocal, groupBySchedule } from "@/lib/creator-schedule";
 import { representativePostedAt } from "@/lib/calendar-status";
 import { isActionable, type AssignmentStatus } from "@/lib/assignment-status";
 import { Card, CardContent } from "@/components/ui/card";
@@ -73,18 +73,21 @@ export default function MissionsScreen() {
     [mine, nowMs],
   );
 
+  // `dayStart` est minuit UTC de l'ÉTIQUETTE du jour prévu (cf groupBySchedule) :
+  // il se lit et se compare en UTC, jamais avec l'horloge du lecteur — sinon le
+  // libellé recule d'un jour pour toute créatrice à l'ouest de Paris.
   const dayLabel = (dayStart: number) => {
-    const d = new Date(dayStart);
-    const today = new Date(nowMs);
-    today.setHours(0, 0, 0, 0);
-    const diff = Math.round((dayStart - today.getTime()) / 86_400_000);
+    const diff = Math.round(
+      (dayStart - startOfDayUtcFromLocal(nowMs)) / 86_400_000,
+    );
     if (diff === 0) return t("missions.group.today");
     if (diff === 1) return t("missions.group.tomorrow");
     // `numeric` et non `2-digit` : « mardi 1 septembre », pas « mardi 01 ».
-    return d.toLocaleDateString(loc, {
+    return new Date(dayStart).toLocaleDateString(loc, {
       weekday: "long",
       day: "numeric",
       month: "long",
+      timeZone: "UTC",
     });
   };
 

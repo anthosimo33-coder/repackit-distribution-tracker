@@ -8,7 +8,8 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { portalHref } from "@/lib/view-as";
 import {
   calendarStatus,
-  isSameLocalDay,
+  formatPlannedDay,
+  isPlannedToday,
   representativePostedAt,
 } from "@/lib/calendar-status";
 import { useTranslations } from "next-intl";
@@ -26,8 +27,13 @@ type BannerRow = {
   publishedAt?: number | null;
 };
 
+/**
+ * Jour PRÉVU en toutes lettres. Passe par `formatPlannedDay` : ce jour est une
+ * étiquette écrite à minuit Paris, et la rendre avec l'horloge du lecteur la
+ * décale d'un jour pour toute créatrice à l'ouest de Paris.
+ */
 function longDate(ts: number, locale: string): string {
-  return new Date(ts).toLocaleDateString(locale, {
+  return formatPlannedDay(ts, locale, {
     weekday: "long",
     day: "2-digit",
     month: "long",
@@ -64,11 +70,15 @@ export function TodayPostBanner({
       timeZone: a.creatorTimezone,
     }) === "scheduled";
 
+  // « Aujourd'hui » = SA journée à elle, comparée à l'ÉTIQUETTE du jour prévu.
   const today = mine.filter(
-    (a) => isScheduled(a) && isSameLocalDay(a.postDate!, now),
+    (a) => isScheduled(a) && isPlannedToday(a.postDate!, now, a.creatorTimezone),
   );
   const next = mine
-    .filter((a) => isScheduled(a) && !isSameLocalDay(a.postDate!, now))
+    .filter(
+      (a) =>
+        isScheduled(a) && !isPlannedToday(a.postDate!, now, a.creatorTimezone),
+    )
     .sort((x, y) => x.postDate! - y.postDate!)[0];
 
   if (today.length > 0) {
