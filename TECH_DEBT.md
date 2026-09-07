@@ -306,10 +306,19 @@ Ce fichier liste les anti-patterns repérés dans la zone touchée par chaque fe
   soit nettoyée casserait le déploiement.
 - **Conséquence** : deux champs morts dans le schéma, et un lecteur du fichier qui
   doit lire le commentaire pour savoir qu'ils ne veulent plus rien dire.
-- **Forme du correctif** : lancer la migration en prod
-  (`./scripts/convex-prod.sh run scripts:stripBrickTaxonomy`), vérifier qu'elle
-  rend `migrated: 0` au second passage, puis supprimer les deux lignes du schéma
-  et la migration elle-même.
+- **Fait le 2026-09-07** : migration passée en PROD (`giddy-bass-969`) —
+  `migrated: 319`, puis `migrated: 0` au second passage. Plus une seule brique de
+  production ne porte ces deux champs.
+- **Ce qui reste à faire, et qui BLOQUE le retrait des deux lignes** : le
+  déploiement de DEV dans le cloud (`useful-hummingbird-821`) n'a jamais reçu ce
+  code — `npx convex run scripts:stripBrickTaxonomy` y répond « Could not find
+  function ». Ses briques portent donc encore `tier`/`angleFamily`. Retirer les
+  champs du schéma AVANT de le nettoyer créerait un blocage circulaire : le push
+  échouerait à la validation du schéma, donc la migration n'y arriverait jamais.
+- **Forme du correctif** : sur le déploiement de dev, pousser le code courant
+  (`npx convex dev` une fois), y lancer `npx convex run scripts:stripBrickTaxonomy`
+  jusqu'à `migrated: 0` — ou constater que ce déploiement est mort et l'oublier —
+  puis supprimer les deux lignes du schéma et la migration elle-même.
 - **Ce qui rendrait ça urgent** : rien avant la prochaine évolution de
   `scriptBricks` — le risque est qu'un futur champ soit modelé sur ces deux-là,
   ou qu'une requête les relise « puisqu'ils sont là ».
