@@ -10,6 +10,7 @@ import { api } from "@/convex/_generated/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -142,9 +143,12 @@ function PaiementsPageContenu() {
   const payments = useProjectQuery(api.payments.listPayments, {});
   const rows = payments ?? [];
   const total = rows.reduce((s, p) => s + p.totalDue, 0);
+  // RESTE à verser : `remainingDue` déduit les acomptes déjà versés. Sommer
+  // `totalDue` re-compterait l'argent déjà parti (et divergerait du dashboard,
+  // qui somme le même champ — cf getDueTotal).
   const unpaidTotal = rows
     .filter((p) => p.status !== "paid")
-    .reduce((s, p) => s + p.totalDue, 0);
+    .reduce((s, p) => s + p.remainingDue, 0);
 
   // ── Paiement EN MASSE ──────────────────────────────────────────────────────
   // On boucle sur markCyclePaid (la mutation unitaire déjà en place) : c'est le
@@ -166,8 +170,8 @@ function PaiementsPageContenu() {
     () => payableRows.filter((p) => selected.has(p.key)),
     [payableRows, selected],
   );
-  const payableTotal = payableRows.reduce((s, p) => s + p.totalDue, 0);
-  const selectedTotal = selectedRows.reduce((s, p) => s + p.totalDue, 0);
+  const payableTotal = payableRows.reduce((s, p) => s + p.remainingDue, 0);
+  const selectedTotal = selectedRows.reduce((s, p) => s + p.remainingDue, 0);
   // Vidéos rémunérées dont AUCUNE vue n'a pu être mesurée, sur la sélection.
   // On signale, on ne bloque pas (arbitrage produit) : le bouton reste actif,
   // mais on ne paie plus sans le savoir. Sept vidéos Snytch cumulant 78 476
@@ -505,6 +509,197 @@ function PaiementsPageContenu() {
   );
 }
 
+/**
+ * ACOMPTE — verser une partie d'un cycle encore ouvert.
+ *
+ * Le cycle ne se ferme pas et son montant continue de suivre les vues : la
+ * modale le DIT, parce que c'est exactement ce qui surprend (« j'ai noté 100 $,
+ * pourquoi le reste a bougé ? »). Le reste affiché est toujours « dû du jour
+ * moins déjà versé ».
+ */
+function AdvanceButton({
+  row,
+  currency,
+}: {
+  row: Payment;
+  currency?: string | null;
+}) {
+  const recordAdvance = useProjectMutation(api.payments.recordAdvance);
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [busy, setBusy] = useState(false);
+  const parsed = Number(amount.replace(",", "."));
+  const valide = Number.isFinite(parsed) && parsed > 0;
+  const dejaVerse = row.advances.reduce((s, a) => s + a.amount, 0);
+
+  async function submit() {
+    setBusy(true);
+    try {
+      await recordAdvance({
+        creatorId: row.creatorId,
+        cycleIndex: row.cycleIndex,
+        amount: parsed,
+      });
+      toast.success(`Acompte de ${formatMoney(parsed, currency)} enregistré.`);
+      setOpen(false);
+      setAmount("");
+    } catch (e) {
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="text-xs text-slate-500 hover:text-slate-900"
+        onClick={() => setOpen(true)}
+        data-testid={`advance-${row.key}`}
+      >
+        Payer une partie…
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Payer une partie — {row.creatorName}</DialogTitle>
+            <DialogDescription>
+              Cycle du {formatCycleRange(row.cycleStart, row.cycleEnd)}. Le cycle
+              reste ouvert : son montant continue de suivre les vues, donc le
+              reste bougera encore.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <label htmlFor="advance-amount" className="text-xs text-slate-500">
+              Montant versé maintenant
+            </label>
+            <Input
+              id="advance-amount"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              inputMode="decimal"
+              placeholder="0,00"
+              autoFocus
+            />
+          </div>
+          <ul className="space-y-1 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+            <BreakdownLine
+              label="Dû à cet instant"
+              amount={row.totalDue}
+              currency={currency}
+            />
+            <BreakdownLine
+              label="Déjà versé"
+              amount={dejaVerse}
+              currency={currency}
+            />
+            <BreakdownLine
+              label="Reste après ce versement"
+              amount={Math.max(
+                0,
+                Math.round((row.remainingDue - (valide ? parsed : 0)) * 100) /
+                  100,
+              )}
+              currency={currency}
+            />
+          </ul>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={busy}>
+              Annuler
+            </Button>
+            <Button onClick={submit} disabled={busy || !valide}>
+              {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+              Enregistrer le versement
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+/**
+ * ANNULER un paiement posé par erreur — une fois, et une seule.
+ *
+ * La modale annonce l'e-mail de correction AVANT le clic : la créatrice a reçu
+ * « tu as été payée », elle recevra « en fait non ». Ce n'est pas un détail
+ * d'implémentation, c'est le geste que l'admin doit assumer.
+ */
+function RevertButton({
+  row,
+  currency,
+}: {
+  row: Payment;
+  currency?: string | null;
+}) {
+  const revert = useProjectMutation(api.payments.revertCyclePayment);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  if (!row.canRevert || row.paymentId === null) {
+    return (
+      <span className="text-xs text-slate-400">
+        {row.paymentId !== null && row.status === "paid" ? "Payé" : "Payé"}
+      </span>
+    );
+  }
+
+  async function submit() {
+    setBusy(true);
+    try {
+      await revert({ id: row.paymentId! });
+      toast.success("Paiement annulé — le cycle redevient dû.");
+      setOpen(false);
+    } catch (e) {
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="text-xs text-rose-600 hover:text-rose-700"
+        onClick={() => setOpen(true)}
+        data-testid={`revert-${row.key}`}
+      >
+        Annuler
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Annuler le paiement — {row.creatorName}</DialogTitle>
+            <DialogDescription>
+              Cycle du {formatCycleRange(row.cycleStart, row.cycleEnd)}, marqué
+              payé pour {formatMoney(row.totalDue, currency)}. Il redevient dû
+              dans l&apos;état exact d&apos;avant le paiement.
+            </DialogDescription>
+          </DialogHeader>
+          <p className="rounded-lg border-l-4 border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">
+            Un e-mail de correction part à {row.creatorName} : elle avait reçu
+            l&apos;e-mail de paiement. Et c&apos;est la SEULE annulation
+            possible sur ce cycle.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={busy}>
+              Retour
+            </Button>
+            <Button variant="destructive" onClick={submit} disabled={busy}>
+              {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+              Annuler ce paiement
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 function PaymentRow({
   p,
   currency,
@@ -588,7 +783,29 @@ function PaymentRow({
           </span>
         </TableCell>
         <TableCell className="text-right font-medium tabular-nums text-slate-900">
-          {formatMoney(p.totalDue, currency)}
+          {/* Ce qu'il RESTE à verser. Quand un acompte a été versé, le montant
+              du cycle reste lisible juste en dessous : sans lui, l'admin ne
+              saurait plus ce que le cycle vaut, seulement ce qu'il lui doit. */}
+          {formatMoney(p.status === "paid" ? p.totalDue : p.remainingDue, currency)}
+          {p.advances.length > 0 && p.status !== "paid" && (
+            <span
+              className="ml-2 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-normal text-primary"
+              title={p.advances
+                .map(
+                  (a) =>
+                    `${formatMoney(a.amount, currency)} le ${new Date(a.at).toLocaleDateString("fr-FR")}`,
+                )
+                .join(" · ")}
+              data-testid={`advance-badge-${p.key}`}
+            >
+              acompte{" "}
+              {formatMoney(
+                p.advances.reduce((s, a) => s + a.amount, 0),
+                currency,
+              )}{" "}
+              · sur {formatMoney(p.totalDue, currency)}
+            </span>
+          )}
           {(p.pricingBreakdown?.unmeasuredPayablePosts ?? 0) > 0 && (
             // Repère AVANT la sélection : la modale dit le total, cette pastille
             // dit CHEZ QUI. Sans elle, l'avertissement serait vrai mais inutile.
@@ -615,18 +832,21 @@ function PaymentRow({
         </TableCell>
         <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
           {p.status === "paid" ? (
-            <span className="text-xs text-slate-400">Payé</span>
+            <RevertButton row={p} currency={currency} />
           ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={onMarkPaid}
-              disabled={busy}
-              data-testid={`mark-paid-${p.key}`}
-            >
-              {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-              Marquer payé
-            </Button>
+            <div className="flex items-center justify-end gap-1.5">
+              <AdvanceButton row={p} currency={currency} />
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onMarkPaid}
+                disabled={busy}
+                data-testid={`mark-paid-${p.key}`}
+              >
+                {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+                {p.advances.length > 0 ? "Solder" : "Marquer payé"}
+              </Button>
+            </div>
           )}
         </TableCell>
       </TableRow>
