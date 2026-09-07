@@ -788,10 +788,14 @@ function RevertButton({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  // Pas d'annulation possible : on DIT pourquoi. Un « Payé » muet là où l'admin
+  // cherche le bouton se lit comme une panne.
   if (!row.canRevert || row.paymentId === null) {
     return (
       <span className="text-xs text-slate-400">
-        {row.paymentId !== null && row.status === "paid" ? "Payé" : "Payé"}
+        {row.canRevert === false && row.paymentId !== null
+          ? "Annulation déjà utilisée"
+          : "Payé"}
       </span>
     );
   }
