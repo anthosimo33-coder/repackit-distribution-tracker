@@ -134,8 +134,9 @@ describe("compareLadders", () => {
   });
 
   it("compte DEUX paliers divergents pour le sommet US/FR", () => {
-    // Le seuil ET le libellé changent : un palier disparaît, un autre apparaît.
-    // On ne prétend pas deviner que c'est « le même palier corrigé ».
+    // Un palier DÉPLACÉ compte bien pour deux : le seuil 100 000 001 disparaît,
+    // le seuil 100 000 000 apparaît. On ne prétend pas deviner que c'est « le
+    // même palier corrigé » — seul un seuil identique appartie deux paliers.
     expect(compareLadders(GRILLE_US, GRILLE_FR)).toEqual({
       identical: false,
       differing: 2,
@@ -143,6 +144,8 @@ describe("compareLadders", () => {
   });
 
   it("voit un palier qui ne diffère QUE par son seuil", () => {
+    // Deux seuils distincts = deux paliers, même récompense : 1 disparu,
+    // 1 apparu.
     // Le cas de production le plus insidieux : même récompense, même montant,
     // seuil mal tapé. Sans cette assertion, une comparaison qui ignore le seuil
     // passait les tests — c'est pourtant tout ce que le module sert à voir.
@@ -167,14 +170,29 @@ describe("compareLadders", () => {
     const chiffreZero = GRILLE_FR.map((t) =>
       t.seuilVues === 10_000_000 ? { ...t, coutReel: 0 } : t,
     );
-    expect(compareLadders(chiffreZero, GRILLE_FR).differing).toBe(2);
+    expect(compareLadders(chiffreZero, GRILLE_FR).differing).toBe(1);
   });
 
   it("voit un montant cash modifié à seuil égal", () => {
     const plusGenereux = GRILLE_FR.map((t) =>
       t.seuilVues === 1_000_000 ? { ...t, montant: 250 } : t,
     );
-    expect(compareLadders(plusGenereux, GRILLE_FR).differing).toBe(2);
+    expect(compareLadders(plusGenereux, GRILLE_FR).differing).toBe(1);
+  });
+
+  it("compte UN seul palier quand seule la RÉCOMPENSE change", () => {
+    // Le cas qui inondait l'écran : « a Car » / « A car » / « Une voiture » au
+    // même seuil. Apparier les paliers entiers annonçait « 4 paliers
+    // divergent » pour deux libellés retouchés.
+    const renomme = GRILLE_FR.map((t) =>
+      t.seuilVues === 10_000_000
+        ? { ...t, libelle: "📱 iPhone 17 Pro" }
+        : t,
+    );
+    expect(compareLadders(renomme, GRILLE_FR)).toEqual({
+      identical: false,
+      differing: 1,
+    });
   });
 
   it("deux grilles vides sont identiques", () => {
