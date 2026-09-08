@@ -136,7 +136,11 @@ export function FilterMultiSelect({
               </span>
             )}
           </div>
-          <ul className="space-y-0.5 pt-1">
+          {/* Ancre de test : les `<select>` natifs d'un écran exposent EUX AUSSI
+              des `role="option"` (« Grouper par », « Trier par »…). Un
+              `getByRole("option")` non scopé les ramasse et une spec croit le
+              popover ouvert alors qu'il ne l'est pas. */}
+          <ul data-testid="filtre-options" className="space-y-0.5 pt-1">
             {options.map((o, i) => {
               const checked = selectedValues.has(o.value);
               // Intertitre au CHANGEMENT de section (l'ordre vient de l'appelant).

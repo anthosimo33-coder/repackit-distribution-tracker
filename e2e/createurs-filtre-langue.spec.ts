@@ -97,9 +97,9 @@ test.describe("Créateurs — filtre par langue", () => {
     }
 
     await page.goto(adminPath("/createurs"));
-    const pastille = (nom: RegExp) => page.getByRole("button", { name: nom });
 
-    // La colonne existe : sans elle on filtre à l'aveugle.
+    // La colonne existe : sans elle on filtre à l'aveugle. Elle survit à la
+    // refonte pour cette raison exacte — l'écran doit MONTRER ce qu'il filtre.
     await expect(page.getByRole("columnheader", { name: "Langue" })).toBeVisible({
       timeout: 15_000,
     });
@@ -107,31 +107,56 @@ test.describe("Créateurs — filtre par langue", () => {
     const lignesAvec = async (t: string) =>
       page.getByRole("row").filter({ hasText: t }).count();
 
+    /**
+     * Ouvre un menu de filtre et coche une option.
+     *
+     * Les options sont cherchées DANS le popover (`filtre-options`) : les
+     * `<select>` natifs de la barre d'outils — « Grouper par », « Trier par » —
+     * exposent eux aussi des `role="option"`, et un `getByRole("option")` non
+     * scopé les ramasse.
+     */
+    const cocher = async (axe: string, option: RegExp) => {
+      await page.getByTestId(`filtre-${axe}`).locator("button").click();
+      await page
+        .getByTestId("filtre-options")
+        .getByRole("option", { name: option })
+        .click();
+      await page.keyboard.press("Escape");
+    };
+
     // Axe langue seul : English montre les 3 anglophones.
-    await pastille(/^English/).click();
+    await cocher("langue", /^English/);
     expect(await lignesAvec(`P-EN-1 ${ts}`)).toBe(1);
     expect(await lignesAvec(`P-FR-1 ${ts}`)).toBe(0);
 
+    // COMPTEURS CROISÉS, moitié 1 : AVANT de croiser, on note ce que le menu
+    // Population annonce pour « Créateur partenaire » — la liste est déjà
+    // réduite aux anglophones, donc il doit annoncer 2, pas 3.
+    await page.getByTestId("filtre-population").locator("button").click();
+    const optPartenaire = page
+      .getByTestId("filtre-options")
+      .getByRole("option", { name: /^Créateur partenaire/ });
+    const annonce = Number(
+      (await optPartenaire.textContent())?.match(/(\d+)\s*$/)?.[1],
+    );
+
     // Les DEUX axes se combinent : Partenaire + English → les 2 partenaires EN,
     // pas le talent EN.
-    await pastille(/^Partenaire/).click();
+    await optPartenaire.click();
     expect(await lignesAvec(`P-EN-1 ${ts}`)).toBe(1);
     expect(await lignesAvec(`P-EN-2 ${ts}`)).toBe(1);
     expect(await lignesAvec(`T-EN-1 ${ts}`), "le talent EN sort").toBe(0);
     expect(await lignesAvec(`P-FR-1 ${ts}`), "le partenaire FR sort").toBe(0);
 
-    // COMPTEURS CROISÉS : avec « Partenaire » actif, la pastille English doit
-    // annoncer le nombre de PARTENAIRES anglophones. Un compteur qui annonce le
-    // total ment sur ce qu'il va produire.
-    const nEnglish = Number(
-      (await pastille(/^English/).textContent())?.match(/(\d+)\s*$/)?.[1],
-    );
-    await pastille(/^English/).click(); // repasse sur « English » (déjà actif)
+    // COMPTEURS CROISÉS, moitié 2 : ce que le compteur ANNONÇAIT est exactement
+    // ce que le filtre a PRODUIT. Un compteur qui ment sur ce qu'il va donner
+    // est pire que pas de compteur — c'est la règle que ce test tient.
+    await page.keyboard.press("Escape");
     const visibles = await page
       .getByRole("row")
       .filter({ hasText: MARKER })
       .count();
-    expect(nEnglish, "le compteur English doit valoir ce qu'il affiche").toBe(
+    expect(annonce, "le compteur Population doit valoir ce qu'il produit").toBe(
       visibles,
     );
   });

@@ -66,6 +66,11 @@ test.describe("Créateurs — multi-projets + switcher + isolation", () => {
       .click();
     await page.waitForURL(/\/createurs\/.+/, { timeout: 10_000 });
 
+    // Le rattachement multi-projets vit désormais dans l'onglet « Accès &
+    // projets » : c'est une action RARE, elle n'a plus à occuper le haut de la
+    // fiche au-dessus du nom de la personne.
+    await page.getByRole("tab", { name: /Accès/ }).click();
+
     const targetSelect = page.getByRole("combobox", { name: "Projet cible" });
     await targetSelect.click();
     await page.getByRole("option", { name: nameB, exact: true }).click();

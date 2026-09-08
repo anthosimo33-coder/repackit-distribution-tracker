@@ -147,7 +147,15 @@ test.describe("Suppression d'un créateur — cascade + historique conservé", (
 
     // ── UI : confirmation par saisie du nom ──
     await page.goto(adminPath("/createurs"));
-    await page.getByRole("button", { name: `Actions ${creatorName}` }).click();
+    // Le bouton d'actions ne porte PLUS le nom de la créatrice dans son
+    // aria-label : ce nom remontait sur la cellule et `getByRole("cell",
+    // { name })`, qui matche par sous-chaîne, en trouvait trois par ligne. On
+    // vise donc la LIGNE, puis son bouton d'actions.
+    await page
+      .getByRole("row")
+      .filter({ hasText: creatorName })
+      .getByTestId("row-actions")
+      .click();
     await page
       .getByRole("menuitem", { name: /Supprimer le créateur/i })
       .click();

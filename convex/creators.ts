@@ -23,7 +23,11 @@ import { syncBonusUnlocks } from "./pricing";
 import { DELETABLE_STATUSES, purgeAndDeleteAssignment } from "./assignments";
 import { ConvexError, v } from "convex/values";
 import { normalizeRef } from "./conversionAttribution";
-import { isSupportedTimezone } from "./creatorDay";
+import { isSupportedTimezone, resolveCreatorTimezone } from "./creatorDay";
+import {
+  EMPTY_ACTIVITY,
+  summarizeCreatorActivity,
+} from "./creatorActivity";
 import { creatorZone } from "./creatorTimezone";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation } from "./_generated/server";
@@ -158,6 +162,119 @@ export const listCreators = permissionQuery("creators.read")({
       });
     }
     return rows.sort((a, b) => b.createdAt - a.createdAt);
+  },
+});
+
+/**
+ * ACTIVITÉ par créatrice — comptes, publications, dernier post.
+ *
+ * ─── POURQUOI UNE QUERY À PART, ET PAS TROIS CHAMPS SUR `listCreators` ──────
+ * `listCreators` est lue par CINQ écrans (table Créateurs, tracker, appariement,
+ * sélecteur de propriétaire, assignation de campagne). Y greffer un balayage des
+ * comptes ET des assignments du projet ralentirait les quatre qui n'en ont que
+ * faire. Cette query-ci n'est appelée que par l'écran Créateurs.
+ *
+ * ─── CE QUI EST BALAYÉ ──────────────────────────────────────────────────────
+ * Deux `collect()` par projet, regroupés en un passage par
+ * `summarizeCreatorActivity` — pas une requête par créatrice. À dix-sept fiches
+ * la différence est invisible, à deux cents elle ne l'est plus.
+ *
+ * Rend UNE LIGNE PAR CRÉATRICE, y compris celles qui n'ont rien : c'est ici, et
+ * pas dans le module pur, qu'on décide qu'« aucun compte » s'écrit zéro.
+ */
+export const listCreatorActivity = permissionQuery("creators.read")({
+  args: {},
+  handler: async (ctx) => {
+    const [creators, comptes, assignments] = await Promise.all([
+      ctx.db
+        .query("creators")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+      ctx.db
+        .query("comptes")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+      ctx.db
+        .query("assignments")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+    ]);
+    const parCreatrice = summarizeCreatorActivity({ comptes, assignments });
+
+    // ─── FUSEAU EFFECTIF, celui qui sert vraiment ────────────────────────────
+    // `listCreators` sert le fuseau STOCKÉ. Grouper là-dessus mettrait dans
+    // « non renseigné » des créatrices dont le fuseau est parfaitement
+    // déductible du pays de leurs comptes — donc l'écran désignerait comme un
+    // trou à combler quelque chose qui n'en est pas un.
+    //
+    // La résolution est faite ICI parce que les comptes sont DÉJÀ chargés : le
+    // pays vient d'eux. `resolveCreatorTimezone` est la fonction canonique, la
+    // même que `creatorZone` appelle — l'écran ne peut donc pas afficher un
+    // fuseau différent de celui sur lequel le warmup compte les jours.
+    // (`buildZoneMap` ne rendrait que la valeur ; il faut aussi la PROVENANCE,
+    // sans quoi on ne peut pas distinguer un fait d'une supposition.)
+    const paysParCreatrice = new Map<string, string[]>();
+    for (const compte of comptes) {
+      const owner = compte.creatorId;
+      const pays = compte.targetCountry;
+      if (!owner || !pays) continue;
+      const liste = paysParCreatrice.get(owner) ?? [];
+      liste.push(pays);
+      paysParCreatrice.set(owner, liste);
+    }
+
+    return creators.map((c) => {
+      const zone = resolveCreatorTimezone(c, paysParCreatrice.get(c._id) ?? []);
+      return {
+        creatorId: c._id,
+        ...(parCreatrice.get(c._id) ?? EMPTY_ACTIVITY),
+        /** Fuseau EFFECTIF (fiche, sinon déduit du pays des comptes). */
+        zone: zone.timezone,
+        /** Provenance — « confirmed » est un fait, le reste une supposition. */
+        zoneSource: zone.source,
+        /** La valeur est-elle FIGÉE en base, ou recalculée à chaque lecture ? */
+        zoneStored: zone.stored,
+      };
+    });
+  },
+});
+
+/**
+ * Activité d'UNE créatrice — l'en-tête de sa fiche.
+ *
+ * Passe par les index `by_project_creator` / `by_creator` plutôt que de
+ * réutiliser la query de liste : sa fiche n'a aucune raison de lire les
+ * assignments de tout le projet.
+ */
+export const getCreatorActivity = permissionQuery("creators.read")({
+  args: { id: v.id("creators") },
+  handler: async (ctx, { id }) => {
+    const creator = await ctx.db.get(id);
+    if (!creator || creator.projectId !== ctx.projectId) return null;
+    const [comptes, assignments] = await Promise.all([
+      ctx.db
+        .query("comptes")
+        .withIndex("by_project_creator", (q) =>
+          q.eq("projectId", ctx.projectId).eq("creatorId", id),
+        )
+        .collect(),
+      ctx.db
+        .query("assignments")
+        .withIndex("by_creator", (q) => q.eq("creatorId", id))
+        .collect(),
+    ]);
+    // L'index `by_creator` ne porte PAS `projectId`. Une fiche `creators`
+    // appartient bien à un seul projet (`addCreatorToProject` en crée une
+    // seconde plutôt que d'en partager une), donc ce filtre ne retire rien
+    // aujourd'hui — il empêche la fiche de compter du travail d'un autre projet
+    // le jour où cette invariante bougerait, ce qui est exactement le genre
+    // d'erreur qu'on ne verrait pas : le chiffre resterait plausible.
+    const duProjet = assignments.filter((a) => a.projectId === ctx.projectId);
+    const parCreatrice = summarizeCreatorActivity({
+      comptes,
+      assignments: duProjet,
+    });
+    return parCreatrice.get(id) ?? EMPTY_ACTIVITY;
   },
 });
 
