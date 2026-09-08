@@ -22,7 +22,9 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -161,6 +163,7 @@ function PricingsPageContenu() {
   const archive = useProjectMutation(api.pricing.archivePricing);
   const remove = useProjectMutation(api.pricing.deletePricing);
   const setDefaultBonus = useProjectMutation(api.pricing.setDefaultBonusPricing);
+  const createTemplate = useProjectMutation(api.pricing.createBonusTemplate);
 
   // Assignations dont le barème FIGÉ ne correspond plus aux termes actuels du
   // pricing. Éditer un barème en place n'affecte que les futures attributions —
@@ -182,7 +185,6 @@ function PricingsPageContenu() {
   const [busy, setBusy] = useState(false);
 
   const defaultPricing = pricings?.find((p) => p.isDefaultBonus) ?? null;
-  const defaultTiers = defaultPricing ? tiersOf(defaultPricing) : [];
 
   const visible = useMemo(() => {
     if (!pricings) return [];
@@ -293,6 +295,19 @@ function PricingsPageContenu() {
                 : ""
             }`,
       );
+    } catch (e) {
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+    }
+  }
+
+  /** Fait d'une échelle existante un modèle réutilisable, en un geste. */
+  async function saveAsTemplate(p: Pricing) {
+    try {
+      await createTemplate({
+        name: `Échelle — ${p.name}`,
+        tiers: tiersOf(p),
+      });
+      toast.success(`Modèle « Échelle — ${p.name} » créé`);
     } catch (e) {
       toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     }
@@ -420,7 +435,6 @@ function PricingsPageContenu() {
                 key={p._id}
                 pricing={p}
                 money={money}
-                defaultTiers={defaultTiers}
                 isDefaultRow={p.isDefaultBonus}
                 templates={templates ?? []}
                 driftCount={
@@ -430,6 +444,7 @@ function PricingsPageContenu() {
                 onDuplicate={() => openDuplicate(p)}
                 onShowDrift={() => setDriftFor(p._id)}
                 onSetDefault={() => handleSetDefaultBonus(p._id)}
+                onSaveAsTemplate={() => saveAsTemplate(p)}
                 onArchive={() => toggleArchive(p)}
                 onDelete={() => handleDelete(p)}
               />
@@ -523,6 +538,8 @@ function PricingsPageContenu() {
         templateId={templateId}
         setTemplateId={setTemplateId}
         templates={templates ?? []}
+        pricings={pricings ?? []}
+        editingId={editing?._id ?? null}
         payCurrency={payCurrency}
         money={money}
         busy={busy}
@@ -536,7 +553,6 @@ function PricingsPageContenu() {
 function PricingRow({
   pricing: p,
   money,
-  defaultTiers,
   isDefaultRow,
   templates,
   driftCount,
@@ -544,12 +560,12 @@ function PricingRow({
   onDuplicate,
   onShowDrift,
   onSetDefault,
+  onSaveAsTemplate,
   onArchive,
   onDelete,
 }: {
   pricing: Pricing;
   money: (n: number) => string;
-  defaultTiers: BonusTier[];
   isDefaultRow: boolean;
   templates: Template[];
   driftCount: number;
@@ -557,6 +573,7 @@ function PricingRow({
   onDuplicate: () => void;
   onShowDrift: () => void;
   onSetDefault: () => void;
+  onSaveAsTemplate: () => void;
   onArchive: () => void;
   onDelete: () => void;
 }) {
@@ -633,8 +650,6 @@ function PricingRow({
       <LadderCell
         tiers={tiers}
         money={money}
-        defaultTiers={defaultTiers}
-        isDefaultRow={isDefaultRow}
         template={templates.find((t) => t._id === p.bonusTemplateId) ?? null}
       />
 
@@ -653,6 +668,14 @@ function PricingRow({
         <DropdownMenuContent align="end" className="w-60">
           <DropdownMenuItem onClick={onEdit}>Modifier le barème</DropdownMenuItem>
           <DropdownMenuItem onClick={onDuplicate}>Dupliquer</DropdownMenuItem>
+          {/* Amorce la bibliothèque depuis une échelle qui EXISTE : sans elle,
+              le seul chemin vers un premier modèle était de retaper les six
+              paliers à la main — exactement ce qu'un modèle sert à éviter. */}
+          {tiers.length > 0 && (
+            <DropdownMenuItem onClick={onSaveAsTemplate}>
+              Enregistrer l&apos;échelle comme modèle
+            </DropdownMenuItem>
+          )}
           {tiers.length > 0 && !isDefaultRow && p.status === "active" && (
             <DropdownMenuItem onClick={onSetDefault}>
               Définir comme grille par défaut
@@ -714,18 +737,14 @@ function NumCell({ value, unit }: { value: string | null; unit: string }) {
   );
 }
 
-/** Micro-échelle + sommet + divergence (au modèle, sinon à la grille par défaut). */
+/** Micro-échelle + sommet + divergence, UNIQUEMENT face à un modèle assumé. */
 function LadderCell({
   tiers,
   money,
-  defaultTiers,
-  isDefaultRow,
   template,
 }: {
   tiers: BonusTier[];
   money: (n: number) => string;
-  defaultTiers: BonusTier[];
-  isDefaultRow: boolean;
   template: Template | null;
 }) {
   const summary = ladderSummary(tiers, money);
@@ -733,25 +752,14 @@ function LadderCell({
     return <span className="text-xs text-slate-300">Aucun palier</span>;
   }
 
-  // La référence la plus PARLANTE d'abord : le modèle dont l'échelle descend.
-  // À défaut, la grille par défaut du projet — sauf pour la ligne qui EST le
-  // défaut, qui ne se compare pas à elle-même.
-  // Deux formes du même libellé : « ≠ » se lit « différent DE », « Identique »
-  // se construit avec « À ». Une seule chaîne donnait « ≠ à la grille ».
-  const reference = template
-    ? {
-        de: `du modèle « ${template.name} »`,
-        a: `au modèle « ${template.name} »`,
-        tiers: template.tiers,
-      }
-    : !isDefaultRow && defaultTiers.length > 0
-      ? {
-          de: "de la grille par défaut",
-          a: "à la grille par défaut",
-          tiers: defaultTiers,
-        }
-      : null;
-  const cmp = reference ? compareLadders(tiers, reference.tiers) : null;
+  // On ne compare QU'À UN MODÈLE — une provenance que quelqu'un a posée.
+  //
+  // La première version comparait aussi à la grille par défaut du projet : le
+  // badge s'allumait alors sur presque chaque ligne (un barème brésilien n'a
+  // aucune raison de porter l'échelle française), et un avertissement qui se
+  // déclenche partout n'avertit plus de rien. Personne n'a décidé que ces
+  // échelles-là devaient coïncider ; le modèle, lui, est un engagement explicite.
+  const cmp = template ? compareLadders(tiers, template.tiers) : null;
 
   return (
     <div className="min-w-0">
@@ -778,13 +786,13 @@ function LadderCell({
       </div>
       {cmp && !cmp.identical && (
         <span className="mt-1 inline-block rounded-md border border-amber-200 bg-amber-50/70 px-1.5 py-0.5 text-[11px] text-amber-900">
-          ≠ {reference!.de} — {cmp.differing} palier
+          ≠ du modèle « {template!.name} » — {cmp.differing} palier
           {cmp.differing > 1 ? "s divergent" : " diverge"}
         </span>
       )}
       {cmp?.identical && (
         <span className="mt-1 block text-[11px] text-slate-400">
-          Identique {reference!.a}
+          Identique au modèle « {template!.name} »
         </span>
       )}
     </div>
@@ -846,8 +854,9 @@ function TemplatesSection({
         <Skeleton className="h-20 w-full" />
       ) : templates.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-xs text-slate-500">
-          Aucun modèle. Enregistre l&apos;échelle d&apos;un barème existant
-          depuis son éditeur, ou pars d&apos;une page blanche.
+          Aucun modèle. Le plus court : sur un barème dont l&apos;échelle te
+          convient, menu «&nbsp;···&nbsp;» → «&nbsp;Enregistrer l&apos;échelle
+          comme modèle&nbsp;». Sinon, pars d&apos;une page blanche.
         </div>
       ) : (
         <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -1182,6 +1191,8 @@ function PricingEditorDialog({
   templateId,
   setTemplateId,
   templates,
+  pricings,
+  editingId,
   payCurrency,
   money,
   busy,
@@ -1197,6 +1208,8 @@ function PricingEditorDialog({
   templateId: Id<"bonusTemplates"> | null;
   setTemplateId: (v: Id<"bonusTemplates"> | null) => void;
   templates: Template[];
+  pricings: Pricing[];
+  editingId: Id<"pricings"> | null;
   payCurrency: string | null | undefined;
   money: (n: number) => string;
   busy: boolean;
@@ -1304,39 +1317,23 @@ function PricingEditorDialog({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <Label>Paliers de bonus (cumul de vues à vie)</Label>
               <div className="flex gap-2">
-                {/* Piquer un modèle est une ACTION (elle recopie), pas la
-                    sélection d'une valeur : un Select afficherait ensuite le
-                    modèle comme s'il restait lié, ce qu'il n'est pas. */}
-                {templates.length > 0 && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      render={
-                        <Button type="button" variant="outline" size="sm">
-                          Partir d&apos;un modèle
-                        </Button>
-                      }
-                    />
-                    <DropdownMenuContent align="end" className="w-64">
-                      {templates.map((t) => (
-                        <DropdownMenuItem
-                          key={t._id}
-                          onClick={() => {
-                            setTiers(tiersToForm(t.tiers));
-                            setTemplateId(t._id);
-                            toast.success(`Échelle « ${t.name} » recopiée`);
-                          }}
-                        >
-                          <span className="flex w-full items-baseline justify-between gap-2">
-                            <span className="truncate">{t.name}</span>
-                            <small className="text-[11px] text-slate-400">
-                              {t.tiers.length} paliers
-                            </small>
-                          </span>
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
+                <ReuseLadderMenu
+                  templates={templates}
+                  pricings={pricings}
+                  editingId={editingId}
+                  onPickTemplate={(t) => {
+                    setTiers(tiersToForm(t.tiers));
+                    setTemplateId(t._id);
+                    toast.success(`Échelle «\u00a0${t.name}\u00a0» recopiée`);
+                  }}
+                  onPickPricing={(pr) => {
+                    setTiers(tiersToForm(tiersOf(pr)));
+                    // La provenance suit l'échelle : reprendre celle d'un barème
+                    // issu d'un modèle, c'est en descendre aussi.
+                    setTemplateId(pr.bonusTemplateId ?? null);
+                    toast.success(`Échelle de «\u00a0${pr.name}\u00a0» recopiée`);
+                  }}
+                />
                 <Button
                   type="button"
                   variant="outline"
@@ -1350,9 +1347,9 @@ function PricingEditorDialog({
 
             {tiers.length === 0 ? (
               <p className="text-xs text-slate-400">
-                Aucun palier. Ajoute des paliers cash (
-                {currencySymbol(payCurrency)}) ou nature (iPhone…), ou pars
-                d&apos;un modèle.
+                Aucun palier. Reprends l&apos;échelle d&apos;un modèle ou
+                d&apos;un autre barème, ou ajoute des paliers cash (
+                {currencySymbol(payCurrency)}) ou nature (iPhone…).
               </p>
             ) : (
               <>
@@ -1446,6 +1443,89 @@ function ScaleProvenance({
         Détacher
       </button>
     </p>
+  );
+}
+
+/**
+ * REPRENDRE UNE ÉCHELLE — modèles d'abord, barèmes existants ensuite.
+ *
+ * La première version n'offrait que les modèles, et seulement s'il en existait
+ * déjà un. Sur un projet qui n'en a aucun, le bouton n'apparaissait donc pas du
+ * tout : le seul chemin vers un premier modèle était de retaper les six paliers
+ * à la main. C'est l'exact contraire de ce qu'un modèle sert à éviter.
+ *
+ * Les échelles EXISTENT déjà, sur les barèmes. On les propose donc telles
+ * quelles : c'est le stock réel du projet, disponible dès le premier jour.
+ */
+function ReuseLadderMenu({
+  templates,
+  pricings,
+  editingId,
+  onPickTemplate,
+  onPickPricing,
+}: {
+  templates: Template[];
+  pricings: Pricing[];
+  editingId: Id<"pricings"> | null;
+  onPickTemplate: (t: Template) => void;
+  onPickPricing: (p: Pricing) => void;
+}) {
+  // Un barème sans palier n'a rien à prêter, et on ne se reprend pas soi-même.
+  const sources = pricings.filter(
+    (p) => p._id !== editingId && tiersOf(p).length > 0,
+  );
+  if (templates.length === 0 && sources.length === 0) return null;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button type="button" variant="outline" size="sm">
+            Reprendre une échelle
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="end" className="max-h-80 w-72 overflow-y-auto">
+        {/* Un intitulé de section est une PART DE GROUPE chez base-ui : hors
+            d'un <DropdownMenuGroup>, il lève « MenuGroupRootContext is missing »
+            à l'ouverture du menu. Ni tsc ni eslint ne le voient — seule
+            l'ouverture réelle du menu le montre. */}
+        {templates.length > 0 && (
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Modèles</DropdownMenuLabel>
+            {templates.map((t) => (
+              <DropdownMenuItem key={t._id} onClick={() => onPickTemplate(t)}>
+                <LadderOption name={t.name} count={t.tiers.length} />
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuGroup>
+        )}
+        {sources.length > 0 && (
+          <>
+            {templates.length > 0 && <DropdownMenuSeparator />}
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>Barèmes existants</DropdownMenuLabel>
+              {sources.map((p) => (
+                <DropdownMenuItem key={p._id} onClick={() => onPickPricing(p)}>
+                  <LadderOption name={p.name} count={tiersOf(p).length} />
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function LadderOption({ name, count }: { name: string; count: number }) {
+  return (
+    <span className="flex w-full items-baseline justify-between gap-2">
+      <span className="truncate">{name}</span>
+      <small className="shrink-0 text-[11px] text-slate-400">
+        {count} palier{count > 1 ? "s" : ""}
+      </small>
+    </span>
   );
 }
 

@@ -114,11 +114,19 @@ export type LadderComparison = {
   /** Les deux échelles sont rigoureusement les mêmes (ordre de saisie ignoré). */
   identical: boolean;
   /**
-   * Nombre de paliers qui diffèrent : présents d'un seul côté, ou présents des
-   * deux mais avec des termes différents. Un palier déplacé de 100 000 000 à
-   * 100 000 001 compte donc pour DEUX (un disparu, un apparu) — ce que l'écran
-   * dit, « 2 paliers divergent », et non « 1 seuil modifié » : rien ne permet de
-   * décider si l'admin a corrigé un seuil ou ajouté puis retiré un palier.
+   * Nombre de PALIERS qui diffèrent, apparié par SEUIL.
+   *
+   * L'appariement par seuil est ce qui rend le nombre lisible. Une première
+   * version appariait les paliers ENTIERS : renommer « a Car » en « Une
+   * voiture » comptait alors pour deux (un palier disparu, un apparu), et
+   * l'écran annonçait « 4 paliers divergent » là où deux récompenses avaient
+   * simplement changé de libellé. Un seuil est l'identité d'un palier ; ce
+   * qu'on accroche dessus est sa valeur.
+   *
+   * Compte donc pour UN : un seuil présent des deux côtés mais aux termes
+   * différents, un seuil présent d'un seul côté. Un palier réellement DÉPLACÉ
+   * (100 000 000 → 100 000 001) compte pour deux, et c'est exact : un seuil a
+   * disparu, un autre est apparu.
    */
   differing: number;
 };
@@ -133,16 +141,18 @@ export function compareLadders(
   tiers: BonusTier[],
   reference: BonusTier[],
 ): LadderComparison {
-  const a = sortedTiers(tiers);
-  const b = sortedTiers(reference);
-  const usedB = new Set<number>();
+  const bySeuil = new Map<number, BonusTier>();
+  for (const r of reference) bySeuil.set(r.seuilVues, r);
   let differing = 0;
-  for (const t of a) {
-    const j = b.findIndex((r, i) => !usedB.has(i) && sameTier(t, r));
-    if (j === -1) differing += 1;
-    else usedB.add(j);
+  const seen = new Set<number>();
+  for (const t of tiers) {
+    seen.add(t.seuilVues);
+    const r = bySeuil.get(t.seuilVues);
+    if (!r || !sameTier(t, r)) differing += 1;
   }
-  differing += b.length - usedB.size;
+  for (const seuil of bySeuil.keys()) {
+    if (!seen.has(seuil)) differing += 1;
+  }
   return { identical: differing === 0, differing };
 }
 
