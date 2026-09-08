@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
+import { assembledScriptOf } from "./helpers/assignment-script";
 import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
@@ -112,10 +113,11 @@ test.describe("Modifier une brique du combo", () => {
     expect(aAfter.scriptCombo!.ctaBrickId).toBe(a0.scriptCombo!.ctaBrickId);
     expect(aAfter.scriptCombo!.editedOnce).toBe(true);
     // Script RE-FIGÉ : rendu créateur (sans ##), nouveau hook présent.
-    expect(aAfter.scriptCombo!.assembledScript).toContain("HOOK");
-    expect(aAfter.scriptCombo!.assembledScript).toContain(newHook.content);
-    expect(aAfter.scriptCombo!.assembledScript).toContain("FLUX UNIQUE");
-    expect(aAfter.scriptCombo!.assembledScript).not.toContain("## ");
+    const monteAfter = await assembledScriptOf(admin, aAfter._id);
+    expect(monteAfter).toContain("HOOK");
+    expect(monteAfter).toContain(newHook.content);
+    expect(monteAfter).toContain("FLUX UNIQUE");
+    expect(monteAfter).not.toContain("## ");
     // comboKey mis à jour (3 segments, nouveau hook en tête).
     expect(aAfter.comboKey!.split(":")).toEqual([
       newHook._id,
@@ -130,7 +132,7 @@ test.describe("Modifier une brique du combo", () => {
       projectId: creator.projectId,
       id: a0._id,
     });
-    expect(mine!.assembledScript).toBe(aAfter.scriptCombo!.assembledScript);
+    expect(mine!.assembledScript).toBe(monteAfter);
 
     // ── 2e ÉDITION (A) → SUCCÈS : plus de verrou "une seule fois" (on corrige
     // autant que nécessaire tant que le post n'est pas publié). On revient au hook

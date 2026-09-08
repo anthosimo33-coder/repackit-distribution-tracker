@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useProjectQuery } from "@/components/project/use-project-convex";
+import { api } from "@/convex/_generated/api";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -26,7 +29,6 @@ export function AssignmentScriptDialog({
   open,
   onOpenChange,
   assignmentId,
-  script,
   comboSummary,
   creatorName,
   platforms,
@@ -34,12 +36,18 @@ export function AssignmentScriptDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
   assignmentId: Id<"assignments">;
-  script: string;
   comboSummary: string | null;
   creatorName: string;
   platforms: string[];
 }) {
   const [replayOpen, setReplayOpen] = useState(false);
+  // Le TEXTE est demandé À L'OUVERTURE, pas embarqué dans la liste : il pesait
+  // 240 Kio sur les 860 Kio de la page pour 478 lignes dont on ouvre celle-ci.
+  // Cf convex/assignments getAssignmentScript.
+  const script = useProjectQuery(
+    api.assignments.getAssignmentScript,
+    open ? { id: assignmentId } : "skip",
+  );
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
@@ -61,7 +69,15 @@ export function AssignmentScriptDialog({
         </DialogHeader>
 
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-          <SimpleMarkdown content={script} />
+          {script === undefined ? (
+            <Skeleton className="h-40 w-full" />
+          ) : script === null ? (
+            <p className="text-sm text-slate-500">
+              Script indisponible — il a pu être retiré depuis.
+            </p>
+          ) : (
+            <SimpleMarkdown content={script.assembledScript} />
+          )}
         </div>
 
         {/* Rejeu depuis le script monté : modale d'assignation pré-remplie avec

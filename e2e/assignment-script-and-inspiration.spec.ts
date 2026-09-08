@@ -1,5 +1,6 @@
 import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
+import { assembledScriptOf } from "./helpers/assignment-script";
 import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
@@ -82,7 +83,7 @@ test.describe("Voir le script monté + vidéo modèle depuis inspiration", () =>
 
     // PART A (données) : assembledScript FIGÉ présent, rendu créateur (sans ##),
     // hook→flux→cta enchaînés. C'est CE texte que la modale affiche (non re-dérivé).
-    const script = row.scriptCombo!.assembledScript!;
+    const script = await assembledScriptOf(admin, row._id);
     expect(script).toContain("HOOK CONTENU");
     expect(script).toContain("FLUX CONTENU UNIQUE");
     expect(script).not.toContain("## ");

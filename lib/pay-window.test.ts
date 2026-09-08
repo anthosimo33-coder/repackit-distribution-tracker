@@ -67,6 +67,33 @@ describe("retainedViews", () => {
     });
   });
 
+  /**
+   * CETTE ASSERTION GARDE UNE OPTIMISATION, pas seulement une règle.
+   *
+   * `assignmentViewsAndMetrics` (convex/pricing) N'INTERROGE PLUS la table des
+   * relevés quand la fenêtre est ouverte : elle passe `null`. C'est licite
+   * uniquement parce que le résultat ci-dessous est le MÊME avec ou sans
+   * relevé. Le jour où `retainedViews` se mettrait à lire le relevé en fenêtre
+   * ouverte, la paie deviendrait fausse SANS que rien d'autre ne le signale —
+   * l'appelant, lui, aurait cessé de le fournir.
+   */
+  it("fenêtre OUVERTE : le relevé est IGNORÉ — fourni ou non, même résultat", () => {
+    const base = {
+      datePubli: DATE_PUBLI,
+      measuredViews: 92_800,
+      now: DATE_PUBLI + 12 * DAY,
+    };
+    const sansReleve = retainedViews({ ...base, windowSnapshot: null });
+    const avecReleve = retainedViews({
+      ...base,
+      windowSnapshot: { vues: 1, daysSincePublication: 3 },
+    });
+    // Un relevé à 1 vue : s'il était pris en compte, l'assiette s'effondrerait.
+    expect(sansReleve).toEqual(avecReleve);
+    expect(sansReleve.views).toBe(92_800);
+    expect(sansReleve.status).toBe("open");
+  });
+
   it("fenêtre CLOSE : retient le relevé de fenêtre, pas la mesure courante", () => {
     const r = retainedViews({
       datePubli: DATE_PUBLI,

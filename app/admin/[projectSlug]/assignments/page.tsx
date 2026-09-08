@@ -730,7 +730,7 @@ function AssignmentsPageInner() {
                               <div className="truncate text-xs text-slate-500">
                                 {a.comboSummary}
                               </div>
-                              {a.scriptCombo?.assembledScript && (
+                              {a.hasAssembledScript && (
                                 <div className="flex flex-wrap items-center gap-1">
                                   {/* Le seul geste de LECTURE reste en clair ;
                                       « modifier le combo » et « éditer le texte »
@@ -936,7 +936,7 @@ function AssignmentsPageInner() {
                             row={a}
                             actions={rowActions}
                             editable={editable}
-                            hasScript={a.scriptCombo?.assembledScript != null}
+                            hasScript={a.hasAssembledScript}
                             variant="row"
                           />
                           {canDeleteAssignment(a.status as AssignmentStatus) ? (
@@ -982,12 +982,11 @@ function AssignmentsPageInner() {
         />
       )}
 
-      {scriptRow?.scriptCombo?.assembledScript && (
+      {scriptRow?.hasAssembledScript && (
         <AssignmentScriptDialog
           open
           onOpenChange={(o) => !o && setScriptId(null)}
           assignmentId={scriptRow._id}
-          script={scriptRow.scriptCombo.assembledScript}
           comboSummary={scriptRow.comboSummary}
           creatorName={scriptRow.creatorName}
           platforms={scriptRow.targets.map((t) => t.platform)}

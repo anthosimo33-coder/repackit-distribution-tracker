@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import {
-  useProjectQuery,
+  useProjectQuerySafe,
   useProjectMutation,
 } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
@@ -54,14 +54,45 @@ import { PermissionGate } from "@/components/project/PermissionGate";
  */
 
 function AnalyticsPageContenu() {
-  const analytics = useProjectQuery(api.posthogSync.getProductAnalytics, {});
-  const attribution = useProjectQuery(api.analyticsHub.getAttribution, {});
-  const revenue = useProjectQuery(api.analyticsHub.getRevenueBreakdown, {});
-  const reliability = useProjectQuery(api.analyticsHub.getReliability, {});
-  const viewCounters = useProjectQuery(api.analyticsHub.getViewCounters, {});
-  const natureRewards = useProjectQuery(api.analyticsHub.getNatureRewards, {});
-  const dayDetail = useProjectQuery(api.analyticsHub.getDayDetail, {});
-  const billing = useProjectQuery(api.analyticsHub.getBillingCountries, {});
+  // ── NEUF AGRÉGATS INDÉPENDANTS, NEUF SORTS INDÉPENDANTS ───────────────────
+  // `useProjectQuery` LANCE quand une query échoue, et React démonte alors tout
+  // l'arbre : le 2026-09-08, `getReliability` a échoué cinq fois d'affilée en
+  // production et les SIX onglets disparaissaient avec — un écran noir pour un
+  // agrégat manquant sur neuf. La variante `Safe` rend l'échec sous forme de
+  // valeur (cf useProjectQuerySafe) : la page se rend, l'agrégat absent est
+  // NOMMÉ, et le reste continue de servir.
+  const analyticsQ = useProjectQuerySafe(api.posthogSync.getProductAnalytics, {});
+  const attributionQ = useProjectQuerySafe(api.analyticsHub.getAttribution, {});
+  const revenueQ = useProjectQuerySafe(api.analyticsHub.getRevenueBreakdown, {});
+  const reliabilityQ = useProjectQuerySafe(api.analyticsHub.getReliability, {});
+  const viewCountersQ = useProjectQuerySafe(api.analyticsHub.getViewCounters, {});
+  const natureRewardsQ = useProjectQuerySafe(api.analyticsHub.getNatureRewards, {});
+  const dayDetailQ = useProjectQuerySafe(api.analyticsHub.getDayDetail, {});
+  const billingQ = useProjectQuerySafe(api.analyticsHub.getBillingCountries, {});
+  /**
+   * Les agrégats qui ont ÉCHOUÉ, nommés. Sans cette liste, la page se rendrait
+   * avec des tirets partout et on croirait à une absence de données — alors que
+   * la donnée existe et que c'est la lecture qui n'a pas abouti. Les deux se
+   * corrigent très différemment.
+   */
+  const agregatsEnEchec = [
+    ["Produit (PostHog)", analyticsQ] as const,
+    ["Acquisition", attributionQ] as const,
+    ["Revenu", revenueQ] as const,
+    ["Fiabilité", reliabilityQ] as const,
+    ["Compteurs de vues", viewCountersQ] as const,
+    ["Récompenses en nature", natureRewardsQ] as const,
+    ["Détail par jour", dayDetailQ] as const,
+    ["Pays de facturation", billingQ] as const,
+  ].filter(([, q]) => q.status === "error");
+  const analytics = analyticsQ.data;
+  const attribution = attributionQ.data;
+  const revenue = revenueQ.data;
+  const reliability = reliabilityQ.data;
+  const viewCounters = viewCountersQ.data;
+  const natureRewards = natureRewardsQ.data;
+  const dayDetail = dayDetailQ.data;
+  const billing = billingQ.data;
   const requestSync = useProjectMutation(api.posthogSync.requestPosthogSync);
   const [syncing, setSyncing] = useState(false);
   const [now] = useState(() => Date.now());
@@ -72,10 +103,11 @@ function AnalyticsPageContenu() {
   // Rétention : la période réduit les clients à leur COHORTE D'ACQUISITION,
   // côté serveur. C'est une requête Convex (notre base), pas PostHog : elle est
   // réactive et coûte une lecture, aucune latence à masquer.
-  const churn = useProjectQuery(
+  const churnQ = useProjectQuerySafe(
     api.analyticsHub.getChurn,
     window ? { from: window.from, to: window.to } : {},
   );
+  const churn = churnQ.data;
   const dataRange = useMemo(
     () =>
       dataRangeOf(
@@ -219,7 +251,17 @@ function AnalyticsPageContenu() {
         </p>
       </div>
 
-      {analytics === undefined ? (
+      {/* L'agrégat PRODUIT porte la structure de la page (onglets, série
+          quotidienne) : s'il manque, il n'y a pas de demi-page à montrer. On
+          distingue tout de même « pas encore arrivé » de « n'a pas pu se
+          lire » — un squelette éternel est le pire des deux écrans. */}
+      {analyticsQ.status === "error" ? (
+        <HubNotice className="border-amber-200 bg-amber-50/70 text-amber-900">
+          <strong>Les données produit n&apos;ont pas pu être chargées.</strong>{" "}
+          {analyticsQ.error} Les autres pages restent accessibles ; réessaie dans
+          un instant.
+        </HubNotice>
+      ) : analytics === undefined ? (
         <div className="space-y-4">
           <Skeleton className="h-10 w-96" />
           <Skeleton className="h-64 w-full" />
@@ -232,6 +274,21 @@ function AnalyticsPageContenu() {
               Aucun appel n&apos;est effectué et les cartes produit restent vides.
               L&apos;acquisition (vues, coûts, jours solo) fonctionne malgré tout :
               elle vient de Jarvia.
+            </HubNotice>
+          ) : null}
+          {/* Un agrégat qui n'a pas pu se lire — la page ne meurt plus avec lui
+              (cf useProjectQuerySafe), mais elle doit DIRE ce qui manque. */}
+          {agregatsEnEchec.length > 0 ? (
+            <HubNotice className="border-amber-200 bg-amber-50/70 text-amber-900">
+              <strong>
+                {agregatsEnEchec.length === 1
+                  ? "Un agrégat n'a pas pu être chargé"
+                  : `${agregatsEnEchec.length} agrégats n'ont pas pu être chargés`}
+                {" : "}
+                {agregatsEnEchec.map(([nom]) => nom).join(", ")}.
+              </strong>{" "}
+              Les cartes qui en dépendent affichent un tiret ; le reste de la
+              page est à jour. Détail : {agregatsEnEchec[0][1].error}
             </HubNotice>
           ) : null}
           {analytics.errors.length > 0 ? (
