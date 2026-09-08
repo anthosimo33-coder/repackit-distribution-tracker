@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Sheet,
   SheetContent,
@@ -46,7 +47,9 @@ import {
   ListIcon,
   Loader2Icon,
   LockIcon,
+  SearchIcon,
   SlidersHorizontalIcon,
+  XIcon,
   Trash2Icon,
   TypeIcon,
 } from "lucide-react";
@@ -82,6 +85,7 @@ import {
   matchesCampaignFilter,
   sanitizeCampaignSelection,
 } from "@/lib/assignment-campaign-filter";
+import { matchesSearch, searchTerms } from "@/lib/assignment-search";
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
 import { canDeleteAssignment } from "@/lib/assignment-delete";
 import { useLabel } from "@/lib/use-label";
@@ -149,6 +153,8 @@ function AssignmentsPageInner() {
   // (cf. lib/use-media-query) — rien n'est dupliqué dans le DOM.
   const compact = useIsCompact();
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   // Vue Liste (table) / Calendrier (pilotage) — mêmes filtres partagés. Le
   // CALENDRIER est la vue par DÉFAUT ; le dernier choix est mémorisé.
   const [viewMode, setViewMode] = useState<"list" | "calendar">("calendar");
@@ -187,6 +193,13 @@ function AssignmentsPageInner() {
   const [calStatusFilter, setCalStatusFilter] =
     useState<CalendarStatusFilter>("all");
   const [overdueOnly, setOverdueOnly] = useState(false);
+  // Recherche TEXTE — le seul filtre qui ne demande pas de savoir d'avance ce
+  // qu'on cherche. Volontairement NON persistée : un filtre catégoriel oublié
+  // se remarque au libellé du déclencheur, une recherche oubliée ne se remarque
+  // pas du tout. Elle est partagée par les deux vues (chercher une créatrice
+  // puis basculer sur son calendrier est le geste naturel).
+  const [search, setSearch] = useState("");
+  const terms = useMemo(() => searchTerms(search), [search]);
   // Vidéos modèles : gestion à chaud d'un assignment (dialog). On dérive la row
   // LIVE depuis `assignments` (réactif) → la liste se rafraîchit après ajout/retrait.
   const [manageId, setManageId] = useState<Id<"assignments"> | null>(null);
@@ -358,7 +371,8 @@ function AssignmentsPageInner() {
     (campaignIds.size > 0 ? 1 : 0) +
     (statusFilter !== "all" && viewMode === "list" ? 1 : 0) +
     (calStatusFilter !== "all" && viewMode === "calendar" ? 1 : 0) +
-    (overdueOnly ? 1 : 0);
+    (overdueOnly ? 1 : 0) +
+    (terms.length > 0 ? 1 : 0);
 
   function resetFilters() {
     setCreatorIds(new Set());
@@ -366,6 +380,7 @@ function AssignmentsPageInner() {
     setStatusFilter("all");
     setCalStatusFilter("all");
     setOverdueOnly(false);
+    setSearch("");
   }
 
   const rows = useMemo(() => {
@@ -376,6 +391,9 @@ function AssignmentsPageInner() {
       // calendrier (tous deux consomment `rows`) : changer de vue ne fait pas
       // sauter le filtre en silence.
       if (!matchesCampaignFilter(a, campaignIds)) return false;
+      // Recherche texte — appliquée AVANT la bascule de vue, donc active en
+      // liste ET en calendrier (cf lib/assignment-search).
+      if (!matchesSearch(a, terms)) return false;
       // Statut de PRODUCTION : filtre la LISTE. En vue calendrier, c'est le statut
       // CALENDRIER (calStatusFilter, appliqué dans AssignmentsCalendar) qui filtre.
       if (
@@ -420,6 +438,7 @@ function AssignmentsPageInner() {
     campaignIds,
     statusFilter,
     overdueOnly,
+    terms,
     nowMs,
     viewMode,
   ]);
@@ -428,6 +447,23 @@ function AssignmentsPageInner() {
   // desktop ouvrent EXACTEMENT les mêmes modales, tenues ici. Rassemblés plutôt
   // que passés un par un — onze `on…` en props, c'est onze occasions d'en
   // brancher un sur la mauvaise modale.
+  // Hauteur RÉELLE de la barre d'outils, publiée en variable CSS pour que les
+  // en-têtes de groupe de la liste mobile collent JUSTE EN DESSOUS. Une constante
+  // en dur (« top-12 ») serait fausse dès que la barre passe sur deux lignes —
+  // ce qu'elle fait précisément sur téléphone, où la recherche prend la sienne.
+  // Écriture directe dans le style du nœud : aucun state, donc aucun re-rendu.
+  useEffect(() => {
+    const bar = toolbarRef.current;
+    const root = rootRef.current;
+    if (!bar || !root) return;
+    const apply = () =>
+      root.style.setProperty("--assignments-sticky-top", `${bar.offsetHeight}px`);
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(bar);
+    return () => ro.disconnect();
+  }, []);
+
   const rowActions: AssignmentRowActions = {
     onDetail: setDetailId,
     onScript: setScriptId,
@@ -444,7 +480,7 @@ function AssignmentsPageInner() {
   };
 
   return (
-    <div className="space-y-4 sm:space-y-6">
+    <div ref={rootRef} className="space-y-4 sm:space-y-6">
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
           Assignments
@@ -460,8 +496,43 @@ function AssignmentsPageInner() {
           — et plus encore sur un mois de calendrier — changer de filtre imposait
           de remonter jusqu'en haut de page. Elle colle au conteneur de
           défilement (<main>), pas à la fenêtre. */}
-      <div className="sticky top-0 z-30 bg-slate-50/95 py-2 backdrop-blur supports-backdrop-filter:bg-slate-50/80">
+      <div
+        ref={toolbarRef}
+        className="sticky top-0 z-30 bg-slate-50/95 py-2 backdrop-blur supports-backdrop-filter:bg-slate-50/80"
+      >
         <div className="flex flex-wrap items-end gap-2">
+          {/* RECHERCHE — les autres filtres sont tous catégoriels : pour
+              retrouver une ligne parmi 478 il fallait connaître d'avance sa
+              créatrice ET sa campagne, puis parcourir à l'œil. Sur téléphone,
+              où l'écran montre trois cartes, ça revient à ne pas pouvoir
+              chercher. Pleine largeur sur téléphone (elle prend sa propre
+              ligne), fixe à côté des filtres sur desktop. */}
+          <div className="relative w-full sm:w-64">
+            <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+            <Input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Créatrice, campagne, @compte…"
+              aria-label="Rechercher une assignation"
+              // La croix native de `type="search"` (WebKit) doublonnerait avec
+              // la nôtre : deux croix côte à côte, dont une seule tombe sous le
+              // pouce. On garde le type (clavier « rechercher » sur mobile) et
+              // on masque la sienne.
+              className="h-9 pl-8 pr-8 [&::-webkit-search-cancel-button]:appearance-none"
+            />
+            {search.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                aria-label="Effacer la recherche"
+                className="absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:text-slate-700"
+              >
+                <XIcon className="size-4" />
+              </button>
+            )}
+          </div>
+
           {/* Sous 768 px, cinq contrôles à largeur fixe s'empilent en cinq
               lignes : un écran entier de filtres avant la première donnée. Ils
               passent derrière un bouton unique, qui PORTE le compte de filtres
@@ -596,7 +667,15 @@ function AssignmentsPageInner() {
           </CardContent>
         </Card>
       ) : compact ? (
-        <AssignmentMobileList rows={rows} now={nowMs} actions={rowActions} />
+        <AssignmentMobileList
+          rows={rows}
+          now={nowMs}
+          actions={rowActions}
+          // Une recherche active DÉPLIE tout : on vient de restreindre la liste
+          // à quelques lignes, les replier derrière un accordéon annulerait le
+          // geste.
+          expanded={terms.length > 0}
+        />
       ) : (
         <Card>
           <CardContent className="overflow-x-auto p-0">
