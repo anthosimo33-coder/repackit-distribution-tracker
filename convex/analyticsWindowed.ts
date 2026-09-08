@@ -29,10 +29,11 @@
 
 import { v } from "convex/values";
 import { authedAction } from "./functions";
-import { internalQuery } from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { requirePermission } from "./functions";
 import { cellTimeMs, runHogQL, type PosthogTarget } from "./posthogApi";
+import { windowCacheKey, windowCacheTtlMs } from "./windowCacheTtl";
 import {
   buildQueries,
   shapeAbArms,
@@ -80,6 +81,63 @@ export const assertBusinessRead = internalQuery({
   handler: async (ctx, { userId, projectId }): Promise<true> => {
     await requirePermission(ctx, userId, projectId, "business.read");
     return true;
+  },
+});
+
+/** Lignes de cache gardées par projet (les plus récentes). */
+const CACHE_MAX_PAR_PROJET = 30;
+
+export const readWindowCache = internalQuery({
+  args: { projectId: v.id("projects"), key: v.string() },
+  handler: async (
+    ctx,
+    { projectId, key },
+  ): Promise<{ json: string; computedAt: number } | null> => {
+    const row = await ctx.db
+      .query("posthogWindowCache")
+      .withIndex("by_project_key", (q) =>
+        q.eq("projectId", projectId).eq("key", key),
+      )
+      .unique();
+    return row ? { json: row.json, computedAt: row.computedAt } : null;
+  },
+});
+
+export const writeWindowCache = internalMutation({
+  args: { projectId: v.id("projects"), key: v.string(), json: v.string() },
+  handler: async (ctx, { projectId, key, json }): Promise<null> => {
+    const existing = await ctx.db
+      .query("posthogWindowCache")
+      .withIndex("by_project_key", (q) =>
+        q.eq("projectId", projectId).eq("key", key),
+      )
+      .unique();
+    const computedAt = Date.now();
+    if (existing) {
+      await ctx.db.patch(existing._id, { json, computedAt });
+      return null;
+    }
+    await ctx.db.insert("posthogWindowCache", {
+      projectId,
+      key,
+      json,
+      computedAt,
+    });
+    // ÉLAGAGE : chaque plage consultée laisse une ligne, et une ligne pèse
+    // quelques dizaines de kilo-octets. Sans plafond, un après-midi à faire
+    // glisser le sélecteur remplirait la table pour rien. On garde les plus
+    // récemment calculées — ce sont celles qu'on revoit.
+    const all = await ctx.db
+      .query("posthogWindowCache")
+      .withIndex("by_project_key", (q) => q.eq("projectId", projectId))
+      .collect();
+    if (all.length > CACHE_MAX_PAR_PROJET) {
+      const surplus = all
+        .sort((a, b) => b.computedAt - a.computedAt)
+        .slice(CACHE_MAX_PAR_PROJET);
+      for (const row of surplus) await ctx.db.delete(row._id);
+    }
+    return null;
   },
 });
 
@@ -136,6 +194,18 @@ export interface WindowedParcours {
   to: string;
   /** Millisecondes passées côté PostHog, pour que la lenteur soit constatable. */
   elapsedMs: number;
+  /**
+   * Instant du calcul quand la réponse vient du CACHE ; `null` si elle vient
+   * d'être calculée. L'écran doit pouvoir dire « chiffres de 11 h 02 » plutôt
+   * que laisser croire à un calcul instantané.
+   */
+  cachedAt: number | null;
+  /**
+   * Vrai quand PostHog a REFUSÉ la volée et qu'on a servi la dernière valeur
+   * connue, même périmée. Un chiffre daté vaut mieux qu'un écran d'erreur —
+   * mais il doit être annoncé comme tel.
+   */
+  stale: boolean;
 }
 
 /**
@@ -182,6 +252,28 @@ export const getWindowedAnalytics = authedAction({
       posthogProjectId: proj.posthogProjectId,
       host: proj.host,
     };
+
+    // ─── CACHE ─────────────────────────────────────────────────────────────
+    // Quinze requêtes HogQL par volée. Mesuré en production le 2026-09-08 :
+    // p95 38,6 s, pointe 44,4 s, et huit refus `rate_limited (429)`. Le hook
+    // client mémorise déjà les plages vues, mais en mémoire de SESSION : un
+    // rechargement, un second onglet ou un autre administrateur repayaient
+    // tout. Ici la mémoire est partagée et survit au rechargement.
+    const key = windowCacheKey(from, to);
+    const cached = await ctx.runQuery(
+      internal.analyticsWindowed.readWindowCache,
+      { projectId, key },
+    );
+    // Une plage entièrement PASSÉE ne bougera plus ; une plage qui touche
+    // aujourd'hui suit la cadence horaire du reste du hub (cf windowCacheTtl).
+    const ttl = windowCacheTtlMs(to, Date.now());
+    if (cached && Date.now() - cached.computedAt < ttl) {
+      return {
+        ...(JSON.parse(cached.json) as WindowedParcours),
+        cachedAt: cached.computedAt,
+        stale: false,
+      };
+    }
     // MÊMES exclusions que le cron (comptes internes A4 + sessions à bras
     // forcé) : sans elles, choisir une période changerait la POPULATION en même
     // temps que la fenêtre, et l'écart se lirait comme un effet de la période.
@@ -201,6 +293,45 @@ export const getWindowedAnalytics = authedAction({
       return res.rows;
     };
     const t0 = Date.now();
+    /**
+     * Un refus de PostHog (429) ne doit pas rendre l'onglet inutilisable quand
+     * on a DÉJÀ une réponse pour cette plage. On sert la dernière connue,
+     * annoncée comme périmée. Sans ce repli, la volée levait et la page entière
+     * disparaissait — c'est l'écran noir signalé sur Analytics.
+     */
+    const surEchec = (e: unknown): WindowedParcours => {
+      if (!cached) throw e;
+      return {
+        ...(JSON.parse(cached.json) as WindowedParcours),
+        cachedAt: cached.computedAt,
+        stale: true,
+      };
+    };
+    let lots: unknown[][][];
+    try {
+      lots = await parLots(
+        [
+          run(Q.funnelGlobal),
+          run(Q.funnelSequential),
+          run(Q.funnelSource),
+          run(Q.funnelLanguage),
+          run(Q.funnelCountry),
+          run(Q.activation),
+          run(Q.checkoutReliability),
+          run(Q.serverSideSplit),
+          run(Q.abVariants),
+          run(Q.abArms),
+          run(Q.abOffers),
+          run(Q.abPurchases),
+          run(Q.paywallById),
+          run(Q.freePlan),
+          run(Q.scanCost),
+        ],
+        CONCURRENCE,
+      );
+    } catch (e) {
+      return surEchec(e);
+    }
     const [
       global,
       sequential,
@@ -217,27 +348,8 @@ export const getWindowedAnalytics = authedAction({
       payById,
       free,
       scan,
-    ] = await parLots(
-      [
-        run(Q.funnelGlobal),
-        run(Q.funnelSequential),
-        run(Q.funnelSource),
-        run(Q.funnelLanguage),
-        run(Q.funnelCountry),
-        run(Q.activation),
-        run(Q.checkoutReliability),
-        run(Q.serverSideSplit),
-        run(Q.abVariants),
-        run(Q.abArms),
-        run(Q.abOffers),
-        run(Q.abPurchases),
-        run(Q.paywallById),
-        run(Q.freePlan),
-        run(Q.scanCost),
-      ],
-      CONCURRENCE,
-    );
-    return {
+    ] = lots;
+    const resultat: WindowedParcours = {
       funnels: {
         global: shapeFunnel(global),
         sequential: shapeFunnel(sequential),
@@ -265,6 +377,14 @@ export const getWindowedAnalytics = authedAction({
       from,
       to,
       elapsedMs: Date.now() - t0,
+      cachedAt: null,
+      stale: false,
     };
+    await ctx.runMutation(internal.analyticsWindowed.writeWindowCache, {
+      projectId,
+      key,
+      json: JSON.stringify(resultat),
+    });
+    return resultat;
   },
 });

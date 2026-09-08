@@ -151,6 +151,7 @@ import type * as whopNotifyTriggers from "../whopNotifyTriggers.js";
 import type * as whopPaymentsAccess from "../whopPaymentsAccess.js";
 import type * as whopRevenue from "../whopRevenue.js";
 import type * as whopSync from "../whopSync.js";
+import type * as windowCacheTtl from "../windowCacheTtl.js";
 import type * as youtubeApi from "../youtubeApi.js";
 import type * as youtubeChannel from "../youtubeChannel.js";
 import type * as youtubeSync from "../youtubeSync.js";
@@ -305,6 +306,7 @@ declare const fullApi: ApiFromModules<{
   whopPaymentsAccess: typeof whopPaymentsAccess;
   whopRevenue: typeof whopRevenue;
   whopSync: typeof whopSync;
+  windowCacheTtl: typeof windowCacheTtl;
   youtubeApi: typeof youtubeApi;
   youtubeChannel: typeof youtubeChannel;
   youtubeSync: typeof youtubeSync;

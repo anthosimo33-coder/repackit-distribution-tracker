@@ -395,7 +395,47 @@ export interface AssignmentViews {
   viewsOutsideWindow: number;
 }
 
-export type AssignmentViewsCache = Map<string, AssignmentViews>;
+/**
+ * Mémoire de calcul d'UNE query de paie.
+ *
+ * `views` évite de recalculer deux fois la même assignation (une créatrice a
+ * plusieurs cycles, chacun rejouait ses vidéos).
+ *
+ * `pubs` répond à un coût distinct, et plus lourd : `assignmentViewsAndMetrics`
+ * faisait un `db.get` PAR PUBLICATION. Sur un projet à ~450 publications
+ * publiées, c'est ~450 lectures unitaires là où l'index `by_project` en ramène
+ * l'intégralité en UNE. Le budget qui saute n'est pas celui des octets (0,8 Mo
+ * en prod) mais celui du NOMBRE d'opérations — c'est lui que Convex refuse
+ * (« too many system operations »). Absent = on relit une par une, comme avant.
+ */
+export type AssignmentViewsCache = {
+  views: Map<string, AssignmentViews>;
+  pubs?: Map<string, Doc<"publications">>;
+};
+
+/** Cache vide, éventuellement pré-chargé des publications du projet. */
+export function newViewsCache(
+  pubs?: Map<string, Doc<"publications">>,
+): AssignmentViewsCache {
+  return { views: new Map(), pubs };
+}
+
+/**
+ * Toutes les publications d'un projet, indexées par id, en UNE lecture.
+ *
+ * À réserver aux appelants qui parcourent tout le projet (paie, analytics) :
+ * pour une seule assignation, un `db.get` reste moins cher.
+ */
+export async function loadProjectPublications(
+  ctx: QueryCtx | MutationCtx,
+  projectId: Id<"projects">,
+): Promise<Map<string, Doc<"publications">>> {
+  const rows = await ctx.db
+    .query("publications")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+  return new Map(rows.map((p) => [p._id as string, p]));
+}
 
 export async function assignmentViewsAndMetrics(
   ctx: QueryCtx | MutationCtx,
@@ -405,7 +445,7 @@ export async function assignmentViewsAndMetrics(
   /** Cache d'UNE query (cf AssignmentViewsCache). Absent = comportement d'avant. */
   cache?: AssignmentViewsCache,
 ): Promise<AssignmentViews> {
-  const cached = cache?.get(a._id as string);
+  const cached = cache?.views.get(a._id as string);
   if (cached) return cached;
   const pubIds = [
     ...(a.targets ?? []).map((t) => t.publicationId),
@@ -421,7 +461,9 @@ export async function assignmentViewsAndMetrics(
   for (const pid of pubIds) {
     if (seen.has(pid)) continue;
     seen.add(pid);
-    const pub = await ctx.db.get(pid);
+    // Publication préchargée si l'appelant a fourni la table du projet ; sinon
+    // lecture unitaire, exactement comme avant.
+    const pub = cache?.pubs?.get(pid as string) ?? (await ctx.db.get(pid));
     if (!pub) continue;
     const measured = pub.vuesLatest ?? 0;
     // DERNIER relevé de la fenêtre de paie. La borne est un instant, donc elle
@@ -488,7 +530,7 @@ export async function assignmentViewsAndMetrics(
     payWindowClosed: payWindow.closed,
     viewsOutsideWindow: payWindow.viewsOutsideWindow,
   };
-  cache?.set(a._id as string, out);
+  cache?.views.set(a._id as string, out);
   return out;
 }
 

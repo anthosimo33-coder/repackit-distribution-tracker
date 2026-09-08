@@ -10,6 +10,8 @@ import {
   computeLivePricingBreakdown,
   computeCyclePricingBreakdown,
   loadCreatorPayrollSources,
+  loadProjectPublications,
+  newViewsCache,
   type AssignmentViewsCache,
   assignmentPublishedAt,
   syncBonusUnlocks,
@@ -836,7 +838,7 @@ async function collectProjectPaymentRows(
   const out = [];
   // Cache PARTAGÉ par toute la boucle : une créatrice = plusieurs cycles, et
   // chacun recalculait les vues de ses vidéos. Cf AssignmentViewsCache.
-  const viewsCache: AssignmentViewsCache = new Map();
+  const viewsCache = newViewsCache(await loadProjectPublications(ctx, projectId));
   for (const c of creators) {
     const cycles = await cyclePaymentsForCreator(
       ctx,
