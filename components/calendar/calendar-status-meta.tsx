@@ -17,25 +17,29 @@ export type CalendarStatusVisual = Exclude<CalendarStatus, "none">;
  */
 export const CALENDAR_STATUS_META: Record<
   CalendarStatusVisual,
-  { chip: string; Icon: LucideIcon; labelKey: string }
+  { chip: string; dot: string; Icon: LucideIcon; labelKey: string }
 > = {
   on_time: {
     chip: "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+    dot: "bg-emerald-500",
     Icon: CheckCircle2Icon,
     labelKey: "status.calendar.on_time",
   },
   late: {
     chip: "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100",
+    dot: "bg-amber-500",
     Icon: ClockIcon,
     labelKey: "status.calendar.late",
   },
   missed: {
     chip: "border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100",
+    dot: "bg-rose-500",
     Icon: AlertCircleIcon,
     labelKey: "status.calendar.missed",
   },
   scheduled: {
     chip: "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100",
+    dot: "bg-slate-400",
     Icon: CalendarClockIcon,
     labelKey: "status.calendar.scheduled",
   },
