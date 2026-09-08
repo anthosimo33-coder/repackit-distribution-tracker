@@ -2,6 +2,7 @@ import { test, expect } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
+import { minuitParisDecale } from "./helpers/paris-day";
 import { config } from "dotenv";
 import { createFormatWithRate } from "./helpers/formats";
 
@@ -81,15 +82,17 @@ test.describe("Créateur — écran « Mes missions »", () => {
     );
     expect(mine.length).toBe(11);
 
-    // Dates de PUBLICATION échelonnées. Minuit LOCAL, comme la modale d'assignation
-    // (postDate = minuit du jour choisi) — un timestamp « maintenant − 2 jours »
-    // tomberait au milieu d'une journée et ne testerait pas le même découpage.
-    const minuit = (decalageJours: number) => {
-      const d = new Date();
-      d.setHours(0, 0, 0, 0);
-      d.setDate(d.getDate() + decalageJours);
-      return d.getTime();
-    };
+    // Dates de PUBLICATION échelonnées. Minuit PARIS, comme la modale
+    // d'assignation (postDate = minuit du jour choisi) — un timestamp
+    // « maintenant − 2 jours » tomberait au milieu d'une journée et ne testerait
+    // pas le même découpage.
+    //
+    // ⚠️ PAS `setHours(0,0,0,0)` : ça prendrait le fuseau du PROCESS (UTC en CI)
+    // alors que le navigateur est épinglé sur Paris. Entre 22 h et minuit UTC,
+    // les deux ne désignent plus le même jour et « aujourd'hui » tombe hier pour
+    // l'écran — deux heures de flake par nuit, invisibles en local. Cf.
+    // e2e/helpers/paris-day.ts.
+    const minuit = minuitParisDecale;
     // Six le MÊME jour passé (le groupe qui doit dépasser tout plafond), puis
     // aujourd'hui, demain, J+3, et J+9 (hors horizon d'une semaine).
     const decalages = [-2, -2, -2, -2, -2, -2, 0, 1, 3, 9];

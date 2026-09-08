@@ -20,6 +20,8 @@ type BannerRow = {
   postDate?: number;
   postWindow?: { startMin: number; endMin: number };
   managedByAdmin?: boolean;
+  /** SON fuseau (servi par la query) — la journée se termine chez elle. */
+  creatorTimezone?: string | null;
   targets: { platform: string; publishedAt?: number | null }[];
   publishedAt?: number | null;
 };
@@ -59,6 +61,7 @@ export function TodayPostBanner({
       postDate: a.postDate,
       postedAt: representativePostedAt(a),
       now,
+      timeZone: a.creatorTimezone,
     }) === "scheduled";
 
   const today = mine.filter(

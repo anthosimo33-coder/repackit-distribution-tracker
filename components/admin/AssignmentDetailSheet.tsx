@@ -140,6 +140,8 @@ export function AssignmentDetailSheet({
     postDate: row.postDate,
     postedAt: row.postedAt,
     now,
+    // Même règle que le calendrier : la journée se termine chez elle.
+    timeZone: row.creatorTimezone,
   });
   const combo = row.scriptCombo ?? null;
   const script =

@@ -51,6 +51,8 @@ export type CalendarAssignmentRow = {
   _id: Id<"assignments">;
   creatorId: string;
   creatorName: string;
+  /** Fuseau de la créatrice — `null`/absent = inconnu ⇒ repli sur Paris. */
+  creatorTimezone?: string | null;
   formatName: string | null;
   scriptCampaignName?: string | null;
   postDate?: number;
@@ -136,6 +138,10 @@ export function AssignmentsCalendar({
             postDate: r.postDate,
             postedAt: r.postedAt,
             now,
+            // Le verdict se prend dans le fuseau de la CRÉATRICE : une
+            // publication du 8 au soir à New York n'est pas « en retard » parce
+            // qu'il est déjà le 9 à Paris.
+            timeZone: r.creatorTimezone,
           }) as Exclude<CalendarStatus, "none">,
         })),
     [rows, now],

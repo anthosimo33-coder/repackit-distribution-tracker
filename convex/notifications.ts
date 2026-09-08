@@ -47,6 +47,7 @@ import {
 import { effectiveStatus } from "./comptes";
 import { resolveCreatorKind } from "./roles";
 import { lateDays, parisHour, representativePostedAt } from "./calendarStatus";
+import { creatorZoneOnly } from "./creatorTimezone";
 import { eveningUnpublishedReports } from "./publicationLateness";
 import {
   isChauffeSansTalent,
@@ -801,9 +802,14 @@ export const getLatePublicationContext = internalQuery({
       postDate: a.postDate ?? null,
       accountHandles: handles,
       isClip: resolveCreatorKind(creator?.kind) === "clipper",
+      // Retard compté DANS SON FUSEAU : sans ça, une créatrice à New York qui
+      // publie le 8 au soir reçoit « 1 jour de retard » parce qu'il est déjà le
+      // 9 à Paris. Le fuseau est résolu depuis sa fiche (ou déduit du pays de
+      // ses comptes) ; inconnu ⇒ Paris, comme avant.
       lateDays: lateDays({
         postDate: a.postDate ?? null,
         postedAt: representativePostedAt(a),
+        timeZone: await creatorZoneOnly(ctx, a.creatorId),
       }),
     };
   },

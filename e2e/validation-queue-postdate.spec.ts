@@ -3,6 +3,7 @@ import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
+import { minuitParisDecale } from "./helpers/paris-day";
 import { config } from "dotenv";
 import { createFormatWithRate } from "./helpers/formats";
 
@@ -70,12 +71,11 @@ test.describe("Admin — file de validation triée par date de sortie", () => {
     );
     expect(mine.length).toBe(4);
 
-    const minuit = (n: number) => {
-      const d = new Date();
-      d.setHours(0, 0, 0, 0);
-      d.setDate(d.getDate() + n);
-      return d.getTime();
-    };
+    // Minuit PARIS (cf e2e/helpers/paris-day) : `setHours` prendrait le fuseau
+    // du PROCESS — UTC en CI — alors que l'écran découpe ses journées à Paris.
+    // Entre 22 h et minuit UTC, « demain » côté test tombe aujourd'hui côté
+    // écran, et la file se réordonne. Deux heures de flake par nuit.
+    const minuit = minuitParisDecale;
     // Volontairement posées dans le DÉSORDRE de la liste : si le tri ne faisait
     // rien, l'ordre rendu serait celui-ci.
     const plan: { idx: number; jours: number | null; slot: string }[] = [

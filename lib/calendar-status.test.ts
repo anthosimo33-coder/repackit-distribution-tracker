@@ -57,6 +57,119 @@ function at(y: number, mon: number, day: number, h = 12): number {
   return approx - parisOffsetMs(approx);
 }
 
+/**
+ * ms d'une heure murale NEW YORK (mois 1-12) — même construction que `at`, pour
+ * poser des instants « chez elle » sans dépendre du fuseau du runner.
+ */
+function aNY(y: number, mon: number, day: number, h = 12): number {
+  const approx = Date.UTC(y, mon - 1, day, h, 0, 0, 0);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(new Date(approx));
+  const g = (t: string) => Number(parts.find((p) => p.type === t)!.value);
+  const commeSiUtc = Date.UTC(
+    g("year"),
+    g("month") - 1,
+    g("day"),
+    g("hour") % 24,
+    g("minute"),
+    g("second"),
+  );
+  return approx - (commeSiUtc - approx);
+}
+
+const NY = "America/New_York";
+
+describe("le retard se juge CHEZ ELLE, pas à Paris", () => {
+  // Le cas signalé en production : elle publie le 8 au soir chez elle, il est
+  // déjà le 9 à Paris, et l'app la comptait en retard tous les soirs.
+  it("publier le 8 à 20 h à New York, prévu le 8 → à l'heure", () => {
+    const prevu = at(2026, 9, 8); // étiquette « 8 septembre », minuit Paris
+    const publie = aNY(2026, 9, 8, 20); // = 9 sept. 02:00 à Paris
+    // PRÉSENCE du défaut : lu à Paris, cet instant tombe le 9.
+    expect(parisDayIndex(publie)).toBe(parisDayIndex(at(2026, 9, 9)));
+    expect(
+      calendarStatus({
+        postDate: prevu,
+        postedAt: publie,
+        now: publie,
+        timeZone: NY,
+      }),
+    ).toBe("on_time");
+  });
+
+  it("sans fuseau connu, le verdict reste celui d'avant (Paris)", () => {
+    const prevu = at(2026, 9, 8);
+    const publie = aNY(2026, 9, 8, 20);
+    expect(
+      calendarStatus({ postDate: prevu, postedAt: publie, now: publie }),
+    ).toBe("late");
+  });
+
+  it("elle est vraiment en retard quand SA journée à elle est passée", () => {
+    const prevu = at(2026, 9, 8);
+    const publie = aNY(2026, 9, 9, 10); // le 9 chez elle
+    expect(
+      calendarStatus({
+        postDate: prevu,
+        postedAt: publie,
+        now: publie,
+        timeZone: NY,
+      }),
+    ).toBe("late");
+    expect(lateDays({ postDate: prevu, postedAt: publie, timeZone: NY })).toBe(1);
+  });
+
+  it("« manqué » attend la fin de SA journée, pas minuit à Paris", () => {
+    const prevu = at(2026, 9, 8);
+    const minuitParis = at(2026, 9, 9, 0); // 8 sept. 18:00 à New York
+    // Elle a encore sa soirée : prévu, pas manqué.
+    expect(
+      calendarStatus({
+        postDate: prevu,
+        postedAt: null,
+        now: minuitParis,
+        timeZone: NY,
+      }),
+    ).toBe("scheduled");
+    // …et sans fuseau, c'est le verdict d'avant qui s'applique.
+    expect(
+      calendarStatus({ postDate: prevu, postedAt: null, now: minuitParis }),
+    ).toBe("missed");
+    // Une fois SA journée finie, manqué pour de bon.
+    expect(
+      calendarStatus({
+        postDate: prevu,
+        postedAt: null,
+        now: aNY(2026, 9, 9, 1),
+        timeZone: NY,
+      }),
+    ).toBe("missed");
+  });
+
+  it("un lot mélange les fuseaux sans se contaminer", () => {
+    const prevu = at(2026, 9, 8);
+    const soirNY = aNY(2026, 9, 8, 20);
+    const tally = onTimeTally(
+      [
+        { postDate: prevu, postedAt: soirNY, timeZone: NY }, // à l'heure chez elle
+        { postDate: prevu, postedAt: soirNY }, // fuseau inconnu → Paris → en retard
+      ],
+      soirNY,
+    );
+    expect(tally.onTime).toBe(1);
+    expect(tally.late).toBe(1);
+    expect(tally.rate).toBe(0.5);
+  });
+});
+
 describe("calendarStatus — 4 cas + bords (aucune tolérance)", () => {
   it("none : pas de date de post planifiée", () => {
     expect(

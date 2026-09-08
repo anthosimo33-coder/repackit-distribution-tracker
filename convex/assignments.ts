@@ -47,6 +47,8 @@ import { isAccountAvailable, warmupTargetDaysOf } from "./warmup";
 import { isSnytchProject } from "./projects";
 import { countOnHandle, ownerIsClipper, publicationsInRange } from "./clipQuota";
 import { representativePostedAt } from "./calendarStatus";
+import { buildZoneMap } from "./creatorDay";
+import { creatorZoneOnly } from "./creatorTimezone";
 import { ERR, err } from "./errorCodes";
 import {
   accountPhaseAt,
@@ -914,6 +916,11 @@ export const listAssignments = permissionQuery("assignments.manage")({
           .collect(),
       ]);
     const creatorMap = new Map(creators.map((c) => [c._id, c.name]));
+    // FUSEAU par créatrice — c'est chez ELLE que la journée se termine, donc
+    // c'est chez elle que « en retard » se décide (cf convex/calendarStatus).
+    // Résolu ici en UNE passe (buildZoneMap est pur) : le faire ligne par ligne
+    // coûterait un aller-retour par assignation.
+    const zoneMap = buildZoneMap(creators, comptes);
     const formatMap = new Map(formats.map((f) => [f._id, f.name]));
     const compteMap = new Map(comptes.map((c) => [c._id, c.handle]));
     // Pays CIBLÉ par compte (label informatif) → drapeau FR/US par post au
@@ -1030,6 +1037,9 @@ export const listAssignments = permissionQuery("assignments.manage")({
           challengeRemovedAt: a.challengeRemovedAt,
           createdAt: a.createdAt,
           creatorName: creatorMap.get(a.creatorId) ?? a.creatorNameSnapshot ?? "—",
+          // Fuseau de la créatrice — l'écran en a besoin pour juger « en retard »
+          // sur SA journée. `null` = inconnu ⇒ l'écran retombe sur Paris.
+          creatorTimezone: zoneMap.get(a.creatorId) ?? null,
           formatName: a.formatId ? (formatMap.get(a.formatId) ?? "—") : null,
           targets,
           origin: (a.scriptCombo ? "script" : "format") as "script" | "format",
@@ -2372,7 +2382,15 @@ async function assignmentsForCreator(
   // (enrichForCreator retire scriptCombo → campagne indistinguable après). Le map
   // préserve l'ordre.
   const ordered = interleaveByGroupServer(assignments, creatorId, Date.now());
-  return Promise.all(ordered.map((a) => enrichForCreator(ctx, a)));
+  // SON fuseau, résolu UNE fois : c'est lui qui décide si sa journée est finie,
+  // donc si une mission est « en retard » sur son calendrier. Résolu serveur
+  // parce que le navigateur ne connaît que le fuseau de l'appareil — souvent le
+  // bon, mais pas quand elle voyage, et jamais en vue admin « voir son espace ».
+  const timeZone = await creatorZoneOnly(ctx, creatorId);
+  const rows = await Promise.all(
+    ordered.map((a) => enrichForCreator(ctx, a)),
+  );
+  return rows.map((r) => ({ ...r, creatorTimezone: timeZone }));
 }
 
 /** Mes assignments UNIQUEMENT (filtre serveur par creatorId), triés deadline. */
