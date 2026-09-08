@@ -29,13 +29,11 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import {
   BellIcon,
@@ -44,12 +42,11 @@ import {
   ClapperboardIcon,
   ClipboardListIcon,
   FileTextIcon,
-  FilterXIcon,
   ImagesIcon,
   ListIcon,
   Loader2Icon,
   LockIcon,
-  PencilIcon,
+  SlidersHorizontalIcon,
   Trash2Icon,
   TypeIcon,
 } from "lucide-react";
@@ -70,9 +67,15 @@ import {
 } from "@/components/admin/AssignmentsCalendar";
 import { AssignmentAttachments } from "@/components/admin/AssignmentAttachments";
 import { AssignmentDetailSheet } from "@/components/admin/AssignmentDetailSheet";
+import { AssignmentsFilters } from "@/components/admin/AssignmentsFilters";
+import {
+  AssignmentMobileList,
+  AssignmentRowMenu,
+  type AssignmentRowActions,
+} from "@/components/admin/AssignmentMobileList";
 import { ImposedComboBadge } from "@/components/admin/ImposedComboBadge";
-import { FilterMultiSelect } from "@/components/filters/FilterMultiSelect";
 import { useProject } from "@/components/project/ProjectProvider";
+import { useIsCompact } from "@/lib/use-media-query";
 import {
   buildCampaignOptions,
   campaignTriggerLabel,
@@ -92,26 +95,6 @@ import {
   urgencyRank,
   type AssignmentStatus,
 } from "@/lib/assignment-status";
-
-const STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: "all", label: "Tous statuts" },
-  { value: "todo", label: "À faire" },
-  { value: "in_progress", label: "En cours" },
-  { value: "submitted", label: "Soumis" },
-  { value: "validated", label: "Validé" },
-  { value: "rejected", label: "Rejeté" },
-  { value: "paid", label: "Payé" },
-];
-
-/** Options du filtre de STATUT CALENDRIER (vue calendrier). Même axe que la
- *  pastille : à l'heure / en retard / manqué / prévu (≠ statut de PRODUCTION). */
-const CAL_STATUS_OPTIONS: { value: CalendarStatusFilter; label: string }[] = [
-  { value: "all", label: "Tous statuts" },
-  { value: "on_time", label: "À l'heure" },
-  { value: "late", label: "En retard" },
-  { value: "missed", label: "Manqué" },
-  { value: "scheduled", label: "Prévu" },
-];
 
 function formatDate(ts: number) {
   return new Date(ts).toLocaleDateString("fr-FR");
@@ -161,6 +144,11 @@ function AssignmentsPageInner() {
   const [creatorIds, setCreatorIds] = useState<Set<string>>(() =>
     deepLinkCreator ? new Set([deepLinkCreator]) : new Set(),
   );
+  // Sous 768 px : le tableau à huit colonnes devient une liste de cartes, et les
+  // filtres quittent la barre pour un panneau. Un seul des deux rendus est monté
+  // (cf. lib/use-media-query) — rien n'est dupliqué dans le DOM.
+  const compact = useIsCompact();
+  const [filtersOpen, setFiltersOpen] = useState(false);
   // Vue Liste (table) / Calendrier (pilotage) — mêmes filtres partagés. Le
   // CALENDRIER est la vue par DÉFAUT ; le dernier choix est mémorisé.
   const [viewMode, setViewMode] = useState<"list" | "calendar">("calendar");
@@ -302,6 +290,30 @@ function AssignmentsPageInner() {
     [assignments],
   );
 
+  // Options mises en forme pour <AssignmentsFilters> — calculées ICI et non dans
+  // le rendu : les deux hôtes du composant (barre desktop / panneau mobile) les
+  // reçoivent à l'identique, et le tableau ne se reconstruit pas à chaque frappe.
+  const creatorOptions = useMemo(
+    () => creators.map(([id, name]) => ({ value: id, label: name })),
+    [creators],
+  );
+  const filterCampaignOptions = useMemo(
+    () =>
+      campaignOptions.map((o) => ({
+        value: o.value,
+        label: o.label,
+        count: o.count,
+        section: o.section,
+        muted: o.section === "archived",
+      })),
+    [campaignOptions],
+  );
+  const campaignTrigger = campaignTriggerLabel(
+    campaignIds,
+    campaignOptions,
+    "Toutes campagnes",
+  );
+
   // RESTAURATION du filtre campagne — après chargement, pour pouvoir purger les
   // ids devenus fantômes (campagne supprimée, ou clé d'un autre projet). Sans
   // cette purge, un id orphelin ne matcherait rien et la liste paraîtrait vide
@@ -412,10 +424,29 @@ function AssignmentsPageInner() {
     viewMode,
   ]);
 
+  // Les gestes d'une ligne, en UN objet : la carte mobile et le menu de la ligne
+  // desktop ouvrent EXACTEMENT les mêmes modales, tenues ici. Rassemblés plutôt
+  // que passés un par un — onze `on…` en props, c'est onze occasions d'en
+  // brancher un sur la mauvaise modale.
+  const rowActions: AssignmentRowActions = {
+    onDetail: setDetailId,
+    onScript: setScriptId,
+    onEditCombo: setEditId,
+    onEditText: setTextEditId,
+    onModelVideos: setManageId,
+    onAssets: setAssetLinkId,
+    onOverlay: setOverlayId,
+    onInstructions: setInstructionsId,
+    onPostDate: setPostDateId,
+    onNudge: (id, creatorName) => void handleNudge(id, creatorName),
+    onDelete: setDeleteId,
+    nudgingId,
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <header className="space-y-1">
-        <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
           Assignments
         </h1>
         <p className="text-sm text-slate-500">
@@ -425,140 +456,129 @@ function AssignmentsPageInner() {
         </p>
       </header>
 
-      <div className="flex flex-wrap items-end gap-2">
-        {/* Créateur MULTI (Set vide = tous) — partagé liste + calendrier. */}
-        <FilterMultiSelect
-          label="Créateur"
-          selectedValues={creatorIds}
-          onChange={setCreatorIds}
-          options={creators.map(([id, name]) => ({ value: id, label: name }))}
-          allLabel="Tous créateurs"
-          width="w-44"
-        />
-
-        {/* Campagne de scripts MULTI (Set vide = toutes) — partagé liste +
-            calendrier. Le déclencheur NOMME la sélection au lieu d'afficher
-            « N sélectionnés » : un filtre persistant doit se lire d'un coup
-            d'œil au retour sur la page. */}
-        <FilterMultiSelect
-          label="Campagne"
-          selectedValues={campaignIds}
-          onChange={changeCampaignIds}
-          options={campaignOptions.map((o) => ({
-            value: o.value,
-            label: o.label,
-            count: o.count,
-            section: o.section,
-            muted: o.section === "archived",
-          }))}
-          sectionLabels={{ active: "Actives", archived: "Archivées" }}
-          allLabel="Toutes campagnes"
-          triggerLabel={campaignTriggerLabel(
-            campaignIds,
-            campaignOptions,
-            "Toutes campagnes",
-          )}
-          width="w-56"
-        />
-
-        {/* Filtre STATUT — MÊME emplacement, axe selon la vue : production en
-            liste, calendrier (à l'heure/en retard/manqué/prévu) en calendrier. */}
-        {viewMode === "calendar" ? (
-          <Select
-            value={calStatusFilter}
-            onValueChange={(v) => v && setCalStatusFilter(v as CalendarStatusFilter)}
-          >
-            <SelectTrigger
-              className="w-40"
-              aria-label="Filtrer par statut calendrier"
-            >
-              <SelectValue>
-                {CAL_STATUS_OPTIONS.find((o) => o.value === calStatusFilter)?.label}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {CAL_STATUS_OPTIONS.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {o.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <Select value={statusFilter} onValueChange={(v) => v && setStatusFilter(v)}>
-            <SelectTrigger className="w-40" aria-label="Filtrer par statut">
-              <SelectValue>
-                {STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {STATUS_OPTIONS.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {o.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-
-        <label className="flex items-center gap-2 text-sm text-slate-600">
-          <Checkbox
-            checked={overdueOnly}
-            onCheckedChange={(c) => setOverdueOnly(c === true)}
-          />
-          En retard seulement
-        </label>
-
-        {/* Le filtre campagne PERSISTE d'une visite à l'autre : sans un repère
-            franc, revenir trois jours plus tard sur une liste restreinte se lit
-            comme « des assignations ont disparu ». Ce bouton n'apparaît QUE
-            lorsqu'un filtre est actif — il est alors à la fois le signal et le
-            remède. */}
-        {activeFilterCount > 0 && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-9 gap-1.5 border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100"
-            onClick={resetFilters}
-          >
-            <FilterXIcon className="size-3.5" />
-            Réinitialiser {activeFilterCount} filtre
-            {activeFilterCount > 1 ? "s" : ""}
-          </Button>
-        )}
-
-        {/* Bascule Liste / Calendrier (mêmes filtres partagés). */}
-        <div
-          role="radiogroup"
-          aria-label="Mode d'affichage"
-          className="ml-auto inline-flex rounded-md border border-slate-200 bg-white p-0.5"
-        >
-          {(
-            [
-              { value: "list", label: "Liste", Icon: ListIcon },
-              { value: "calendar", label: "Calendrier", Icon: CalendarDaysIcon },
-            ] as const
-          ).map((opt) => (
-            <button
-              key={opt.value}
+      {/* Barre d'outils COLLANTE. Sur une liste de plusieurs centaines de lignes
+          — et plus encore sur un mois de calendrier — changer de filtre imposait
+          de remonter jusqu'en haut de page. Elle colle au conteneur de
+          défilement (<main>), pas à la fenêtre. */}
+      <div className="sticky top-0 z-30 bg-slate-50/95 py-2 backdrop-blur supports-backdrop-filter:bg-slate-50/80">
+        <div className="flex flex-wrap items-end gap-2">
+          {/* Sous 768 px, cinq contrôles à largeur fixe s'empilent en cinq
+              lignes : un écran entier de filtres avant la première donnée. Ils
+              passent derrière un bouton unique, qui PORTE le compte de filtres
+              actifs — sans quoi une liste restreinte se lit comme une liste
+              vide. */}
+          {compact ? (
+            <Button
               type="button"
-              role="radio"
-              aria-checked={viewMode === opt.value}
-              onClick={() => changeViewMode(opt.value)}
+              variant="outline"
+              size="sm"
               className={cn(
-                "inline-flex items-center gap-1.5 rounded px-3 py-1 text-xs font-medium transition-colors",
-                viewMode === opt.value
-                  ? "bg-primary text-primary-foreground"
-                  : "text-slate-600 hover:text-slate-900",
+                "h-9 gap-1.5",
+                activeFilterCount > 0 &&
+                  "border-amber-300 bg-amber-50 text-amber-900",
               )}
+              onClick={() => setFiltersOpen(true)}
             >
-              <opt.Icon className="size-3.5" />
-              {opt.label}
-            </button>
-          ))}
+              <SlidersHorizontalIcon className="size-3.5" />
+              Filtres
+              {activeFilterCount > 0 && (
+                <span className="inline-flex size-4 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white">
+                  {activeFilterCount}
+                </span>
+              )}
+            </Button>
+          ) : (
+            <AssignmentsFilters
+              layout="inline"
+              viewMode={viewMode}
+              creatorIds={creatorIds}
+              onCreatorIdsChange={setCreatorIds}
+              creatorOptions={creatorOptions}
+              campaignIds={campaignIds}
+              onCampaignIdsChange={changeCampaignIds}
+              campaignOptions={filterCampaignOptions}
+              campaignTriggerLabel={campaignTrigger}
+              statusFilter={statusFilter}
+              onStatusFilterChange={setStatusFilter}
+              calStatusFilter={calStatusFilter}
+              onCalStatusFilterChange={setCalStatusFilter}
+              overdueOnly={overdueOnly}
+              onOverdueOnlyChange={setOverdueOnly}
+              activeFilterCount={activeFilterCount}
+              onReset={resetFilters}
+            />
+          )}
+
+          {/* Bascule Liste / Calendrier (mêmes filtres partagés). */}
+          <div
+            role="radiogroup"
+            aria-label="Mode d'affichage"
+            className="ml-auto inline-flex rounded-md border border-slate-200 bg-white p-0.5"
+          >
+            {(
+              [
+                { value: "list", label: "Liste", Icon: ListIcon },
+                { value: "calendar", label: "Calendrier", Icon: CalendarDaysIcon },
+              ] as const
+            ).map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                role="radio"
+                aria-checked={viewMode === opt.value}
+                onClick={() => changeViewMode(opt.value)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors sm:py-1",
+                  viewMode === opt.value
+                    ? "bg-primary text-primary-foreground"
+                    : "text-slate-600 hover:text-slate-900",
+                )}
+              >
+                <opt.Icon className="size-3.5" />
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
+
+      {/* Panneau de filtres (téléphone). Un seul des deux hôtes est monté à la
+          fois : aucun libellé de filtre n'existe en double dans le DOM. */}
+      {compact && (
+        <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
+          <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto p-4">
+            <SheetHeader className="p-0">
+              <SheetTitle>Filtres</SheetTitle>
+            </SheetHeader>
+            <AssignmentsFilters
+              layout="stacked"
+              viewMode={viewMode}
+              creatorIds={creatorIds}
+              onCreatorIdsChange={setCreatorIds}
+              creatorOptions={creatorOptions}
+              campaignIds={campaignIds}
+              onCampaignIdsChange={changeCampaignIds}
+              campaignOptions={filterCampaignOptions}
+              campaignTriggerLabel={campaignTrigger}
+              statusFilter={statusFilter}
+              onStatusFilterChange={setStatusFilter}
+              calStatusFilter={calStatusFilter}
+              onCalStatusFilterChange={setCalStatusFilter}
+              overdueOnly={overdueOnly}
+              onOverdueOnlyChange={setOverdueOnly}
+              activeFilterCount={activeFilterCount}
+              onReset={resetFilters}
+            />
+            <Button
+              type="button"
+              className="w-full"
+              onClick={() => setFiltersOpen(false)}
+            >
+              Voir {rows.length} résultat{rows.length > 1 ? "s" : ""}
+            </Button>
+          </SheetContent>
+        </Sheet>
+      )}
 
       {assignments === undefined ? (
         <Skeleton className="h-64 w-full" />
@@ -575,22 +595,26 @@ function AssignmentsPageInner() {
             Aucun assignment{assignments.length > 0 ? " pour ce filtre" : ""}.
           </CardContent>
         </Card>
+      ) : compact ? (
+        <AssignmentMobileList rows={rows} now={nowMs} actions={rowActions} />
       ) : (
         <Card>
           <CardContent className="overflow-x-auto p-0">
             <Table>
               <TableHeader>
+                {/* Onze colonnes étaient devenues huit. « Soumis » a rejoint la
+                    cellule Statut (c'est la date DU statut), et « Modèles /
+                    Assets / Overlay » se sont regroupées sous « Brief » — quatre
+                    gestes qui décrivent le même objet, la consigne envoyée à la
+                    créatrice. */}
                 <TableRow>
                   <TableHead>Créateur</TableHead>
-                  <TableHead>Format</TableHead>
+                  <TableHead>Mission</TableHead>
                   <TableHead>Compte</TableHead>
                   <TableHead>Échéance</TableHead>
                   <TableHead>Post</TableHead>
                   <TableHead>Statut</TableHead>
-                  <TableHead>Soumis</TableHead>
-                  <TableHead>Modèles</TableHead>
-                  <TableHead>Assets</TableHead>
-                  <TableHead>Overlay</TableHead>
+                  <TableHead>Brief</TableHead>
                   <TableHead className="text-right">
                     <span className="sr-only">Actions</span>
                   </TableHead>
@@ -602,6 +626,7 @@ function AssignmentsPageInner() {
                     assignmentUrgency(a.dueDate, a.status as AssignmentStatus) ===
                     "overdue";
                   const st = ASSIGNMENT_STATUS[a.status as AssignmentStatus];
+                  const editable = canEditScriptCombo({ postedAt: a.postedAt });
                   return (
                     <TableRow
                       key={a._id}
@@ -611,64 +636,49 @@ function AssignmentsPageInner() {
                         {a.creatorName}
                       </TableCell>
                       <TableCell className="text-slate-700">
+                        {/* Largeurs BORNÉES : un nom de campagne ou un résumé de
+                            combo long poussait la moitié du tableau hors de
+                            l'écran, et les colonnes de droite (statut, brief,
+                            actions) ne se voyaient plus qu'au défilement
+                            horizontal. */}
                         <div className="space-y-1.5">
                           {a.origin === "script" ? (
-                          <div className="space-y-1">
-                            <div className="font-medium text-slate-900">
-                              {a.scriptCampaignName}
-                            </div>
-                            {a.comboImposed && (
-                              <ImposedComboBadge />
-                            )}
-                            <div className="text-xs text-slate-500">
-                              {a.comboSummary}
-                            </div>
-                            {a.scriptCombo?.assembledScript && (
-                              <div className="flex flex-wrap gap-1">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 gap-1.5 px-2 text-xs text-primary"
-                                  onClick={() => setScriptId(a._id)}
-                                >
-                                  <FileTextIcon className="size-3.5" />
-                                  Voir le script
-                                </Button>
-                                {a.scriptCombo &&
-                                  (canEditScriptCombo({
-                                    postedAt: a.postedAt,
-                                  }) ? (
-                                    <>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-7 gap-1.5 px-2 text-xs text-slate-600"
-                                        onClick={() => setEditId(a._id)}
-                                      >
-                                        <PencilIcon className="size-3.5" />
-                                        Modifier le combo
-                                      </Button>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-7 gap-1.5 px-2 text-xs text-slate-600"
-                                        onClick={() => setTextEditId(a._id)}
-                                      >
-                                        <TypeIcon className="size-3.5" />
-                                        Éditer le texte
-                                      </Button>
-                                    </>
-                                  ) : (
+                            <div className="max-w-72 space-y-1">
+                              <div className="truncate font-medium text-slate-900">
+                                {a.scriptCampaignName}
+                              </div>
+                              {a.comboImposed && <ImposedComboBadge />}
+                              <div className="truncate text-xs text-slate-500">
+                                {a.comboSummary}
+                              </div>
+                              {a.scriptCombo?.assembledScript && (
+                                <div className="flex flex-wrap items-center gap-1">
+                                  {/* Le seul geste de LECTURE reste en clair ;
+                                      « modifier le combo » et « éditer le texte »
+                                      sont partis dans le menu de ligne. Trois
+                                      boutons empilés par ligne, sur 480 lignes,
+                                      doublaient la hauteur du tableau pour des
+                                      gestes qu'on fait une fois sur cent. */}
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 gap-1.5 px-2 text-xs text-primary"
+                                    onClick={() => setScriptId(a._id)}
+                                  >
+                                    <FileTextIcon className="size-3.5" />
+                                    Voir le script
+                                  </Button>
+                                  {!editable && (
                                     // Publié → verrouillé (même règle que le
                                     // panneau) : on l'explicite, pas d'absence muette.
                                     <span className="flex items-center gap-1 text-xs text-slate-400">
                                       <LockIcon className="size-3 shrink-0" />
                                       Publié — verrouillé
                                     </span>
-                                  ))}
-                              </div>
-                            )}
-                          </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                           ) : (
                             <div>{a.formatName}</div>
                           )}
@@ -695,7 +705,10 @@ function AssignmentsPageInner() {
                                 <span className="text-xs text-slate-400">
                                   {t.platform}
                                 </span>
-                                <span className="font-mono text-slate-600">
+                                <span
+                                  className="max-w-44 truncate font-mono text-slate-600"
+                                  title={t.accountHandle ?? undefined}
+                                >
                                   {t.accountHandle ?? "—"}
                                 </span>
                               </div>
@@ -712,9 +725,12 @@ function AssignmentsPageInner() {
                             (retard)
                           </span>
                         )}
-                        {/* Relance inline. Uniquement sur les statuts où la
-                            balle est au créateur (cf nudgeAssignment côté
-                            serveur) : to_publish géré par l'équipe est exclu. */}
+                        {/* Relance, SOUS la date et non à côté : en ligne, ce
+                            bouton ajoutait ~90 px à la colonne pour TOUTES les
+                            lignes, y compris celles qui ne l'affichent pas.
+                            Uniquement sur les statuts où la balle est au
+                            créateur (cf nudgeAssignment côté serveur) :
+                            to_publish, géré par l'équipe, en est exclu. */}
                         {overdue &&
                           (a.status === "todo" ||
                             a.status === "in_progress" ||
@@ -722,7 +738,7 @@ function AssignmentsPageInner() {
                             <Button
                               variant="ghost"
                               size="xs"
-                              className="ml-2 h-6 gap-1 px-1.5 text-rose-700 hover:bg-rose-100 hover:text-rose-800"
+                              className="mt-1 flex h-6 gap-1 px-1.5 text-rose-700 hover:bg-rose-100 hover:text-rose-800"
                               onClick={() => handleNudge(a._id, a.creatorName)}
                               disabled={nudgingId === a._id}
                               data-testid={`nudge-${a._id}`}
@@ -752,56 +768,62 @@ function AssignmentsPageInner() {
                         </Button>
                       </TableCell>
                       <TableCell>
-                        <span
-                          className={cn(
-                            "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold",
-                            st.className,
+                        <div className="space-y-1">
+                          <span
+                            className={cn(
+                              "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold",
+                              st.className,
+                            )}
+                          >
+                            {tLabel(st.labelKey)}
+                          </span>
+                          {/* Ancienne colonne « Soumis » : c'est la DATE de ce
+                              statut, elle se lit collée à lui, pas six colonnes
+                              plus loin. */}
+                          {a.submittedAt && (
+                            <div className="text-xs text-slate-400">
+                              Soumis {formatDate(a.submittedAt)}
+                            </div>
                           )}
-                        >
-                          {tLabel(st.labelKey)}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-sm text-slate-500">
-                        {a.submittedAt ? formatDate(a.submittedAt) : "—"}
+                        </div>
                       </TableCell>
                       <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 gap-1.5 px-2 text-slate-600"
-                          onClick={() => setManageId(a._id)}
-                          aria-label="Gérer les vidéos modèles"
-                        >
-                          <ClapperboardIcon className="size-4" />
-                          {a.modelVideos && a.modelVideos.length > 0
-                            ? a.modelVideos.length
-                            : "+"}
-                        </Button>
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 gap-1.5 px-2 text-slate-600"
-                          onClick={() => setAssetLinkId(a._id)}
-                          aria-label="Lier des dossiers d'assets"
-                        >
-                          <ImagesIcon className="size-4" />
-                          {a.linkedFolderIds.length > 0
-                            ? a.assetFolderCount
-                            : "+"}
-                        </Button>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
+                        {/* BRIEF — les quatre gestes qui composent la consigne
+                            envoyée à la créatrice, groupés. Le compteur (ou le
+                            point) dit lesquels sont renseignés. */}
+                        <div className="flex items-center gap-0.5">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 gap-1 px-1.5 text-slate-600"
+                            onClick={() => setManageId(a._id)}
+                            aria-label="Gérer les vidéos modèles"
+                            title="Vidéos modèles"
+                          >
+                            <ClapperboardIcon className="size-4" />
+                            {a.modelVideos && a.modelVideos.length > 0
+                              ? a.modelVideos.length
+                              : "+"}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 gap-1 px-1.5 text-slate-600"
+                            onClick={() => setAssetLinkId(a._id)}
+                            aria-label="Lier des dossiers d'assets"
+                            title="Dossiers d'assets"
+                          >
+                            <ImagesIcon className="size-4" />
+                            {a.linkedFolderIds.length > 0
+                              ? a.assetFolderCount
+                              : "+"}
+                          </Button>
                           <Button
                             variant="ghost"
                             size="sm"
                             className={cn(
-                              "h-8 gap-1.5 px-2",
-                              a.overlayText
-                                ? "text-amber-700"
-                                : "text-slate-600",
+                              "h-8 gap-1 px-1.5",
+                              a.overlayText ? "text-amber-700" : "text-slate-600",
                             )}
                             onClick={() => setOverlayId(a._id)}
                             aria-label="Texte à incruster en haut de la vidéo"
@@ -815,10 +837,8 @@ function AssignmentsPageInner() {
                             variant="ghost"
                             size="sm"
                             className={cn(
-                              "h-8 gap-1.5 px-2",
-                              a.instructions
-                                ? "text-indigo-700"
-                                : "text-slate-600",
+                              "h-8 gap-1 px-1.5",
+                              a.instructions ? "text-indigo-700" : "text-slate-600",
                             )}
                             onClick={() => setInstructionsId(a._id)}
                             aria-label="Instructions pour la créatrice"
@@ -830,28 +850,39 @@ function AssignmentsPageInner() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        {canDeleteAssignment(a.status as AssignmentStatus) ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="size-8 p-0 text-slate-400 hover:text-rose-600"
-                            onClick={() => setDeleteId(a._id)}
-                            aria-label="Supprimer cet assignment"
-                          >
-                            <Trash2Icon className="size-4" />
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="size-8 p-0 text-slate-300"
-                            disabled
-                            aria-label="Suppression indisponible (assignment publié ou payé)"
-                            title="Un assignment publié ou payé ne peut pas être supprimé."
-                          >
-                            <Trash2Icon className="size-4" />
-                          </Button>
-                        )}
+                        <div className="flex items-center justify-end gap-0.5">
+                          {/* Même menu que la carte mobile — les gestes rares
+                              (détail, combo, texte) y vivent une seule fois. */}
+                          <AssignmentRowMenu
+                            row={a}
+                            actions={rowActions}
+                            editable={editable}
+                            hasScript={a.scriptCombo?.assembledScript != null}
+                            variant="row"
+                          />
+                          {canDeleteAssignment(a.status as AssignmentStatus) ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="size-8 p-0 text-slate-400 hover:text-rose-600"
+                              onClick={() => setDeleteId(a._id)}
+                              aria-label="Supprimer cet assignment"
+                            >
+                              <Trash2Icon className="size-4" />
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="size-8 p-0 text-slate-300"
+                              disabled
+                              aria-label="Suppression indisponible (assignment publié ou payé)"
+                              title="Un assignment publié ou payé ne peut pas être supprimé."
+                            >
+                              <Trash2Icon className="size-4" />
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   );

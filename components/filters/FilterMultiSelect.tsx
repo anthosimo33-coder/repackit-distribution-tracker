@@ -119,7 +119,10 @@ export function FilterMultiSelect({
           // dont les noms ne divergent qu'après 20 caractères se rendaient
           // identiques (« Format 3 - POV Dem… ») — on ne pouvait plus les
           // distinguer pour cocher la bonne.
-          className="w-max min-w-[220px] max-w-[420px] p-1"
+          // Le plafond est BORNÉ PAR L'ÉCRAN : à 420 px fixes sur un téléphone
+          // de 375 px, la liste débordait hors du viewport et les noms de
+          // campagne repartaient sous le bord droit.
+          className="w-max min-w-[220px] max-w-[min(420px,calc(100vw-2rem))] p-1"
           align="start"
         >
           <div className="flex items-center justify-between border-b border-slate-100 px-2 pb-1.5">
