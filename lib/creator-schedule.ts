@@ -18,7 +18,20 @@
  * #56, où deux tentatives d'y glisser postWindow ont été retirées).
  */
 
-/** Minuit local du jour d'un instant — le repère de comparaison est le JOUR. */
+import { parisDayIndex, plannedDayStart } from "../convex/calendarStatus";
+
+/**
+ * Minuit local du jour d'un instant — le repère de comparaison est le JOUR.
+ *
+ * ⚠️ Réservé à `now` (l'horloge de la créatrice, celle de son navigateur). Le
+ * JOUR PRÉVU, lui, ne se lit JAMAIS ainsi : c'est une étiquette écrite à minuit
+ * Paris, et la lire en heure locale la décale d'un jour pour toute personne à
+ * l'ouest de Paris — jusqu'à Londres. Il passe par `parisDayIndex` /
+ * `plannedDayStart` (cf. convex/calendarStatus).
+ *
+ * Les deux index encodent le mois de la MÊME façon (0-based), donc ils se
+ * comparent — c'est ce qui rend « jour prévu vs aujourd'hui » lisible ici.
+ */
 function dayIndex(ts: number): number {
   const d = new Date(ts);
   return d.getFullYear() * 10000 + d.getMonth() * 100 + d.getDate();
@@ -58,8 +71,8 @@ export function isToCatchUp(item: ScheduleItem, now: number): boolean {
   if (postDate == null) return false;
   if (publishedAt != null) return false;
 
-  const jourPrevu = dayIndex(postDate);
-  const jourCourant = dayIndex(now);
+  const jourPrevu = parisDayIndex(postDate); // ÉTIQUETTE, jamais convertie
+  const jourCourant = dayIndex(now); // son horloge à elle
   if (jourCourant > jourPrevu) return true;
   if (jourCourant < jourPrevu) return false;
 
@@ -135,9 +148,9 @@ export function sortBySchedule<T extends ScheduleItem>(
  *     calendrier NI dans les bandeaux — sans cette famille, elles resteraient
  *     invisibles partout ailleurs que dans un bloc plafonné.
  *
- * PUR (`now` injecté), donc testable, et sans dépendance au fuseau autre que
- * celle du navigateur — le repère est le JOUR LOCAL, comme `dayIndex` ci-dessus
- * et comme le calendrier créatrice.
+ * PUR (`now` injecté), donc testable. Deux repères, et ils ne sont pas
+ * interchangeables : le jour PRÉVU est une étiquette (lue à Paris), la journée
+ * COURANTE est celle de la créatrice (son navigateur).
  */
 export interface ScheduleGroups<T> {
   catchup: T[];
@@ -146,11 +159,17 @@ export interface ScheduleGroups<T> {
   undated: T[];
 }
 
-/** Minuit LOCAL du jour d'un instant (borne de seau, et clé de tri). */
-function startOfLocalDay(ts: number): number {
+/**
+ * Minuit UTC du jour LOCAL d'un instant — borne de seau et clé de tri.
+ *
+ * UTC et non local, pour que les seaux du jour prévu (construits depuis
+ * l'étiquette Paris, cf `plannedDayStart`) et la borne « aujourd'hui » vivent
+ * dans le MÊME repère. Comparer un minuit local à un minuit d'étiquette
+ * décalerait les seaux de quelques heures — donc, certains jours, d'un jour.
+ */
+export function startOfDayUtcFromLocal(ts: number): number {
   const d = new Date(ts);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
+  return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
 export function groupBySchedule<T extends ScheduleItem>(
@@ -160,7 +179,7 @@ export function groupBySchedule<T extends ScheduleItem>(
 ): ScheduleGroups<T> {
   const out: ScheduleGroups<T> = { catchup: [], days: [], later: [], undated: [] };
   const byDay = new Map<number, T[]>();
-  const todayStart = startOfLocalDay(now);
+  const todayStart = startOfDayUtcFromLocal(now);
   const horizonEnd = todayStart + horizonDays * 86_400_000;
 
   for (const item of items) {
@@ -172,7 +191,8 @@ export function groupBySchedule<T extends ScheduleItem>(
       out.catchup.push(item);
       continue;
     }
-    const dayStart = startOfLocalDay(item.postDate);
+    // Seau du jour PRÉVU : son étiquette, pas sa lecture locale.
+    const dayStart = plannedDayStart(item.postDate);
     // Un jour ANTÉRIEUR à aujourd'hui qui n'est pas « à rattraper » est déjà
     // publié : il n'a rien à faire dans une liste de missions à faire.
     if (dayStart < todayStart) continue;

@@ -4,6 +4,7 @@
 // raison (cf. les trois horloges du repo).
 process.env.TZ = "Europe/Paris";
 
+import { plannedDayStart } from "../convex/calendarStatus";
 import { describe, expect, it } from "vitest";
 import {
   groupBySchedule,
@@ -137,7 +138,20 @@ describe("groupBySchedule — la semaine d'un coup d'œil", () => {
   it("les jours SANS mission ne sont pas matérialisés", () => {
     const g = groupBySchedule([{ id: "a", postDate: J_PLUS(5) }], J(10));
     expect(g.days).toHaveLength(1);
-    expect(g.days[0].dayStart).toBe(J_PLUS(5));
+    // `dayStart` est désormais minuit UTC de l'ÉTIQUETTE du jour prévu, pas
+    // minuit local : c'est ce qui rend le seau identique pour une créatrice à
+    // Paris et pour une créatrice à New York.
+    expect(g.days[0].dayStart).toBe(plannedDayStart(J_PLUS(5)));
+  });
+
+  it("le seau d'un jour prévu est son ÉTIQUETTE, pas sa lecture locale", () => {
+    // Minuit PARIS du 20 août 2026 — la forme réellement stockée dans postDate.
+    const minuitParis = Date.UTC(2026, 7, 19, 22); // été : Paris = UTC+2
+    const g = groupBySchedule([{ id: "a", postDate: minuitParis }], J(10));
+    // Le seau porte le 20, quel que soit le fuseau du lecteur. Lu en heure
+    // locale à New York, cet instant tombe le 19 à 18 h — et la mission
+    // s'afficherait sous la veille.
+    expect(g.days[0].dayStart).toBe(Date.UTC(2026, 7, 20));
   });
 
   it("le retard le plus ANCIEN est en tête", () => {

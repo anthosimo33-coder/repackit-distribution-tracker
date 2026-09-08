@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { formatPostWindow } from "@/convex/postWindow";
+import { plannedDayKey } from "@/convex/calendarStatus";
 import Link from "next/link";
 import {
   addMonths,
@@ -95,7 +96,11 @@ export function CreatorPublicationCalendar({
   const byDay = useMemo(() => {
     const map = new Map<string, typeof planned>();
     for (const item of planned) {
-      const key = format(new Date(item.row.postDate!), "yyyy-MM-dd");
+      // ÉTIQUETTE du jour prévu, pas sa lecture locale : `format(new Date(…))`
+      // rendait « le 4 » à São Paulo pour un plan « le 5 » (minuit Paris tombe
+      // la veille au soir chez elle). Les cases de la grille, elles, restent des
+      // jours locaux — c'est bien son calendrier à elle.
+      const key = plannedDayKey(item.row.postDate!);
       const arr = map.get(key);
       if (arr) arr.push(item);
       else map.set(key, [item]);

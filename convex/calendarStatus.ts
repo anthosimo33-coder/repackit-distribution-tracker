@@ -122,6 +122,67 @@ export function representativePostedAt(a: {
   return typeof a.publishedAt === "number" ? a.publishedAt : null;
 }
 
+/**
+ * ─── LE JOUR PRÉVU EST UNE ÉTIQUETTE ────────────────────────────────────────
+ *
+ * `postDate` est un INSTANT (minuit Paris) qui représente un JOUR (« le 5 »).
+ * Le rendre avec l'horloge du lecteur le déplace : minuit à Paris, c'est 19 h la
+ * veille à São Paulo, 18 h la veille à New York — et 23 h la veille à Londres.
+ * Une créatrice à l'ouest de Paris lisait donc « le 4 » là où l'équipe avait
+ * planifié « le 5 », publiait le 4, et se retrouvait hors date.
+ *
+ * Ces trois fonctions sont le SEUL chemin autorisé pour lire un jour prévu côté
+ * écran : la clé de rangement, la borne de journée, et le libellé. Toutes trois
+ * lisent l'étiquette à Paris, donc rendent la même chose pour tout le monde.
+ *
+ * ⚠️ Ne pas confondre avec le VERDICT (`calendarStatus`), qui lui se prend dans
+ * le fuseau de la créatrice : le jour prévu ne se convertit pas, sa journée si.
+ */
+
+/** Clé "YYYY-MM-DD" du jour prévu — rangement de calendrier, identique partout. */
+export function plannedDayKey(postDate: number): string {
+  return PARIS_YMD.format(new Date(postDate));
+}
+
+/** Minuit UTC de l'étiquette : support d'arithmétique en jours ET de rendu. */
+export function plannedDayStart(postDate: number): number {
+  const [y, m, d] = plannedDayKey(postDate).split("-").map(Number);
+  return Date.UTC(y, m - 1, d);
+}
+
+/**
+ * Libellé du jour prévu dans la langue du lecteur, SANS conversion de fuseau.
+ * Les options sont celles d'`Intl.DateTimeFormat` ; `timeZone` est imposé.
+ */
+export function formatPlannedDay(
+  postDate: number,
+  locale: string,
+  options: Intl.DateTimeFormatOptions = {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  },
+): string {
+  return new Intl.DateTimeFormat(locale, {
+    ...options,
+    timeZone: FUSEAU_EQUIPE,
+  }).format(new Date(postDate));
+}
+
+/**
+ * Le jour prévu tombe-t-il sur la journée COURANTE de la créatrice ?
+ *
+ * Les deux moitiés de la question ne se lisent pas dans le même fuseau, et c'est
+ * exactement le point : l'étiquette à Paris, « aujourd'hui » chez elle.
+ */
+export function isPlannedToday(
+  postDate: number,
+  now: number,
+  timeZone?: string | null,
+): boolean {
+  return jourLocal(postDate, FUSEAU_EQUIPE) === jourLocal(now, timeZone);
+}
+
 export function calendarStatus(input: {
   /** Jour de publication PLANIFIÉ (ms), ou absent → hors calendrier. */
   postDate: number | null | undefined;
