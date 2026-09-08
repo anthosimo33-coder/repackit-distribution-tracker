@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   useProjectQuery,
   useProjectMutation,
@@ -10,13 +10,7 @@ import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -26,6 +20,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -33,18 +34,37 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Loader2Icon, PlusIcon } from "lucide-react";
+import { Loader2Icon, MoreHorizontalIcon, PlusIcon } from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { formatMoney } from "@/lib/format-rate";
 import { formatDate } from "@/lib/format";
 import { currencySymbol } from "@/lib/currency";
+import {
+  compareLadders,
+  fixedPerVideo,
+  formatSeuil,
+  ladderSummary,
+  pricingKind,
+  sortedTiers,
+  PRICING_KIND_LABEL,
+  type PricingKind,
+} from "@/lib/pricing-shape";
+import {
+  estimateMissionEarnings,
+  evaluateBonusTiers,
+  tiersOf,
+  type BonusTier,
+} from "@/lib/pricing-engine";
 import { PayCurrencyWarning } from "@/components/PayCurrencyWarning";
 import type { FunctionReturnType } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
 import { PermissionGate } from "@/components/project/PermissionGate";
 
 type Pricing = FunctionReturnType<typeof api.pricing.listPricings>[number];
+type Template = FunctionReturnType<
+  typeof api.pricing.listBonusTemplates
+>[number];
 
 type TierForm = {
   seuilVues: string;
@@ -62,46 +82,130 @@ const EMPTY = {
   tauxCPM: "",
 };
 
+function emptyTier(): TierForm {
+  return {
+    seuilVues: "",
+    rewardType: "cash",
+    montant: "",
+    libelle: "",
+    coutReel: "",
+  };
+}
+
+function tiersToForm(tiers: BonusTier[]): TierForm[] {
+  return sortedTiers(tiers).map((t) => ({
+    seuilVues: String(t.seuilVues),
+    rewardType: t.rewardType,
+    montant: t.montant != null ? String(t.montant) : "",
+    libelle: t.libelle ?? "",
+    coutReel: t.coutReel != null ? String(t.coutReel) : "",
+  }));
+}
+
 /**
- * Admin — barèmes de paie (pricings) du projet. CRUD : créer / modifier /
- * archiver / supprimer (si non utilisé). Modèle : fixe mensuel par vidéo unique
- * + CPM ($/1000 vues) + bonus au seuil (cf lib/pricing-engine).
+ * Paliers saisis → paliers du domaine. `coutReel` vide reste ABSENT, jamais 0 :
+ * « pas encore chiffré » n'est pas « gratuit », et un 0 entrerait tel quel dans
+ * le coût complet du moteur.
+ */
+function formToTiers(tiers: TierForm[]): BonusTier[] {
+  return tiers.map((t) => ({
+    seuilVues: Number(t.seuilVues),
+    rewardType: t.rewardType,
+    montant: t.rewardType === "cash" ? Number(t.montant) : undefined,
+    libelle: t.rewardType === "nature" ? t.libelle.trim() : undefined,
+    coutReel:
+      t.rewardType === "nature" && t.coutReel.trim() !== ""
+        ? Number(t.coutReel)
+        : undefined,
+  }));
+}
+
+const KIND_CLASS: Record<PricingKind, string> = {
+  cpm: "bg-blue-50 text-blue-700",
+  fixe: "bg-emerald-50 text-emerald-700",
+  mixte: "bg-violet-50 text-violet-700",
+  aucun: "bg-slate-100 text-slate-600",
+};
+
+/**
+ * Admin — barèmes de paie (pricings) du projet, et bibliothèque de MODÈLES
+ * d'échelle de bonus.
+ *
+ * L'écran rendait ses barèmes en prose (« Fixe 0,00 $ pour 60 vidéos · CPM
+ * 1,00 $/1000 vues · 1 000 000 → 200,00 $ · … ») : rien n'était aligné, donc
+ * rien ne se comparait. Il aligne désormais les termes en colonnes, dit la
+ * NATURE d'un barème là où il affichait un « 0,00 $ » trompeur, et signale
+ * qu'une échelle de bonus a divergé de son modèle.
+ *
+ * Deux règles de fond, rappelées partout où elles mordent :
+ *   - Fixe et CPM sont FIGÉS à l'attribution (pricingSnapshot) → les modifier
+ *     n'affecte que les futures attributions ;
+ *   - les PALIERS sont lus EN DIRECT → les modifier change la grille de toutes
+ *     les créatrices qui en dépendent, tout de suite.
  */
 function PricingsPageContenu() {
   // Devise de la PAIE créatrices (dollars) — montants ET symboles des libellés
   // (fixe, CPM, cash) dérivés de projects.payCurrency, jamais codés en dur.
   const payCurrency = useProject().project.payCurrency;
+  const money = useMemo(
+    () => (n: number) => formatMoney(n, payCurrency),
+    [payCurrency],
+  );
+
   const pricings = useProjectQuery(api.pricing.listPricings, {
     includeArchived: true,
   });
+  const templates = useProjectQuery(api.pricing.listBonusTemplates, {});
   const create = useProjectMutation(api.pricing.createPricing);
   const update = useProjectMutation(api.pricing.updatePricing);
   const archive = useProjectMutation(api.pricing.archivePricing);
   const remove = useProjectMutation(api.pricing.deletePricing);
+  const setDefaultBonus = useProjectMutation(api.pricing.setDefaultBonusPricing);
+
   // Assignations dont le barème FIGÉ ne correspond plus aux termes actuels du
   // pricing. Éditer un barème en place n'affecte que les futures attributions —
   // rien ne le montrait jusqu'ici, et l'écart restait invisible parce que le
   // pricingId, lui, ne change pas.
   const drift = useProjectQuery(api.pricing.listPricingSnapshotDrift, {});
   const [driftFor, setDriftFor] = useState<string | null>(null);
-  const defaultBonusId = useProjectQuery(
-    api.pricing.getDefaultBonusPricingId,
-    {},
-  );
-  const setDefaultBonus = useProjectMutation(api.pricing.setDefaultBonusPricing);
+
+  const [query, setQuery] = useState("");
+  const [scope, setScope] = useState<"active" | "archived" | "all">("active");
 
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Pricing | null>(null);
   const [form, setForm] = useState({ ...EMPTY });
   const [tiers, setTiers] = useState<TierForm[]>([]);
+  const [templateId, setTemplateId] = useState<Id<"bonusTemplates"> | null>(
+    null,
+  );
   const [busy, setBusy] = useState(false);
+
+  const defaultPricing = pricings?.find((p) => p.isDefaultBonus) ?? null;
+  const defaultTiers = defaultPricing ? tiersOf(defaultPricing) : [];
+
+  const visible = useMemo(() => {
+    if (!pricings) return [];
+    const q = query.trim().toLowerCase();
+    return pricings.filter((p) => {
+      if (scope === "active" && p.status !== "active") return false;
+      if (scope === "archived" && p.status !== "archived") return false;
+      return q === "" || p.name.toLowerCase().includes(q);
+    });
+  }, [pricings, query, scope]);
+
+  const activeCount = pricings?.filter((p) => p.status === "active").length ?? 0;
+  const archivedCount =
+    pricings?.filter((p) => p.status === "archived").length ?? 0;
 
   function openCreate() {
     setEditing(null);
     setForm({ ...EMPTY });
     setTiers([]);
+    setTemplateId(null);
     setOpen(true);
   }
+
   function openEdit(p: Pricing) {
     setEditing(p);
     setForm({
@@ -110,57 +214,44 @@ function PricingsPageContenu() {
       nbVideosCible: String(p.nbVideosCible),
       tauxCPM: String(p.tauxCPM),
     });
-    setTiers(
-      (p.bonusTiers ?? []).map((t) => ({
-        seuilVues: String(t.seuilVues),
-        rewardType: t.rewardType,
-        montant: t.montant != null ? String(t.montant) : "",
-        libelle: t.libelle ?? "",
-        coutReel: t.coutReel != null ? String(t.coutReel) : "",
-      })),
-    );
+    setTiers(tiersToForm(p.bonusTiers ?? []));
+    setTemplateId(p.bonusTemplateId ?? null);
     setOpen(true);
   }
 
-  function addTier() {
-    setTiers((ts) => [
-      ...ts,
-      { seuilVues: "", rewardType: "cash", montant: "", libelle: "", coutReel: "" },
-    ]);
-  }
-  function updateTier(i: number, patch: Partial<TierForm>) {
-    setTiers((ts) => ts.map((t, j) => (j === i ? { ...t, ...patch } : t)));
-  }
-  function removeTier(i: number) {
-    setTiers((ts) => ts.filter((_, j) => j !== i));
+  /** Duplique un barème : le geste JUSTE pour changer un tarif, puisque
+   *  modifier en place ne restampe aucune vidéo déjà attribuée. */
+  function openDuplicate(p: Pricing) {
+    setEditing(null);
+    setForm({
+      name: `${p.name} (copie)`,
+      montantFixe: String(p.montantFixe),
+      nbVideosCible: String(p.nbVideosCible),
+      tauxCPM: String(p.tauxCPM),
+    });
+    setTiers(tiersToForm(p.bonusTiers ?? []));
+    setTemplateId(p.bonusTemplateId ?? null);
+    setOpen(true);
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const bonusTiers = tiers.map((t) => ({
-      seuilVues: Number(t.seuilVues),
-      rewardType: t.rewardType,
-      montant: t.rewardType === "cash" ? Number(t.montant) : undefined,
-      libelle: t.rewardType === "nature" ? t.libelle.trim() : undefined,
-      // Coût réel : NATURE seulement, et seulement s'il est renseigné. Vide =>
-      // undefined (absent), jamais 0 : « pas encore chiffré » n'est pas « gratuit ».
-      coutReel:
-        t.rewardType === "nature" && t.coutReel.trim() !== ""
-          ? Number(t.coutReel)
-          : undefined,
-    }));
     const args = {
       name: form.name.trim(),
       montantFixe: Number(form.montantFixe),
       nbVideosCible: Number(form.nbVideosCible),
       tauxCPM: Number(form.tauxCPM),
-      bonusTiers,
+      bonusTiers: formToTiers(tiers),
+      // Toujours transmis, y compris à null : sans ça, une simple modification
+      // de nom effacerait la provenance et l'écran cesserait de signaler la
+      // divergence.
+      bonusTemplateId: templateId,
     };
     setBusy(true);
     try {
       if (editing) await update({ id: editing._id, ...args });
       else await create(args);
-      toast.success(editing ? "Pricing mis à jour" : "Pricing créé");
+      toast.success(editing ? "Barème mis à jour" : "Barème créé");
       setOpen(false);
     } catch (err) {
       toast.error(convexErrorMessage(err, "Une erreur est survenue."));
@@ -172,7 +263,7 @@ function PricingsPageContenu() {
   async function toggleArchive(p: Pricing) {
     try {
       await archive({ id: p._id, archived: p.status === "active" });
-      toast.success(p.status === "active" ? "Pricing archivé" : "Pricing réactivé");
+      toast.success(p.status === "active" ? "Barème archivé" : "Barème réactivé");
     } catch (e) {
       toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     }
@@ -181,7 +272,7 @@ function PricingsPageContenu() {
   async function handleDelete(p: Pricing) {
     try {
       await remove({ id: p._id });
-      toast.success("Pricing supprimé");
+      toast.success("Barème supprimé");
     } catch (e) {
       toast.error(convexErrorMessage(e, "Une erreur est survenue."));
     }
@@ -207,16 +298,22 @@ function PricingsPageContenu() {
     }
   }
 
+  const grillesDispo =
+    pricings?.filter(
+      (p) => p.status === "active" && (p.bonusTiers?.length ?? 0) > 0,
+    ) ?? [];
+
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-5">
       <PayCurrencyWarning payCurrency={payCurrency} />
-      <header className="flex flex-wrap items-center justify-between gap-3">
+
+      <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
             Pricings
           </h1>
           <p className="text-sm text-slate-500">
-            Barèmes de paie : fixe mensuel par vidéo + CPM aux vues + bonus seuil.
+            Fixe mensuel par vidéo, CPM aux vues, paliers de bonus au cumul à vie.
           </p>
         </div>
         <Button onClick={openCreate}>
@@ -225,139 +322,128 @@ function PricingsPageContenu() {
         </Button>
       </header>
 
-      {/* Grille de bonus par défaut du projet — héritée par les créatrices sans
-          grille perso (échelle de progression + déblocage des bonus). */}
-      {pricings &&
-        pricings.some(
-          (p) => p.status === "active" && (p.bonusTiers?.length ?? 0) > 0,
-        ) && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                Grille de bonus par défaut du projet
-              </CardTitle>
-              <CardDescription>
-                Les créatrices sans grille perso en héritent (échelle de
-                progression + déblocage des bonus). Ajouter un palier ici
-                s&apos;applique à toutes, sans réassignation. Une grille perso de
-                créatrice prime sur ce défaut.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Select
-                value={defaultBonusId ?? "none"}
-                onValueChange={handleSetDefaultBonus}
-              >
-                <SelectTrigger
-                  className="w-full sm:w-96"
-                  aria-label="Grille de bonus par défaut du projet"
-                >
-                  {/* Sans enfants, le déclencheur rend la valeur brute — ici
-                      « none » ou un id Convex — au lieu du nom de la grille. */}
-                  <SelectValue>
-                    {defaultBonusId === "none"
-                      ? "Aucune (grille par créatrice)"
-                      : (pricings.find((p) => p._id === defaultBonusId)
-                          ?.name ?? "Grille introuvable")}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">
-                    Aucune (grille par créatrice)
-                  </SelectItem>
-                  {pricings
-                    .filter(
-                      (p) =>
-                        p.status === "active" &&
-                        (p.bonusTiers?.length ?? 0) > 0,
-                    )
-                    .map((p) => (
-                      <SelectItem key={p._id} value={p._id}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </CardContent>
-          </Card>
-        )}
-
-      {pricings === undefined ? (
-        <Skeleton className="h-40 w-full" />
-      ) : pricings.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center text-sm text-slate-500">
-            Aucun pricing. Crée ton premier barème de paie.
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {pricings.map((p) => (
-            <Card key={p._id} className={p.status === "archived" ? "opacity-60" : ""}>
-              <CardHeader>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <CardTitle className="text-base">
-                    {p.name}
-                    {p.status === "archived" && (
-                      <span className="ml-2 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-500">
-                        Archivé
-                      </span>
-                    )}
-                  </CardTitle>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={() => openEdit(p)}>
-                      Modifier
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => toggleArchive(p)}>
-                      {p.status === "active" ? "Archiver" : "Réactiver"}
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleDelete(p)}>
-                      Supprimer
-                    </Button>
-                  </div>
-                </div>
-                <CardDescription>
-                  Fixe {formatMoney(p.montantFixe, payCurrency)} pour{" "}
-                  {p.nbVideosCible} vidéos{" · "}CPM{" "}
-                  {formatMoney(p.tauxCPM, payCurrency)}/1000 vues
-                  {(p.bonusTiers ?? []).length > 0 && (
-                    <>
-                      {" · "}
-                      {(p.bonusTiers ?? [])
-                        .map(
-                          (t) =>
-                            `${t.seuilVues.toLocaleString("fr-FR")} → ${
-                              t.rewardType === "cash"
-                                ? formatMoney(t.montant ?? 0, payCurrency)
-                                : (t.libelle ?? "récompense")
-                            }`,
-                        )
-                        .join(" · ")}
-                    </>
-                  )}
-                </CardDescription>
-                {(() => {
-                  const d = drift?.find((x) => x.pricingId === p._id);
-                  if (!d) return null;
-                  return (
-                    <button
-                      type="button"
-                      onClick={() => setDriftFor(p._id)}
-                      className="mt-1 w-fit rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-left text-xs text-amber-900 hover:bg-amber-100"
-                    >
-                      <span className="font-medium">
-                        {d.driftCount} assignation{d.driftCount > 1 ? "s" : ""}
-                      </span>{" "}
-                      port{d.driftCount > 1 ? "ent" : "e"} un barème figé
-                      différent de celui-ci — voir le détail
-                    </button>
-                  );
-                })()}
-              </CardHeader>
-            </Card>
-          ))}
+      {/* Grille de bonus par défaut — UNE ligne, sur la même surface que ce
+          qu'elle désigne. C'était une carte de 200 px avec quatre lignes
+          d'explication, qui repoussait la liste sous la ligne de flottaison. */}
+      {grillesDispo.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm">
+          <span className="text-slate-500">Grille de bonus par défaut</span>
+          <Select
+            value={defaultPricing?._id ?? "none"}
+            onValueChange={handleSetDefaultBonus}
+            items={[
+              { value: "none", label: "Aucune (grille par créatrice)" },
+              ...grillesDispo.map((p) => ({ value: p._id, label: p.name })),
+            ]}
+          >
+            <SelectTrigger
+              className="h-8 w-full min-w-0 sm:w-80"
+              aria-label="Grille de bonus par défaut du projet"
+            >
+              {/* Sans SelectValue, le déclencheur ne rend RIEN ; sans `items`
+                  sur la racine, il rend la valeur brute (un id Convex). */}
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Aucune (grille par créatrice)</SelectItem>
+              {grillesDispo.map((p) => (
+                <SelectItem key={p._id} value={p._id}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span className="text-xs text-slate-400 sm:ml-auto">
+            {defaultPricing
+              ? `${defaultPricing.bonusCreatorCount} créatrice${defaultPricing.bonusCreatorCount > 1 ? "s" : ""} en héritent · une grille perso prime`
+              : "Chaque créatrice n'a que sa grille perso, s'il y en a une"}
+          </span>
         </div>
       )}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Rechercher un barème…"
+          aria-label="Rechercher un barème"
+          className="h-9 w-full sm:max-w-64"
+        />
+        <div className="ml-auto flex overflow-hidden rounded-lg border border-slate-200 bg-white">
+          {(
+            [
+              ["active", `Actifs${activeCount ? ` · ${activeCount}` : ""}`],
+              [
+                "archived",
+                `Archivés${archivedCount ? ` · ${archivedCount}` : ""}`,
+              ],
+              ["all", "Tous"],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setScope(key)}
+              aria-pressed={scope === key}
+              className={`px-3 py-1.5 text-xs ${
+                scope === key
+                  ? "bg-slate-100 font-medium text-slate-900"
+                  : "text-slate-500 hover:text-slate-900"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {pricings === undefined ? (
+        <Skeleton className="h-56 w-full" />
+      ) : visible.length === 0 ? (
+        <div className="rounded-xl border border-slate-200 bg-white py-12 text-center text-sm text-slate-500">
+          {pricings.length === 0
+            ? "Aucun barème. Crée ton premier barème de paie."
+            : "Aucun barème ne correspond."}
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+          <div className="min-w-3xl">
+            <div className="grid grid-cols-[minmax(13rem,1.4fr)_6rem_6.5rem_minmax(13rem,1.3fr)_2.25rem] items-center gap-4 border-b border-slate-100 bg-slate-50/60 px-4 py-2 text-[10.5px] font-medium tracking-wider text-slate-400 uppercase">
+              <span>Barème</span>
+              <span className="text-right">Fixe / vidéo</span>
+              <span className="text-right">CPM</span>
+              <span>Paliers de bonus</span>
+              <span className="sr-only">Actions</span>
+            </div>
+            {visible.map((p) => (
+              <PricingRow
+                key={p._id}
+                pricing={p}
+                money={money}
+                defaultTiers={defaultTiers}
+                isDefaultRow={p.isDefaultBonus}
+                templates={templates ?? []}
+                driftCount={
+                  drift?.find((x) => x.pricingId === p._id)?.driftCount ?? 0
+                }
+                onEdit={() => openEdit(p)}
+                onDuplicate={() => openDuplicate(p)}
+                onShowDrift={() => setDriftFor(p._id)}
+                onSetDefault={() => handleSetDefaultBonus(p._id)}
+                onArchive={() => toggleArchive(p)}
+                onDelete={() => handleDelete(p)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      <TemplatesSection
+        templates={templates}
+        pricings={pricings ?? []}
+        money={money}
+        payCurrency={payCurrency}
+      />
 
       {/* Détail de la dérive — les barèmes figés qui ne correspondent plus. */}
       <Dialog
@@ -369,7 +455,7 @@ function PricingsPageContenu() {
             const d = drift?.find((x) => x.pricingId === driftFor);
             if (!d) return null;
             const terms = (m: number, n: number, c: number) =>
-              `${formatMoney(m, payCurrency)} / ${n} vidéos · CPM ${formatMoney(c, payCurrency)}`;
+              `${money(m)} / ${n} vidéos · CPM ${money(c)}`;
             return (
               <>
                 <DialogHeader>
@@ -426,213 +512,1137 @@ function PricingsPageContenu() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {editing ? "Modifier le pricing" : "Nouveau pricing"}
-            </DialogTitle>
-            <DialogDescription>
-              Modifier un pricing n&apos;affecte que les FUTURES attributions (les
-              vidéos déjà attribuées gardent leur barème figé).
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <Field label="Nom" id="name">
-              <Input
-                id="name"
-                value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                required
-              />
-            </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field
-                label={`Montant fixe (${currencySymbol(payCurrency)})`}
-                id="montantFixe"
-              >
-                <Input
-                  id="montantFixe"
-                  type="number"
-                  step="0.01"
-                  min={0}
-                  value={form.montantFixe}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, montantFixe: e.target.value }))
-                  }
-                  required
-                />
-              </Field>
-              <Field label="Nb vidéos cible" id="nbVideosCible">
-                <Input
-                  id="nbVideosCible"
-                  type="number"
-                  min={1}
-                  value={form.nbVideosCible}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, nbVideosCible: e.target.value }))
-                  }
-                  required
-                />
-              </Field>
-              <Field
-                label={`CPM (${currencySymbol(payCurrency)}/1000 vues)`}
-                id="tauxCPM"
-              >
-                <Input
-                  id="tauxCPM"
-                  type="number"
-                  step="0.01"
-                  min={0}
-                  value={form.tauxCPM}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, tauxCPM: e.target.value }))
-                  }
-                  required
-                />
-              </Field>
-            </div>
-
-            {/* Paliers de bonus (cumul de vues À VIE du créateur) */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label>Paliers de bonus (cumul de vues)</Label>
-                <Button type="button" variant="outline" size="sm" onClick={addTier}>
-                  + Palier
-                </Button>
-              </div>
-              {tiers.length === 0 && (
-                <p className="text-xs text-slate-400">
-                  Aucun palier. Ajoute des paliers cash (
-                  {currencySymbol(payCurrency)}) ou nature (iPhone…).
-                </p>
-              )}
-              {tiers.map((t, i) => (
-                <div key={i} className="flex flex-wrap items-end gap-2 rounded-md border border-slate-200 p-2">
-                  <div className="min-w-[7rem] flex-1 space-y-1">
-                    <Label className="text-xs">Seuil de vues</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      value={t.seuilVues}
-                      onChange={(e) => updateTier(i, { seuilVues: e.target.value })}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Type</Label>
-                    <Select
-                      value={t.rewardType}
-                      onValueChange={(v) =>
-                        v && updateTier(i, { rewardType: v as "cash" | "nature" })
-                      }
-                    >
-                      <SelectTrigger aria-label="Type de récompense" className="w-28">
-                        <SelectValue>
-                          {t.rewardType === "cash"
-                            ? `Cash ${currencySymbol(payCurrency)}`
-                            : "Nature"}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="cash">
-                          Cash {currencySymbol(payCurrency)}
-                        </SelectItem>
-                        <SelectItem value="nature">Nature</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="min-w-[8rem] flex-1 space-y-1">
-                    {t.rewardType === "cash" ? (
-                      <>
-                        <Label className="text-xs">
-                          Montant ({currencySymbol(payCurrency)})
-                        </Label>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          min={0}
-                          value={t.montant}
-                          onChange={(e) => updateTier(i, { montant: e.target.value })}
-                          required
-                        />
-                      </>
-                    ) : (
-                      <>
-                        <Label className="text-xs">Libellé</Label>
-                        <Input
-                          placeholder="iPhone 15"
-                          value={t.libelle}
-                          onChange={(e) => updateTier(i, { libelle: e.target.value })}
-                          required
-                        />
-                      </>
-                    )}
-                  </div>
-                  {/* Coût réel — NATURE seulement. Facultatif : sans lui la
-                      récompense reste visible mais non chiffrée (tiret), elle
-                      n'entre alors dans aucun total. Ce n'est PAS le prix public
-                      et ce n'est jamais montré à la créatrice. */}
-                  {t.rewardType === "nature" && (
-                    <div className="min-w-[8rem] flex-1 space-y-1">
-                      <Label className="text-xs">
-                        Coût réel ({currencySymbol(payCurrency)})
-                      </Label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        min={0}
-                        placeholder="ce qu'il nous coûte"
-                        value={t.coutReel}
-                        onChange={(e) => updateTier(i, { coutReel: e.target.value })}
-                      />
-                    </div>
-                  )}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => removeTier(i)}
-                  >
-                    Retirer
-                  </Button>
-                </div>
-              ))}
-            </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setOpen(false)}
-                disabled={busy}
-              >
-                Annuler
-              </Button>
-              <Button type="submit" disabled={busy}>
-                {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-                {editing ? "Enregistrer" : "Créer"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <PricingEditorDialog
+        open={open}
+        onOpenChange={setOpen}
+        editing={editing}
+        form={form}
+        setForm={setForm}
+        tiers={tiers}
+        setTiers={setTiers}
+        templateId={templateId}
+        setTemplateId={setTemplateId}
+        templates={templates ?? []}
+        payCurrency={payCurrency}
+        money={money}
+        busy={busy}
+        onSubmit={handleSubmit}
+      />
     </div>
   );
 }
 
-function Field({
-  label,
-  id,
-  children,
+/** Une ligne de barème : nom + nature à gauche, termes alignés, échelle, menu. */
+function PricingRow({
+  pricing: p,
+  money,
+  defaultTiers,
+  isDefaultRow,
+  templates,
+  driftCount,
+  onEdit,
+  onDuplicate,
+  onShowDrift,
+  onSetDefault,
+  onArchive,
+  onDelete,
 }: {
-  label: string;
-  id: string;
-  children: React.ReactNode;
+  pricing: Pricing;
+  money: (n: number) => string;
+  defaultTiers: BonusTier[];
+  isDefaultRow: boolean;
+  templates: Template[];
+  driftCount: number;
+  onEdit: () => void;
+  onDuplicate: () => void;
+  onShowDrift: () => void;
+  onSetDefault: () => void;
+  onArchive: () => void;
+  onDelete: () => void;
 }) {
+  const kind = pricingKind(p);
+  const tiers = tiersOf(p);
+  const perVideo = fixedPerVideo(p);
+  const canDelete = p.assignmentCount === 0;
+
+  return (
+    <div
+      className={`grid grid-cols-[minmax(13rem,1.4fr)_6rem_6.5rem_minmax(13rem,1.3fr)_2.25rem] items-center gap-4 border-b border-slate-100 px-4 py-3 last:border-b-0 ${
+        p.status === "archived" ? "bg-slate-50/40" : ""
+      } ${isDefaultRow ? "bg-violet-50/30" : ""}`}
+    >
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="truncate text-left text-sm font-semibold text-slate-900 hover:underline"
+          >
+            {p.name}
+          </button>
+          {isDefaultRow && (
+            <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-violet-800">
+              Grille par défaut
+            </span>
+          )}
+          {p.status === "archived" && (
+            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-slate-500">
+              Archivé
+            </span>
+          )}
+        </div>
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+          <span
+            className={`rounded px-1.5 py-0.5 text-[10.5px] font-semibold uppercase ${KIND_CLASS[kind]}`}
+          >
+            {PRICING_KIND_LABEL[kind]}
+          </span>
+          <span>{p.nbVideosCible} vidéos</span>
+          {p.bonusCreatorCount > 0 && (
+            <span>
+              · {p.bonusCreatorCount} créatrice
+              {p.bonusCreatorCount > 1 ? "s" : ""} sur cette grille
+            </span>
+          )}
+        </div>
+        {driftCount > 0 && (
+          <button
+            type="button"
+            onClick={onShowDrift}
+            className="mt-1.5 w-fit rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-left text-[11.5px] text-amber-900 hover:bg-amber-100"
+          >
+            {driftCount} assignation{driftCount > 1 ? "s" : ""} sur un barème figé
+            différent
+          </button>
+        )}
+      </div>
+
+      <NumCell
+        value={kind === "cpm" || kind === "aucun" ? null : money(perVideo)}
+        unit={
+          kind === "cpm" || kind === "aucun"
+            ? "pas de fixe"
+            : `${money(p.montantFixe)} / ${p.nbVideosCible}`
+        }
+      />
+      <NumCell
+        value={kind === "fixe" || kind === "aucun" ? null : money(p.tauxCPM)}
+        unit={kind === "fixe" || kind === "aucun" ? "pas de CPM" : "/ 1 000 vues"}
+      />
+
+      <LadderCell
+        tiers={tiers}
+        money={money}
+        defaultTiers={defaultTiers}
+        isDefaultRow={isDefaultRow}
+        template={templates.find((t) => t._id === p.bonusTemplateId) ?? null}
+      />
+
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <button
+              type="button"
+              aria-label={`Actions du barème ${p.name}`}
+              className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            >
+              <MoreHorizontalIcon className="size-4" />
+            </button>
+          }
+        />
+        <DropdownMenuContent align="end" className="w-60">
+          <DropdownMenuItem onClick={onEdit}>Modifier le barème</DropdownMenuItem>
+          <DropdownMenuItem onClick={onDuplicate}>Dupliquer</DropdownMenuItem>
+          {tiers.length > 0 && !isDefaultRow && p.status === "active" && (
+            <DropdownMenuItem onClick={onSetDefault}>
+              Définir comme grille par défaut
+            </DropdownMenuItem>
+          )}
+          {driftCount > 0 && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={onShowDrift}>
+                Voir les {driftCount} barèmes figés
+              </DropdownMenuItem>
+            </>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={onArchive}>
+            {p.status === "active" ? "Archiver" : "Réactiver"}
+          </DropdownMenuItem>
+          {/* Désactivé AVEC son motif plutôt que proposé puis refusé par le
+              serveur : `deletePricing` lève dès qu'une vidéo porte le barème. */}
+          <DropdownMenuItem
+            variant="destructive"
+            disabled={!canDelete}
+            onClick={canDelete ? onDelete : undefined}
+          >
+            <span className="flex w-full items-baseline justify-between gap-2">
+              Supprimer
+              {!canDelete && (
+                <small className="text-[11px] text-slate-400">
+                  {p.assignmentCount} vidéo{p.assignmentCount > 1 ? "s" : ""}
+                </small>
+              )}
+            </span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+/**
+ * Cellule numérique alignée. `value` à null = le barème ne paie PAS par ce
+ * canal : un tiret, pas un « 0,00 $ » qui inviterait à comparer ce qui n'est
+ * pas comparable.
+ */
+function NumCell({ value, unit }: { value: string | null; unit: string }) {
+  return (
+    <div className="text-right tabular-nums">
+      <span
+        className={`text-sm font-semibold tracking-tight ${
+          value === null ? "text-slate-300" : "text-slate-900"
+        }`}
+      >
+        {value ?? "—"}
+      </span>
+      <span className="block text-[11px] font-normal text-slate-400">
+        {unit}
+      </span>
+    </div>
+  );
+}
+
+/** Micro-échelle + sommet + divergence (au modèle, sinon à la grille par défaut). */
+function LadderCell({
+  tiers,
+  money,
+  defaultTiers,
+  isDefaultRow,
+  template,
+}: {
+  tiers: BonusTier[];
+  money: (n: number) => string;
+  defaultTiers: BonusTier[];
+  isDefaultRow: boolean;
+  template: Template | null;
+}) {
+  const summary = ladderSummary(tiers, money);
+  if (summary.count === 0) {
+    return <span className="text-xs text-slate-300">Aucun palier</span>;
+  }
+
+  // La référence la plus PARLANTE d'abord : le modèle dont l'échelle descend.
+  // À défaut, la grille par défaut du projet — sauf pour la ligne qui EST le
+  // défaut, qui ne se compare pas à elle-même.
+  // Deux formes du même libellé : « ≠ » se lit « différent DE », « Identique »
+  // se construit avec « À ». Une seule chaîne donnait « ≠ à la grille ».
+  const reference = template
+    ? {
+        de: `du modèle « ${template.name} »`,
+        a: `au modèle « ${template.name} »`,
+        tiers: template.tiers,
+      }
+    : !isDefaultRow && defaultTiers.length > 0
+      ? {
+          de: "de la grille par défaut",
+          a: "à la grille par défaut",
+          tiers: defaultTiers,
+        }
+      : null;
+  const cmp = reference ? compareLadders(tiers, reference.tiers) : null;
+
+  return (
+    <div className="min-w-0">
+      <div className="flex items-center gap-2">
+        <span className="flex h-4 items-end gap-0.5">
+          {summary.steps.map((h, i) => (
+            <span
+              key={i}
+              style={{ height: `${Math.round(h * 16)}px` }}
+              className={`w-1 rounded-[1px] ${
+                i === summary.steps.length - 1 ? "bg-violet-600" : "bg-violet-300"
+              }`}
+            />
+          ))}
+        </span>
+        <span className="min-w-0 truncate text-xs text-slate-600">
+          <b className="font-semibold text-slate-900">
+            {summary.count} palier{summary.count > 1 ? "s" : ""}
+          </b>
+          {summary.topLabel && (
+            <span className="text-slate-500"> · jusqu&apos;à {summary.topLabel}</span>
+          )}
+        </span>
+      </div>
+      {cmp && !cmp.identical && (
+        <span className="mt-1 inline-block rounded-md border border-amber-200 bg-amber-50/70 px-1.5 py-0.5 text-[11px] text-amber-900">
+          ≠ {reference!.de} — {cmp.differing} palier
+          {cmp.differing > 1 ? "s divergent" : " diverge"}
+        </span>
+      )}
+      {cmp?.identical && (
+        <span className="mt-1 block text-[11px] text-slate-400">
+          Identique {reference!.a}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * BIBLIOTHÈQUE DE MODÈLES d'échelle. Un modèle ne paie rien : l'appliquer
+ * RECOPIE ses paliers dans les barèmes choisis, et c'est le barème qui paie.
+ */
+function TemplatesSection({
+  templates,
+  pricings,
+  money,
+  payCurrency,
+}: {
+  templates: Template[] | undefined;
+  pricings: Pricing[];
+  money: (n: number) => string;
+  payCurrency: string | null | undefined;
+}) {
+  const createTpl = useProjectMutation(api.pricing.createBonusTemplate);
+  const updateTpl = useProjectMutation(api.pricing.updateBonusTemplate);
+  const deleteTpl = useProjectMutation(api.pricing.deleteBonusTemplate);
+  const applyTpl = useProjectMutation(api.pricing.applyBonusTemplate);
+
+  const [editorFor, setEditorFor] = useState<Template | "new" | null>(null);
+  const [applyFor, setApplyFor] = useState<Template | null>(null);
+
+  async function handleDelete(t: Template) {
+    try {
+      await deleteTpl({ id: t._id });
+      toast.success("Modèle supprimé");
+    } catch (e) {
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+    }
+  }
+
+  return (
+    <section className="space-y-2 pt-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-900">
+            Modèles d&apos;échelle de bonus
+          </h2>
+          <p className="text-xs text-slate-500">
+            Une échelle saisie une fois, à piquer dans n&apos;importe quel
+            barème. Un modèle ne paie rien : l&apos;appliquer recopie ses paliers
+            dans le barème.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setEditorFor("new")}>
+          <PlusIcon className="mr-1.5 size-3.5" />
+          Nouveau modèle
+        </Button>
+      </div>
+
+      {templates === undefined ? (
+        <Skeleton className="h-20 w-full" />
+      ) : templates.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-xs text-slate-500">
+          Aucun modèle. Enregistre l&apos;échelle d&apos;un barème existant
+          depuis son éditeur, ou pars d&apos;une page blanche.
+        </div>
+      ) : (
+        <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
+          {templates.map((t) => {
+            const users = pricings.filter((p) => p.bonusTemplateId === t._id);
+            const diverged = users.filter(
+              (p) => !compareLadders(tiersOf(p), t.tiers).identical,
+            );
+            const summary = ladderSummary(t.tiers, money);
+            return (
+              <div
+                key={t._id}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5"
+              >
+                <button
+                  type="button"
+                  onClick={() => setEditorFor(t)}
+                  className="text-sm font-medium text-slate-900 hover:underline"
+                >
+                  {t.name}
+                </button>
+                <span className="text-xs text-slate-500">
+                  {summary.count} palier{summary.count > 1 ? "s" : ""}
+                  {summary.topLabel ? ` · jusqu'à ${summary.topLabel}` : ""}
+                </span>
+                <span className="text-xs text-slate-400">
+                  {users.length === 0
+                    ? "Aucun barème"
+                    : `${users.length} barème${users.length > 1 ? "s" : ""}`}
+                  {diverged.length > 0 && (
+                    <span className="text-amber-700">
+                      {" "}
+                      · {diverged.length} a divergé
+                    </span>
+                  )}
+                </span>
+                <div className="ml-auto flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setApplyFor(t)}
+                  >
+                    Appliquer…
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleDelete(t)}
+                  >
+                    Supprimer
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <TemplateEditorDialog
+        target={editorFor}
+        onClose={() => setEditorFor(null)}
+        payCurrency={payCurrency}
+        onSave={async (name, tiers) => {
+          if (editorFor === "new") await createTpl({ name, tiers });
+          else if (editorFor) await updateTpl({ id: editorFor._id, name, tiers });
+        }}
+      />
+
+      <ApplyTemplateDialog
+        template={applyFor}
+        pricings={pricings}
+        money={money}
+        onClose={() => setApplyFor(null)}
+        onApply={async (pricingIds) => {
+          const res = await applyTpl({
+            templateId: applyFor!._id,
+            pricingIds,
+          });
+          toast.success(
+            `Modèle appliqué à ${res.pricings} barème${res.pricings > 1 ? "s" : ""}` +
+              (res.creatorsSynced > 0
+                ? ` · ${res.creatorsSynced} créatrice${res.creatorsSynced > 1 ? "s" : ""} resynchronisée${res.creatorsSynced > 1 ? "s" : ""}`
+                : ""),
+          );
+        }}
+      />
+    </section>
+  );
+}
+
+/** Éditeur de modèle : un nom, une échelle. Aucun fixe, aucun CPM. */
+function TemplateEditorDialog({
+  target,
+  onClose,
+  payCurrency,
+  onSave,
+}: {
+  target: Template | "new" | null;
+  onClose: () => void;
+  payCurrency: string | null | undefined;
+  onSave: (name: string, tiers: BonusTier[]) => Promise<void>;
+}) {
+  const [name, setName] = useState("");
+  const [tiers, setTiers] = useState<TierForm[]>([]);
+  const [busy, setBusy] = useState(false);
+  // Clé de remontage : le dialogue se réinitialise à chaque cible plutôt que de
+  // garder la saisie du modèle précédent.
+  const key = target === "new" ? "new" : (target?._id ?? "none");
+
+  return (
+    <Dialog
+      open={target !== null}
+      onOpenChange={(o) => !o && onClose()}
+      key={key}
+    >
+      <DialogContent className="max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>
+            {target === "new" ? "Nouveau modèle" : "Modifier le modèle"}
+          </DialogTitle>
+          <DialogDescription>
+            Modifier un modèle ne change AUCUN barème : rien ne bouge tant que tu
+            ne l&apos;appliques pas, et l&apos;application annonce d&apos;abord
+            combien de créatrices elle touche.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="min-w-0 space-y-4"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setBusy(true);
+            try {
+              await onSave(name.trim(), formToTiers(tiers));
+              toast.success(
+                target === "new" ? "Modèle créé" : "Modèle mis à jour",
+              );
+              onClose();
+            } catch (err) {
+              toast.error(convexErrorMessage(err, "Une erreur est survenue."));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <TemplateNameField
+            target={target}
+            name={name}
+            setName={setName}
+            tiers={tiers}
+            setTiers={setTiers}
+          />
+          <TierEditor
+            tiers={tiers}
+            setTiers={setTiers}
+            payCurrency={payCurrency}
+          />
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
+              Annuler
+            </Button>
+            <Button type="submit" disabled={busy}>
+              {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+              {target === "new" ? "Créer" : "Enregistrer"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Amorce le formulaire depuis la cible (une seule fois, au montage du dialogue). */
+function TemplateNameField({
+  target,
+  name,
+  setName,
+  tiers,
+  setTiers,
+}: {
+  target: Template | "new" | null;
+  name: string;
+  setName: (v: string) => void;
+  tiers: TierForm[];
+  setTiers: (v: TierForm[]) => void;
+}) {
+  const [seeded, setSeeded] = useState(false);
+  if (!seeded && target) {
+    setSeeded(true);
+    if (target !== "new") {
+      setName(target.name);
+      setTiers(tiersToForm(target.tiers));
+    } else if (tiers.length === 0) {
+      setTiers([emptyTier()]);
+    }
+  }
   return (
     <div className="space-y-1.5">
-      <Label htmlFor={id}>{label}</Label>
-      {children}
+      <Label htmlFor="tpl-name">Nom du modèle</Label>
+      <Input
+        id="tpl-name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Échelle Snytch standard"
+        required
+      />
+    </div>
+  );
+}
+
+/** Choix des barèmes à réécrire, avec l'effectif touché AVANT d'écrire. */
+function ApplyTemplateDialog({
+  template,
+  pricings,
+  money,
+  onClose,
+  onApply,
+}: {
+  template: Template | null;
+  pricings: Pricing[];
+  money: (n: number) => string;
+  onClose: () => void;
+  onApply: (pricingIds: Id<"pricings">[]) => Promise<void>;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const candidates = pricings.filter((p) => p.status === "active");
+  const impacted = candidates
+    .filter((p) => selected.has(p._id))
+    .reduce((s, p) => s + p.bonusCreatorCount, 0);
+
+  return (
+    <Dialog
+      open={template !== null}
+      onOpenChange={(o) => !o && onClose()}
+      key={template?._id ?? "none"}
+    >
+      <DialogContent className="max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Appliquer « {template?.name} »</DialogTitle>
+          <DialogDescription>
+            Les paliers du modèle REMPLACENT l&apos;échelle des barèmes cochés.
+            Les paliers sont lus en direct : les créatrices concernées voient la
+            nouvelle échelle immédiatement, et celles qui ont déjà franchi un
+            palier ajouté le débloquent tout de suite. Les bonus déjà débloqués
+            sont immuables — abaisser un seuil en ajoute, le relever n&apos;en
+            retire aucun.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="min-w-0 space-y-1">
+          {candidates.map((p) => {
+            const cmp = template
+              ? compareLadders(tiersOf(p), template.tiers)
+              : null;
+            return (
+              <label
+                key={p._id}
+                className="flex min-w-0 items-start gap-2.5 rounded-md px-1 py-1.5 hover:bg-slate-50"
+              >
+                <Checkbox
+                  checked={selected.has(p._id)}
+                  onCheckedChange={(c) =>
+                    setSelected((s) => {
+                      const next = new Set(s);
+                      if (c) next.add(p._id);
+                      else next.delete(p._id);
+                      return next;
+                    })
+                  }
+                  className="mt-0.5"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm text-slate-900">
+                    {p.name}
+                  </span>
+                  <span className="block text-xs text-slate-500">
+                    {cmp?.identical
+                      ? "déjà identique au modèle"
+                      : `${cmp?.differing ?? 0} palier${(cmp?.differing ?? 0) > 1 ? "s" : ""} sera réécrit`}
+                    {p.bonusCreatorCount > 0 &&
+                      ` · ${p.bonusCreatorCount} créatrice${p.bonusCreatorCount > 1 ? "s" : ""}`}
+                  </span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+        {impacted > 0 && (
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <b>
+              {impacted} créatrice{impacted > 1 ? "s" : ""}
+            </b>{" "}
+            {impacted > 1 ? "verront" : "verra"} cette échelle. Sommet du modèle :{" "}
+            {ladderSummary(template?.tiers ?? [], money).topLabel ?? "—"}.
+          </p>
+        )}
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
+            Annuler
+          </Button>
+          <Button
+            disabled={busy || selected.size === 0}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await onApply([...selected] as Id<"pricings">[]);
+                onClose();
+              } catch (e) {
+                toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+            Appliquer à {selected.size} barème{selected.size > 1 ? "s" : ""}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Éditeur de barème : termes, simulation vivante, échelle de paliers. */
+function PricingEditorDialog({
+  open,
+  onOpenChange,
+  editing,
+  form,
+  setForm,
+  tiers,
+  setTiers,
+  templateId,
+  setTemplateId,
+  templates,
+  payCurrency,
+  money,
+  busy,
+  onSubmit,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  editing: Pricing | null;
+  form: typeof EMPTY;
+  setForm: React.Dispatch<React.SetStateAction<typeof EMPTY>>;
+  tiers: TierForm[];
+  setTiers: React.Dispatch<React.SetStateAction<TierForm[]>>;
+  templateId: Id<"bonusTemplates"> | null;
+  setTemplateId: (v: Id<"bonusTemplates"> | null) => void;
+  templates: Template[];
+  payCurrency: string | null | undefined;
+  money: (n: number) => string;
+  busy: boolean;
+  onSubmit: (e: React.FormEvent) => void;
+}) {
+  const createTpl = useProjectMutation(api.pricing.createBonusTemplate);
+  const [viewsIdx, setViewsIdx] = useState(4);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            {editing ? "Modifier le barème" : "Nouveau barème"}
+          </DialogTitle>
+          <DialogDescription>
+            Le fixe et le CPM sont figés à l&apos;attribution : les modifier
+            n&apos;affecte que les FUTURES attributions. Les paliers, eux, sont
+            lus en direct.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={onSubmit} className="min-w-0 space-y-4">
+          {/* L'avertissement de dérive, là où la dérive se CRÉE — plutôt que
+              constaté après coup dans un bandeau de la liste. */}
+          {editing && editing.assignmentCount > 0 && (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
+              <b>
+                {editing.assignmentCount} vidéo
+                {editing.assignmentCount > 1 ? "s sont attribuées" : " est attribuée"}{" "}
+                sur ce barème.
+              </b>{" "}
+              Modifier le fixe ou le CPM ici ne changera rien à leur paie — elle
+              est figée au jour de l&apos;attribution. Pour payer un nouveau
+              tarif, duplique le barème et attribue le nouveau.
+            </p>
+          )}
+
+          <div className="space-y-1.5">
+            <Label htmlFor="name">Nom</Label>
+            <Input
+              id="name"
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="montantFixe">
+                Montant fixe ({currencySymbol(payCurrency)})
+              </Label>
+              <Input
+                id="montantFixe"
+                type="number"
+                step="0.01"
+                min={0}
+                value={form.montantFixe}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, montantFixe: e.target.value }))
+                }
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="nbVideosCible">Nb vidéos cible</Label>
+              <Input
+                id="nbVideosCible"
+                type="number"
+                min={1}
+                value={form.nbVideosCible}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, nbVideosCible: e.target.value }))
+                }
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="tauxCPM">
+                CPM ({currencySymbol(payCurrency)}/1000 vues)
+              </Label>
+              <Input
+                id="tauxCPM"
+                type="number"
+                step="0.01"
+                min={0}
+                value={form.tauxCPM}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, tauxCPM: e.target.value }))
+                }
+                required
+              />
+            </div>
+          </div>
+
+          <PayoutPreview
+            form={form}
+            tiers={tiers}
+            money={money}
+            viewsIdx={viewsIdx}
+            setViewsIdx={setViewsIdx}
+          />
+
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Label>Paliers de bonus (cumul de vues à vie)</Label>
+              <div className="flex gap-2">
+                {/* Piquer un modèle est une ACTION (elle recopie), pas la
+                    sélection d'une valeur : un Select afficherait ensuite le
+                    modèle comme s'il restait lié, ce qu'il n'est pas. */}
+                {templates.length > 0 && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button type="button" variant="outline" size="sm">
+                          Partir d&apos;un modèle
+                        </Button>
+                      }
+                    />
+                    <DropdownMenuContent align="end" className="w-64">
+                      {templates.map((t) => (
+                        <DropdownMenuItem
+                          key={t._id}
+                          onClick={() => {
+                            setTiers(tiersToForm(t.tiers));
+                            setTemplateId(t._id);
+                            toast.success(`Échelle « ${t.name} » recopiée`);
+                          }}
+                        >
+                          <span className="flex w-full items-baseline justify-between gap-2">
+                            <span className="truncate">{t.name}</span>
+                            <small className="text-[11px] text-slate-400">
+                              {t.tiers.length} paliers
+                            </small>
+                          </span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setTiers((ts) => [...ts, emptyTier()])}
+                >
+                  + Palier
+                </Button>
+              </div>
+            </div>
+
+            {tiers.length === 0 ? (
+              <p className="text-xs text-slate-400">
+                Aucun palier. Ajoute des paliers cash (
+                {currencySymbol(payCurrency)}) ou nature (iPhone…), ou pars
+                d&apos;un modèle.
+              </p>
+            ) : (
+              <>
+                <TierEditor
+                  tiers={tiers}
+                  setTiers={setTiers}
+                  payCurrency={payCurrency}
+                />
+                <ScaleProvenance
+                  template={templates.find((t) => t._id === templateId) ?? null}
+                  tiers={tiers}
+                  onDetach={() => setTemplateId(null)}
+                />
+                <button
+                  type="button"
+                  className="text-xs font-medium text-slate-500 hover:text-slate-900 hover:underline"
+                  onClick={async () => {
+                    const name = form.name.trim() || "Nouvelle échelle";
+                    try {
+                      const res = await createTpl({
+                        name: `Échelle — ${name}`,
+                        tiers: formToTiers(tiers),
+                      });
+                      setTemplateId(res.templateId);
+                      toast.success("Échelle enregistrée comme modèle");
+                    } catch (e) {
+                      toast.error(
+                        convexErrorMessage(e, "Une erreur est survenue."),
+                      );
+                    }
+                  }}
+                >
+                  Enregistrer cette échelle comme modèle
+                </button>
+              </>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={busy}
+            >
+              Annuler
+            </Button>
+            <Button type="submit" disabled={busy}>
+              {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+              {editing ? "Enregistrer" : "Créer"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * PROVENANCE de l'échelle en cours de saisie. Dire d'où elle vient — et si elle
+ * s'en est écartée — évite le piège du modèle : croire qu'un barème « suit » un
+ * modèle alors que l'application ne fait que RECOPIER. Se détacher est explicite,
+ * pour qu'une échelle repartie de zéro cesse de se comparer à un modèle dont
+ * elle ne descend plus.
+ */
+function ScaleProvenance({
+  template,
+  tiers,
+  onDetach,
+}: {
+  template: Template | null;
+  tiers: TierForm[];
+  onDetach: () => void;
+}) {
+  if (!template) return null;
+  const cmp = compareLadders(formToTiers(tiers), template.tiers);
+  return (
+    <p className="flex flex-wrap items-center gap-x-2 text-xs text-slate-500">
+      <span>
+        Échelle issue du modèle{" "}
+        <b className="font-medium text-slate-700">{template.name}</b>
+        {cmp.identical
+          ? " · identique"
+          : ` · ${cmp.differing} palier${cmp.differing > 1 ? "s" : ""} divergent`}
+      </span>
+      <button
+        type="button"
+        onClick={onDetach}
+        className="text-slate-400 underline hover:text-slate-700"
+      >
+        Détacher
+      </button>
+    </p>
+  );
+}
+
+/** Paliers de vues de la simulation — de la vidéo modeste au très gros succès. */
+const VIEW_STEPS = [
+  10_000, 50_000, 100_000, 500_000, 1_000_000, 5_000_000, 10_000_000,
+];
+
+/**
+ * SIMULATION VIVANTE. Le formulaire faisait saisir 580, 60 et 0 sans jamais
+ * montrer ce que ça paie. Le moteur est celui du portail créatrice
+ * (`estimateMissionEarnings`) : ce que l'admin lit ici est ce qu'elle lira
+ * là-bas. Les paliers y sont ajoutés à part, parce qu'ils se jouent sur le
+ * CUMUL À VIE et non par mission.
+ */
+function PayoutPreview({
+  form,
+  tiers,
+  money,
+  viewsIdx,
+  setViewsIdx,
+}: {
+  form: typeof EMPTY;
+  tiers: TierForm[];
+  money: (n: number) => string;
+  viewsIdx: number;
+  setViewsIdx: (i: number) => void;
+}) {
+  const views = VIEW_STEPS[viewsIdx] ?? VIEW_STEPS[0];
+  const nbVideos = Math.max(1, Number(form.nbVideosCible) || 0);
+  const snapshot = {
+    pricingId: "preview",
+    montantFixe: Number(form.montantFixe) || 0,
+    nbVideosCible: nbVideos,
+    tauxCPM: Number(form.tauxCPM) || 0,
+  };
+  const perVideo = estimateMissionEarnings(snapshot, views);
+  const cycle = perVideo.total * nbVideos;
+  const cumul = views * nbVideos;
+  const bonus = evaluateBonusTiers(
+    cumul,
+    formToTiers(tiers).filter((t) => Number.isFinite(t.seuilVues)),
+  );
+
+  return (
+    <div className="rounded-xl border border-violet-100 bg-violet-50/40 px-3 py-2.5">
+      <p className="text-[10.5px] font-semibold tracking-wider text-violet-800 uppercase">
+        Ce que touche une créatrice
+      </p>
+      <p className="mt-1 text-xl font-semibold tracking-tight text-slate-900 tabular-nums">
+        {money(cycle + bonus.cashCrossedTotal)}
+      </p>
+      <p className="mt-0.5 text-xs leading-relaxed text-slate-600">
+        {nbVideos} vidéo{nbVideos > 1 ? "s" : ""} à {formatSeuil(views)} vues ={" "}
+        {money(perVideo.fixed * nbVideos)} de fixe + {money(perVideo.cpm * nbVideos)}{" "}
+        de CPM
+        {bonus.crossed.length > 0 && (
+          <>
+            {" "}
+            + {money(bonus.cashCrossedTotal)} de paliers ({bonus.crossed.length}{" "}
+            franchi{bonus.crossed.length > 1 ? "s" : ""} à {formatSeuil(cumul)}{" "}
+            vues cumulées
+            {bonus.natureCrossed.length > 0 &&
+              `, dont ${bonus.natureCrossed.map((t) => t.libelle).join(", ")}`}
+            )
+          </>
+        )}
+      </p>
+      <input
+        type="range"
+        min={0}
+        max={VIEW_STEPS.length - 1}
+        step={1}
+        value={viewsIdx}
+        onChange={(e) => setViewsIdx(Number(e.target.value))}
+        aria-label="Vues par vidéo pour la simulation"
+        className="mt-2.5 w-full accent-violet-600"
+      />
+      <div className="flex justify-between text-[10px] text-slate-400">
+        {VIEW_STEPS.map((v) => (
+          <span key={v}>{formatSeuil(v)}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Liste de paliers en COLONNE : les seuils s'alignent, donc ils se comparent. */
+function TierEditor({
+  tiers,
+  setTiers,
+  payCurrency,
+}: {
+  tiers: TierForm[];
+  setTiers: React.Dispatch<React.SetStateAction<TierForm[]>>;
+  payCurrency: string | null | undefined;
+}) {
+  function updateTier(i: number, patch: Partial<TierForm>) {
+    setTiers((ts) => ts.map((t, j) => (j === i ? { ...t, ...patch } : t)));
+  }
+  return (
+    <div className="min-w-0 space-y-2">
+      {tiers.map((t, i) => (
+        <div
+          key={i}
+          className="flex min-w-0 flex-wrap items-end gap-2 rounded-md border border-slate-200 p-2"
+        >
+          <div className="min-w-[7rem] flex-1 space-y-1">
+            <Label className="text-xs">Seuil de vues</Label>
+            <Input
+              type="number"
+              min={0}
+              value={t.seuilVues}
+              onChange={(e) => updateTier(i, { seuilVues: e.target.value })}
+              className="tabular-nums"
+              required
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Type</Label>
+            <Select
+              value={t.rewardType}
+              onValueChange={(v) =>
+                v && updateTier(i, { rewardType: v as "cash" | "nature" })
+              }
+              items={[
+                { value: "cash", label: `Cash ${currencySymbol(payCurrency)}` },
+                { value: "nature", label: "Nature" },
+              ]}
+            >
+              <SelectTrigger aria-label="Type de récompense" className="w-28">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="cash">
+                  Cash {currencySymbol(payCurrency)}
+                </SelectItem>
+                <SelectItem value="nature">Nature</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="min-w-[8rem] flex-1 space-y-1">
+            {t.rewardType === "cash" ? (
+              <>
+                <Label className="text-xs">
+                  Montant ({currencySymbol(payCurrency)})
+                </Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  value={t.montant}
+                  onChange={(e) => updateTier(i, { montant: e.target.value })}
+                  required
+                />
+              </>
+            ) : (
+              <>
+                <Label className="text-xs">Libellé</Label>
+                <Input
+                  placeholder="iPhone 15"
+                  value={t.libelle}
+                  onChange={(e) => updateTier(i, { libelle: e.target.value })}
+                  required
+                />
+              </>
+            )}
+          </div>
+          {/* Coût réel — NATURE seulement. Facultatif : sans lui la récompense
+              reste visible mais non chiffrée (tiret), elle n'entre alors dans
+              aucun total. Ce n'est PAS le prix public et ce n'est jamais montré
+              à la créatrice. */}
+          {t.rewardType === "nature" && (
+            <div className="min-w-[8rem] flex-1 space-y-1">
+              <Label className="text-xs">
+                Coût réel ({currencySymbol(payCurrency)})
+              </Label>
+              <Input
+                type="number"
+                step="0.01"
+                min={0}
+                placeholder="ce qu'il nous coûte"
+                value={t.coutReel}
+                onChange={(e) => updateTier(i, { coutReel: e.target.value })}
+              />
+            </div>
+          )}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setTiers((ts) => ts.filter((_, j) => j !== i))}
+          >
+            Retirer
+          </Button>
+        </div>
+      ))}
     </div>
   );
 }

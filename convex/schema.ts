@@ -2018,7 +2018,42 @@ export default defineSchema({
         }),
       ),
     ),
+    // MODÈLE d'origine de l'échelle de paliers — TRAÇABILITÉ SEULE. Aucun calcul
+    // ne le lit : les paliers qui font foi restent `bonusTiers` ci-dessus, sur le
+    // pricing. Il sert à dire à l'écran « cette échelle vient du modèle M » et à
+    // signaler qu'elle en a divergé depuis. Un modèle supprimé laisse un id
+    // pendant : l'écran le traite alors comme « aucun modèle », jamais comme une
+    // erreur. Optional ⇒ 0 migration.
+    bonusTemplateId: v.optional(v.id("bonusTemplates")),
     status: v.union(v.literal("active"), v.literal("archived")),
+    createdAt: v.number(),
+  }).index("by_project", ["projectId"]),
+
+  // ─── Modèles d'échelle de bonus (bibliothèque, par projet) ─────────────────
+  // POURQUOI. Les mêmes six paliers étaient recopiés à la main dans chaque
+  // barème — d'où, en production, un sommet à 100 000 001 vues sur la grille FR
+  // face à 100 000 000 sur l'US. Un modèle se saisit UNE fois et se pique dans
+  // n'importe quel barème.
+  //
+  // ⚠️ AUCUN RÔLE À L'EXÉCUTION. Un modèle n'est jamais lu par le moteur de paie,
+  // ni par effectiveBonusPricing, ni par syncBonusUnlocks : appliquer un modèle
+  // RECOPIE ses paliers dans le barème, et c'est le barème qui paie. La clé
+  // d'idempotence des unlocks reste (creatorId, pricingId, seuilVues) — elle ne
+  // bouge pas. Conséquence assumée : modifier un modèle ne change RIEN tant qu'on
+  // ne le réapplique pas, et la réapplication annonce d'abord combien de
+  // créatrices elle touche. Supprimer un modèle ne doit jamais coûter un dollar.
+  bonusTemplates: defineTable({
+    projectId: v.id("projects"),
+    name: v.string(),
+    tiers: v.array(
+      v.object({
+        seuilVues: v.number(),
+        rewardType: v.union(v.literal("cash"), v.literal("nature")),
+        montant: v.optional(v.number()),
+        libelle: v.optional(v.string()),
+        coutReel: v.optional(v.number()),
+      }),
+    ),
     createdAt: v.number(),
   }).index("by_project", ["projectId"]),
 

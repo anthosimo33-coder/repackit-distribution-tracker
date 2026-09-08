@@ -1341,7 +1341,24 @@ type PricingInput = {
   nbVideosCible: number;
   tauxCPM: number;
   bonusTiers?: BonusTier[];
+  bonusTemplateId?: Id<"bonusTemplates"> | null;
 };
+
+/**
+ * Normalise la PROVENANCE de l'échelle pour l'écriture, en distinguant trois
+ * intentions que la spread écraserait en une seule :
+ *   - clé absente      → ne pas toucher au champ (patch partiel) ;
+ *   - clé à `null`     → couper le lien au modèle (patch avec `undefined`, ce
+ *                        qui SUPPRIME le champ côté Convex) ;
+ *   - clé renseignée   → poser le lien.
+ * Sans cette distinction, une simple modification de nom effacerait la
+ * provenance, et l'écran cesserait de signaler qu'une échelle a divergé.
+ */
+function pricingWriteFields(args: PricingInput) {
+  const { bonusTemplateId, ...rest } = args;
+  if (!("bonusTemplateId" in args)) return rest;
+  return { ...rest, bonusTemplateId: bonusTemplateId ?? undefined };
+}
 
 function validatePricingFields(args: PricingInput): PricingInput {
   const name = args.name.trim();
@@ -1357,7 +1374,18 @@ function validatePricingFields(args: PricingInput): PricingInput {
       throw new ConvexError(`${label} doit être un nombre ≥ 0.`);
     }
   }
-  for (const t of args.bonusTiers ?? []) {
+  validateBonusTiers(args.bonusTiers ?? []);
+  return { ...args, name };
+}
+
+/**
+ * Validation d'une ÉCHELLE de paliers. Partagée par les barèmes et par les
+ * MODÈLES d'échelle : un modèle est destiné à être recopié dans un barème, donc
+ * il doit passer exactement les mêmes contrôles à la saisie — sinon on stocke
+ * dans la bibliothèque une échelle que le barème refusera plus tard.
+ */
+function validateBonusTiers(tiers: BonusTier[]): void {
+  for (const t of tiers) {
     if (!Number.isFinite(t.seuilVues) || t.seuilVues < 0) {
       throw new ConvexError("Le seuil de vues d'un palier doit être ≥ 0.");
     }
@@ -1381,7 +1409,6 @@ function validatePricingFields(args: PricingInput): PricingInput {
       );
     }
   }
-  return { ...args, name };
 }
 
 /** Le pricing est-il attribué à au moins un assignment du projet ? */
@@ -1413,12 +1440,16 @@ const PRICING_ARGS = {
   nbVideosCible: v.number(),
   tauxCPM: v.number(),
   bonusTiers: v.optional(v.array(BONUS_TIER_VALIDATOR)),
+  // Provenance de l'échelle — traçabilité seule (cf schema). `null` la coupe
+  // explicitement : une échelle repartie de zéro ne doit pas continuer à se
+  // comparer à un modèle dont elle ne descend plus.
+  bonusTemplateId: v.optional(v.union(v.id("bonusTemplates"), v.null())),
 };
 
 export const createPricing = permissionMutation("pricing.manage")({
   args: PRICING_ARGS,
   handler: async (ctx, args) => {
-    const fields = validatePricingFields(args);
+    const fields = pricingWriteFields(validatePricingFields(args));
     const pricingId = await ctx.db.insert("pricings", {
       projectId: ctx.projectId,
       ...fields,
@@ -1436,9 +1467,10 @@ export const updatePricing = permissionMutation("pricing.manage")({
     if (!pricing || pricing.projectId !== ctx.projectId) {
       throw new ConvexError("Pricing introuvable.");
     }
-    const fields = validatePricingFields(args);
+    const fields = pricingWriteFields(validatePricingFields(args));
     // Snapshot figé sur les assignments → modifier n'affecte QUE les futures
-    // attributions (jamais les vidéos déjà attribuées).
+    // attributions (jamais les vidéos déjà attribuées). Les PALIERS, eux, sont
+    // lus en direct : les toucher ici change bien la grille des créatrices.
     await ctx.db.patch(id, fields);
     return { ok: true };
   },
@@ -1506,6 +1538,21 @@ export const listPricingsForAssignment = permissionQuery("assignments.manage")({
   },
 });
 
+/**
+ * EFFECTIFS D'USAGE d'un barème — deux nombres, deux questions différentes :
+ *
+ *  - `assignmentCount` : vidéos dont le snapshot FIGÉ porte ce pricingId. C'est
+ *    ce qui rend une suppression impossible, et l'écran l'affiche comme MOTIF de
+ *    désactivation du bouton plutôt que de proposer un geste que le serveur
+ *    refusera (`deletePricing`).
+ *  - `bonusCreatorCount` : créatrices dont la grille de bonus EFFECTIVE est ce
+ *    barème — la sienne en propre, ou par héritage du défaut projet. C'est le
+ *    nombre qui compte avant de toucher aux paliers, parce que les paliers sont
+ *    lus EN DIRECT (aucun snapshot ne les fige, cf effectiveBonusPricing).
+ *
+ * Un seul balayage des assignations et un seul des créatrices, hors de toute
+ * boucle par barème.
+ */
 export const listPricings = permissionQuery("pricing.manage")({
   args: { includeArchived: v.optional(v.boolean()) },
   handler: async (ctx, { includeArchived }) => {
@@ -1513,10 +1560,218 @@ export const listPricings = permissionQuery("pricing.manage")({
       .query("pricings")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
+
+    const assignments = await ctx.db
+      .query("assignments")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const assignmentCounts = new Map<string, number>();
+    for (const a of assignments) {
+      const id = a.pricingSnapshot?.pricingId;
+      if (id) assignmentCounts.set(id, (assignmentCounts.get(id) ?? 0) + 1);
+    }
+
+    const project = await ctx.db.get(ctx.projectId);
+    const defaultBonusId = project?.defaultBonusPricingId ?? null;
+    const creators = await ctx.db
+      .query("creators")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const bonusCounts = new Map<string, number>();
+    for (const c of creators) {
+      // Même résolution que effectiveBonusPricing : la grille perso PRIME, sinon
+      // le défaut du projet. Les compter autrement ferait mentir l'avertissement
+      // affiché avant d'écrire une échelle.
+      const id = c.bonusPricingId ?? defaultBonusId;
+      if (id) bonusCounts.set(id, (bonusCounts.get(id) ?? 0) + 1);
+    }
+
     const rows = includeArchived
       ? all
       : all.filter((p) => p.status === "active");
+    return rows
+      .sort((a, b) => a.name.localeCompare(b.name))
+      // Champs ÉNUMÉRÉS, jamais `...p` : un spread ferait sortir tout champ
+      // ajouté plus tard au document sans que personne l'ait décidé.
+      .map((p) => ({
+        _id: p._id,
+        name: p.name,
+        status: p.status,
+        createdAt: p.createdAt,
+        montantFixe: p.montantFixe,
+        nbVideosCible: p.nbVideosCible,
+        tauxCPM: p.tauxCPM,
+        bonusTiers: p.bonusTiers,
+        // legacy v1 — `tiersOf` en a besoin pour rendre le seuil unique des
+        // barèmes d'avant les paliers.
+        seuilBonusVues: p.seuilBonusVues,
+        montantBonus: p.montantBonus,
+        bonusTemplateId: p.bonusTemplateId,
+        assignmentCount: assignmentCounts.get(p._id) ?? 0,
+        bonusCreatorCount: bonusCounts.get(p._id) ?? 0,
+        isDefaultBonus: p._id === defaultBonusId,
+      }));
+  },
+});
+
+// ─── Bibliothèque de MODÈLES d'échelle de bonus ──────────────────────────────
+//
+// Les mêmes six paliers étaient recopiés à la main dans chaque barème. Un modèle
+// se saisit une fois et se pique dans n'importe quel barème.
+//
+// ⚠️ LE MODÈLE NE PAIE JAMAIS. Appliquer un modèle RECOPIE ses paliers dans le
+// barème ; c'est le barème qui reste la source de la paie, et la clé
+// d'idempotence des unlocks (creatorId, pricingId, seuilVues) ne bouge pas d'un
+// pouce. Deux conséquences assumées :
+//   - modifier un modèle ne change RIEN tant qu'on ne le réapplique pas ;
+//   - supprimer un modèle ne peut coûter aucun dollar à personne.
+// C'est le prix payé pour ne pas toucher à la table qui décide qui a débloqué
+// quel bonus.
+
+export const listBonusTemplates = permissionQuery("pricing.manage")({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db
+      .query("bonusTemplates")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
     return rows.sort((a, b) => a.name.localeCompare(b.name));
+  },
+});
+
+const TEMPLATE_ARGS = {
+  name: v.string(),
+  tiers: v.array(BONUS_TIER_VALIDATOR),
+};
+
+function validateTemplate(args: { name: string; tiers: BonusTier[] }) {
+  const name = args.name.trim();
+  if (name.length === 0) throw new ConvexError("Le nom du modèle est requis.");
+  if (args.tiers.length === 0) {
+    throw new ConvexError("Un modèle sans palier n'a rien à recopier.");
+  }
+  // Mêmes contrôles qu'un barème : un modèle qui ne passerait pas la validation
+  // d'un pricing serait une échelle piégée, refusée seulement à l'application.
+  validateBonusTiers(args.tiers);
+  const seuils = args.tiers.map((t) => t.seuilVues);
+  if (new Set(seuils).size !== seuils.length) {
+    throw new ConvexError("Deux paliers ne peuvent pas partager le même seuil.");
+  }
+  // Trié à l'écriture : une échelle se lit de bas en haut, et le tri retire une
+  // source de fausse divergence entre deux modèles identiques mal saisis.
+  return {
+    name,
+    tiers: [...args.tiers].sort((a, b) => a.seuilVues - b.seuilVues),
+  };
+}
+
+export const createBonusTemplate = permissionMutation("pricing.manage")({
+  args: TEMPLATE_ARGS,
+  handler: async (ctx, args) => {
+    const fields = validateTemplate(args);
+    const templateId = await ctx.db.insert("bonusTemplates", {
+      projectId: ctx.projectId,
+      ...fields,
+      createdAt: Date.now(),
+    });
+    return { templateId };
+  },
+});
+
+export const updateBonusTemplate = permissionMutation("pricing.manage")({
+  args: { id: v.id("bonusTemplates"), ...TEMPLATE_ARGS },
+  handler: async (ctx, { id, ...args }) => {
+    const tpl = await ctx.db.get(id);
+    if (!tpl || tpl.projectId !== ctx.projectId) {
+      throw new ConvexError("Modèle introuvable.");
+    }
+    // Aucune propagation ici, volontairement : la réapplication est un geste
+    // séparé, qui annonce d'abord combien de créatrices elle touche.
+    await ctx.db.patch(id, validateTemplate(args));
+    return { ok: true };
+  },
+});
+
+export const deleteBonusTemplate = permissionMutation("pricing.manage")({
+  args: { id: v.id("bonusTemplates") },
+  handler: async (ctx, { id }) => {
+    const tpl = await ctx.db.get(id);
+    if (!tpl || tpl.projectId !== ctx.projectId) {
+      throw new ConvexError("Modèle introuvable.");
+    }
+    // Pas de garde d'usage : un modèle ne paie rien. Les barèmes qui en
+    // descendent gardent leurs paliers intacts — ils perdent seulement la
+    // mention de provenance, que l'écran traite comme « aucun modèle ».
+    await ctx.db.delete(id);
+    return { ok: true };
+  },
+});
+
+/**
+ * APPLIQUE un modèle à des barèmes : recopie ses paliers dans chacun et note la
+ * provenance.
+ *
+ * ⚠️ CE GESTE CHANGE LA PAIE. Les paliers sont lus EN DIRECT (aucun snapshot ne
+ * les fige) : après cet appel, les créatrices dont la grille effective est l'un
+ * de ces barèmes voient l'échelle du modèle, et les paliers qu'elles ont déjà
+ * franchis se matérialisent immédiatement — même contrat que
+ * `setDefaultBonusPricing`, à qui on emprunte la synchronisation. Les unlocks
+ * passés sont IMMUABLES et figés à leur déblocage : abaisser un seuil en ajoute,
+ * le relever n'en retire aucun.
+ *
+ * Renvoie ce qui a été touché, pour que l'écran l'affiche au lieu de le deviner.
+ */
+export const applyBonusTemplate = permissionMutation("pricing.manage")({
+  args: {
+    templateId: v.id("bonusTemplates"),
+    pricingIds: v.array(v.id("pricings")),
+  },
+  handler: async (ctx, { templateId, pricingIds }) => {
+    const tpl = await ctx.db.get(templateId);
+    if (!tpl || tpl.projectId !== ctx.projectId) {
+      throw new ConvexError("Modèle introuvable.");
+    }
+    if (pricingIds.length === 0) {
+      throw new ConvexError("Choisis au moins un barème.");
+    }
+    // Validation d'abord, écriture ensuite : un id étranger au projet dans le
+    // lot ne doit pas laisser la moitié des barèmes réécrits.
+    const targets = [];
+    for (const id of pricingIds) {
+      const pricing = await ctx.db.get(id);
+      if (!pricing || pricing.projectId !== ctx.projectId) {
+        throw err(ERR.PRICING_NOT_IN_PROJECT, "Barème introuvable dans le projet.");
+      }
+      targets.push(pricing);
+    }
+    for (const pricing of targets) {
+      await ctx.db.patch(pricing._id, {
+        bonusTiers: tpl.tiers,
+        bonusTemplateId: templateId,
+      });
+    }
+
+    // Créatrices dont la grille EFFECTIVE est l'un des barèmes touchés : grille
+    // perso pointant dessus, ou héritage du défaut projet si celui-ci en est.
+    const touched = new Set<string>(targets.map((p) => p._id));
+    const project = await ctx.db.get(ctx.projectId);
+    const defaultIsTouched =
+      project?.defaultBonusPricingId !== undefined &&
+      touched.has(project.defaultBonusPricingId);
+    const creators = await ctx.db
+      .query("creators")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    let creatorsSynced = 0;
+    for (const c of creators) {
+      const concerned = c.bonusPricingId
+        ? touched.has(c.bonusPricingId)
+        : defaultIsTouched;
+      if (!concerned) continue;
+      await syncBonusUnlocks(ctx, ctx.projectId, c._id);
+      creatorsSynced += 1;
+    }
+    return { pricings: targets.length, creatorsSynced };
   },
 });
 
