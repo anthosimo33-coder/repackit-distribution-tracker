@@ -1,9 +1,12 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import type { FunctionReturnType } from "convex/server";
 import {
   BellIcon,
   CalendarIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
   ClapperboardIcon,
   ClipboardListIcon,
   FileTextIcon,
@@ -26,8 +29,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { AssignmentAttachments } from "@/components/admin/AssignmentAttachments";
-import { ImposedComboBadge } from "@/components/admin/ImposedComboBadge";
 import { countryFlag } from "@/lib/countries";
 import { canDeleteAssignment } from "@/lib/assignment-delete";
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
@@ -42,7 +43,19 @@ import { cn } from "@/lib/utils";
 type AssignmentRow =
   FunctionReturnType<typeof api.assignments.listAssignments>[number];
 
-const formatDate = (ts: number) => new Date(ts).toLocaleDateString("fr-FR");
+const formatDay = (ts: number) =>
+  new Date(ts).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+
+/**
+ * Au-delà de ce nombre de livrables, les groupes s'ouvrent FERMÉS. En dessous,
+ * tout est déplié — ouvrir trois accordéons pour voir neuf lignes serait une
+ * cérémonie sans objet. Sur Snytch (478 livrables), le premier écran passe ainsi
+ * de « une carte et demie » à la liste complète des créatrices.
+ */
+const COLLAPSE_ABOVE = 60;
+
+/** Lignes affichées par groupe avant le bouton « voir les N restantes ». */
+const PAGE_SIZE = 25;
 
 /** Les gestes de la vue liste, injectés par la page (qui tient les modales). */
 export type AssignmentRowActions = {
@@ -61,40 +74,155 @@ export type AssignmentRowActions = {
 };
 
 /**
- * Vue LISTE sur téléphone : une carte par assignation, à la place du tableau.
+ * Vue LISTE sur téléphone : des cartes GROUPÉES PAR CRÉATRICE, à la place du
+ * tableau.
  *
- * Le tableau desktop porte onze colonnes. Sous 768 px il ne rentre pas, et le
- * `overflow-x-auto` qui le sauvait techniquement laissait à l'écran les deux
- * premières colonnes — créateur et format — pendant que l'échéance, le statut et
- * TOUTES les actions vivaient hors champ, atteignables seulement par un
- * défilement horizontal qu'aucune affordance n'annonce.
+ * Deux problèmes distincts, deux réponses :
  *
- * La carte inverse la logique : ce qui décide (retard, statut, échéance) est
- * lisible sans geste ; les gestes rares partent dans un menu unique plutôt que
- * de s'étaler en six boutons-icônes de 32 px. Le corps de la carte ouvre le
- * MÊME panneau de détail que le calendrier — une seule surface de détail pour
- * les deux vues.
+ *  1. Le tableau desktop ne rentre pas sous 768 px. Son `overflow-x-auto` le
+ *     sauvait techniquement en laissant à l'écran les deux premières colonnes,
+ *     pendant que l'échéance, le statut et TOUTES les actions vivaient hors
+ *     champ — atteignables par un défilement horizontal qu'aucune affordance
+ *     n'annonce. D'où la carte : ce qui décide (retard, statut, échéance) se lit
+ *     sans geste, les gestes rares partent dans un menu.
+ *
+ *  2. Une carte lisible ne suffit pas à 478 exemplaires. À ~215 px pièce,
+ *     c'était 100 000 px de défilement sans repère, et aucun moyen de retrouver
+ *     UNE ligne. La carte est donc redescendue à deux lignes (~90 px), les
+ *     cartes sont groupées par créatrice sous un en-tête COLLANT qui annonce
+ *     l'effectif et les retards, chaque groupe s'ouvre et se ferme, et le
+ *     champ de recherche de la barre d'outils (lib/assignment-search) filtre
+ *     l'ensemble.
+ *
+ * L'ordre entrant est déjà contigu par créatrice (la page groupe puis entrelace
+ * les formats, cf lib/assignment-order) : le regroupement ci-dessous ne
+ * RÉORDONNE rien, il ne fait que poser les frontières là où elles sont déjà.
  */
 export function AssignmentMobileList({
   rows,
   now,
   actions,
+  /** Vrai quand une recherche est active : les groupes s'ouvrent tous. */
+  expanded = false,
 }: {
   rows: AssignmentRow[];
   now: number;
   actions: AssignmentRowActions;
+  expanded?: boolean;
 }) {
+  const groups = useMemo(() => {
+    const out: { creatorId: string; creatorName: string; rows: AssignmentRow[] }[] =
+      [];
+    for (const a of rows) {
+      const last = out[out.length - 1];
+      if (last && last.creatorId === a.creatorId) last.rows.push(a);
+      else
+        out.push({
+          creatorId: a.creatorId,
+          creatorName: a.creatorName,
+          rows: [a],
+        });
+    }
+    return out;
+  }, [rows]);
+
+  // Ouverture PAR EXCEPTION : on mémorise ce que l'utilisateur a basculé, pas
+  // l'état de chaque groupe. Le défaut peut donc changer (recherche active,
+  // volume) sans écraser un choix explicite.
+  const [toggled, setToggled] = useState<Set<string>>(new Set());
+  const [shown, setShown] = useState<Map<string, number>>(new Map());
+
+  const openByDefault = expanded || rows.length <= COLLAPSE_ABOVE;
+
   return (
-    <ul className="space-y-2" data-testid="assignments-mobile-list">
-      {rows.map((a) => (
-        <li key={a._id}>
-          <AssignmentCard row={a} now={now} actions={actions} />
-        </li>
-      ))}
-    </ul>
+    <div className="space-y-2" data-testid="assignments-mobile-list">
+      {groups.map((g) => {
+        const isOpen = toggled.has(g.creatorId) ? !openByDefault : openByDefault;
+        const late = g.rows.filter(
+          (a) =>
+            assignmentUrgency(a.dueDate, a.status as AssignmentStatus, now) ===
+            "overdue",
+        ).length;
+        const limit = shown.get(g.creatorId) ?? PAGE_SIZE;
+        const visible = g.rows.slice(0, limit);
+        const rest = g.rows.length - visible.length;
+        return (
+          <section key={g.creatorId}>
+            <button
+              type="button"
+              aria-expanded={isOpen}
+              onClick={() =>
+                setToggled((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(g.creatorId)) next.delete(g.creatorId);
+                  else next.add(g.creatorId);
+                  return next;
+                })
+              }
+              // COLLANT, juste sous la barre d'outils (dont la hauteur est publiée
+              // en variable CSS par la page) : sur un groupe de trente cartes, savoir
+              // de qui on lit les livrables est ce qu'on perd en premier.
+              className="sticky top-[var(--assignments-sticky-top,0px)] z-10 flex min-h-11 w-full items-center gap-2 rounded-md border border-slate-200 bg-white/95 px-3 py-2 text-left backdrop-blur"
+            >
+              {isOpen ? (
+                <ChevronDownIcon className="size-4 shrink-0 text-slate-400" />
+              ) : (
+                <ChevronRightIcon className="size-4 shrink-0 text-slate-400" />
+              )}
+              <span className="min-w-0 flex-1 truncate font-medium text-slate-900">
+                {g.creatorName}
+              </span>
+              {late > 0 && (
+                <span className="shrink-0 rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
+                  {late} en retard
+                </span>
+              )}
+              <span className="shrink-0 text-xs text-slate-500">
+                {g.rows.length}
+              </span>
+            </button>
+
+            {isOpen && (
+              <ul className="mt-1 space-y-1">
+                {visible.map((a) => (
+                  <li key={a._id}>
+                    <AssignmentCard row={a} now={now} actions={actions} />
+                  </li>
+                ))}
+                {rest > 0 && (
+                  <li>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-9 w-full"
+                      onClick={() =>
+                        setShown((prev) => {
+                          const next = new Map(prev);
+                          next.set(g.creatorId, limit + PAGE_SIZE);
+                          return next;
+                        })
+                      }
+                    >
+                      Voir les {rest} restantes
+                    </Button>
+                  </li>
+                )}
+              </ul>
+            )}
+          </section>
+        );
+      })}
+    </div>
   );
 }
 
+/**
+ * Une carte = DEUX lignes. Ligne 1, ce qu'on lit : la mission. Ligne 2, ce qui
+ * décide : statut, échéance (rouge si dépassée), date de post, compte ciblé.
+ * Le combo, le script et les pièces jointes ne sont plus sur la carte — ils
+ * sont dans le panneau de détail, à un tap, et les répéter 478 fois coûtait
+ * plus de la moitié de la hauteur de la liste.
+ */
 function AssignmentCard({
   row,
   now,
@@ -118,143 +246,112 @@ function AssignmentCard({
       status === "in_progress" ||
       status === "video_rejected");
   const nudging = actions.nudgingId === row._id;
-  const mission = row.origin === "script" ? row.scriptCampaignName : row.formatName;
+  const mission =
+    row.origin === "script" ? row.scriptCampaignName : row.formatName;
+  const modelCount = row.modelVideos?.length ?? 0;
+  const target = row.targets[0];
 
   return (
     <div
       className={cn(
-        "rounded-lg border bg-white p-3",
-        overdue ? "border-rose-200 bg-rose-50/40" : "border-slate-200",
+        "flex items-start gap-1 rounded-lg border bg-white px-3 py-2",
+        // Le retard se voit au BORD, pas seulement dans le texte : en balayant
+        // la liste au pouce, c'est la seule marque qui survit à la vitesse.
+        overdue
+          ? "border-slate-200 border-l-4 border-l-rose-500 bg-rose-50/30"
+          : "border-slate-200",
       )}
     >
-      <div className="flex items-start gap-2">
-        {/* Le corps de la carte = ouvrir le détail. Bouton explicite plutôt que
-            `onClick` posé sur la carte entière : la carte contient d'autres
-            boutons, et un clic qui traverse deux cibles n'est jamais le bon. */}
-        <button
-          type="button"
-          onClick={() => actions.onDetail(row._id)}
-          className="min-w-0 flex-1 space-y-1 text-left"
-        >
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="font-medium text-slate-900">{row.creatorName}</span>
-            <span
-              className={cn(
-                "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold",
-                st.className,
-              )}
-            >
-              {tLabel(st.labelKey)}
-            </span>
-          </div>
-          {mission && (
-            <div className="truncate text-sm text-slate-700">{mission}</div>
-          )}
-          {row.comboImposed && <ImposedComboBadge />}
-          {row.comboSummary && (
-            <div className="truncate text-xs text-slate-500">
-              {row.comboSummary}
-            </div>
-          )}
-        </button>
-
-        <AssignmentRowMenu
-          row={row}
-          actions={actions}
-          editable={editable}
-          hasScript={hasScript}
-        />
-      </div>
-
-      {/* Comptes ciblés — le drapeau distingue FR/US d'un coup d'œil, comme au
-          calendrier. */}
-      {row.targets.length > 0 && (
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-          {row.targets.map((t) => (
-            <span
-              key={t.platform}
-              className="inline-flex min-w-0 items-center gap-1"
-            >
-              {countryFlag(t.country) && (
-                <span aria-hidden>{countryFlag(t.country)}</span>
-              )}
-              <span className="truncate font-mono text-slate-600">
-                {t.accountHandle ?? "—"}
-              </span>
-              <span className="shrink-0 text-slate-400">{t.platform}</span>
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* Les deux DATES côte à côte : l'échéance de production (subie) et la date
-          de publication (pilotable, donc cliquable ici même). */}
-      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-        <span className={cn("inline-flex items-center gap-1", overdue ? "text-rose-700" : "text-slate-500")}>
-          <span className="text-slate-400">Échéance</span>
-          <span className={cn("font-medium", overdue && "font-semibold")}>
-            {formatDate(row.dueDate)}
+      <button
+        type="button"
+        onClick={() => actions.onDetail(row._id)}
+        className="min-w-0 flex-1 space-y-1 text-left"
+      >
+        <div className="flex items-center gap-1.5">
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-900">
+            {mission ?? "—"}
           </span>
-          {overdue && <span className="font-semibold">(retard)</span>}
-        </span>
+          {row.comboImposed && (
+            <span
+              className="size-1.5 shrink-0 rounded-full bg-indigo-500"
+              title="Combinaison imposée"
+              aria-hidden
+            />
+          )}
+          {modelCount > 0 && (
+            <ClapperboardIcon className="size-3 shrink-0 text-slate-400" />
+          )}
+          {row.linkedFolderIds.length > 0 && (
+            <ImagesIcon className="size-3 shrink-0 text-slate-400" />
+          )}
+          {row.instructions && (
+            <ClipboardListIcon className="size-3 shrink-0 text-indigo-500" />
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+          <span
+            className={cn(
+              "inline-flex shrink-0 items-center rounded-full border px-1.5 py-0 text-[11px] font-semibold",
+              st.className,
+            )}
+          >
+            {tLabel(st.labelKey)}
+          </span>
+          <span
+            className={cn(
+              "shrink-0 tabular-nums",
+              overdue ? "font-semibold text-rose-700" : "text-slate-500",
+            )}
+          >
+            {formatDay(row.dueDate)}
+            {overdue && " en retard"}
+          </span>
+          {row.postDate != null && (
+            <span className="inline-flex shrink-0 items-center gap-0.5 tabular-nums text-slate-500">
+              <CalendarIcon className="size-3" />
+              {formatDay(row.postDate)}
+            </span>
+          )}
+          {target && (
+            <span className="inline-flex min-w-0 items-center gap-0.5 text-slate-500">
+              {countryFlag(target.country) && (
+                <span aria-hidden>{countryFlag(target.country)}</span>
+              )}
+              <span className="truncate font-mono">
+                {target.accountHandle ?? target.platform}
+              </span>
+              {row.targets.length > 1 && (
+                <span className="shrink-0">+{row.targets.length - 1}</span>
+              )}
+            </span>
+          )}
+        </div>
+      </button>
+
+      {canNudge && (
         <Button
           variant="ghost"
-          size="sm"
-          className={cn(
-            "-ml-1 h-8 gap-1.5 px-2 text-xs",
-            row.postDate ? "text-slate-700" : "text-slate-500",
-          )}
-          onClick={() => actions.onPostDate(row._id)}
-          aria-label="Modifier la date de publication"
+          size="icon-sm"
+          className="size-9 shrink-0 text-rose-600 hover:bg-rose-100"
+          onClick={() => actions.onNudge(row._id, row.creatorName)}
+          disabled={nudging}
+          aria-label="Relancer"
+          data-testid={`nudge-${row._id}`}
         >
-          <CalendarIcon className="size-3.5" />
-          {/* Le mot compte : deux dates côte à côte sans étiquette, on ne sait
-              plus laquelle est l'échéance de PRODUCTION et laquelle la date de
-              PUBLICATION. « Post » reprend le nom de la colonne desktop. */}
-          <span className="text-slate-400">Post</span>
-          {row.postDate ? formatDate(row.postDate) : "Planifier"}
+          {nudging ? (
+            <Loader2Icon className="size-4 animate-spin" />
+          ) : (
+            <BellIcon className="size-4" />
+          )}
         </Button>
-      </div>
-
-      <AssignmentAttachments
-        variant="list"
-        assetFolderNames={row.assetFolderNames}
-        assetFolderCount={row.assetFolderCount}
-        modelVideos={row.modelVideos ?? []}
-      />
-
-      {(hasScript || canNudge) && (
-        <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2">
-          {hasScript && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 gap-1.5 px-2 text-xs text-primary"
-              onClick={() => actions.onScript(row._id)}
-            >
-              <FileTextIcon className="size-3.5" />
-              Voir le script
-            </Button>
-          )}
-          {canNudge && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 gap-1.5 px-2 text-xs text-rose-700 hover:bg-rose-100 hover:text-rose-800"
-              onClick={() => actions.onNudge(row._id, row.creatorName)}
-              disabled={nudging}
-              data-testid={`nudge-${row._id}`}
-            >
-              {nudging ? (
-                <Loader2Icon className="size-3.5 animate-spin" />
-              ) : (
-                <BellIcon className="size-3.5" />
-              )}
-              Relancer
-            </Button>
-          )}
-        </div>
       )}
+
+      <AssignmentRowMenu
+        row={row}
+        actions={actions}
+        editable={editable}
+        hasScript={hasScript}
+      />
     </div>
   );
 }
@@ -305,6 +402,12 @@ export function AssignmentRowMenu({
           <PanelRightOpenIcon className="size-4" />
           Ouvrir le détail
         </DropdownMenuItem>
+        {withBriefItems && hasScript && (
+          <DropdownMenuItem onClick={() => actions.onScript(row._id)}>
+            <FileTextIcon className="size-4" />
+            Voir le script
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem onClick={() => actions.onPostDate(row._id)}>
           <CalendarIcon className="size-4" />
           Date de publication
