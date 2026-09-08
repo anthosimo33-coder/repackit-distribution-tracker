@@ -649,6 +649,19 @@ export async function cyclePaymentsForCreator(
    * system operations »). Absent = comportement d'avant, à l'identique.
    */
   viewsCache?: AssignmentViewsCache,
+  /**
+   * Ne calculer QUE ce cycle-là.
+   *
+   * Deux appelants ne veulent qu'un seul cycle et jetaient tous les autres : le
+   * CLASSEMENT (le cycle en cours de chaque créatrice) et l'en-tête de la fiche
+   * créatrice. Or la boucle ci-dessous descend de `currentCycle` à 0 et fait un
+   * breakdown complet à chaque tour — sur une créatrice active depuis cinq
+   * cycles, c'était cinq fois le travail pour une ligne de classement.
+   *
+   * Absent = tous les cycles, comportement d'avant à l'identique (c'est ce dont
+   * l'écran Paiements a besoin : il les affiche tous).
+   */
+  onlyCycle?: number,
 ): Promise<CyclePayment[]> {
   const creator = await ctx.db.get(creatorId);
   // Ancre = payAnchorAt (talent) ?? firstPostAt (partenaire/clippeur). Pour un
@@ -723,7 +736,14 @@ export async function cyclePaymentsForCreator(
   }
 
   const out: CyclePayment[] = [];
-  for (let k = currentCycle; k >= 0; k--) {
+  // Un cycle demandé HORS de l'histoire de la créatrice ne rend rien : mieux
+  // vaut une liste vide qu'un cycle fabriqué sur une ancre qui n'existe pas.
+  const premier = onlyCycle ?? currentCycle;
+  const dernier = onlyCycle ?? 0;
+  if (onlyCycle !== undefined && (onlyCycle < 0 || onlyCycle > currentCycle)) {
+    return [];
+  }
+  for (let k = premier; k >= dernier; k--) {
     const w = cycleWindow(firstPostAt, k);
     const period = cyclePeriodKey(w.cycleStart);
     const paid = paidByPeriod.get(period);
@@ -811,6 +831,10 @@ export async function cyclePaymentsForCreator(
       canRevert: false,
     });
   }
+  // Le filtre existe pour ne pas noyer l'écran Paiements sous des cycles vides.
+  // Quand UN cycle a été demandé nommément, l'appelant sait ce qu'il veut : le
+  // lui retirer parce qu'il est à zéro rendrait la fonction menteuse.
+  if (onlyCycle !== undefined) return out;
   return out.filter(
     (c) =>
       c.cycleIndex === currentCycle || c.totalDue > 0 || c.lineItems.length > 0,
@@ -998,6 +1022,9 @@ async function computeProjectLeaderboard(
     .query("creators")
     .withIndex("by_project", (q) => q.eq("projectId", projectId))
     .collect();
+  // Publications du projet en UNE lecture, partagées par toutes les créatrices
+  // (cf AssignmentViewsCache) : sans ça, chaque vidéo relisait sa publication.
+  const viewsCache = newViewsCache(await loadProjectPublications(ctx, projectId));
   const rows: Array<{
     creatorId: Id<"creators">;
     name: string;
@@ -1018,7 +1045,15 @@ async function computeProjectLeaderboard(
     if (resolveCreatorKind(c.kind) !== "partner") continue;
     if (c.firstPostAt === undefined) continue; // aucun post → pas de cycle
     const currentIndex = calcCycle(c.firstPostAt, now).cycleIndex;
-    const cycles = await cyclePaymentsForCreator(ctx, projectId, c._id, now);
+    // SEUL le cycle en cours est demandé : c'est la seule ligne qu'on affiche.
+    const cycles = await cyclePaymentsForCreator(
+      ctx,
+      projectId,
+      c._id,
+      now,
+      viewsCache,
+      currentIndex,
+    );
     const current = cycles.find((cy) => cy.cycleIndex === currentIndex);
     if (!current) continue; // garde défensive (toujours présent en théorie)
     rows.push({
@@ -1059,7 +1094,15 @@ export const getCreatorCurrentCycle = permissionQuery("payments.manage")({
     if (anchor === undefined) return null;
     const now = Date.now();
     const index = calcCycle(anchor, now).cycleIndex;
-    const cycles = await cyclePaymentsForCreator(ctx, ctx.projectId, creatorId, now);
+    // Idem : un seul cycle demandé, un seul calculé.
+    const cycles = await cyclePaymentsForCreator(
+      ctx,
+      ctx.projectId,
+      creatorId,
+      now,
+      undefined,
+      index,
+    );
     const courant = cycles.find((c) => c.cycleIndex === index);
     if (!courant) return null;
     return {
