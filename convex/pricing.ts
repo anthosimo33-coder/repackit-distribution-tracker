@@ -517,6 +517,14 @@ export async function creatorCumulViews(
   ctx: QueryCtx | MutationCtx,
   projectId: Id<"projects">,
   creatorId: Id<"creators">,
+  /**
+   * Cache de vues d'UNE query (cf AssignmentViewsCache). Un appelant qui boucle
+   * sur TOUTES les créatrices — `getNatureRewards` — relisait sinon, pour chaque
+   * assignation, ses publications ET son dernier relevé de fenêtre. C'est cette
+   * query qui a fini par ÉCHOUER en prod le 2026-09-08 (« too many system
+   * operations »). Absent = comportement d'avant, à l'identique.
+   */
+  viewsCache?: AssignmentViewsCache,
 ): Promise<number> {
   const assignments = (
     await ctx.db
@@ -531,7 +539,9 @@ export async function creatorCumulViews(
   );
   let cumul = 0;
   for (const a of assignments) {
-    cumul += (await assignmentViewsAndMetrics(ctx, a)).bonusTierViews;
+    cumul += (
+      await assignmentViewsAndMetrics(ctx, a, Date.now(), viewsCache)
+    ).bonusTierViews;
   }
   return cumul;
 }
@@ -850,18 +860,91 @@ export interface PricingBreakdown extends MonthlyPayout {
  * reste en base avec son motif : le grand livre garde la trace de ce qui a été
  * annulé et pourquoi. Une suppression aurait effacé la question.
  */
+/**
+ * Les lectures PAR CRÉATRICE que TOUS ses cycles partagent.
+ *
+ * POURQUOI CE TYPE EXISTE. `computeCyclePricingBreakdown` est appelée une fois
+ * PAR CYCLE, et elle re-collectait à chaque appel les MÊMES trois ensembles :
+ * toutes les assignations de la créatrice, tous ses paliers débloqués, toutes
+ * ses victoires de défi — puis un `db.get` par victoire pour le nom du défi.
+ * Rien de tout cela ne dépend du cycle : le fenêtrage se fait ENSUITE, en
+ * mémoire. Une créatrice à cinq cycles payait donc cinq fois la même lecture,
+ * et un appelant qui boucle sur toutes les créatrices multipliait encore.
+ *
+ * Coût mesuré en prod le 2026-09-08 : `analyticsHub:getReliability` lisait
+ * 4 371 documents en 16,5 s et ÉCHOUAIT (« Your request timed out performing
+ * too many system operations ») ; `payments:getDueTotal` 2 173 documents en
+ * 14 s ; `payments:projectLeaderboard` 12,8 s. Ces trois-là passent par ce
+ * chemin.
+ *
+ * Même idiome que `AssignmentViewsCache` : optionnel, préparé par l'appelant,
+ * absent = comportement d'avant à l'identique.
+ */
+export type CreatorPayrollSources = {
+  assignments: Doc<"assignments">[];
+  bonusUnlocks: Doc<"bonusUnlocks">[];
+  challengeWins: Doc<"challengeWins">[];
+  /** Nom du défi par id — résolu une fois, pas une fois par victoire ET par cycle. */
+  challengeNames: Map<string, string>;
+};
+
+/**
+ * Charge les sources d'UNE créatrice. `knownAssignments` évite une relecture à
+ * l'appelant qui les a déjà (cf `cyclePaymentsForCreator`, qui les collecte
+ * pour re-fenêtrer ses lineItems legacy).
+ */
+export async function loadCreatorPayrollSources(
+  ctx: QueryCtx | MutationCtx,
+  projectId: Id<"projects">,
+  creatorId: Id<"creators">,
+  knownAssignments?: Doc<"assignments">[],
+): Promise<CreatorPayrollSources> {
+  const assignments =
+    knownAssignments ??
+    (
+      await ctx.db
+        .query("assignments")
+        .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+        .collect()
+    ).filter((a) => a.projectId === projectId);
+  const bonusUnlocks = (
+    await ctx.db
+      .query("bonusUnlocks")
+      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+      .collect()
+  ).filter((u) => u.projectId === projectId);
+  const challengeWins = (
+    await ctx.db
+      .query("challengeWins")
+      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+      .collect()
+  ).filter((w) => w.projectId === projectId);
+  // Un `get` par DÉFI distinct, pas par victoire : deux primes du même défi ne
+  // valent pas deux lectures, et surtout pas deux lectures par cycle.
+  const challengeNames = new Map<string, string>();
+  for (const id of new Set(challengeWins.map((w) => w.challengeId))) {
+    const challenge = await ctx.db.get(id);
+    if (challenge) challengeNames.set(id as string, challenge.name);
+  }
+  return { assignments, bonusUnlocks, challengeWins, challengeNames };
+}
+
 async function challengeCashWins(
   ctx: QueryCtx | MutationCtx,
   projectId: Id<"projects">,
   creatorId: Id<"creators">,
   inWindow: (win: Doc<"challengeWins">) => boolean,
+  sources?: CreatorPayrollSources,
 ): Promise<PricingBreakdown["challengeWins"]> {
-  const wins = (
-    await ctx.db
-      .query("challengeWins")
-      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
-      .collect()
-  ).filter(
+  const all =
+    sources?.challengeWins ??
+    (
+      await ctx.db
+        .query("challengeWins")
+        .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+        .collect()
+    ).filter((w) => w.projectId === projectId);
+  const wins = all.filter(
     (w) =>
       w.projectId === projectId &&
       w.reward.type === "cash" &&
@@ -870,12 +953,14 @@ async function challengeCashWins(
   );
   const out: PricingBreakdown["challengeWins"] = [];
   for (const w of wins) {
-    const challenge = await ctx.db.get(w.challengeId);
+    // Nom LU au moment du calcul et FIGÉ au gel : renommer un défi ensuite ne
+    // réécrit pas une feuille de paie déjà émise.
+    const name = sources
+      ? sources.challengeNames.get(w.challengeId as string)
+      : (await ctx.db.get(w.challengeId))?.name;
     out.push({
       winId: w._id,
-      // Nom LU au moment du calcul et FIGÉ au gel : renommer un défi ensuite ne
-      // réécrit pas une feuille de paie déjà émise.
-      challengeName: challenge?.name ?? "Défi",
+      challengeName: name ?? "Défi",
       montant: w.reward.amount ?? 0,
     });
   }
@@ -970,13 +1055,21 @@ export async function computeLivePricingBreakdown(
   periodKeyOf: (ts: number) => string = periodOf,
   /** Cache de vues d'UNE query — cf AssignmentViewsCache. */
   viewsCache?: AssignmentViewsCache,
+  /**
+   * Lectures par créatrice partagées par TOUTES ses périodes (cf
+   * CreatorPayrollSources). Absent = on relit, comme avant.
+   */
+  sources?: CreatorPayrollSources,
 ): Promise<PricingBreakdown> {
-  const assignments = (
-    await ctx.db
-      .query("assignments")
-      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
-      .collect()
-  ).filter(
+  const allAssignments =
+    sources?.assignments ??
+    (
+      await ctx.db
+        .query("assignments")
+        .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+        .collect()
+    ).filter((a) => a.projectId === projectId);
+  const assignments = allAssignments.filter(
     (a) =>
       a.projectId === projectId &&
       a.pricingSnapshot !== undefined &&
@@ -1002,12 +1095,15 @@ export async function computeLivePricingBreakdown(
     });
   }
   const base = computeMonthlyPayout(items);
-  const cashUnlocks = (
-    await ctx.db
-      .query("bonusUnlocks")
-      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
-      .collect()
-  ).filter(
+  const allUnlocks =
+    sources?.bonusUnlocks ??
+    (
+      await ctx.db
+        .query("bonusUnlocks")
+        .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+        .collect()
+    ).filter((u) => u.projectId === projectId);
+  const cashUnlocks = allUnlocks.filter(
     (u) =>
       u.projectId === projectId &&
       u.rewardType === "cash" &&
@@ -1027,6 +1123,7 @@ export async function computeLivePricingBreakdown(
     projectId,
     creatorId,
     (w) => w.attributionPeriod === period,
+    sources,
   );
   const challengeTotal = round2(
     challengeWins.reduce((s, w) => s + w.montant, 0),
@@ -1065,13 +1162,21 @@ export async function computeCyclePricingBreakdown(
   legacyAssignmentIds: Set<string>,
   /** Cache de vues d'UNE query — cf AssignmentViewsCache. */
   viewsCache?: AssignmentViewsCache,
+  /**
+   * Lectures par créatrice partagées par TOUS ses cycles (cf
+   * CreatorPayrollSources). Absent = on relit, comme avant.
+   */
+  sources?: CreatorPayrollSources,
 ): Promise<PricingBreakdown> {
-  const assignments = (
-    await ctx.db
-      .query("assignments")
-      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
-      .collect()
-  ).filter(
+  const allAssignments =
+    sources?.assignments ??
+    (
+      await ctx.db
+        .query("assignments")
+        .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+        .collect()
+    ).filter((a) => a.projectId === projectId);
+  const assignments = allAssignments.filter(
     (a) =>
       a.projectId === projectId &&
       a.pricingSnapshot !== undefined &&
@@ -1097,12 +1202,15 @@ export async function computeCyclePricingBreakdown(
     });
   }
   const base = computeMonthlyPayout(items);
-  const cashUnlocks = (
-    await ctx.db
-      .query("bonusUnlocks")
-      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
-      .collect()
-  ).filter(
+  const allUnlocks =
+    sources?.bonusUnlocks ??
+    (
+      await ctx.db
+        .query("bonusUnlocks")
+        .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+        .collect()
+    ).filter((u) => u.projectId === projectId);
+  const cashUnlocks = allUnlocks.filter(
     (u) =>
       u.projectId === projectId &&
       u.rewardType === "cash" &&
@@ -1126,6 +1234,7 @@ export async function computeCyclePricingBreakdown(
     projectId,
     creatorId,
     (w) => cycleIndexOf(firstPostAt, w.wonAt) === cycleIndex,
+    sources,
   );
   const challengeTotal = round2(
     challengeWins.reduce((s, w) => s + w.montant, 0),

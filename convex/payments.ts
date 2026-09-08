@@ -9,6 +9,7 @@ import { internal } from "./_generated/api";
 import {
   computeLivePricingBreakdown,
   computeCyclePricingBreakdown,
+  loadCreatorPayrollSources,
   type AssignmentViewsCache,
   assignmentPublishedAt,
   syncBonusUnlocks,
@@ -679,6 +680,18 @@ export async function cyclePaymentsForCreator(
       cycleIndexOf(firstPostAt, assignmentPublishedAt(a)),
     ]),
   );
+  // Les lectures qui ne dépendent PAS du cycle, faites UNE fois pour la boucle
+  // ci-dessous. `computeCyclePricingBreakdown` re-collectait sinon, à CHAQUE
+  // cycle, ces mêmes assignations, les paliers débloqués et les victoires de
+  // défi de la créatrice — cinq cycles = cinq fois la même lecture, multipliée
+  // encore par les appelants qui bouclent sur toutes les créatrices. Les
+  // assignations déjà lues ci-dessus sont réinjectées telles quelles.
+  const payrollSources = await loadCreatorPayrollSources(
+    ctx,
+    projectId,
+    creatorId,
+    assignments,
+  );
   // Rushes du talent, chargés UNE fois pour tous ses cycles (index by_talent).
   // Population non-talent → aucune lecture supplémentaire.
   const estTalent = resolveCreatorKind(creator.kind) === "talent";
@@ -759,6 +772,7 @@ export async function cyclePaymentsForCreator(
       k,
       legacyIds,
       viewsCache,
+      payrollSources,
     );
     // Forfait du talent — MÊME source que le gel (retainerLineFor) : l'admin ne
     // peut pas lire un montant et en payer un autre. `null` pour toute autre
