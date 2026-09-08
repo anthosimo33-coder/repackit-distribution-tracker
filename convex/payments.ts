@@ -1023,6 +1023,38 @@ async function computeProjectLeaderboard(
   }));
 }
 
+/**
+ * CYCLE EN COURS d'UNE créatrice — l'en-tête de sa fiche.
+ *
+ * Pourquoi pas `leaderboard` filtré côté écran : le classement calcule les
+ * cycles de TOUTES les créatrices du projet pour n'en garder qu'un. Sur une
+ * fiche, c'est un balayage entier du projet pour un seul nombre.
+ *
+ * Rend `null` quand la personne n'a AUCUN cycle — un talent jamais activé, une
+ * partenaire qui n'a jamais publié. Un zéro dirait « elle a gagné zéro ce
+ * cycle-ci » alors qu'il n'y a pas de cycle du tout.
+ */
+export const getCreatorCurrentCycle = permissionQuery("payments.manage")({
+  args: { creatorId: v.id("creators") },
+  handler: async (ctx, { creatorId }) => {
+    const creator = await ctx.db.get(creatorId);
+    if (!creator || creator.projectId !== ctx.projectId) return null;
+    const anchor = payAnchorOf(creator);
+    if (anchor === undefined) return null;
+    const now = Date.now();
+    const index = calcCycle(anchor, now).cycleIndex;
+    const cycles = await cyclePaymentsForCreator(ctx, ctx.projectId, creatorId, now);
+    const courant = cycles.find((c) => c.cycleIndex === index);
+    if (!courant) return null;
+    return {
+      totalDue: courant.totalDue,
+      cycleStart: courant.cycleStart,
+      cycleEnd: courant.cycleEnd,
+      cycleIndex: courant.cycleIndex,
+    };
+  },
+});
+
 /** Leaderboard ADMIN du projet (cf computeProjectLeaderboard). isMe tout false. */
 export const leaderboard = permissionQuery("payments.manage")({
   args: {},

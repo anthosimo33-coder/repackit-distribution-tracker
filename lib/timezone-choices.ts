@@ -1,4 +1,5 @@
-import { utcOffsetMinutes } from "@/convex/creatorDay";
+import { utcOffsetMinutes } from "../convex/creatorDay";
+import type { RegionKey } from "./creator-region";
 
 /**
  * Libellés FR des fuseaux proposés dans le sélecteur ADMIN.
@@ -30,26 +31,38 @@ import { utcOffsetMinutes } from "@/convex/creatorDay";
  * mettre en avant ceux qu'on rencontre réellement — les six fuseaux américains
  * en tête, parce que « États-Unis » ne dit pas lequel et que c'est précisément
  * l'ambiguïté qui a coûté un jour de warmup à des créatrices.
+ *
+ * ─── `region` : le REGROUPEMENT de l'écran Créateurs ─────────────────────────
+ * Portée ICI et pas dans une seconde table parce qu'une seconde table dérive :
+ * on ajoute un fuseau au sélecteur, on oublie sa région, et une créatrice tombe
+ * silencieusement dans « Autre fuseau ». Le type l'exige, `tsc` le rappelle.
+ * Cf `lib/creator-region.ts` pour la résolution (cette liste ne couvre pas tous
+ * les fuseaux possibles — le navigateur d'une créatrice peut en confirmer
+ * n'importe lequel).
  */
 // i18n-exempt: libellés d'un sélecteur ADMIN (écran non traduit) — cf en-tête
-export const TIMEZONE_CHOICES: { zone: string; label: string }[] = [
-  { zone: "America/New_York", label: "New York — côte est (US)" },
-  { zone: "America/Chicago", label: "Chicago — centre (US)" },
-  { zone: "America/Denver", label: "Denver — montagnes (US)" },
-  { zone: "America/Phoenix", label: "Phoenix — Arizona (US, sans heure d'été)" },
-  { zone: "America/Los_Angeles", label: "Los Angeles — côte ouest (US)" },
-  { zone: "America/Anchorage", label: "Anchorage — Alaska (US)" },
-  { zone: "Pacific/Honolulu", label: "Honolulu — Hawaï (US)" },
-  { zone: "America/Toronto", label: "Toronto (Canada)" },
-  { zone: "America/Vancouver", label: "Vancouver (Canada)" },
-  { zone: "America/Sao_Paulo", label: "São Paulo (Brésil)" },
-  { zone: "America/Argentina/Buenos_Aires", label: "Buenos Aires (Argentine)" },
-  { zone: "Europe/Paris", label: "Paris (France)" },
-  { zone: "Europe/London", label: "Londres (Royaume-Uni)" },
-  { zone: "Europe/Madrid", label: "Madrid (Espagne)" },
-  { zone: "Europe/Berlin", label: "Berlin (Allemagne)" },
-  { zone: "Europe/Rome", label: "Rome (Italie)" },
-  { zone: "Australia/Sydney", label: "Sydney (Australie)" },
+export const TIMEZONE_CHOICES: {
+  zone: string;
+  label: string;
+  region: RegionKey;
+}[] = [
+  { zone: "America/New_York", label: "New York — côte est (US)" , region: "us" },
+  { zone: "America/Chicago", label: "Chicago — centre (US)" , region: "us" },
+  { zone: "America/Denver", label: "Denver — montagnes (US)" , region: "us" },
+  { zone: "America/Phoenix", label: "Phoenix — Arizona (US, sans heure d'été)" , region: "us" },
+  { zone: "America/Los_Angeles", label: "Los Angeles — côte ouest (US)" , region: "us" },
+  { zone: "America/Anchorage", label: "Anchorage — Alaska (US)" , region: "us" },
+  { zone: "Pacific/Honolulu", label: "Honolulu — Hawaï (US)" , region: "us" },
+  { zone: "America/Toronto", label: "Toronto (Canada)" , region: "canada" },
+  { zone: "America/Vancouver", label: "Vancouver (Canada)" , region: "canada" },
+  { zone: "America/Sao_Paulo", label: "São Paulo (Brésil)" , region: "latam" },
+  { zone: "America/Argentina/Buenos_Aires", label: "Buenos Aires (Argentine)" , region: "latam" },
+  { zone: "Europe/Paris", label: "Paris (France)" , region: "europe" },
+  { zone: "Europe/London", label: "Londres (Royaume-Uni)" , region: "europe" },
+  { zone: "Europe/Madrid", label: "Madrid (Espagne)" , region: "europe" },
+  { zone: "Europe/Berlin", label: "Berlin (Allemagne)" , region: "europe" },
+  { zone: "Europe/Rome", label: "Rome (Italie)" , region: "europe" },
+  { zone: "Australia/Sydney", label: "Sydney (Australie)" , region: "oceania" },
 ];
 
 /**

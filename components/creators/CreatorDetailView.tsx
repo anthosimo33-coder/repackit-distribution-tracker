@@ -65,6 +65,15 @@ import {
   creatorStatusBadge,
   type CreatorStatus,
 } from "@/lib/creator-status";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import { formatDateFr } from "@/convex/dateFr";
+import { localTimeIn, shortZoneLabel } from "@/lib/creator-region";
+import { EMPTY_ACTIVITY } from "@/convex/creatorActivity";
 import { CopyableLink } from "./CopyableLink";
 import { CreatorComptesSection } from "./CreatorComptesSection";
 import { DeleteCreatorDialog } from "./DeleteCreatorDialog";
@@ -115,8 +124,9 @@ export function CreatorDetailView({
 }) {
   // La grille de bonus lit les BARÈMES (`pricing.manage`) : deux droits, pas un.
   // Un manager peut porter `creators.pay_terms` sans `pricing.manage`.
-  const peutLireBaremesGrille = usePermissions().has("pricing.manage");
-  const peutSupprimer = usePermissions().has("creators.delete");
+  const droits = usePermissions();
+  const peutLireBaremesGrille = droits.has("pricing.manage");
+  const peutSupprimer = droits.has("creators.delete");
   // Population de la fiche — décide du tarif affiché (et de rien d'autre ici).
   const kind = resolveCreatorKind(creator.kind);
   const router = useRouter();
@@ -164,6 +174,30 @@ export function CreatorDetailView({
   const zoneInfo = useProjectQuery(api.creators.getCreatorTimezone, {
     id: creator._id,
   });
+  // ─── CE QU'ELLE FAIT — l'en-tête chiffré ──────────────────────────────────
+  // `getCreatorActivity` passe par les index de SA fiche (by_project_creator /
+  // by_creator) : elle ne balaie pas le projet entier comme le fait la liste.
+  const activite = useProjectQuery(api.creators.getCreatorActivity, {
+    id: creator._id,
+  });
+  // `null` = fiche introuvable côté serveur. Inatteignable ici (le parent ne
+  // rend cette vue que sur une fiche chargée), mais le contrat de la query
+  // l'autorise : on le traite comme une activité VIDE. Le confondre avec le
+  // chargement laisserait les gabarits gris tourner pour toujours.
+  const stats = activite === undefined ? undefined : (activite ?? EMPTY_ACTIVITY);
+  // Gains du cycle EN COURS. Bloc `payments.manage`, distinct de
+  // `creators.pay_terms` : voir ce qu'une créatrice a gagné et fixer son tarif
+  // ne sont pas le même droit. Sans lui, la case n'est pas rendue.
+  const peutVoirGains = droits.has("payments.manage");
+  const cycle = useProjectQuery(
+    api.payments.getCreatorCurrentCycle,
+    droits.skipUnless("payments.manage", { creatorId: creator._id }),
+  );
+  // Heure qu'il est CHEZ ELLE. Figée au rendu (pas de minuterie) : sur une fiche
+  // qu'on ouvre pour la modifier, une horloge qui bat n'apporte rien.
+  const heureLocale = zoneInfo?.timezone
+    ? localTimeIn(zoneInfo.timezone)
+    : null;
   // Rien de stocké : le champ dit « non défini » ET ce qui sert en attendant.
   // Sans ça, le sélecteur affiche « Non défini » pendant que la pastille dit
   // « déduit du pays » — les deux sont vrais, mais ça se lit comme une
@@ -315,23 +349,68 @@ export function CreatorDetailView({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-          {creator.name}
-        </h1>
+      {/* ─── IDENTITÉ ───────────────────────────────────────────────────────
+          L'ordre d'avant ouvrait sur « Mot de passe », puis « Autres projets »,
+          et ne donnait le nom de la personne qu'en troisième. Deux actions rares
+          au-dessus de l'identité : elles sont maintenant dans l'onglet « Accès ».
+          « Voir son espace » — l'action la plus utilisée de cette page — passe en
+          bouton principal. */}
+      <div className="flex flex-wrap items-start gap-4">
         <span
-          className={cn(
-            "inline-flex items-center rounded-full border px-3 py-0.5 text-xs font-semibold",
-            badge.className,
-          )}
+          aria-hidden
+          className="grid size-12 shrink-0 place-items-center rounded-full bg-primary text-lg font-semibold text-primary-foreground"
         >
-          {badge.label}
+          {initialesDe(creator.name)}
         </span>
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+              {creator.name}
+            </h1>
+            <span
+              className={cn(
+                "inline-flex items-center rounded-full border px-3 py-0.5 text-xs font-semibold",
+                badge.className,
+              )}
+            >
+              {badge.label}
+            </span>
+            <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-0.5 text-xs font-semibold text-slate-600">
+              {KIND_LABELS[kind].singular}
+            </span>
+          </div>
+          {/* Ligne d'état : ce qu'on veut savoir AVANT d'ouvrir un onglet. Le
+              fuseau y figure parce qu'il décide de la date de ses checks de
+              warmup, et sa PROVENANCE avec lui — « à confirmer » en ambre. */}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500">
+            <span>{creator.email}</span>
+            <span className="text-slate-300">·</span>
+            <span>{LOCALE_LABELS[locale]}</span>
+            <span className="text-slate-300">·</span>
+            {zoneInfo?.timezone ? (
+              <span
+                className={cn(zoneInfo.source === "confirmed" ? "" : "text-amber-700")}
+                title={
+                  zoneInfo.source === "confirmed"
+                    ? zoneInfo.timezone + " — confirmé par elle"
+                    : zoneInfo.timezone + " — à confirmer"
+                }
+              >
+                {shortZoneLabel(zoneInfo.timezone)}
+                {heureLocale ? " · " + heureLocale + " chez elle" : ""}
+              </span>
+            ) : (
+              <span className="text-amber-700">Fuseau non renseigné</span>
+            )}
+            <span className="text-slate-300">·</span>
+            <span>ajouté le {formatDateFr(creator.createdAt)}</span>
+          </div>
+        </div>
         {/* Voir l'espace du créateur tel qu'il le voit, en LECTURE SEULE (scopé
             projet, vérifié serveur). N'agit jamais en son nom. */}
         <Link
           href={viewAsBase(projectSlug, creator._id)}
-          className={cn(buttonVariants({ variant: "outline" }), "ml-auto")}
+          className={cn(buttonVariants(), "shrink-0")}
           data-testid="view-as-creator"
         >
           <EyeIcon className="mr-2 size-4" />
@@ -339,59 +418,613 @@ export function CreatorDetailView({
         </Link>
       </div>
 
-      {/* Lien d'invitation — uniquement tant que le créateur est "invited". */}
-      {creator.invitation && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Lien d&apos;activation</CardTitle>
-            <CardDescription>
-              Expire le{" "}
-              {new Date(creator.invitation.expiresAt).toLocaleDateString(
-                "fr-FR",
-              )}
-              . Régénère-le s&apos;il est expiré ou perdu (l&apos;ancien lien
-              cesse aussitôt de fonctionner).
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <CopyableLink token={creator.invitation.token} />
-            <Button variant="outline" onClick={handleRegenerate}>
-              Régénérer le lien
-            </Button>
-          </CardContent>
-        </Card>
-      )}
+      {/* ─── CE QU'ELLE FAIT ────────────────────────────────────────────────
+          La fiche ne disait rien du travail de la personne : c'était un
+          formulaire de réglages. Ces chiffres viennent de `getCreatorActivity`
+          (comptes, publications, dernier post) et de `getCreatorCurrentCycle`
+          (gains du cycle, sous `payments.manage`). */}
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 sm:grid-cols-4">
+        <Chiffre
+          libelle="Comptes"
+          valeur={stats === undefined ? null : String(stats.comptes)}
+        />
+        <Chiffre
+          libelle="Publications"
+          valeur={stats === undefined ? null : String(stats.publications)}
+        />
+        <Chiffre
+          libelle="Dernier post"
+          valeur={
+            stats === undefined
+              ? null
+              : stats.lastPostAt === null
+                ? "—"
+                : formatDateFr(stats.lastPostAt)
+          }
+          detail={stats?.lastPostAt === null ? "jamais publié" : undefined}
+        />
+        {peutVoirGains && (
+          <Chiffre
+            libelle="Cycle en cours"
+            valeur={
+              cycle === undefined
+                ? null
+                : cycle === null
+                  ? "—"
+                  : formatMoney(cycle.totalDue, payCurrency)
+            }
+            detail={
+              cycle
+                ? formatDateFr(cycle.cycleStart) + " → " + formatDateFr(cycle.cycleEnd)
+                : cycle === null
+                  ? "aucun cycle"
+                  : undefined
+            }
+          />
+        )}
+      </div>
 
-      {/* Reset mot de passe — uniquement pour un compte DÉJÀ finalisé (userId
-          posé). Pour un compte encore "invited", c'est le lien d'activation
-          ci-dessus qui s'applique. Les deux sont des actions de récupération
-          d'accès mais distinctes. */}
-      {creator.userId && (
-        <Card>
+      <Tabs defaultValue="profil">
+        <TabsList variant="line">
+          <TabsTrigger value="profil">Profil</TabsTrigger>
+          <TabsTrigger value="activite">Activité</TabsTrigger>
+          {canEditPayTerms && (
+            <TabsTrigger value="remuneration">Rémunération</TabsTrigger>
+          )}
+          <TabsTrigger value="acces">Accès &amp; projets</TabsTrigger>
+        </TabsList>
+
+        {/* ── PROFIL ──────────────────────────────────────────────────────
+            Colonne PLAFONNÉE : sur un écran large, le champ « Nom » faisait
+            plus de 850 px pour une valeur de treize caractères. */}
+        <TabsContent value="profil" className="mt-6 space-y-6">
+          <div className="max-w-3xl space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Informations</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="name">Nom</Label>
+                  <Input
+                    id="name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="email">Email</Label>
+                  <Input id="email" value={creator.email} readOnly disabled />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="phone">Téléphone</Label>
+                  <Input
+                    id="phone"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="status">Statut</Label>
+                  <Select
+                    value={status}
+                    onValueChange={(v) => v && setStatus(v as CreatorStatus)}
+                  >
+                    <SelectTrigger id="status" aria-label="Statut">
+                      <SelectValue>
+                        {creatorStatusBadge(status).label}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CREATOR_STATUS_ORDER.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {creatorStatusBadge(s).label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {/*
+                  Langue de la fiche — le FILET quand une invitation est partie dans
+                  la mauvaise langue. `updateCreator` acceptait déjà l'argument ;
+                  aucun formulaire ne l'exposait, si bien qu'un créateur invité en
+                  français par erreur ne pouvait être corrigé que par lui-même.
+
+                  Elle sert AVANT que le compte existe (l'e-mail d'invitation part
+                  quand `creators.userId` est encore undefined). Une fois le compte
+                  créé, `users.locale` fait foi : changer la fiche ici ne réécrit
+                  donc pas la préférence d'un créateur qui a déjà choisi la sienne.
+                */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="creator-locale">Langue</Label>
+                  <Select
+                    value={locale}
+                    onValueChange={(v) => v && setLocale(v as Locale)}
+                  >
+                    <SelectTrigger id="creator-locale" aria-label="Langue">
+                      <SelectValue>{LOCALE_LABELS[locale]}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {LOCALES.map((l) => (
+                        <SelectItem key={l} value={l}>
+                          {LOCALE_LABELS[l]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500">
+                    Langue des e-mails, de son espace, et de l&apos;aperçu « Voir son
+                    espace ». Une fois son compte créé, sa propre préférence (Profil)
+                    prend le dessus.
+                  </p>
+                </div>
+                {/*
+                  FUSEAU HORAIRE — « quel jour est-il pour elle ? ».
+              
+                  Ce champ ne décore pas : il décide de la date des checks de warmup,
+                  donc du compteur de jours manqués. Avant lui, tout tournait sur la
+                  journée UTC et une créatrice qui cochait à 21 h à New York perdait
+                  un jour de chauffe (cf docs/diagnostic-fuseaux.md).
+
+                  La PROVENANCE est affichée à côté de la valeur, exprès : dans six
+                  mois, il faut pouvoir lire une fiche et savoir si America/New_York
+                  est un FAIT (elle l'a confirmé) ou une SUPPOSITION (déduit du pays
+                  de ses comptes). « à confirmer » tant que ce n'est pas elle.
+                */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="creator-timezone">Fuseau horaire</Label>
+                    {zoneInfo && zoneInfo.timezone !== null && (
+                      <span
+                        className={
+                          zoneInfo.source === "confirmed"
+                            ? "rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700"
+                            : "rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700"
+                        }
+                      >
+                        {zoneInfo.source === "confirmed"
+                          ? "confirmé par elle"
+                          : zoneInfo.source === "admin"
+                            ? "saisi — à confirmer"
+                            : zoneInfo.stored
+                              ? "déduit puis FIGÉ — à confirmer"
+                              : "déduit du pays — à confirmer"}
+                      </span>
+                    )}
+                    {zoneInfo && zoneInfo.timezone === null && (
+                      <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                        à définir
+                      </span>
+                    )}
+                  </div>
+                  <Select
+                    value={timezone}
+                    onValueChange={(v) => setTimezone(v === TZ_NONE ? "" : (v ?? ""))}
+                  >
+                    <SelectTrigger id="creator-timezone" aria-label="Fuseau horaire">
+                      <SelectValue>{timezoneLabel}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={TZ_NONE}>Non défini</SelectItem>
+                      {TIMEZONE_CHOICES.map((c) => (
+                        <SelectItem key={c.zone} value={c.zone}>
+                          {c.label}
+                          {utcOffsetLabel(c.zone) ? ` — ${utcOffsetLabel(c.zone)}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500">
+                    Sert de référence aux dates : jours de warmup, échéances et
+                    relances. Un pays ne détermine pas un fuseau — les États-Unis en
+                    ont six — donc mieux vaut « non défini » qu&apos;une supposition.
+                    {/*
+                      DEUX états très différents sous le même mot « déduit », et
+                      l'admin doit savoir lequel : une valeur FIGÉE ne se corrigera
+                      plus toute seule, il faut agir. Sans cette distinction, une
+                      fiche gelée sur un mauvais fuseau ressemble à une fiche en
+                      attente, et personne n'y touche jamais.
+                    */}
+                    {zoneInfo?.stored && zoneInfo.source === "inferred" && (
+                      <>
+                        {" "}
+                        <strong>{zoneInfo.timezone}</strong> a été déduit du pays de
+                        ses comptes puis <strong>figé</strong> à son premier check de
+                        warmup : il ne suivra plus le pays de ses comptes. Choisis
+                        une valeur ci-dessus pour le corriger.
+                      </>
+                    )}
+                    {zoneInfo?.timezone && !zoneInfo.stored && (
+                      <>
+                        {" "}
+                        En attendant, <strong>{zoneInfo.timezone}</strong> est déduit
+                        du pays de ses comptes. Rien n&apos;est encore enregistré :
+                        la valeur suivra le pays, et se figera à son premier check de
+                        warmup.
+                      </>
+                    )}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Population</CardTitle>
+              <CardDescription>
+                Corrige une invitation faite avec la mauvaise population. Possible
+                tant que la fiche est vierge — dès qu&apos;un compte, une publication
+                ou une ligne de paie y est rattaché, la population est figée.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="max-w-xs space-y-1.5">
+                <Label htmlFor="population">Population</Label>
+                <Select
+                  value={population}
+                  onValueChange={(v) => v && setPopulation(v)}
+                >
+                  <SelectTrigger id="population" aria-label="Population">
+                    <SelectValue>{KIND_LABELS[population as CreatorKind]?.singular ?? "—"}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CREATOR_KINDS.map((k) => (
+                      <SelectItem key={k} value={k}>
+                        {KIND_LABELS[k].singular}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {population !== kind && (
+                  <p className="text-xs text-amber-700">
+                    Changera aussi l&apos;espace auquel cette personne accède au
+                    prochain login. Enregistre pour appliquer.
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+          {/*
+            BLOCS PARTENAIRE. Les @ à créer et la grille de paliers relèvent du flux
+            partenaire : un talent ne crée aucun compte, un clippeur est payé au clip.
+            Les afficher chez eux donnait des champs qui ne servent à rien et qui
+            laissent croire qu'ils comptent.
+          */}
+          {kind === "partner" && (
+          <Card>
+            <CardHeader>
+              <CardTitle>@ à créer par réseau</CardTitle>
+              <CardDescription>
+                Le ou les @ que ce créateur doit créer sur ses réseaux (affichés dans
+                « Mes comptes », à côté des consignes de warmup). Laisse vide un
+                réseau pour ne rien demander.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="handle-tiktok">@ TikTok à créer</Label>
+                <Input
+                  id="handle-tiktok"
+                  maxLength={64}
+                  placeholder="@…"
+                  value={handleTiktok}
+                  onChange={(e) => setHandleTiktok(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="handle-youtube">@ YouTube à créer</Label>
+                <Input
+                  id="handle-youtube"
+                  maxLength={64}
+                  placeholder="@…"
+                  value={handleYoutube}
+                  onChange={(e) => setHandleYoutube(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="handle-instagram">@ Instagram à créer</Label>
+                <Input
+                  id="handle-instagram"
+                  maxLength={64}
+                  placeholder="@…"
+                  value={handleInstagram}
+                  onChange={(e) => setHandleInstagram(e.target.value)}
+                />
+              </div>
+            </CardContent>
+          </Card>
+          )}
+          <Card>
+            <CardHeader>
+              <CardTitle>Attribution snytch.co</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-1.5">
+              <Label htmlFor="ref-slug">Ref du chemin court</Label>
+              <Input
+                id="ref-slug"
+                maxLength={64}
+                placeholder="kelly (pour snytch.co/kelly)"
+                value={refSlug}
+                onChange={(e) => setRefSlug(e.target.value)}
+              />
+              <p className="text-xs text-slate-400">
+                La clé d&apos;attribution des visiteurs et des ventes. Sans elle, la
+                créatrice apparaît « pas de ref configurée » dans la section
+                conversion — le trafic in-app TikTok ne transmet pas de referrer,
+                tout repose sur ce chemin.
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Notes admin</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Textarea
+                value={adminNotes}
+                onChange={(e) => setAdminNotes(e.target.value)}
+                rows={4}
+                placeholder="Notes internes (non visibles par le créateur)…"
+              />
+            </CardContent>
+          </Card>
+          <div className="flex justify-end">
+            <Button onClick={handleSave} disabled={saving}>
+              {saving && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+              Enregistrer
+            </Button>
+          </div>
+          </div>
+
+        {/* Zone de danger — suppression définitive (cascade opérationnelle,
+            historique conservé sous le nom du créateur). */}
+        {peutSupprimer && (
+        <Card className="border-rose-200">
           <CardHeader>
-            <CardTitle>Mot de passe</CardTitle>
+            <CardTitle className="text-rose-700">Zone de danger</CardTitle>
             <CardDescription>
-              Le créateur a perdu son mot de passe ? Génère un lien de
-              réinitialisation à usage unique (valable 48 h) et envoie-le lui
-              (WhatsApp). Tu ne vois jamais son mot de passe.
+              Supprime définitivement ce créateur : ses comptes et missions en
+              cours sont effacés (combos libérés) ; ses publications et son
+              historique de paiement sont conservés sous son nom. Irréversible.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button
-              variant="outline"
-              onClick={handleGenerateReset}
-              disabled={generatingReset}
-            >
-              {generatingReset ? (
-                <Loader2Icon className="mr-2 size-4 animate-spin" />
-              ) : (
-                <KeyRoundIcon className="mr-2 size-4" />
-              )}
-              Réinitialiser le mot de passe
+            <Button variant="destructive" onClick={() => setDeleteOpen(true)}>
+              <Trash2Icon className="mr-2 size-4" />
+              Supprimer le créateur
             </Button>
           </CardContent>
         </Card>
-      )}
+        )}
+        </TabsContent>
+
+        {/* ── ACTIVITÉ ────────────────────────────────────────────────────
+            Ses comptes, sous son nom. Les deux cartes « Bientôt disponible »
+            (Assignments, Paiements) sont retirées : l'en-tête chiffré ci-dessus
+            répond à ce qu'elles promettaient depuis des mois. */}
+        <TabsContent value="activite" className="mt-6 space-y-6">
+          <CreatorComptesSection creatorId={creator._id} />
+        </TabsContent>
+
+        {/* ── RÉMUNÉRATION ────────────────────────────────────────────────
+            L'onglet EST le découpage du droit `creators.pay_terms`, qui a déjà
+            sa propre query serveur. Sans le droit, il n'existe pas — plutôt
+            qu'une carte manquante au milieu d'une pile. */}
+        {canEditPayTerms && (
+          <TabsContent value="remuneration" className="mt-6 space-y-6">
+            <div className="max-w-3xl space-y-6">
+            {canEditPayTerms && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Moyen de paiement</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="paymentMethod">Méthode</Label>
+                    <Select
+                      value={paymentMethod}
+                      onValueChange={(v) => v && setPaymentMethod(v)}
+                    >
+                      <SelectTrigger id="paymentMethod" aria-label="Méthode de paiement">
+                        <SelectValue>
+                          {paymentMethod === NONE
+                            ? "Non défini"
+                            : PAYMENT_METHOD_LABELS[paymentMethod]}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NONE}>Non défini</SelectItem>
+                        {PAYMENT_METHODS.map((m) => (
+                          <SelectItem key={m} value={m}>
+                            {PAYMENT_METHOD_LABELS[m]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="paymentDetails">Coordonnées</Label>
+                    <Input
+                      id="paymentDetails"
+                      placeholder="IBAN, email PayPal, adresse USDT…"
+                      value={paymentDetails}
+                      onChange={(e) => setPaymentDetails(e.target.value)}
+                    />
+                  </div>
+                </div>
+                {/*
+                  TARIF — par personne, donc ici, à côté de la façon dont ON LA PAIE.
+                  Un seul champ, celui de sa population : un partenaire n'en a aucun
+                  (il est au fixe/CPM/paliers, réglés par une grille de pricing).
+                */}
+                {(kind === "clipper" || kind === "talent") && (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="tarif">
+                        {kind === "clipper"
+                          ? "Tarif par clip"
+                          : "Forfait par cycle (30 j)"}
+                      </Label>
+                      <Input
+                        id="tarif"
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        inputMode="decimal"
+                        placeholder="Non défini"
+                        value={tarif}
+                        onChange={(e) => setTarif(e.target.value)}
+                      />
+                      <p className="text-xs text-slate-500">
+                        {kind === "clipper"
+                          ? "Figé sur chaque clip au moment où il est assigné — le modifier ne change aucun clip déjà commandé."
+                          : "Dû pour chaque cycle écoulé, quel que soit le nombre de rushes déposés. Le compte de rushes s'affiche à côté du montant, dans Paiements."}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            )}
+            {/* P5 — Comptes du créateur (alimenté). Assignments / Paiements restent
+                des emplacements réservés (chantiers suivants). */}
+            {kind === "partner" && canEditPayTerms && peutLireBaremesGrille && (
+              <BonusGridSection
+                creatorId={creator._id}
+                current={payTerms?.bonusPricingId ?? null}
+                currency={payCurrency}
+              />
+            )}
+            </div>
+          </TabsContent>
+        )}
+
+        {/* ── ACCÈS & PROJETS ─────────────────────────────────────────────
+            Trois actions RARES rangées ensemble : lien d'activation, remise à
+            zéro du mot de passe, rattachement à un autre projet. Elles ouvraient
+            la page ; elles la ferment. */}
+        <TabsContent value="acces" className="mt-6 space-y-6">
+          <div className="max-w-3xl space-y-6">
+          {/* Lien d'invitation — uniquement tant que le créateur est "invited". */}
+          {creator.invitation && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Lien d&apos;activation</CardTitle>
+                <CardDescription>
+                  Expire le{" "}
+                  {new Date(creator.invitation.expiresAt).toLocaleDateString(
+                    "fr-FR",
+                  )}
+                  . Régénère-le s&apos;il est expiré ou perdu (l&apos;ancien lien
+                  cesse aussitôt de fonctionner).
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <CopyableLink token={creator.invitation.token} />
+                <Button variant="outline" onClick={handleRegenerate}>
+                  Régénérer le lien
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+          {/* Reset mot de passe — uniquement pour un compte DÉJÀ finalisé (userId
+              posé). Pour un compte encore "invited", c'est le lien d'activation
+              ci-dessus qui s'applique. Les deux sont des actions de récupération
+              d'accès mais distinctes. */}
+          {creator.userId && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Mot de passe</CardTitle>
+                <CardDescription>
+                  Le créateur a perdu son mot de passe ? Génère un lien de
+                  réinitialisation à usage unique (valable 48 h) et envoie-le lui
+                  (WhatsApp). Tu ne vois jamais son mot de passe.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button
+                  variant="outline"
+                  onClick={handleGenerateReset}
+                  disabled={generatingReset}
+                >
+                  {generatingReset ? (
+                    <Loader2Icon className="mr-2 size-4 animate-spin" />
+                  ) : (
+                    <KeyRoundIcon className="mr-2 size-4" />
+                  )}
+                  Réinitialiser le mot de passe
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+          {/* Multi-projets — rattacher CE compte créateur à un autre projet (même
+              login). Uniquement pour un compte DÉJÀ finalisé (userId posé) : pour un
+              créateur jamais inscrit, c'est le lien d'invitation /join qui crée le
+              compte. */}
+          {creator.userId && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Autres projets</CardTitle>
+                <CardDescription>
+                  Rattache ce créateur (même compte, même login) à un autre de tes
+                  projets. Ses comptes, assignments et gains y seront distincts.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {addableProjects === undefined ? (
+                  <p className="text-sm text-slate-400">Chargement…</p>
+                ) : addableProjects.length === 0 ? (
+                  <p className="text-sm text-slate-500">
+                    Aucun autre projet disponible (déjà membre de tous tes projets).
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                    <div className="flex-1 space-y-1.5">
+                      <Label htmlFor="add-project">Projet</Label>
+                      <Select
+                        value={addTarget}
+                        onValueChange={(v) => v && setAddTarget(v)}
+                      >
+                        <SelectTrigger id="add-project" aria-label="Projet cible">
+                          <SelectValue placeholder="Choisir un projet…">
+                            {addTarget
+                              ? addableProjects.find(
+                                  (p) => p.projectId === addTarget,
+                                )?.name
+                              : "Choisir un projet…"}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {addableProjects.map((p) => (
+                            <SelectItem key={p.projectId} value={p.projectId}>
+                              {p.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button
+                      onClick={handleAddToProject}
+                      disabled={adding || !addTarget}
+                      className="shrink-0"
+                    >
+                      {adding ? (
+                        <Loader2Icon className="mr-2 size-4 animate-spin" />
+                      ) : (
+                        <FolderPlusIcon className="mr-2 size-4" />
+                      )}
+                      Ajouter au projet
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+          </div>
+        </TabsContent>
+      </Tabs>
 
       <Dialog
         open={resetToken !== null}
@@ -414,485 +1047,6 @@ export function CreatorDetailView({
           )}
         </DialogContent>
       </Dialog>
-
-      {/* Multi-projets — rattacher CE compte créateur à un autre projet (même
-          login). Uniquement pour un compte DÉJÀ finalisé (userId posé) : pour un
-          créateur jamais inscrit, c'est le lien d'invitation /join qui crée le
-          compte. */}
-      {creator.userId && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Autres projets</CardTitle>
-            <CardDescription>
-              Rattache ce créateur (même compte, même login) à un autre de tes
-              projets. Ses comptes, assignments et gains y seront distincts.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {addableProjects === undefined ? (
-              <p className="text-sm text-slate-400">Chargement…</p>
-            ) : addableProjects.length === 0 ? (
-              <p className="text-sm text-slate-500">
-                Aucun autre projet disponible (déjà membre de tous tes projets).
-              </p>
-            ) : (
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                <div className="flex-1 space-y-1.5">
-                  <Label htmlFor="add-project">Projet</Label>
-                  <Select
-                    value={addTarget}
-                    onValueChange={(v) => v && setAddTarget(v)}
-                  >
-                    <SelectTrigger id="add-project" aria-label="Projet cible">
-                      <SelectValue placeholder="Choisir un projet…">
-                        {addTarget
-                          ? addableProjects.find(
-                              (p) => p.projectId === addTarget,
-                            )?.name
-                          : "Choisir un projet…"}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {addableProjects.map((p) => (
-                        <SelectItem key={p.projectId} value={p.projectId}>
-                          {p.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Button
-                  onClick={handleAddToProject}
-                  disabled={adding || !addTarget}
-                  className="shrink-0"
-                >
-                  {adding ? (
-                    <Loader2Icon className="mr-2 size-4 animate-spin" />
-                  ) : (
-                    <FolderPlusIcon className="mr-2 size-4" />
-                  )}
-                  Ajouter au projet
-                </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Informations</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="name">Nom</Label>
-              <Input
-                id="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" value={creator.email} readOnly disabled />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="phone">Téléphone</Label>
-              <Input
-                id="phone"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="status">Statut</Label>
-              <Select
-                value={status}
-                onValueChange={(v) => v && setStatus(v as CreatorStatus)}
-              >
-                <SelectTrigger id="status" aria-label="Statut">
-                  <SelectValue>
-                    {creatorStatusBadge(status).label}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {CREATOR_STATUS_ORDER.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {creatorStatusBadge(s).label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {/*
-              Langue de la fiche — le FILET quand une invitation est partie dans
-              la mauvaise langue. `updateCreator` acceptait déjà l'argument ;
-              aucun formulaire ne l'exposait, si bien qu'un créateur invité en
-              français par erreur ne pouvait être corrigé que par lui-même.
-
-              Elle sert AVANT que le compte existe (l'e-mail d'invitation part
-              quand `creators.userId` est encore undefined). Une fois le compte
-              créé, `users.locale` fait foi : changer la fiche ici ne réécrit
-              donc pas la préférence d'un créateur qui a déjà choisi la sienne.
-            */}
-            <div className="space-y-1.5">
-              <Label htmlFor="creator-locale">Langue</Label>
-              <Select
-                value={locale}
-                onValueChange={(v) => v && setLocale(v as Locale)}
-              >
-                <SelectTrigger id="creator-locale" aria-label="Langue">
-                  <SelectValue>{LOCALE_LABELS[locale]}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {LOCALES.map((l) => (
-                    <SelectItem key={l} value={l}>
-                      {LOCALE_LABELS[l]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-slate-500">
-                Langue des e-mails, de son espace, et de l&apos;aperçu « Voir son
-                espace ». Une fois son compte créé, sa propre préférence (Profil)
-                prend le dessus.
-              </p>
-            </div>
-            {/*
-              FUSEAU HORAIRE — « quel jour est-il pour elle ? ».
-              
-              Ce champ ne décore pas : il décide de la date des checks de warmup,
-              donc du compteur de jours manqués. Avant lui, tout tournait sur la
-              journée UTC et une créatrice qui cochait à 21 h à New York perdait
-              un jour de chauffe (cf docs/diagnostic-fuseaux.md).
-
-              La PROVENANCE est affichée à côté de la valeur, exprès : dans six
-              mois, il faut pouvoir lire une fiche et savoir si America/New_York
-              est un FAIT (elle l'a confirmé) ou une SUPPOSITION (déduit du pays
-              de ses comptes). « à confirmer » tant que ce n'est pas elle.
-            */}
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-2">
-                <Label htmlFor="creator-timezone">Fuseau horaire</Label>
-                {zoneInfo && zoneInfo.timezone !== null && (
-                  <span
-                    className={
-                      zoneInfo.source === "confirmed"
-                        ? "rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700"
-                        : "rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700"
-                    }
-                  >
-                    {zoneInfo.source === "confirmed"
-                      ? "confirmé par elle"
-                      : zoneInfo.source === "admin"
-                        ? "saisi — à confirmer"
-                        : zoneInfo.stored
-                          ? "déduit puis FIGÉ — à confirmer"
-                          : "déduit du pays — à confirmer"}
-                  </span>
-                )}
-                {zoneInfo && zoneInfo.timezone === null && (
-                  <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                    à définir
-                  </span>
-                )}
-              </div>
-              <Select
-                value={timezone}
-                onValueChange={(v) => setTimezone(v === TZ_NONE ? "" : (v ?? ""))}
-              >
-                <SelectTrigger id="creator-timezone" aria-label="Fuseau horaire">
-                  <SelectValue>{timezoneLabel}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={TZ_NONE}>Non défini</SelectItem>
-                  {TIMEZONE_CHOICES.map((c) => (
-                    <SelectItem key={c.zone} value={c.zone}>
-                      {c.label}
-                      {utcOffsetLabel(c.zone) ? ` — ${utcOffsetLabel(c.zone)}` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-slate-500">
-                Sert de référence aux dates : jours de warmup, échéances et
-                relances. Un pays ne détermine pas un fuseau — les États-Unis en
-                ont six — donc mieux vaut « non défini » qu&apos;une supposition.
-                {/*
-                  DEUX états très différents sous le même mot « déduit », et
-                  l'admin doit savoir lequel : une valeur FIGÉE ne se corrigera
-                  plus toute seule, il faut agir. Sans cette distinction, une
-                  fiche gelée sur un mauvais fuseau ressemble à une fiche en
-                  attente, et personne n'y touche jamais.
-                */}
-                {zoneInfo?.stored && zoneInfo.source === "inferred" && (
-                  <>
-                    {" "}
-                    <strong>{zoneInfo.timezone}</strong> a été déduit du pays de
-                    ses comptes puis <strong>figé</strong> à son premier check de
-                    warmup : il ne suivra plus le pays de ses comptes. Choisis
-                    une valeur ci-dessus pour le corriger.
-                  </>
-                )}
-                {zoneInfo?.timezone && !zoneInfo.stored && (
-                  <>
-                    {" "}
-                    En attendant, <strong>{zoneInfo.timezone}</strong> est déduit
-                    du pays de ses comptes. Rien n&apos;est encore enregistré :
-                    la valeur suivra le pays, et se figera à son premier check de
-                    warmup.
-                  </>
-                )}
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Population</CardTitle>
-          <CardDescription>
-            Corrige une invitation faite avec la mauvaise population. Possible
-            tant que la fiche est vierge — dès qu&apos;un compte, une publication
-            ou une ligne de paie y est rattaché, la population est figée.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="max-w-xs space-y-1.5">
-            <Label htmlFor="population">Population</Label>
-            <Select
-              value={population}
-              onValueChange={(v) => v && setPopulation(v)}
-            >
-              <SelectTrigger id="population" aria-label="Population">
-                <SelectValue>{KIND_LABELS[population as CreatorKind]?.singular ?? "—"}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {CREATOR_KINDS.map((k) => (
-                  <SelectItem key={k} value={k}>
-                    {KIND_LABELS[k].singular}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {population !== kind && (
-              <p className="text-xs text-amber-700">
-                Changera aussi l&apos;espace auquel cette personne accède au
-                prochain login. Enregistre pour appliquer.
-              </p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {canEditPayTerms && (
-      <Card>
-        <CardHeader>
-          <CardTitle>Moyen de paiement</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="paymentMethod">Méthode</Label>
-              <Select
-                value={paymentMethod}
-                onValueChange={(v) => v && setPaymentMethod(v)}
-              >
-                <SelectTrigger id="paymentMethod" aria-label="Méthode de paiement">
-                  <SelectValue>
-                    {paymentMethod === NONE
-                      ? "Non défini"
-                      : PAYMENT_METHOD_LABELS[paymentMethod]}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NONE}>Non défini</SelectItem>
-                  {PAYMENT_METHODS.map((m) => (
-                    <SelectItem key={m} value={m}>
-                      {PAYMENT_METHOD_LABELS[m]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="paymentDetails">Coordonnées</Label>
-              <Input
-                id="paymentDetails"
-                placeholder="IBAN, email PayPal, adresse USDT…"
-                value={paymentDetails}
-                onChange={(e) => setPaymentDetails(e.target.value)}
-              />
-            </div>
-          </div>
-          {/*
-            TARIF — par personne, donc ici, à côté de la façon dont ON LA PAIE.
-            Un seul champ, celui de sa population : un partenaire n'en a aucun
-            (il est au fixe/CPM/paliers, réglés par une grille de pricing).
-          */}
-          {(kind === "clipper" || kind === "talent") && (
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="tarif">
-                  {kind === "clipper"
-                    ? "Tarif par clip"
-                    : "Forfait par cycle (30 j)"}
-                </Label>
-                <Input
-                  id="tarif"
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  inputMode="decimal"
-                  placeholder="Non défini"
-                  value={tarif}
-                  onChange={(e) => setTarif(e.target.value)}
-                />
-                <p className="text-xs text-slate-500">
-                  {kind === "clipper"
-                    ? "Figé sur chaque clip au moment où il est assigné — le modifier ne change aucun clip déjà commandé."
-                    : "Dû pour chaque cycle écoulé, quel que soit le nombre de rushes déposés. Le compte de rushes s'affiche à côté du montant, dans Paiements."}
-                </p>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-      )}
-
-      {/*
-        BLOCS PARTENAIRE. Les @ à créer et la grille de paliers relèvent du flux
-        partenaire : un talent ne crée aucun compte, un clippeur est payé au clip.
-        Les afficher chez eux donnait des champs qui ne servent à rien et qui
-        laissent croire qu'ils comptent.
-      */}
-      {kind === "partner" && (
-      <Card>
-        <CardHeader>
-          <CardTitle>@ à créer par réseau</CardTitle>
-          <CardDescription>
-            Le ou les @ que ce créateur doit créer sur ses réseaux (affichés dans
-            « Mes comptes », à côté des consignes de warmup). Laisse vide un
-            réseau pour ne rien demander.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="handle-tiktok">@ TikTok à créer</Label>
-            <Input
-              id="handle-tiktok"
-              maxLength={64}
-              placeholder="@…"
-              value={handleTiktok}
-              onChange={(e) => setHandleTiktok(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="handle-youtube">@ YouTube à créer</Label>
-            <Input
-              id="handle-youtube"
-              maxLength={64}
-              placeholder="@…"
-              value={handleYoutube}
-              onChange={(e) => setHandleYoutube(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="handle-instagram">@ Instagram à créer</Label>
-            <Input
-              id="handle-instagram"
-              maxLength={64}
-              placeholder="@…"
-              value={handleInstagram}
-              onChange={(e) => setHandleInstagram(e.target.value)}
-            />
-          </div>
-        </CardContent>
-      </Card>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Attribution snytch.co</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-1.5">
-          <Label htmlFor="ref-slug">Ref du chemin court</Label>
-          <Input
-            id="ref-slug"
-            maxLength={64}
-            placeholder="kelly (pour snytch.co/kelly)"
-            value={refSlug}
-            onChange={(e) => setRefSlug(e.target.value)}
-          />
-          <p className="text-xs text-slate-400">
-            La clé d&apos;attribution des visiteurs et des ventes. Sans elle, la
-            créatrice apparaît « pas de ref configurée » dans la section
-            conversion — le trafic in-app TikTok ne transmet pas de referrer,
-            tout repose sur ce chemin.
-          </p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Notes admin</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Textarea
-            value={adminNotes}
-            onChange={(e) => setAdminNotes(e.target.value)}
-            rows={4}
-            placeholder="Notes internes (non visibles par le créateur)…"
-          />
-        </CardContent>
-      </Card>
-
-      <div className="flex justify-end">
-        <Button onClick={handleSave} disabled={saving}>
-          {saving && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-          Enregistrer
-        </Button>
-      </div>
-
-      {/* P5 — Comptes du créateur (alimenté). Assignments / Paiements restent
-          des emplacements réservés (chantiers suivants). */}
-      {kind === "partner" && canEditPayTerms && peutLireBaremesGrille && (
-        <BonusGridSection
-          creatorId={creator._id}
-          current={payTerms?.bonusPricingId ?? null}
-          currency={payCurrency}
-        />
-      )}
-
-      <CreatorComptesSection creatorId={creator._id} />
-      <div className="grid gap-4 sm:grid-cols-2">
-        <FutureSection title="Assignments" />
-        <FutureSection title="Paiements" />
-      </div>
-
-      {/* Zone de danger — suppression définitive (cascade opérationnelle,
-          historique conservé sous le nom du créateur). */}
-      {peutSupprimer && (
-      <Card className="border-rose-200">
-        <CardHeader>
-          <CardTitle className="text-rose-700">Zone de danger</CardTitle>
-          <CardDescription>
-            Supprime définitivement ce créateur : ses comptes et missions en
-            cours sont effacés (combos libérés) ; ses publications et son
-            historique de paiement sont conservés sous son nom. Irréversible.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button variant="destructive" onClick={() => setDeleteOpen(true)}>
-            <Trash2Icon className="mr-2 size-4" />
-            Supprimer le créateur
-          </Button>
-        </CardContent>
-      </Card>
-      )}
-
       {/* Suppression = bloc `creators.delete`, décoché par défaut : le manager
           archive, il ne supprime pas. La zone de danger ET la modale partent
           ensemble — un bouton sans modale serait pire qu'aucun bouton. */}
@@ -904,17 +1058,6 @@ export function CreatorDetailView({
         onDeleted={() => router.push(projectPath("/createurs"))}
       />}
     </div>
-  );
-}
-
-function FutureSection({ title }: { title: string }) {
-  return (
-    <Card className="border-dashed">
-      <CardHeader>
-        <CardTitle className="text-base text-slate-500">{title}</CardTitle>
-        <CardDescription>Bientôt disponible.</CardDescription>
-      </CardHeader>
-    </Card>
   );
 }
 
@@ -1037,5 +1180,43 @@ function BonusGridSection({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/** Initiales d'un nom — « Ladidi / Sam » → « LS », « Kelly » → « KE ». */
+function initialesDe(nom: string): string {
+  const parts = nom.trim().split(/[\s/]+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+/**
+ * Une case de l'en-tête chiffré. `valeur === null` = encore en chargement : on
+ * rend un gabarit gris plutôt qu'un zéro, qui se lirait comme une réponse.
+ */
+function Chiffre({
+  libelle,
+  valeur,
+  detail,
+}: {
+  libelle: string;
+  valeur: string | null;
+  detail?: string;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5 bg-white px-4 py-3">
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+        {libelle}
+      </span>
+      {valeur === null ? (
+        <span className="mt-1 h-5 w-16 animate-pulse rounded bg-slate-100" />
+      ) : (
+        <span className="text-lg font-semibold tabular-nums tracking-tight text-slate-900">
+          {valeur}
+        </span>
+      )}
+      {detail && <span className="text-[11px] text-slate-400">{detail}</span>}
+    </div>
   );
 }
