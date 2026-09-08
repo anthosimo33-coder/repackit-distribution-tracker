@@ -9,13 +9,14 @@ import {
   assignmentViewsAndMetrics,
   computeLivePricingBreakdown,
   loadCreatorPayrollSources,
+  loadProjectPublications,
+  newViewsCache,
   type CreatorPayrollSources,
   creatorCumulViews,
   effectiveBonusPricing,
   challengeNatureRewardsDue,
   natureRewardsDue,
   assignmentCostFromBreakdown,
-  type AssignmentViewsCache,
   type PricingBreakdown,
 } from "./pricing";
 import { cyclePaymentsForCreator } from "./payments";
@@ -316,7 +317,9 @@ export const getAttribution = permissionQuery("business.read")({
       }
     }
 
-    const viewsCache: AssignmentViewsCache = new Map();
+    const viewsCache = newViewsCache(
+      await loadProjectPublications(ctx, ctx.projectId),
+    );
     // Lectures PAR CRÉATRICE (assignations, paliers, victoires de défi) : elles
     // ne dépendent pas du mois, donc une seule fois par créatrice pour TOUS ses
     // mois — sans ça, `computeLivePricingBreakdown` les relisait à chaque
@@ -675,7 +678,9 @@ export const getNatureRewards = permissionQuery("business.read")({
     // UN cache de vues pour toute la boucle : `creatorCumulViews` relisait sinon,
     // créatrice après créatrice, les publications et le dernier relevé de fenêtre
     // de chaque assignation. C'est ce qui faisait échouer cette query en prod.
-    const viewsCache: AssignmentViewsCache = new Map();
+    const viewsCache = newViewsCache(
+      await loadProjectPublications(ctx, ctx.projectId),
+    );
     for (const creator of creators) {
       const eff = await effectiveBonusPricing(ctx, creator);
       if (!eff) continue;
@@ -2325,7 +2330,9 @@ export const getReliability = permissionQuery("business.read")({
       .collect();
     // Un seul cache pour TOUTE la boucle : sans lui, cette query échouait sur la
     // limite d'opérations Convex (prod du 2026-09-06).
-    const cyclesViewsCache: AssignmentViewsCache = new Map();
+    const cyclesViewsCache = newViewsCache(
+      await loadProjectPublications(ctx, ctx.projectId),
+    );
     for (const cre of allCreators) {
       const cycles = await cyclePaymentsForCreator(
         ctx,
