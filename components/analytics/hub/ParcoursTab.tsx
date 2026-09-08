@@ -262,6 +262,22 @@ export function ParcoursTab({
           période choisie.
         </HubNotice>
       ) : null}
+      {/* Chiffres servis depuis le cache serveur APRÈS un refus de PostHog
+          (429) : ils sont vrais, mais datés. Le dire — un chiffre périmé qu'on
+          croit frais est pire qu'une erreur franche. */}
+      {windowed.data?.stale === true && windowed.data.cachedAt !== null ? (
+        <HubNotice className="border-amber-200 bg-amber-50/70 text-amber-900">
+          <strong>PostHog a refusé le recalcul</strong> (trop de requêtes). Les
+          chiffres de cette période sont ceux calculés le{" "}
+          {new Date(windowed.data.cachedAt).toLocaleString("fr-FR", {
+            day: "2-digit",
+            month: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+          .
+        </HubNotice>
+      ) : null}
       {/* Les chiffres du recalcul sont GRISÉS pendant qu'il tourne, jamais
           effacés : un écran vide se lit comme « aucune donnée », et la volée
           coûte une seconde en usage courant, dix à froid. */}

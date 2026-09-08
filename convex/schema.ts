@@ -2306,6 +2306,29 @@ export default defineSchema({
     error: v.optional(v.string()),
   }).index("by_project_key", ["projectId", "key"]),
 
+  /**
+   * Cache des agrégats PostHog RECALCULÉS SUR UNE PLAGE LIBRE (sélecteur de
+   * période du hub). Table DISTINCTE de `posthogCache`, et c'est délibéré : le
+   * hub lit `posthogCache` avec un `.collect()` de TOUTES ses lignes du projet
+   * (34 lignes, ~1 Mo aujourd'hui). Y ranger une entrée par période consultée
+   * ferait grossir cette lecture-là à chaque plage choisie — on aurait accéléré
+   * un écran en ralentissant les autres.
+   *
+   * POURQUOI CE CACHE EXISTE. `getWindowedAnalytics` lance QUINZE requêtes HogQL
+   * en direct. Mesuré en production le 2026-09-08 : p95 38,6 s, pointe 44,4 s,
+   * et HUIT échecs sur `rate_limited (429)` — PostHog refusant la volée. Le hook
+   * client mémorise déjà les plages vues, mais en mémoire de SESSION : un
+   * rechargement, un autre onglet ou un autre administrateur repayaient tout.
+   *
+   * `key` = « <from>|<to> » (jours parisiens du sélecteur).
+   */
+  posthogWindowCache: defineTable({
+    projectId: v.id("projects"),
+    key: v.string(),
+    json: v.string(),
+    computedAt: v.number(),
+  }).index("by_project_key", ["projectId", "key"]),
+
   // ─── S1 — Système de scripts combinatoire ─────────────────────────────────
   // Refonte 3 briques — une vidéo = 1 hook + 1 flux + 1 cta. Une "campagne de
   // scripts" regroupe la banque de bricks (hooks par tier + flux + cta) d'un
