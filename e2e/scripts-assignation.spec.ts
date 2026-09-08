@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
+import { assembledScriptOf } from "./helpers/assignment-script";
 import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
@@ -122,8 +123,9 @@ test.describe("S2 — assignation anti-coordination", () => {
     expect(new Set(bRows.map((x) => x.comboKey)).size).toBe(5);
     // assembledScript figé (hook+flux+cta, sans démo) + pricingSnapshot figé.
     for (const x of aRows) {
-      expect(x.scriptCombo?.assembledScript).toMatch(/Flux [12]/);
-      expect(x.scriptCombo?.assembledScript).not.toContain("## ");
+      const monte = await assembledScriptOf(admin, x._id);
+      expect(monte).toMatch(/Flux [12]/);
+      expect(monte).not.toContain("## ");
       // Pricing = source de paie ; rateSnapshot = placeholder neutre (jamais lu).
       expect(x.pricingSnapshot?.pricingId).toBe(pricingId);
       expect(x.rateSnapshot.basePerPost).toBe(0);

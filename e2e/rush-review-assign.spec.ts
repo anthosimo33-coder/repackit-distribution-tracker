@@ -3,6 +3,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
+import { assembledScriptOf } from "./helpers/assignment-script";
 import { availableTarget } from "./helpers/targets";
 import { config } from "dotenv";
 
@@ -167,7 +168,9 @@ test.describe("Rushes — revue admin et assignation d'un script", () => {
     expect(a).toBeTruthy();
     // D1 : le payé et le publieur, c'est le clippeur — jamais le talent.
     expect(a.creatorId).toBe(clipper.creatorId);
-    expect(a.scriptCombo?.assembledScript).toContain(`Accroche affichée ${ts}`);
+    expect(await assembledScriptOf(admin, a._id)).toContain(
+      `Accroche affichée ${ts}`,
+    );
     expect(a.targets).toHaveLength(1);
 
     // Le rush est retenu et pointe SON assignation.

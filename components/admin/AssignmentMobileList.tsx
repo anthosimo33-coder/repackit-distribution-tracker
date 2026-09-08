@@ -237,7 +237,7 @@ function AssignmentCard({
   const st = ASSIGNMENT_STATUS[status];
   const overdue = assignmentUrgency(row.dueDate, status, now) === "overdue";
   const editable = canEditScriptCombo({ postedAt: row.postedAt });
-  const hasScript = row.scriptCombo?.assembledScript != null;
+  const hasScript = row.hasAssembledScript;
   // Relance : uniquement quand la balle est au créateur (même règle que le garde
   // serveur nudgeAssignment — `to_publish`, géré par l'équipe, en est exclu).
   const canNudge =

@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
+import { assembledScriptOf } from "./helpers/assignment-script";
 import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
@@ -120,9 +121,10 @@ test.describe("Éditer le texte d'une brique (fork)", () => {
     expect(aAfter.scriptCombo!.fluxBrickId).toBe(aRow.scriptCombo!.fluxBrickId);
     expect(aAfter.scriptCombo!.editedOnce).toBe(true);
     // Script RE-FIGÉ : rendu créateur (sans ##), nouveau texte présent.
-    expect(aAfter.scriptCombo!.assembledScript).toContain(newText);
-    expect(aAfter.scriptCombo!.assembledScript).toContain("FLUX UNIQUE");
-    expect(aAfter.scriptCombo!.assembledScript).not.toContain("## ");
+    const monteAfter = await assembledScriptOf(admin, aAfter._id);
+    expect(monteAfter).toContain(newText);
+    expect(monteAfter).toContain("FLUX UNIQUE");
+    expect(monteAfter).not.toContain("## ");
     // PRICING strictement inchangé.
     expect(aAfter.pricingSnapshot).toEqual(pricingBefore);
 
@@ -156,7 +158,9 @@ test.describe("Éditer le texte d'une brique (fork)", () => {
     });
     expect(res2.forkedBrickId).toBeTruthy();
     const aAfter2 = (await rowsFor()).find((x) => x._id === aRow._id)!;
-    expect(aAfter2.scriptCombo!.assembledScript).toContain(`HOOK RÉ-ÉDITÉ ${ts}`);
+    expect(await assembledScriptOf(admin, aAfter2._id)).toContain(
+      `HOOK RÉ-ÉDITÉ ${ts}`,
+    );
 
     // ── PLUS DE VERROU PARTAGÉ : combo(B) PUIS texte(B) → les DEUX passent tant
     // que B n'est pas publié (le lien de publication est le seul verrou).

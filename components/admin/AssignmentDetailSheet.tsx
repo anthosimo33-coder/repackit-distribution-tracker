@@ -22,7 +22,10 @@ import {
   TypeIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useProjectMutation } from "@/components/project/use-project-convex";
+import {
+  useProjectMutation,
+  useProjectQuery,
+} from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -58,6 +61,7 @@ import {
 } from "@/components/ui/dialog";
 import type { Id } from "@/convex/_generated/dataModel";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { calendarStatus, type CalendarStatus } from "@/lib/calendar-status";
@@ -144,8 +148,18 @@ export function AssignmentDetailSheet({
     timeZone: row.creatorTimezone,
   });
   const combo = row.scriptCombo ?? null;
-  const script =
-    row.origin === "script" ? (combo?.assembledScript ?? null) : null;
+  // TEXTE du script demandé À L'OUVERTURE du panneau : la liste ne le porte plus
+  // (240 Kio sur 478 lignes, cf convex/assignments getAssignmentScript). Le
+  // panneau n'existe que quand il est ouvert, donc la requête ne part que là.
+  const scriptDoc = useProjectQuery(
+    api.assignments.getAssignmentScript,
+    open && row.origin === "script" && row.hasAssembledScript
+      ? { id: row._id }
+      : "skip",
+  );
+  /** Y a-t-il un script à montrer ? (connu SANS attendre le texte) */
+  const hasScript = row.origin === "script" && row.hasAssembledScript;
+  const script = scriptDoc?.assembledScript ?? null;
   // « Éditer le texte » : dispo TANT QUE le post n'est pas publié (même garde que
   // la vue liste — le seul verrou est le lien de publication, cf row.postedAt).
   const canEditText =
@@ -154,7 +168,7 @@ export function AssignmentDetailSheet({
     canEditScriptCombo({ postedAt: row.postedAt });
   // Script présent mais verrouillé (déjà publié) → on l'explicite au lieu de
   // masquer le bouton sans un mot (« plus jamais d'absence silencieuse »).
-  const scriptLockedPublished = script != null && !canEditText;
+  const scriptLockedPublished = hasScript && !canEditText;
   // Suppressible ? réplique pure du garde-fou serveur (published/paid bloqués).
   const deletable = canDeleteAssignment(row.status as AssignmentStatus);
   // Une vidéo a-t-elle déjà été soumise ? → la confirmation le signale (on
@@ -435,8 +449,12 @@ export function AssignmentDetailSheet({
             </DetailRow>
           </dl>
 
-          {/* Script à publier (même donnée que Validation / brief créateur) */}
-          {script ? (
+          {/* Script à publier (même donnée que Validation / brief créateur).
+              La SECTION est décidée par `hasScript`, connu dès l'ouverture ;
+              seul le TEXTE arrive ensuite. Gater la section sur le texte
+              afficherait « Pas de script monté » pendant le chargement — une
+              phrase fausse, et la pire des deux. */}
+          {hasScript ? (
             <section className="space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
@@ -471,7 +489,11 @@ export function AssignmentDetailSheet({
                 className="rounded-lg border border-slate-200 bg-slate-50 p-4"
                 data-testid="assignment-detail-script"
               >
-                <SimpleMarkdown content={script} />
+                {script === null ? (
+                  <Skeleton className="h-32 w-full" />
+                ) : (
+                  <SimpleMarkdown content={script} />
+                )}
               </div>
             </section>
           ) : (

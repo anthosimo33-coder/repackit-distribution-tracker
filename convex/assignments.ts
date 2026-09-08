@@ -870,6 +870,42 @@ export const deleteAssignment = permissionMutation("assignments.manage")({
  */
 export { representativePostedAt };
 
+/**
+ * Le combo d'une assignation SANS son texte monté.
+ *
+ * La vue liste a besoin des IDENTIFIANTS du combo (campagne + briques : les
+ * modales « modifier le combo » et « éditer le texte » les consomment), pas de
+ * son texte. Or `assembledScript` pesait 240 Kio sur les 860 Kio de la page
+ * Assignments de Snytch — 28 % du payload, rechargé à chaque visite, pour 478
+ * lignes dont on ouvre le script d'une seule.
+ *
+ * Le texte reste servi tel quel par `getAssignmentScript`, à la demande.
+ */
+function scriptComboSansTexte(combo: Doc<"assignments">["scriptCombo"]) {
+  if (combo === undefined) return undefined;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- retrait par déstructuration
+  const { assembledScript, ...reste } = combo;
+  return reste;
+}
+
+/**
+ * TEXTE MONTÉ d'une assignation, à la demande.
+ *
+ * Compagnon de `listAssignments`, qui ne le sert plus (cf
+ * `scriptComboSansTexte`). Une seule assignation, donc une seule lecture : c'est
+ * ce que coûte l'ouverture d'une modale, contre 478 textes à chaque affichage
+ * de la page.
+ */
+export const getAssignmentScript = permissionQuery("assignments.manage")({
+  args: { id: v.id("assignments") },
+  handler: async (ctx, { id }): Promise<{ assembledScript: string } | null> => {
+    const a = await ctx.db.get(id);
+    if (!a || a.projectId !== ctx.projectId) return null;
+    const texte = a.scriptCombo?.assembledScript;
+    return texte === undefined ? null : { assembledScript: texte };
+  },
+});
+
 export const listAssignments = permissionQuery("assignments.manage")({
   args: {},
   handler: async (ctx) => {
@@ -995,7 +1031,14 @@ export const listAssignments = permissionQuery("assignments.manage")({
           creatorId: a.creatorId,
           creatorNameSnapshot: a.creatorNameSnapshot,
           formatId: a.formatId,
-          scriptCombo: a.scriptCombo,
+          // ⚠️ SANS `assembledScript` — cf `scriptCombo` ci-dessous. Le TEXTE du
+          // script ne descend PAS dans la liste : il n'y est jamais affiché, et
+          // il pesait 240 Kio sur les 860 Kio de la page (28 %), rechargés à
+          // chaque visite pour 478 lignes dont on en ouvre une. Il se lit à la
+          // demande, par `getAssignmentScript`.
+          scriptCombo: scriptComboSansTexte(a.scriptCombo),
+          /** Y a-t-il un script monté ? (le texte, lui, se demande à part) */
+          hasAssembledScript: a.scriptCombo?.assembledScript != null,
           comboKey: a.comboKey,
           comboImposed: a.comboImposed,
           replayedFrom: a.replayedFrom,

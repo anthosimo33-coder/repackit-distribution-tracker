@@ -15,6 +15,7 @@ import { isBonusTierPost, isPromoPost } from "./viewCounters";
 import {
   aggregatePayWindow,
   payWindowEndsAt,
+  payWindowIsClosed,
   retainedViews,
   type RetainedViews,
 } from "./payWindow";
@@ -469,15 +470,26 @@ export async function assignmentViewsAndMetrics(
     // DERNIER relevé de la fenêtre de paie. La borne est un instant, donc elle
     // se lit directement dans l'index sur capturedAt — inutile de charger la
     // série pour filtrer sur daysSincePublication (cf payWindowEndsAt).
-    const windowSnapshot = await ctx.db
-      .query("metricSnapshots")
-      .withIndex("by_publication_and_capturedAt", (q) =>
-        q
-          .eq("publicationId", pid)
-          .lt("capturedAt", payWindowEndsAt(pub.datePubli)),
-      )
-      .order("desc")
-      .first();
+    //
+    // ⚠️ INTERROGÉ SEULEMENT SI LA FENÊTRE EST CLOSE. `retainedViews` rend la
+    // main AVANT de regarder ce relevé quand la fenêtre est encore ouverte :
+    // l'assiette vaut alors les vues mesurées, quel que soit le relevé. On
+    // payait donc une lecture indexée PAR PUBLICATION pour un résultat jeté —
+    // et sur Snytch au 08/09/2026, 384 publications sur 449 (86 %) sont dans ce
+    // cas. Le `now` est le MÊME que celui passé à `retainedViews` juste après :
+    // les deux doivent lire la même fenêtre, sinon on se met à sauter des
+    // lectures dont le calcul, lui, aurait besoin.
+    const windowSnapshot = payWindowIsClosed(pub.datePubli, now)
+      ? await ctx.db
+          .query("metricSnapshots")
+          .withIndex("by_publication_and_capturedAt", (q) =>
+            q
+              .eq("publicationId", pid)
+              .lt("capturedAt", payWindowEndsAt(pub.datePubli)),
+          )
+          .order("desc")
+          .first()
+      : null;
     const retained = retainedViews({
       datePubli: pub.datePubli,
       measuredViews: measured,
