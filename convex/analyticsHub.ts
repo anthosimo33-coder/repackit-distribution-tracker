@@ -8,6 +8,8 @@ import {
   assignmentPublishedAt,
   assignmentViewsAndMetrics,
   computeLivePricingBreakdown,
+  loadCreatorPayrollSources,
+  type CreatorPayrollSources,
   creatorCumulViews,
   effectiveBonusPricing,
   challengeNatureRewardsDue,
@@ -315,6 +317,24 @@ export const getAttribution = permissionQuery("business.read")({
     }
 
     const viewsCache: AssignmentViewsCache = new Map();
+    // Lectures PAR CRÉATRICE (assignations, paliers, victoires de défi) : elles
+    // ne dépendent pas du mois, donc une seule fois par créatrice pour TOUS ses
+    // mois — sans ça, `computeLivePricingBreakdown` les relisait à chaque
+    // (créatrice, mois). Cf CreatorPayrollSources.
+    const sourcesByCreator = new Map<string, CreatorPayrollSources>();
+    const sourcesFor = async (
+      creatorId: Id<"creators">,
+    ): Promise<CreatorPayrollSources> => {
+      const cached = sourcesByCreator.get(creatorId as string);
+      if (cached) return cached;
+      const loaded = await loadCreatorPayrollSources(
+        ctx,
+        ctx.projectId,
+        creatorId,
+      );
+      sourcesByCreator.set(creatorId as string, loaded);
+      return loaded;
+    };
     // Coût : un breakdown par (créatrice, mois EUROPE/PARIS), mémoïsé — le moteur
     // est la SEULE source du chiffre (aucun recalcul ici).
     const breakdowns = new Map<string, PricingBreakdown>();
@@ -338,6 +358,7 @@ export const getAttribution = permissionQuery("business.read")({
         // jamais à payer (le paiement passe par markCyclePaid → cycles J+30).
         monthKeyParis,
         viewsCache,
+        await sourcesFor(creatorId),
       );
       breakdowns.set(key, b);
       return b;
@@ -651,12 +672,21 @@ export const getNatureRewards = permissionQuery("business.read")({
     // Regroupement par PALIER (seuil + libellé) : trois créatrices sur « iPhone 17
     // à 10 M » forment une ligne à trois engagements, pas trois lignes.
     const byTier = new Map<string, NatureRewardRow>();
+    // UN cache de vues pour toute la boucle : `creatorCumulViews` relisait sinon,
+    // créatrice après créatrice, les publications et le dernier relevé de fenêtre
+    // de chaque assignation. C'est ce qui faisait échouer cette query en prod.
+    const viewsCache: AssignmentViewsCache = new Map();
     for (const creator of creators) {
       const eff = await effectiveBonusPricing(ctx, creator);
       if (!eff) continue;
       const natureTiers = eff.tiers.filter((t) => t.rewardType === "nature");
       if (natureTiers.length === 0) continue;
-      const cumul = await creatorCumulViews(ctx, ctx.projectId, creator._id);
+      const cumul = await creatorCumulViews(
+        ctx,
+        ctx.projectId,
+        creator._id,
+        viewsCache,
+      );
       for (const t of natureTiers) {
         const key = `${t.seuilVues}|${t.libelle ?? ""}`;
         const row: NatureRewardRow = byTier.get(key) ?? {

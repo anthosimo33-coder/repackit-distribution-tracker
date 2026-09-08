@@ -3,7 +3,11 @@ import {
 } from "./functions";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { computeLivePricingBreakdown, assignmentPublishedAt } from "./pricing";
+import {
+  computeLivePricingBreakdown,
+  loadCreatorPayrollSources,
+  assignmentPublishedAt,
+} from "./pricing";
 import { monthKeyParis } from "./dateFr";
 import { projectFx, summarizeWhopRevenue } from "./whopRevenue";
 import { collectProjectWhopPayments } from "./whopPaymentsAccess";
@@ -83,6 +87,9 @@ async function creatorCostByMonth(
   for (const u of unlocks) activeMonths.add(u.attributionPeriod);
 
   const out = new Map<string, { cost: number; billedViews: number }>();
+  // Une seule lecture des sources de la créatrice pour TOUS ses mois : le
+  // moteur les relisait sinon à chaque tour de boucle (cf CreatorPayrollSources).
+  const sources = await loadCreatorPayrollSources(ctx, projectId, creator._id);
   for (const month of activeMonths) {
     const bd = await computeLivePricingBreakdown(
       ctx,
@@ -91,6 +98,8 @@ async function creatorCostByMonth(
       month,
       new Set(),
       monthKeyParis,
+      undefined,
+      sources,
     );
     // Les vues FACTURÉES viennent du MÊME appel que le coût : c'est la seule
     // façon que le dénominateur du RPM et son numérateur décrivent le même
