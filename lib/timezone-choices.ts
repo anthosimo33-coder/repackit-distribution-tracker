@@ -93,3 +93,43 @@ export function utcOffsetLabel(
 export function zoneLabel(zone: string): string {
   return TIMEZONE_CHOICES.find((c) => c.zone === zone)?.label ?? zone;
 }
+
+/**
+ * TOUS les fuseaux IANA que le runtime connaît (~420), triés.
+ *
+ * ⚠️ AUCUNE LISTE ÉCRITE À LA MAIN. `Intl.supportedValuesOf` est adossé à la
+ * base ICU livrée avec le navigateur : elle suit les créations, fusions et
+ * renommages de fuseaux sans qu'on y touche. Une liste figée aurait vieilli, et
+ * un fuseau manquant se paie en jours de warmup comptés au mauvais endroit.
+ *
+ * Repli sur les fuseaux mis en avant quand l'API manque (runtime ancien) : mieux
+ * vaut le choix d'avant que pas de choix du tout.
+ */
+export function allTimezones(): string[] {
+  try {
+    const f = (
+      Intl as unknown as { supportedValuesOf?: (k: string) => string[] }
+    ).supportedValuesOf;
+    const zones = typeof f === "function" ? f.call(Intl, "timeZone") : null;
+    if (Array.isArray(zones) && zones.length > 0) return [...zones].sort();
+  } catch {
+    /* runtime sans supportedValuesOf → repli ci-dessous */
+  }
+  return TIMEZONE_CHOICES.map((c) => c.zone).sort();
+}
+
+/**
+ * « Europe/Belgrade » → « Belgrade », « America/Argentina/Buenos_Aires » →
+ * « Buenos Aires ». La ville est ce qu'on cherche ; le continent sert de
+ * regroupement, pas d'identifiant.
+ */
+export function zoneCity(zone: string): string {
+  const dernier = zone.split("/").pop() ?? zone;
+  return dernier.replaceAll("_", " ");
+}
+
+/** « Europe/Belgrade » → « Europe ». Vide pour un identifiant sans préfixe (UTC). */
+export function zoneArea(zone: string): string {
+  const parts = zone.split("/");
+  return parts.length > 1 ? parts[0].replaceAll("_", " ") : "";
+}

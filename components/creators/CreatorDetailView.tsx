@@ -84,21 +84,9 @@ import {
   normalizeLocale,
   type Locale,
 } from "@/i18n/locales";
-import {
-  TIMEZONE_CHOICES,
-  utcOffsetLabel,
-  zoneLabel,
-} from "@/lib/timezone-choices";
+import { utcOffsetLabel, zoneLabel } from "@/lib/timezone-choices";
+import { TimezonePicker, TZ_NONE } from "@/components/creators/TimezonePicker";
 import { usePermissions } from "@/components/project/use-permissions";
-
-/**
- * Valeur sentinelle du <Select> pour « non défini ».
- *
- * Un `<SelectItem value="">` est refusé par le composant partagé (il confond la
- * chaîne vide avec « rien de sélectionné »), d'où la sentinelle — même patron
- * que COUNTRY_NONE dans CompteDialog.
- */
-const TZ_NONE = "none";
 
 type Creator = NonNullable<FunctionReturnType<typeof api.creators.getCreator>>;
 /** Conditions de rémunération — SECONDE lecture, gardée par `creators.pay_terms`.
@@ -598,23 +586,11 @@ export function CreatorDetailView({
                       </span>
                     )}
                   </div>
-                  <Select
-                    value={timezone}
-                    onValueChange={(v) => setTimezone(v === TZ_NONE ? "" : (v ?? ""))}
-                  >
-                    <SelectTrigger id="creator-timezone" aria-label="Fuseau horaire">
-                      <SelectValue>{timezoneLabel}</SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={TZ_NONE}>Non défini</SelectItem>
-                      {TIMEZONE_CHOICES.map((c) => (
-                        <SelectItem key={c.zone} value={c.zone}>
-                          {c.label}
-                          {utcOffsetLabel(c.zone) ? ` — ${utcOffsetLabel(c.zone)}` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <TimezonePicker
+                    id="creator-timezone"
+                    value={timezone === "" ? TZ_NONE : timezone}
+                    onChange={(v) => setTimezone(v === TZ_NONE ? "" : v)}
+                  />
                   <p className="text-xs text-slate-500">
                     Sert de référence aux dates : jours de warmup, échéances et
                     relances. Un pays ne détermine pas un fuseau — les États-Unis en

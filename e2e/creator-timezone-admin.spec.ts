@@ -25,6 +25,42 @@ const convex = createE2eClient(convexUrl);
  * l'écran, jamais sur la seule absence d'erreur.
  */
 test.describe("Fiche créatrice — fuseau horaire", () => {
+  test("un fuseau hors des dix-sept mis en avant se trouve et se persiste", async ({
+    page,
+  }) => {
+    // Le sélecteur n'en proposait que dix-sept ; le serveur, lui, a toujours
+    // accepté n'importe quel identifiant IANA. Une créatrice à Belgrade se
+    // voyait donc attribuer « Paris » — un jour de warmup compté au mauvais
+    // endroit, en silence.
+    const ts = Date.now();
+    const A = await createCreatorSession(convexUrl, {
+      name: `[E2E_TEST] TZ large ${ts}`,
+      email: `e2e-tzlarge-${ts}@repackit.test`,
+      password: "creator-tzlarge-12345",
+    });
+
+    await page.goto(adminPath(`/createurs/${A.creatorId}`));
+    const select = page.getByRole("combobox", { name: "Fuseau horaire" });
+    await expect(select).toBeVisible({ timeout: 10000 });
+    await select.click();
+    await page.getByPlaceholder("Cherche une ville ou un décalage…").fill("Belgrade");
+    await page.getByRole("option", { name: /Belgrade/ }).click();
+    await expect(select).toHaveText(/Belgrade/);
+    await page.getByRole("button", { name: /Enregistrer/ }).first().click();
+
+    await expect
+      .poll(
+        async () =>
+          (
+            await convex.query(api.creators.getCreatorTimezone, {
+              id: A.creatorId,
+            })
+          ).timezone,
+        { timeout: 10000 },
+      )
+      .toBe("Europe/Belgrade");
+  });
+
   test("l'admin peut poser un fuseau, et la provenance passe à « saisi »", async ({
     page,
   }) => {
