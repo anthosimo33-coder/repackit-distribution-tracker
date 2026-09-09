@@ -41,7 +41,12 @@ import {
   getStatusBadge,
   type CompteStatus,
 } from "@/lib/compte-status";
-import { warmupProgress, lastCheck, checkedToday } from "@/lib/warmup";
+import { lastCheck } from "@/lib/warmup";
+import {
+  warmupStateOf,
+  compareUrgence,
+  type WarmupState,
+} from "@/lib/compte-warmup-state";
 import {
   groupComptes,
   collisionsDeMesure,
@@ -231,21 +236,35 @@ function ComptesPageInner() {
    */
   const [maintenant] = useState(() => Date.now());
 
-  /** Comptes en chauffe dont le check du jour n'est pas encore posé. */
-  const checksDus = useMemo(() => {
-    return (comptes ?? []).filter(
-      (c) =>
-        getEffectiveStatus(c) === "warmup" &&
-        !c.warmupDone &&
-        // Le jour est celui de la CRÉATRICE, servi par le serveur — jamais
-        // l'horloge du navigateur de l'équipe.
-        !checkedToday(
-          c.warmupProtocol?.dailyChecks ?? [],
-          maintenant,
-          c.creatorTimezone ?? null,
-        ),
-    );
+  /**
+   * Chauffes qui réclament un geste, la plus en retard d'abord. Trois états
+   * distincts au lieu d'un seul « warmup » : ce qui TRAÎNE ne se confond plus
+   * avec le check ordinaire du jour.
+   */
+  const aTraiter = useMemo(() => {
+    return (comptes ?? [])
+      .map((c) => ({ compte: c, etat: warmupStateOf(c, maintenant) }))
+      .filter(
+        (x) => x.etat.kind === "enSouffrance" || x.etat.kind === "duJour",
+      )
+      .sort((a, b) => compareUrgence(a.etat, b.etat));
   }, [comptes, maintenant]);
+
+  const enSouffrance = aTraiter.filter(
+    (x) => x.etat.kind === "enSouffrance",
+  ).length;
+
+  /**
+   * Comptes ACTIFS qui n'ont jamais rien publié — six sur vingt-sept en
+   * production. Rien ne les distinguait d'un compte qui tourne.
+   */
+  const jamaisPublie = useMemo(
+    () =>
+      (comptes ?? []).filter(
+        (c) => getEffectiveStatus(c) === "actif" && c.perf.nbPublies === 0,
+      ).length,
+    [comptes],
+  );
 
   /** Deux comptes d'une même plateforme sur la même clé de mesure (cf #196). */
   const collisions = useMemo(
@@ -276,6 +295,10 @@ function ComptesPageInner() {
     if (counts.shadowban > 0) parts.push(`${counts.shadowban} shadowban`);
     if (counts.archived > 0)
       parts.push(`${counts.archived} archivé${counts.archived > 1 ? "s" : ""}`);
+    if (jamaisPublie > 0)
+      // Invariable : la ligne est une suite de compteurs (« 27 actifs · 4
+      // warmup · 6 sans publication »), pas une phrase.
+      parts.push(`${jamaisPublie} sans publication`);
     if (totalVuesProjet > 0)
       parts.push(`${nfFR.format(totalVuesProjet)} vues cumulées`);
     return parts.join(" · ");
@@ -316,39 +339,54 @@ function ComptesPageInner() {
         </div>
       </header>
 
-      {/* Le seul travail QUOTIDIEN de cet écran : les checks de chauffe. Il
-          fallait les repérer dans une colonne vide 29 fois sur 33. */}
-      {checksDus.length > 0 && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-amber-200 bg-amber-50/70 px-3.5 py-2.5 text-sm">
-          {/* Phrase construite en JS : en JSX, le texte qui suit une
-              interpolation rendant "" perd son espace (« 1 checkde warmup »),
-              et un point renvoyé à la ligne en gagne un (« en double . »). */}
-          <span className="font-semibold text-amber-900">
-            {`${checksDus.length} check${checksDus.length > 1 ? "s" : ""} de warmup à faire aujourd'hui`}
+      {/* Le seul travail QUOTIDIEN de cet écran : les checks de chauffe. Une
+          chauffe qui TRAÎNE n'est pas un check du jour : sur le parc réel,
+          @sofiamatcha22 tournait depuis 26 jours avec zéro check, en publiant
+          déjà des posts rémunérés, et rien ne le disait plus fort qu'un compte
+          démarré la veille. Le bandeau passe donc au rouge dès qu'une chauffe
+          a dépassé sa durée, et cite l'ÂGE — que `missedDays`, plafonné à la
+          durée cible, ne peut pas dire. */}
+      {aTraiter.length > 0 && (
+        <div
+          className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border px-3.5 py-2.5 text-sm ${
+            enSouffrance > 0
+              ? "border-rose-200 bg-rose-50/70"
+              : "border-amber-200 bg-amber-50/70"
+          }`}
+        >
+          <span
+            className={`font-semibold ${enSouffrance > 0 ? "text-rose-900" : "text-amber-900"}`}
+          >
+            {enSouffrance > 0
+              ? `${enSouffrance} chauffe${enSouffrance > 1 ? "s" : ""} en souffrance`
+              : `${aTraiter.length} check${aTraiter.length > 1 ? "s" : ""} de warmup à faire aujourd'hui`}
           </span>
           <div className="flex flex-wrap items-center gap-1.5">
-            {checksDus.slice(0, 6).map((c) => {
-              const p = warmupProgress(
-                c.warmupProtocol?.dailyChecks?.length ?? 0,
-                c.targetDays,
-              );
-              return (
-                <Link
-                  key={c._id}
-                  href={projectPath(`/comptes/${c._id}`)}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-white px-2 py-0.5 font-mono text-xs text-amber-900 hover:bg-amber-100"
+            {aTraiter.slice(0, 6).map(({ compte: c, etat }) => (
+              <Link
+                key={c._id}
+                href={projectPath(`/comptes/${c._id}`)}
+                className={`inline-flex items-center gap-1.5 rounded-md border bg-white px-2 py-0.5 font-mono text-xs ${
+                  etat.kind === "enSouffrance"
+                    ? "border-rose-200 text-rose-900 hover:bg-rose-100"
+                    : "border-amber-200 text-amber-900 hover:bg-amber-100"
+                }`}
+              >
+                {c.handle}
+                <span
+                  className={
+                    etat.kind === "enSouffrance"
+                      ? "text-rose-600"
+                      : "text-amber-600"
+                  }
                 >
-                  {c.handle}
-                  <span className="text-amber-600">
-                    J{p.day}/{p.targetDays}
-                  </span>
-                </Link>
-              );
-            })}
-            {checksDus.length > 6 && (
-              <span className="text-xs text-amber-700">
-                … et {checksDus.length - 6} autre
-                {checksDus.length - 6 > 1 ? "s" : ""}
+                  {etiquetteChauffe(etat)}
+                </span>
+              </Link>
+            ))}
+            {aTraiter.length > 6 && (
+              <span className="text-xs text-slate-500">
+                {`… et ${aTraiter.length - 6} autre${aTraiter.length - 6 > 1 ? "s" : ""}`}
               </span>
             )}
           </div>
@@ -546,6 +584,7 @@ function ComptesPageInner() {
                         compte={c}
                         href={projectPath(`/comptes/${c._id}`)}
                         tLabel={tLabel}
+                        maintenant={maintenant}
                         creatorRedondant={groupe === "creator"}
                         onEdit={() => setEditTarget(c)}
                       />
@@ -580,12 +619,15 @@ function LigneCompte({
   compte: c,
   href,
   tLabel,
+  maintenant,
   creatorRedondant,
   onEdit,
 }: {
   compte: CompteRow;
   href: string;
   tLabel: ReturnType<typeof useLabel>;
+  /** Instant de référence, figé par l'écran (cf son commentaire). */
+  maintenant: number;
   /**
    * Vrai quand le groupe porte déjà ce nom, juste au-dessus. On ne RETIRE pas
    * la cellule pour autant : elle reste le fait de la ligne, et la spec de
@@ -597,16 +639,9 @@ function LigneCompte({
 }) {
   const badge = getStatusBadge(c);
   const statut = getEffectiveStatus(c);
-  const isWarmup = statut === "warmup";
-  // Durée servie par le serveur — jamais recalculée ici.
-  const progress =
-    isWarmup && c.warmupStartedAt !== undefined
-      ? warmupProgress(
-          c.warmupProtocol?.dailyChecks?.length ?? 0,
-          c.targetDays,
-        )
-      : null;
+  const etat = warmupStateOf(c, maintenant);
   const last = lastCheck(c.warmupProtocol?.dailyChecks ?? []);
+  const jamaisPublie = statut === "actif" && c.perf.nbPublies === 0;
 
   return (
     <TableRow className={cn(statut === "archived" && "opacity-50")}>
@@ -647,12 +682,27 @@ function LigneCompte({
           >
             {tLabel(badge.labelKey, badge.params)}
           </span>
-          {progress && (
+          {/* UNIQUEMENT la souffrance. La pastille de statut porte déjà
+              « Warmup J+{done}/{target} » : ajouter « J1/7 » à côté aurait mis
+              deux compteurs différents du même warmup sur la même ligne. Ce
+              qu'elle ne sait pas dire, en revanche, c'est depuis QUAND ça
+              traîne — et c'est ça qui décide de l'ordre des relances. */}
+          {etat.kind === "enSouffrance" && (
             <span
-              className="text-xs text-slate-500"
-              title={last ? `Dernier check ${last}` : "Aucun check"}
+              className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-700"
+              title={last ? `Dernier check ${last}` : "Aucun check posé"}
             >
-              J{progress.day}/{progress.targetDays}
+              {etiquetteChauffe(etat, { nommerLEtat: true })}
+            </span>
+          )}
+          {/* Six comptes actifs sur vingt-sept n'ont jamais rien publié : ils
+              étaient indistinguables d'un compte qui tourne. */}
+          {jamaisPublie && (
+            <span
+              className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-500"
+              title="Compte actif qui n'a encore aucune publication"
+            >
+              jamais publié
             </span>
           )}
           {c.personne && (
@@ -753,6 +803,30 @@ function EnteteGroupe({
       )}
     </div>
   );
+}
+
+/**
+ * Libellé court d'une chauffe. En souffrance, c'est l'ÂGE qui parle — « 26 j,
+ * 0 check » — parce que c'est lui qui dit à qui téléphoner en premier. En
+ * cours, la progression suffit.
+ */
+function etiquetteChauffe(
+  etat: WarmupState,
+  /**
+   * Le bandeau annonce déjà « N chauffes en souffrance » dans son titre :
+   * répéter les mots sur chaque pastille en dessous ne dit rien de plus. Sur la
+   * ligne du tableau, en revanche, rien ne les porte — il les faut.
+   */
+  opts: { nommerLEtat?: boolean } = {},
+): string {
+  if (etat.kind === "enSouffrance") {
+    const mesure = `${etat.age} j, ${etat.checks} check${
+      etat.checks > 1 ? "s" : ""
+    }`;
+    return opts.nommerLEtat ? `en souffrance · ${mesure}` : mesure;
+  }
+  if (etat.kind === "aValider") return "à valider";
+  return `J${etat.day}/${etat.targetDays}`;
 }
 
 function SortHeader({
