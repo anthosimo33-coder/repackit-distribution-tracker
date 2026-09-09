@@ -41,7 +41,7 @@ import {
 } from "./radarApi";
 // Pays supportés + validation = SOURCE UNIQUE partagée (cf convex/countries),
 // réutilisée aussi par comptes.targetCountry (aucune duplication de la liste).
-import { SUPPORTED_COUNTRIES as SUPPORTED_TREND_COUNTRIES, assertCountry } from "./countries";
+import { TREND_COUNTRIES as SUPPORTED_TREND_COUNTRIES, assertCountry } from "./countries";
 import { hasRole } from "./roles";
 
 /**
