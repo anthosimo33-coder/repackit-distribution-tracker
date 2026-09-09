@@ -184,6 +184,37 @@ export function withPortalRole(
 }
 
 /**
+ * REMPLACE LE RÔLE D'ÉQUIPE SANS TOUCHER AU PORTAIL — jumeau de
+ * `withPortalRole`, et pour la même raison.
+ *
+ * ⚠️ C'EST CE HELPER QUI DÉBLOQUE LA RÉTROGRADATION. Composée des deux gestes
+ * existants, elle était IMPOSSIBLE dans les deux ordres : `removeRole("admin")`
+ * refuse (« c'est son dernier rôle »), et `addRole("manager")` refuse aussi
+ * (admin + manager, ci-dessous). Chaque refus est juste pris isolément ; c'est
+ * leur composition qui n'existait pas. L'échange doit donc être UNE écriture,
+ * pas deux — et le passage par l'état intermédiaire interdit ne doit jamais
+ * exister, même une milliseconde.
+ *
+ * Le rôle de portail est PRÉSERVÉ : rétrograder une créatrice-manager ne lui
+ * retire pas son espace. `roleSetProblem` reste juge du résultat — c'est lui,
+ * et non ce helper, qui refusera « admin + créatrice ».
+ */
+export function withTeamRole(
+  current: ReadonlySet<MembershipRole> | readonly string[],
+  team: TeamRole,
+): MembershipRole[] {
+  const effectifs =
+    current instanceof Set
+      ? (current as ReadonlySet<MembershipRole>)
+      : rolesOf({ roles: current as readonly string[] });
+  const gardes = new Set<MembershipRole>(
+    [...effectifs].filter((r) => !isTeamRole(r)),
+  );
+  gardes.add(team);
+  return MEMBERSHIP_ROLES.filter((r) => gardes.has(r));
+}
+
+/**
  * COMBINAISONS INTERDITES — la règle, en un seul endroit, côté serveur.
  *
  * Rend le motif de refus (phrase lisible par la personne qui clique), ou `null`

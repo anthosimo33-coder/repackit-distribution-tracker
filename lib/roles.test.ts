@@ -12,6 +12,7 @@ import {
   rolesOf,
   teamRoleOf,
   withPortalRole,
+  withTeamRole,
   isPortalRole,
   isTeamRole,
   kindForRole,
@@ -333,6 +334,55 @@ describe("hasRole / portalRoleOf / teamRoleOf", () => {
   it("null quand la famille est absente", () => {
     expect(portalRoleOf({ roles: ["manager"] })).toBeNull();
     expect(teamRoleOf({ roles: ["creator"] })).toBeNull();
+  });
+});
+
+describe("withTeamRole — échanger un rôle d'équipe sans perdre l'espace", () => {
+  it("ADMIN → MANAGER en une seule liste (l'échange que deux gestes ne savent pas faire)", () => {
+    // Composé, ce geste est impossible : retirer « admin » d'abord lève (dernier
+    // rôle), ajouter « manager » d'abord lève aussi (admin + manager). Le seul
+    // chemin est de poser l'ensemble d'arrivée directement.
+    expect(withTeamRole(rolesOf({ roles: ["admin"] }), "manager")).toEqual([
+      "manager",
+    ]);
+  });
+
+  it("MANAGER → ADMIN, et le manager ne survit pas à côté", () => {
+    const apres = withTeamRole(rolesOf({ roles: ["manager"] }), "admin");
+    expect(apres).toEqual(["admin"]);
+    // Assertion de PRÉSENCE en regard : c'est bien un échange, pas un ajout.
+    expect(apres).toHaveLength(1);
+  });
+
+  it("PRÉSERVE l'espace créateur — c'est tout l'objet du helper", () => {
+    // Une créatrice-manager rétrogradée… n'existe pas (elle n'est pas admin),
+    // mais la propriété doit tenir pour tout portail : le helper ne connaît que
+    // les rôles d'ÉQUIPE, et `roleSetProblem` juge le résultat après lui.
+    expect(withTeamRole(rolesOf({ roles: ["creator", "admin"] }), "manager")).toEqual([
+      "manager",
+      "creator",
+    ]);
+    expect(withTeamRole(rolesOf({ roles: ["talent", "manager"] }), "admin")).toEqual([
+      "admin",
+      "talent",
+    ]);
+  });
+
+  it("est REJOUABLE : reposer le même rôle ne l'empile pas", () => {
+    // Deux clics sur « Rétrograder » (ou un retry réseau) doivent aboutir au
+    // même ensemble. Comparer deux appels l'un à l'autre ne prouverait rien —
+    // deux fois le même défaut sont égaux entre eux.
+    const une = withTeamRole(rolesOf({ roles: ["admin"] }), "manager");
+    expect(une).toEqual(["manager"]);
+    expect(withTeamRole(une, "manager")).toEqual(["manager"]);
+  });
+
+  it("ignore une valeur qui n'est pas un rôle connu", () => {
+    // Même discipline que `rolesOf` : une chaîne écrite à la main en base ne
+    // survit pas à une écriture, elle n'ouvre rien.
+    expect(withTeamRole(["admin", "superadmin", "*"], "manager")).toEqual([
+      "manager",
+    ]);
   });
 });
 

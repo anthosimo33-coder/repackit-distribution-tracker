@@ -249,18 +249,22 @@ export const describeMember = internalQuery({
  * décrirait pas le geste — devenir admin n'est pas cocher vingt cases, c'est
  * passer avant l'endroit où on les lit.
  */
-const ROLE_ADMIN_TRACE = "role:admin";
+export const ROLE_ADMIN_TRACE = "role:admin";
 
 /**
- * PASSE UN MANAGER EN ADMINISTRATEUR DU PROJET — le chemin manquant, et
- * délibérément hors écran.
+ * PASSE UN MANAGER EN ADMINISTRATEUR DU PROJET, EN LIGNE DE COMMANDE.
  *
- * `convex/team.ts` sait faire descendre (promoteToManager) mais refuse de
- * toucher un `admin` : « rétrograder quelqu'un qui administre le projet n'est
- * pas un geste de configuration ». La montée obéit à la même règle, dans l'autre
- * sens — accorder d'un clic, depuis une liste, le rôle qui passe AVANT toute
- * permission serait exactement le geste qu'on ne veut pas voir fait par
- * inadvertance. D'où la ligne de commande, avec la cible nommée :
+ * ⚠️ CE N'EST PLUS LE SEUL CHEMIN. `team.setTeamRole` fait le même geste depuis
+ * l'écran « Rôles et droits » (et sait, lui, redescendre). Cette fonction reste
+ * pour deux cas que l'écran ne couvre pas : un projet où plus personne ne peut
+ * ouvrir l'écran, et l'amorçage d'un déploiement neuf.
+ *
+ * Ce commentaire disait auparavant que la montée était « délibérément hors
+ * écran », au motif qu'accorder d'un clic le rôle qui passe AVANT toute
+ * permission serait un geste fait par inadvertance. La crainte était juste, la
+ * conclusion trop large : l'écran la traite en EXIGEANT QU'ON RECOPIE L'E-MAIL
+ * de la personne, exactement comme `convex-prod.sh` exige qu'on recopie le nom
+ * du déploiement. Ce qu'on refuse, c'est un clic distrait, pas une interface.
  *
  *   ./scripts/convex-prod.sh run memberPermissions:promoteToProjectAdmin \
  *     '{"email":"…","projectSlug":"snytch"}'
