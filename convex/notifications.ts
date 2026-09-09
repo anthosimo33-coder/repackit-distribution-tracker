@@ -43,6 +43,7 @@ import {
   isOverdueMission,
   missionDaysLate,
   warmupMissedDays,
+  isNeverMeasured,
 } from "./opsDigest";
 import { effectiveStatus } from "./comptes";
 import { resolveCreatorKind } from "./roles";
@@ -1117,6 +1118,47 @@ export const collectDigest = internalQuery({
       chauffeSansTalent.sort((a, b) => a.joursRestants - b.joursRestants);
     }
 
+    // ── Publications publiées que le relevé n'a JAMAIS vues ────────────────
+    // Le relevé ne balaie que les comptes actifs des 30 derniers jours : une
+    // publication qui sort de cette fenêtre sans avoir jamais été mesurée
+    // devient DÉFINITIVEMENT immesurable — ses vues n'existeront jamais, elle
+    // ne paie rien et n'entre dans aucune moyenne. Le digest est le seul canal
+    // qui puisse la rattraper tant qu'elle est encore dans la fenêtre.
+    //
+    // Un seul balayage indexé des relevés du projet (≈ 7 200 lignes sur
+    // Snytch), pas de lecture par publication.
+    const jamaisMesurees: { compte: string; joursDepuisPubli: number }[] = [];
+    {
+      const releves = await ctx.db
+        .query("metricSnapshots")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect();
+      const mesurees = new Set<string>(releves.map((r) => r.publicationId));
+      const pubs = await ctx.db
+        .query("publications")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect();
+      for (const pub of pubs) {
+        if (
+          isNeverMeasured(
+            {
+              postUrl: pub.postUrl,
+              datePubli: pub.datePubli,
+              snapshots: mesurees.has(pub._id) ? 1 : 0,
+            },
+            now,
+          )
+        ) {
+          jamaisMesurees.push({
+            compte: pub.compte,
+            joursDepuisPubli: Math.floor((now - pub.datePubli) / 86_400_000),
+          });
+        }
+      }
+      // La plus ancienne d'abord : c'est celle dont la fenêtre se referme.
+      jamaisMesurees.sort((a, b) => b.joursDepuisPubli - a.joursDepuisPubli);
+    }
+
     // ── Renouvellements échoués que Whop VA relancer ───────────────────────
     // Contrepartie de l'arbitrage « immédiat seulement si non relançable » :
     // ceux-là ne disparaissent pas, ils changent de canal. Même bascule que
@@ -1150,6 +1192,7 @@ export const collectDigest = internalQuery({
           0,
           DIGEST_SECTION_LIMIT,
         ),
+        jamaisMesurees: jamaisMesurees.slice(0, DIGEST_SECTION_LIMIT),
       },
     };
   },

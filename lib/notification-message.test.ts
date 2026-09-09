@@ -466,6 +466,7 @@ const EMPTY: DigestSections = {
   warmupLate: [],
   retryableRenewalFailures: [],
   chauffeSansTalent: [],
+      jamaisMesurees: [],
 };
 
 describe("buildDigestMessage", () => {
@@ -574,6 +575,7 @@ describe("buildDigestMessage", () => {
         warmupLate: [{ handle: "@kelly.repack", missedDays: 3 }],
         retryableRenewalFailures: [],
         chauffeSansTalent: [],
+      jamaisMesurees: [],
       },
       appBaseUrl: BASE,
       projectSlug: SLUG,
@@ -618,7 +620,11 @@ function everyMessage(): string[] {
     chauffeSansTalent: [
       { handle: "@clip.marine", clipperName: "Yanis", joursRestants: 1 },
     ],
-  };
+      jamaisMesurees: [
+      { compte: "@sarahkl02", joursDepuisPubli: 19 },
+      { compte: "@withorlane", joursDepuisPubli: 34 },
+    ],
+};
   return [
     buildSubmissionMessage({
       ctx: CTX,
@@ -950,6 +956,7 @@ describe("digest — warmups terminés en attente de validation", () => {
     warmupReady: [],
     retryableRenewalFailures: [],
     chauffeSansTalent: [],
+      jamaisMesurees: [],
   };
   const build = (sections: DigestSections) =>
     buildDigestMessage({
