@@ -212,9 +212,15 @@ function ComptesPageInner() {
     });
   }, [comptes, recherche, statusFilter, plateformeFilter, creatorFilter]);
 
+  /** Total du PROJET — dénominateur des parts, insensible aux filtres. */
+  const totalVuesProjet = useMemo(
+    () => (comptes ?? []).reduce((s, c) => s + c.perf.vuesCumulees, 0),
+    [comptes],
+  );
+
   const groupes = useMemo(
-    () => groupComptes(visibles, groupe, sortKey, sortDir),
-    [visibles, groupe, sortKey, sortDir],
+    () => groupComptes(visibles, groupe, sortKey, sortDir, totalVuesProjet),
+    [visibles, groupe, sortKey, sortDir, totalVuesProjet],
   );
 
   /**
@@ -263,10 +269,6 @@ function ComptesPageInner() {
     );
   }
 
-  const totalVues = (comptes ?? []).reduce(
-    (s, c) => s + c.perf.vuesCumulees,
-    0,
-  );
   const subtitle = (() => {
     if (comptes === undefined) return "Chargement…";
     const parts = [`${counts.actif} actif${counts.actif > 1 ? "s" : ""}`];
@@ -274,7 +276,8 @@ function ComptesPageInner() {
     if (counts.shadowban > 0) parts.push(`${counts.shadowban} shadowban`);
     if (counts.archived > 0)
       parts.push(`${counts.archived} archivé${counts.archived > 1 ? "s" : ""}`);
-    if (totalVues > 0) parts.push(`${nfFR.format(totalVues)} vues cumulées`);
+    if (totalVuesProjet > 0)
+      parts.push(`${nfFR.format(totalVuesProjet)} vues cumulées`);
     return parts.join(" · ");
   })();
 
