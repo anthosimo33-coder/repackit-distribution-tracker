@@ -26,6 +26,7 @@ import {
   HubCardHeader,
   HubNotice,
   WebhookFixNotice,
+  PosthogOutageNotice,
   disputeDeadlineLabel,
   dash,
 } from "./HubPrimitives";
@@ -487,6 +488,7 @@ export function OverviewTab({
   return (
     <div className="space-y-5">
       <WebhookFixNotice now={now} />
+      <PosthogOutageNotice now={now} />
 
       {/* Litiges bancaires EN COURS — l'alerte la plus urgente de l'écran. */}
       {openDisputes.length > 0 ? (
