@@ -124,13 +124,38 @@ export function Sidebar({
   const routeOf = (href: string) =>
     href.replace(projectPath(""), "").replace(/^\/?/, "/");
 
-  // PILOTAGE — le quotidien : piloter validations, assignations et paie.
+  // ── LES GROUPES DU MENU ─────────────────────────────────────────────────────
+  //
+  // PILOTAGE avait NEUF entrées : la moitié du menu dans un seul tas, où
+  // « Notifications » voisinait avec « Validation » sans qu'aucun rapport les
+  // relie. Un groupe de neuf ne se lit plus, il se parcourt.
+  //
+  // Le découpage suit celui du CATALOGUE DE DROITS (convex/permissions.ts :
+  // Créateurs, Production, Contenu, Argent, Système). Ce n'est pas une
+  // coquetterie : c'est la seule façon pour qu'un manager voie disparaître un
+  // GROUPE ENTIER quand on lui retire une section de droits, au lieu de trous
+  // épars. Le menu et l'écran des droits parlent alors la même langue.
+
+  // PILOTAGE — regarder l'état des choses. Deux entrées, et c'est voulu : c'est
+  // là qu'on arrive, pas là qu'on travaille.
   const pilotageItems = [
     {
       icon: LayoutDashboardIcon,
       label: t("item.dashboard"),
       ...item(projectPath("/dashboard")),
     },
+    {
+      icon: BarChart3Icon,
+      label: t("item.analytics"),
+      ...item(projectPath("/analytics")),
+    },
+  ];
+
+  // PRODUCTION — le flux quotidien d'une vidéo : elle est assignée, tournée,
+  // validée. Les DÉFIS y sont : un défi se pilote au jour le jour (qui
+  // participe, qui a franchi, qui a gagné), il ne se range pas avec les
+  // ressources de production.
+  const productionItems = [
     {
       icon: ClipboardCheckIcon,
       label: t("item.validation"),
@@ -151,14 +176,16 @@ export function Sidebar({
       ...item(projectPath("/assignments")),
     },
     {
-      // DÉFIS — opérations exceptionnelles. Placés dans PILOTAGE (à côté des
-      // assignations) et non dans CONTENU : un défi se pilote au jour le jour
-      // (qui participe, qui a franchi, qui a gagné), il ne se range pas avec les
-      // ressources de production.
       icon: TrophyIcon,
       label: t("item.defis"),
       ...item(projectPath("/defis")),
     },
+  ];
+
+  // ARGENT — ce qu'on doit et comment on le calcule. Même nom que la section du
+  // catalogue, et même frontière : aucun de ces deux écrans n'est ouvert par
+  // défaut à un manager.
+  const argentItems = [
     {
       icon: CoinsIcon,
       label: t("item.pricings"),
@@ -168,16 +195,6 @@ export function Sidebar({
       icon: WalletIcon,
       label: t("item.paiements"),
       ...item(projectPath("/paiements")),
-    },
-    {
-      icon: BarChart3Icon,
-      label: t("item.analytics"),
-      ...item(projectPath("/analytics")),
-    },
-    {
-      icon: BellIcon,
-      label: t("item.notifications"),
-      ...item(projectPath("/notifications")),
     },
   ];
 
@@ -226,15 +243,22 @@ export function Sidebar({
   // passent par `superadminQuery`/`superadminMutation`, et la page elle-même
   // rend un refus. On retire le lien pour ne pas proposer une porte fermée, pas
   // pour fermer la porte.
-  const administrationItems = me?.isSuperadmin
-    ? [
-        {
-          icon: ShieldCheckIcon,
-          label: t("item.equipe"),
-          ...item(projectPath("/equipe")),
-        },
-      ]
-    : [];
+  const administrationItems = [
+    {
+      icon: BellIcon,
+      label: t("item.notifications"),
+      ...item(projectPath("/notifications")),
+    },
+    ...(me?.isSuperadmin
+      ? [
+          {
+            icon: ShieldCheckIcon,
+            label: t("item.equipe"),
+            ...item(projectPath("/equipe")),
+          },
+        ]
+      : []),
+  ];
 
   // VEILLE — Radar : module séparé de veille TikTok (admin only).
   const veilleItems = [
@@ -305,9 +329,15 @@ export function Sidebar({
       )}
 
       {/* Sections nav */}
-      <nav className="flex-1 space-y-6 overflow-y-auto px-3 pb-3">
+      {/* `space-y-4` et non 6 : sept en-têtes au lieu de cinq, à blanc constant,
+          poussaient les deux derniers groupes sous la ligne de flottaison. Le
+          gain de lisibilité du découpage se paierait alors en défilement. */}
+      <nav className="flex-1 space-y-4 overflow-y-auto px-3 pb-3">
         <SidebarSection collapsed={collapsed} label={t("section.pilotage")}>
           {pilotageItems.filter(visible).map(renderItem)}
+        </SidebarSection>
+        <SidebarSection collapsed={collapsed} label={t("section.production")}>
+          {productionItems.filter(visible).map(renderItem)}
         </SidebarSection>
         <SidebarSection collapsed={collapsed} label={t("section.createurs")}>
           {creatorsItems.filter(visible).map(renderItem)}
@@ -315,17 +345,21 @@ export function Sidebar({
         <SidebarSection collapsed={collapsed} label={t("section.contenu")}>
           {contenuItems.filter(visible).map(renderItem)}
         </SidebarSection>
+        <SidebarSection collapsed={collapsed} label={t("section.argent")}>
+          {argentItems.filter(visible).map(renderItem)}
+        </SidebarSection>
         <SidebarSection collapsed={collapsed} label={t("section.veille")}>
           {veilleItems.filter(visible).map(renderItem)}
         </SidebarSection>
-        {administrationItems.length > 0 && (
-          <SidebarSection
-            collapsed={collapsed}
-            label={t("section.administration")}
-          >
-            {administrationItems.map(renderItem)}
-          </SidebarSection>
-        )}
+        {/* `administrationItems` passe par `visible` comme les autres :
+            « Notifications » a son bloc, l'entrée superadmin n'en a pas et
+            reste donc toujours rendue quand elle est présente. */}
+        <SidebarSection
+          collapsed={collapsed}
+          label={t("section.administration")}
+        >
+          {administrationItems.filter(visible).map(renderItem)}
+        </SidebarSection>
 
         {/* Outils — liens externes propres au projet (configurable). Masqué
             quand le projet n'en a aucun. */}
