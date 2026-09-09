@@ -639,6 +639,16 @@ export interface DigestSections {
    * trois jours sont perdus et l'alerte n'appelle plus aucune action.
    */
   chauffeSansTalent: { handle: string; clipperName: string; joursRestants: number }[];
+  /**
+   * Publications publiées que le relevé de vues n'a JAMAIS mesurées.
+   *
+   * Signalées parce que la fenêtre se referme : le relevé ne balaie que les
+   * comptes actifs des 30 derniers jours, et au-delà la publication devient
+   * définitivement immesurable — elle ne paiera rien et n'entrera dans aucune
+   * moyenne. C'est le seul signal du digest qui porte une ÉCHÉANCE : passé le
+   * délai, il n'y a plus rien à rattraper.
+   */
+  jamaisMesurees: { compte: string; joursDepuisPubli: number }[];
 }
 
 export function buildDigestMessage(params: {
@@ -655,6 +665,7 @@ export function buildDigestMessage(params: {
     warmupReady,
     retryableRenewalFailures,
     chauffeSansTalent,
+    jamaisMesurees,
   } = sections;
   if (
     overdueMissions.length === 0 &&
@@ -662,7 +673,8 @@ export function buildDigestMessage(params: {
     warmupLate.length === 0 &&
     warmupReady.length === 0 &&
     retryableRenewalFailures.length === 0 &&
-    chauffeSansTalent.length === 0
+    chauffeSansTalent.length === 0 &&
+    jamaisMesurees.length === 0
   ) {
     return null;
   }
@@ -737,6 +749,21 @@ export function buildDigestMessage(params: {
           chauffeSansTalent.map(
             (c) =>
               `${c.handle} (${c.clipperName}) — sort de chauffe dans ${c.joursRestants} ${plural(c.joursRestants, "jour")}`,
+          ),
+        ),
+    );
+  }
+
+  if (jamaisMesurees.length > 0) {
+    const n = jamaisMesurees.length;
+    blocks.push(
+      `📉 <b>${n} ${plural(n, "publication")} sans aucun relevé de vues</b>\n` +
+        bulletList(
+          jamaisMesurees.map(
+            (p) =>
+              `${p.compte} — publiée il y a ${p.joursDepuisPubli} ${plural(p.joursDepuisPubli, "jour")}${
+                p.joursDepuisPubli >= 30 ? " (hors fenêtre, perdue)" : ""
+              }`,
           ),
         ),
     );

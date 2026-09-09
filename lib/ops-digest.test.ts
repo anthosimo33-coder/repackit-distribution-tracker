@@ -7,6 +7,8 @@ import {
   missionDaysLate,
   PRODUCTION_STATUSES,
   warmupMissedDays,
+  isNeverMeasured,
+  type MesureLike,
   type CycleLike,
   type MissionLike,
   type WarmupCompteLike,
@@ -147,6 +149,55 @@ describe("isWarmupLate", () => {
 // digest serveur). S'ils divergent, chacun a l'air juste sur son écran et le
 // digest ment. On les compare ici sur des jeux de données couvrant les bords.
 
+// ─── Publications jamais mesurées ────────────────────────────────────────────
+
+/**
+ * Formes réelles de production (Snytch, export du 2026-09-09) : la publication
+ * du jour que la synchro n'a pas encore vue, celle de 19 jours qu'on peut
+ * encore rattraper, celle de 34 jours définitivement hors fenêtre.
+ */
+const MESURES: Record<string, MesureLike> = {
+  duJour: { postUrl: "https://www.tiktok.com/@x/video/76764", datePubli: NOW - 12 * 3_600_000, snapshots: 0 },
+  rattrapable: { postUrl: "https://www.tiktok.com/@sarahkl02/video/7676442490723126561", datePubli: NOW - 19 * DAY, snapshots: 0 },
+  perdue: { postUrl: "https://www.tiktok.com/@withorlane/video/7675338858149596449", datePubli: NOW - 34 * DAY, snapshots: 0 },
+  mesuree: { postUrl: "https://www.tiktok.com/@x/video/76753", datePubli: NOW - 19 * DAY, snapshots: 3 },
+  pasPubliee: { postUrl: "", datePubli: NOW - 19 * DAY, snapshots: 0 },
+};
+
+describe("isNeverMeasured", () => {
+  it("ne crie pas sur une publication du jour", () => {
+    // La synchro passe à 23h30 : avant elle, zéro relevé est NORMAL.
+    expect(isNeverMeasured(MESURES.duJour, NOW)).toBe(false);
+  });
+
+  it("signale une publication ancienne sans aucun relevé", () => {
+    expect(isNeverMeasured(MESURES.rattrapable, NOW)).toBe(true);
+    expect(isNeverMeasured(MESURES.perdue, NOW)).toBe(true);
+  });
+
+  it("se tait dès qu'un seul relevé existe", () => {
+    expect(isNeverMeasured(MESURES.mesuree, NOW)).toBe(false);
+    // Présence, en regard : la MÊME publication sans relevé, elle, est signalée.
+    expect(
+      isNeverMeasured({ ...MESURES.mesuree, snapshots: 0 }, NOW),
+    ).toBe(true);
+  });
+
+  it("ignore ce qui n'est pas publié", () => {
+    expect(isNeverMeasured(MESURES.pasPubliee, NOW)).toBe(false);
+    expect(
+      isNeverMeasured({ ...MESURES.pasPubliee, postUrl: undefined }, NOW),
+    ).toBe(false);
+  });
+
+  it("le délai de grâce est réglable et borne exactement", () => {
+    const deuxJours = { ...MESURES.duJour, datePubli: NOW - 2 * DAY };
+    expect(isNeverMeasured(deuxJours, NOW)).toBe(true);
+    expect(isNeverMeasured({ ...deuxJours, datePubli: NOW - 2 * DAY + 1 }, NOW)).toBe(false);
+    expect(isNeverMeasured(MESURES.rattrapable, NOW, 30)).toBe(false);
+  });
+});
+
 describe("parité lib/ ↔ convex/ (règle A6)", () => {
   const MISSIONS: MissionLike[] = [
     "todo",
@@ -221,6 +272,19 @@ describe("parité lib/ ↔ convex/ (règle A6)", () => {
       expect(convexDigest.warmupMissedDays(c, NOW)).toBe(warmupMissedDays(c, NOW));
       expect(convexDigest.isWarmupLate(c, NOW)).toBe(isWarmupLate(c, NOW));
     }
+  });
+
+  it("isNeverMeasured identique sur toutes les entrées", () => {
+    for (const m of Object.values(MESURES)) {
+      for (const grace of [0, 2, 30]) {
+        expect(convexDigest.isNeverMeasured(m, NOW, grace)).toBe(
+          isNeverMeasured(m, NOW, grace),
+        );
+      }
+    }
+    // Les deux issues sont bien couvertes, sinon la parité ne prouverait rien.
+    const issues = Object.values(MESURES).map((m) => isNeverMeasured(m, NOW));
+    expect(new Set(issues)).toEqual(new Set([true, false]));
   });
 
   it("les jeux de parité couvrent bien les deux issues (test non vide de sens)", () => {

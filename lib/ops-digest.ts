@@ -87,3 +87,41 @@ export function warmupMissedDays(c: WarmupCompteLike, now: number): number {
 export function isWarmupLate(c: WarmupCompteLike, now: number): boolean {
   return warmupMissedDays(c, now) > 0;
 }
+
+export type MesureLike = {
+  /** Publiée = `postUrl` non vide (même critère que le reste du dépôt). */
+  postUrl?: string;
+  datePubli: number;
+  /** Nombre de relevés déjà pris pour cette publication. */
+  snapshots: number;
+};
+
+/**
+ * Publication PUBLIÉE, assez ancienne pour avoir été relevée au moins une fois,
+ * et qui ne l'a jamais été.
+ *
+ * POURQUOI ÇA COMPTE. Le relevé de vues ne balaie que les comptes actifs des
+ * 30 derniers jours (`ACTIVE_ACCOUNT_WINDOW_DAYS`). Une publication qui sort de
+ * cette fenêtre sans avoir jamais été mesurée devient DÉFINITIVEMENT
+ * immesurable : ses vues n'existeront jamais, donc elle ne paie rien et ne
+ * compte dans aucune moyenne. Sur Snytch au 2026-09-09, trois publications
+ * étaient dans ce cas — dont une hors warmup, donc rémunérée — et deux avaient
+ * déjà dépassé la fenêtre.
+ *
+ * `graceDays` : une publication du jour n'a pas encore vu passer la synchro de
+ * 23h30. Deux jours laissent un cycle complet s'écouler avant de crier.
+ *
+ * ⚠️ Ce prédicat ne dit PAS pourquoi le relevé a manqué — sur les trois cas
+ * observés, les URL étaient bien formées et les publications saisies le jour
+ * même. La cause reste à trouver ; en attendant, on refuse au moins de la
+ * découvrir trop tard.
+ */
+export function isNeverMeasured(
+  p: MesureLike,
+  now: number,
+  graceDays = 2,
+): boolean {
+  if (!p.postUrl) return false;
+  if (p.snapshots > 0) return false;
+  return now - p.datePubli >= graceDays * DAY_MS;
+}
