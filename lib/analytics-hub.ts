@@ -809,15 +809,75 @@ function pushDailyCrossCheck(
           reconciled.length > 0 ? ` · ${reconciled.length} réconcilié(s)` : ""
         } — pire : `
       : `${reconciled.length} jour(s) réconcilié(s), aucun divergent — dont : `;
+  // INCIDENT CLOS — un écart qui ne s'est pas reproduit depuis assez longtemps
+  // n'est plus un problème EN COURS, et le dire change ce qu'on en fait.
+  const clos = incidentClos(mismatches, days, today);
   checks.push({
     key,
     label,
-    status: mismatches.length === 0 ? "info" : inexplique >= 3 ? "violation" : "info",
+    status:
+      mismatches.length === 0
+        ? "info"
+        : clos !== null
+          ? "info"
+          : inexplique >= 3
+            ? "violation"
+            : "info",
     detail:
       `${entete}${worst.day} PostHog ${worst.subs} vs Whop ${worst.clients}` +
       (rec ? ` (PostHog ${worst.subs}${decomposition} ; inexpliqué ${worst.unexplained})` : ` (écart ${worst.diff})`) +
+      (clos !== null
+        ? ` — INCIDENT CLOS : rien depuis ${clos} jour(s)`
+        : "") +
       " — Whop fait foi pour les ventes",
   });
+}
+
+/**
+ * Jours PROPRES écoulés depuis le dernier jour divergent, ou `null` si l'écart
+ * est encore récent (donc potentiellement en cours).
+ *
+ * POURQUOI. Le contrôle porte sur toute la fenêtre analysée — 49 jours en
+ * période « Tout ». Une seule mauvaise journée y reste donc affichée des
+ * semaines, avec le même rouge que si ça cassait à l'instant. Rien ne
+ * distinguait « ça casse maintenant » de « ça a cassé un matin il y a un
+ * mois », et c'est exactement ce qui use une alerte : celui qui la lit finit
+ * par ne plus la lire.
+ *
+ * Cas de production : la nuit du 07 au 08/09/2026, l'event `subscription_completed`
+ * n'est plus parti pendant une dizaine d'heures (11 achats sur 11 perdus entre
+ * 00:42 et 09:34, 16 sur 16 corrects après 11:03). Réglé tout seul, jamais
+ * reproduit — et pourtant l'alerte sonnait encore chaque jour.
+ *
+ * SEUIL À SEPT JOURS, volontairement long : un incident hebdomadaire (une tâche
+ * du dimanche, un lot de facturation) doit pouvoir se reproduire une fois avant
+ * qu'on le déclare clos. Un incident réellement clos passe donc en `info` avec
+ * son âge ; il reste AFFICHÉ, jamais masqué — c'est le ton qui change, pas
+ * l'information.
+ */
+const JOURS_AVANT_CLOTURE = 7;
+
+function incidentClos(
+  mismatches: readonly DailyMismatch[],
+  days: readonly string[],
+  today: string | undefined,
+): number | null {
+  // La garde sur `today` est EXPLICITE, et redondante avec la comparaison plus
+  // bas (`d < undefined` est toujours faux). Aucune mutation ne peut donc la
+  // distinguer — elle est là pour que l'intention se lise, pas pour corriger un
+  // comportement : sans date du jour on ne sait rien du temps écoulé, et
+  // s'appuyer sur le résultat d'une comparaison avec `undefined` serait un
+  // raisonnement qu'un lecteur devrait refaire.
+  if (mismatches.length === 0 || today === undefined) return null;
+  // `mismatches` est trié par sévérité, pas par date : on cherche le PLUS
+  // RÉCENT, sans quoi un vieil incident grave masquerait un écart d'hier.
+  let dernier = mismatches[0].day;
+  for (const m of mismatches) if (m.day > dernier) dernier = m.day;
+  // Jours réellement observés depuis, jour courant exclu (il est partiel, et le
+  // contrôle l'ignore déjà). Compter des jours calendaires ferait déclarer clos
+  // un incident que rien n'a encore eu l'occasion de contredire.
+  const depuis = days.filter((d) => d > dernier && d < today).length;
+  return depuis >= JOURS_AVANT_CLOTURE ? depuis : null;
 }
 
 /** Compte d'une étape par clé (null si absente). */
