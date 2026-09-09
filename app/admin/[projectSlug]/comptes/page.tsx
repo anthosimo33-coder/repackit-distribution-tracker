@@ -317,9 +317,11 @@ function ComptesPageInner() {
           fallait les repérer dans une colonne vide 29 fois sur 33. */}
       {checksDus.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-amber-200 bg-amber-50/70 px-3.5 py-2.5 text-sm">
+          {/* Phrase construite en JS : en JSX, le texte qui suit une
+              interpolation rendant "" perd son espace (« 1 checkde warmup »),
+              et un point renvoyé à la ligne en gagne un (« en double . »). */}
           <span className="font-semibold text-amber-900">
-            {checksDus.length} check{checksDus.length > 1 ? "s" : ""} de warmup à
-            faire aujourd&apos;hui
+            {`${checksDus.length} check${checksDus.length > 1 ? "s" : ""} de warmup à faire aujourd'hui`}
           </span>
           <div className="flex flex-wrap items-center gap-1.5">
             {checksDus.slice(0, 6).map((c) => {
@@ -358,13 +360,14 @@ function ComptesPageInner() {
           key={`${col.plateforme}-${col.handles.join("|")}`}
           className="rounded-xl border border-rose-200 bg-rose-50/70 px-3.5 py-2.5 text-sm text-rose-900"
         >
-          <span className="font-semibold">Mesure dédoublée</span> — sur{" "}
-          {col.plateforme}, {col.handles.map((h) => `« ${h} »`).join(" et ")}{" "}
-          {col.handles.length > 1
-            ? "ne diffèrent que par la casse"
-            : "existe en double"}
-          . Leurs vues sont les mêmes des deux côtés : ce total est compté deux
-          fois. À réunir en un seul compte.
+          <span className="font-semibold">Mesure dédoublée</span>{" "}
+          {`— sur ${col.plateforme}, ${col.handles
+            .map((h) => `« ${h} »`)
+            .join(" et ")} ${
+            col.handles.length > 1
+              ? "ne diffèrent que par la casse"
+              : "existe en double"
+          }. Leurs vues sont les mêmes des deux côtés : ce total est compté deux fois. À réunir en un seul compte.`}
         </div>
       ))}
 
