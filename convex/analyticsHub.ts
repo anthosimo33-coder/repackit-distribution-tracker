@@ -2245,6 +2245,33 @@ export const getDayDetail = permissionQuery("business.read")({
   },
 });
 
+/**
+ * LIBELLÉ D'UNE OFFRE, pour nommer la cause d'un paiement sans event.
+ *
+ * Le prix d'abord : c'est ce que l'humain reconnaît (« l'offre à 16,90 € »),
+ * l'identifiant ensuite, c'est ce que le développeur cherchera dans son code.
+ * Mise en forme PURE, sans arrondi métier — aucun montant d'ici n'entre dans un
+ * total ; il ne sert qu'à écrire une phrase.
+ *
+ * A6 : défini ici plutôt que dans `lib/` — un module `convex/` ne peut pas
+ * importer `lib/`, et dupliquer une mise en forme dans deux jumeaux à tenir
+ * synchronisés coûterait plus cher que ce que ça rapporte.
+ */
+function whopOfferLabel(p: {
+  grossAmount?: number;
+  currency?: string;
+  planId?: string;
+}): string {
+  const plan = p.planId ?? "";
+  if (p.grossAmount === undefined || !p.currency) return plan;
+  const prix = new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: p.currency.toUpperCase(),
+    currencyDisplay: "narrowSymbol",
+  }).format(p.grossAmount);
+  return plan === "" ? prix : `${prix} · ${plan}`;
+}
+
 export const getReliability = permissionQuery("business.read")({
   args: {},
   handler: async (ctx): Promise<ReliabilityResult> => {
@@ -2384,7 +2411,11 @@ export const getReliability = permissionQuery("business.read")({
     let whopExcludedAfter = 0;
     let dailyPaidClients: { day: string; clients: number }[] = [];
     let dailyNewMemberships: { day: string; memberships: number }[] = [];
-    let whopFirstPaidDay: { membershipId: string; day: string }[] = [];
+    let whopFirstPaidDay: {
+      membershipId: string;
+      day: string;
+      offer?: string;
+    }[] = [];
     let dailyRenewals: { day: string; renewals: number }[] = [];
     let dailyPaymentCount: { day: string; payments: number }[] = [];
     let whopSecuredMembers: number | null = null;
@@ -2427,6 +2458,14 @@ export const getReliability = permissionQuery("business.read")({
       }
       // Premier paiement encaissé par membership (date de « début » du client).
       const firstPaid = new Map<string, number>();
+      /**
+       * OFFRE du premier paiement, par membership. Sert à NOMMER la cause quand
+       * un paiement n'a pas d'event : le contrôle disait « 11 paiement(s) Whop
+       * sans event » sans jamais dire d'où ils venaient. Le 2026-09-08, ils
+       * venaient à 13 sur 27 d'un plan à 16,90 € apparu la veille, dont le
+       * tunnel n'émettait pas `subscription_completed`.
+       */
+      const offerOf = new Map<string, string>();
       for (const p of payments) {
         // COMPTE clients : un litige EN COURS reste un client qui a payé →
         // whopCollectedAmount (inclut "disputed"), PAS whopNetContribution (qui
@@ -2434,7 +2473,10 @@ export const getReliability = permissionQuery("business.read")({
         // avec PostHog (subscription_completed a bien été émis pour ce client).
         if (!p.membershipId || whopCollectedAmount(p) <= 0) continue;
         const prev = firstPaid.get(p.membershipId);
-        if (prev === undefined || p.paidAt < prev) firstPaid.set(p.membershipId, p.paidAt);
+        if (prev === undefined || p.paidAt < prev) {
+          firstPaid.set(p.membershipId, p.paidAt);
+          offerOf.set(p.membershipId, whopOfferLabel(p));
+        }
       }
       // Compté sur TOUS les paiements internes, pas seulement ceux ayant
       // encaissé : l'ancien test était placé APRÈS la garde
@@ -2456,6 +2498,7 @@ export const getReliability = permissionQuery("business.read")({
       whopFirstPaidDay = [...firstPaid.entries()].map(([membershipId, ms]) => ({
         membershipId,
         day: parisDay(ms),
+        offer: offerOf.get(membershipId) ?? "",
       }));
 
       // RENOUVELLEMENTS par jour Paris — colonne jumelle de « Nouveaux clients ».

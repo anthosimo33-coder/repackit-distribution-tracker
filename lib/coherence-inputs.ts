@@ -41,7 +41,7 @@ type CoherencePayload = {
   /** Nouveaux ABONNEMENTS/jour — unité des events PostHog (cf pushDailyCrossCheck). */
   dailyNewMemberships?: { day: string; memberships: number }[];
   subsByMembership: { day: string; membershipId: string; persons: number }[];
-  whopFirstPaidDay: { membershipId: string; day: string }[];
+  whopFirstPaidDay: { membershipId: string; day: string; offer?: string }[];
   windowReconciliation: CoherenceInputs["windowReconciliation"] | null;
   todayParis: string;
   payDue: CoherenceInputs["payDue"];
