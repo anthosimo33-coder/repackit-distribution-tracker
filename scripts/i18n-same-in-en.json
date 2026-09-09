@@ -6,6 +6,7 @@
     "estimator.base",
     "format.brief",
     "layout.metadata.title",
+    "nav.espace.role.manager",
     "nav.item.analytics",
     "nav.item.assets",
     "nav.item.assignments",

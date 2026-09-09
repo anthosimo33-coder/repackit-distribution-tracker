@@ -18,6 +18,7 @@ import {
 } from "@/components/portal/CreatorProjectProvider";
 import { CreatorProjectSwitcher } from "@/components/portal/CreatorProjectSwitcher";
 import { ProgressionCelebration } from "@/components/portal/ProgressionCelebration";
+import { VersEspaceEquipe } from "@/components/layout/EspaceSwitch";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { getCreatorTools } from "@/lib/creator-tools";
 import { isSnytchProject } from "@/lib/snytch-drive";
@@ -111,6 +112,7 @@ function CreatorShell({ children }: { children: React.ReactNode }) {
               <HelpCircleIcon className="size-5" />
             </Link>
           )}
+          <VersEspaceEquipe variant="icone" />
           <Button
             variant="ghost"
             size="icon-sm"
