@@ -632,6 +632,9 @@ describe("buildCoherenceChecks", () => {
       unpaid: 1,
       unlinked: 0,
       missing: 1,
+      // Aucune offre fournie par ce jeu : le champ existe et reste vide, le
+      // contrôle fonctionne sans être bavard.
+      missingOffers: [],
     });
   });
 
@@ -693,6 +696,128 @@ describe("buildCoherenceChecks", () => {
     expect(c.detail).toContain("4 paiement(s) Whop sans event");
   });
 
+  /**
+   * LE CAS DE PRODUCTION DU 2026-09-08, reproduit à l'échelle.
+   *
+   * Une offre à 16,90 € est apparue le 07/09 ; son tunnel n'émet pas
+   * `subscription_completed`. Le 08/09, 27 nouveaux clients Whop pour 15 events
+   * PostHog — et 13 des 27 venaient de cette offre. L'alerte disait « 12
+   * paiement(s) Whop sans event » sans jamais nommer la cause, tous les jours.
+   */
+  it("nomme l'OFFRE des paiements sans event, la plus fréquente d'abord", () => {
+    const subs = [
+      { day: "2026-09-08", membershipId: "mem_a", persons: 1 },
+      { day: "2026-09-08", membershipId: "mem_b", persons: 1 },
+    ];
+    const whop = [
+      { membershipId: "mem_a", day: "2026-09-08", offer: "Offre 9,99 €" },
+      { membershipId: "mem_b", day: "2026-09-08", offer: "Offre 9,99 €" },
+      // Cinq achats sur la nouvelle offre, aucun event.
+      { membershipId: "mem_c", day: "2026-09-08", offer: "Offre 16,90 €" },
+      { membershipId: "mem_d", day: "2026-09-08", offer: "Offre 16,90 €" },
+      { membershipId: "mem_e", day: "2026-09-08", offer: "Offre 16,90 €" },
+      { membershipId: "mem_f", day: "2026-09-08", offer: "Offre 16,90 €" },
+      { membershipId: "mem_g", day: "2026-09-08", offer: "Offre 16,90 €" },
+      // Et un isolé sur l'ancienne, pour vérifier l'ORDRE.
+      { membershipId: "mem_h", day: "2026-09-08", offer: "Offre 9,99 €" },
+    ];
+    const r = reconcileDailyClients(subs, whop)[0];
+    expect(r.missing).toBe(6);
+    expect(r.missingOffers).toEqual([
+      { offer: "Offre 16,90 €", count: 5 },
+      { offer: "Offre 9,99 €", count: 1 },
+    ]);
+  });
+
+  it("classe par FRÉQUENCE, pas par ordre d'arrivée", () => {
+    // L'offre minoritaire arrive EN PREMIER dans la liste : sans tri réel, elle
+    // serait nommée en tête et l'alerte désignerait le mauvais coupable.
+    const whop = [
+      { membershipId: "mem_a", day: "2026-09-08", offer: "Offre 9,99 €" },
+      { membershipId: "mem_b", day: "2026-09-08", offer: "Offre 16,90 €" },
+      { membershipId: "mem_c", day: "2026-09-08", offer: "Offre 16,90 €" },
+      { membershipId: "mem_d", day: "2026-09-08", offer: "Offre 16,90 €" },
+    ];
+    expect(reconcileDailyClients([], whop)[0].missingOffers).toEqual([
+      { offer: "Offre 16,90 €", count: 3 },
+      { offer: "Offre 9,99 €", count: 1 },
+    ]);
+  });
+
+  it("une offre VIDE n'est pas une offre", () => {
+    // Un paiement dont le plan n'est pas résolu ne doit pas fabriquer une
+    // catégorie « » dans le message.
+    const whop = [
+      { membershipId: "mem_a", day: "2026-09-08", offer: "" },
+      { membershipId: "mem_b", day: "2026-09-08", offer: "Offre 16,90 €" },
+    ];
+    const r = reconcileDailyClients([], whop)[0];
+    expect(r.missing).toBe(2);
+    expect(r.missingOffers).toEqual([{ offer: "Offre 16,90 €", count: 1 }]);
+  });
+
+  it("l'alerte CITE l'offre au lieu de dire seulement « sans event »", () => {
+    const checks = buildCoherenceChecks({
+      sequentialSteps: [],
+      reachSteps: [],
+      currencyCount: 1,
+      dashboardClients: null,
+      whopMembers: null,
+      whopClients: null,
+      todayParis: "2026-09-09",
+      dailySubs: [{ day: "2026-09-08", subs: 2 }],
+      dailyPaidClients: [{ day: "2026-09-08", clients: 8 }],
+      subsByMembership: [
+        { day: "2026-09-08", membershipId: "mem_a", persons: 1 },
+        { day: "2026-09-08", membershipId: "mem_b", persons: 1 },
+      ],
+      whopFirstPaidDay: [
+        { membershipId: "mem_a", day: "2026-09-08", offer: "Offre 9,99 €" },
+        { membershipId: "mem_b", day: "2026-09-08", offer: "Offre 9,99 €" },
+        { membershipId: "mem_c", day: "2026-09-08", offer: "Offre 16,90 €" },
+        { membershipId: "mem_d", day: "2026-09-08", offer: "Offre 16,90 €" },
+        { membershipId: "mem_e", day: "2026-09-08", offer: "Offre 16,90 €" },
+        { membershipId: "mem_f", day: "2026-09-08", offer: "Offre 16,90 €" },
+        { membershipId: "mem_g", day: "2026-09-08", offer: "Offre 16,90 €" },
+        { membershipId: "mem_h", day: "2026-09-08", offer: "Offre 16,90 €" },
+      ],
+    });
+    const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(c?.detail).toContain("6 paiement(s) Whop sans event");
+    expect(c?.detail).toContain("dont 6 sur Offre 16,90 €");
+  });
+
+  it("sans offre fournie, le message reste celui d'avant", () => {
+    // Contre-épreuve : le contrôle ne dépend pas de l'offre pour fonctionner.
+    const checks = buildCoherenceChecks({
+      sequentialSteps: [],
+      reachSteps: [],
+      currencyCount: 1,
+      dashboardClients: null,
+      whopMembers: null,
+      whopClients: null,
+      todayParis: "2026-09-09",
+      dailySubs: [{ day: "2026-09-08", subs: 2 }],
+      dailyPaidClients: [{ day: "2026-09-08", clients: 8 }],
+      subsByMembership: [
+        { day: "2026-09-08", membershipId: "mem_a", persons: 1 },
+        { day: "2026-09-08", membershipId: "mem_b", persons: 1 },
+      ],
+      whopFirstPaidDay: [
+        { membershipId: "mem_a", day: "2026-09-08" },
+        { membershipId: "mem_c", day: "2026-09-08" },
+        { membershipId: "mem_d", day: "2026-09-08" },
+        { membershipId: "mem_e", day: "2026-09-08" },
+        { membershipId: "mem_f", day: "2026-09-08" },
+        { membershipId: "mem_g", day: "2026-09-08" },
+        { membershipId: "mem_h", day: "2026-09-08" },
+      ],
+    });
+    const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(c?.detail).toContain("paiement(s) Whop sans event");
+    expect(c?.detail).not.toContain("dont");
+  });
+
   it("conversion à 23h58 Paris : classée le BON jour des deux côtés (aucun décalage minuit)", () => {
     // Les deux séries sont déjà en jour Paris ; un event à 23:58 et son
     // paiement à 23:57 tombent le même jour → apparié, zéro alerte. C'était
@@ -700,7 +825,15 @@ describe("buildCoherenceChecks", () => {
     const subs = [{ day: "2026-07-28", membershipId: "mem_late", persons: 1 }];
     const whop = [{ membershipId: "mem_late", day: "2026-07-28" }];
     expect(reconcileDailyClients(subs, whop)).toEqual([
-      { day: "2026-07-28", matched: 1, replayed: 0, unpaid: 0, unlinked: 0, missing: 0 },
+      {
+        day: "2026-07-28",
+        matched: 1,
+        replayed: 0,
+        unpaid: 0,
+        unlinked: 0,
+        missing: 0,
+        missingOffers: [],
+      },
     ]);
     const m = byKey(
       buildCoherenceChecks({

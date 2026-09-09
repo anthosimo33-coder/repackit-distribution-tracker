@@ -297,7 +297,9 @@ export interface CoherenceInputs {
    *  (cache pas encore alimenté) → le contrôle retombe sur le brut. */
   subsByMembership?: { day: string; membershipId: string; persons: number }[];
   /** Jour Paris du 1er paiement encaissé par membership Whop. */
-  whopFirstPaidDay?: { membershipId: string; day: string }[];
+  /** `offer` : libellé de l'offre achetée — sert à NOMMER la cause d'un
+   *  paiement sans event (cf DailyReconciliation.missingOffers). */
+  whopFirstPaidDay?: { membershipId: string; day: string; offer?: string }[];
   /** Nouveaux clients payants Whop par jour Paris — l'autre côté du contrôle croisé. */
   dailyPaidClients?: { day: string; clients: number }[];
   /**
@@ -584,6 +586,21 @@ export interface DailyReconciliation {
   unpaid: number;
   unlinked: number;
   missing: number;
+  /**
+   * OFFRES des paiements sans event, la plus fréquente d'abord.
+   *
+   * Sans elle, l'alerte disait « 11 paiement(s) Whop sans event » et s'arrêtait
+   * là : un avertissement qu'on relit tous les jours sans savoir quoi en faire.
+   * Or la cause est presque toujours une OFFRE dont le tunnel n'émet pas
+   * l'event — cas de production du 2026-09-08, où 13 des 27 nouveaux clients
+   * venaient d'un plan à 16,90 € apparu la veille, pour un écart de 12.
+   * Nommer l'offre, c'est la différence entre subir l'alerte et savoir quoi
+   * demander au développeur.
+   *
+   * Vide quand l'appelant ne fournit pas l'offre : le contrôle continue de
+   * fonctionner, il est seulement moins bavard.
+   */
+  missingOffers: { offer: string; count: number }[];
 }
 
 /**
@@ -600,7 +617,12 @@ export interface DailyReconciliation {
  */
 export function reconcileDailyClients(
   subsByMembership: readonly { day: string; membershipId: string; persons: number }[],
-  whopFirstPaidDay: readonly { membershipId: string; day: string }[],
+  /** `offer` : libellé de l'offre achetée, facultatif (cf `missingOffers`). */
+  whopFirstPaidDay: readonly {
+    membershipId: string;
+    day: string;
+    offer?: string;
+  }[],
 ): DailyReconciliation[] {
   const whopDay = new Map(whopFirstPaidDay.map((w) => [w.membershipId, w.day]));
   const byDay = new Map<string, DailyReconciliation>();
@@ -612,6 +634,7 @@ export function reconcileDailyClients(
       unpaid: 0,
       unlinked: 0,
       missing: 0,
+      missingOffers: [],
     };
     byDay.set(day, cur);
     return cur;
@@ -632,10 +655,39 @@ export function reconcileDailyClients(
     else if (paidDay === s.day) r.matched += 1;
     else r.replayed += 1;
   }
+  // Les offres sont accumulées à part puis ordonnées : la plus fréquente en
+  // tête, c'est elle qu'on va faire réparer.
+  const offersByDay = new Map<string, Map<string, number>>();
   for (const w of whopFirstPaidDay) {
-    if (!seenMemberships.has(w.membershipId)) touch(w.day).missing += 1;
+    if (seenMemberships.has(w.membershipId)) continue;
+    touch(w.day).missing += 1;
+    if (w.offer === undefined || w.offer === "") continue;
+    const m = offersByDay.get(w.day) ?? new Map<string, number>();
+    m.set(w.offer, (m.get(w.offer) ?? 0) + 1);
+    offersByDay.set(w.day, m);
+  }
+  for (const [day, m] of offersByDay) {
+    const r = byDay.get(day);
+    if (!r) continue;
+    r.missingOffers = [...m.entries()]
+      .map(([offer, count]) => ({ offer, count }))
+      .sort((a, b) => b.count - a.count || a.offer.localeCompare(b.offer));
   }
   return [...byDay.values()].sort((a, b) => (a.day < b.day ? -1 : 1));
+}
+
+/**
+ * « — dont 13 sur Offre 16,90 € » : ce qui transforme une alerte subie en une
+ * demande précise. On ne nomme que les deux offres principales — au-delà, c'est
+ * une liste, pas un diagnostic.
+ */
+function offersSuffix(rec: DailyReconciliation): string {
+  if (rec.missingOffers.length === 0) return "";
+  const top = rec.missingOffers
+    .slice(0, 2)
+    .map((o) => `${o.count} sur ${o.offer}`)
+    .join(", ");
+  return ` — dont ${top}`;
 }
 
 /** Un jour divergent du contrôle croisé. */
@@ -741,7 +793,9 @@ function pushDailyCrossCheck(
         (rec.replayed > 0 ? ` + ${rec.replayed} rejoué(s) d'un autre jour` : "") +
         (rec.unpaid > 0 ? ` + ${rec.unpaid} sans paiement abouti` : "") +
         (rec.unlinked > 0 ? ` + ${rec.unlinked} sans membership_id` : "") +
-        (rec.missing > 0 ? ` ; ${rec.missing} paiement(s) Whop sans event` : "");
+        (rec.missing > 0
+          ? ` ; ${rec.missing} paiement(s) Whop sans event${offersSuffix(rec)}`
+          : "");
   // Sévérité sur l'INEXPLIQUÉ, avec la même échelle qu'avant : ≥3 = violation,
   // ≥2 « significatif » = info. Un écart brut entièrement décomposé (retries,
   // fantômes) retombe sous le seuil et n'est qu'une information.
