@@ -42,6 +42,7 @@ import {
 // Pays supportés + validation = SOURCE UNIQUE partagée (cf convex/countries),
 // réutilisée aussi par comptes.targetCountry (aucune duplication de la liste).
 import { SUPPORTED_COUNTRIES as SUPPORTED_TREND_COUNTRIES, assertCountry } from "./countries";
+import { hasRole } from "./roles";
 
 /**
  * Limite douce de comptes favoris (garde-fou quota Apify). NON bloquante : à
@@ -91,7 +92,11 @@ export const requireAdminForRadarAction = internalQuery({
         q.eq("userId", userId).eq("projectId", projectId),
       )
       .first();
-    return membership?.role === "admin";
+    // ⚠️ SITE QUE `tsc` NE SIGNALAIT PAS avant le passage à l'ensemble : ce
+    // wrapper d'action est LOCAL au module (une action n'a pas d'accès `db`),
+    // donc il ne passe par aucune garde de convex/functions.ts. Il lisait le
+    // scalaire directement.
+    return hasRole(membership, "admin");
   },
 });
 

@@ -29,7 +29,24 @@ import {
 } from "./permissions";
 import { PERMISSION_COVERAGE } from "./permissionCoverage";
 import { traceDiff } from "./memberPermissions";
-import { KIND_LABELS, isPortalRole, kindForRole } from "./roles";
+import {
+  KIND_LABELS,
+  MEMBERSHIP_ROLES,
+  hasRole,
+  isPortalRole,
+  kindForRole,
+  roleSetProblem,
+  rolesOf,
+} from "./roles";
+
+/** Validateur des rôles : la liste fermée, jamais `v.string()`. */
+const ROLE_VALIDATOR = v.union(
+  v.literal("admin"),
+  v.literal("manager"),
+  v.literal("creator"),
+  v.literal("talent"),
+  v.literal("clipper"),
+);
 
 /** Validateur des blocs : l'union du catalogue, jamais `v.string()`. */
 const PERMISSION_VALIDATOR = v.union(
@@ -102,14 +119,19 @@ export const listMembers = superadminQuery({
         email: user?.email ?? "—",
         // Rôle GLOBAL : un superadmin a tout, quel que soit son membership.
         isSuperadmin: user?.role === "superadmin",
-        role: m.role,
+        // L'ENSEMBLE, pas un scalaire : une personne = une ligne, plusieurs
+        // étiquettes. Rendre un seul rôle obligerait l'écran à en choisir un et
+        // à taire l'autre — exactement ce qu'on vient d'ouvrir.
+        roles: [...rolesOf(m)],
         effective: [...grantedPermissions(stored)],
         // Valeurs stockées qui n'ouvrent RIEN. Affichées telles quelles.
         ignored: stored.filter((p) => !isPermissionId(p)),
       });
     }
     return rows.sort(
-      (a, b) => a.role.localeCompare(b.role) || a.email.localeCompare(b.email),
+      (a, b) =>
+        (a.roles[0] ?? "").localeCompare(b.roles[0] ?? "") ||
+        a.email.localeCompare(b.email),
     );
   },
 });
@@ -124,7 +146,8 @@ async function membershipOf(
     _id: Id<"memberships">;
     userId: Id<"users">;
     projectId: Id<"projects">;
-    role: string;
+    role?: string;
+    roles?: string[];
     permissions?: string[];
   } | null;
   if (!m || m.projectId !== projectId) {
@@ -152,9 +175,12 @@ export const setMemberPermissions = superadminMutation({
   },
   handler: async (ctx, { projectId, membershipId, permissions }) => {
     const m = await membershipOf(ctx, membershipId, projectId);
-    if (m.role !== "manager") {
+    // Porte-t-il le rôle manager ? Une créatrice-manager en porte deux, et ses
+    // droits la concernent bien — tester l'égalité l'exclurait de son propre rôle.
+    if (!hasRole(m, "manager")) {
       throw new ConvexError(
-        `Ce membre a le rôle « ${m.role} » : les droits ne s'appliquent qu'aux managers.`,
+        `Ce membre n'a pas le rôle manager (${[...rolesOf(m)].join(", ") || "aucun rôle"}) : ` +
+          "les droits ne s'appliquent qu'aux managers.",
       );
     }
     const before = m.permissions ?? [];
@@ -176,68 +202,116 @@ export const setMemberPermissions = superadminMutation({
 });
 
 /**
- * Passe un membre existant en `manager` avec un jeu de droits initial.
+ * AJOUTE UN RÔLE à un membre, sans lui retirer les siens.
  *
- * Sans `permissions`, applique les blocs cochés par défaut (frontière argent).
- * Refuse de toucher un `admin` : rétrograder quelqu'un qui administre le projet
- * n'est pas un geste de configuration, et le faire d'un clic depuis une liste
- * serait trop facile.
+ * ── LE GESTE QUI REMPLACE « PASSER MANAGER » ─────────────────────────────────
+ * L'ancien geste ÉCRASAIT : promouvoir une créatrice écrivait `manager` par-dessus
+ * `creator`, elle perdait son portail, sa fiche restait intacte (donc l'admin la
+ * voyait normale), et aucune mutation ne savait revenir en arrière. L'étape 0
+ * l'avait donc refusé, faute de mieux. Ici, le rôle s'AJOUTE : une créatrice
+ * devenue manager garde son espace, et c'est tout l'objet du modèle de promotion
+ * interne.
  *
- * ── ET REFUSE UN RÔLE DE PORTAIL. Ce refus-ci n'est pas une précaution ───────
+ * ── CE QUE LE SERVEUR REFUSE, ET POURQUOI ────────────────────────────────────
+ * `roleSetProblem` (convex/roles.ts) tient la règle, en un seul endroit :
+ *   - deux populations pour une personne → refus STRUCTUREL. `creators.kind` ne
+ *     porte qu'une valeur et pilote la chauffe (D3) comme la paie (Guards C/D) ;
+ *   - admin + quoi que ce soit → refus. Un admin franchit toutes les gardes sans
+ *     exception : lui cocher des cases ne le limiterait pas, ça le prétendrait.
+ * Le message est rendu à l'écran tel quel — c'est la personne qui clique qui le
+ * lit, pas celle qui a écrit le code.
  *
- * `memberships.role` ne porte QU'UNE valeur : promouvoir une créatrice écrivait
- * `role: "manager"` PAR-DESSUS son `role: "creator"`. Trois conséquences, toutes
- * silencieuses, et aucune annoncée à l'écran :
- *   1. `requirePortalMember` la rejette de TOUTES les fonctions de son portail ;
- *   2. sa fiche `creators` reste intacte, donc l'admin la voit normale pendant
- *      qu'elle, de son côté, n'a plus rien ;
- *   3. AUCUNE mutation ne sait reposer un rôle de portail — `updateCreator` ne
- *      change le `kind` que d'une fiche VIERGE. Le geste était sans retour.
- *
- * Le bouton était pourtant proposé sur sa ligne. Il n'a jamais été cliqué en
- * production (`permissionChanges` vide au 2026-09-05, or cette mutation écrit
- * toujours dans ce journal) : le piège était armé, pas déclenché.
- *
- * ⚠️ CE REFUS EST TEMPORAIRE PAR DESTINATION. Le cumul créatrice + manager est
- * le modèle de promotion interne visé ; il arrive avec le passage de
- * `memberships.role` à un ENSEMBLE de rôles. D'ici là, mieux vaut un refus qui
- * dit pourquoi qu'un succès qui casse. Le message doit donc rester lisible par
- * la personne qui clique, pas par celle qui a écrit le code.
+ * `permissions` n'est pris en compte QUE pour le rôle manager, et ne s'applique
+ * qu'à la première attribution : re-ajouter un rôle déjà porté ne remet pas les
+ * droits à leur valeur par défaut (ce serait un retrait déguisé). Pour les
+ * changer, `setMemberPermissions`.
  */
-export const promoteToManager = superadminMutation({
+export const addRole = superadminMutation({
   args: {
     projectId: v.id("projects"),
     membershipId: v.id("memberships"),
+    role: ROLE_VALIDATOR,
     permissions: v.optional(v.array(PERMISSION_VALIDATOR)),
   },
-  handler: async (ctx, { projectId, membershipId, permissions }) => {
+  handler: async (ctx, { projectId, membershipId, role, permissions }) => {
     const m = await membershipOf(ctx, membershipId, projectId);
-    if (m.role === "admin") {
-      throw new ConvexError(
-        "Ce membre est administrateur du projet. Retire-lui ce rôle par un autre chemin avant d'en faire un manager.",
-      );
+    const avant = rolesOf(m);
+    if (avant.has(role)) {
+      return { roles: [...avant], permissions: m.permissions ?? [], traced: 0 };
     }
-    if (isPortalRole(m.role)) {
-      const espace = KIND_LABELS[kindForRole(m.role) ?? "partner"].singular;
-      throw new ConvexError(
-        `Ce membre a un espace « ${espace} » sur ce projet. Le passer manager le lui retirerait, ` +
-          "et ce geste est sans retour. Le cumul des deux rôles arrive dans une prochaine étape — " +
-          "en attendant, crée-lui un second compte si ce rôle lui est nécessaire tout de suite.",
-      );
-    }
-    const after = [...new Set(permissions ?? defaultManagerPermissions())];
-    const before = m.permissions ?? [];
-    await ctx.db.patch(membershipId, { role: "manager", permissions: after });
+    const apres = MEMBERSHIP_ROLES.filter((r) => avant.has(r) || r === role);
+    const probleme = roleSetProblem(apres);
+    if (probleme !== null) throw new ConvexError(probleme);
+
+    // Les droits par défaut n'ont de sens qu'avec le rôle manager, et seulement
+    // s'il n'en portait aucun : un membre qui en avait déjà garde les siens.
+    const droitsAvant = m.permissions ?? [];
+    const droitsApres =
+      role === "manager" && droitsAvant.length === 0
+        ? [...new Set(permissions ?? defaultManagerPermissions())]
+        : droitsAvant;
+
+    await ctx.db.patch(membershipId, {
+      roles: apres,
+      // Le champ scalaire d'héritage est EFFACÉ : un document ne doit jamais
+      // porter les deux formes, sinon la prochaine lecture a deux réponses.
+      role: undefined,
+      permissions: droitsApres,
+    });
     const traced = await traceDiff(
       ctx,
       projectId,
       m.userId,
-      before,
-      after,
+      droitsAvant,
+      droitsApres,
       "écran",
       ctx.userId,
     );
-    return { role: "manager" as const, permissions: after, traced: traced.length };
+    return { roles: apres, permissions: droitsApres, traced: traced.length };
+  },
+});
+
+/**
+ * RETIRE un rôle, sans toucher aux autres.
+ *
+ * Refuse de vider l'ensemble : un membership sans aucun rôle n'ouvre rien et ne
+ * se distingue pas d'un membre qu'on aurait oublié de configurer. Retirer
+ * quelqu'un du projet est un autre geste, qui n'existe pas encore ici.
+ *
+ * Refuse aussi de retirer un rôle de PORTAIL : la fiche `creators` continuerait
+ * d'exister, avec son historique et sa paie, pendant que la personne serait
+ * rejetée de son propre espace — exactement l'état incohérent que l'étape 0 a
+ * fermé. On retire un espace en archivant la fiche, pas en coupant le rôle.
+ */
+export const removeRole = superadminMutation({
+  args: {
+    projectId: v.id("projects"),
+    membershipId: v.id("memberships"),
+    role: ROLE_VALIDATOR,
+  },
+  handler: async (ctx, { projectId, membershipId, role }) => {
+    const m = await membershipOf(ctx, membershipId, projectId);
+    const avant = rolesOf(m);
+    if (!avant.has(role)) {
+      return { roles: [...avant] };
+    }
+    if (isPortalRole(role)) {
+      const espace = KIND_LABELS[kindForRole(role)!].singular;
+      throw new ConvexError(
+        `« ${espace} » n'est pas un rôle qui se retire ici : la fiche resterait, avec son ` +
+          "historique et sa paie, pendant que la personne serait rejetée de son espace. " +
+          "Archive sa fiche depuis l'écran Créateurs.",
+      );
+    }
+    const apres = MEMBERSHIP_ROLES.filter((r) => avant.has(r) && r !== role);
+    if (apres.length === 0) {
+      throw new ConvexError(
+        "C'est son dernier rôle : le retirer laisserait un membre qui n'ouvre rien " +
+          "et qu'on ne distingue pas d'un compte mal configuré.",
+      );
+    }
+    await ctx.db.patch(membershipId, { roles: apres, role: undefined });
+    return { roles: apres };
   },
 });
 

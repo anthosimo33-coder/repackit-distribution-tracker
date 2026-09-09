@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { isPortalRole } from "@/convex/roles";
+
 import {
   useProjectMutation,
   useProjectQuery,
@@ -82,8 +82,11 @@ export function TeamPermissions() {
   if (catalogue === undefined || membres === undefined) {
     return <Skeleton className="h-96 w-full" />;
   }
-  const managers = membres.filter((m) => m.role === "manager");
-  const autres = membres.filter((m) => m.role !== "manager");
+  // Une personne = UNE ligne, plusieurs étiquettes. La partition porte sur
+  // « porte-t-il le rôle manager ? », pas sur « son rôle EST manager » : une
+  // créatrice-manager appartient aux deux mondes, et c'est le sujet de l'étape.
+  const managers = membres.filter((m) => m.roles.includes("manager"));
+  const autres = membres.filter((m) => !m.roles.includes("manager"));
 
   return (
     <div className="space-y-6">
@@ -116,27 +119,22 @@ export function TeamPermissions() {
   );
 }
 
-/** Un membre non-manager : son rôle, et le geste pour en faire un manager. */
+/** Un membre sans le rôle manager : ses rôles, et le geste pour le lui AJOUTER. */
 function LigneAutreMembre({ membre }: { membre: Membre }) {
-  const promouvoir = useProjectMutation(api.team.promoteToManager);
+  const ajouter = useProjectMutation(api.team.addRole);
   const [busy, setBusy] = useState(false);
   // Un ADMIN a tout par construction (la cascade l'autorise avant de lire une
-  // permission). Le rétrograder n'est pas un geste de configuration : on ne
-  // l'offre pas d'un clic depuis une liste, le serveur le refuse de toute façon.
-  const intouchable = membre.role === "admin" || membre.isSuperadmin;
-  // Un rôle de PORTAIL : le promouvoir écraserait son espace, sans retour. Le
-  // serveur refuse (convex/team.promoteToManager) ; on retire le bouton pour ne
-  // pas proposer une porte fermée, JAMAIS pour fermer la porte. Même prédicat
-  // que le serveur (`isPortalRole`), pour que les deux ne puissent pas diverger.
-  const aUnEspace = isPortalRole(membre.role);
+  // permission). Lui ajouter des cases ne le limiterait pas, ça le prétendrait :
+  // le serveur refuse ce cumul, on ne propose donc pas le geste.
+  const intouchable = membre.roles.includes("admin") || membre.isSuperadmin;
 
   async function go() {
     setBusy(true);
     try {
-      await promouvoir({ membershipId: membre.membershipId });
-      toast.success(`${membre.email} est maintenant manager`);
+      await ajouter({ membershipId: membre.membershipId, role: "manager" });
+      toast.success(`${membre.email} a maintenant le rôle manager`);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Échec du passage en manager"));
+      toast.error(convexErrorMessage(e, "Échec de l'ajout du rôle manager"));
     } finally {
       setBusy(false);
     }
@@ -146,29 +144,45 @@ function LigneAutreMembre({ membre }: { membre: Membre }) {
     <div className="flex items-center gap-3 border-t border-slate-100 py-2 first:border-t-0">
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm text-slate-900">{membre.email}</div>
-        <div className="text-xs text-slate-400">
-          {membre.isSuperadmin
-            ? "Superadmin — accès à tout, sur tous les projets"
-            : (ROLE_LABELS[membre.role] ?? membre.role)}
-        </div>
+        <EtiquettesDeRole membre={membre} />
       </div>
       {intouchable ? (
         <Badge variant="outline" className="text-[10px]">
           tous les droits
         </Badge>
-      ) : aUnEspace ? (
-        // Pas un bouton grisé : une PHRASE. Un bouton désactivé fait chercher ce
-        // qui manque ; ici il n'y a rien à débloquer, c'est le geste lui-même
-        // qui n'existe pas encore.
-        <span className="max-w-[22rem] shrink-0 text-right text-xs text-slate-400">
-          A son propre espace — le cumul avec le rôle manager arrive dans une
-          prochaine étape.
-        </span>
       ) : (
         <Button size="sm" variant="outline" onClick={go} disabled={busy}>
           {busy && <Loader2Icon className="size-3.5 animate-spin" />}
-          Passer manager
+          Ajouter le rôle manager
         </Button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * LES RÔLES D'UNE PERSONNE, tous affichés. Une créatrice-manager en porte deux,
+ * et n'en montrer qu'un rendrait l'écran faux là où il sert précisément à savoir
+ * qui peut quoi.
+ */
+function EtiquettesDeRole({ membre }: { membre: Membre }) {
+  if (membre.isSuperadmin) {
+    return (
+      <div className="text-xs text-slate-400">
+        Superadmin — accès à tout, sur tous les projets
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {membre.roles.length === 0 ? (
+        <span className="text-xs text-slate-400">Aucun rôle</span>
+      ) : (
+        membre.roles.map((r) => (
+          <Badge key={r} variant="outline" className="text-[10px]">
+            {ROLE_LABELS[r] ?? r}
+          </Badge>
+        ))
       )}
     </div>
   );
@@ -236,9 +250,12 @@ function CarteManager({
             <div className="truncate text-sm font-medium text-slate-900">
               {membre.email}
             </div>
-            <div className="text-xs text-slate-400">
-              Manager — {choix.length} droit{choix.length > 1 ? "s" : ""} sur{" "}
-              {catalogue.blocs.length}
+            <div className="flex flex-wrap items-center gap-2">
+              <EtiquettesDeRole membre={membre} />
+              <span className="text-xs text-slate-400">
+                {choix.length} droit{choix.length > 1 ? "s" : ""} sur{" "}
+                {catalogue.blocs.length}
+              </span>
             </div>
           </div>
           {choix.length > 0 && (

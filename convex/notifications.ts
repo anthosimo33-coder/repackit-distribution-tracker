@@ -46,7 +46,7 @@ import {
   isNeverMeasured,
 } from "./opsDigest";
 import { effectiveStatus } from "./comptes";
-import { resolveCreatorKind } from "./roles";
+import { hasRole, resolveCreatorKind } from "./roles";
 import { lateDays, parisHour, representativePostedAt } from "./calendarStatus";
 import { creatorZoneOnly } from "./creatorTimezone";
 import { eveningUnpublishedReports } from "./publicationLateness";
@@ -1404,7 +1404,9 @@ export const requireAdminForNotifyAction = internalQuery({
         q.eq("userId", userId).eq("projectId", projectId),
       )
       .first();
-    return membership?.role === "admin";
+    // ⚠️ MÊME SITE INVISIBLE que dans convex/radar.ts : wrapper d'action local,
+    // hors de la cascade de convex/functions.ts, qui lisait le scalaire.
+    return hasRole(membership, "admin");
   },
 });
 

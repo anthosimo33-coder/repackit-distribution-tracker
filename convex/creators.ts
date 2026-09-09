@@ -13,12 +13,18 @@ import {
 import { resolveCreatorLocale } from "./i18n";
 import { getProjectBySlug, REPACKIT_SLUG } from "./projects";
 import {
+  MEMBERSHIP_ROLES,
+  PORTAL_ROLES,
   TEAM_ROLES,
-  isPortalRole,
+  hasRole,
   isTeamRole,
+  portalRoleOf,
   resolveCreatorKind,
   roleForKind,
-  type PortalRole,
+  rolesOf,
+  teamRoleOf,
+  withPortalRole,
+  type MembershipRole,
   type TeamRole,
 } from "./roles";
 import { internal } from "./_generated/api";
@@ -630,7 +636,15 @@ export const updateCreator = permissionMutation("creators.manage")({
           )
           .first();
         if (membership) {
-          await ctx.db.patch(membership._id, { role: roleForKind(cible) });
+          // ⚠️ `withPortalRole` et non `{ roles: [nouveauPortail] }` : une
+          // créatrice-manager qui change de population garde son rôle manager.
+          // Écrite en remplacement complet, cette ligne le lui retirerait en
+          // silence — elle perdrait l'app interne sans que personne l'ait
+          // demandé, et aucun écran ne le dirait.
+          await ctx.db.patch(membership._id, {
+            roles: withPortalRole(rolesOf(membership), roleForKind(cible)),
+            role: undefined,
+          });
         }
       }
 
@@ -949,9 +963,19 @@ export const deleteCreator = permissionMutation("creators.delete")({
         .collect();
       const remaining: typeof memberships = [];
       for (const m of memberships) {
-        if (m.projectId === projectId && m.role === "creator") {
+        if (m.projectId !== projectId || !hasRole(m, "creator")) {
+          remaining.push(m);
+          continue;
+        }
+        // Le membership peut porter D'AUTRES rôles (une créatrice-manager) :
+        // on retire SON rôle de portail, on ne supprime la ligne que s'il ne
+        // reste rien. Supprimer d'office rendrait le retrait d'une fiche
+        // créatrice équivalent à un renvoi de l'équipe.
+        const restants = withPortalRole(rolesOf(m), null);
+        if (restants.length === 0) {
           await ctx.db.delete(m._id);
         } else {
+          await ctx.db.patch(m._id, { roles: restants, role: undefined });
           remaining.push(m);
         }
       }
@@ -1091,21 +1115,58 @@ export const getMyPortal = authedQuery({
       .withIndex("by_user", (q) => q.eq("userId", ctx.userId))
       .collect();
     const isSuperadmin = user?.role === "superadmin";
+    // TOUS les rôles de la personne, tous projets confondus, filtrés par la
+    // liste fermée. Sert au CLIENT à savoir quels espaces lui sont légitimes —
+    // c'est ce qui empêche les gardes de portail de renvoyer chez elle une
+    // créatrice-manager qui ouvre /app. Ce n'est PAS une barrière : chaque
+    // fonction revérifie côté serveur, membership par membership.
+    const tous = new Set<MembershipRole>();
+    for (const m of memberships) for (const r of rolesOf(m)) tous.add(r);
+    const roles = MEMBERSHIP_ROLES.filter((r) => tous.has(r));
+
     // Ordre significatif (TEAM_ROLES) : admin avant manager — même priorité que
     // la cascade de requirePermission pour une personne qui cumulerait les deux
     // sur deux projets.
-    const teamRole: TeamRole | undefined = TEAM_ROLES.find((r) =>
-      memberships.some((m) => m.role === r),
-    );
-    const portalRole: PortalRole | undefined = (
-      ["creator", "talent", "clipper"] as const
-    ).find((r) => memberships.some((m) => m.role === r));
+    const teamRole = TEAM_ROLES.find((r) => tous.has(r));
+    const portalRole = PORTAL_ROLES.find((r) => tous.has(r));
+
+    // ── LE CONTEXTE DU PORTAIL, calculé DÈS QU'ELLE EN A UN ──────────────────
+    // Et non plus seulement quand le portail est son espace PRINCIPAL. Une
+    // créatrice-manager atterrit côté équipe (l'équipe prime), mais /app doit
+    // pouvoir se rendre pour elle : sans ces champs, son shell créatrice n'a ni
+    // projectId ni accent et reste bloqué sur son écran d'attente.
+    let creatorName: string | null = null;
+    let projectId: Id<"projects"> | null = null;
+    let payoutDay: number | null = null;
+    let accentColor: string | null = null;
+    if (portalRole !== undefined) {
+      // Résolution INCHANGÉE (`.first()` par userId) : le partenaire multi-projets
+      // continue de passer par getMyCreatorProjects pour la liste ; ici on ne sert
+      // que le nom d'accueil + le projet par défaut du portail.
+      const creator = await ctx.db
+        .query("creators")
+        .withIndex("by_user", (q) => q.eq("userId", ctx.userId))
+        .first();
+      creatorName = creator?.name ?? null;
+      // P5 — projectId du créateur : le portail le passe aux creator/talent/
+      // clipperQuery (qui exigent projectId, hors ProjectProvider).
+      projectId = creator?.projectId ?? null;
+      if (creator?.projectId) {
+        const project = await ctx.db.get(creator.projectId);
+        // P9 — payoutDay : le portail affiche la prochaine date de paie.
+        payoutDay = project?.payoutDay ?? null;
+        // P10 branding — accentColor injecté dans --primary (#FF5200 sinon).
+        accentColor = project?.accentColor ?? null;
+      }
+    }
 
     if (isSuperadmin || teamRole !== undefined) {
       let slug: string | null = null;
       // Le plus récent parmi les memberships D'ÉQUIPE (cf défaut 2 ci-dessus) :
       // un membership de portail ne désigne pas un projet où l'on administre.
-      const teamMemberships = memberships.filter((m) => isTeamRole(m.role));
+      const teamMemberships = memberships.filter(
+        (m) => teamRoleOf(m) !== null,
+      );
       if (teamMemberships.length > 0) {
         const latest = teamMemberships.reduce((a, b) =>
           b._creationTime > a._creationTime ? b : a,
@@ -1122,35 +1183,24 @@ export const getMyPortal = authedQuery({
       // / requirePermission, qui le laissent passer avant toute autre lecture).
       // L'annoncer "manager" décrirait un pouvoir plus petit que le sien.
       const role: TeamRole = isSuperadmin ? "admin" : (teamRole ?? "admin");
-      return { role, slug, creatorName: null };
+      return {
+        role,
+        roles,
+        slug,
+        creatorName,
+        projectId,
+        payoutDay,
+        accentColor,
+      };
     }
 
     if (portalRole !== undefined) {
-      // Résolution INCHANGÉE (`.first()` par userId) : le partenaire multi-projets
-      // continue de passer par getMyCreatorProjects pour la liste ; ici on ne sert
-      // que le nom d'accueil + le projet par défaut du portail.
-      const creator = await ctx.db
-        .query("creators")
-        .withIndex("by_user", (q) => q.eq("userId", ctx.userId))
-        .first();
-      // P9 — payoutDay du projet : le portail créateur l'utilise pour afficher
-      // la prochaine date de paie (nextPayoutDate, calculé client).
-      let payoutDay: number | null = null;
-      // P10 branding — accentColor du projet : le portail /app l'injecte dans
-      // --primary pour que l'accent suive le projet du créateur (#FF5200 sinon).
-      let accentColor: string | null = null;
-      if (creator?.projectId) {
-        const project = await ctx.db.get(creator.projectId);
-        payoutDay = project?.payoutDay ?? null;
-        accentColor = project?.accentColor ?? null;
-      }
       return {
         role: portalRole,
+        roles,
         slug: null,
-        creatorName: creator?.name ?? null,
-        // P5 — projectId du créateur : le portail le passe aux creator/talent/
-        // clipperQuery (qui exigent projectId, hors ProjectProvider).
-        projectId: creator?.projectId ?? null,
+        creatorName,
+        projectId,
         payoutDay,
         accentColor,
       };
@@ -1158,9 +1208,12 @@ export const getMyPortal = authedQuery({
 
     return {
       role: "none" as const,
+      roles,
       slug: null,
       creatorName: null,
       projectId: null,
+      payoutDay: null,
+      accentColor: null,
     };
   },
 });
@@ -1319,7 +1372,7 @@ export const getMyCreatorProjects = authedQuery({
       payCurrency: string | null;
     }[] = [];
     for (const m of memberships) {
-      if (!isPortalRole(m.role)) continue;
+      if (portalRoleOf(m) === null) continue;
       const project = await ctx.db.get(m.projectId);
       if (!project) continue;
       const fiche = fiches.find((c) => c.projectId === m.projectId);
@@ -1359,7 +1412,7 @@ export const listAddableProjectsForCreator = authedQuery({
         .collect();
       adminProjects = [];
       for (const m of myMemberships) {
-        if (m.role !== "admin") continue;
+        if (!hasRole(m, "admin")) continue;
         const p = await ctx.db.get(m.projectId);
         if (p) adminProjects.push(p);
       }
@@ -1428,7 +1481,7 @@ export const addCreatorToProject = permissionMutation("creators.manage")({
     await ctx.db.insert("memberships", {
       userId: creatorUserId,
       projectId: ctx.projectId,
-      role: "creator",
+      roles: ["creator"],
     });
     // Dépôt de fichiers Snytch — crée le sous-dossier Drive (self-gaté Snytch,
     // no-op sans env Drive). Cf inviteCreator.
@@ -1492,7 +1545,7 @@ export const e2eAddCreatorToProject = e2eMutation({
         await ctx.db.insert("memberships", {
           userId: user._id,
           projectId,
-          role: "creator",
+          roles: ["creator"],
         });
       }
       return { creatorId: existingFiche._id };
@@ -1509,7 +1562,7 @@ export const e2eAddCreatorToProject = e2eMutation({
     await ctx.db.insert("memberships", {
       userId: user._id,
       projectId,
-      role: "creator",
+      roles: ["creator"],
     });
     return { creatorId };
   },

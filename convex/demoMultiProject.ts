@@ -10,6 +10,7 @@ import {
   deleteStorageBestEffort,
   purgePublicationImage,
 } from "./storageCleanup";
+import { hasRole } from "./roles";
 
 /**
  * Seed de DÉMO MULTI-PROJETS — cible un COMPTE CRÉATEUR EXISTANT (par email,
@@ -615,7 +616,7 @@ export const seedDemoForMultiProjectCreator = internalMutation({
         .query("memberships")
         .withIndex("by_user", (q) => q.eq("userId", user._id))
         .collect()
-    ).filter((m) => m.role === "creator");
+    ).filter((m) => hasRole(m, "creator"));
     if (memberships.length === 0) {
       throw new ConvexError(
         `« ${email} » n'est créateur d'aucun projet — rien à peupler.`,

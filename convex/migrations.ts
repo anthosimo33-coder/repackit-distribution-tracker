@@ -19,6 +19,7 @@ import {
   WARMUP_MODULE_TITLE,
 } from "./warmupGuideFused";
 import { GUIDE_FR_FIXES } from "./guideFrFixes";
+import { rolesOf } from "./roles";
 
 const DEFAULT_ACCENT = "#FF5200";
 const DEFAULT_PAYOUT_DAY = 5;
@@ -78,7 +79,7 @@ export const setupRepackitProject = internalMutation({
         await ctx.db.insert("memberships", {
           userId: u._id,
           projectId,
-          role: "admin",
+          roles: ["admin"],
         });
         membershipsCreated += 1;
       }
@@ -192,7 +193,7 @@ export const seedProject = internalMutation({
         await ctx.db.insert("memberships", {
           userId: args.ownerUserId,
           projectId,
-          role: args.ownerRole ?? "admin",
+          roles: [args.ownerRole ?? "admin"],
         });
       }
     }
@@ -1163,5 +1164,71 @@ export const auditWarmupSlot = internalQuery({
       violations: lignes.filter((l) => l.porteurs.length > 1),
       ok: lignes.every((l) => l.porteurs.length === 1),
     };
+  },
+});
+
+/**
+ * MULTI-RÔLES — convertit les memberships de la forme d'HÉRITAGE (`role`
+ * scalaire) vers la liste (`roles`), et efface le scalaire.
+ *
+ * ── CE N'EST PAS UNE MIGRATION QUI DÉBLOQUE, C'EST UNE MIGRATION QUI RANGE ───
+ * Rien n'en dépend : `rolesOf` lit les DEUX formes, donc l'application marche
+ * identiquement avant et après. C'est délibéré — une migration dont le retard
+ * enferme les gens dehors est exactement ce que #154 avait refusé de construire.
+ * Elle sert à ce qu'un document ne porte jamais deux champs qui pourraient se
+ * contredire, et à ce que la lecture d'héritage devienne du code mort qu'on
+ * pourra retirer.
+ *
+ * Idempotente : un document déjà converti est ignoré. À lancer APRÈS le deploy.
+ *   ./scripts/convex-prod.sh run migrations:backfillMembershipRoles '{}'
+ *   ./scripts/convex-prod.sh run migrations:auditMembershipRoles '{}'
+ */
+export const backfillMembershipRoles = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const all = await ctx.db.query("memberships").collect();
+    let converties = 0;
+    let deja = 0;
+    const orphelines: string[] = [];
+    for (const m of all) {
+      if (m.roles !== undefined) {
+        deja += 1;
+        // Un document qui porterait ENCORE le scalaire à côté de la liste : on
+        // finit le ménage plutôt que de laisser les deux cohabiter.
+        if (m.role !== undefined) await ctx.db.patch(m._id, { role: undefined });
+        continue;
+      }
+      const effectifs = [...rolesOf(m)];
+      if (effectifs.length === 0) {
+        // Ni liste, ni scalaire connu : on NE TOUCHE À RIEN et on le nomme. Un
+        // membership sans rôle n'ouvre déjà rien (fail-closed) ; le convertir en
+        // liste vide ne changerait que l'apparence du problème.
+        orphelines.push(m._id);
+        continue;
+      }
+      await ctx.db.patch(m._id, { roles: effectifs, role: undefined });
+      converties += 1;
+    }
+    return { total: all.length, converties, deja, orphelines };
+  },
+});
+
+/** Relecture : combien de documents dans chaque forme, et ce qu'ils portent. */
+export const auditMembershipRoles = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const all = await ctx.db.query("memberships").collect();
+    const parForme = { heritage: 0, liste: 0, lesDeux: 0, aucune: 0 };
+    const parRole: Record<string, number> = {};
+    for (const m of all) {
+      const aScalaire = m.role !== undefined;
+      const aListe = m.roles !== undefined;
+      if (aScalaire && aListe) parForme.lesDeux += 1;
+      else if (aListe) parForme.liste += 1;
+      else if (aScalaire) parForme.heritage += 1;
+      else parForme.aucune += 1;
+      for (const r of rolesOf(m)) parRole[r] = (parRole[r] ?? 0) + 1;
+    }
+    return { total: all.length, parForme, parRole };
   },
 });
