@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/format";
 import {
   AlertTriangleIcon,
+  ChevronDownIcon,
   ClockIcon,
   InfoIcon,
   TrendingDownIcon,
@@ -328,6 +329,107 @@ export function HubNotice({
   );
 }
 
+// ─── La PILE d'avertissements ───────────────────────────────────────────────
+
+/** Gravité d'un avertissement : rouge s'il change la lecture, ambre sinon. */
+export type HubNoticeTon = "alerte" | "info";
+
+/**
+ * UN avertissement, sous une forme que la pile peut replier.
+ *
+ * `court` n'est pas un doublon de `titre` : c'est ce qui doit tenir dans la
+ * ligne repliée. « Panne d'ingestion » d'un côté, la phrase datée complète de
+ * l'autre.
+ */
+export interface HubNoticeItem {
+  id: string;
+  ton: HubNoticeTon;
+  /** Deux ou trois mots, pour la ligne repliée. */
+  court: string;
+  /** La phrase d'ouverture, en gras, quand l'avertissement est déplié. */
+  titre: ReactNode;
+  corps: ReactNode;
+}
+
+const TON_CLASSES: Record<HubNoticeTon, string> = {
+  alerte: "border-red-200 bg-red-50/70 text-red-900",
+  info: "",
+};
+
+/**
+ * LA PILE — parce que cinq bandeaux empilés ne sont plus des avertissements.
+ *
+ * L'écran d'ensemble en accumulait cinq : une panne, un changement de périmètre,
+ * un litige, un contrôle en écart, une note de devise. Chacun est justifié —
+ * ensemble ils forment un mur de texte rouge devant le premier chiffre, et un
+ * mur ne se lit pas, il se contourne. Le défaut n'est pas leur contenu, c'est
+ * leur nombre : la place qu'ils prennent est inverse de l'attention qu'ils
+ * reçoivent.
+ *
+ * ⚠️ CE QUI N'EST PAS REPLIÉ : le FAIT qu'un avertissement s'applique. La ligne
+ * fermée nomme chacun d'eux (« Panne d'ingestion », « Litige bancaire »…) et
+ * garde la couleur du plus grave. Ce qui se replie est l'EXPLICATION, longue par
+ * nature. Personne ne peut lire ces courbes sans savoir qu'une panne les
+ * traverse ; il peut seulement choisir quand en lire le détail.
+ *
+ * Un seul avertissement se rend TEL QUEL : replier une ligne unique ajouterait
+ * un clic sans rien économiser.
+ */
+export function HubNoticeStack({
+  items,
+  className,
+}: {
+  items: readonly (HubNoticeItem | null | false | undefined)[];
+  className?: string;
+}) {
+  const [ouvert, setOuvert] = useState(false);
+  const liste = items.filter((i): i is HubNoticeItem => Boolean(i));
+  if (liste.length === 0) return null;
+
+  const rendu = (i: HubNoticeItem) => (
+    <HubNotice key={i.id} className={TON_CLASSES[i.ton]}>
+      <strong>{i.titre}</strong> {i.corps}
+    </HubNotice>
+  );
+
+  if (liste.length === 1) return <div className={className}>{rendu(liste[0])}</div>;
+
+  const alerte = liste.some((i) => i.ton === "alerte");
+  return (
+    <div className={cn("space-y-2", className)}>
+      <button
+        type="button"
+        onClick={() => setOuvert((o) => !o)}
+        aria-expanded={ouvert}
+        className={cn(
+          "flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition-colors",
+          alerte
+            ? "border-red-200 bg-red-50/70 text-red-900 hover:bg-red-50"
+            : "border-amber-200 bg-amber-50/60 text-amber-900 hover:bg-amber-50",
+        )}
+      >
+        <AlertTriangleIcon className="size-3.5 shrink-0" />
+        <span className="font-semibold">
+          {liste.length} remarques avant de lire ces chiffres
+        </span>
+        <span className="min-w-0 flex-1 truncate opacity-80">
+          {liste.map((i) => i.court).join(" · ")}
+        </span>
+        <span className="shrink-0 font-medium underline-offset-2 hover:underline">
+          {ouvert ? "Masquer" : "Lire"}
+        </span>
+        <ChevronDownIcon
+          className={cn(
+            "size-3.5 shrink-0 transition-transform",
+            ouvert && "rotate-180",
+          )}
+        />
+      </button>
+      {ouvert && <div className="space-y-2">{liste.map(rendu)}</div>}
+    </div>
+  );
+}
+
 // ─── Marqueurs de rupture (séries non comparables au-delà d'une date) ────────
 
 /** Réparation du webhook Whop de confirmation de paiement — 28/07/2026 au soir. */
@@ -348,23 +450,22 @@ export function spansWebhookFix(nowMs: number): boolean {
  * date ne mesurent pas un tunnel de paiement mais le temps pour trouver un bouton
  * de secours : non comparables. N'affiche rien si la fenêtre ne traverse pas la date.
  */
-export function WebhookFixNotice({
-  now,
-  className,
-}: {
-  now: number;
-  className?: string;
-}) {
+export function webhookFixItem(now: number): HubNoticeItem | null {
   if (!spansWebhookFix(now)) return null;
-  return (
-    <HubNotice className={cn("border-red-200 bg-red-50/70 text-red-900", className)}>
-      <strong>Webhook de confirmation réparé le 28/07 au soir.</strong>{" "}
-      Avant cette date, aucun paiement n&apos;accordait l&apos;accès automatiquement — les clients
-      devaient faire « Restore purchases ». Les délais et taux de complétion qui
-      traversent cette date ne mesurent pas un tunnel de paiement : ils ne sont
-      comparables à rien.
-    </HubNotice>
-  );
+  return {
+    id: "webhook-fix",
+    ton: "alerte",
+    court: "Webhook réparé le 28/07",
+    titre: "Webhook de confirmation réparé le 28/07 au soir.",
+    corps: (
+      <>
+        Avant cette date, aucun paiement n&apos;accordait l&apos;accès
+        automatiquement — les clients devaient faire « Restore purchases ». Les
+        délais et taux de complétion qui traversent cette date ne mesurent pas un
+        tunnel de paiement : ils ne sont comparables à rien.
+      </>
+    ),
+  };
 }
 
 /**
@@ -435,52 +536,46 @@ export function spansMoment(nowMs: number, momentMs: number): boolean {
  * Avertissement de panne d'ingestion. N'affiche rien si la fenêtre ne traverse
  * pas la panne — même contrat que `WebhookFixNotice`.
  */
-export function PosthogOutageNotice({
-  now,
-  className,
-}: {
-  now: number;
-  className?: string;
-}) {
+export function posthogOutageItem(now: number): HubNoticeItem | null {
   if (!spansMoment(now, POSTHOG_OUTAGE_START_MS)) return null;
-  return (
-    <HubNotice className={cn("border-red-200 bg-red-50/70 text-red-900", className)}>
-      <strong>
-        Ingestion PostHog coupée du 07/09 21:00 au 08/09 11:53 (heure de Paris).
-      </strong>{" "}
-      Dépassement de quota côté PostHog : tout le flux est tombé, y compris les
-      pages vues du navigateur. Visiteurs, inscriptions, parcours et paywalls
-      sont CREUX sur ces heures — <strong>20 paiements</strong>{" "}
-      encaissés n&apos;y ont laissé aucun event, et ils sont perdus, pas en retard. Une
-      exception : entre 02:00 et 03:30, le trafic est passé normalement. Le
-      revenu et les clients payants, eux, viennent de Whop : ils sont justes.
-    </HubNotice>
-  );
+  return {
+    id: "posthog-outage",
+    ton: "alerte",
+    court: "Panne d'ingestion 07-08/09",
+    titre:
+      "Ingestion PostHog coupée du 07/09 21:00 au 08/09 11:53 (heure de Paris).",
+    corps: (
+      <>
+        Dépassement de quota côté PostHog : tout le flux est tombé, y compris les
+        pages vues du navigateur. Visiteurs, inscriptions, parcours et paywalls
+        sont CREUX sur ces heures — <strong>20 paiements</strong>{" "}
+        encaissés n&apos;y ont laissé aucun event, et ils sont perdus, pas en
+        retard. Une exception : entre 02:00 et 03:30, le trafic est passé
+        normalement. Le revenu et les clients payants, eux, viennent de Whop :
+        ils sont justes.
+      </>
+    ),
+  };
 }
 
-/**
- * Avertissement d'élargissement du périmètre `paywall_shown`. Posé là où des
- * volumes de paywall se comparent dans le temps.
- */
-export function PaywallScopeNotice({
-  now,
-  className,
-}: {
-  now: number;
-  className?: string;
-}) {
+export function paywallScopeItem(now: number): HubNoticeItem | null {
   if (!spansMoment(now, PAYWALL_SCOPE_CHANGE_MS)) return null;
-  return (
-    <HubNotice className={className}>
-      <strong>Périmètre de « paywall vu » élargi le 09/09.</strong>{" "}
-      <code>paywall_shown</code> porte désormais <code>paywall_id</code>, et
-      l&apos;écran de déblocage (<code>see_who</code>, <code>event_locked</code>)
-      l&apos;émet enfin. Le volume fait une marche à cette date : ce n&apos;est
-      pas une hausse d&apos;exposition, c&apos;est le périmètre qui s&apos;élargit.
-      Deux courbes de part et d&apos;autre ne se comparent qu&apos;à{" "}
-      <code>paywall_id</code> fixé.
-    </HubNotice>
-  );
+  return {
+    id: "paywall-scope",
+    ton: "info",
+    court: "Périmètre paywall élargi le 09/09",
+    titre: "Périmètre de « paywall vu » élargi le 09/09.",
+    corps: (
+      <>
+        <code>paywall_shown</code> porte désormais <code>paywall_id</code>, et
+        l&apos;écran de déblocage (<code>see_who</code>, <code>event_locked</code>)
+        l&apos;émet enfin. Le volume fait une marche à cette date : ce n&apos;est
+        pas une hausse d&apos;exposition, c&apos;est le périmètre qui
+        s&apos;élargit. Deux courbes de part et d&apos;autre ne se comparent
+        qu&apos;à <code>paywall_id</code> fixé.
+      </>
+    ),
+  };
 }
 
 // ─── Sparkline + KPI ─────────────────────────────────────────────────────────

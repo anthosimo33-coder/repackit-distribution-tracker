@@ -762,7 +762,10 @@ describe("buildCoherenceChecks", () => {
    * reproduit. Le contrôle portant sur 49 jours, l'alerte restait rouge des
    * semaines durant, sans qu'on puisse la distinguer d'une panne en cours.
    */
-  const jours = (n: number, base = "2026-09-") =>
+  // ⚠️ Base AOÛT, et pas septembre : depuis que le contrôle connaît la panne
+  // d'ingestion du 07-08/09, un jour divergent posé sur ces dates-là serait
+  // « expliqué par la panne » et ne testerait plus la clôture d'incident.
+  const jours = (n: number, base = "2026-08-") =>
     Array.from({ length: n }, (_, i) => `${base}${String(i + 1).padStart(2, "0")}`);
 
   const parcSain = (jrs: string[]) => ({
@@ -772,10 +775,10 @@ describe("buildCoherenceChecks", () => {
     dashboardClients: null,
     whopMembers: null,
     whopClients: null,
-    dailySubs: jrs.map((day) => ({ day, subs: day === "2026-09-08" ? 2 : 5 })),
+    dailySubs: jrs.map((day) => ({ day, subs: day === "2026-08-08" ? 2 : 5 })),
     dailyPaidClients: jrs.map((day) => ({
       day,
-      clients: day === "2026-09-08" ? 9 : 5,
+      clients: day === "2026-08-08" ? 9 : 5,
     })),
   });
 
@@ -783,11 +786,11 @@ describe("buildCoherenceChecks", () => {
     const jrs = jours(20);
     const checks = buildCoherenceChecks({
       ...parcSain(jrs),
-      todayParis: "2026-09-20",
+      todayParis: "2026-08-20",
     });
     const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");
     expect(c?.detail).toContain("INCIDENT CLOS");
-    expect(c?.detail).toContain("2026-09-08");
+    expect(c?.detail).toContain("2026-08-08");
     // Le ton change, l'information reste : le jour fautif est toujours nommé.
     expect(c?.status).toBe("info");
   });
@@ -797,7 +800,7 @@ describe("buildCoherenceChecks", () => {
     const jrs = jours(11);
     const checks = buildCoherenceChecks({
       ...parcSain(jrs),
-      todayParis: "2026-09-11",
+      todayParis: "2026-08-11",
     });
     const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");
     expect(c?.detail).not.toContain("INCIDENT CLOS");
@@ -811,13 +814,13 @@ describe("buildCoherenceChecks", () => {
     const jrs = jours(15);
     const c = buildCoherenceChecks({
       ...parcSain(jrs),
-      todayParis: "2026-09-15",
+      todayParis: "2026-08-15",
     }).find((x) => x.key === "daily_clients_posthog_vs_whop");
     expect(c?.detail).not.toContain("INCIDENT CLOS");
     // Présence, en regard : un jour de plus et il se clôt.
     const d = buildCoherenceChecks({
       ...parcSain(jours(16)),
-      todayParis: "2026-09-16",
+      todayParis: "2026-08-16",
     }).find((x) => x.key === "daily_clients_posthog_vs_whop");
     expect(d?.detail).toContain("INCIDENT CLOS : rien depuis 7 jour(s)");
   });
@@ -831,6 +834,71 @@ describe("buildCoherenceChecks", () => {
     expect(c?.detail).not.toContain("INCIDENT CLOS");
   });
 
+  /**
+   * LA PANNE D'INGESTION — l'écart du 07-08/09 n'est pas un défaut d'instrumentation.
+   *
+   * Le bandeau de l'écran dit depuis #209 que PostHog a coupé l'ingestion ces
+   * heures-là. Le contrôle, lui, l'ignorait et criait « en écart » sur la même
+   * journée, deux blocs plus bas. Deux blocs du même écran disaient deux choses
+   * de la même date.
+   */
+  const jourDePanne = (jrs: string[], divergent: string) => ({
+    sequentialSteps: [],
+    reachSteps: [],
+    currencyCount: 1,
+    dashboardClients: null,
+    whopMembers: null,
+    whopClients: null,
+    // Volumes de la journée réelle : 15 subs PostHog pour 27 clients Whop.
+    dailySubs: jrs.map((day) => ({ day, subs: day === divergent ? 15 : 20 })),
+    dailyPaidClients: jrs.map((day) => ({
+      day,
+      clients: day === divergent ? 27 : 20,
+    })),
+  });
+
+  it("un jour de PANNE n'est pas une divergence, et le contrôle le DIT", () => {
+    const c = buildCoherenceChecks({
+      ...jourDePanne(jours(12, "2026-09-"), "2026-09-08"),
+      todayParis: "2026-09-12",
+    }).find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(c?.status).toBe("info");
+    expect(c?.detail).toContain("panne d'ingestion");
+    // L'information reste ENTIÈRE : la journée est nommée, ses deux chiffres
+    // aussi. Taire l'écart serait pire que le crier.
+    expect(c?.detail).toContain("2026-09-08");
+    expect(c?.detail).toContain("PostHog 15 vs Whop 27");
+  });
+
+  it("le MÊME écart, un autre jour, reste une violation", () => {
+    // La contre-épreuve qui rend le test précédent utile : sans elle, un
+    // contrôle qui ne sonnerait plus JAMAIS le passerait aussi.
+    const c = buildCoherenceChecks({
+      ...jourDePanne(jours(12, "2026-10-"), "2026-10-08"),
+      todayParis: "2026-10-12",
+    }).find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(c?.status).toBe("violation");
+    expect(c?.detail).not.toContain("panne d'ingestion");
+  });
+
+  it("la panne couvre les DEUX jours Paris qu'elle traverse", () => {
+    // Elle commence le 07/09 à 21:00 Paris et finit le 08/09 à 11:53 : les deux
+    // dates sont concernées. Ne dater que le 08 laissait le 07 crier.
+    for (const jour of ["2026-09-07", "2026-09-08"]) {
+      const c = buildCoherenceChecks({
+        ...jourDePanne(jours(12, "2026-09-"), jour),
+        todayParis: "2026-09-12",
+      }).find((x) => x.key === "daily_clients_posthog_vs_whop");
+      expect(c?.status, jour).toBe("info");
+    }
+    // Et pas un jour de plus : le 09 n'est plus dans la panne.
+    const apres = buildCoherenceChecks({
+      ...jourDePanne(jours(12, "2026-09-"), "2026-09-09"),
+      todayParis: "2026-09-12",
+    }).find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(apres?.status).toBe("violation");
+  });
+
   it("un écart RÉCENT ne peut pas être clos par un vieil incident", () => {
     // Deux jours divergents : un vieux, un d'hier. Le plus récent commande —
     // sans quoi le vieux, plus grave donc classé premier, clôturerait l'alerte.
@@ -842,14 +910,14 @@ describe("buildCoherenceChecks", () => {
       dashboardClients: null,
       whopMembers: null,
       whopClients: null,
-      todayParis: "2026-09-20",
+      todayParis: "2026-08-20",
       dailySubs: jrs.map((day) => ({
         day,
-        subs: day === "2026-09-08" ? 2 : day === "2026-09-19" ? 4 : 5,
+        subs: day === "2026-08-08" ? 2 : day === "2026-08-19" ? 4 : 5,
       })),
       dailyPaidClients: jrs.map((day) => ({
         day,
-        clients: day === "2026-09-08" ? 9 : day === "2026-09-19" ? 9 : 5,
+        clients: day === "2026-08-08" ? 9 : day === "2026-08-19" ? 9 : 5,
       })),
     });
     const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");
@@ -897,21 +965,21 @@ describe("buildCoherenceChecks", () => {
       dashboardClients: null,
       whopMembers: null,
       whopClients: null,
-      todayParis: "2026-09-09",
-      dailySubs: [{ day: "2026-09-08", subs: 2 }],
-      dailyPaidClients: [{ day: "2026-09-08", clients: 8 }],
+      todayParis: "2026-08-09",
+      dailySubs: [{ day: "2026-08-08", subs: 2 }],
+      dailyPaidClients: [{ day: "2026-08-08", clients: 8 }],
       subsByMembership: [
-        { day: "2026-09-08", membershipId: "mem_a", persons: 1 },
-        { day: "2026-09-08", membershipId: "mem_b", persons: 1 },
+        { day: "2026-08-08", membershipId: "mem_a", persons: 1 },
+        { day: "2026-08-08", membershipId: "mem_b", persons: 1 },
       ],
       whopFirstPaidDay: [
-        { membershipId: "mem_a", day: "2026-09-08" },
-        { membershipId: "mem_c", day: "2026-09-08" },
-        { membershipId: "mem_d", day: "2026-09-08" },
-        { membershipId: "mem_e", day: "2026-09-08" },
-        { membershipId: "mem_f", day: "2026-09-08" },
-        { membershipId: "mem_g", day: "2026-09-08" },
-        { membershipId: "mem_h", day: "2026-09-08" },
+        { membershipId: "mem_a", day: "2026-08-08" },
+        { membershipId: "mem_c", day: "2026-08-08" },
+        { membershipId: "mem_d", day: "2026-08-08" },
+        { membershipId: "mem_e", day: "2026-08-08" },
+        { membershipId: "mem_f", day: "2026-08-08" },
+        { membershipId: "mem_g", day: "2026-08-08" },
+        { membershipId: "mem_h", day: "2026-08-08" },
       ],
     });
     const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");

@@ -19,8 +19,9 @@ import {
   HubNotice,
   InfoDot,
   ColLabel,
-  WebhookFixNotice,
-  PosthogOutageNotice,
+  HubNoticeStack,
+  webhookFixItem,
+  posthogOutageItem,
   dash,
   pct,
   formatDuration,
@@ -288,8 +289,7 @@ export function ParcoursTab({
         }
         aria-busy={windowed.loading}
       >
-      <WebhookFixNotice now={now} />
-      <PosthogOutageNotice now={now} />
+      <HubNoticeStack items={[webhookFixItem(now), posthogOutageItem(now)]} />
       <HubNotice className="border-sky-200 bg-sky-50/70 text-sky-900">
         <strong>Tunnel corrigé le 29/07.</strong> L&apos;ordre des étapes était faux
         (les cibles et la 1re alerte étaient placées avant l&apos;offre) : les taux
