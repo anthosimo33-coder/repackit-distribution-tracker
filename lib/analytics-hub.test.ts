@@ -756,6 +756,107 @@ describe("buildCoherenceChecks", () => {
     expect(r.missingOffers).toEqual([{ offer: "Offre 16,90 €", count: 1 }]);
   });
 
+  /**
+   * INCIDENT CLOS — cas de production du 07→08/09/2026 : l'event a cessé de
+   * partir pendant une dizaine d'heures, puis est revenu et ne s'est jamais
+   * reproduit. Le contrôle portant sur 49 jours, l'alerte restait rouge des
+   * semaines durant, sans qu'on puisse la distinguer d'une panne en cours.
+   */
+  const jours = (n: number, base = "2026-09-") =>
+    Array.from({ length: n }, (_, i) => `${base}${String(i + 1).padStart(2, "0")}`);
+
+  const parcSain = (jrs: string[]) => ({
+    sequentialSteps: [],
+    reachSteps: [],
+    currencyCount: 1,
+    dashboardClients: null,
+    whopMembers: null,
+    whopClients: null,
+    dailySubs: jrs.map((day) => ({ day, subs: day === "2026-09-08" ? 2 : 5 })),
+    dailyPaidClients: jrs.map((day) => ({
+      day,
+      clients: day === "2026-09-08" ? 9 : 5,
+    })),
+  });
+
+  it("un écart vieux de plus d'une semaine est annoncé CLOS, pas en cours", () => {
+    const jrs = jours(20);
+    const checks = buildCoherenceChecks({
+      ...parcSain(jrs),
+      todayParis: "2026-09-20",
+    });
+    const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(c?.detail).toContain("INCIDENT CLOS");
+    expect(c?.detail).toContain("2026-09-08");
+    // Le ton change, l'information reste : le jour fautif est toujours nommé.
+    expect(c?.status).toBe("info");
+  });
+
+  it("le même écart, récent, reste une violation", () => {
+    // Contre-épreuve : trois jours propres ne suffisent pas à clore.
+    const jrs = jours(11);
+    const checks = buildCoherenceChecks({
+      ...parcSain(jrs),
+      todayParis: "2026-09-11",
+    });
+    const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(c?.detail).not.toContain("INCIDENT CLOS");
+    expect(c?.status).toBe("violation");
+  });
+
+  it("le jour COURANT ne compte pas dans les jours propres (borne exacte)", () => {
+    // Écart le 08, aujourd'hui le 15 : six jours pleins observés (09→14). Le
+    // jour courant est partiel — le contrôle l'ignore déjà — donc le compter
+    // ferait sept et clôturerait un jour trop tôt.
+    const jrs = jours(15);
+    const c = buildCoherenceChecks({
+      ...parcSain(jrs),
+      todayParis: "2026-09-15",
+    }).find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(c?.detail).not.toContain("INCIDENT CLOS");
+    // Présence, en regard : un jour de plus et il se clôt.
+    const d = buildCoherenceChecks({
+      ...parcSain(jours(16)),
+      todayParis: "2026-09-16",
+    }).find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(d?.detail).toContain("INCIDENT CLOS : rien depuis 7 jour(s)");
+  });
+
+  it("sans date du jour, aucun incident n'est déclaré clos", () => {
+    // On ne sait pas quand on est : on ne peut donc rien dire du temps écoulé.
+    // Se taire serait pire que sonner.
+    const c = buildCoherenceChecks(parcSain(jours(20))).find(
+      (x) => x.key === "daily_clients_posthog_vs_whop",
+    );
+    expect(c?.detail).not.toContain("INCIDENT CLOS");
+  });
+
+  it("un écart RÉCENT ne peut pas être clos par un vieil incident", () => {
+    // Deux jours divergents : un vieux, un d'hier. Le plus récent commande —
+    // sans quoi le vieux, plus grave donc classé premier, clôturerait l'alerte.
+    const jrs = jours(20);
+    const checks = buildCoherenceChecks({
+      sequentialSteps: [],
+      reachSteps: [],
+      currencyCount: 1,
+      dashboardClients: null,
+      whopMembers: null,
+      whopClients: null,
+      todayParis: "2026-09-20",
+      dailySubs: jrs.map((day) => ({
+        day,
+        subs: day === "2026-09-08" ? 2 : day === "2026-09-19" ? 4 : 5,
+      })),
+      dailyPaidClients: jrs.map((day) => ({
+        day,
+        clients: day === "2026-09-08" ? 9 : day === "2026-09-19" ? 9 : 5,
+      })),
+    });
+    const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(c?.detail).not.toContain("INCIDENT CLOS");
+    expect(c?.status).toBe("violation");
+  });
+
   it("l'alerte CITE l'offre au lieu de dire seulement « sans event »", () => {
     const checks = buildCoherenceChecks({
       sequentialSteps: [],
