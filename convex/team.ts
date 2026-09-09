@@ -28,7 +28,7 @@ import {
   type PermissionId,
 } from "./permissions";
 import { PERMISSION_COVERAGE } from "./permissionCoverage";
-import { traceDiff } from "./memberPermissions";
+import { ROLE_ADMIN_TRACE, traceDiff } from "./memberPermissions";
 import {
   KIND_LABELS,
   MEMBERSHIP_ROLES,
@@ -37,6 +37,8 @@ import {
   kindForRole,
   roleSetProblem,
   rolesOf,
+  teamRoleOf,
+  withTeamRole,
 } from "./roles";
 
 /** Validateur des rôles : la liste fermée, jamais `v.string()`. */
@@ -312,6 +314,101 @@ export const removeRole = superadminMutation({
     }
     await ctx.db.patch(membershipId, { roles: apres, role: undefined });
     return { roles: apres };
+  },
+});
+
+/**
+ * ÉCHANGE LE RÔLE D'ÉQUIPE — administrateur ⇄ manager, en UNE écriture.
+ *
+ * ── POURQUOI UNE MUTATION DE PLUS ────────────────────────────────────────────
+ * Parce que le geste n'existait dans AUCUN ordre. Composé de `addRole` et
+ * `removeRole`, il se heurte à deux refus qui sont chacun justes :
+ *   - retirer « admin » d'abord → « c'est son dernier rôle » ;
+ *   - ajouter « manager » d'abord → « un administrateur peut déjà tout ».
+ * Rétrograder était donc impossible, y compris en ligne de commande. Et la
+ * montée manager → admin n'existait qu'en CLI. L'échange est atomique : l'état
+ * intermédiaire interdit n'est jamais écrit, même une milliseconde.
+ *
+ * ── CE QU'IL ADVIENT DES DROITS COCHÉS ───────────────────────────────────────
+ * À la MONTÉE, `permissions` n'est pas touché — doctrine reprise telle quelle de
+ * `promoteToProjectAdmin` : les blocs n'ouvrent ni ne limitent plus rien une
+ * fois « admin » posé (la cascade s'arrête avant de les lire), et les effacer
+ * écrirait au journal douze retraits le jour d'une promotion. Ils redeviennent
+ * l'état de départ à la descente.
+ *
+ * À la DESCENTE, un membership SANS aucun droit stocké reçoit le socle par
+ * défaut. Sinon on fabriquerait un manager qui n'ouvre rien : il garderait un
+ * rôle, un écran, et pas une seule porte — indiscernable d'un compte oublié.
+ *
+ * ── CE QU'IL REFUSE ──────────────────────────────────────────────────────────
+ *   - un SUPERADMIN : l'écran l'annoncerait « manager » pendant qu'il continue
+ *     de tout franchir. Un libellé faux est pire qu'un bouton absent ;
+ *   - « admin » à qui porte un espace créateur — c'est `roleSetProblem` qui le
+ *     dit, avec sa phrase, pas une règle réécrite ici ;
+ *   - un membre SANS rôle d'équipe : on n'échange que ce qui existe. Donner un
+ *     premier rôle est le geste d'`addRole`, et ses droits par défaut en
+ *     dépendent.
+ */
+export const setTeamRole = superadminMutation({
+  args: {
+    projectId: v.id("projects"),
+    membershipId: v.id("memberships"),
+    role: v.union(v.literal("admin"), v.literal("manager")),
+  },
+  handler: async (ctx, { projectId, membershipId, role }) => {
+    const m = await membershipOf(ctx, membershipId, projectId);
+    const avant = rolesOf(m);
+    if (avant.has(role)) {
+      return { roles: [...avant], permissions: m.permissions ?? [], traced: 0 };
+    }
+    // Le rôle GLOBAL prime sur le membership : un superadmin garde tout, quoi
+    // qu'on écrive sur cette ligne.
+    const user = await ctx.db.get(m.userId);
+    if (user?.role === "superadmin") {
+      throw new ConvexError(
+        "Ce compte est superadmin : son accès ne vient pas de ce projet et ne s'y " +
+          "règle pas. Lui poser « manager » n'enlèverait rien et afficherait un " +
+          "pouvoir plus petit que le sien.",
+      );
+    }
+    if (teamRoleOf(m) === null) {
+      throw new ConvexError(
+        "Ce membre n'a pas de rôle d'équipe à échanger. Ajoute-lui d'abord le rôle " +
+          "manager : c'est le geste qui pose aussi ses droits par défaut.",
+      );
+    }
+
+    const apres = withTeamRole(avant, role);
+    const probleme = roleSetProblem(apres);
+    if (probleme !== null) throw new ConvexError(probleme);
+
+    const droitsAvant = m.permissions ?? [];
+    const droitsApres =
+      role === "manager" && droitsAvant.length === 0
+        ? defaultManagerPermissions()
+        : droitsAvant;
+
+    await ctx.db.patch(membershipId, {
+      roles: apres,
+      // Comme toute écriture de rôle : la LISTE est posée, le scalaire d'héritage
+      // effacé — jamais les deux formes sur une même ligne.
+      role: undefined,
+      permissions: droitsApres,
+    });
+
+    // UNE ligne de journal pour le rôle, signée du compte connecté, et les
+    // éventuels droits reposés à la descente. Les droits INCHANGÉS n'écrivent
+    // rien : le journal doit raconter le geste, pas le recopier.
+    const traced = await traceDiff(
+      ctx,
+      projectId,
+      m.userId,
+      [...(avant.has("admin") ? [ROLE_ADMIN_TRACE] : []), ...droitsAvant],
+      [...(role === "admin" ? [ROLE_ADMIN_TRACE] : []), ...droitsApres],
+      "écran",
+      ctx.userId,
+    );
+    return { roles: apres, permissions: droitsApres, traced: traced.length };
   },
 });
 

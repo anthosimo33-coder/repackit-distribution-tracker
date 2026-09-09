@@ -333,3 +333,173 @@ test.describe("Rôles multiples — la compatibilité et les écritures d'ailleu
     expect(apres?.effectifs).toEqual(["manager"]);
   });
 });
+
+/**
+ * ÉCHANGE DU RÔLE D'ÉQUIPE — le geste qui n'existait dans aucun ordre.
+ *
+ * ⚠️ LE PREMIER TEST VÉRIFIE D'ABORD L'IMPASSE. Sans elle, `setTeamRole`
+ * ressemble à une commodité d'écran ; avec elle, on voit que rétrograder était
+ * IMPOSSIBLE — les deux gestes existants se refusent l'un l'autre, et chacun a
+ * raison isolément. Si un jour l'un des deux refus tombe, ce test devient rouge
+ * et quelqu'un devra décider s'il reste deux chemins ou un seul.
+ */
+test.describe("Rôle d'équipe — l'échange administrateur ⇄ manager", () => {
+  test("rétrograder : impossible en composant, atomique en une écriture", async () => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const projectId = await admin.getProjectId();
+    const { email, client } = await compteReel("retrogradation", ts);
+    await poser(email, "admin");
+    const ligne = await membre(email);
+
+    // ── L'IMPASSE, dans les deux ordres ──────────────────────────────────────
+    await expect(
+      admin.mutation(api.team.removeRole, {
+        membershipId: ligne.membershipId,
+        role: "admin",
+      }),
+    ).rejects.toThrow(/dernier rôle/i);
+    await expect(
+      admin.mutation(api.team.addRole, {
+        membershipId: ligne.membershipId,
+        role: "manager",
+      }),
+    ).rejects.toThrow(/peut déjà tout/);
+    // Rien n'a bougé : il est toujours administrateur.
+    expect((await membre(email)).roles).toEqual(["admin"]);
+
+    // ── LE GESTE ─────────────────────────────────────────────────────────────
+    const res = await admin.mutation(api.team.setTeamRole, {
+      membershipId: ligne.membershipId,
+      role: "manager",
+    });
+    expect(res.roles).toEqual(["manager"]);
+    // Un manager sans aucun droit n'ouvrirait rien : le socle est reposé.
+    expect(res.permissions).toHaveLength(12);
+    expect(res.permissions).not.toContain("payments.manage");
+
+    // Et ce n'est pas qu'une ligne en base : l'app interne lui répond, bornée.
+    expect(
+      await client.query(api.permissionProbe.probeCreatorsRead, { projectId }),
+    ).toEqual({ ok: true, permission: "creators.read" });
+    await expect(
+      client.query(api.permissionProbe.probePaymentsManage, { projectId }),
+    ).rejects.toThrow();
+  });
+
+  test("aller-retour : la montée ouvre tout, la descente REND ses droits d'avant", async () => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const projectId = await admin.getProjectId();
+    const { email, client } = await compteReel("aller-retour", ts);
+    // Un manager aux droits CHOISIS, réduits à UN bloc : c'est ce qui distingue
+    // « on lui rend les siens » de « on lui remet les 12 ».
+    await poser(email, "manager", { permissions: ["creators.read"] });
+
+    // Point de départ : le bloc Argent lui est fermé.
+    await expect(
+      client.query(api.permissionProbe.probePaymentsManage, { projectId }),
+    ).rejects.toThrow();
+
+    // ── MONTÉE ───────────────────────────────────────────────────────────────
+    const monte = await admin.mutation(api.team.setTeamRole, {
+      membershipId: (await membre(email)).membershipId,
+      role: "admin",
+    });
+    expect(monte.roles).toEqual(["admin"]);
+    // Les blocs stockés ne sont pas effacés — sinon le journal raconterait une
+    // rétrogradation le jour d'une promotion, et le retour serait impossible.
+    expect(monte.permissions).toEqual(["creators.read"]);
+    // Ce qu'un admin change VRAIMENT : il passe la cascade avant les blocs. Le
+    // bloc qu'il n'avait pas s'ouvre, sans qu'aucune case ait été cochée.
+    expect(
+      await client.query(api.permissionProbe.probePaymentsManage, { projectId }),
+    ).toEqual({ ok: true, permission: "payments.manage" });
+
+    // ── DESCENTE ─────────────────────────────────────────────────────────────
+    const redescend = await admin.mutation(api.team.setTeamRole, {
+      membershipId: (await membre(email)).membershipId,
+      role: "manager",
+    });
+    expect(redescend.roles).toEqual(["manager"]);
+    // SES droits, pas le socle par défaut. Douze blocs reposés passeraient
+    // l'assertion de rôle ci-dessus sans qu'on voie l'écrasement.
+    expect(redescend.permissions).toEqual(["creators.read"]);
+    // …et le bloc Argent se referme à la descente.
+    await expect(
+      client.query(api.permissionProbe.probePaymentsManage, { projectId }),
+    ).rejects.toThrow();
+    // Présence en regard : ce qu'il a coché, lui, répond toujours.
+    expect(
+      await client.query(api.permissionProbe.probeCreatorsRead, { projectId }),
+    ).toEqual({ ok: true, permission: "creators.read" });
+  });
+
+  test("une créatrice-manager n'est PAS promouvable, et le refus le dit", async () => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const { email } = await compteReel("creatrice-manager-promo", ts);
+    await poser(email, "creator", {
+      extraRoles: ["manager"],
+      permissions: ["creators.read"],
+    });
+    const ligne = await membre(email);
+    await expect(
+      admin.mutation(api.team.setTeamRole, {
+        membershipId: ligne.membershipId,
+        role: "admin",
+      }),
+    ).rejects.toThrow(/n'est pas ouvert/);
+    // Rien n'a bougé — ni ses rôles, ni ses droits.
+    const apres = await membre(email);
+    expect(apres.roles).toEqual(["manager", "creator"]);
+    expect(apres.effective).toEqual(["creators.read"]);
+  });
+
+  test("un membre SANS rôle d'équipe n'a rien à échanger", async () => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const { email } = await compteReel("sans-equipe", ts);
+    await poser(email, "creator");
+    await expect(
+      admin.mutation(api.team.setTeamRole, {
+        membershipId: (await membre(email)).membershipId,
+        role: "manager",
+      }),
+    ).rejects.toThrow(/pas de rôle d'équipe/i);
+    // Le geste qui convient, lui, marche — et c'est celui qui pose les droits.
+    const ajout = await admin.mutation(api.team.addRole, {
+      membershipId: (await membre(email)).membershipId,
+      role: "manager",
+    });
+    expect(ajout.permissions).toHaveLength(12);
+  });
+
+  test("reposer le rôle qu'il porte déjà ne LUI REND PAS des droits retirés", async () => {
+    // Le cas qui rend ce test utile : un manager à qui on a TOUT retiré (geste
+    // « Tout retirer », volontaire et confirmé). Sans la sortie anticipée, un
+    // second clic sur « Rétrograder » le verrait sans aucun droit et lui
+    // reposerait le socle des douze — un rétablissement que personne n'a
+    // demandé, et qui ne se lit nulle part.
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const { email } = await compteReel("rejouable", ts);
+    await poser(email, "manager", { permissions: ["creators.read"] });
+    const id = (await membre(email)).membershipId;
+    await admin.mutation(api.team.setMemberPermissions, {
+      membershipId: id,
+      permissions: [],
+    });
+
+    const res = await admin.mutation(api.team.setTeamRole, {
+      membershipId: id,
+      role: "manager",
+    });
+    expect(res.roles).toEqual(["manager"]);
+    expect(res.permissions).toEqual([]);
+    expect(res.traced).toBe(0);
+    // Assertion de PRÉSENCE en regard : c'est bien la base qui le dit, pas la
+    // valeur de retour d'une mutation qui n'aurait rien fait.
+    expect((await membre(email)).effective).toEqual([]);
+  });
+});
