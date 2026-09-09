@@ -547,24 +547,49 @@ export const updateCompte = permissionMutation("accounts.manage")({
       throw err(ERR.MANAGED_ACCOUNT_NEEDS_CREATOR, "Un compte géré par l'équipe doit être rattaché à une créatrice.");
     }
 
-    // Garde-fou rename (scopé projet) : publications.compte = handle string.
-    // Bloque le rename tant que des publications du projet l'utilisent.
+    // RENOMMAGE — le handle est réécrit SUR LES PUBLICATIONS, pas refusé.
+    //
+    // `publications.compte` est une chaîne (le handle), pas une clé étrangère :
+    // renommer le compte sans toucher aux publications les rendait orphelines,
+    // et le garde-fou d'origine bloquait donc purement et simplement le
+    // renommage dès qu'un compte avait de l'historique. Sur Snytch, cela
+    // enfermait par exemple `@Cintia_secretacc` dans sa majuscule.
+    //
+    // ⚠️ LA PLATEFORME FAIT PARTIE DE LA CIBLE. Un même pseudo vit sur TikTok ET
+    // sur Instagram (`@ja.deotn`), et ce sont deux comptes : réécrire toutes les
+    // publications d'un handle emporterait celles de l'autre plateforme. On ne
+    // touche donc qu'à `(compte, plateforme)` — la même identité que la clé
+    // d'unicité de la table et que la mesure (cf comptePerfKey).
     if (args.handle !== undefined && args.handle !== compte.handle) {
+      // Refus sur le SEUL motif qui reste : la place est déjà prise.
+      const surLaPlateforme = await ctx.db
+        .query("comptes")
+        .withIndex("by_project_plateforme", (q) =>
+          q.eq("projectId", ctx.projectId).eq("plateforme", compte.plateforme),
+        )
+        .collect();
+      if (
+        surLaPlateforme.some(
+          (c) => c._id !== compte._id && c.handle === args.handle,
+        )
+      ) {
+        throw err(
+          ERR.ACCOUNT_RENAME_LOCKED,
+          `Un compte ${args.handle} existe déjà sur ${compte.plateforme}. Renommer ici fusionnerait deux comptes distincts.`,
+          { count: 0 },
+        );
+      }
       const pubs = await ctx.db
         .query("publications")
         .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
         .collect();
-      const used = pubs.filter((p) => p.compte === compte.handle);
-      if (used.length > 0) {
-        throw err(
-          ERR.ACCOUNT_RENAME_LOCKED,
-          `Impossible de renommer ce compte : ${used.length} publication${
-            used.length > 1 ? "s" : ""
-          } l'utilise${
-            used.length > 1 ? "nt" : ""
-          }. Renommer le handle créerait des publications orphelines.`,
-          { count: used.length },
-        );
+      for (const pub of pubs) {
+        if (
+          pub.compte === compte.handle &&
+          pub.plateforme === compte.plateforme
+        ) {
+          await ctx.db.patch(pub._id, { compte: args.handle });
+        }
       }
     }
 
