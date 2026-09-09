@@ -175,6 +175,21 @@ export function AssignmentsCalendar({
   // Le dénominateur vient d'`isPastPost` (convex/calendarStatus) et non d'une
   // somme écrite ici : les notifications de retard affichent le MÊME taux, et
   // deux définitions du « passé » finiraient par ne plus compter la même chose.
+  /**
+   * Livrables SANS DATE DE PUBLICATION — hors de `planned`, donc absents des
+   * quatre compteurs. Sur Snytch : 21 sur 492, dont cinq pas encore publiés,
+   * c'est-à-dire du travail qui n'apparaît dans aucune journée et ne pourra
+   * donc JAMAIS devenir « en retard ». L'en-tête annonçait 492 pendant que les
+   * cartes en totalisaient 471, sans que rien n'explique l'écart.
+   */
+  const sansDate = useMemo(() => {
+    const nus = rows.filter((r) => r.postDate == null);
+    return {
+      total: nus.length,
+      aFaire: nus.filter((r) => r.postedAt == null).length,
+    };
+  }, [rows]);
+
   const stats = useMemo(() => {
     let onTime = 0;
     let late = 0;
@@ -299,8 +314,13 @@ export function AssignmentsCalendar({
                 : `${Math.round(stats.rate * 100)}%`}
             </div>
             <div className="mt-0.5 text-xs text-slate-400">
-              {stats.onTime}/{stats.past} post{stats.past > 1 ? "s" : ""} passé
-              {stats.past > 1 ? "s" : ""}
+              {`${stats.onTime}/${stats.past} post${stats.past > 1 ? "s" : ""} passé${stats.past > 1 ? "s" : ""}`}
+            </div>
+            {/* Le taux passe au rouge sous un seuil — autant dire lequel. Sans
+                cette ligne, « 65 % » portait un jugement dont la règle
+                n'existait que dans une constante du fichier. */}
+            <div className="text-xs text-slate-400">
+              {`objectif ${Math.round(ON_TIME_THRESHOLD * 100)} %`}
             </div>
           </CardContent>
         </Card>
@@ -343,7 +363,53 @@ export function AssignmentsCalendar({
           sans cette ligne, le décalage se découvre par un ticket. */}
       <p className="text-xs text-slate-400">
         Statuts calculés en heure de Paris.
+        {sansDate.total > 0 &&
+          ` ${sansDate.total} livrable${sansDate.total > 1 ? "s" : ""} sans date de publication ${sansDate.total > 1 ? "ne sont" : "n'est"} dans aucun de ces compteurs${
+            sansDate.aFaire > 0
+              ? ` — dont ${sansDate.aFaire} pas encore publié${sansDate.aFaire > 1 ? "s" : ""}, donc ${sansDate.aFaire > 1 ? "invisibles" : "invisible"} du calendrier`
+              : ""
+          }.`}
       </p>
+
+      {/* LÉGENDE — sur les deux formats.
+          Elle n'était rendue qu'en compact, au motif que la vignette large
+          « porte déjà son icône ET son libellé au survol ». L'icône, oui —
+          mais pas le MOT : sur la grande grille, quatre teintes et quatre
+          pictogrammes se décodent une vignette à la fois, au survol, sur
+          une page qui en affiche plusieurs centaines.
+          Et surtout, le marqueur de PROPRIÉTÉ (qui publie : l'équipe ou la
+          créatrice) n'était expliqué NULLE PART, dans aucun des deux
+          formats — alors que c'est lui qui dit à qui incombe le geste. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        {(
+          ["on_time", "late", "missed", "scheduled"] as CalendarStatusVisual[]
+        ).map((s) => (
+          <span
+            key={s}
+            className="inline-flex items-center gap-1 text-[11px] text-slate-500"
+          >
+            <span
+              className={cn(
+                "size-1.5 rounded-full",
+                CALENDAR_STATUS_META[s].dot,
+              )}
+              aria-hidden
+            />
+            {tLabel(CALENDAR_STATUS_META[s].labelKey)}
+          </span>
+        ))}
+        <span className="text-slate-300" aria-hidden>
+          ·
+        </span>
+        <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
+          <UserRoundIcon className="size-3 shrink-0 opacity-60" aria-hidden />
+          compte créatrice (elle publie)
+        </span>
+        <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
+          <Building2Icon className="size-3 shrink-0 opacity-60" aria-hidden />
+          compte géré (tu publies)
+        </span>
+      </div>
 
       {/* Grille mensuelle */}
       <Card>
@@ -489,30 +555,6 @@ export function AssignmentsCalendar({
             })}
           </div>
 
-          {/* Légende — indispensable dès que la grille compacte réduit un post à
-              une pastille de couleur. Inutile en grand format : la vignette
-              porte déjà son icône ET son libellé au survol. */}
-          {compact && (
-            <div className="flex flex-wrap gap-x-3 gap-y-1">
-              {(
-                ["on_time", "late", "missed", "scheduled"] as CalendarStatusVisual[]
-              ).map((s) => (
-                <span
-                  key={s}
-                  className="inline-flex items-center gap-1 text-[11px] text-slate-500"
-                >
-                  <span
-                    className={cn(
-                      "size-1.5 rounded-full",
-                      CALENDAR_STATUS_META[s].dot,
-                    )}
-                    aria-hidden
-                  />
-                  {tLabel(CALENDAR_STATUS_META[s].labelKey)}
-                </span>
-              ))}
-            </div>
-          )}
 
           <p className="text-xs text-slate-400">
             {visible.length} post{visible.length > 1 ? "s" : ""}
