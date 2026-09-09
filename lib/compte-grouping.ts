@@ -41,8 +41,19 @@ export type CompteGroup<T> = {
   /** Date du post le plus récent du groupe (`null` si aucun). */
   dernierPost: number | null;
   /**
-   * Part des vues du projet, entre 0 et 1. `0` quand le projet n'a aucune vue —
-   * jamais NaN : une division par zéro traversait l'écran jusqu'au `width:%`.
+   * Part des vues DU PROJET, entre 0 et 1 — pas des vues affichées.
+   *
+   * La distinction n'est pas cosmétique : filtrée sur Instagram, la part de
+   * Kelly doit rester ce qu'elle pèse dans le projet, pas se renormaliser sur
+   * un sous-ensemble choisi par un filtre. Sinon un compte modeste bondit à
+   * 80 % dès qu'on isole sa plateforme, et l'infobulle « % des vues du projet »
+   * devient un mensonge.
+   *
+   * Conséquence assumée : sous filtre, les parts ne somment PLUS à 100 %. C'est
+   * l'aveu correct qu'on ne regarde qu'une partie du parc.
+   *
+   * `0` quand le projet n'a aucune vue — jamais NaN : une division par zéro
+   * traversait l'écran jusqu'au `width:%`.
    */
   part: number;
 };
@@ -89,8 +100,15 @@ export function groupComptes<T extends CompteLike>(
   axe: GroupAxis,
   sortKey: SortKey,
   sortDir: SortDir,
+  /**
+   * Dénominateur des parts : le total du PROJET, filtres non appliqués. Absent,
+   * on retombe sur le total des comptes reçus — ce qui n'est juste que si
+   * l'appelant n'a rien filtré.
+   */
+  totalProjet?: number,
 ): CompteGroup<T>[] {
   const totalVues = comptes.reduce((s, c) => s + c.perf.vuesCumulees, 0);
+  const denominateur = totalProjet ?? totalVues;
   const triees = [...comptes].sort((a, b) => compare(a, b, sortKey, sortDir));
 
   if (axe === "none") {
@@ -102,7 +120,7 @@ export function groupComptes<T extends CompteLike>(
         vues: totalVues,
         posts: triees.reduce((s, c) => s + c.perf.nbPublies, 0),
         dernierPost: dernierPostDe(triees),
-        part: totalVues > 0 ? 1 : 0,
+        part: denominateur > 0 ? totalVues / denominateur : 0,
       },
     ];
   }
@@ -126,7 +144,7 @@ export function groupComptes<T extends CompteLike>(
       vues,
       posts: lignes.reduce((s, c) => s + c.perf.nbPublies, 0),
       dernierPost: dernierPostDe(lignes),
-      part: totalVues > 0 ? vues / totalVues : 0,
+      part: denominateur > 0 ? vues / denominateur : 0,
     };
   });
 

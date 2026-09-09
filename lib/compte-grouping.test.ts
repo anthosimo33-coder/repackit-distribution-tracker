@@ -205,6 +205,43 @@ describe("groupComptes — les autres axes", () => {
     }
   });
 
+  it("mesure la part sur le PROJET, pas sur ce que le filtre laisse voir", () => {
+    // Filtré sur Instagram, il ne reste que 3 comptes sur 8. Sans dénominateur
+    // de projet, Kelly y pèserait 145 378 / 452 681 = 32 % — et l'infobulle
+    // « % des vues du projet » mentirait. Avec, elle reste à 5 %.
+    const instagram = PARC.filter((c) => c.plateforme === "Instagram");
+    const sansReference = groupComptes(instagram, "creator", "vues", "desc");
+    const avecReference = groupComptes(
+      instagram,
+      "creator",
+      "vues",
+      "desc",
+      TOTAL,
+    );
+    const kellySans = sansReference.find((g) => g.titre === "Kelly")!;
+    const kellyAvec = avecReference.find((g) => g.titre === "Kelly")!;
+    expect(kellySans.part).toBeCloseTo(145_378 / 452_681, 6);
+    expect(kellyAvec.part).toBeCloseTo(145_378 / TOTAL, 6);
+    // Sous filtre, les parts ne somment PLUS à 100 % : c'est l'aveu correct
+    // qu'on ne regarde qu'une partie du parc.
+    const somme = avecReference.reduce((s, g) => s + g.part, 0);
+    expect(somme).toBeLessThan(0.2);
+  });
+
+  it("garde 100 % au total quand rien n'est filtré", () => {
+    const g = groupComptes(PARC, "creator", "vues", "desc", TOTAL);
+    expect(g.reduce((s, x) => s + x.part, 0)).toBeCloseTo(1, 6);
+  });
+
+  it("applique le dénominateur de projet aussi à l'axe « none »", () => {
+    const instagram = PARC.filter((c) => c.plateforme === "Instagram");
+    const g = groupComptes(instagram, "none", "vues", "desc", TOTAL);
+    expect(g[0].part).toBeCloseTo(452_681 / TOTAL, 6);
+    // Présence, en regard : sans référence, la liste vaut bien tout ce qu'elle
+    // montre.
+    expect(groupComptes(instagram, "none", "vues", "desc")[0].part).toBe(1);
+  });
+
   it("rend une liste vide sans lever", () => {
     expect(groupComptes([], "creator", "vues", "desc")).toEqual([]);
   });
