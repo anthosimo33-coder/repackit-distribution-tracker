@@ -62,7 +62,7 @@ test.describe("Dashboard — vue action", () => {
     );
     expect(mine.length).toBe(2);
     // Le 1er passe en video_submitted (carte À valider + worklist). Le 2e reste
-    // "todo" avec une deadline à 5 j (carte Deadlines).
+    // « todo » : il ne doit plus apparaître nulle part sur cet écran.
     await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
       secret: E2E_SECRET,
       id: mine[0]._id,
@@ -73,13 +73,19 @@ test.describe("Dashboard — vue action", () => {
     await page.goto(adminPath("/dashboard"));
     await expect(page.getByRole("heading", { name: "Bonjour" })).toBeVisible();
 
-    // Les 4 cartes-action.
+    // Les cartes-action : une par geste qui ATTEND quelqu'un.
     await expect(page.getByText("À valider", { exact: true })).toBeVisible();
     await expect(
       page.getByText("Warmups en retard", { exact: true }),
     ).toBeVisible();
     await expect(page.getByText("Dû", { exact: true })).toBeVisible();
-    await expect(page.getByText("Deadlines 7 j", { exact: true })).toBeVisible();
+    // ABSENCE, appariée aux trois présences ci-dessus (même écran, même
+    // instant — le rendu est donc prouvé monté) : « Deadlines 7 j » comptait des
+    // échéances À VENIR, qui ne demandent rien aujourd'hui. Le planning se lit
+    // dans Assignments. L'assignation « todo » semée plus haut y aurait compté.
+    await expect(
+      page.getByText("Deadlines 7 j", { exact: true }),
+    ).toHaveCount(0);
 
     // Refonte décisionnelle : les DEUX nouvelles sections rendent. Pas
     // d'assertion sur leur CONTENU (DB partagée : d'autres specs sèment des
@@ -101,12 +107,7 @@ test.describe("Dashboard — vue action", () => {
       page.getByRole("heading", { name: "Activité créateurs" }),
     ).not.toBeVisible();
 
-    // Carte « Deadlines 7 j » cliquable → /assignments.
-    await page.getByRole("link", { name: /Deadlines 7 j/ }).click();
-    await expect(page).toHaveURL(/\/assignments/);
-
     // Carte « À valider » cliquable → /validation.
-    await page.goto(adminPath("/dashboard"));
     await page.getByRole("link", { name: /À valider/ }).click();
     await expect(page).toHaveURL(/\/validation/);
 

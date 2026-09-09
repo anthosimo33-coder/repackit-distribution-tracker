@@ -36,7 +36,6 @@ import {
 import { VideoExample } from "@/components/formats/VideoExample";
 import { StreamPlayer } from "@/components/formats/StreamPlayer";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
-import { AdminPublishForm } from "@/components/admin/AdminPublishForm";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { formatMoney } from "@/lib/format-rate";
@@ -64,8 +63,6 @@ type PublishedRow =
   FunctionReturnType<typeof api.assignments.listPublished>[number];
 type BonusRowData =
   FunctionReturnType<typeof api.assignments.listValidatedForBonus>[number];
-type ManagedToPublishRow =
-  FunctionReturnType<typeof api.assignments.listManagedToPublish>[number];
 
 /**
  * File de validation admin. La REVUE VIDÉO vient AVANT publication :
@@ -74,6 +71,11 @@ type ManagedToPublishRow =
  *     paiement ici). Refuser → feedback obligatoire → video_rejected.
  *  2. « Publiées récemment » : assignments passés en published (URL).
  *  3. « Bonus de vues » : assignments publiés avec snapshots → calcul du bonus.
+ *
+ * PAS de file « comptes gérés » ici. Coller le lien d'un post publié à la place
+ * d'une créatrice reste possible — mais depuis le PANNEAU DE L'ASSIGNATION
+ * (calendrier), là où l'on voit de quelle mission il s'agit. Une seconde file
+ * sur cet écran doublonnait ce geste sans rien montrer de plus.
  */
 
 const nf = new Intl.NumberFormat("fr-FR");
@@ -170,10 +172,6 @@ function ValidationPageInner() {
   // UNE soumission (« un lien vers l'écran de validation de CETTE soumission,
   // pas vers la liste »). Sa carte est surlignée et amenée à l'écran.
   const highlightedId = useSearchParams().get("soumission");
-  const managedToPublish = useProjectQuery(
-    api.assignments.listManagedToPublish,
-    {},
-  );
   const published = useProjectQuery(api.assignments.listPublished, {});
   // Bonus de vues = ARGENT (bloc `payments.manage`). Sans le bloc, la query
   // lèverait et emporterait la page entière : on la skippe et on ne rend pas la
@@ -251,25 +249,6 @@ function ValidationPageInner() {
             </p>
           )}
       </section>
-
-      {/* ─── Comptes gérés — à publier ──────────────────────────────────────── */}
-      {managedToPublish !== undefined && managedToPublish.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-            Comptes gérés — à publier
-          </h2>
-          <p className="text-sm text-slate-500">
-            Comptes tenus par l&apos;équipe : colle le lien du post publié. La
-            créatrice est créditée et voit le post + ses perfs (elle ne publie
-            pas).
-          </p>
-          <div className="grid gap-4 lg:grid-cols-2">
-            {managedToPublish.map((a) => (
-              <ManagedPublishCard key={a._id} a={a} />
-            ))}
-          </div>
-        </section>
-      )}
 
       {/* ─── Publiées récemment ────────────────────────────────────────────── */}
       {published !== undefined && published.length > 0 && (
@@ -659,70 +638,6 @@ function VideoReviewCard({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Card>
-  );
-}
-
-/**
- * COMPTE GÉRÉ — l'admin colle le(s) lien(s) du post publié (1 URL par cible) puis
- * publie via confirmPublicationAsAdmin. MÊME accrual que la publication créatrice
- * → la créatrice est créditée à l'identique et voit le post + ses perfs.
- */
-function ManagedPublishCard({ a }: { a: ManagedToPublishRow }) {
-  const [scriptOpen, setScriptOpen] = useState(false);
-
-  return (
-    <Card>
-      <CardContent className="space-y-3 p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-0.5">
-            <div className="font-medium text-slate-900">{a.creatorName}</div>
-            <div className="flex items-center gap-2 text-sm text-slate-500">
-              {a.label}
-              <Badge variant="secondary" className="text-[10px]">
-                Géré
-              </Badge>
-            </div>
-          </div>
-          <div className="text-right text-xs text-slate-400">
-            Échéance {formatDate(a.dueDate)}
-          </div>
-        </div>
-
-        {a.assembledScript && (
-          <div className="overflow-hidden rounded-md border border-slate-200 bg-slate-50">
-            <button
-              type="button"
-              onClick={() => setScriptOpen((o) => !o)}
-              aria-expanded={scriptOpen}
-              className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
-            >
-              <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-slate-700">
-                <FileTextIcon className="size-4 shrink-0 text-slate-400" />
-                Script à publier
-              </span>
-              <ChevronDownIcon
-                className={cn(
-                  "size-4 shrink-0 text-slate-400 transition-transform",
-                  scriptOpen && "rotate-180",
-                )}
-              />
-            </button>
-            {scriptOpen && (
-              <div className="border-t border-slate-200 px-3 py-2.5">
-                <SimpleMarkdown content={a.assembledScript} />
-              </div>
-            )}
-          </div>
-        )}
-
-        <AdminPublishForm
-          assignmentId={a._id}
-          targets={a.targets}
-          managed
-          buttonTestId={`managed-publish-${a._id}`}
-        />
-      </CardContent>
     </Card>
   );
 }

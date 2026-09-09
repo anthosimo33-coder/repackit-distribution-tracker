@@ -247,27 +247,18 @@ export function ActionDashboard() {
     // `null` quand le bloc n'est pas accordé : la carte n'est alors pas rendue.
     const dueTotal = due?.dueTotal ?? null;
 
-    // Carte 4 — assignments actionnables dont la deadline tombe sous 7 j.
-    const deadlines7 = (assignments ?? []).filter((a) => {
-      if (a.status !== "todo" && a.status !== "in_progress") return false;
-      const d = a.dueDate - now;
-      return d >= 0 && d <= 7 * DAY_MS;
-    });
-
     return {
       submitted,
       warmupLate,
       warmupReady,
       dueTotal,
-      deadlines7,
       totalCreators: (creators ?? []).length,
     };
   }, [assignments, comptes, due, creators, now]);
 
   if (loading || data === null) return <ActionSkeleton />;
 
-  const { submitted, warmupLate, warmupReady, dueTotal, deadlines7, totalCreators } =
-    data;
+  const { submitted, warmupLate, warmupReady, dueTotal, totalCreators } = data;
 
   // État vide : ni créateur ni soumission → message d'accueil (pas des cartes à
   // zéro qui semblent cassées).
@@ -306,7 +297,11 @@ export function ActionDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Rangée de 4 cartes-action cliquables. */}
+      {/* Rangée de cartes-action cliquables — une par geste qui ATTEND
+          quelqu'un. « Deadlines 7 j » n'en était pas une : une échéance à venir
+          ne demande rien aujourd'hui, et son compteur restait haut en
+          permanence (63 sur ce projet), ce qui n'oriente vers aucune décision.
+          Le planning se lit dans Assignments, qui est fait pour ça. */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {/* Une carte n'est rendue QUE si son bloc l'est. Sans ça elle
             afficherait « 0 » là où la vraie réponse est « tu n'as pas ce
@@ -352,16 +347,6 @@ export function ActionDashboard() {
             label="Dû"
             value={formatMoney(dueTotal, payCurrency)}
             hint="cycles non payés"
-          />
-        )}
-        {voitAssignments && (
-          <ActionCard
-            href={projectPath("/assignments")}
-            icon={CalendarClockIcon}
-            label="Deadlines 7 j"
-            value={String(deadlines7.length)}
-            hint="assignments à rendre"
-            warn={deadlines7.length > 0}
           />
         )}
       </div>

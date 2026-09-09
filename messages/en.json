@@ -12,7 +12,9 @@
       "contenu": "Content",
       "veille": "Radar",
       "outils": "Tools",
-      "administration": "Administration"
+      "administration": "Administration",
+      "production": "Production",
+      "argent": "Money"
     },
     "item": {
       "dashboard": "Dashboard",
