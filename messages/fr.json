@@ -40,6 +40,19 @@
       "collapseSidebar": "Réduire la sidebar",
       "openInNewTab": "Ouvre dans un nouvel onglet",
       "openMenu": "Ouvrir le menu"
+    },
+    "espace": {
+      "versPortail": {
+        "creator": "Mon espace créateur",
+        "talent": "Mon espace talent",
+        "clipper": "Mon espace clippeur"
+      },
+      "versPortailSous": "Missions et paiements",
+      "versEquipe": "Espace équipe",
+      "role": {
+        "admin": "Administrateur",
+        "manager": "Manager"
+      }
     }
   },
   "settings": {

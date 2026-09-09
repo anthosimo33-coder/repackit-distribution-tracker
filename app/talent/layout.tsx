@@ -9,6 +9,7 @@ import {
   PortalPending,
   usePortalGate,
 } from "@/components/portal/PortalRoleGate";
+import { VersEspaceEquipe } from "@/components/layout/EspaceSwitch";
 import { Button } from "@/components/ui/button";
 import { TalentProjectProvider } from "@/components/talent/TalentProjectProvider";
 import { useTranslations } from "next-intl";
@@ -61,6 +62,7 @@ export default function TalentPortalLayout({
         <span className="truncate text-sm font-medium text-slate-900">
           {gate.creatorName ?? t("mySpace")}
         </span>
+        <VersEspaceEquipe variant="icone" />
         <Button
           variant="ghost"
           size="icon-sm"

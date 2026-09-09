@@ -42,6 +42,7 @@
     "components/formats/StreamPlayer.tsx",
     "components/formats/VideoExample.tsx",
     "components/layout/AppShell.tsx",
+    "components/layout/EspaceSwitch.tsx",
     "components/layout/LanguageSelector.tsx",
     "components/layout/SidebarItem.tsx",
     "components/portal/AssignmentActions.tsx",

@@ -39,6 +39,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { SidebarItem } from "./SidebarItem";
+import { VersMonEspace } from "./EspaceSwitch";
 import { NewButton } from "./NewButton";
 import { LanguageSelector } from "./LanguageSelector";
 import { ProjectSwitcher } from "@/components/project/ProjectSwitcher";
@@ -345,6 +346,10 @@ export function Sidebar({
 
       {/* Footer : email user + déconnexion + toggle collapse (desktop) */}
       <div className="space-y-1 border-t border-slate-200 p-2">
+        {/* La porte vers son autre espace — rendue seulement pour qui en a un
+            (cf EspaceSwitch). Placée AVANT l'e-mail : c'est une navigation, pas
+            une information de compte. */}
+        <VersMonEspace collapsed={collapsed} />
         {!collapsed && me?.email && (
           <div
             className="truncate px-2 py-1 text-xs text-slate-400"

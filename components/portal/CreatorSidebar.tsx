@@ -16,6 +16,7 @@ import {
 import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
 import { CreatorProjectSwitcher } from "@/components/portal/CreatorProjectSwitcher";
 import { SidebarItem } from "@/components/layout/SidebarItem";
+import { VersEspaceEquipe } from "@/components/layout/EspaceSwitch";
 import { Button } from "@/components/ui/button";
 import { getCreatorTools } from "@/lib/creator-tools";
 import { isSnytchProject } from "@/lib/snytch-drive";
@@ -157,8 +158,9 @@ export function CreatorSidebar({ onSignOut }: { onSignOut: () => void }) {
         )}
       </nav>
 
-      {/* Footer : déconnexion */}
-      <div className="border-t border-slate-200 p-2">
+      {/* Footer : retour à l'app interne (si elle en a une) + déconnexion */}
+      <div className="space-y-1.5 border-t border-slate-200 p-2">
+        <VersEspaceEquipe variant="carte" />
         <Button
           variant="ghost"
           size="sm"

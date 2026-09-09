@@ -40,6 +40,19 @@
       "collapseSidebar": "Collapse sidebar",
       "openInNewTab": "Opens in a new tab",
       "openMenu": "Open menu"
+    },
+    "espace": {
+      "versPortail": {
+        "creator": "My creator space",
+        "talent": "My talent space",
+        "clipper": "My clipper space"
+      },
+      "versPortailSous": "Missions and payments",
+      "versEquipe": "Team space",
+      "role": {
+        "admin": "Administrator",
+        "manager": "Manager"
+      }
     }
   },
   "settings": {
