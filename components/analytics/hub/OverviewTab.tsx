@@ -25,8 +25,9 @@ import {
   DeltaBadge,
   HubCardHeader,
   HubNotice,
-  WebhookFixNotice,
-  PosthogOutageNotice,
+  HubNoticeStack,
+  webhookFixItem,
+  posthogOutageItem,
   disputeDeadlineLabel,
   dash,
 } from "./HubPrimitives";
@@ -487,48 +488,71 @@ export function OverviewTab({
 
   return (
     <div className="space-y-5">
-      <WebhookFixNotice now={now} />
-      <PosthogOutageNotice now={now} />
-
-      {/* Litiges bancaires EN COURS — l'alerte la plus urgente de l'écran. */}
-      {openDisputes.length > 0 ? (
-        <HubNotice className="border-red-300 bg-red-50 text-red-900">
-          <strong>
-            {openDisputes.length} litige{openDisputes.length > 1 ? "s" : ""} bancaire
-            {openDisputes.length > 1 ? "s" : ""} en cours
-            {disputedTotal > 0
-              ? ` — ${formatMoney(disputedTotal, currency)} à risque`
-              : ""}
-            {soonestDispute ? ` · ${soonestDispute.label}` : ""}.
-          </strong>{" "}
-          Les frais de litige dépassent souvent l&apos;abonnement et une accumulation
-          met en péril le compte marchand. Déjà retiré du revenu net ; détail (délai
-          par litige, remboursements) dans l&apos;onglet Offres &amp; tests.
-        </HubNotice>
-      ) : null}
-
-      {/* Contrôles en écart — la RAISON est écrite dans le bandeau, pas seulement
-          le nom du contrôle : une alerte dont on doit aller chercher la cause
-          ailleurs finit par ne plus être lue. Les écarts à cause CONNUE (les
-          renouvellements comptés comme des conversions) ne sont plus des
-          violations et ne passent donc plus par ici — voir buildCoherenceChecks. */}
-      {violations.length > 0 ? (
-        <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
-          <strong>
-            {violations.length} contrôle{violations.length > 1 ? "s" : ""} de
-            cohérence en écart.
-          </strong>
-          <ul className="mt-1 space-y-0.5">
-            {violations.map((v) => (
-              <li key={v.key}>
-                <span className="font-medium">{v.label}</span>
-                {v.detail ? ` — ${v.detail}` : ""}
-              </li>
-            ))}
-          </ul>
-          <p className="mt-1">Détail complet dans l&apos;onglet Fiabilité.</p>
-        </HubNotice>
-      ) : null}
+      {/* UNE ligne repliée plutôt que cinq bandeaux. Le détail de ce choix est
+          dans `HubNoticeStack` : ce qui se replie est l'EXPLICATION, jamais le
+          fait qu'un avertissement s'applique. */}
+      <HubNoticeStack
+        items={[
+          webhookFixItem(now),
+          posthogOutageItem(now),
+          openDisputes.length > 0 && {
+            id: "litiges",
+            ton: "alerte" as const,
+            court: `${openDisputes.length} litige${openDisputes.length > 1 ? "s" : ""} bancaire${openDisputes.length > 1 ? "s" : ""}`,
+            titre: (
+              <>
+                {openDisputes.length} litige
+                {openDisputes.length > 1 ? "s" : ""} bancaire
+                {openDisputes.length > 1 ? "s" : ""} en cours
+                {disputedTotal > 0
+                  ? ` — ${formatMoney(disputedTotal, currency)} à risque`
+                  : ""}
+                {soonestDispute ? ` · ${soonestDispute.label}` : ""}.
+              </>
+            ),
+            corps: (
+              <>
+                Les frais de litige dépassent souvent l&apos;abonnement et une
+                accumulation met en péril le compte marchand. Déjà retiré du
+                revenu net ; détail (délai par litige, remboursements) dans
+                l&apos;onglet Offres &amp; tests.
+              </>
+            ),
+          },
+          /* Contrôles en écart — la RAISON est écrite ici, pas seulement le nom
+             du contrôle : une alerte dont on doit aller chercher la cause
+             ailleurs finit par ne plus être lue. Les écarts à cause CONNUE (les
+             renouvellements comptés comme des conversions, une journée traversée
+             par la panne d'ingestion) ne sont plus des violations et ne passent
+             donc plus par ici — voir buildCoherenceChecks. */
+          violations.length > 0 && {
+            id: "coherence",
+            ton: "alerte" as const,
+            court: `${violations.length} contrôle${violations.length > 1 ? "s" : ""} en écart`,
+            titre: (
+              <>
+                {violations.length} contrôle{violations.length > 1 ? "s" : ""} de
+                cohérence en écart.
+              </>
+            ),
+            corps: (
+              <>
+                <ul className="mt-1 space-y-0.5">
+                  {violations.map((v) => (
+                    <li key={v.key}>
+                      <span className="font-medium">{v.label}</span>
+                      {v.detail ? ` — ${v.detail}` : ""}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1">
+                  Détail complet dans l&apos;onglet Fiabilité.
+                </p>
+              </>
+            ),
+          },
+        ]}
+      />
 
       {attribution ? (
         <PayCurrencyWarning payCurrency={attribution.payCurrency} />

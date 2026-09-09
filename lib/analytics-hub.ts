@@ -48,7 +48,8 @@ export function isConclusive(n: number): boolean {
  */
 
 /** Jour Europe/Paris d'un ts (ms) → "YYYY-MM-DD" (clé de jointure, tri). */
-export { parisDayKey } from "./analytics-window";
+import { parisDayKey } from "./analytics-window";
+export { parisDayKey };
 
 /**
  * Étiquette d'axe/infobulle : jour Europe/Paris d'un ts → "28 juil.". Ancrée
@@ -557,6 +558,38 @@ export function buildCoherenceChecks(i: CoherenceInputs): CoherenceCheck[] {
  * avec forte proportion (petits jours). Un ±2 sur ~13 (bruit
  * checkout↔encaissement) n'alerte pas.
  */
+/**
+ * PANNE D'INGESTION POSTHOG — 07/09/2026 19:00 UTC → 08/09 09:53 UTC.
+ *
+ * ⚠️ CES BORNES VIVENT ICI, et l'affichage (HubPrimitives) les importe. Elles
+ * étaient d'abord côté composant : le CONTRÔLE DE COHÉRENCE ne pouvait donc pas
+ * les connaître, et il criait chaque jour sur un écart dont la cause est
+ * documentée dans le bandeau juste au-dessus de lui. Deux blocs de l'écran
+ * disaient deux choses de la même journée.
+ *
+ * Le détail minute par minute (l'îlot de trafic du 08/09 00:00–01:30, la reprise
+ * en deux temps) est dans le commentaire de `PosthogOutageNotice`, là où il est
+ * rendu.
+ */
+export const POSTHOG_OUTAGE_START_MS = Date.UTC(2026, 8, 7, 19, 0, 0);
+export const POSTHOG_OUTAGE_END_MS = Date.UTC(2026, 8, 8, 9, 53, 0);
+
+/**
+ * Les JOURS PARIS que la panne traverse. Le contrôle croisé raisonne en jours
+ * Paris ; la panne, elle, est bornée à la minute UTC. On convertit une fois,
+ * ici, plutôt que de recopier deux dates en dur — un décalage d'un fuseau aurait
+ * excusé le mauvais jour.
+ */
+export function posthogOutageDays(): ReadonlySet<string> {
+  const jours = new Set<string>();
+  const UNE_HEURE = 3_600_000;
+  for (let t = POSTHOG_OUTAGE_START_MS; t <= POSTHOG_OUTAGE_END_MS; t += UNE_HEURE) {
+    jours.add(parisDayKey(t));
+  }
+  jours.add(parisDayKey(POSTHOG_OUTAGE_END_MS));
+  return jours;
+}
+
 function significantGap(a: number, b: number): boolean {
   const diff = Math.abs(a - b);
   const rel = Math.max(a, b) > 0 ? diff / Math.max(a, b) : 0;
@@ -734,6 +767,15 @@ function pushDailyCrossCheck(
   const mismatches: DailyMismatch[] = [];
   /** Jours dont l'écart brut est ENTIÈREMENT décomposé — affichés, pas comptés. */
   const reconciled: DailyMismatch[] = [];
+  /**
+   * Jours que la PANNE D'INGESTION traverse. Leur écart est réel et il ne se
+   * décompose pas — les events n'existent pas, ils ne sont ni rejoués ni
+   * fantômes. Mais sa cause est connue, datée, et écrite dans le bandeau au-
+   * dessus : le compter comme une divergence, c'était faire crier l'écran sur
+   * un incident déjà expliqué deux blocs plus haut.
+   */
+  const pannes: DailyMismatch[] = [];
+  const joursDePanne = posthogOutageDays();
   let explainedDays = 0;
   for (const day of days) {
     if (today && day >= today) continue; // jour courant/futur = partiel → ignoré
@@ -759,7 +801,9 @@ function pushDailyCrossCheck(
     // dont 2 rejeux, qui gonflait le compte sans rien signaler. Il reste
     // AFFICHÉ, avec sa décomposition : c'est l'information, pas le mot.
     const row = { day, subs, clients, diff, unexplained, reconciliation: rec };
-    if (rec !== undefined && !significantGap(rec.matched + rec.unlinked, clients)) {
+    if (joursDePanne.has(day)) {
+      pannes.push(row);
+    } else if (rec !== undefined && !significantGap(rec.matched + rec.unlinked, clients)) {
       reconciled.push(row);
     } else {
       mismatches.push(row);
@@ -769,10 +813,11 @@ function pushDailyCrossCheck(
     b.unexplained - a.unexplained || b.diff - a.diff;
   mismatches.sort(bySeverity);
   reconciled.sort(bySeverity);
+  pannes.sort(bySeverity);
 
   const key = "daily_clients_posthog_vs_whop";
   const label = "Clients/jour PostHog vs Whop";
-  if (mismatches.length === 0 && reconciled.length === 0) {
+  if (mismatches.length === 0 && reconciled.length === 0 && pannes.length === 0) {
     checks.push({
       key,
       label,
@@ -784,7 +829,7 @@ function pushDailyCrossCheck(
     });
     return;
   }
-  const worst = mismatches[0] ?? reconciled[0];
+  const worst = mismatches[0] ?? reconciled[0] ?? pannes[0];
   const rec = worst.reconciliation;
   const decomposition =
     rec === undefined
@@ -803,18 +848,27 @@ function pushDailyCrossCheck(
   // Le mot « divergent » est RÉSERVÉ aux jours qui gardent un résidu inexpliqué.
   // Les jours entièrement décomposés sont annoncés comme réconciliés — mais avec
   // la même décomposition, parce que c'est elle qui apprend quelque chose.
+  const suffixePanne =
+    pannes.length > 0
+      ? ` · ${pannes.length} jour(s) traversé(s) par la panne d'ingestion`
+      : "";
   const entete =
     mismatches.length > 0
       ? `${mismatches.length} jour(s) divergent(s)${
           reconciled.length > 0 ? ` · ${reconciled.length} réconcilié(s)` : ""
-        } — pire : `
-      : `${reconciled.length} jour(s) réconcilié(s), aucun divergent — dont : `;
+        }${suffixePanne} — pire : `
+      : reconciled.length > 0
+        ? `${reconciled.length} jour(s) réconcilié(s)${suffixePanne}, aucun divergent — dont : `
+        : `${pannes.length} jour(s) traversé(s) par la panne d'ingestion PostHog du 07-08/09, aucun divergent — dont : `;
   // INCIDENT CLOS — un écart qui ne s'est pas reproduit depuis assez longtemps
   // n'est plus un problème EN COURS, et le dire change ce qu'on en fait.
   const clos = incidentClos(mismatches, days, today);
   checks.push({
     key,
     label,
+    // Un jour de PANNE ne rend jamais le contrôle « en écart » : son écart est
+    // expliqué. Sans ce cas, l'alerte rouge du 08/09 aurait sonné jusqu'à sa
+    // sortie de la fenêtre d'analyse — sept semaines en période « Tout ».
     status:
       mismatches.length === 0
         ? "info"
@@ -826,6 +880,10 @@ function pushDailyCrossCheck(
     detail:
       `${entete}${worst.day} PostHog ${worst.subs} vs Whop ${worst.clients}` +
       (rec ? ` (PostHog ${worst.subs}${decomposition} ; inexpliqué ${worst.unexplained})` : ` (écart ${worst.diff})`) +
+      (joursDePanne.has(worst.day)
+        ? " — journée traversée par la PANNE D'INGESTION PostHog du 07-08/09 :" +
+          " ces events n'ont jamais été émis, l'écart est expliqué"
+        : "") +
       (clos !== null
         ? ` — INCIDENT CLOS : rien depuis ${clos} jour(s)`
         : "") +
