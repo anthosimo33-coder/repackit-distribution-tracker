@@ -100,17 +100,44 @@ export interface ComptePerf {
 }
 
 /**
- * Agrège la performance par handle de compte depuis les publications du projet.
- * Rapprochement compte↔publication = `publications.compte` (string = handle),
- * convention déjà en place (cf CompteDetailView). Une seule passe, Map en O(n).
+ * CLÉ D'UN COMPTE : (handle, plateforme) — jamais le handle seul.
+ *
+ * C'est la doctrine déjà écrite dans `convex/quadrant.ts` (`accountKey`) et la
+ * clé d'unicité de la table `comptes` : le même pseudo vit sur TikTok et sur
+ * Instagram, et ce sont deux comptes, avec deux audiences.
+ *
+ * `buildPerfMap` l'ignorait et agrégeait sur le handle seul, alors que
+ * `publications` porte un champ `plateforme`. Conséquence, sur Snytch : les deux
+ * lignes de `@ja.deotn` affichaient toutes deux 15 733 vues et 37 posts, alors
+ * que le compte TikTok en a 12 172 pour 19 posts et l'Instagram 3 561 pour 18.
+ * La ligne Instagram annonçait 4,4 fois ses vraies vues. Trois handles étaient
+ * dans ce cas, et la colonne comptait 25 782 vues en double.
+ *
+ * Le handle est replié en MINUSCULES. Deux graphies d'un même compte scindaient
+ * sa mesure — sur Snytch, `@Cintia_secretacc` et `@cintia_secretacc`. Le cas est
+ * aujourd'hui sans effet (leurs graphies coïncident avec deux plateformes
+ * différentes, donc deux comptes bien distincts), mais deux graphies sur la MÊME
+ * plateforme couperaient un compte en deux, en silence.
  */
-function buildPerfMap(pubs: Doc<"publications">[]): Map<string, ComptePerf> {
+export function comptePerfKey(handle: string, plateforme: string): string {
+  return `${plateforme}::${handle.toLowerCase()}`;
+}
+
+/**
+ * Agrège la performance PAR COMPTE (handle × plateforme) depuis les publications
+ * du projet. Rapprochement compte↔publication = `publications.compte` (handle)
+ * ET `publications.plateforme`. Une seule passe, Map en O(n).
+ */
+export function buildPerfMap(
+  pubs: Doc<"publications">[],
+): Map<string, ComptePerf> {
   const map = new Map<string, ComptePerf>();
   for (const p of pubs) {
-    let perf = map.get(p.compte);
+    const key = comptePerfKey(p.compte, p.plateforme);
+    let perf = map.get(key);
     if (!perf) {
       perf = { vuesCumulees: 0, nbPublies: 0, dernierPost: null };
-      map.set(p.compte, perf);
+      map.set(key, perf);
     }
     // vues de PERF hors warmup (TD-019, helper unique) ; nbPublies/dernierPost
     // restent sur TOUS les posts (un post de chauffe est bien publié).
@@ -327,7 +354,8 @@ export const listComptes = permissionQuery("accounts.manage")({
         creatorTimezone: c.creatorId ? (zoneMap.get(c.creatorId) ?? null) : null,
         personne: p ? { prenom: p.prenom, nom: p.nom } : null,
         creator: creator ? { name: creator.name } : null,
-        perf: perfMap.get(c.handle) ?? EMPTY_PERF,
+        perf:
+          perfMap.get(comptePerfKey(c.handle, c.plateforme)) ?? EMPTY_PERF,
         inUse: usedCompteIds.has(c._id) || usedHandles.has(c.handle),
       };
     });
