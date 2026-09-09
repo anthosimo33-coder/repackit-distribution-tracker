@@ -844,10 +844,12 @@ function pushDailyCrossCheck(
  * mois », et c'est exactement ce qui use une alerte : celui qui la lit finit
  * par ne plus la lire.
  *
- * Cas de production : la nuit du 07 au 08/09/2026, l'event `subscription_completed`
- * n'est plus parti pendant une dizaine d'heures (11 achats sur 11 perdus entre
- * 00:42 et 09:34, 16 sur 16 corrects après 11:03). Réglé tout seul, jamais
- * reproduit — et pourtant l'alerte sonnait encore chaque jour.
+ * Cas de production : la nuit du 07 au 08/09/2026, PostHog a coupé l'ingestion
+ * du compte pour dépassement de quota. Sur `subscription_completed`, le dernier
+ * event date du 07/09 17:55:59 UTC et le suivant du 08/09 09:54:29 : les 20
+ * paiements encaissés entre les deux n'ont laissé aucune trace. Repartie seule
+ * au renouvellement de la période de facturation, jamais reproduite — et
+ * pourtant l'alerte sonnait encore chaque jour.
  *
  * SEUIL À SEPT JOURS, volontairement long : un incident hebdomadaire (une tâche
  * du dimanche, un lot de facturation) doit pouvoir se reproduire une fois avant

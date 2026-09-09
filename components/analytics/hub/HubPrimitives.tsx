@@ -358,8 +358,8 @@ export function WebhookFixNotice({
   if (!spansWebhookFix(now)) return null;
   return (
     <HubNotice className={cn("border-red-200 bg-red-50/70 text-red-900", className)}>
-      <strong>Webhook de confirmation réparé le 28/07 au soir.</strong> Avant cette
-      date, aucun paiement n&apos;accordait l&apos;accès automatiquement — les clients
+      <strong>Webhook de confirmation réparé le 28/07 au soir.</strong>{" "}
+      Avant cette date, aucun paiement n&apos;accordait l&apos;accès automatiquement — les clients
       devaient faire « Restore purchases ». Les délais et taux de complétion qui
       traversent cette date ne mesurent pas un tunnel de paiement : ils ne sont
       comparables à rien.
@@ -368,27 +368,47 @@ export function WebhookFixNotice({
 }
 
 /**
- * PANNE D'INGESTION POSTHOG — 07/09/2026 19:00 UTC → 08/09 09:45 UTC.
+ * PANNE D'INGESTION POSTHOG — 07/09/2026 19:00 UTC → 08/09 09:53 UTC.
  *
- * PostHog a coupé l'ingestion du compte pour dépassement de quota, et elle
- * n'est repartie qu'au changement de période de facturation. Ce n'est PAS un
- * event qui est tombé : c'est tout le flux, y compris les pages vues émises
+ * PostHog a coupé l'ingestion du compte pour dépassement de quota. Ce n'est PAS
+ * un event qui est tombé : c'est tout le flux, y compris les pages vues émises
  * depuis le navigateur, qui ne passent par aucun code à nous. Les
  * enregistrements de session, coupés depuis le 31/08 avec
- * `quotaLimited: ["recordings"]`, sont repartis neuf minutes après le
- * basculement — deux flux, même compte, même instant de reprise.
+ * `quotaLimited: ["recordings"]`, sont repartis neuf minutes après la reprise —
+ * deux flux, même compte, même instant.
+ *
+ * ⚠️ LA FENÊTRE N'EST PAS D'UN SEUL TENANT, et ces bornes-ci sont celles des
+ * séries À LA MINUTE, pas des seaux horaires par lesquels on avait commencé :
+ *
+ *   07/09 19:00 → 08/09 00:00   coupé
+ *   08/09 00:00 → 01:30         ÎLOT DE TRAFIC NORMAL (~1 500 events)
+ *   08/09 01:31 → 09:44         coupé
+ *   08/09 09:45 → 09:46         deux minutes, puis six minutes de vide
+ *   08/09 09:53                 reprise définitive
+ *
+ * La reprise n'est pas un hasard : la période de facturation PostHog redémarre
+ * le 08/09 à 09:45:09 UTC, la minute exacte des premiers events revenus.
  *
  * CE QUE ÇA FAIT AUX CHIFFRES. Tout ce qui vient de PostHog est CREUX sur ces
  * heures : visiteurs, inscriptions, parcours, paywalls, cohortes. Whop, lui,
- * n'a rien perdu — d'où l'écart que le contrôle croisé a signalé (11 achats
- * encaissés sans aucun event). Le revenu et les clients payants restent justes.
+ * n'a rien perdu — d'où l'écart signalé par le contrôle croisé. Sur
+ * `subscription_completed`, le dernier event avant la coupure date du 07/09
+ * 17:55:59 et le premier après du 08/09 09:54:29 : les 20 paiements encaissés
+ * entre les deux (12 nouveaux abonnements, 8 renouvellements) n'ont laissé
+ * AUCUN event. Le revenu et les clients payants restent justes.
+ *
+ * ⚠️ CES EVENTS SONT PERDUS, PAS EN RETARD. L'envoi serveur est un appel unique
+ * vers l'endpoint de capture, sans file ni réessai, et l'erreur est avalée pour
+ * qu'un incident analytics ne fasse jamais échouer un paiement. Reprendre ces
+ * achats se fait depuis Whop, jamais depuis PostHog.
  *
  * Une ingestion refusée pour quota répond exactement comme une ingestion
- * réussie : rien ne le signalait côté client. Un contrôle de santé lit
- * désormais `quotaLimited` toutes les 15 minutes côté app.
+ * réussie : rien ne le signalait côté client. Deux sondes le disent désormais —
+ * `quotaLimited` toutes les 15 minutes, et la consommation contre le plafond
+ * produit par produit (alerte à 80 %).
  */
 export const POSTHOG_OUTAGE_START_MS = Date.UTC(2026, 8, 7, 19, 0, 0);
-export const POSTHOG_OUTAGE_END_MS = Date.UTC(2026, 8, 8, 9, 45, 0);
+export const POSTHOG_OUTAGE_END_MS = Date.UTC(2026, 8, 8, 9, 53, 0);
 
 /**
  * ÉLARGISSEMENT DU PÉRIMÈTRE DE `paywall_shown` — 09/09/2026.
@@ -426,13 +446,14 @@ export function PosthogOutageNotice({
   return (
     <HubNotice className={cn("border-red-200 bg-red-50/70 text-red-900", className)}>
       <strong>
-        Ingestion PostHog coupée du 07/09 21:00 au 08/09 11:45 (heure de Paris).
+        Ingestion PostHog coupée du 07/09 21:00 au 08/09 11:53 (heure de Paris).
       </strong>{" "}
       Dépassement de quota côté PostHog : tout le flux est tombé, y compris les
       pages vues du navigateur. Visiteurs, inscriptions, parcours et paywalls
-      sont CREUX sur ces heures — 11 achats encaissés n&apos;y ont laissé aucun
-      event. Le revenu et les clients payants, eux, viennent de Whop : ils sont
-      justes.
+      sont CREUX sur ces heures — <strong>20 paiements</strong>{" "}
+      encaissés n&apos;y ont laissé aucun event, et ils sont perdus, pas en retard. Une
+      exception : entre 02:00 et 03:30, le trafic est passé normalement. Le
+      revenu et les clients payants, eux, viennent de Whop : ils sont justes.
     </HubNotice>
   );
 }
