@@ -31,6 +31,8 @@ import {
   disputeDeadlineLabel,
   dash,
   pct,
+  PaywallScopeNotice,
+  PosthogOutageNotice,
 } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import { AlertTriangleIcon, ReceiptTextIcon } from "lucide-react";
@@ -376,6 +378,11 @@ export function OffresTab({
 
   return (
     <div className="space-y-6">
+      {/* Deux ruptures que ces courbes traversent : la panne d'ingestion des
+          07-08/09 (paywalls creux) et l'élargissement du périmètre de
+          `paywall_shown` du 09/09 (marche de volume, pas d'exposition). */}
+      <PosthogOutageNotice now={now} />
+      <PaywallScopeNotice now={now} />
       {windowed.error !== null ? (
         <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
           <strong>Recalcul sur la période impossible.</strong> {windowed.error}{" "}
