@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import {
   CREATOR_KINDS,
   KIND_LABELS,
+  TEAM_ROLES,
   isPortalRole,
+  isTeamRole,
   kindForRole,
   promotionToAdminDecision,
   resolveCreatorKind,
@@ -122,6 +124,65 @@ describe("accord code ↔ schéma", () => {
     // comme un bug d'écran alors que c'est une erreur de classification.
     expect(isPortalRole("manager")).toBe(false);
     expect(kindForRole("manager")).toBeNull();
+  });
+
+  it("TOUT rôle du schéma est classé : équipe OU portail, jamais ni l'un ni l'autre", () => {
+    // LE TEST QUI MANQUAIT, et le défaut qu'il attrape est celui qu'on répare :
+    // `manager` était déclaré au schéma sans appartenir à aucun des deux groupes
+    // de routage. Il n'était donc NI redirigé vers l'app interne (réservée au
+    // littéral "admin") NI vers un portail (`portalPathForRole` → null) : le
+    // résolveur d'accueil le rangeait dans « aucun espace ».
+    //
+    // La partition est exigée SUR LE SCHÉMA, pas sur une liste écrite à la main :
+    // ajouter demain un littéral à `memberships.role` sans dire de quel côté il
+    // tombe casse ici, avant qu'une personne réelle le découvre à l'écran.
+    const orphelins = schemaLiterals("memberships", "role").filter(
+      (r) => !isTeamRole(r) && !isPortalRole(r),
+    );
+    expect(orphelins).toEqual([]);
+  });
+
+  it("les deux groupes sont DISJOINTS (aucun rôle des deux côtés)", () => {
+    // L'autre moitié de la partition. Un rôle à la fois équipe et portail ferait
+    // dépendre l'atterrissage de l'ordre des `if` — deux lectures possibles du
+    // même état, ce qui est pire qu'un refus.
+    for (const r of schemaLiterals("memberships", "role")) {
+      expect(isTeamRole(r) && isPortalRole(r), r).toBe(false);
+    }
+  });
+});
+
+describe("isTeamRole — appartenance, pas négation", () => {
+  it("reconnaît les deux rôles qui ouvrent l'app interne", () => {
+    expect(isTeamRole("admin")).toBe(true);
+    expect(isTeamRole("manager")).toBe(true);
+    expect([...TEAM_ROLES]).toEqual(["admin", "manager"]);
+  });
+
+  it("REFUSE tout le reste — y compris ce qui n'est pas un rôle de portail", () => {
+    // Le cas qui compte : écrite `!isPortalRole(role)`, la fonction ouvrirait
+    // l'app interne à un littéral inconnu (rôle renommé, valeur écrite à la main
+    // en base, chaîne venue d'un appelant non typé). Même discipline que
+    // `isPermissionId` : on autorise par APPARTENANCE au groupe.
+    for (const r of [
+      "superadmin", // rôle GLOBAL (users.role), jamais un membership
+      "member",
+      "Admin", // casse ≠ littéral
+      "manager ",
+      "editeur",
+      "*",
+      "",
+      null,
+      undefined,
+    ]) {
+      expect(isTeamRole(r), String(r)).toBe(false);
+    }
+  });
+
+  it("aucun rôle de portail n'ouvre l'app interne", () => {
+    for (const kind of CREATOR_KINDS) {
+      expect(isTeamRole(roleForKind(kind)), kind).toBe(false);
+    }
   });
 
   it("creators.kind déclare exactement CREATOR_KINDS", () => {

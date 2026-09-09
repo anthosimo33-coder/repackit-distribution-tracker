@@ -123,27 +123,46 @@ export function ActionDashboard() {
   // « Maintenant » figé au mount (lazy init pur — cf react-hooks/purity, même
   // pattern que MetricChart). Suffisant pour un instantané de dashboard.
   const [now] = useState(() => Date.now());
-  const assignments = useProjectQuery(api.assignments.listAssignments, {});
-  const comptes = useProjectQuery(api.comptes.listComptes, {});
+  // ⚠️ TOUTES CES LECTURES SONT GARDÉES PAR UN BLOC, et le Dashboard est l'écran
+  // où TOUT LE MONDE atterrit. Appelées sans condition, celles dont le manager
+  // n'a pas le bloc LÈVENT — et c'est sa page d'accueil qui tombe, donc son
+  // impression que « l'app ne marche pas ». #156 avait posé `skipUnless` sur les
+  // deux lectures d'ARGENT ; les quatre autres portent des blocs COCHÉS PAR
+  // DÉFAUT, ce qui a suffi à masquer le défaut tant qu'aucun manager n'avait été
+  // configuré autrement. Décocher une seule case le réveillait.
+  const droits = usePermissions();
+  const voitAssignments = droits.has("assignments.manage");
+  const voitComptes = droits.has("accounts.manage");
+  const voitCreateurs = droits.has("creators.read");
+  const voitDecisions = droits.has("content.analytics");
+  const assignments = useProjectQuery(
+    api.assignments.listAssignments,
+    droits.skipUnless("assignments.manage", {}),
+  );
+  const comptes = useProjectQuery(
+    api.comptes.listComptes,
+    droits.skipUnless("accounts.manage", {}),
+  );
   // Carte 3 — le TOTAL DÛ, agrégé serveur. Le dashboard lisait `listPayments`
   // et sommait côté client : tous les cycles de paie du projet traversaient le
   // réseau (montants par créatrice, lignes, ventilation du barème, coordonnées
   // bancaires) pour n'afficher qu'un nombre. Même ensemble, même ordre, même
   // arithmétique — cf convex/payments.getDueTotal.
-  // ⚠️ CES DEUX LECTURES SONT GARDÉES PAR UN BLOC QUE LE MANAGER N'A PAS.
-  // Sans `skipUnless`, elles LÈVENT et c'est le dashboard ENTIER qui tombe — pas
-  // seulement la carte. Le masquage n'est ici pas cosmétique : c'est ce qui rend
-  // l'écran utilisable pour un manager.
-  const droits = usePermissions();
   const due = useProjectQuery(
     api.payments.getDueTotal,
     droits.skipUnless("payments.manage", {}),
   );
-  const creators = useProjectQuery(api.creators.listCreators, {});
+  const creators = useProjectQuery(
+    api.creators.listCreators,
+    droits.skipUnless("creators.read", {}),
+  );
 
   // Les deux sections décisionnelles lisent UNE query d'assemblage ; toute la
   // logique (seuils, détections) vit dans les modules purs testés.
-  const decisions = useProjectQuery(api.dashboardDecisions.decisionDashboard, {});
+  const decisions = useProjectQuery(
+    api.dashboardDecisions.decisionDashboard,
+    droits.skipUnless("content.analytics", {}),
+  );
   // Conversion par créatrice (ref snytch.co) — la veille, collectée à 23h50.
   const conversion = useProjectQuery(
     api.conversionSync.readConversionAllTime,
@@ -162,24 +181,31 @@ export function ActionDashboard() {
     null,
   );
 
+  // « On attend » ne veut dire quelque chose que pour une lecture qu'on a le
+  // droit de faire : une query SKIPPÉE reste `undefined` pour toujours, et la
+  // tester sans son bloc fige l'écran sur son squelette — un dashboard qui ne
+  // charge jamais, ce qui se lit comme une panne plutôt que comme une
+  // restriction.
+  const attend = (accorde: boolean, valeur: unknown) =>
+    accorde && valeur === undefined;
   const loading =
-    assignments === undefined ||
-    comptes === undefined ||
-    (droits.has("payments.manage") && due === undefined) ||
-    creators === undefined ||
-    decisions === undefined;
+    attend(voitAssignments, assignments) ||
+    attend(voitComptes, comptes) ||
+    attend(droits.has("payments.manage"), due) ||
+    attend(voitCreateurs, creators) ||
+    attend(voitDecisions, decisions);
 
   const data = useMemo(() => {
     if (
-      assignments === undefined ||
-      comptes === undefined ||
-      (droits.has("payments.manage") && due === undefined) ||
-      creators === undefined
+      attend(voitAssignments, assignments) ||
+      attend(voitComptes, comptes) ||
+      attend(droits.has("payments.manage"), due) ||
+      attend(voitCreateurs, creators)
     ) {
       return null;
     }
     // Carte 1 — vidéos en attente de revue.
-    const submitted = assignments
+    const submitted = (assignments ?? [])
       .filter((a) => a.status === "video_submitted")
       .sort((a, b) => a.createdAt - b.createdAt);
 
@@ -190,7 +216,7 @@ export function ActionDashboard() {
     const estCompteDeClippeur = (creatorId: Id<"creators"> | undefined) =>
       creatorId !== undefined &&
       resolveCreatorKind(creatorById.get(creatorId)?.kind) === "clipper";
-    const warmupLate = comptes.filter((c) =>
+    const warmupLate = (comptes ?? []).filter((c) =>
       estCompteDeClippeur(c.creatorId)
         ? false
         : isWarmupLate(
@@ -211,7 +237,7 @@ export function ActionDashboard() {
     //
     // `warmupDone` est SERVI par le serveur (listComptes) — on ne le recalcule
     // pas ici, pour la même raison que la durée.
-    const warmupReady = comptes.filter(
+    const warmupReady = (comptes ?? []).filter(
       (c) => getEffectiveStatus(c) === "warmup" && c.warmupDone,
     );
 
@@ -222,7 +248,7 @@ export function ActionDashboard() {
     const dueTotal = due?.dueTotal ?? null;
 
     // Carte 4 — assignments actionnables dont la deadline tombe sous 7 j.
-    const deadlines7 = assignments.filter((a) => {
+    const deadlines7 = (assignments ?? []).filter((a) => {
       if (a.status !== "todo" && a.status !== "in_progress") return false;
       const d = a.dueDate - now;
       return d >= 0 && d <= 7 * DAY_MS;
@@ -234,7 +260,7 @@ export function ActionDashboard() {
       warmupReady,
       dueTotal,
       deadlines7,
-      totalCreators: creators.length,
+      totalCreators: (creators ?? []).length,
     };
   }, [assignments, comptes, due, creators, now]);
 
@@ -245,7 +271,12 @@ export function ActionDashboard() {
 
   // État vide : ni créateur ni soumission → message d'accueil (pas des cartes à
   // zéro qui semblent cassées).
-  if (totalCreators === 0 && submitted.length === 0) {
+  //
+  // ⚠️ Conditionné au bloc `creators.read` : sans lui, `totalCreators` vaut 0
+  // parce qu'on n'a pas LE DROIT de compter, pas parce qu'il n'y a personne.
+  // « Invite tes premiers créateurs » serait alors un mensonge, et il enverrait
+  // la personne sur un écran qu'elle ne peut pas ouvrir.
+  if (voitCreateurs && totalCreators === 0 && submitted.length === 0) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center gap-4 py-20 text-center">
@@ -277,30 +308,40 @@ export function ActionDashboard() {
     <div className="space-y-6">
       {/* Rangée de 4 cartes-action cliquables. */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <ActionCard
-          href={projectPath("/validation")}
-          icon={CheckCircle2Icon}
-          label="À valider"
-          value={String(submitted.length)}
-          hint="soumissions en attente"
-          accent
-        />
-        <ActionCard
-          href={projectPath("/comptes")}
-          icon={FlameIcon}
-          label="Warmups en retard"
-          value={String(warmupLate.length)}
-          hint="comptes avec jours manqués"
-          warn={warmupLate.length > 0}
-        />
-        <ActionCard
-          href={projectPath("/comptes")}
-          icon={CheckCircle2Icon}
-          label="Warmups à valider"
-          value={String(warmupReady.length)}
-          hint="chauffe finie, en attente"
-          accent={warmupReady.length > 0}
-        />
+        {/* Une carte n'est rendue QUE si son bloc l'est. Sans ça elle
+            afficherait « 0 » là où la vraie réponse est « tu n'as pas ce
+            droit », et mènerait à un écran refusé. Même traitement que la carte
+            d'argent, posé en #156. */}
+        {voitAssignments && (
+          <ActionCard
+            href={projectPath("/validation")}
+            icon={CheckCircle2Icon}
+            label="À valider"
+            value={String(submitted.length)}
+            hint="soumissions en attente"
+            accent
+          />
+        )}
+        {voitComptes && (
+          <ActionCard
+            href={projectPath("/comptes")}
+            icon={FlameIcon}
+            label="Warmups en retard"
+            value={String(warmupLate.length)}
+            hint="comptes avec jours manqués"
+            warn={warmupLate.length > 0}
+          />
+        )}
+        {voitComptes && (
+          <ActionCard
+            href={projectPath("/comptes")}
+            icon={CheckCircle2Icon}
+            label="Warmups à valider"
+            value={String(warmupReady.length)}
+            hint="chauffe finie, en attente"
+            accent={warmupReady.length > 0}
+          />
+        )}
         {/* Carte d'ARGENT : rendue seulement avec le bloc. La query est skippée
             en amont, donc `dueTotal` est `null` ici — et la carte mènerait de
             toute façon à un écran refusé. */}
@@ -313,14 +354,16 @@ export function ActionDashboard() {
             hint="cycles non payés"
           />
         )}
-        <ActionCard
-          href={projectPath("/assignments")}
-          icon={CalendarClockIcon}
-          label="Deadlines 7 j"
-          value={String(deadlines7.length)}
-          hint="assignments à rendre"
-          warn={deadlines7.length > 0}
-        />
+        {voitAssignments && (
+          <ActionCard
+            href={projectPath("/assignments")}
+            icon={CalendarClockIcon}
+            label="Deadlines 7 j"
+            value={String(deadlines7.length)}
+            hint="assignments à rendre"
+            warn={deadlines7.length > 0}
+          />
+        )}
       </div>
 
       {/*
@@ -329,26 +372,38 @@ export function ActionDashboard() {
         par les 4 cartes du haut). Détections servies par decisionDashboard,
         seuils dans convex/decisionThresholds.ts.
       */}
-      <Section title="À décider">
-        <DecideList
-          decisions={decisions!}
-          onStrike={(creatorId) => setStrikeCreator(creatorId)}
-          onGraduate={(brickId) => setGraduating(brickId)}
-          onDeactivate={(brickId, content) =>
-            setDeactivating({ brickId, content })
-          }
-        />
-      </Section>
+      {decisions !== undefined && (
+        <Section title="À décider">
+          <DecideList
+            decisions={decisions}
+            onStrike={(creatorId) => setStrikeCreator(creatorId)}
+            onGraduate={(brickId) => setGraduating(brickId)}
+            onDeactivate={(brickId, content) =>
+              setDeactivating({ brickId, content })
+            }
+          />
+        </Section>
+      )}
 
       {/* « Posts des dernières 48 h » — remplace les cumuls à vie : le rythme
           réel, groupé par créatrice, delta 24 h en évidence. Le cumul reste
           accessible via « Voir tout ». */}
-      <Section
-        title="Posts des dernières 48 h"
-        action={{ label: "Voir tout", href: projectPath("/createurs") }}
-      >
-        <Recent48h posts={decisions!.posts48h} alarms={decisions!.alarms} now={now} />
-      </Section>
+      {decisions !== undefined && (
+        <Section
+          title="Posts des dernières 48 h"
+          action={
+            voitCreateurs
+              ? { label: "Voir tout", href: projectPath("/createurs") }
+              : undefined
+          }
+        >
+          <Recent48h
+            posts={decisions.posts48h}
+            alarms={decisions.alarms}
+            now={now}
+          />
+        </Section>
+      )}
 
       {/* « Ce que ça a rapporté » — visiteurs et ventes attribués par la ref
           snytch.co/<créatrice>, la veille. L'attribution repose ENTIÈREMENT sur
@@ -372,12 +427,12 @@ export function ActionDashboard() {
       {/* « Programmer la frappe » : la modale d'assignation EXISTANTE, sur la
           campagne des ouvertures prouvées, pré-remplie créatrice + Soir 21-23h
           + demain. Le bouton est masqué si la campagne n'existe pas. */}
-      {decisions!.provenCampaign !== null && strikeCreator !== null && (
+      {decisions?.provenCampaign != null && strikeCreator !== null && (
         <AssignScriptCampaignDialog
           open
           onOpenChange={(o) => !o && setStrikeCreator(null)}
-          campaignId={decisions!.provenCampaign.id}
-          campaignName={decisions!.provenCampaign.name}
+          campaignId={decisions.provenCampaign.id}
+          campaignName={decisions.provenCampaign.name}
           strike={{
             creatorId: strikeCreator,
             plage: SOIR,

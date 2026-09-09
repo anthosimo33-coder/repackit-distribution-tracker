@@ -6,7 +6,7 @@ import { useQuery } from "convex/react";
 import { Loader2Icon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import type { PortalRole } from "@/convex/roles";
+import { isTeamRole, type PortalRole } from "@/convex/roles";
 import { projectPath } from "@/lib/project-path";
 import { portalPathForRole } from "@/lib/portal-path";
 import { useTranslations } from "next-intl";
@@ -46,13 +46,19 @@ export function usePortalGate(expected: PortalRole): PortalGate {
   const portal = useQuery(api.creators.getMyPortal, {});
   const router = useRouter();
 
-  // Rôle ÉTRANGER à ce portail → on le renvoie chez lui. L'admin part vers l'app
-  // interne (scopée par slug), un autre rôle de portail vers le sien.
+  // Rôle ÉTRANGER à ce portail → on le renvoie chez lui. Un rôle d'ÉQUIPE (admin
+  // OU manager) part vers l'app interne (scopée par slug), un autre rôle de
+  // portail vers le sien.
+  //
+  // ⚠️ `isTeamRole` et non `=== "admin"` : un manager n'est ni l'admin ni un
+  // rôle de portail, donc `portalPathForRole` lui rendait `null` — aucune
+  // redirection, et il restait bloqué sur le shell d'un portail qui n'est pas le
+  // sien. Même défaut que celui de `getMyPortal`, un cran plus loin.
   const role = portal?.role;
   const foreignPath =
     portal === undefined || role === expected || role === "none"
       ? null
-      : role === "admin"
+      : isTeamRole(role)
         ? portal.slug
           ? projectPath(portal.slug, "/dashboard")
           : "/"
@@ -63,12 +69,18 @@ export function usePortalGate(expected: PortalRole): PortalGate {
   }, [foreignPath, router]);
 
   if (portal === undefined || foreignPath !== null) return { state: "pending" };
-  if (portal.role === "none" || portal.role === "admin") {
+  if (portal.role === "none") return { state: "empty" };
+  if (portal.role === "admin" || portal.role === "manager") {
     // À ce point le rôle EST celui attendu (tout autre a produit un foreignPath) :
-    // la branche "admin" est là pour que TS écarte la forme de retour admin (sans
-    // projectId) avant le `state: "ok"` ci-dessous, pas parce qu'elle est
-    // atteignable. Elle rend "pending" — jamais le portail.
-    return portal.role === "none" ? { state: "empty" } : { state: "pending" };
+    // ces deux littéraux sont là pour que TS écarte la forme de retour d'ÉQUIPE
+    // (qui n'a pas de projectId) avant le `state: "ok"` ci-dessous, pas parce
+    // qu'ils sont atteignables. Ils rendent "pending" — jamais le portail.
+    //
+    // ⚠️ Écrits en littéraux et non via `isTeamRole` : c'est un narrowing TS sur
+    // le discriminant de l'union, et un prédicat de type ne rétrécit pas l'objet
+    // porteur. Si un rôle d'équipe est ajouté un jour, `tsc` casse ICI — ce qui
+    // est le comportement voulu.
+    return { state: "pending" };
   }
   return {
     state: "ok",

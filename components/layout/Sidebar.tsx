@@ -79,9 +79,26 @@ export function Sidebar({
   // Un admin les reçoit tous, donc son menu est strictement inchangé.
   const droits = usePermissions();
   // Badge file de validation = nb de vidéos en attente de revue (video_submitted).
-  const submittedCount = useProjectQuery(api.assignments.countVideoSubmitted, {});
   // Prises déposées par les talents et pas encore tranchées (chantier rushes).
-  const rushesCount = useProjectQuery(api.rushes.countRushesToReview, {});
+  //
+  // ⚠️ `skipUnless` N'EST PAS DÉCORATIF ICI. Ces deux compteurs sont gardés par
+  // `review.manage`. Appelés sans condition, ils LÈVENT pour un manager qui n'a
+  // pas ce bloc — et comme la sidebar vit dans le LAYOUT, c'est TOUTE l'app
+  // interne qui tombe, écran par écran, pas seulement la Validation. Décocher
+  // « Validation et Rushes » — une configuration parfaitement légitime, et la
+  // raison d'être des 21 cases — rendait donc le compte inutilisable.
+  //
+  // Même défaut que les quatre écrans corrigés en #156, un cran plus haut : au
+  // lieu d'emporter une page, il emportait la coquille. Trouvé par le parcours
+  // manager de `e2e/manager-journey.spec.ts`, au premier run.
+  const submittedCount = useProjectQuery(
+    api.assignments.countVideoSubmitted,
+    droits.skipUnless("review.manage", {}),
+  );
+  const rushesCount = useProjectQuery(
+    api.rushes.countRushesToReview,
+    droits.skipUnless("review.manage", {}),
+  );
   const collapsed = isMobileDrawer ? false : isCollapsed;
 
   // Remédiation sécurité — déconnexion Convex Auth. push /login explicite :
@@ -275,10 +292,16 @@ export function Sidebar({
         <ProjectSwitcher isCollapsed={collapsed} onNavigate={onNavigate} />
       </div>
 
-      {/* Bouton + Nouveau */}
-      <div className={cn("p-3", collapsed && "px-2")}>
-        <NewButton isCollapsed={collapsed} onNavigate={onNavigate} />
-      </div>
+      {/* Bouton + Nouveau — ouvre le modal de création de publication, qui écrit
+          sous `tracker.manage`. Proposé sans ce bloc, il mène à un formulaire
+          dont les étapes lèvent une à une : on ne propose pas la porte. Comme
+          partout, ce n'est pas la barrière (le serveur refuse `createPublication`
+          de toute façon). */}
+      {droits.has("tracker.manage") && (
+        <div className={cn("p-3", collapsed && "px-2")}>
+          <NewButton isCollapsed={collapsed} onNavigate={onNavigate} />
+        </div>
+      )}
 
       {/* Sections nav */}
       <nav className="flex-1 space-y-6 overflow-y-auto px-3 pb-3">

@@ -13,10 +13,13 @@ import {
 import { resolveCreatorLocale } from "./i18n";
 import { getProjectBySlug, REPACKIT_SLUG } from "./projects";
 import {
+  TEAM_ROLES,
   isPortalRole,
+  isTeamRole,
   resolveCreatorKind,
   roleForKind,
   type PortalRole,
+  type TeamRole,
 } from "./roles";
 import { internal } from "./_generated/api";
 import { syncBonusUnlocks } from "./pricing";
@@ -1037,20 +1040,47 @@ export const getInvitationPreview = publicQuery({
 
 /**
  * Portail de l'utilisateur courant — base du routage par rôle :
- *   - superadmin OU au moins un membership "admin" → role "admin" + slug du
- *     projet par défaut (cible de redirection depuis / et les portails).
+ *   - superadmin OU au moins un membership d'ÉQUIPE ("admin" ou "manager") →
+ *     ce rôle + slug du projet d'équipe par défaut (cible de redirection depuis
+ *     / et les portails).
  *   - sinon, au moins un membership de PORTAIL → ce rôle ("creator" partenaire,
  *     "talent" ou "clipper") + nom de la fiche (pour l'accueil du portail).
- *     L'admin PRIME (un humain admin+créateur va sur l'app interne) ; entre
+ *     L'ÉQUIPE PRIME (un humain admin+créateur va sur l'app interne) ; entre
  *     rôles de portail, le PREMIER trouvé dans l'ordre creator → talent →
  *     clipper gagne : un même humain n'est pas censé cumuler deux populations,
  *     et si ça arrive, mieux vaut un choix déterministe qu'un écran vide.
  *   - sinon → role "none".
  *
+ * ── DEUX DÉFAUTS CORRIGÉS ICI, TOUS DEUX ANTÉRIEURS AU CUMUL DE RÔLES ────────
+ *
+ * 1. « MANAGER » N'ÉTAIT NI L'UN NI L'AUTRE. La condition d'équipe testait
+ *    `role === "admin"` strictement, et `manager` n'est pas un rôle de portail :
+ *    un manager tombait donc dans le `role: "none"` final, c'est-à-dire sur
+ *    l'écran « aucun espace ». Le rôle existait depuis #154 et n'a jamais été
+ *    exercé en production (0 manager en base au 2026-09-05) — le défaut était
+ *    armé, pas déclenché. Il se serait déclenché sur le PREMIER manager.
+ *
+ * 2. LE SLUG D'ATTERRISSAGE SE CHOISISSAIT PARMI **TOUS** LES MEMBERSHIPS.
+ *    Le `reduce` prenait le plus récent sans regarder son rôle. Un admin du
+ *    projet A qui devient créateur du projet B (chemin `addCreatorToProject`,
+ *    qui existe et est utilisé) atterrissait donc sur `/admin/B/dashboard`, où
+ *    `ProjectProvider` voit un rôle de portail et le renvoie sur `/app` : il ne
+ *    revoyait JAMAIS son app interne. Le slug se choisit désormais parmi les
+ *    seuls memberships qui OUVRENT l'app interne.
+ *    ⚠️ Ne pas « simplifier » en reprenant tous les memberships : le cumul
+ *    équipe + portail devient la norme (promotion interne), donc ce cas cesse
+ *    d'être théorique.
+ *
  * La FORME du retour est volontairement UNIQUE pour les trois portails (mêmes
  * champs projectId/payoutDay/accentColor) : un objet discriminé par rôle
  * obligerait chaque appelant front à narrower avant de lire `projectId`, pour
  * zéro gain — la donnée est la même, seul le portail cible change.
+ *
+ * Le rôle d'équipe est rendu TEL QUEL ("admin" ou "manager"), jamais aplati en
+ * "admin" : le client s'en sert pour router (via `isTeamRole`), et lui répondre
+ * « admin » pour un manager serait une donnée fausse dans le seul but d'éviter
+ * un littéral de plus. Ce qu'un manager peut FAIRE reste décidé par les blocs,
+ * requête par requête.
  */
 export const getMyPortal = authedQuery({
   args: {},
@@ -1061,15 +1091,23 @@ export const getMyPortal = authedQuery({
       .withIndex("by_user", (q) => q.eq("userId", ctx.userId))
       .collect();
     const isSuperadmin = user?.role === "superadmin";
-    const hasAdmin = memberships.some((m) => m.role === "admin");
+    // Ordre significatif (TEAM_ROLES) : admin avant manager — même priorité que
+    // la cascade de requirePermission pour une personne qui cumulerait les deux
+    // sur deux projets.
+    const teamRole: TeamRole | undefined = TEAM_ROLES.find((r) =>
+      memberships.some((m) => m.role === r),
+    );
     const portalRole: PortalRole | undefined = (
       ["creator", "talent", "clipper"] as const
     ).find((r) => memberships.some((m) => m.role === r));
 
-    if (isSuperadmin || hasAdmin) {
+    if (isSuperadmin || teamRole !== undefined) {
       let slug: string | null = null;
-      if (memberships.length > 0) {
-        const latest = memberships.reduce((a, b) =>
+      // Le plus récent parmi les memberships D'ÉQUIPE (cf défaut 2 ci-dessus) :
+      // un membership de portail ne désigne pas un projet où l'on administre.
+      const teamMemberships = memberships.filter((m) => isTeamRole(m.role));
+      if (teamMemberships.length > 0) {
+        const latest = teamMemberships.reduce((a, b) =>
           b._creationTime > a._creationTime ? b : a,
         );
         const project = await ctx.db.get(latest.projectId);
@@ -1079,7 +1117,12 @@ export const getMyPortal = authedQuery({
         const repackit = await getProjectBySlug(ctx, REPACKIT_SLUG);
         slug = repackit?.slug ?? null;
       }
-      return { role: "admin" as const, slug, creatorName: null };
+      // Un superadmin est TOUJOURS annoncé "admin", même s'il se trouve manager
+      // quelque part : son accès est implicite et total (cf requireProjectAdmin
+      // / requirePermission, qui le laissent passer avant toute autre lecture).
+      // L'annoncer "manager" décrirait un pouvoir plus petit que le sien.
+      const role: TeamRole = isSuperadmin ? "admin" : (teamRole ?? "admin");
+      return { role, slug, creatorName: null };
     }
 
     if (portalRole !== undefined) {

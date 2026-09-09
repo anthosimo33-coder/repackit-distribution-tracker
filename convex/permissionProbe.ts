@@ -86,3 +86,84 @@ export const e2eIsPermissionId = e2eMutation({
     known: isPermissionId(permission),
   }),
 });
+
+/**
+ * Pose un rôle de membership (et ses droits) sur un compte existant, pour les
+ * specs. Crée le membership s'il n'existe pas.
+ *
+ * POURQUOI CETTE FONCTION EXISTE. Un manager ne peut être fabriqué par aucun
+ * chemin atteignable depuis une spec : `memberPermissions.grantProjectManager`
+ * est une `internalMutation` (ligne de commande seulement), et `team.*` exige
+ * une session superadmin ET refuse un membership de portail. Sans elle, le rôle
+ * manager restait intestable de bout en bout — ce qu'il a été depuis #154.
+ *
+ * ⚠️ `permissions` est `v.array(v.string())` À DESSEIN, comme la CLI : une spec
+ * doit pouvoir écrire une valeur HORS CATALOGUE pour vérifier qu'elle n'ouvre
+ * rien. La garantie est à la lecture (`grantedPermissions`), jamais à l'écriture.
+ *
+ * `role`, lui, reste l'union du schéma : le backend refuserait un littéral
+ * inconnu à l'insertion, et c'est une propriété qu'on ASSERTE plutôt que
+ * contourner (cf e2e/permission-cascade.spec.ts).
+ */
+export const e2eSetMembershipRole = e2eMutation({
+  args: {
+    email: v.string(),
+    projectId: v.id("projects"),
+    role: v.union(
+      v.literal("admin"),
+      v.literal("manager"),
+      v.literal("creator"),
+      v.literal("talent"),
+      v.literal("clipper"),
+    ),
+    permissions: v.optional(v.array(v.string())),
+  },
+  handler: async (ctx, { email, projectId, role, permissions }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", email))
+      .first();
+    if (user === null) throw new ConvexError(`Compte introuvable : ${email}`);
+    const membership = await ctx.db
+      .query("memberships")
+      .withIndex("by_user_project", (q) =>
+        q.eq("userId", user._id).eq("projectId", projectId),
+      )
+      .first();
+    if (membership === null) {
+      await ctx.db.insert("memberships", {
+        userId: user._id,
+        projectId,
+        role,
+        permissions,
+      });
+    } else {
+      await ctx.db.patch(membership._id, { role, permissions });
+    }
+    return { userId: user._id, role, permissions: permissions ?? [] };
+  },
+});
+
+/**
+ * Retire TOUT membership de ce compte sur ce projet. Sert au cas « pas de
+ * membership » de la cascade, qui n'est atteignable autrement qu'en devinant un
+ * projectId d'un autre projet — ce qui testerait l'isolation, pas la cascade.
+ */
+export const e2eDropMembership = e2eMutation({
+  args: { email: v.string(), projectId: v.id("projects") },
+  handler: async (ctx, { email, projectId }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", email))
+      .first();
+    if (user === null) throw new ConvexError(`Compte introuvable : ${email}`);
+    const memberships = await ctx.db
+      .query("memberships")
+      .withIndex("by_user_project", (q) =>
+        q.eq("userId", user._id).eq("projectId", projectId),
+      )
+      .collect();
+    for (const m of memberships) await ctx.db.delete(m._id);
+    return { removed: memberships.length };
+  },
+});
